@@ -49,7 +49,8 @@ fn test_basic_signal_workflow() {
         6,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete signal Flow")
     );
     match environment
@@ -76,6 +77,6 @@ fn compile_signals_and_timer_skip(client: &Client) -> SdkResult<()> {
         StepExecutionId::of(&workflow.combination),
         TimerId::by_condition_id("test-timer-id"),
     )?;
-    let _: i32 = client.wait_for_flow("signal")?;
+    let _: i32 = client.wait_for_flow("signal")?.single_output()?;
     Ok(())
 }

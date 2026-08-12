@@ -14,7 +14,7 @@ import * as flows from "./iwf_flows.js";
 
 export async function compileBasicInternalChannel(client: Client): Promise<void> {
   await client.startFlow(flows.BASIC_INTERNAL, "basic-internal", 1);
-  const output: number = await client.waitForFlow("basic-internal", doubleCodec);
+  const output: number = await client.waitForFlow("basic-internal").then((result) => result.singleOutput(doubleCodec));
   void output;
 }
 
@@ -22,6 +22,6 @@ export async function compileWaitingInternalChannel(client: Client): Promise<voi
   const flow = flows.WAITING_INTERNAL;
   await client.startFlow(flow, "waiting-internal", 1);
   await client.publish("waiting-internal", flow.channel, 2, 3);
-  const output: number = await client.waitForFlow("waiting-internal", doubleCodec);
+  const output: number = await client.waitForFlow("waiting-internal").then((result) => result.singleOutput(doubleCodec));
   void output;
 }

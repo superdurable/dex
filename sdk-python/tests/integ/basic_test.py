@@ -37,7 +37,7 @@ def compile_basic_and_reuse(client: Client) -> None:
     )
     basic = BasicFlow()
     client.start_flow(basic, "basic", 10, options)
-    output: int = client.wait_for_flow("basic", int)
+    output: int = client.wait_for_flow("basic").single_output(int)
     client.start_flow(AbnormalExitFlow(), "abnormal", 10, options)
     client.start_flow(basic, "abnormal", output, options)
 

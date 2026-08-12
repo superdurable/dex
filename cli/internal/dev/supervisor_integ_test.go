@@ -27,6 +27,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/superdurable/dex/cli/internal/command"
 )
 
 func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
@@ -66,6 +68,45 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	if searchResponse.StatusCode != http.StatusOK || !bytes.Contains(body, []byte(`"flows":[]`)) {
 		cancel()
 		t.Fatalf("search response: status=%d body=%s", searchResponse.StatusCode, body)
+	}
+	cliOutput := &bytes.Buffer{}
+	cliErrors := &bytes.Buffer{}
+	cliApp := command.NewApp(bytes.NewReader(nil), cliOutput, cliErrors)
+	dexAddress := net.JoinHostPort(cfg.BindAddress, strconv.Itoa(cfg.DexPort))
+	if err := cliApp.Execute(
+		context.Background(),
+		[]string{"health", "--server", dexAddress},
+	); err != nil {
+		cancel()
+		t.Fatalf("CLI health failed: %v stderr=%s", err, cliErrors.String())
+	}
+	if !bytes.Contains(cliOutput.Bytes(), []byte(`"condition":"OK"`)) {
+		cancel()
+		t.Fatalf("unexpected CLI health response: %s", cliOutput.String())
+	}
+	cliOutput.Reset()
+	if err := cliApp.Execute(
+		context.Background(),
+		[]string{"flow", "search", "--server", dexAddress},
+	); err != nil {
+		cancel()
+		t.Fatalf("CLI search failed: %v stderr=%s", err, cliErrors.String())
+	}
+	if !bytes.Contains(cliOutput.Bytes(), []byte(`"flows":[]`)) {
+		cancel()
+		t.Fatalf("unexpected CLI search response: %s", cliOutput.String())
+	}
+	cliOutput.Reset()
+	if err := cliApp.Execute(
+		context.Background(),
+		[]string{"api", "call", "HealthCheck", "--server", dexAddress},
+	); err != nil {
+		cancel()
+		t.Fatalf("CLI API call failed: %v stderr=%s", err, cliErrors.String())
+	}
+	if !bytes.Contains(cliOutput.Bytes(), []byte(`"condition":"OK"`)) {
+		cancel()
+		t.Fatalf("unexpected CLI API response: %s", cliOutput.String())
 	}
 
 	cancel()

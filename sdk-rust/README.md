@@ -45,6 +45,27 @@ include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Conditional completion is
 `StepDecision::force_complete_if_channels_empty`.
 
+`Client::wait_for_flow` and `wait_for_flow_with_timeout` return a
+`WaitForFlowResult` after hydrating every output-bearing completion. Use the
+strict helper for a single-output Flow:
+
+```rust
+let output: OrderResult = client.wait_for_flow(flow_id)?.single_output()?;
+
+let result = client.wait_for_flow(flow_id)?;
+for completion in result.completions() {
+    if completion.step_type == "ChargeCard" {
+        let receipt: Receipt = completion.decode()?;
+    }
+}
+```
+
+The completion slice preserves server collection order, but parallel branch
+order is not deterministic. No-output Flows return an empty slice;
+`single_output` returns `SdkError::InvalidArgument` for zero or multiple
+completions. `SdkError::FlowUncompleted` carries the same hydrated completion
+metadata for partial outputs.
+
 Existing-Flow reads (`get_attribute`, `describe_flow`, `wait_for_flow`, and
 `reset_flow`) use `FlowNotFound`; operations requiring a running Flow use
 `FlowNotActive`. Each remote variant owns a `ServiceError`, available through
@@ -188,6 +209,25 @@ The script creates its own Dex environment, ports, and BlobCache directory,
 then removes the temporary state. Each Worker synchronizes its registered
 Indexed Attributes before listening; failure or the default two-minute
 deadline aborts startup.
+
+### Measure integration coverage
+
+Install `cargo-llvm-cov`, then run the same integration suite with Rust source
+coverage:
+
+```bash
+cargo install cargo-llvm-cov --locked
+./run-integration-tests.sh --coverage
+```
+
+Only the `integ` and `cross_sdk` integration test targets contribute execution
+data. Test sources and dependencies are excluded from the report by
+`cargo-llvm-cov`; coverage is reported for the production `dex-sdk` crate.
+
+The LCOV report is written to `coverage/lcov.info`, and the browser report
+starts at `coverage/html/index.html`. CI uploads the LCOV report with the
+`sdk-rust-integration` flag and retains the full report as the
+`sdk-rust-integration-coverage` Actions artifact.
 
 ## Releases
 

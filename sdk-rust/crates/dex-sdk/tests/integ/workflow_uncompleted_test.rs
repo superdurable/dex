@@ -34,7 +34,8 @@ fn test_flow_wait_timeout() {
         .expect("start waiting Flow");
     match environment
         .client
-        .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(1))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(1))
+        .and_then(|result| result.single_output::<i32>())
         .expect_err("waitForFlow must time out")
     {
         SdkError::LongPollTimeout { service } => {
@@ -137,7 +138,7 @@ fn test_worker_api_failure() {
             status,
             error_type,
             message,
-            result_count,
+            completions,
         } => {
             assert_eq!(run_id, failed_run_id);
             assert_eq!(FlowStatus::Failed, status);
@@ -148,7 +149,7 @@ fn test_worker_api_failure() {
                     .is_some_and(|value| value.contains("test api failing")),
                 "{message:?}"
             );
-            assert_eq!(0, result_count);
+            assert_eq!(0, completions.len());
         }
         error => panic!("expected FlowUncompleted, got {error:?}"),
     }
@@ -172,7 +173,7 @@ fn test_worker_api_timeout() {
             status,
             error_type,
             message,
-            result_count,
+            completions,
         } => {
             assert_eq!(run_id, failed_run_id);
             assert_eq!(FlowStatus::Failed, status);
@@ -183,7 +184,7 @@ fn test_worker_api_timeout() {
                     .is_some_and(|value| value.to_lowercase().contains("timeout")),
                 "{message:?}"
             );
-            assert_eq!(0, result_count);
+            assert_eq!(0, completions.len());
         }
         error => panic!("expected FlowUncompleted, got {error:?}"),
     }
@@ -207,7 +208,7 @@ fn test_empty_decision_fails_flow() {
             status,
             error_type,
             message,
-            result_count,
+            completions,
         } => {
             assert_eq!(run_id, failed_run_id);
             assert_eq!(FlowStatus::Failed, status);
@@ -218,7 +219,7 @@ fn test_empty_decision_fails_flow() {
                     .is_some_and(|value| value.contains("go_to_many requires a movement")),
                 "{message:?}"
             );
-            assert_eq!(0, result_count);
+            assert_eq!(0, completions.len());
         }
         error => panic!("expected FlowUncompleted, got {error:?}"),
     }
@@ -254,7 +255,8 @@ fn assert_stopped_flow(
 fn wait_for_failure(environment: &DexDevTestEnvironment, flow_id: &str) -> SdkError {
     environment
         .client
-        .wait_for_flow_with_timeout::<i32>(flow_id, Duration::from_secs(15))
+        .wait_for_flow_with_timeout(flow_id, Duration::from_secs(15))
+        .and_then(|result| result.single_output::<i32>())
         .expect_err("Flow must not complete")
 }
 
@@ -272,13 +274,13 @@ fn assert_failure(
             status,
             error_type,
             message,
-            result_count,
+            completions,
         } => {
             assert_eq!(run_id, failed_run_id);
             assert_eq!(expected_status, status);
             assert_eq!(expected_error_type, error_type);
             assert_eq!(expected_message, message.as_deref());
-            assert_eq!(expected_result_count, result_count);
+            assert_eq!(expected_result_count, completions.len());
         }
         error => panic!("expected FlowUncompleted, got {error:?}"),
     }

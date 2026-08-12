@@ -18,17 +18,17 @@ from datetime import timedelta
 from typing import Callable
 
 import pytest
-from dex import AsyncClient, StartFlowOptions
-
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.workflow.signup.signup_form import SignupForm
+from dex_examples.workflow.shortlistcandidates import workflow_ids
 from dex_examples.workflow.shortlistcandidates.employer_opt_in_input import (
     EmployerOptInInput,
 )
 from dex_examples.workflow.shortlistcandidates.shortlist_input import ShortlistInput
-from dex_examples.workflow.shortlistcandidates import workflow_ids
+from dex_examples.workflow.signup.signup_form import SignupForm
 from tests.integ.conftest import WAIT_TIMEOUT
+
+from dex import AsyncClient, StartFlowOptions
 
 pytestmark = pytest.mark.integ
 
@@ -42,7 +42,9 @@ async def test_signup_verify_completes(
     form = SignupForm(flow_id, f"{flow_id}@example.com", "Test", "User")
     await client.start_flow(app.signup, flow_id, form, start_options())
     assert await client.invoke_rpc(app.signup.verify, flow_id) == "done"
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "done"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "done"
 
 
 async def test_job_post_create_and_read(

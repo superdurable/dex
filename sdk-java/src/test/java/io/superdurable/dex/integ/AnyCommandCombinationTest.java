@@ -48,15 +48,12 @@ public final class AnyCommandCombinationTest {
             final String runId = environment.client().startFlow(WORKFLOW, flowId, 5);
             final FlowUncompletedException failure = assertThrows(
                     FlowUncompletedException.class,
-                    () -> environment.client().waitForFlow(
-                            flowId,
-                            Integer.class,
-                            Duration.ofSeconds(30)));
+                    () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertEquals(runId, failure.getRunId());
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertTrue(failure.getMessage().contains("unknown condition ID"));
-            assertEquals(0, failure.getResultCount());
+            assertEquals(0, failure.getCompletions().size());
             final FlowInfo info = environment.client().describeFlow(flowId);
             assertEquals(runId, info.getRunId());
             assertEquals(FlowStatus.FAILED, info.getStatus());
@@ -68,7 +65,7 @@ public final class AnyCommandCombinationTest {
                 .timeout(Duration.ofSeconds(10))
                 .build();
         client.startFlow(WORKFLOW, "any-combination", 0, options);
-        final Integer result = client.waitForFlow("any-combination", Integer.class);
+        final Integer result = client.waitForFlow("any-combination").getSingleOutput(Integer.class);
         consume(result);
     }
 

@@ -17,12 +17,12 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import AsyncClient
-
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.workflow.microservices.orchestration_flow import OrchestrationFlow
 from tests.integ.conftest import WAIT_TIMEOUT, attribute_or_none, wait_until
+
+from dex import AsyncClient
 
 pytestmark = pytest.mark.integ
 
@@ -46,7 +46,9 @@ async def test_orchestration_completes_when_ready_is_published(
     await wait_until("CallAPI1 to publish the shared data attribute", data_ready)
     await client.publish(flow_id, app.orchestration.ready, None)
 
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == INITIAL_DATA
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == INITIAL_DATA
 
 
 async def test_orchestration_swap_replaces_the_data_before_completion(
@@ -69,4 +71,6 @@ async def test_orchestration_swap_replaces_the_data_before_completion(
     )
 
     await client.publish(flow_id, app.orchestration.ready, None)
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "swapped data"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "swapped data"

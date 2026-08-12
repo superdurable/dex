@@ -29,7 +29,8 @@ fn test_state_api_fail_workflow() {
         .expect("start invalid-combination Flow");
     match environment
         .client
-        .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .and_then(|result| result.single_output::<i32>())
         .expect_err("invalid condition combination must fail")
     {
         SdkError::FlowUncompleted {
@@ -37,7 +38,7 @@ fn test_state_api_fail_workflow() {
             status,
             error_type,
             message,
-            result_count,
+            completions,
         } => {
             assert_eq!(run_id, failed_run);
             assert_eq!(FlowStatus::Failed, status);
@@ -47,7 +48,7 @@ fn test_state_api_fail_workflow() {
                     .as_deref()
                     .is_some_and(|value| value.contains("unknown condition ID"))
             );
-            assert_eq!(0, result_count);
+            assert_eq!(0, completions.len());
         }
         error => panic!("expected FlowUncompleted, got {error:?}"),
     }
@@ -67,6 +68,6 @@ fn compile_state_api_failure(client: &Client) -> SdkResult<()> {
         0,
         StartFlowOptions::new().timeout(Duration::from_secs(10)),
     )?;
-    let _: i32 = client.wait_for_flow("any-combination")?;
+    let _: i32 = client.wait_for_flow("any-combination")?.single_output()?;
     Ok(())
 }

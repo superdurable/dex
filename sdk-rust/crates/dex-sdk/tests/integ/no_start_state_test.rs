@@ -43,7 +43,8 @@ fn test_no_start_state_workflow() {
         1,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete no-start Flow")
     );
 }
@@ -100,7 +101,7 @@ fn test_dead_end_workflow() {
     );
     environment
         .client
-        .wait_for_flow_with_timeout::<()>(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
         .expect("complete resumed dead-end Flow");
 }
 

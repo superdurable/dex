@@ -33,7 +33,8 @@ fn test_skip_wait_until() {
         2,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete execute-only Flow")
     );
 }
@@ -41,8 +42,8 @@ fn test_skip_wait_until() {
 #[allow(dead_code)]
 fn compile_skip_wait_until_test(client: &Client) -> SdkResult<()> {
     client.start_flow(&SkipWaitUntilWorkflow::new(), "execute-only", 0)?;
-    let _: i32 = client.wait_for_flow("execute-only")?;
+    let _: i32 = client.wait_for_flow("execute-only")?.single_output()?;
     client.start_flow(&SkipWaitUntilMixedWaitWorkflow::new(), "mixed-wait", 0)?;
-    let _: i32 = client.wait_for_flow("mixed-wait")?;
+    let _: i32 = client.wait_for_flow("mixed-wait")?.single_output()?;
     Ok(())
 }

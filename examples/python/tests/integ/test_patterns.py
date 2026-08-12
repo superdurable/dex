@@ -18,15 +18,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 import pytest
-from dex import (
-    AsyncClient,
-    FlowConfig,
-    FlowStatus,
-    IdReusePolicy,
-    StartFlowOptions,
-    StepExecutionId,
-)
-
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.patterns.workflow.entitystore.user_profile import (
@@ -46,6 +37,15 @@ from tests.integ.conftest import (
     WAIT_TIMEOUT,
     flow_status_or_none,
     wait_until,
+)
+
+from dex import (
+    AsyncClient,
+    FlowConfig,
+    FlowStatus,
+    IdReusePolicy,
+    StartFlowOptions,
+    StepExecutionId,
 )
 
 pytestmark = pytest.mark.integ
@@ -78,7 +78,7 @@ async def test_drain_internal_channels(
         "documentId-0",
         start_options(),
     )
-    await client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
+    await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
 async def test_drain_signal_channels(
@@ -113,7 +113,7 @@ async def test_interruptible_start_and_cancel(
         lambda: _status_is(client, flow_id, FlowStatus.RUNNING),
     )
     await client.invoke_rpc(app.interruptible.interrupt, flow_id)
-    await client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
+    await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
 async def _status_is(client: AsyncClient, flow_id: str, status: FlowStatus) -> bool:
@@ -128,7 +128,7 @@ async def test_manual_intervention_completes(
     flow_id = new_flow_id("intervention")
     await client.start_flow(app.manual_intervention, flow_id, None, start_options())
     await client.publish(flow_id, app.manual_intervention.data_channel, "success")
-    output = await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
+    output = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(str)
     assert "Workflow Completed" in output
 
 
@@ -144,11 +144,11 @@ async def test_parallel_simple_and_with_await(
         JobSeeker("123", "jobseeker@example.com", "0987654321"),
         start_options(),
     )
-    await client.wait_for_flow(simple_id, type(None), WAIT_TIMEOUT)
+    await client.wait_for_flow(simple_id, WAIT_TIMEOUT)
 
     await_id = new_flow_id("parallel-await")
     await client.start_flow(app.parallel_with_await, await_id, 5, start_options())
-    await client.wait_for_flow(await_id, type(None), WAIT_TIMEOUT)
+    await client.wait_for_flow(await_id, WAIT_TIMEOUT)
 
 
 async def test_pattern_polling_simple_and_backoff(
@@ -158,11 +158,11 @@ async def test_pattern_polling_simple_and_backoff(
 ) -> None:
     simple_id = new_flow_id("pattern-poll-simple")
     await client.start_flow(app.simple_polling, simple_id, None, start_options())
-    await client.wait_for_flow(simple_id, type(None), WAIT_TIMEOUT)
+    await client.wait_for_flow(simple_id, WAIT_TIMEOUT)
 
     backoff_id = new_flow_id("pattern-poll-backoff")
     await client.start_flow(app.backoff_polling, backoff_id, None, start_options())
-    await client.wait_for_flow(backoff_id, type(None), WAIT_TIMEOUT)
+    await client.wait_for_flow(backoff_id, WAIT_TIMEOUT)
 
 
 async def test_failure_recovery(
@@ -180,7 +180,7 @@ async def test_failure_recovery(
         start_options(),
     )
     with pytest.raises(FlowUncompletedError) as captured:
-        await client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
+        await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
     assert captured.value.status is FlowStatus.FAILED
     assert "Failed to process transaction" in str(captured.value)
 
@@ -193,7 +193,7 @@ async def test_reminder_accept(
     flow_id = new_flow_id("reminder")
     await client.start_flow(app.reminder, flow_id, None, start_options())
     await client.invoke_rpc(app.reminder.accept, flow_id)
-    await client.wait_for_flow(flow_id, type(None), WAIT_TIMEOUT)
+    await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
 async def test_resettable_timer(
@@ -221,7 +221,7 @@ async def test_scalable_parallel(
             id_reuse_policy=IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED,
         ),
     )
-    await client.wait_for_flow(flow_id, type(None), LONG_WAIT_TIMEOUT)
+    await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
 
 
 async def test_parent_child(
@@ -328,7 +328,6 @@ async def test_graceful_timeout_success(
 ) -> None:
     flow_id = new_flow_id("timeout-ok")
     await client.start_flow(app.timeout, flow_id, True, start_options())
-    assert (
-        await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
-        == "Workflow completed successfully"
-    )
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "Workflow completed successfully"

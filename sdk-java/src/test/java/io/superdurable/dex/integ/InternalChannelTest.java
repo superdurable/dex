@@ -41,10 +41,7 @@ public final class InternalChannelTest {
                 WORKFLOW)) {
             final String flowId = "basic-internal-" + UUID.randomUUID();
             environment.client().startFlow(WORKFLOW, flowId, 1);
-            assertEquals(3, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(3, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
@@ -59,16 +56,13 @@ public final class InternalChannelTest {
                     flowId,
                     WAITING_WORKFLOW.channel,
                     Arrays.asList(2, 3));
-            assertEquals(6, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(6, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
     void compileBasicInternalChannel(final Client client) {
         client.startFlow(WORKFLOW, "basic-internal", 1);
-        final Integer output = client.waitForFlow("basic-internal", Integer.class);
+        final Integer output = client.waitForFlow("basic-internal").getSingleOutput(Integer.class);
         consume(output);
     }
 
@@ -78,7 +72,7 @@ public final class InternalChannelTest {
                 "waiting-internal",
                 WAITING_WORKFLOW.channel,
                 Arrays.asList(2, 3));
-        final Integer output = client.waitForFlow("waiting-internal", Integer.class);
+        final Integer output = client.waitForFlow("waiting-internal").getSingleOutput(Integer.class);
         consume(output);
     }
 

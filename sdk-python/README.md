@@ -133,6 +133,25 @@ buffered sets and deletes. The matching `ChannelMap` methods are RPC-only,
 include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Use `force_complete_if_channels_empty(...)` for conditional completion.
 
+`Client.wait_for_flow` and `AsyncClient.wait_for_flow` return a
+`WaitForFlowResult` after hydrating every output-bearing completion. Use
+`single_output` only when the Flow contract produces exactly one output:
+
+```python
+output = client.wait_for_flow(flow_id).single_output(OrderResult)
+
+result = client.wait_for_flow(flow_id)
+for completion in result.completions:
+    if completion.step_execution_id == expected_execution_id:
+        output = completion.decode(OrderResult)
+```
+
+`completions` is an immutable tuple in server collection order. Parallel branch
+order is not deterministic, so select by `step_type` or `step_execution_id`.
+No-output Flows return an empty tuple; `single_output` raises `ValueError` for
+zero or multiple completions. `FlowUncompletedError.completions` uses the same
+hydrated model for partial outputs.
+
 ### Errors
 
 Client calls raise concrete `DexServiceError` subclasses. Existing-Flow reads

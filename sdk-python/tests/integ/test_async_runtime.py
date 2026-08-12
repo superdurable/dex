@@ -22,8 +22,8 @@ from dex import (
     Step,
     StepDecision,
     StepList,
-    graceful_complete,
     go_to,
+    graceful_complete,
 )
 
 from .async_environment import AsyncDexDevTestEnvironment
@@ -42,7 +42,9 @@ async def _async_client_basic_workflow() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("async-basic")
         await environment.client.start_flow(flow, flow_id, 0)
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 2
 
 
 def test_async_client_concurrent_start_and_wait() -> None:
@@ -57,7 +59,9 @@ async def _async_client_concurrent_start_and_wait() -> None:
         async def one(index: int) -> int:
             flow_id = unique_id(f"async-concurrent-{index}")
             await client.start_flow(flow, flow_id, 0)
-            result = await client.wait_for_flow(flow_id, int, WAIT_TIMEOUT)
+            result = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+                int
+            )
             assert result == 2
             return result
 
@@ -80,7 +84,9 @@ async def _async_worker_async_execute_starts_child() -> None:
         client_holder["client"] = environment.client
         flow_id = unique_id("async-parent")
         await environment.client.start_flow(parent, flow_id, 1)
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 1
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 1
 
 
 client_holder: dict[str, AsyncClient] = {}
@@ -104,7 +110,7 @@ class StartChild(Step[int]):
         client = self._client_provider()
         child_id = unique_id("async-child")
         await client.start_flow(self._child, child_id, 0)
-        await client.wait_for_flow(child_id, int, WAIT_TIMEOUT)
+        (await client.wait_for_flow(child_id, WAIT_TIMEOUT)).single_output(int)
         return go_to(self._finish, input)
 
 

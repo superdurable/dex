@@ -44,6 +44,7 @@ public final class StepDecision {
 
     private final Kind kind;
     private final List<StepMovement<?>> movements;
+    private final boolean hasOutput;
     private final Object output;
     private final String reason;
     private final List<Object> emptyChannels;
@@ -52,12 +53,14 @@ public final class StepDecision {
     private StepDecision(
             final Kind kind,
             final List<StepMovement<?>> movements,
+            final boolean hasOutput,
             final Object output,
             final String reason,
             final List<Object> emptyChannels,
             final StepMovement<?> fallback) {
         this.kind = kind;
         this.movements = Collections.unmodifiableList(movements);
+        this.hasOutput = hasOutput;
         this.output = output;
         this.reason = reason;
         this.emptyChannels = Collections.unmodifiableList(emptyChannels);
@@ -86,6 +89,7 @@ public final class StepDecision {
         return new StepDecision(
                 Kind.NEXT,
                 Arrays.<StepMovement<?>>asList(movements.clone()),
+                false,
                 null,
                 null,
                 Collections.<Object>emptyList(),
@@ -105,7 +109,7 @@ public final class StepDecision {
      * @return a graceful-completion decision
      */
     public static StepDecision gracefulComplete() {
-        return gracefulComplete(null);
+        return close(Kind.GRACEFUL_COMPLETE, false, null, null);
     }
 
     /**
@@ -113,14 +117,14 @@ public final class StepDecision {
      *
      * <p>This decision has the branch-draining behavior described by {@link #gracefulComplete()}.
      * The output is serialized as this branch's completion output. When the Flow completes,
-     * {@link Client#waitForFlow(String, Class)} returns the latest recorded Step output; an output
-     * recorded later by another parallel branch takes precedence.
+     * {@link Client#waitForFlow(String)} returns every recorded Step output with its Step identity.
+     * Parallel completion order is not a business ordering contract.
      *
      * @param output the serializable output for this execution branch, or {@code null}
      * @return a graceful-completion decision
      */
     public static StepDecision gracefulComplete(final Object output) {
-        return close(Kind.GRACEFUL_COMPLETE, output, null);
+        return close(Kind.GRACEFUL_COMPLETE, true, output, null);
     }
 
     /**
@@ -130,7 +134,7 @@ public final class StepDecision {
      * @return a force-completion decision
      */
     public static StepDecision forceComplete(final Object output) {
-        return close(Kind.FORCE_COMPLETE, output, null);
+        return close(Kind.FORCE_COMPLETE, true, output, null);
     }
 
     /**
@@ -139,7 +143,7 @@ public final class StepDecision {
      * @return a force-completion decision
      */
     public static StepDecision forceComplete() {
-        return forceComplete(null);
+        return close(Kind.FORCE_COMPLETE, false, null, null);
     }
 
     /**
@@ -157,6 +161,7 @@ public final class StepDecision {
         return new StepDecision(
                 Kind.FORCE_COMPLETE_IF_CHANNELS_EMPTY,
                 Collections.<StepMovement<?>>emptyList(),
+                true,
                 output,
                 null,
                 Arrays.<Object>asList(channels.clone()),
@@ -170,7 +175,7 @@ public final class StepDecision {
      * @return a force-failure decision
      */
     public static StepDecision forceFail(final String reason) {
-        return close(Kind.FORCE_FAIL, null, reason);
+        return close(Kind.FORCE_FAIL, false, null, reason);
     }
 
     /**
@@ -179,13 +184,18 @@ public final class StepDecision {
      * @return a dead-end decision
      */
     public static StepDecision deadEnd() {
-        return close(Kind.DEAD_END, null, null);
+        return close(Kind.DEAD_END, false, null, null);
     }
 
-    private static StepDecision close(final Kind kind, final Object output, final String reason) {
+    private static StepDecision close(
+            final Kind kind,
+            final boolean hasOutput,
+            final Object output,
+            final String reason) {
         return new StepDecision(
                 kind,
                 Collections.<StepMovement<?>>emptyList(),
+                hasOutput,
                 output,
                 reason,
                 Collections.<Object>emptyList(),
@@ -202,6 +212,10 @@ public final class StepDecision {
 
     Object getOutput() {
         return output;
+    }
+
+    boolean hasOutput() {
+        return hasOutput;
     }
 
     String getReason() {

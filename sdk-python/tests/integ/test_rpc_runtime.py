@@ -10,7 +10,7 @@
 
 import asyncio
 from datetime import timedelta
-from typing import Any, cast
+from typing import cast
 
 import grpc
 import pytest
@@ -40,7 +40,9 @@ async def _flow_without_start_step_can_start_from_rpc() -> None:
             await environment.client.invoke_rpc(flow.invoke, flow_id, "rpc-input")
             == 100
         )
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 1
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 1
 
 
 def test_flow_without_steps_can_serve_rpc() -> None:
@@ -74,10 +76,9 @@ async def _dead_end_flow_can_be_completed_from_rpc() -> None:
         )
         completed = await environment.client.wait_for_flow(
             flow_id,
-            cast(type[Any], type(None)),
             WAIT_TIMEOUT,
         )
-        assert completed is None
+        assert not completed.completions
 
 
 def test_locking_rpc_serializes_successful_updates() -> None:
@@ -116,7 +117,9 @@ async def _rpc_without_persistence_unblocks_flow() -> None:
         flow_id = unique_id("rpc-no-persistence")
         await environment.client.start_flow(flow, flow_id, 999)
         await environment.client.invoke_rpc(flow.no_persistence, flow_id)
-        assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(int) == 2
 
 
 @pytest.mark.parametrize(
@@ -229,7 +232,9 @@ async def assert_async_rpc_completion(
     flow_id: str,
     expected_value: str,
 ) -> None:
-    assert await environment.client.wait_for_flow(flow_id, int, WAIT_TIMEOUT) == 2
+    assert (
+        await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    ).single_output(int) == 2
     assert await environment.client.get_attribute(flow_id, flow.data) == expected_value
     assert (
         await environment.client.get_attribute(flow_id, flow.keyword) == expected_value

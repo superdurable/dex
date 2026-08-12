@@ -59,6 +59,45 @@ func (basicSecondStep) Execute(dex.Context, int) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(3), nil
 }
 
+type multiOutputFlow struct {
+	emptyFlowSchema
+}
+
+func (multiOutputFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(multiOutputStartStep{}),
+		dex.DefineStep(multiOutputStringStep{}),
+		dex.DefineStep(multiOutputIntStep{}),
+	}
+}
+
+type multiOutputStartStep struct {
+	dex.StepDefaultsNoWaitFor[struct{}]
+}
+
+func (multiOutputStartStep) Execute(dex.Context, struct{}) (*dex.StepDecision, error) {
+	return dex.GoToMulti(
+		dex.MovementOf(multiOutputStringStep{}, struct{}{}),
+		dex.MovementOf(multiOutputIntStep{}, struct{}{}),
+	), nil
+}
+
+type multiOutputStringStep struct {
+	dex.StepDefaultsNoWaitFor[struct{}]
+}
+
+func (multiOutputStringStep) Execute(dex.Context, struct{}) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("branch-one"), nil
+}
+
+type multiOutputIntStep struct {
+	dex.StepDefaultsNoWaitFor[struct{}]
+}
+
+func (multiOutputIntStep) Execute(dex.Context, struct{}) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(42), nil
+}
+
 type proceedOnWaitForFailureFlow struct {
 	emptyFlowSchema
 }
@@ -153,6 +192,34 @@ func TestBasicFlow(t *testing.T) {
 	_, err = integClient.WaitForFlow(ctx, newFlowID(t, "missing"), dex.WaitForFlowOptions{})
 	var missing *dex.FlowNotFoundError
 	require.ErrorAs(t, err, &missing)
+}
+
+func TestMultiOutputFlow(t *testing.T) {
+	ctx := integrationContext(t)
+	flowID := newFlowID(t, "multi-output")
+	_, err := integClient.StartFlow(ctx, multiOutputFlow{}, flowID, struct{}{}, dex.StartFlowOptions{})
+	require.NoError(t, err)
+
+	result := waitForFlow(t, flowID, true)
+	require.Len(t, result.Completions, 2)
+	outputs := make(map[string]any, len(result.Completions))
+	for _, completion := range result.Completions {
+		switch completion.StepType {
+		case dex.GetFinalStepType(multiOutputStringStep{}):
+			var output string
+			require.NoError(t, completion.Output.Decode(&output))
+			outputs[completion.StepType] = output
+		case dex.GetFinalStepType(multiOutputIntStep{}):
+			var output int
+			require.NoError(t, completion.Output.Decode(&output))
+			outputs[completion.StepType] = output
+		default:
+			t.Fatalf("unexpected Step completion %q", completion.StepType)
+		}
+		require.NotEmpty(t, completion.StepExecutionID)
+	}
+	require.Equal(t, "branch-one", outputs[dex.GetFinalStepType(multiOutputStringStep{})])
+	require.Equal(t, 42, outputs[dex.GetFinalStepType(multiOutputIntStep{})])
 }
 
 func TestProceedOnWaitForFailureFlow(t *testing.T) {

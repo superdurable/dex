@@ -271,7 +271,7 @@ const (
 	FlowErrorInternal
 )
 
-// StepCompletion contains one completed Step output returned by WaitForFlow.
+// StepCompletion contains one hydrated Step output returned by WaitForFlow.
 type StepCompletion struct {
 	// StepType is the registered Step type.
 	StepType string
@@ -281,16 +281,31 @@ type StepCompletion struct {
 	Output Value
 }
 
-// WaitForFlowResult contains the terminal status and optional completed Step outputs.
+// WaitForFlowResult contains the terminal status and output-bearing Step completions.
 type WaitForFlowResult struct {
 	// Status is the terminal Flow status.
 	Status FlowStatus
-	// Completions contains hydrated outputs when NeedsResults was true.
+	// Completions preserves server collection order when NeedsResults was true.
+	// Parallel completion order is not deterministic; select by StepType or StepExecutionID.
 	Completions []StepCompletion
 	// ErrorType is the Flow failure category when available.
 	ErrorType FlowErrorType
 	// ErrorMessage is the server completion detail when available.
 	ErrorMessage string
+}
+
+// DecodeSingleOutput decodes the output when exactly one completion exists.
+//
+// target follows Value.Decode semantics and must be a non-nil pointer. Zero or
+// multiple completions return an error without decoding a value.
+func (result WaitForFlowResult) DecodeSingleOutput(target any) error {
+	if len(result.Completions) != 1 {
+		return fmt.Errorf(
+			"dex: expected exactly one Step output, found %d",
+			len(result.Completions),
+		)
+	}
+	return result.Completions[0].Output.Decode(target)
 }
 
 // SearchFlowEntry contains one Flow row returned by SearchFlows.

@@ -48,10 +48,7 @@ public class RetryingFailureIntegTest {
         try {
             assertThrows(
                     LongPollTimeoutException.class,
-                    () -> environment.client().waitForFlow(
-                            flowId,
-                            Void.class,
-                            Duration.ofSeconds(1)));
+                    () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(1)).getSingleOutput(Void.class));
         } finally {
             environment.client().stopFlow(
                     flowId,

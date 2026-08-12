@@ -3,7 +3,7 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
 const config: Config = {
-  title: 'Dex Docs',
+  title: 'Super Durable Docs',
   tagline: 'Durable Execution for backend engineering',
   favicon: 'img/favicon.png',
 
@@ -19,6 +19,31 @@ const config: Config = {
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'throw',
+
+  headTags: [
+    {
+      tagName: 'script',
+      attributes: {},
+      innerHTML: `
+(function () {
+  try {
+    var match = document.cookie.match(/(?:^|; )superdurable-theme=(light|dark)(?:;|$)/);
+    var cookieTheme = match ? match[1] : null;
+    var storedTheme = window.localStorage.getItem('theme');
+    var systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    var theme = cookieTheme || ((storedTheme === 'light' || storedTheme === 'dark') ? storedTheme : systemTheme);
+    window.localStorage.setItem('theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
+    document.documentElement.style.colorScheme = theme;
+    if (!cookieTheme && (storedTheme === 'light' || storedTheme === 'dark')) {
+      var shared = location.hostname === 'superdurable.io' || location.hostname.endsWith('.superdurable.io');
+      document.cookie = 'superdurable-theme=' + storedTheme + '; Path=/; Max-Age=31536000; SameSite=Lax' +
+        (shared ? '; Domain=.superdurable.io; Secure' : '');
+    }
+  } catch (_) {}
+})();`,
+    },
+  ],
 
   i18n: {
     defaultLocale: 'en',
@@ -54,27 +79,42 @@ const config: Config = {
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'Dex Docs',
       logo: {
         alt: 'Super Durable',
         src: 'img/brand/super-durable-logo.png',
+        href: 'https://superdurable.io/',
+        target: '_self',
       },
       items: [
         {
-          type: 'docSidebar',
-          sidebarId: 'docs',
+          href: 'https://superdurable.io/dex',
+          label: 'Dex',
           position: 'left',
+          target: '_self',
+        },
+        {
+          type: 'dropdown',
           label: 'Docs',
+          position: 'left',
+          items: [
+            {label: 'Dex OSS', to: '/', activeBasePath: '/'},
+            {label: 'Dex Cloud / BYOC', to: '/cloud', activeBasePath: '/cloud'},
+          ],
         },
         {
-          href: 'https://superdurable.io',
-          label: 'Website',
-          position: 'right',
+          type: 'dropdown',
+          label: 'Services',
+          position: 'left',
+          items: [
+            {label: 'Dex BYOC', href: 'https://superdurable.io/byoc', target: '_self'},
+            {label: 'Consulting', href: 'https://superdurable.io/consulting', target: '_self'},
+          ],
         },
         {
-          href: 'https://github.com/superdurable/dex',
-          label: 'GitHub',
+          href: 'https://calendar.google.com/appointments/schedules/AcZssZ0XTgrR4TGKOsS-zcB7tu_xqIaYaM3MQGXraOJccpyUe9LK0Z_FF7ImVSw4g_4UGGfx3ykq81mw',
+          label: 'Book a call',
           position: 'right',
+          className: 'header-booking-link',
         },
       ],
     },

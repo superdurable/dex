@@ -20,7 +20,7 @@ use dex_protocol::dex::{
     ResetFlowRequest, SearchFlowsRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
     StepDurability as ProtoStepDurability, StopFlowRequest, StopType as ProtoStopType,
     TriggerContinueAsNewRequest, UpdateFlowConfigRequest, WaitForAttributeCondition,
-    WaitForAttributeEqual, WaitForAttributeRequest, WaitForFlowRequest, WaitForFlowResponse,
+    WaitForAttributeEqual, WaitForAttributeRequest, WaitForFlowRequest,
     WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget, wait_for_attribute_condition,
 };
 use tokio::runtime::Runtime;
@@ -37,8 +37,8 @@ use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ClientOptions,
     Flow, FlowConfig, FlowErrorType, FlowInfo, FlowStatus, IdReusePolicy, Registry,
     ResetFlowOptions, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry, SearchFlowsPage,
-    StartFlowOptions, StepDurability, StepExecutionId, StopFlowOptions, TimerId, Value,
-    WorkerTarget,
+    StartFlowOptions, StepCompletion, StepDurability, StepExecutionId, StopFlowOptions, TimerId,
+    Value, WaitForFlowResult, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -326,30 +326,28 @@ impl Client {
         )
     }
 
-    /// Blocks until a Flow completes successfully and decodes its first completion output.
+    /// Blocks until a Flow completes successfully and returns all output-bearing completions.
     ///
     /// # Errors
     ///
     /// Returns [`SdkError::FlowUncompleted`] for other terminal statuses, FlowNotFound for an
     /// unknown ID, or a mapping/service error. This overload has no client-side timeout.
-    pub fn wait_for_flow<Output: Value>(&self, flow_id: &str) -> SdkResult<Output> {
-        self.wait_for_flow_response(flow_id, None)
-            .and_then(|response| self.decode_flow_output(response))
+    pub fn wait_for_flow(&self, flow_id: &str) -> SdkResult<WaitForFlowResult> {
+        self.wait_for_flow_result(flow_id, None)
     }
 
-    /// Blocks up to `timeout` for successful Flow completion and decodes its output.
+    /// Blocks up to `timeout` and returns all output-bearing completions for a successful Flow.
     ///
     /// # Errors
     ///
     /// Returns [`SdkError::LongPollTimeout`] when the timeout elapses while the Flow remains active;
     /// other errors match [`Self::wait_for_flow`].
-    pub fn wait_for_flow_with_timeout<Output: Value>(
+    pub fn wait_for_flow_with_timeout(
         &self,
         flow_id: &str,
         timeout: Duration,
-    ) -> SdkResult<Output> {
-        self.wait_for_flow_response(flow_id, Some(timeout))
-            .and_then(|response| self.decode_flow_output(response))
+    ) -> SdkResult<WaitForFlowResult> {
+        self.wait_for_flow_result(flow_id, Some(timeout))
     }
 
     /// Returns current identity, status, type, and start time for the latest run.
@@ -879,11 +877,11 @@ impl Client {
         )
     }
 
-    fn wait_for_flow_response(
+    fn wait_for_flow_result(
         &self,
         flow_id: &str,
         timeout: Option<Duration>,
-    ) -> SdkResult<WaitForFlowResponse> {
+    ) -> SdkResult<WaitForFlowResult> {
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -906,6 +904,27 @@ impl Client {
         });
         let response = response?;
         let status = map_flow_status(response.flow_status)?;
+        let mut outputs = Vec::with_capacity(response.results.len());
+        for result in &response.results {
+            outputs.push(result.completed_step_output.clone().ok_or_else(|| {
+                SdkError::ValueMapping {
+                    message: "Step completion output is required".to_string(),
+                }
+            })?);
+        }
+        let outputs = self.runtime.block_on(self.hydrator.hydrate_all(outputs))?;
+        let completions = response
+            .results
+            .into_iter()
+            .zip(outputs)
+            .map(|(result, output)| {
+                StepCompletion::new(
+                    result.completed_step_type,
+                    result.completed_step_execution_id,
+                    output,
+                )
+            })
+            .collect();
         if status != FlowStatus::Completed {
             let flow = self.describe_flow(flow_id)?;
             return Err(SdkError::FlowUncompleted {
@@ -913,24 +932,10 @@ impl Client {
                 status,
                 error_type: map_flow_error_type(response.error_type),
                 message: (!response.error_message.is_empty()).then_some(response.error_message),
-                result_count: response.results.len(),
+                completions,
             });
         }
-        Ok(response)
-    }
-
-    fn decode_flow_output<Output: Value>(
-        &self,
-        response: WaitForFlowResponse,
-    ) -> SdkResult<Output> {
-        let output = response
-            .results
-            .into_iter()
-            .rev()
-            .find_map(|result| result.completed_step_output)
-            .ok_or_else(|| invalid("completed Flow has no Step output"))?;
-        let output = self.runtime.block_on(self.hydrator.hydrate(output))?;
-        value_mapper::decode(&output)
+        Ok(WaitForFlowResult::new(completions))
     }
 
     fn map_start_options(

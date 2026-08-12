@@ -320,10 +320,15 @@ function mapDecision(flow: RegisteredFlow, decision: StepDecision | undefined): 
     forceComplete: CloseDecisionType.CLOSE_DECISION_TYPE_FORCE_COMPLETE,
     forceFail: CloseDecisionType.CLOSE_DECISION_TYPE_FORCE_FAIL,
   } as const;
+  const closeInput = decision.kind === "forceFail"
+    ? encodeUnknown(decision.reason)
+    : decision.output === undefined
+      ? undefined
+      : encodeUnknown(decision.output);
   return ProtoStepDecision.create({
     closeDecision: CloseDecision.create({
       closeDecisionType: closeTypes[decision.kind],
-      closeInput: encodeUnknown(decision.kind === "forceFail" ? decision.reason : decision.output),
+      closeInput,
     }),
   });
 }

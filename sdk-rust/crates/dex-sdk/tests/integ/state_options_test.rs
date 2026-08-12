@@ -31,7 +31,8 @@ fn test_state_options_workflow() {
         "success",
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("complete state-options Flow")
     );
 }
@@ -52,7 +53,8 @@ fn test_wait_for_and_execute_locks_serialize_parallel_steps() {
         "20:20",
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("complete step-locking Flow")
     );
     assert_eq!(
@@ -75,7 +77,9 @@ fn test_wait_for_and_execute_locks_serialize_parallel_steps() {
 fn compile_step_locks(client: &Client) -> SdkResult<()> {
     let workflow = StateOptionsLockingWorkflow::new();
     client.start_flow(&workflow, "state-options-locks", 10)?;
-    let output: String = client.wait_for_flow("state-options-locks")?;
+    let output: String = client
+        .wait_for_flow("state-options-locks")?
+        .single_output()?;
     drop(output);
     Ok(())
 }

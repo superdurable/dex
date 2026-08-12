@@ -138,10 +138,7 @@ public final class RpcWithMemoTest {
             final DexDevTestEnvironment environment,
             final String flowId,
             final String expectedValue) {
-        assertEquals(2, environment.client().waitForFlow(
-                flowId,
-                Integer.class,
-                Duration.ofSeconds(30)));
+        assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.data));
         assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.keyword));
         assertEquals(

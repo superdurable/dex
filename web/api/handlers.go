@@ -23,7 +23,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const maxRequestBytes = 1 << 20
+const (
+	maxRequestBytes               = 1 << 20
+	engineWorkflowVisibilityQuery = `WorkflowType = "Engine"`
+)
 
 type handler struct {
 	client dexpb.FlowServiceClient
@@ -62,7 +65,7 @@ func (h *handler) searchFlows(response http.ResponseWriter, request *http.Reques
 		body.PageSize = 50
 	}
 	result, err := h.client.SearchFlows(request.Context(), &dexpb.SearchFlowsRequest{
-		Query:         body.Query,
+		Query:         engineWorkflowSearchQuery(body.Query),
 		PageSize:      body.PageSize,
 		NextPageToken: body.NextPageToken,
 	})
@@ -78,6 +81,13 @@ func (h *handler) searchFlows(response http.ResponseWriter, request *http.Reques
 		Flows:         flows,
 		NextPageToken: result.GetNextPageToken(),
 	})
+}
+
+func engineWorkflowSearchQuery(query string) string {
+	if strings.TrimSpace(query) == "" {
+		return engineWorkflowVisibilityQuery
+	}
+	return fmt.Sprintf("(%s) AND (%s)", query, engineWorkflowVisibilityQuery)
 }
 
 func (h *handler) getFlowSummary(response http.ResponseWriter, request *http.Request) {

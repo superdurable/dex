@@ -8,16 +8,16 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import grpc
 
 from dex.flow_info import FlowStatus
 
 if TYPE_CHECKING:
-    from dex._value_mapper import ValueMapper
-    from dex.dexpb import dex_pb2 as pb
+    from dex.flow_result import StepCompletion
 
 
 class ErrorSubStatus(Enum):
@@ -231,14 +231,14 @@ class ValueMappingError(RuntimeError):
 class FlowUncompletedError(RuntimeError):
     """Report that ``wait_for_flow`` observed a non-successful terminal status.
 
-    Completed Step outputs remain available through :meth:`result` when the request
-    asked Dex to include them.
+    Completed Step outputs remain available through ``completions`` with their Step
+    identities and hydrated values.
 
     Attributes:
         run_id: The terminal server-assigned run ID.
         status: The non-completed terminal Flow status.
         error_type: The terminal failure category, if Dex returned one.
-        results: The ordered, opaque Step completion outputs.
+        completions: The ordered, output-bearing Step completions.
     """
 
     def __init__(
@@ -247,8 +247,7 @@ class FlowUncompletedError(RuntimeError):
         status: FlowStatus,
         error_type: FlowErrorType | None,
         message: str | None,
-        results: list[pb.StepCompletionOutput],
-        values: ValueMapper,
+        completions: Sequence[StepCompletion],
     ) -> None:
         """Create an uncompleted-Flow error with lazy result decoding.
 
@@ -257,29 +256,10 @@ class FlowUncompletedError(RuntimeError):
             status: The non-completed terminal status.
             error_type: The failure category, if available.
             message: Optional human-readable terminal message.
-            results: Raw Step completion outputs in server order.
-            values: The mapper used to decode outputs on demand.
+            completions: Hydrated Step completions in server order.
         """
         super().__init__(message)
         self.run_id = run_id
         self.status = status
         self.error_type = error_type
-        self.results = tuple(results)
-        self._values = values
-
-    def result(self, index: int, result_type: type[Any]) -> Any:
-        """Decode one completed Step output by zero-based index.
-
-        Args:
-            index: The zero-based position in ``results``.
-            result_type: The Python type expected by the caller.
-
-        Returns:
-            The decoded Step output.
-
-        Raises:
-            IndexError: If ``index`` is outside the available results.
-            ValueMappingError: If the output cannot be decoded as ``result_type``.
-        """
-        value = self.results[index].completed_step_output
-        return self._values.decode(value, self._values.codec(result_type))
+        self.completions = tuple(completions)

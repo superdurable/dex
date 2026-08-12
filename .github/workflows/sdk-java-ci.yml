@@ -41,6 +41,8 @@ jobs:
   contracts:
     name: User contracts (Java ${{ matrix.java-version }})
     runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    env:
+      RUSTUP_TOOLCHAIN: "1.97.1"
     strategy:
       fail-fast: false
       matrix:

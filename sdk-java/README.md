@@ -111,11 +111,28 @@ Use `StepList.empty()` when a Flow has no Steps, or
 binding catches start-input mismatches during compilation; Registry also
 validates the runtime classes with
 `inputType.isAssignableFrom(registeredType)`.
-Client result decoding takes the output class and uses the configured mapper:
+`waitForFlow` returns every output-bearing Step completion after hydrating all
+blob-backed values. Decode a single-output Flow with the strict helper:
 
 ```java
-String output = client.waitForFlow("flow-123", String.class);
+String output = client.waitForFlow("flow-123").getSingleOutput(String.class);
 ```
+
+For multiple outputs, select by Step type or Step execution ID and decode each
+completion independently:
+
+```java
+WaitForFlowResult result = client.waitForFlow("flow-123");
+for (StepCompletion completion : result.getCompletions()) {
+    if (completion.getStepType().equals("ChargeCard")) {
+        Receipt receipt = completion.getOutput(Receipt.class);
+    }
+}
+```
+
+The completion list is immutable and preserves server collection order, but
+parallel branch order is not deterministic. `getSingleOutput` throws when the
+Flow has zero or multiple outputs. A no-output Flow returns an empty list.
 
 ## Current API conventions
 
@@ -164,6 +181,8 @@ configuration, and step-wait operations that require an open Flow.
 
 `FlowAlreadyStartedException` identifies duplicate starts.
 `LongPollTimeoutException` identifies an expected long-poll timeout.
+`FlowUncompletedException` exposes hydrated `StepCompletion` values with their
+Step type and Step execution ID.
 `WorkerInvocationException` preserves the original WorkerService error type,
 detail, gRPC code, and Java stack trace. Read the persisted trace with
 `getWorkerStackTrace()`; it may be empty for Workers implemented by another SDK.

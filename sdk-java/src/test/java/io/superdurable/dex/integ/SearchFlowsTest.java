@@ -56,7 +56,7 @@ public final class SearchFlowsTest {
                             .build());
             assertEquals(
                     keywordValue,
-                    client.waitForFlow(flowId, String.class, Duration.ofSeconds(30)));
+                    client.waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(String.class));
 
             final String query = SearchFlowsWorkflow.KEYWORD_KEY + " = '" + keywordValue + "'";
             final SearchFlowEntry entry = pollForFlow(client, query, flowId);

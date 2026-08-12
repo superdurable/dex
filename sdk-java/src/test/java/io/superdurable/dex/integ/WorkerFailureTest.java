@@ -79,7 +79,10 @@ public final class WorkerFailureTest {
             final StepMethodFailure liveFailure = awaitLiveFailure(service, flowId, runId);
             assertWorkerFailure(liveFailure, expectedDetail);
 
-            environment.client().waitForFlow(flowId, Void.class, Duration.ofSeconds(30));
+            assertTrue(environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getCompletions()
+                    .isEmpty());
             final StepMethodFailure historyFailure = historyFailure(
                     service,
                     flowId,

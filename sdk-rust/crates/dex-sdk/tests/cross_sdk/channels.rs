@@ -268,7 +268,8 @@ fn inter_step_channel_contract_completes_with_published_value() {
         2,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete Go inter-Step channel Flow")
     );
 }
@@ -321,7 +322,8 @@ fn channel_contract_reports_results_and_skipped_timer_by_index() {
         100,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete Go channel compatibility Flow")
     );
     let missing = environment
@@ -347,7 +349,8 @@ fn timer_contract_reports_firing_and_elapsed_time() {
         3,
         environment
             .client
-            .wait_for_flow_with_timeout::<u64>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<u64>())
             .expect("complete Go timer compatibility Flow")
     );
     let elapsed = started_at.elapsed();

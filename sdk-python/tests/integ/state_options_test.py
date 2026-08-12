@@ -15,5 +15,5 @@ from .state_options_flow import StateOptionsFlow
 
 def compile_timeout_retry_durability_and_locks(client: Client) -> None:
     client.start_flow(StateOptionsFlow(), "state-options", None)
-    output: str = client.wait_for_flow("state-options", str)
+    output: str = client.wait_for_flow("state-options").single_output(str)
     del output

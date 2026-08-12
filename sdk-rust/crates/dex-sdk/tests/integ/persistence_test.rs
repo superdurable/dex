@@ -40,7 +40,8 @@ fn test_persistence_reads() {
         "input",
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("complete persistence Flow")
     );
     assert_eq!(
@@ -150,7 +151,8 @@ fn test_set_indexed_attributes() {
         "test-result",
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("complete set-indexed-attributes Flow")
     );
     assert_eq!(
@@ -315,7 +317,8 @@ fn test_set_data_attributes() {
         "test-result",
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("complete set-data-attributes Flow")
     );
     assert_eq!(
@@ -389,6 +392,6 @@ fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
         "value".to_string(),
         Duration::from_secs(30),
     )?;
-    let _: String = client.wait_for_flow("set-attributes")?;
+    let _: String = client.wait_for_flow("set-attributes")?.single_output()?;
     Ok(())
 }

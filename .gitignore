@@ -47,6 +47,8 @@ dist/
 
 # Rust
 sdk-rust/target/
+sdk-rust/coverage/
+examples/rust/target/
 
 # TypeScript
 sdk-typescript/node_modules/

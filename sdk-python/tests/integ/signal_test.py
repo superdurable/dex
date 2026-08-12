@@ -25,5 +25,5 @@ def compile_signals_and_timer_skip(client: Client) -> None:
         StepExecutionId("SignalCombinationStep"),
         TimerId.by_condition_id("test-timer-id"),
     )
-    output: int = client.wait_for_flow("signal", int)
+    output: int = client.wait_for_flow("signal").single_output(int)
     del output

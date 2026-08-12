@@ -224,7 +224,9 @@ const client = new Client("127.0.0.1:8801"); // Promise-based gRPC client
 
 await client.startFlow(hello, "hello-1", "hi");
 await client.invokeRPC(hello.nudge, "hello-1", "from-client");
-// optional: await client.waitForFlow("hello-1", stringCodec, 30_000);
+// optional:
+const result = await client.waitForFlow("hello-1", 30_000);
+const output = result.singleOutput(stringCodec);
 ```
 
 </SdkSnippet>

@@ -92,10 +92,7 @@ public final class RpcTest {
             environment.client().startFlow(WORKFLOW, flowId, 999);
             final RpcWorkflow stub = stub(environment, flowId);
             environment.client().invokeRPC(stub::publishWithoutAttributeAccess);
-            assertEquals(2, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertThrows(
                     FlowNotActiveException.class,
                     () -> environment.client().invokeRPC(stub::publishWithoutAttributeAccess));
@@ -286,10 +283,7 @@ public final class RpcTest {
             final DexDevTestEnvironment environment,
             final String flowId,
             final String expectedValue) {
-        assertEquals(2, environment.client().waitForFlow(
-                flowId,
-                Integer.class,
-                Duration.ofSeconds(30)));
+        assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.data));
         assertEquals(expectedValue, environment.client().getAttribute(flowId, WORKFLOW.keyword));
         assertEquals(

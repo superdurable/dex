@@ -33,7 +33,7 @@ def test_search_flows_finds_indexed_flow() -> None:
         flow_id = unique_id("search-flows")
         environment.client.start_flow(flow, flow_id, keyword_value)
         assert (
-            environment.client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
             == keyword_value
         )
         query = f"{KEYWORD_KEY} = '{keyword_value}'"

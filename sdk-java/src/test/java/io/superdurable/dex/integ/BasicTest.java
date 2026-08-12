@@ -21,6 +21,8 @@ import io.superdurable.dex.FlowInfo;
 import io.superdurable.dex.IdReusePolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.StepCompletion;
+import io.superdurable.dex.WaitForFlowResult;
 import io.superdurable.dex.WorkerTarget;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
@@ -35,9 +37,11 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @Tag("dex-dev")
@@ -70,14 +74,37 @@ public final class BasicTest {
                     .idReusePolicy(IdReusePolicy.DISALLOW)
                     .build();
             environment.client().startFlow(WORKFLOW, flowId, input, options);
-            final Integer output = environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30));
+            final Integer output = environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class);
             assertEquals(input + 2, output);
             assertThrows(
                     FlowAlreadyStartedException.class,
                     () -> environment.client().startFlow(WORKFLOW, flowId, input, options));
+        }
+    }
+
+    @Test
+    void testParallelBranchesReturnHeterogeneousStepCompletions() throws Exception {
+        final MultiOutputWorkflow workflow = new MultiOutputWorkflow();
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                workflow)) {
+            final String flowId = flowId("multi-output");
+            environment.client().startFlow(workflow, flowId, null);
+            final WaitForFlowResult result =
+                    environment.client().waitForFlow(flowId, Duration.ofSeconds(30));
+            final Map<String, StepCompletion> completions =
+                    new HashMap<String, StepCompletion>();
+            for (final StepCompletion completion : result.getCompletions()) {
+                completions.put(completion.getStepType(), completion);
+                assertTrue(!completion.getStepExecutionId().isEmpty());
+            }
+            assertEquals(2, completions.size());
+            assertEquals(
+                    "branch-one",
+                    completions.get(workflow.stringStep.getStepType()).getOutput(String.class));
+            assertEquals(
+                    Integer.valueOf(42),
+                    completions.get(workflow.integerStep.getStepType()).getOutput(Integer.class));
         }
     }
 
@@ -98,17 +125,11 @@ public final class BasicTest {
                     options);
             final FlowUncompletedException failure = assertThrows(
                     FlowUncompletedException.class,
-                    () -> environment.client().waitForFlow(
-                            flowId,
-                            Integer.class,
-                            Duration.ofSeconds(30)));
+                    () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertEquals(failedRun, failure.getRunId());
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             environment.client().startFlow(WORKFLOW, flowId, 0, options);
-            assertEquals(2, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
@@ -119,16 +140,13 @@ public final class BasicTest {
                 EMPTY_INPUT_WORKFLOW)) {
             final String flowId = flowId("empty-input");
             environment.client().startFlow(EMPTY_INPUT_WORKFLOW, flowId, null);
-            assertNull(environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertTrue(environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getCompletions()
+                    .isEmpty());
             assertThrows(
                     FlowNotFoundException.class,
-                    () -> environment.client().waitForFlow(
-                            flowId("missing"),
-                            Integer.class,
-                            Duration.ofSeconds(1)));
+                    () -> environment.client().waitForFlow(flowId("missing"), Duration.ofSeconds(1)).getSingleOutput(Integer.class));
         }
     }
 
@@ -140,10 +158,10 @@ public final class BasicTest {
             final String flowId = flowId("type-specified");
             assertEquals("test-customized-flow-type", EMPTY_INPUT_WORKFLOW.getFlowType());
             environment.client().startFlow(EMPTY_INPUT_WORKFLOW, flowId, null);
-            assertNull(environment.client().waitForFlow(
-                    flowId,
-                    Void.class,
-                    Duration.ofSeconds(30)));
+            assertTrue(environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getCompletions()
+                    .isEmpty());
             final BasicEmptyInputWorkflow unregistered = new BasicEmptyInputWorkflow();
             assertThrows(
                     FlowDefinitionException.class,
@@ -163,10 +181,7 @@ public final class BasicTest {
             final BasicModelInputWorkflow.Input input = new BasicModelInputWorkflow.Input();
             input.value = 10;
             environment.client().startFlow(MODEL_INPUT_WORKFLOW, flowId, input);
-            assertEquals(10, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(10, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertThrows(
                     IllegalArgumentException.class,
                     () -> startWithWrongInput(environment.client(), flowId("wrong-input")));
@@ -185,10 +200,7 @@ public final class BasicTest {
                             .build())
                     .build();
             environment.client().startFlow(WORKFLOW, flowId, 0, options);
-            assertEquals(2, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
@@ -229,10 +241,7 @@ public final class BasicTest {
                     flowId,
                     StepExecutionId.of("BasicSecondStep"),
                     Duration.ofSeconds(30));
-            assertEquals(7, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(7, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertThrows(
                     FlowNotActiveException.class,
                     () -> environment.client().waitForStepCompletion(
@@ -249,10 +258,7 @@ public final class BasicTest {
                 WAIT_FAILURE_WORKFLOW)) {
             final String flowId = flowId("proceed-on-wait-failure");
             environment.client().startFlow(WAIT_FAILURE_WORKFLOW, flowId, "input");
-            assertEquals("input-recovered", environment.client().waitForFlow(
-                    flowId,
-                    String.class,
-                    Duration.ofSeconds(30)));
+            assertEquals("input-recovered", environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(String.class));
         }
     }
 
@@ -263,10 +269,7 @@ public final class BasicTest {
                 MIXED_WAIT_WORKFLOW)) {
             final String flowId = flowId("mixed-wait");
             environment.client().startFlow(MIXED_WAIT_WORKFLOW, flowId, 0);
-            assertEquals(2, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
@@ -280,10 +283,7 @@ public final class BasicTest {
 
             final FlowUncompletedException failure = assertThrows(
                     FlowUncompletedException.class,
-                    () -> environment.client().waitForFlow(
-                            flowId,
-                            Integer.class,
-                            Duration.ofSeconds(30)));
+                    () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertEquals("expected wait failure 2", failure.getMessage());
@@ -296,7 +296,7 @@ public final class BasicTest {
                 .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
                 .build();
         client.startFlow(WORKFLOW, "basic", 10, options);
-        final Integer output = client.waitForFlow("basic", Integer.class);
+        final Integer output = client.waitForFlow("basic").getSingleOutput(Integer.class);
         client.startFlow(ABNORMAL_EXIT_WORKFLOW, "abnormal", 10, options);
         client.startFlow(WORKFLOW, "abnormal", output, options);
     }

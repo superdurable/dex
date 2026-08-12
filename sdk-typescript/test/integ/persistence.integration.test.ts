@@ -36,7 +36,7 @@ test("persistence reads initial values, Step writes, locals, and deletes", async
         InitialAttribute.mapValue(flow.dataMap, "one", "initial"),
       ],
     });
-    assert.equal(await client.waitForFlow(id, stringCodec, 30_000), "input");
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)), "input");
     assert.equal(await client.getAttribute(id, flow.data), "input");
     assert.equal(await client.getAttribute(id, flow.initial), "initial");
     assert.equal(await client.getAttribute(id, flow.dataMap, "one"), undefined);
@@ -67,7 +67,7 @@ test("Client sets every indexed attribute kind", async () => {
     await client.setAttribute(id, flow.datetime, datetime);
     await client.publish(id, flow.proceed, undefined);
 
-    assert.equal(await client.waitForFlow(id, stringCodec, 30_000), "test-result");
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)), "test-result");
     assert.equal(await client.getAttribute(id, flow.keyword), "keyword-1");
     assert.equal(await client.getAttribute(id, flow.text), "text-1");
     assert.equal(await client.getAttribute(id, flow.decimal), 1);
@@ -115,7 +115,7 @@ test("Client sets primitive, mapped, and model data attributes", async () => {
     await client.setAttribute(id, flow.model, { value: 7 });
     await client.publish(id, flow.proceed, undefined);
 
-    assert.equal(await client.waitForFlow(id, stringCodec, 30_000), "test-result");
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)), "test-result");
     assert.equal(await client.getAttribute(id, flow.data), "query-start");
     assert.equal(await client.getAttribute(id, flow.dataMap, "one"), "mapped-value");
     assert.equal((await client.getAttribute(id, flow.model))?.value, 7);

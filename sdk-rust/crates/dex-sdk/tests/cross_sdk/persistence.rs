@@ -249,7 +249,8 @@ fn persistence_contract_round_trips_all_values_and_search_index() {
         "done",
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("complete Go persistence compatibility Flow")
     );
 

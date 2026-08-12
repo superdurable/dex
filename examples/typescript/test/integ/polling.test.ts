@@ -47,7 +47,7 @@ test("pollingStartAndChannels", async () => {
   await environment.client.publish(flowId, flow.taskACompleted, undefined);
   await environment.client.publish(flowId, flow.taskBCompleted, undefined);
 
-  const output = await environment.client.waitForFlow(flowId, stringCodec, 45_000);
+  const output = await environment.client.waitForFlow(flowId, 45_000).then((result) => result.singleOutput(stringCodec));
   assert.equal(output, "all tasks completed");
 
   const polls = await environment.client.getAttribute(flowId, flow.currentPolls);
