@@ -50,8 +50,6 @@ const eventTitles: Record<FlowHistoryEvent['type'], string> = {
   ChannelExternalPublish: 'Channel published',
 };
 
-const systemSetAttributeRPCName = '_sys/set_attribute';
-
 export function eventTitle(event: FlowHistoryEvent): string {
   if (isSetAttributesEvent(event)) return 'Attributes updated';
   if (event.type === 'FlowStartedOrContinued' && hasData(asData(event.payload.continuedStart))) {
@@ -66,7 +64,7 @@ export function eventTypeLabel(event: FlowHistoryEvent): string {
 
 function isSetAttributesEvent(event: FlowHistoryEvent): boolean {
   return event.type === 'RpcExecutionCompleted'
-    && event.payload.rpcName === systemSetAttributeRPCName;
+    && event.payload.isSetAttributeApi === true;
 }
 
 function asData(value: unknown): Data {

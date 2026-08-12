@@ -613,8 +613,8 @@ func (s *serviceImpl) SetAttributes(
 		req.GetRunId(),
 		service.ExecuteRpcSignalChannelName,
 		&dexpb.ExecuteRpcSignalRequest{
-			RpcName:          service.SystemSetAttributeRPCName,
-			UpsertAttributes: attributes,
+			IsSetAttributeApi: true,
+			UpsertAttributes:  attributes,
 		},
 	); err != nil {
 		return nil, s.handleError(err)

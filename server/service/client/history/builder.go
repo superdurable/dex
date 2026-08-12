@@ -366,7 +366,7 @@ func (b *Builder) RecordSignal(
 		return
 	}
 	rpcName := request.GetRpcName()
-	if rpcName == "" && request.GetRpcInput() == nil && request.GetRpcOutput() == nil {
+	if !request.GetIsSetAttributeApi() && rpcName == "" && request.GetRpcInput() == nil && request.GetRpcOutput() == nil {
 		return
 	}
 	b.events = append(b.events, newEvent(
@@ -374,13 +374,14 @@ func (b *Builder) RecordSignal(
 		eventTime,
 		&dexpb.FlowHistoryEvent_RpcExecutionCompleted{
 			RpcExecutionCompleted: &dexpb.RpcExecutionCompletedEvent{
-				RpcName:          rpcName,
-				Input:            request.GetRpcInput(),
-				Output:           request.GetRpcOutput(),
-				StepDecision:     request.GetStepDecision(),
-				UpsertAttributes: request.GetUpsertAttributes(),
-				RecordEvents:     request.GetRecordEvents(),
-				PublishToChannel: request.GetPublishToChannel(),
+				RpcName:           rpcName,
+				Input:             request.GetRpcInput(),
+				Output:            request.GetRpcOutput(),
+				StepDecision:      request.GetStepDecision(),
+				UpsertAttributes:  request.GetUpsertAttributes(),
+				RecordEvents:      request.GetRecordEvents(),
+				PublishToChannel:  request.GetPublishToChannel(),
+				IsSetAttributeApi: request.GetIsSetAttributeApi(),
 			},
 		},
 	))

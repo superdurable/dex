@@ -1414,12 +1414,13 @@ func testWebSetAttributesHistory(t *testing.T, backendType service.BackendType) 
 	var rpcEvent *dexpb.RpcExecutionCompletedEvent
 	for _, event := range events {
 		candidate := event.GetRpcExecutionCompleted()
-		if candidate.GetRpcName() == service.SystemSetAttributeRPCName {
+		if candidate.GetIsSetAttributeApi() {
 			rpcEvent = candidate
 			break
 		}
 	}
 	require.NotNil(t, rpcEvent)
+	require.Empty(t, rpcEvent.GetRpcName())
 	require.Len(t, rpcEvent.GetUpsertAttributes(), 1)
 	require.True(t, proto.Equal(attribute, rpcEvent.GetUpsertAttributes()[0]))
 	require.Nil(t, rpcEvent.GetInput())

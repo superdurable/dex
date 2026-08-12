@@ -344,7 +344,7 @@ describe('RPC event details', () => {
       eventTime: '2026-08-05T23:44:30Z',
       type: 'RpcExecutionCompleted',
       payload: {
-        rpcName: '_sys/set_attribute',
+        isSetAttributeApi: true,
         upsertAttributes: [{
           key: 'order-status',
           value: { stringValue: 'complete' },
@@ -361,7 +361,6 @@ describe('RPC event details', () => {
     expect(markup).toContain('complete');
     expect(markup).not.toContain('RPC call');
     expect(markup).not.toContain('RPC name');
-    expect(markup).not.toContain('_sys/set_attribute');
   });
 });
 

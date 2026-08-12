@@ -293,6 +293,17 @@ private static final long serialVersionUID = 0L;
     return publishToChannel_.get(index);
   }
 
+  public static final int IS_SET_ATTRIBUTE_API_FIELD_NUMBER = 8;
+  private boolean isSetAttributeApi_ = false;
+  /**
+   * <code>bool is_set_attribute_api = 8;</code>
+   * @return The isSetAttributeApi.
+   */
+  @java.lang.Override
+  public boolean getIsSetAttributeApi() {
+    return isSetAttributeApi_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -327,6 +338,9 @@ private static final long serialVersionUID = 0L;
     }
     for (int i = 0; i < publishToChannel_.size(); i++) {
       output.writeMessage(7, publishToChannel_.get(i));
+    }
+    if (isSetAttributeApi_ != false) {
+      output.writeBool(8, isSetAttributeApi_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -374,6 +388,10 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
+    if (isSetAttributeApi_ != false) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeBoolSize(8, isSetAttributeApi_);
+    }
     return size;
   }
   @java.lang.Override
@@ -421,6 +439,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getRecordEventsList())) return false;
     if (!getPublishToChannelList()
         .equals(other.getPublishToChannelList())) return false;
+    if (getIsSetAttributeApi()
+        != other.getIsSetAttributeApi()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -458,6 +478,9 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + PUBLISH_TO_CHANNEL_FIELD_NUMBER;
       hash = (53 * hash) + getPublishToChannelList().hashCode();
     }
+    hash = (37 * hash) + IS_SET_ATTRIBUTE_API_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+        getIsSetAttributeApi());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -637,6 +660,7 @@ private static final long serialVersionUID = 0L;
         publishToChannelBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000040);
+      isSetAttributeApi_ = false;
       return this;
     }
 
@@ -722,6 +746,9 @@ private static final long serialVersionUID = 0L;
             ? stepDecision_
             : stepDecisionBuilder_.build();
         to_bitField0_ |= 0x00000004;
+      }
+      if (((from_bitField0_ & 0x00000080) != 0)) {
+        result.isSetAttributeApi_ = isSetAttributeApi_;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -830,6 +857,9 @@ private static final long serialVersionUID = 0L;
           }
         }
       }
+      if (other.getIsSetAttributeApi() != false) {
+        setIsSetAttributeApi(other.getIsSetAttributeApi());
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -921,6 +951,11 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 58
+            case 64: {
+              isSetAttributeApi_ = input.readBool();
+              bitField0_ |= 0x00000080;
+              break;
+            } // case 64
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2091,6 +2126,38 @@ private static final long serialVersionUID = 0L;
         publishToChannel_ = null;
       }
       return publishToChannelBuilder_;
+    }
+
+    private boolean isSetAttributeApi_ ;
+    /**
+     * <code>bool is_set_attribute_api = 8;</code>
+     * @return The isSetAttributeApi.
+     */
+    @java.lang.Override
+    public boolean getIsSetAttributeApi() {
+      return isSetAttributeApi_;
+    }
+    /**
+     * <code>bool is_set_attribute_api = 8;</code>
+     * @param value The isSetAttributeApi to set.
+     * @return This builder for chaining.
+     */
+    public Builder setIsSetAttributeApi(boolean value) {
+
+      isSetAttributeApi_ = value;
+      bitField0_ |= 0x00000080;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>bool is_set_attribute_api = 8;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearIsSetAttributeApi() {
+      bitField0_ = (bitField0_ & ~0x00000080);
+      isSetAttributeApi_ = false;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.RpcExecutionCompletedEvent)

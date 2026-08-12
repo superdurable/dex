@@ -126,4 +126,22 @@ public interface ExecuteRpcSignalRequestOrBuilder extends
    */
   io.superdurable.gen.ChannelMessageOrBuilder getPublishToChannelOrBuilder(
       int index);
+
+  /**
+   * <code>string rpc_name = 7;</code>
+   * @return The rpcName.
+   */
+  java.lang.String getRpcName();
+  /**
+   * <code>string rpc_name = 7;</code>
+   * @return The bytes for rpcName.
+   */
+  com.google.protobuf.ByteString
+      getRpcNameBytes();
+
+  /**
+   * <code>bool is_set_attribute_api = 8;</code>
+   * @return The isSetAttributeApi.
+   */
+  boolean getIsSetAttributeApi();
 }
