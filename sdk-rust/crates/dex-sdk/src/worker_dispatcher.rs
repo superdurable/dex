@@ -412,6 +412,7 @@ fn map_wait(flow: &RegisteredFlow, wait: Wait) -> HandlerResult<Option<WaitingCo
         waiting_condition_type: waiting_type as i32,
         timer_conditions: mapper.timers,
         channel_conditions: mapper.channels,
+        sub_flow_conditions: Vec::new(),
         condition_combinations: combinations,
     }))
 }
