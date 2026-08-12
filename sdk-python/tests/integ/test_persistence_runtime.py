@@ -124,15 +124,15 @@ def test_set_data_attributes() -> None:
                 flow_id, flow.data_map, "one", "mapped-value"
             )
             waiting.result(timeout=WAIT_TIMEOUT.total_seconds())
-        with pytest.raises(ValueError, match="only scalar"):
+        with pytest.raises(ValueError, match="only string, boolean, or number values"):
             environment.client.wait_for_attribute_equal(
                 flow_id, flow.model, ModelInput(value=8), WAIT_TIMEOUT
             )
-        with pytest.raises(ValueError, match="only scalar"):
+        with pytest.raises(ValueError, match="only string, boolean, or number values"):
             environment.client.wait_for_attribute_equal(
                 flow_id, Attribute("bytes", bytes), b"value", WAIT_TIMEOUT
             )
-        with pytest.raises(ValueError, match="only scalar"):
+        with pytest.raises(ValueError, match="only string, boolean, or number values"):
             environment.client.wait_for_attribute_equal(
                 flow_id, Attribute("null", type(None)), None, WAIT_TIMEOUT
             )

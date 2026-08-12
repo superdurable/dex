@@ -47,15 +47,15 @@ async def test_async_wait_for_attribute_equal() -> None:
             flow_id, flow.data_map, "special / key", "mapped"
         )
         await waiting_map
-        with pytest.raises(ValueError, match="only scalar"):
+        with pytest.raises(ValueError, match="only string, boolean, or number values"):
             await environment.client.wait_for_attribute_equal(
                 flow_id, flow.model, ModelInput(value=1), timeout
             )
-        with pytest.raises(ValueError, match="only scalar"):
+        with pytest.raises(ValueError, match="only string, boolean, or number values"):
             await environment.client.wait_for_attribute_equal(
                 flow_id, Attribute("bytes", bytes), b"value", timeout
             )
-        with pytest.raises(ValueError, match="only scalar"):
+        with pytest.raises(ValueError, match="only string, boolean, or number values"):
             await environment.client.wait_for_attribute_equal(
                 flow_id, Attribute("null", type(None)), None, timeout
             )

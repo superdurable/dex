@@ -55,7 +55,7 @@ registry = dex.Registry((flow,))
 ```
 
 Registry derives codecs from declared Python types and handler annotations.
-Built-in scalar types and dataclasses need no codec arguments. Register an
+Built-in primitive types and dataclasses need no codec arguments. Register an
 explicit codec only for a custom encoding or a type Registry cannot derive.
 `PersistenceSchema.of(...)` accepts attributes and channels together and
 partitions them by definition type.

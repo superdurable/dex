@@ -498,7 +498,7 @@ always load all attributes).
 - **Value model** (touches `common/blobstore/helpers.go`, `common/rpc`,
   `common/utils`, api external-storage code): replace old
   `EncodedObject{Data/ExtStoreId/ExtPath/Encoding}` string paths with the `Value`
-  oneof (`string_value`/`obj_value`/scalars/`null_value`) plus the two
+  oneof (`string_value`/`obj_value`/primitive values/`null_value`) plus the two
   `internal_blob_id_for_*` arms. External-storage threshold writes a blob id onto the
   `Value` arm; hydration replaces the blob-id arm with the concrete arm.
   `EncodedObject` is now strictly `encoding + payload bytes`. An
@@ -953,7 +953,7 @@ impossible. Add no compatibility aliases.
     client cancellation, closed/not-found flow, and completion/CAN interaction.
     Temporal-only; Cadence `Unimplemented`.
   - `wait_for_attribute_test.go` — immediate match, timeout/zero timeout, every
-    scalar arm, stored-blob rejection, null/missing equivalence, serialized object
+    primitive value arm, stored-blob rejection, null/missing equivalence, serialized object
     equality, deletion wake-up, concurrent waiters, client cancellation,
     closed/not-found flow, and CAN interaction. Temporal-only; Cadence
     `Unimplemented`.

@@ -794,7 +794,7 @@ class Client:
         expected: ValueT,
         timeout: timedelta,
     ) -> None:
-        """Wait for a scalar Attribute in the current run to equal ``expected``.
+        """Wait for a singleton Attribute in the current run to equal ``expected``.
 
         The Client generates a request ID and blocks for ``timeout``. JSON,
         bytes, and null values raise ``ValueError`` before transport. A remote
@@ -802,7 +802,7 @@ class Client:
 
         Args:
             flow_id: The non-empty active Flow ID.
-            attribute: The registered scalar Attribute to observe.
+            attribute: The registered singleton Attribute to observe.
             expected: The string, bool, int, or float value to await.
             timeout: The non-negative server-side wait duration.
 
@@ -823,9 +823,9 @@ class Client:
         expected: ValueT,
         timeout: timedelta,
     ) -> None:
-        """Wait for one scalar AttributeMap instance in the current run.
+        """Wait for one AttributeMap instance in the current run.
 
-        ``instance`` is encoded as a map key. Scalar restrictions, request-ID
+        ``instance`` is encoded as a map key. Primitive-value restrictions, request-ID
         generation, timeout behavior, and service errors match
         :meth:`wait_for_attribute_equal`.
 
@@ -851,7 +851,7 @@ class Client:
         *args: object,
         **kwargs: object,
     ) -> None:
-        """Wait for a scalar Attribute or AttributeMap instance to equal a value.
+        """Wait for a singleton Attribute or AttributeMap instance to equal a value.
 
         Singleton form is ``wait_for_attribute_equal(flow_id, attribute, expected,
         timeout)``; map form adds ``instance`` before ``expected``.
@@ -892,7 +892,9 @@ class Client:
             "int_value",
             "double_value",
         }:
-            raise ValueError("wait_for_attribute_equal supports only scalar values")
+            raise ValueError(
+                "wait_for_attribute_equal supports only string, boolean, or number values"
+            )
         self._call(
             self._service.WaitForAttribute,
             pb.WaitForAttributeRequest(

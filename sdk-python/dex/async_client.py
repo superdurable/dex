@@ -795,7 +795,7 @@ class AsyncClient:
         expected: ValueT,
         timeout: timedelta,
     ) -> None:
-        """Await a scalar Attribute in the current run equaling ``expected``.
+        """Await a singleton Attribute in the current run equaling ``expected``.
 
         The Client generates a request ID. JSON, bytes, and null values raise
         ``ValueError`` before transport. A remote expiry raises
@@ -803,7 +803,7 @@ class AsyncClient:
 
         Args:
             flow_id: The non-empty active Flow ID.
-            attribute: The registered scalar Attribute to observe.
+            attribute: The registered singleton Attribute to observe.
             expected: The string, bool, int, or float value to await.
             timeout: The non-negative server-side wait duration.
 
@@ -824,9 +824,9 @@ class AsyncClient:
         expected: ValueT,
         timeout: timedelta,
     ) -> None:
-        """Await one scalar AttributeMap instance in the current run.
+        """Await one AttributeMap instance in the current run.
 
-        Scalar restrictions, request-ID generation, timeout behavior, and
+        Primitive-value restrictions, request-ID generation, timeout behavior, and
         service errors match :meth:`wait_for_attribute_equal`.
 
         Args:
@@ -851,7 +851,7 @@ class AsyncClient:
         *args: object,
         **kwargs: object,
     ) -> None:
-        """Await a scalar Attribute or AttributeMap instance equaling a value.
+        """Await a singleton Attribute or AttributeMap instance equaling a value.
 
         Singleton form is ``wait_for_attribute_equal(flow_id, attribute, expected,
         timeout)``; map form adds ``instance`` before ``expected``.
@@ -894,7 +894,9 @@ class AsyncClient:
             "int_value",
             "double_value",
         }:
-            raise ValueError("wait_for_attribute_equal supports only scalar values")
+            raise ValueError(
+                "wait_for_attribute_equal supports only string, boolean, or number values"
+            )
         await self._call(
             self._service.WaitForAttribute,
             pb.WaitForAttributeRequest(

@@ -32,7 +32,7 @@ uv run --frozen pyright tests/integ
 - Attribute-map locks retain the instance through
   `items.lock("order-1")`.
 - Synchronous Client shapes match Java and Go while preserving Python naming.
-- Sync and async suites cover scalar Attribute/AttributeMap equality waits;
+- Sync and async suites cover singleton Attribute and AttributeMap instance equality waits;
   local contracts cover Condition IDs and map introspection.
 
 ## Error coverage

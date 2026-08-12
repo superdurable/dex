@@ -133,7 +133,7 @@ superseded Go payload structs; keep `BasicInfo` / helpers).
 - Keep application-error creation and detection on `WorkflowProvider`.
 - `FlowConfiger`: use `*dexpb.FlowConfig`; retain the ownership-transferred input
   directly and panic on a nil constructor argument. Never retain the mutable
-  `config.DefaultWorkflowConfig` pointer. FlowConfig scalar fields retain presence,
+  `config.DefaultWorkflowConfig` pointer. FlowConfig non-message fields retain presence,
   so StartFlow `flow_config_override` and `UpdateFlowConfig` apply only present
   fields. Callers must not mutate a message after transferring ownership. An absent
   start override uses the configured server default.
@@ -550,7 +550,7 @@ compile only after S5 migrates updater/query/CAN files.
   current value before `Await`, then use a pure predicate that reads the current
   store value and checks deadline, terminal, and CAN state. It creates no durable
   timeout timer and may observe timeout only after another workflow event. Compare
-  exact scalar arms; compare objects by encoding and serialized payload bytes.
+  exact primitive value arms; compare objects by encoding and serialized payload bytes.
 - TODO: design deterministic hydration for blob-backed attributes without losing
   concurrent writes during the activity yield.
 

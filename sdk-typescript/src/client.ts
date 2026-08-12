@@ -723,11 +723,11 @@ export class Client {
   }
 
   /**
-   * Waits until a scalar Attribute in the current run equals the expected value.
+   * Waits until a singleton Attribute in the current run equals the expected value.
    * Generates a request ID and rejects JSON, bytes, and null before transport.
    * @typeParam T - Attribute value type.
    * @param flowId - Non-empty active Flow ID.
-   * @param attribute - Registered scalar Attribute to observe.
+   * @param attribute - Registered singleton Attribute to observe.
    * @param expected - String, boolean, integer, or number value to await.
    * @param timeoutMs - Non-negative server-side wait duration in milliseconds.
    */
@@ -739,8 +739,8 @@ export class Client {
   ): Promise<void>;
 
   /**
-   * Waits until one scalar AttributeMap instance in the current run matches.
-   * Scalar restrictions and timeout errors match `waitForAttributeEqual`.
+   * Waits until one AttributeMap instance in the current run matches.
+   * Primitive-value restrictions and timeout errors match `waitForAttributeEqual`.
    * @typeParam T - AttributeMap value type.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered AttributeMap to observe.
@@ -757,7 +757,7 @@ export class Client {
   ): Promise<void>;
 
   /**
-   * Waits until a scalar Attribute or AttributeMap instance equals the expected value.
+   * Waits until a singleton Attribute or AttributeMap instance equals the expected value.
    * @param flowId - Non-empty active Flow ID.
    * @param attribute - Registered Attribute or AttributeMap to observe.
    * @param args - Expected value and timeout, optionally preceded by a map instance.
@@ -798,7 +798,9 @@ export class Client {
       value.kind?.$case !== "intValue" &&
       value.kind?.$case !== "doubleValue"
     ) {
-      throw new TypeError("waitForAttributeEqual supports only scalar values");
+      throw new TypeError(
+        "waitForAttributeEqual supports only string, boolean, or number values",
+      );
     }
     await unary<Empty>(
       { operation: "waitForAttributeEqual", flowId, requirement: "active" },

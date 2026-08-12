@@ -1284,8 +1284,8 @@ func (client *Client) waitForAttributeEqual(
 	if err != nil {
 		return err
 	}
-	if !isScalarValue(encoded) {
-		return fmt.Errorf("dex: WaitForAttributeEqual supports only scalar values")
+	if !isPrimitiveValue(encoded) {
+		return fmt.Errorf("dex: WaitForAttributeEqual supports only string, boolean, or number values")
 	}
 	timeout, err := mapWaitOptions(options)
 	if err != nil {
@@ -1308,7 +1308,7 @@ func (client *Client) waitForAttributeEqual(
 	return translateRPCError(err, "WaitForAttribute", flowID, flowTargetActive)
 }
 
-func isScalarValue(value *dexpb.Value) bool {
+func isPrimitiveValue(value *dexpb.Value) bool {
 	switch value.GetKind().(type) {
 	case *dexpb.Value_StringValue,
 		*dexpb.Value_BoolValue,

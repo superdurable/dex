@@ -36,7 +36,7 @@ function isPresent(value: unknown): boolean {
   return value !== undefined && value !== null && value !== '';
 }
 
-function displayScalar(value: unknown): string {
+function displayValue(value: unknown): string {
   if (value === undefined || value === null || value === '') return '—';
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'string' || typeof value === 'number') return String(value);
@@ -78,7 +78,7 @@ function Fields({ values }: { values: Array<[string, unknown]> }) {
       {visible.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>
-          <dd>{displayScalar(value)}</dd>
+          <dd>{displayValue(value)}</dd>
         </div>
       ))}
     </dl>
@@ -90,7 +90,7 @@ function ValueChip({ value }: { value: unknown }) {
   if (decoded && typeof decoded === 'object') {
     return <pre>{JSON.stringify(decoded, storedValueJSONReplacer, 2)}</pre>;
   }
-  return <code>{displayScalar(decoded)}</code>;
+  return <code>{displayValue(decoded)}</code>;
 }
 
 function unixTime(value: unknown, timezone: TimezonePreference): string | undefined {
@@ -132,7 +132,7 @@ function WaitingConditionStructured({ value }: { value: unknown }) {
       ]]} />
       {channels.map((channel, index) => (
         <div className="semantic-record channel-record" key={`${String(channel.channelName)}-${index}`}>
-          <strong>{displayScalar(channel.channelName)}</strong>
+          <strong>{displayValue(channel.channelName)}</strong>
           <Fields values={[
             ['Condition ID', channel.conditionId],
             ['At least', channel.atLeast],
@@ -159,7 +159,7 @@ function KeyValueListStructured({ value }: { value: unknown }) {
     <div className="structured-value semantic-records">
       {asDataArray(value).map((entry, index) => (
         <div className="semantic-record" key={`${String(entry.key)}-${index}`}>
-          <strong>{displayScalar(entry.key)}</strong>
+          <strong>{displayValue(entry.key)}</strong>
           <div className="semantic-value">
             <ValueChip value={entry.value} />
           </div>
@@ -207,7 +207,7 @@ function ObjectStructured({ value }: { value: Data }) {
                   ? labeled
                   : decoded && typeof decoded === 'object'
                     ? <pre>{JSON.stringify(decoded, storedValueJSONReplacer, 2)}</pre>
-                    : displayScalar(decoded)}
+                    : displayValue(decoded)}
               </dd>
             </div>
           );
@@ -226,7 +226,7 @@ function ArrayStructured({ value }: { value: unknown[] }) {
           <strong>Item {index + 1}</strong>
           {entry && typeof entry === 'object'
             ? <ObjectStructured value={asData(entry)} />
-            : <code>{displayScalar(entry)}</code>}
+            : <code>{displayValue(entry)}</code>}
         </div>
       ))}
     </div>
@@ -248,5 +248,5 @@ export function StructuredValue({ value }: { value: unknown }) {
     if (isWaitingCondition(value)) return <WaitingConditionStructured value={value} />;
     return <ObjectStructured value={asData(value)} />;
   }
-  return <code>{displayScalar(value)}</code>;
+  return <code>{displayValue(value)}</code>;
 }
