@@ -23,10 +23,8 @@ def compile_wait_and_flow_timeouts(client: Client) -> None:
     options = StartFlowOptions(timeout=timedelta(seconds=1))
     client.start_flow(SignalFlow(), "wait-timeout", 0, options)
     output: int = client.wait_for_flow(
-        "wait-timeout",
-        int,
-        timedelta(milliseconds=1),
-    )
+        "wait-timeout", timedelta(milliseconds=1)
+    ).single_output(int)
     del output
 
 

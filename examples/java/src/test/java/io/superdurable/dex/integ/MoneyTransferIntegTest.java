@@ -46,10 +46,7 @@ public class MoneyTransferIntegTest {
         assertNotNull(runId);
         assertFalse(runId.isEmpty());
 
-        final String output = environment.client().waitForFlow(
-                flowId,
-                String.class,
-                Duration.ofSeconds(45));
+        final String output = environment.client().waitForFlow(flowId, Duration.ofSeconds(45)).getSingleOutput(String.class);
         assertTrue(output.contains("transfer is done"));
         assertTrue(output.contains("from-ci"));
         assertTrue(output.contains("to-ci"));

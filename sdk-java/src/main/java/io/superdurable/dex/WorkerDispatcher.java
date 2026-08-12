@@ -254,17 +254,17 @@ final class WorkerDispatcher {
             case GRACEFUL_COMPLETE:
                 mapped.setCloseDecision(close(
                         CloseDecisionType.CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
-                        decision.getOutput(), null));
+                        decision.hasOutput(), decision.getOutput()));
                 break;
             case FORCE_COMPLETE:
                 mapped.setCloseDecision(close(
                         CloseDecisionType.CLOSE_DECISION_TYPE_FORCE_COMPLETE,
-                        decision.getOutput(), null));
+                        decision.hasOutput(), decision.getOutput()));
                 break;
             case FORCE_FAIL:
                 mapped.setCloseDecision(close(
                         CloseDecisionType.CLOSE_DECISION_TYPE_FORCE_FAIL,
-                        decision.getReason(), null));
+                        true, decision.getReason()));
                 break;
             case DEAD_END:
                 mapped.setCloseDecision(CloseDecision.newBuilder()
@@ -296,13 +296,11 @@ final class WorkerDispatcher {
 
     private CloseDecision close(
             final CloseDecisionType type,
-            final Object output,
-            final String ignored) {
+            final boolean hasOutput,
+            final Object output) {
         final CloseDecision.Builder close = CloseDecision.newBuilder()
                 .setCloseDecisionType(type);
-        if (type == CloseDecisionType.CLOSE_DECISION_TYPE_FORCE_FAIL) {
-            close.setCloseInput(values.encode(output));
-        } else if (type != CloseDecisionType.CLOSE_DECISION_TYPE_DEAD_END) {
+        if (hasOutput) {
             close.setCloseInput(values.encode(output));
         }
         return close.build();

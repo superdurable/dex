@@ -51,10 +51,7 @@ public class MicroserviceIntegTest {
 
         environment.client().publish(flowId, flow.ready, (Void) null);
 
-        final String output = environment.client().waitForFlow(
-                flowId,
-                String.class,
-                Duration.ofSeconds(45));
+        final String output = environment.client().waitForFlow(flowId, Duration.ofSeconds(45)).getSingleOutput(String.class);
         assertEquals("updated-data", output);
     }
 }

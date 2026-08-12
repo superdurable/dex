@@ -40,10 +40,7 @@ public final class StateRecoveryTest {
                 WORKFLOW)) {
             final String flowId = "state-recovery-" + UUID.randomUUID();
             environment.client().startFlow(WORKFLOW, flowId, 5);
-            assertEquals(10, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(10, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
@@ -54,24 +51,19 @@ public final class StateRecoveryTest {
                 NO_WAIT_WORKFLOW)) {
             final String flowId = "state-recovery-no-wait-" + UUID.randomUUID();
             environment.client().startFlow(NO_WAIT_WORKFLOW, flowId, 5);
-            assertEquals(10, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(10, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
     void compileWaitAndExecuteRecovery(final Client client) {
         client.startFlow(WORKFLOW, "state-recovery", 1);
-        final Integer output = client.waitForFlow("state-recovery", Integer.class);
+        final Integer output = client.waitForFlow("state-recovery").getSingleOutput(Integer.class);
         consume(output);
     }
 
     void compileExecuteOnlyRecovery(final Client client) {
         client.startFlow(NO_WAIT_WORKFLOW, "state-recovery-no-wait", 1);
-        final Integer output = client.waitForFlow(
-                "state-recovery-no-wait",
-                Integer.class);
+        final Integer output = client.waitForFlow("state-recovery-no-wait").getSingleOutput(Integer.class);
         consume(output);
     }
 

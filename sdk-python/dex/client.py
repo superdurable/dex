@@ -40,10 +40,8 @@ from dex.flow_options import (
     StopFlowOptions,
     StopType,
 )
-from dex.runtime_errors import (
-    FlowErrorType,
-    FlowUncompletedError,
-)
+from dex.flow_result import StepCompletion, WaitForFlowResult
+from dex.runtime_errors import FlowErrorType, FlowUncompletedError
 from dex.step import RetryPolicy, StepDurability
 from dex.step_execution import StepExecutionId, TimerId
 
@@ -67,7 +65,7 @@ class Client:
     Examples:
         >>> with Client(registry, cache) as client:
         ...     run_id = client.start_flow(orders, "order-42", OrderInput("42"))
-        ...     result = client.wait_for_flow("order-42", OrderResult)
+        ...     result = client.wait_for_flow("order-42").single_output(OrderResult)
     """
 
     def __init__(
@@ -501,55 +499,44 @@ class Client:
             "active",
         )
 
-    @overload
-    def wait_for_flow(self, flow_id: str) -> None: ...
-
-    @overload
     def wait_for_flow(
         self,
         flow_id: str,
-        output_type: type[OutputT],
         timeout: timedelta | None = None,
-    ) -> OutputT: ...
-
-    def wait_for_flow(
-        self,
-        flow_id: str,
-        output_type: type[Any] | None = None,
-        timeout: timedelta | None = None,
-    ) -> Any:
-        """Block until a Flow closes and optionally decode its latest Step output.
+    ) -> WaitForFlowResult:
+        """Block until a Flow closes and return all output-bearing completions.
 
         ``timeout`` is the server-side long-poll duration. A long-poll timeout is
-        retryable by calling this method again. Successful completion without a
-        matching Step output returns ``None``.
+        retryable by calling this method again. Parallel completion order is not
+        deterministic; select results by Step identity rather than position.
 
         Args:
             flow_id: The non-empty target Flow ID.
-            output_type: Optional Python type for the latest completed Step output.
             timeout: Optional non-negative server-side wait duration.
 
         Returns:
-            The decoded latest output, or ``None`` when no output type/value exists.
+            An immutable snapshot of every output-bearing Step completion.
 
         Raises:
             LongPollTimeoutError: If the Flow remains open when the wait expires.
             FlowUncompletedError: If the Flow closes without successful completion.
             FlowNotFoundError: If ``flow_id`` does not exist.
-            ValueMappingError: If a requested output cannot be decoded.
+            ValueMappingError: If Dex returns a malformed or incompatible hydrated value.
             DexServiceError: If FlowService cannot perform the wait.
         """
         response = self._wait_for_flow_response(flow_id, timeout)
-        if output_type is None:
-            return None
-        codec = self._values.codec(output_type)
-        for result in reversed(response.results):
-            if result.HasField("completed_step_output"):
-                return self._values.decode(
-                    self._hydrator.hydrate(result.completed_step_output),
-                    codec,
+        hydrated = self._hydrator.step_outputs(list(response.results))
+        return WaitForFlowResult(
+            [
+                StepCompletion(
+                    result,
+                    lambda value, output_type: self._values.decode(
+                        value, self._values.codec(output_type)
+                    ),
                 )
-        return None
+                for result in hydrated
+            ]
+        )
 
     def stop_flow(
         self,
@@ -981,13 +968,21 @@ class Client:
         if response.flow_status != pb.FLOW_STATUS_COMPLETED:
             info = self.describe_flow(flow_id)
             results = self._hydrator.step_outputs(list(response.results))
+            completions = [
+                StepCompletion(
+                    result,
+                    lambda value, output_type: self._values.decode(
+                        value, self._values.codec(output_type)
+                    ),
+                )
+                for result in results
+            ]
             raise FlowUncompletedError(
                 info.run_id,
                 self._map_flow_status(response.flow_status),
                 self._map_flow_error_type(response.error_type),
                 response.error_message or None,
-                results,
-                self._values,
+                completions,
             )
         return response
 

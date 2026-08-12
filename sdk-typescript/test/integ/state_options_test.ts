@@ -16,6 +16,6 @@ export async function compileTimeoutRetryDurabilityAndLocks(
   client: Client,
 ): Promise<void> {
   await client.startFlow(flows.STATE_OPTIONS, "state-options", undefined);
-  const output: string = await client.waitForFlow("state-options", stringCodec);
+  const output: string = await client.waitForFlow("state-options").then((result) => result.singleOutput(stringCodec));
   void output;
 }

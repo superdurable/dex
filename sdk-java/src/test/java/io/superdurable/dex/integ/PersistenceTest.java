@@ -55,10 +55,7 @@ public final class PersistenceTest {
                     .addAttribute(WORKFLOW.dataMap, "one", "initial")
                     .build();
             environment.client().startFlow(WORKFLOW, flowId, "input", options);
-            assertEquals("input", environment.client().waitForFlow(
-                    flowId,
-                    String.class,
-                    Duration.ofSeconds(30)));
+            assertEquals("input", environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(String.class));
             assertEquals("input", environment.client().getAttribute(flowId, WORKFLOW.data));
             assertEquals("initial", environment.client().getAttribute(flowId, WORKFLOW.initial));
             assertNull(environment.client().getAttribute(flowId, WORKFLOW.dataMap, "one"));
@@ -120,10 +117,7 @@ public final class PersistenceTest {
                     datetime);
             environment.client().publish(flowId, SET_ATTRIBUTES_WORKFLOW.proceed, (Void) null);
 
-            assertEquals("test-result", environment.client().waitForFlow(
-                    flowId,
-                    String.class,
-                    Duration.ofSeconds(30)));
+            assertEquals("test-result", environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(String.class));
             assertEquals(
                     "keyword-1",
                     environment.client().getAttribute(flowId, SET_ATTRIBUTES_WORKFLOW.keyword));
@@ -220,10 +214,7 @@ public final class PersistenceTest {
                     model);
             environment.client().publish(flowId, SET_ATTRIBUTES_WORKFLOW.proceed, (Void) null);
 
-            assertEquals("test-result", environment.client().waitForFlow(
-                    flowId,
-                    String.class,
-                    Duration.ofSeconds(30)));
+            assertEquals("test-result", environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(String.class));
             assertEquals(
                     "query-start",
                     environment.client().getAttribute(flowId, SET_ATTRIBUTES_WORKFLOW.data));
@@ -284,7 +275,7 @@ public final class PersistenceTest {
                 "one",
                 "value",
                 Duration.ofSeconds(30));
-        final String output = client.waitForFlow("set-attributes", String.class);
+        final String output = client.waitForFlow("set-attributes").getSingleOutput(String.class);
         consume(output);
     }
 

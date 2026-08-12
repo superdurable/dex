@@ -77,10 +77,7 @@ public class EngagementIntegTest {
                 Status.ACCEPTED,
                 Duration.ofSeconds(20));
 
-        final String output = environment.client().waitForFlow(
-                flowId,
-                String.class,
-                Duration.ofSeconds(45));
+        final String output = environment.client().waitForFlow(flowId, Duration.ofSeconds(45)).getSingleOutput(String.class);
         assertEquals("done", output);
     }
 }

@@ -27,7 +27,7 @@ export async function compileBasicAndReuse(client: Client): Promise<void> {
     idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING,
   };
   await client.startFlow(flows.BASIC, "basic", 10, options);
-  const output: number = await client.waitForFlow("basic", doubleCodec);
+  const output: number = await client.waitForFlow("basic").then((result) => result.singleOutput(doubleCodec));
   await client.startFlow(flows.ABNORMAL_EXIT, "abnormal", 10, options);
   await client.startFlow(flows.BASIC, "abnormal", output, options);
 }

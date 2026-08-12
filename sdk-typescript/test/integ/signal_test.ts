@@ -24,6 +24,6 @@ export async function compileSignalsAndTimerSkip(client: Client): Promise<void> 
     StepExecutionId.of("SignalCombinationStep"),
     TimerId.byConditionId("test-timer-id"),
   );
-  const output: number = await client.waitForFlow("signal", doubleCodec);
+  const output: number = await client.waitForFlow("signal").then((result) => result.singleOutput(doubleCodec));
   void output;
 }

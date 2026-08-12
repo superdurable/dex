@@ -16,6 +16,6 @@ export async function compileStateApiFailure(client: Client): Promise<void> {
   await client.startFlow(flows.ANY_COMBINATION_FAIL, "any-combination", 0, {
     timeoutMs: 10_000,
   });
-  const result: number = await client.waitForFlow("any-combination", doubleCodec);
+  const result: number = await client.waitForFlow("any-combination").then((result) => result.singleOutput(doubleCodec));
   void result;
 }

@@ -78,10 +78,7 @@ public class SubscriptionIntegTest {
 
         environment.client().publish(flowId, flow.cancelSubscription, (Void) null);
 
-        final String output = environment.client().waitForFlow(
-                flowId,
-                String.class,
-                Duration.ofSeconds(45));
+        final String output = environment.client().waitForFlow(flowId, Duration.ofSeconds(45)).getSingleOutput(String.class);
         assertEquals("subscription canceled", output);
     }
 }

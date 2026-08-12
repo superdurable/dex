@@ -107,7 +107,8 @@ Worker is enough; no sidecar Worker is needed.
 ```ts
 async execute(context: Context, childId: string): Promise<StepDecision> {
   await client.startFlow(childFlow, childId, input);
-  const output = await client.waitForFlow(childId, stringCodec, 5_000);
+  const result = await client.waitForFlow(childId, 5_000);
+  const output = result.singleOutput(stringCodec);
   return gracefulComplete(output);
 }
 ```
@@ -125,6 +126,21 @@ Synchronous handlers stay valid — returning a plain `StepDecision` / `Wait` /
 Every TypeScript Flow and Step must return an explicit durable name from
 `getFlowType()` or `getStepType()`. Class names are never used as fallbacks
 because bundlers and minifiers may rename them.
+
+`waitForFlow` hydrates every output-bearing completion before resolving. For a
+multi-output Flow, select by Step identity and decode each value with its codec:
+
+```typescript
+const result = await client.waitForFlow(flowId);
+const receipt = result.completions
+  .find((completion) => completion.stepType === "ChargeCard")
+  ?.decode(receiptCodec);
+```
+
+The completion array is read-only and keeps server collection order. Parallel
+branch order is not deterministic. A no-output Flow returns an empty array;
+`singleOutput` throws for zero or multiple completions. `FlowUncompletedError`
+retains the same hydrated `StepCompletion` metadata for partial outputs.
 
 ## Errors
 

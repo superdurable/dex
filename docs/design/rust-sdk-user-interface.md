@@ -128,6 +128,20 @@ options type.
 Flow IDs and run IDs remain strings, matching the server protocol and the other
 SDKs. Rust newtypes are reserved for IDs whose APIs benefit from distinct types.
 
+## Flow completion outputs
+
+`Client::wait_for_flow` and `wait_for_flow_with_timeout` return
+`SdkResult<WaitForFlowResult>` without an output type parameter. The result
+exposes `completions() -> &[StepCompletion]`; each completion retains
+`step_type`, `step_execution_id`, and an already hydrated value decoded with
+`completion.decode::<T>()`.
+
+`WaitForFlowResult::single_output::<T>()` requires exactly one completion.
+Zero or multiple completions return `SdkError::InvalidArgument`. The completion
+slice keeps server collection order, which is not a business ordering contract
+for parallel Steps. `SdkError::FlowUncompleted` carries the same completion
+model for partial outputs.
+
 ## Errors
 
 Client operations return domain-specific `SdkError` variants. Applications

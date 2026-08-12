@@ -41,7 +41,8 @@ fn test_basic_workflow() {
         2,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete basic Flow")
     );
     match environment
@@ -75,7 +76,8 @@ fn test_basic_workflow_abnormal_exit_reuse() {
         .expect("start abnormal-exit Flow");
     match environment
         .client
-        .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .and_then(|result| result.single_output::<i32>())
         .expect_err("abnormal-exit Flow must fail")
     {
         SdkError::FlowUncompleted { run_id, status, .. } => {
@@ -92,7 +94,8 @@ fn test_basic_workflow_abnormal_exit_reuse() {
         2,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete reused Flow ID")
     );
 }
@@ -111,11 +114,11 @@ fn test_empty_input_workflow() {
         .expect("start empty-input Flow");
     environment
         .client
-        .wait_for_flow_with_timeout::<()>(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
         .expect("complete empty-input Flow");
     match environment
         .client
-        .wait_for_flow_with_timeout::<()>(&missing_flow_id, Duration::from_secs(1))
+        .wait_for_flow_with_timeout(&missing_flow_id, Duration::from_secs(1))
         .expect_err("missing Flow must fail")
     {
         SdkError::FlowNotFound { service } => {
@@ -154,7 +157,7 @@ fn test_type_specified_workflow() {
         .expect("start custom-type Flow");
     environment
         .client
-        .wait_for_flow_with_timeout::<()>(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
         .expect("complete custom-type Flow");
     assert!(matches!(
         environment
@@ -180,7 +183,8 @@ fn test_model_input_workflow() {
         10,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete model-input Flow")
     );
 }
@@ -201,7 +205,8 @@ fn test_workflow_config_override() {
         2,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete Flow with config override")
     );
 }
@@ -268,7 +273,8 @@ fn test_workflow_wait_for_step_completion() {
         7,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete basic Flow")
     );
 }
@@ -289,7 +295,8 @@ fn test_proceed_on_wait_failure_workflow() {
         "input-recovered",
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("recover from wait failure")
     );
 }
@@ -310,7 +317,8 @@ fn test_mixed_wait_styles() {
         2,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("complete mixed-wait Flow")
     );
 }
@@ -329,7 +337,8 @@ fn test_movement_options_do_not_mutate_step_defaults() {
         .expect("start immutable-options Flow");
     match environment
         .client
-        .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .and_then(|result| result.single_output::<i32>())
         .expect_err("second wait failure must fail the Flow")
     {
         SdkError::FlowUncompleted {
@@ -353,7 +362,7 @@ fn compile_basic_and_reuse(client: &Client) -> SdkResult<()> {
         .timeout(Duration::from_secs(10))
         .id_reuse_policy(IdReusePolicy::AllowIfNotRunning);
     client.start_flow_with_options(&workflow, "basic", 10, options.clone())?;
-    let output: i32 = client.wait_for_flow("basic")?;
+    let output: i32 = client.wait_for_flow("basic")?.single_output()?;
     let abnormal = BasicAbnormalExitWorkflow::new();
     client.start_flow_with_options(&abnormal, "abnormal", 10, options.clone())?;
     client.start_flow_with_options(&workflow, "abnormal", output, options)?;

@@ -40,10 +40,7 @@ public final class StateOptionsTest {
                 WORKFLOW)) {
             final String flowId = "state-options-" + UUID.randomUUID();
             environment.client().startFlow(WORKFLOW, flowId, null);
-            assertEquals("success", environment.client().waitForFlow(
-                    flowId,
-                    String.class,
-                    Duration.ofSeconds(30)));
+            assertEquals("success", environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(String.class));
         }
     }
 
@@ -55,10 +52,7 @@ public final class StateOptionsTest {
             final String flowId = "state-options-locks-" + UUID.randomUUID();
             final int parallelism = 20;
             environment.client().startFlow(LOCKING_WORKFLOW, flowId, parallelism);
-            assertEquals("20:20", environment.client().waitForFlow(
-                    flowId,
-                    String.class,
-                    Duration.ofSeconds(30)));
+            assertEquals("20:20", environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(String.class));
             assertEquals(
                     parallelism,
                     environment.client().getAttribute(flowId, LOCKING_WORKFLOW.waitForCount));
@@ -70,7 +64,7 @@ public final class StateOptionsTest {
 
     void compileStepLocks(final Client client) {
         client.startFlow(LOCKING_WORKFLOW, "state-options-locks", 10);
-        final String output = client.waitForFlow("state-options-locks", String.class);
+        final String output = client.waitForFlow("state-options-locks").getSingleOutput(String.class);
         consume(output);
     }
 

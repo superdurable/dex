@@ -41,16 +41,13 @@ public final class StateOptionsOverrideTest {
             environment.client().startFlow(WORKFLOW, flowId, "input");
             assertEquals(
                     "input_state1_start_state1_decide_state2_start_state2_decide",
-                    environment.client().waitForFlow(
-                            flowId,
-                            String.class,
-                            Duration.ofSeconds(30)));
+                    environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(String.class));
         }
     }
 
     void compileMovementOptionsOverride(final Client client) {
         client.startFlow(WORKFLOW, "options-override", "input");
-        final String output = client.waitForFlow("options-override", String.class);
+        final String output = client.waitForFlow("options-override").getSingleOutput(String.class);
         consume(output);
     }
 

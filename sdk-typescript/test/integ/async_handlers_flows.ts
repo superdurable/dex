@@ -66,7 +66,7 @@ class StartAndWaitStep implements Step<string> {
 
   public async execute(_context: Context, childId: string): Promise<StepDecision> {
     await this.flow.client.startFlow(this.flow.child, childId, `child-of-${childId}`);
-    const childOutput = await this.flow.client.waitForFlow(childId, stringCodec, 30_000);
+    const childOutput = await this.flow.client.waitForFlow(childId, 30_000).then((result) => result.singleOutput(stringCodec));
     return gracefulComplete(childOutput);
   }
 }

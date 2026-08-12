@@ -13,6 +13,7 @@ export * from "./context.js";
 export * from "./errors.js";
 export { Registry } from "./flow.js";
 export type { Flow } from "./flow.js";
+export type { StepCompletion, WaitForFlowResult } from "./flow-result.js";
 export * from "./options.js";
 export * from "./persistence.js";
 export { rpc } from "./rpc.js";

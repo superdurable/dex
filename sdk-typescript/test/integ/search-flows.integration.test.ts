@@ -23,7 +23,7 @@ test("searchFlows finds an indexed flow", async () => {
     const keywordValue = `sf-${randomUUID()}`;
     const id = flowId("search-flows");
     await client.startFlow(flow, id, keywordValue);
-    assert.equal(await client.waitForFlow(id, stringCodec, 30_000), keywordValue);
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)), keywordValue);
 
     const query = `${KEYWORD_KEY} = '${keywordValue}'`;
     const entry = await pollForFlow(client, query, id);

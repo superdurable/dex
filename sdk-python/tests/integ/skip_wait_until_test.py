@@ -16,11 +16,11 @@ from .mixed_wait_flow import MixedWaitFlow
 
 def compile_execute_only_steps(client: Client) -> None:
     client.start_flow(ExecuteOnlyFlow(), "execute-only", 0)
-    output: int = client.wait_for_flow("execute-only", int)
+    output: int = client.wait_for_flow("execute-only").single_output(int)
     del output
 
 
 def compile_mixed_wait_styles(client: Client) -> None:
     client.start_flow(MixedWaitFlow(), "mixed-wait", 0)
-    output: int = client.wait_for_flow("mixed-wait", int)
+    output: int = client.wait_for_flow("mixed-wait").single_output(int)
     del output

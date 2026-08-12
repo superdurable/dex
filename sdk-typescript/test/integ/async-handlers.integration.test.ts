@@ -34,7 +34,7 @@ test("async execute awaits Client.startFlow and Client.waitForFlow on one Worker
     const childId = flowId("async-child");
     await client.startFlow(parent, parentId, childId);
     assert.equal(
-      await client.waitForFlow(parentId, stringCodec, 30_000),
+      await client.waitForFlow(parentId, 30_000).then((result) => result.singleOutput(stringCodec)),
       `child-of-${childId}`,
     );
   });
@@ -47,7 +47,7 @@ test("async execute awaits Client.invokeRPC against a flow on the same Worker", 
     const parentId = flowId("async-rpc-parent");
     const targetId = flowId("async-rpc-target");
     await client.startFlow(parent, parentId, targetId);
-    assert.equal(await client.waitForFlow(parentId, stringCodec, 30_000), "rpc-echo:hello");
+    assert.equal(await client.waitForFlow(parentId, 30_000).then((result) => result.singleOutput(stringCodec)), "rpc-echo:hello");
   });
 });
 
@@ -56,7 +56,7 @@ test("Step waitFor may resolve a Wait asynchronously", async () => {
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("async-waitfor");
     await client.startFlow(flow, id, "done");
-    assert.equal(await client.waitForFlow(id, stringCodec, 30_000), "done");
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)), "done");
   });
 });
 
@@ -66,7 +66,7 @@ test("sync and async Step handlers compose across movements", async () => {
     const id = flowId("mixed-sync-async-steps");
     await client.startFlow(flow, id, "mix");
     assert.equal(
-      await client.waitForFlow(id, stringCodec, 30_000),
+      await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)),
       "mix-async-exec-sync-exec-done",
     );
   });
@@ -78,6 +78,6 @@ test("async RPC wakes a synchronous waiting Step on the same Worker", async () =
     const id = flowId("mixed-sync-async-rpc");
     await client.startFlow(flow, id, "payload");
     assert.equal(await client.invokeRPC(flow.wake, id, "rpc"), "woke:rpc");
-    assert.equal(await client.waitForFlow(id, stringCodec, 30_000), "payload");
+    assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)), "payload");
   });
 });

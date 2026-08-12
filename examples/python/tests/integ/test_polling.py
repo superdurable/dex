@@ -17,11 +17,11 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex import AsyncClient
-
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from tests.integ.conftest import WAIT_TIMEOUT
+
+from dex import AsyncClient
 
 pytestmark = pytest.mark.integ
 
@@ -45,4 +45,6 @@ async def test_polling_completes_after_all_three_tasks(
     await client.publish(flow_id, app.polling.task_a_completed, None)
     await client.publish(flow_id, app.polling.task_b_completed, None)
 
-    assert await client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "all tasks completed"
+    assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
+        str
+    ) == "all tasks completed"

@@ -14,7 +14,7 @@ import * as flows from "./iwf_flows.js";
 
 export async function compileWaitAndExecuteRecovery(client: Client): Promise<void> {
   await client.startFlow(flows.STATE_RECOVERY, "state-recovery", 1);
-  const output: number = await client.waitForFlow("state-recovery", doubleCodec);
+  const output: number = await client.waitForFlow("state-recovery").then((result) => result.singleOutput(doubleCodec));
   void output;
 }
 
@@ -24,9 +24,6 @@ export async function compileExecuteOnlyRecovery(client: Client): Promise<void> 
     "state-recovery-no-wait",
     1,
   );
-  const output: number = await client.waitForFlow(
-    "state-recovery-no-wait",
-    doubleCodec,
-  );
+  const output: number = await client.waitForFlow("state-recovery-no-wait").then((result) => result.singleOutput(doubleCodec));
   void output;
 }

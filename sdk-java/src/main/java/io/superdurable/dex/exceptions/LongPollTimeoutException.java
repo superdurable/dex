@@ -17,7 +17,7 @@ import io.superdurable.dex.Client;
  * Thrown when a Dex long-poll operation reaches its timeout before satisfying the requested wait.
  *
  * <p>This exception can be thrown by
- * {@link Client#waitForFlow(String, Class, java.time.Duration)} and
+ * {@link Client#waitForFlow(String, java.time.Duration)} and
  * {@link Client#waitForStepCompletion(String, io.superdurable.dex.StepExecutionId,
  * java.time.Duration)}. The timeout does not itself indicate a Flow failure. Callers may catch it
  * and repeat the same wait when they want to continue polling.

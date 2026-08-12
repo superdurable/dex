@@ -1330,6 +1330,9 @@ requires result decoding. A long-poll timeout returns
 `*dex.LongPollTimeoutError` with `DeadlineExceeded` and the Flow ID. A closed
 Flow whose status is not completed returns `*dex.FlowUncompletedError` with its
 Flow ID, current run ID, status, error metadata, and requested completions.
+`DecodeSingleOutput` decodes only when exactly one completion exists; zero or
+multiple completions return a local contract error. Callers handling parallel
+branches select by `StepType` or `StepExecutionID`, not slice position.
 
 SkipTimer requires a non-empty step type and exactly one TimerID selector: a
 non-empty condition ID or a non-negative index. A nil execution number defaults
@@ -2437,6 +2440,8 @@ type WaitForFlowResult struct {
 	ErrorType    FlowErrorType
 	ErrorMessage string
 }
+
+func (result WaitForFlowResult) DecodeSingleOutput(target any) error
 
 type FlowUncompletedError struct {
 	FlowID       string

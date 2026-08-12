@@ -19,5 +19,5 @@ def compile_movement_options_override(client: Client) -> None:
         "options-override",
         "input",
     )
-    output: str = client.wait_for_flow("options-override", str)
+    output: str = client.wait_for_flow("options-override").single_output(str)
     del output

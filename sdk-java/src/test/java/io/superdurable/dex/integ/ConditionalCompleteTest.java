@@ -45,10 +45,7 @@ public final class ConditionalCompleteTest {
                     (Void) null,
                     (Void) null,
                     (Void) null);
-            assertEquals(3, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(3, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
@@ -63,10 +60,7 @@ public final class ConditionalCompleteTest {
                     ConditionalCompleteWorkflow.class,
                     flowId);
             environment.client().invokeRPC(stub::publishToInternalChannel, 3);
-            assertEquals(3, environment.client().waitForFlow(
-                    flowId,
-                    Integer.class,
-                    Duration.ofSeconds(30)));
+            assertEquals(3, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
         }
     }
 
@@ -78,7 +72,7 @@ public final class ConditionalCompleteTest {
                 (Void) null,
                 (Void) null,
                 (Void) null);
-        final Integer output = client.waitForFlow("conditional-signal", Integer.class);
+        final Integer output = client.waitForFlow("conditional-signal").getSingleOutput(Integer.class);
         consume(output);
     }
 

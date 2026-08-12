@@ -34,7 +34,8 @@ fn test_signal_channel() {
         3,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("drain signal channel")
     );
 }
@@ -62,7 +63,8 @@ fn test_internal_channel() {
         3,
         environment
             .client
-            .wait_for_flow_with_timeout::<i32>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<i32>())
             .expect("drain internal channel")
     );
 }
@@ -72,7 +74,9 @@ fn compile_conditional_complete(client: &Client) -> SdkResult<()> {
     let workflow = ConditionalCompleteWorkflow::new();
     client.start_flow(&workflow, "conditional-signal", true)?;
     client.publish_many("conditional-signal", &workflow.signal, [(), (), ()])?;
-    let _: i32 = client.wait_for_flow("conditional-signal")?;
+    let _: i32 = client
+        .wait_for_flow("conditional-signal")?
+        .single_output()?;
     client.start_flow(&workflow, "conditional-internal", false)?;
     client.invoke_rpc(
         "conditional-internal",

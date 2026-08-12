@@ -41,7 +41,10 @@ def test_persistence_reads_and_step_execution_local() -> None:
             environment.client.get_attribute(unique_id("missing"), flow.data)
         flow_id = unique_id("persistence")
         environment.client.start_flow(flow, flow_id, "input", options)
-        assert environment.client.wait_for_flow(flow_id, str, WAIT_TIMEOUT) == "input"
+        assert (
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
+            == "input"
+        )
         assert environment.client.get_attribute(flow_id, flow.data) == "input"
         assert environment.client.get_attribute(flow_id, flow.initial) == "initial"
         assert environment.client.get_attribute(flow_id, flow.data_map, "one") is None
@@ -80,7 +83,7 @@ def test_set_indexed_attributes() -> None:
         environment.client.set_attribute(flow_id, flow.datetime, timestamp)
         environment.client.publish(flow_id, flow.proceed, None)
         assert (
-            environment.client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
             == "test-result"
         )
         assert environment.client.get_attribute(flow_id, flow.keyword) == "keyword-1"
@@ -139,7 +142,7 @@ def test_set_data_attributes() -> None:
         environment.client.set_attribute(flow_id, flow.model, ModelInput(value=7))
         environment.client.publish(flow_id, flow.proceed, None)
         assert (
-            environment.client.wait_for_flow(flow_id, str, WAIT_TIMEOUT)
+            environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(str)
             == "test-result"
         )
         assert environment.client.get_attribute(flow_id, flow.data) == "query-start"

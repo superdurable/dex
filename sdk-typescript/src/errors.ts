@@ -8,10 +8,8 @@
 
 import type { status } from "@grpc/grpc-js";
 
-import type { Codec } from "./codec.js";
-import type { Value } from "./gen/dex.js";
+import type { StepCompletion } from "./flow-result.js";
 import type { FlowStatus } from "./options.js";
-import { decodeValue } from "./value-mapper.js";
 
 /** Indicates that an API is intentionally unavailable in the current SDK phase. */
 export class PhaseNotImplementedError extends Error {}
@@ -179,41 +177,18 @@ export class FlowUncompletedError extends Error {
    * @param status - Non-completed terminal status.
    * @param errorType - Terminal failure category, when available.
    * @param message - Human-readable terminal detail.
-   * @param results - Hydrated Step outputs in server order.
+   * @param completions - Hydrated Step completions in server order.
    */
   public constructor(
     public readonly runId: string,
     public readonly status: FlowStatus,
     public readonly errorType: FlowErrorType | undefined,
     message: string | undefined,
-    private readonly results: readonly Value[],
+    public readonly completions: readonly StepCompletion[],
   ) {
     super(message);
   }
 
-  /**
-   * Returns the number of retained Step completion outputs.
-   * @returns A non-negative result count.
-   */
-  public get resultCount(): number {
-    return this.results.length;
-  }
-
-  /**
-   * Decodes one completed Step output.
-   * @typeParam T - Expected output type.
-   * @param index - Zero-based output position.
-   * @param codec - Codec for the expected output type.
-   * @returns The decoded Step output.
-   * @throws {@link RangeError} when the index is outside the retained outputs.
-   */
-  public getResult<T>(index: number, codec: Codec<T>): T {
-    const value = this.results[index];
-    if (value === undefined) {
-      throw new RangeError(`result index ${index} is out of range`);
-    }
-    return decodeValue(codec, value);
-  }
 }
 
 /**

@@ -35,7 +35,7 @@ test("waitForFlow reports long-poll timeout while Flow remains running", async (
     const id = flowId("wait-timeout");
     await client.startFlow(flow, id, 1);
     const failure = await expectError(
-      client.waitForFlow(id, doubleCodec, 1_000),
+      client.waitForFlow(id, 1_000).then((result) => result.singleOutput(doubleCodec)),
       LongPollTimeoutError,
     );
     assert.equal(failure.flowId, id);
@@ -100,7 +100,7 @@ test("Worker API failure preserves the callback message", async () => {
     assert.equal(failure.status, "failed");
     assert.equal(failure.errorType, FlowErrorType.WORKER_API_FAILED);
     assert.match(failure.message, /test api failing/);
-    assert.equal(failure.resultCount, 0);
+    assert.equal(failure.completions.length, 0);
   });
 });
 
@@ -114,7 +114,7 @@ test("Worker method timeout fails the Flow", async () => {
     assert.equal(failure.status, "failed");
     assert.equal(failure.errorType, FlowErrorType.WORKER_API_FAILED);
     assert.match(failure.message, /timeout/i);
-    assert.equal(failure.resultCount, 0);
+    assert.equal(failure.completions.length, 0);
   });
 });
 
@@ -128,7 +128,7 @@ test("empty goToMulti decision fails the Flow", async () => {
     assert.equal(failure.status, "failed");
     assert.equal(failure.errorType, FlowErrorType.WORKER_API_FAILED);
     assert.match(failure.message, /goToMulti requires a movement/);
-    assert.equal(failure.resultCount, 0);
+    assert.equal(failure.completions.length, 0);
   });
 });
 
@@ -153,7 +153,7 @@ async function assertStoppedFlow(
 }
 
 async function waitForFailure(client: Client, id: string): Promise<FlowUncompletedError> {
-  return expectError(client.waitForFlow(id, doubleCodec, 15_000), FlowUncompletedError);
+  return expectError(client.waitForFlow(id, 15_000).then((result) => result.singleOutput(doubleCodec)), FlowUncompletedError);
 }
 
 function assertFailure(
@@ -168,5 +168,5 @@ function assertFailure(
   assert.equal(failure.status, status);
   assert.equal(failure.errorType, errorType);
   assert.equal(failure.message, message ?? "");
-  assert.equal(failure.resultCount, resultCount);
+  assert.equal(failure.completions.length, resultCount);
 }

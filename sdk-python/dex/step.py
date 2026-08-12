@@ -310,6 +310,9 @@ class DecisionKind(Enum):
     DEAD_END = "dead_end"
 
 
+_NO_OUTPUT = object()
+
+
 @dataclass(frozen=True)
 class StepDecision:
     """Describe the durable state transition returned by ``Step.execute``.
@@ -320,7 +323,7 @@ class StepDecision:
     Attributes:
         kind: The transition behavior interpreted by Dex.
         movements: Destination Steps for a next decision.
-        output: Optional Flow completion value.
+        output: Flow completion value, or an internal marker when omitted.
         reason: Human-readable force-failure reason.
         empty_channels: Channels that must be empty for conditional completion.
         fallback: Movement used when conditional completion cannot proceed.
@@ -328,10 +331,13 @@ class StepDecision:
 
     kind: DecisionKind
     movements: tuple[StepMovement[Any], ...] = ()
-    output: object | None = None
+    output: object = _NO_OUTPUT
     reason: str = ""
     empty_channels: tuple[Channel[Any] | ChannelMap[Any], ...] = ()
     fallback: StepMovement[Any] | None = None
+
+    def _has_output(self) -> bool:
+        return self.output is not _NO_OUTPUT
 
 
 def go_to(step: Step[InputT], input: InputT) -> StepDecision:
@@ -359,11 +365,11 @@ def go_to_multi(*movements: StepMovement[Any]) -> StepDecision:
     return StepDecision(DecisionKind.NEXT, movements=movements)
 
 
-def graceful_complete(output: object | None = None) -> StepDecision:
+def graceful_complete(output: object = _NO_OUTPUT) -> StepDecision:
     """Request successful completion after already-scheduled Steps finish.
 
     Args:
-        output: Optional codec-supported Flow result.
+        output: Optional codec-supported Flow result. Omit it for no output.
 
     Returns:
         A graceful-completion decision.
@@ -371,11 +377,11 @@ def graceful_complete(output: object | None = None) -> StepDecision:
     return StepDecision(DecisionKind.GRACEFUL_COMPLETE, output=output)
 
 
-def force_complete(output: object | None = None) -> StepDecision:
+def force_complete(output: object = _NO_OUTPUT) -> StepDecision:
     """Request immediate successful completion of the Flow.
 
     Args:
-        output: Optional codec-supported Flow result.
+        output: Optional codec-supported Flow result. Omit it for no output.
 
     Returns:
         A force-completion decision that does not await other active Steps.

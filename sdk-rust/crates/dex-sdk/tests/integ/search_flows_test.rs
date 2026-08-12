@@ -37,7 +37,8 @@ fn test_search_flows_finds_indexed_flow() {
         keyword_value,
         environment
             .client
-            .wait_for_flow_with_timeout::<String>(&flow_id, Duration::from_secs(30))
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
             .expect("complete indexed Flow")
     );
     let query = format!("{} = '{}'", SearchFlowsWorkflow::KEYWORD_KEY, keyword_value);

@@ -19,12 +19,18 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any, Callable, cast
 
+from dex_examples.config import start_options
+from dex_examples.patterns.workflow.parentchild.wait_for_child_input import (
+    WaitForChildInput,
+)
+from dex_examples.patterns.workflow.scalableparallel.child_flow import ChildFlow
+
 from dex import (
     AsyncClient,
     Channel,
     Context,
-    FlowAlreadyStartedError,
     Flow,
+    FlowAlreadyStartedError,
     LongPollTimeoutError,
     PersistenceSchema,
     Step,
@@ -36,12 +42,6 @@ from dex import (
     go_to,
     go_to_multi,
 )
-
-from dex_examples.config import start_options
-from dex_examples.patterns.workflow.parentchild.wait_for_child_input import (
-    WaitForChildInput,
-)
-from dex_examples.patterns.workflow.scalableparallel.child_flow import ChildFlow
 
 CONCURRENCY_PER_PARENT_WORKFLOW = 3
 MAX_WAIT_SECONDS = 10
@@ -67,7 +67,6 @@ class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
         try:
             await self.client_provider().wait_for_flow(
                 input.child_wf_id,
-                cast(type[Any], type(None)),
                 timedelta(seconds=max(input.timer_seconds, 1)),
             )
         except LongPollTimeoutError:

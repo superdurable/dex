@@ -23,5 +23,5 @@ def compile_state_api_failure(client: Client) -> None:
         0,
         options,
     )
-    result: int = client.wait_for_flow("any-combination", int)
+    result: int = client.wait_for_flow("any-combination").single_output(int)
     del result

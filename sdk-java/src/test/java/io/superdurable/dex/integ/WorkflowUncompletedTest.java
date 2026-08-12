@@ -59,10 +59,7 @@ public final class WorkflowUncompletedTest {
 
             final LongPollTimeoutException failure = assertThrows(
                     LongPollTimeoutException.class,
-                    () -> environment.client().waitForFlow(
-                            flowId,
-                            Integer.class,
-                            Duration.ofSeconds(1)));
+                    () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(1)).getSingleOutput(Integer.class));
             assertEquals(flowId, failure.getFlowId());
         }
     }
@@ -147,7 +144,7 @@ public final class WorkflowUncompletedTest {
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertTrue(failure.getMessage().contains("test api failing"), failure.getMessage());
-            assertEquals(0, failure.getResultCount());
+            assertEquals(0, failure.getCompletions().size());
         }
     }
 
@@ -167,7 +164,7 @@ public final class WorkflowUncompletedTest {
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertTrue(failure.getMessage().toLowerCase().contains("timeout"), failure.getMessage());
-            assertEquals(0, failure.getResultCount());
+            assertEquals(0, failure.getCompletions().size());
         }
     }
 
@@ -189,7 +186,7 @@ public final class WorkflowUncompletedTest {
             assertTrue(
                     failure.getMessage().contains("goToMulti requires a movement"),
                     failure.getMessage());
-            assertEquals(0, failure.getResultCount());
+            assertEquals(0, failure.getCompletions().size());
         }
     }
 
@@ -225,10 +222,7 @@ public final class WorkflowUncompletedTest {
             final String flowId) {
         return assertThrows(
                 FlowUncompletedException.class,
-                () -> environment.client().waitForFlow(
-                        flowId,
-                        Integer.class,
-                        Duration.ofSeconds(15)));
+                () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(15)).getSingleOutput(Integer.class));
     }
 
     private static void assertFailure(
@@ -246,7 +240,7 @@ public final class WorkflowUncompletedTest {
         } else {
             assertEquals(message, failure.getMessage());
         }
-        assertEquals(resultCount, failure.getResultCount());
+        assertEquals(resultCount, failure.getCompletions().size());
     }
 
     private static String flowId(final String prefix) {

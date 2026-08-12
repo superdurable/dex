@@ -174,8 +174,8 @@ pub enum SdkError {
         error_type: Option<FlowErrorType>,
         /// Server completion detail, when available.
         message: Option<String>,
-        /// Number of completed Step outputs returned with the failure.
-        result_count: usize,
+        /// Output-bearing Step completions returned with the failure.
+        completions: Vec<crate::StepCompletion>,
     },
     /// A registered Flow, Step, RPC, or persistence definition is invalid.
     FlowDefinition {

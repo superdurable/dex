@@ -8,6 +8,8 @@
 # Legacy Materials remain under their original licenses.
 # See LICENSE and LEGACY_NOTICES.md.
 
+from dex.async_client import AsyncClient
+from dex.async_worker import AsyncWorker
 from dex.attribute import (
     Attribute,
     AttributeIndex,
@@ -17,8 +19,6 @@ from dex.attribute import (
 )
 from dex.blob_cache import BlobCache, BlobCacheConfig, open_blob_cache
 from dex.channel import Channel, ChannelMap
-from dex.async_client import AsyncClient
-from dex.async_worker import AsyncWorker
 from dex.client import Client
 from dex.client_options import ClientOptions
 from dex.codec import (
@@ -52,6 +52,7 @@ from dex.flow_options import (
     StopFlowOptions,
     StopType,
 )
+from dex.flow_result import StepCompletion, WaitForFlowResult
 from dex.runtime_errors import (
     DexServiceError,
     ErrorSubStatus,
@@ -140,6 +141,7 @@ __all__ = [
     "RetryPolicy",
     "SearchFlowEntry",
     "SearchFlowsPage",
+    "StepCompletion",
     "StartFlowOptions",
     "StepExecutionId",
     "StepDecision",
@@ -156,6 +158,7 @@ __all__ = [
     "ValueMappingError",
     "Wait",
     "WaitForFailurePolicy",
+    "WaitForFlowResult",
     "WireKind",
     "Worker",
     "WorkerInvocationError",
