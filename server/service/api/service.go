@@ -1040,7 +1040,6 @@ func (s *serviceImpl) doInvokeRPC(
 		len(decision.GetNextSteps()) > 0 ||
 		decision.GetCloseDecision() != nil {
 		signalRequest := &dexpb.ExecuteRpcSignalRequest{
-			RpcName:          req.GetRpcName(),
 			UpsertAttributes: workerResponse.GetUpsertAttributes(),
 			StepDecision:     workerResponse.GetStepDecision(),
 			RecordEvents:     workerResponse.GetRecordEvents(),

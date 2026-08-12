@@ -1651,14 +1651,13 @@ class SyncAttributeBatchActivityInput(_message.Message):
     def __init__(self, flow_id: _Optional[str] = ..., config_name: _Optional[str] = ..., items: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
 
 class ExecuteRpcSignalRequest(_message.Message):
-    __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel", "rpc_name", "is_set_attribute_api")
+    __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel", "is_set_attribute_api")
     RPC_INPUT_FIELD_NUMBER: _ClassVar[int]
     RPC_OUTPUT_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
-    RPC_NAME_FIELD_NUMBER: _ClassVar[int]
     IS_SET_ATTRIBUTE_API_FIELD_NUMBER: _ClassVar[int]
     rpc_input: Value
     rpc_output: Value
@@ -1666,9 +1665,8 @@ class ExecuteRpcSignalRequest(_message.Message):
     step_decision: StepDecision
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
-    rpc_name: str
     is_set_attribute_api: bool
-    def __init__(self, rpc_input: _Optional[_Union[Value, _Mapping]] = ..., rpc_output: _Optional[_Union[Value, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., rpc_name: _Optional[str] = ..., is_set_attribute_api: _Optional[bool] = ...) -> None: ...
+    def __init__(self, rpc_input: _Optional[_Union[Value, _Mapping]] = ..., rpc_output: _Optional[_Union[Value, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., is_set_attribute_api: _Optional[bool] = ...) -> None: ...
 
 class SkipTimerSignalRequest(_message.Message):
     __slots__ = ("step_execution_id", "timer_condition_id", "timer_condition_index")
