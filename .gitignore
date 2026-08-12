@@ -10,6 +10,8 @@
 *.test
 *.out
 coverage.out
+server/coverage/
+server/coverage-raw/
 sdk-go/coverage/
 dex-server
 examples/go/dex-samples

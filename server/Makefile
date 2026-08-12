@@ -140,7 +140,7 @@ dex-server:
 	@echo "compiling dex-server with OS: $(GOOS), ARCH: $(GOARCH)"
 	@go build -o $@ cmd/server/main.go
 
-.PHONY: bins release clean replayTests
+.PHONY: bins release clean replayTests integrationCoverage prepareIntegrationCoverage
 
 idl-code-gen: # regenerate protobuf stubs from protos/dex.proto into server + SDKs
 	$(MAKE) -C ../protos proto
@@ -168,75 +168,86 @@ deps-all: ## Check for all dependency updates
 cleanTestCache:
 	$Q go clean -testcache
 
-integTestsTemporalWithCover: # for local debugging
-	$Q go test -v -cover ./integ -coverprofile coverage.out -coverpkg ./service/... -cadence=false
-	$Q go tool cover -func coverage.out -o coverage.out
+integrationCoverageDir ?=
+integrationCoverageFlags = $(if $(integrationCoverageDir),-covermode=atomic -coverpkg=./service/...)
+integrationCoverageArgs = $(if $(integrationCoverageDir),-args -test.gocoverdir="$(abspath $(integrationCoverageDir))")
 
-integTests:
-	$Q go test -v ./integ -timeout 20m
+prepareIntegrationCoverage:
+	$(if $(integrationCoverageDir),$Q mkdir -p "$(abspath $(integrationCoverageDir))")
 
-temporalIntegTests:
-	$Q go test -v ./integ -timeout 20m -cadence=false
+integrationCoverage:
+	$Q set -e; \
+		coverage_raw_dir="$$(mktemp -d)"; \
+		trap 'rm -rf "$$coverage_raw_dir"' EXIT; \
+		$(MAKE) --no-print-directory integTests integrationCoverageDir="$$coverage_raw_dir"; \
+		./script/merge-integ-coverage.sh coverage "$$coverage_raw_dir"
+
+integTests: prepareIntegrationCoverage
+	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 20m $(integrationCoverageArgs)
+
+temporalIntegTests: prepareIntegrationCoverage
+	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 20m -cadence=false $(integrationCoverageArgs)
 
 dexServerAddress ?= 127.0.0.1:8801
 temporalHostPort ?= 127.0.0.1:7233
 skipContinueAsNewTests ?= true
 
-temporalIntegTestsAgainstLocalDexDev:
+temporalIntegTestsAgainstLocalDexDev: prepareIntegrationCoverage
 	$Q set -e; \
 		test_run_pattern='.'; \
 		if [ "$(skipContinueAsNewTests)" = "true" ]; then \
 			test_run_pattern="$$(go test -v ./integ -list '^Test' -temporal=false -cadence=false -dependencyWaitSeconds=0 | awk '/^Test/ && $$0 !~ /ContinueAsNew/ { tests = tests separator $$0; separator = "|" } END { print "^(" tests ")$$" }')"; \
 		fi; \
-		go test -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -cadence=false -dexServerAddress=$(dexServerAddress) -temporalHostPort=$(temporalHostPort)
+		go test $(integrationCoverageFlags) -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -cadence=false -dexServerAddress=$(dexServerAddress) -temporalHostPort=$(temporalHostPort) $(integrationCoverageArgs)
 
-cadenceIntegTests:
-	$Q go test -v ./integ -timeout 20m -temporal=false
+cadenceIntegTests: prepareIntegrationCoverage
+	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 20m -temporal=false $(integrationCoverageArgs)
 
-ci-web-api-temporal-test:
-	$Q go test -v ./integ -timeout 5m -run '^TestWebAPITemporal$$' -search=false -cadence=false -dependencyWaitSeconds=60 -temporalHostPort=$(temporalHostPort)
+ci-web-api-temporal-test: prepareIntegrationCoverage
+	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 5m -run '^TestWebAPITemporal$$' -search=false -cadence=false -dependencyWaitSeconds=60 -temporalHostPort=$(temporalHostPort) $(integrationCoverageArgs)
 
-ci-web-api-cadence-test:
-	$Q go test -v ./integ -timeout 5m -run '^TestWebAPICadence$$' -search=false -temporal=false -dependencyWaitSeconds=180
+ci-web-api-cadence-test: prepareIntegrationCoverage
+	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 5m -run '^TestWebAPICadence$$' -search=false -temporal=false -dependencyWaitSeconds=180 $(integrationCoverageArgs)
 
 totalPartitions ?= 1
 partitionNum ?= 0
 
-ci-cadence-integ-test:
+ci-cadence-integ-test: prepareIntegrationCoverage
 	$Q set -e; \
 		test_run_pattern="$$(./script/select-integ-test-partition.sh "$(totalPartitions)" "$(partitionNum)")"; \
-		go test -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -temporal=false -dependencyWaitSeconds=180
+		go test $(integrationCoverageFlags) -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -temporal=false -dependencyWaitSeconds=180 $(integrationCoverageArgs)
 
-ci-cadence-integ-test-disable-sticky:
-	$Q go test -v ./integ -run "(?i)^Test[${startsWith}]" -search=false -temporal=false -dependencyWaitSeconds=180 -disableStickyCache
+ci-cadence-integ-test-disable-sticky: prepareIntegrationCoverage
+	$Q go test $(integrationCoverageFlags) -v ./integ -run "(?i)^Test[${startsWith}]" -search=false -temporal=false -dependencyWaitSeconds=180 -disableStickyCache $(integrationCoverageArgs)
 
-ci-temporal-integ-test:
+ci-temporal-integ-test: prepareIntegrationCoverage
 	$Q set -e; \
 		test_run_pattern="$$(./script/select-integ-test-partition.sh "$(totalPartitions)" "$(partitionNum)")"; \
-		go test -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -cadence=false -dependencyWaitSeconds=60
+		go test $(integrationCoverageFlags) -v ./integ -timeout 20m -run "$$test_run_pattern" -search=false -cadence=false -dependencyWaitSeconds=60 $(integrationCoverageArgs)
 
-ci-temporal-integ-test-disable-sticky:
-	$Q go test -v ./integ -timeout 20m -run "(?i)^Test[${startsWith}]" -search=false -cadence=false -dependencyWaitSeconds=60 -disableStickyCache
+ci-temporal-integ-test-disable-sticky: prepareIntegrationCoverage
+	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 20m -run "(?i)^Test[${startsWith}]" -search=false -cadence=false -dependencyWaitSeconds=60 -disableStickyCache $(integrationCoverageArgs)
 
 ci-all-tests:
 	$Q go test -v ./... -timeout 20m -cover -coverprofile coverage.out -coverpkg ./service/...
 
-integTestsNoSearch:
-	$Q go test -v ./integ -search=false -timeout 20m
+integTestsNoSearch: prepareIntegrationCoverage
+	$Q go test $(integrationCoverageFlags) -v ./integ -search=false -timeout 20m $(integrationCoverageArgs)
 
 unitTests:
 	@GOWORK=off go test -v $$(GOWORK=off go list ./service/... | grep -v ./service/common/blobstore)
+	@GOWORK=off go test -v ./service/common/blobstore -run '^TestDeterministicBlobUUID'
 
 # Requires SQL dependencies and covers both workflow backends in dedicated CI.
-attributeStoreIntegTests:
-	@GOWORK=off go test -v -tags=attributestore_integration ./service/common/attributestore -timeout 5m
-	@GOWORK=off go test -v -tags=attributestore_integration ./integ -run '^TestAttributeSync' -timeout 10m
+attributeStoreIntegTests: prepareIntegrationCoverage
+	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./service/common/attributestore -run '^TestMySQLAndPostgresAttributeStoreIntegration$$' -timeout 5m $(integrationCoverageArgs)
+	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./integ -run '^TestAttributeSync' -timeout 10m $(integrationCoverageArgs)
 
-blobStoreIntegTests:
-	@GOWORK=off go test -v ./service/common/blobstore -timeout 5m
+blobStoreIntegTests: prepareIntegrationCoverage
+	@GOWORK=off go test $(integrationCoverageFlags) -v ./service/common/blobstore -run '^(TestBlobStoreIntegration|TestLocalBlobStore|TestS3AttributeBlobCache)' -timeout 5m $(integrationCoverageArgs)
 
-localBlobStoreTests:
-	@GOWORK=off go test -v ./service/common/blobstore -run '^TestLocalBlobStore'
+localBlobStoreTests: prepareIntegrationCoverage
+	@GOWORK=off go test $(integrationCoverageFlags) -v ./service/common/blobstore -run '^TestLocalBlobStore' $(integrationCoverageArgs)
 
 replayTests:
 	@GOWORK=off go test -v ./replayTests -timeout 10m
