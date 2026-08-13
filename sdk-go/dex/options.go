@@ -14,6 +14,8 @@ import "time"
 
 // RetryPolicy overrides retry timing for a Step's WaitFor or Execute method.
 // Zero fields preserve server defaults; MaximumAttempts counts the initial attempt.
+// With asynchronous durability, local and regular execution share attempts and elapsed duration.
+// Fallback is immediate, while subsequent regular retries continue the cumulative backoff sequence.
 type RetryPolicy struct {
 	// InitialInterval is the delay before the first retry.
 	InitialInterval time.Duration

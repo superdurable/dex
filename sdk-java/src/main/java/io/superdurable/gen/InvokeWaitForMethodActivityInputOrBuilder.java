@@ -39,4 +39,19 @@ public interface InvokeWaitForMethodActivityInputOrBuilder extends
    * <code>.dex.InvokeWaitForMethodRequest request = 2;</code>
    */
   io.superdurable.gen.InvokeWaitForMethodRequestOrBuilder getRequestOrBuilder();
+
+  /**
+   * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+   * @return Whether the retryContext field is set.
+   */
+  boolean hasRetryContext();
+  /**
+   * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+   * @return The retryContext.
+   */
+  io.superdurable.gen.InternalStepActivityRetryContext getRetryContext();
+  /**
+   * <code>.dex.InternalStepActivityRetryContext retry_context = 3;</code>
+   */
+  io.superdurable.gen.InternalStepActivityRetryContextOrBuilder getRetryContextOrBuilder();
 }

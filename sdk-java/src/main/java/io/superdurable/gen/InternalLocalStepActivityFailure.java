@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.InvokeExecuteMethodActivityInput}
+ * Protobuf type {@code dex.InternalLocalStepActivityFailure}
  */
 @com.google.protobuf.Generated
-public final class InvokeExecuteMethodActivityInput extends
+public final class InternalLocalStepActivityFailure extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.InvokeExecuteMethodActivityInput)
-    InvokeExecuteMethodActivityInputOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.InternalLocalStepActivityFailure)
+    InternalLocalStepActivityFailureOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,93 +21,103 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "InvokeExecuteMethodActivityInput");
+      "InternalLocalStepActivityFailure");
   }
-  // Use InvokeExecuteMethodActivityInput.newBuilder() to construct.
-  private InvokeExecuteMethodActivityInput(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use InternalLocalStepActivityFailure.newBuilder() to construct.
+  private InternalLocalStepActivityFailure(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private InvokeExecuteMethodActivityInput() {
+  private InternalLocalStepActivityFailure() {
+    stepType_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_InvokeExecuteMethodActivityInput_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_InternalLocalStepActivityFailure_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_InvokeExecuteMethodActivityInput_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_InternalLocalStepActivityFailure_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_InvokeExecuteMethodActivityInput_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_InternalLocalStepActivityFailure_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.InvokeExecuteMethodActivityInput.class, io.superdurable.gen.InvokeExecuteMethodActivityInput.Builder.class);
+            io.superdurable.gen.InternalLocalStepActivityFailure.class, io.superdurable.gen.InternalLocalStepActivityFailure.Builder.class);
   }
 
   private int bitField0_;
-  public static final int WORKER_TARGET_FIELD_NUMBER = 1;
-  private io.superdurable.gen.WorkerTarget workerTarget_;
+  public static final int LOCAL_ACTIVITY_INPUT_FIELD_NUMBER = 1;
+  private io.superdurable.gen.LocalActivityInput localActivityInput_;
   /**
-   * <code>.dex.WorkerTarget worker_target = 1;</code>
-   * @return Whether the workerTarget field is set.
+   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+   * @return Whether the localActivityInput field is set.
    */
   @java.lang.Override
-  public boolean hasWorkerTarget() {
+  public boolean hasLocalActivityInput() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.WorkerTarget worker_target = 1;</code>
-   * @return The workerTarget.
+   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+   * @return The localActivityInput.
    */
   @java.lang.Override
-  public io.superdurable.gen.WorkerTarget getWorkerTarget() {
-    return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+  public io.superdurable.gen.LocalActivityInput getLocalActivityInput() {
+    return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
   }
   /**
-   * <code>.dex.WorkerTarget worker_target = 1;</code>
+   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder() {
-    return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+  public io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder() {
+    return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
   }
 
-  public static final int REQUEST_FIELD_NUMBER = 2;
-  private io.superdurable.gen.InvokeExecuteMethodRequest request_;
+  public static final int STEP_TYPE_FIELD_NUMBER = 2;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object stepType_ = "";
   /**
-   * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
-   * @return Whether the request field is set.
+   * <code>string step_type = 2;</code>
+   * @return The stepType.
    */
   @java.lang.Override
-  public boolean hasRequest() {
-    return ((bitField0_ & 0x00000002) != 0);
+  public java.lang.String getStepType() {
+    java.lang.Object ref = stepType_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      stepType_ = s;
+      return s;
+    }
   }
   /**
-   * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
-   * @return The request.
+   * <code>string step_type = 2;</code>
+   * @return The bytes for stepType.
    */
   @java.lang.Override
-  public io.superdurable.gen.InvokeExecuteMethodRequest getRequest() {
-    return request_ == null ? io.superdurable.gen.InvokeExecuteMethodRequest.getDefaultInstance() : request_;
-  }
-  /**
-   * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
-   */
-  @java.lang.Override
-  public io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder getRequestOrBuilder() {
-    return request_ == null ? io.superdurable.gen.InvokeExecuteMethodRequest.getDefaultInstance() : request_;
+  public com.google.protobuf.ByteString
+      getStepTypeBytes() {
+    java.lang.Object ref = stepType_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      stepType_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
   }
 
   public static final int IS_TRANSIENT_STEP_FIELD_NUMBER = 3;
   private boolean isTransientStep_ = false;
   /**
-   * <pre>
-   * Requires a DeadEnd close decision without next steps.
-   * </pre>
-   *
    * <code>bool is_transient_step = 3;</code>
    * @return The isTransientStep.
    */
@@ -124,7 +134,7 @@ private static final long serialVersionUID = 0L;
    */
   @java.lang.Override
   public boolean hasRetryContext() {
-    return ((bitField0_ & 0x00000004) != 0);
+    return ((bitField0_ & 0x00000002) != 0);
   }
   /**
    * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
@@ -142,6 +152,17 @@ private static final long serialVersionUID = 0L;
     return retryContext_ == null ? io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance() : retryContext_;
   }
 
+  public static final int ATTEMPT_FIELD_NUMBER = 5;
+  private int attempt_ = 0;
+  /**
+   * <code>int32 attempt = 5;</code>
+   * @return The attempt.
+   */
+  @java.lang.Override
+  public int getAttempt() {
+    return attempt_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -157,16 +178,19 @@ private static final long serialVersionUID = 0L;
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(1, getWorkerTarget());
+      output.writeMessage(1, getLocalActivityInput());
     }
-    if (((bitField0_ & 0x00000002) != 0)) {
-      output.writeMessage(2, getRequest());
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepType_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, stepType_);
     }
     if (isTransientStep_ != false) {
       output.writeBool(3, isTransientStep_);
     }
-    if (((bitField0_ & 0x00000004) != 0)) {
+    if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(4, getRetryContext());
+    }
+    if (attempt_ != 0) {
+      output.writeInt32(5, attempt_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -174,19 +198,22 @@ private static final long serialVersionUID = 0L;
     int size = 0;
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(1, getWorkerTarget());
+        .computeMessageSize(1, getLocalActivityInput());
     }
-    if (((bitField0_ & 0x00000002) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(2, getRequest());
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepType_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, stepType_);
     }
     if (isTransientStep_ != false) {
       size += com.google.protobuf.CodedOutputStream
         .computeBoolSize(3, isTransientStep_);
     }
-    if (((bitField0_ & 0x00000004) != 0)) {
+    if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(4, getRetryContext());
+    }
+    if (attempt_ != 0) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeInt32Size(5, attempt_);
     }
     return size;
   }
@@ -207,21 +234,18 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.InvokeExecuteMethodActivityInput)) {
+    if (!(obj instanceof io.superdurable.gen.InternalLocalStepActivityFailure)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.InvokeExecuteMethodActivityInput other = (io.superdurable.gen.InvokeExecuteMethodActivityInput) obj;
+    io.superdurable.gen.InternalLocalStepActivityFailure other = (io.superdurable.gen.InternalLocalStepActivityFailure) obj;
 
-    if (hasWorkerTarget() != other.hasWorkerTarget()) return false;
-    if (hasWorkerTarget()) {
-      if (!getWorkerTarget()
-          .equals(other.getWorkerTarget())) return false;
+    if (hasLocalActivityInput() != other.hasLocalActivityInput()) return false;
+    if (hasLocalActivityInput()) {
+      if (!getLocalActivityInput()
+          .equals(other.getLocalActivityInput())) return false;
     }
-    if (hasRequest() != other.hasRequest()) return false;
-    if (hasRequest()) {
-      if (!getRequest()
-          .equals(other.getRequest())) return false;
-    }
+    if (!getStepType()
+        .equals(other.getStepType())) return false;
     if (getIsTransientStep()
         != other.getIsTransientStep()) return false;
     if (hasRetryContext() != other.hasRetryContext()) return false;
@@ -229,6 +253,8 @@ private static final long serialVersionUID = 0L;
       if (!getRetryContext()
           .equals(other.getRetryContext())) return false;
     }
+    if (getAttempt()
+        != other.getAttempt()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -240,14 +266,12 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    if (hasWorkerTarget()) {
-      hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
-      hash = (53 * hash) + getWorkerTarget().hashCode();
+    if (hasLocalActivityInput()) {
+      hash = (37 * hash) + LOCAL_ACTIVITY_INPUT_FIELD_NUMBER;
+      hash = (53 * hash) + getLocalActivityInput().hashCode();
     }
-    if (hasRequest()) {
-      hash = (37 * hash) + REQUEST_FIELD_NUMBER;
-      hash = (53 * hash) + getRequest().hashCode();
-    }
+    hash = (37 * hash) + STEP_TYPE_FIELD_NUMBER;
+    hash = (53 * hash) + getStepType().hashCode();
     hash = (37 * hash) + IS_TRANSIENT_STEP_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
         getIsTransientStep());
@@ -255,49 +279,51 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + RETRY_CONTEXT_FIELD_NUMBER;
       hash = (53 * hash) + getRetryContext().hashCode();
     }
+    hash = (37 * hash) + ATTEMPT_FIELD_NUMBER;
+    hash = (53 * hash) + getAttempt();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
   }
 
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(byte[] data)
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -305,26 +331,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseDelimitedFrom(
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput parseFrom(
+  public static io.superdurable.gen.InternalLocalStepActivityFailure parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -337,7 +363,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.InvokeExecuteMethodActivityInput prototype) {
+  public static Builder newBuilder(io.superdurable.gen.InternalLocalStepActivityFailure prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -353,26 +379,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.InvokeExecuteMethodActivityInput}
+   * Protobuf type {@code dex.InternalLocalStepActivityFailure}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.InvokeExecuteMethodActivityInput)
-      io.superdurable.gen.InvokeExecuteMethodActivityInputOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.InternalLocalStepActivityFailure)
+      io.superdurable.gen.InternalLocalStepActivityFailureOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_InvokeExecuteMethodActivityInput_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_InternalLocalStepActivityFailure_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_InvokeExecuteMethodActivityInput_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_InternalLocalStepActivityFailure_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.InvokeExecuteMethodActivityInput.class, io.superdurable.gen.InvokeExecuteMethodActivityInput.Builder.class);
+              io.superdurable.gen.InternalLocalStepActivityFailure.class, io.superdurable.gen.InternalLocalStepActivityFailure.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.InvokeExecuteMethodActivityInput.newBuilder()
+    // Construct using io.superdurable.gen.InternalLocalStepActivityFailure.newBuilder()
     private Builder() {
       maybeForceBuilderInitialization();
     }
@@ -385,8 +411,7 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetWorkerTargetFieldBuilder();
-        internalGetRequestFieldBuilder();
+        internalGetLocalActivityInputFieldBuilder();
         internalGetRetryContextFieldBuilder();
       }
     }
@@ -394,39 +419,36 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      workerTarget_ = null;
-      if (workerTargetBuilder_ != null) {
-        workerTargetBuilder_.dispose();
-        workerTargetBuilder_ = null;
+      localActivityInput_ = null;
+      if (localActivityInputBuilder_ != null) {
+        localActivityInputBuilder_.dispose();
+        localActivityInputBuilder_ = null;
       }
-      request_ = null;
-      if (requestBuilder_ != null) {
-        requestBuilder_.dispose();
-        requestBuilder_ = null;
-      }
+      stepType_ = "";
       isTransientStep_ = false;
       retryContext_ = null;
       if (retryContextBuilder_ != null) {
         retryContextBuilder_.dispose();
         retryContextBuilder_ = null;
       }
+      attempt_ = 0;
       return this;
     }
 
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_InvokeExecuteMethodActivityInput_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_InternalLocalStepActivityFailure_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.InvokeExecuteMethodActivityInput getDefaultInstanceForType() {
-      return io.superdurable.gen.InvokeExecuteMethodActivityInput.getDefaultInstance();
+    public io.superdurable.gen.InternalLocalStepActivityFailure getDefaultInstanceForType() {
+      return io.superdurable.gen.InternalLocalStepActivityFailure.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.InvokeExecuteMethodActivityInput build() {
-      io.superdurable.gen.InvokeExecuteMethodActivityInput result = buildPartial();
+    public io.superdurable.gen.InternalLocalStepActivityFailure build() {
+      io.superdurable.gen.InternalLocalStepActivityFailure result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -434,27 +456,24 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.InvokeExecuteMethodActivityInput buildPartial() {
-      io.superdurable.gen.InvokeExecuteMethodActivityInput result = new io.superdurable.gen.InvokeExecuteMethodActivityInput(this);
+    public io.superdurable.gen.InternalLocalStepActivityFailure buildPartial() {
+      io.superdurable.gen.InternalLocalStepActivityFailure result = new io.superdurable.gen.InternalLocalStepActivityFailure(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.InvokeExecuteMethodActivityInput result) {
+    private void buildPartial0(io.superdurable.gen.InternalLocalStepActivityFailure result) {
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.workerTarget_ = workerTargetBuilder_ == null
-            ? workerTarget_
-            : workerTargetBuilder_.build();
+        result.localActivityInput_ = localActivityInputBuilder_ == null
+            ? localActivityInput_
+            : localActivityInputBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.request_ = requestBuilder_ == null
-            ? request_
-            : requestBuilder_.build();
-        to_bitField0_ |= 0x00000002;
+        result.stepType_ = stepType_;
       }
       if (((from_bitField0_ & 0x00000004) != 0)) {
         result.isTransientStep_ = isTransientStep_;
@@ -463,34 +482,42 @@ private static final long serialVersionUID = 0L;
         result.retryContext_ = retryContextBuilder_ == null
             ? retryContext_
             : retryContextBuilder_.build();
-        to_bitField0_ |= 0x00000004;
+        to_bitField0_ |= 0x00000002;
+      }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.attempt_ = attempt_;
       }
       result.bitField0_ |= to_bitField0_;
     }
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.InvokeExecuteMethodActivityInput) {
-        return mergeFrom((io.superdurable.gen.InvokeExecuteMethodActivityInput)other);
+      if (other instanceof io.superdurable.gen.InternalLocalStepActivityFailure) {
+        return mergeFrom((io.superdurable.gen.InternalLocalStepActivityFailure)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.InvokeExecuteMethodActivityInput other) {
-      if (other == io.superdurable.gen.InvokeExecuteMethodActivityInput.getDefaultInstance()) return this;
-      if (other.hasWorkerTarget()) {
-        mergeWorkerTarget(other.getWorkerTarget());
+    public Builder mergeFrom(io.superdurable.gen.InternalLocalStepActivityFailure other) {
+      if (other == io.superdurable.gen.InternalLocalStepActivityFailure.getDefaultInstance()) return this;
+      if (other.hasLocalActivityInput()) {
+        mergeLocalActivityInput(other.getLocalActivityInput());
       }
-      if (other.hasRequest()) {
-        mergeRequest(other.getRequest());
+      if (!other.getStepType().isEmpty()) {
+        stepType_ = other.stepType_;
+        bitField0_ |= 0x00000002;
+        onChanged();
       }
       if (other.getIsTransientStep() != false) {
         setIsTransientStep(other.getIsTransientStep());
       }
       if (other.hasRetryContext()) {
         mergeRetryContext(other.getRetryContext());
+      }
+      if (other.getAttempt() != 0) {
+        setAttempt(other.getAttempt());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -520,15 +547,13 @@ private static final long serialVersionUID = 0L;
               break;
             case 10: {
               input.readMessage(
-                  internalGetWorkerTargetFieldBuilder().getBuilder(),
+                  internalGetLocalActivityInputFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
             } // case 10
             case 18: {
-              input.readMessage(
-                  internalGetRequestFieldBuilder().getBuilder(),
-                  extensionRegistry);
+              stepType_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000002;
               break;
             } // case 18
@@ -544,6 +569,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 34
+            case 40: {
+              attempt_ = input.readInt32();
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 40
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -561,254 +591,201 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private io.superdurable.gen.WorkerTarget workerTarget_;
+    private io.superdurable.gen.LocalActivityInput localActivityInput_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder> workerTargetBuilder_;
+        io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder> localActivityInputBuilder_;
     /**
-     * <code>.dex.WorkerTarget worker_target = 1;</code>
-     * @return Whether the workerTarget field is set.
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * @return Whether the localActivityInput field is set.
      */
-    public boolean hasWorkerTarget() {
+    public boolean hasLocalActivityInput() {
       return ((bitField0_ & 0x00000001) != 0);
     }
     /**
-     * <code>.dex.WorkerTarget worker_target = 1;</code>
-     * @return The workerTarget.
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * @return The localActivityInput.
      */
-    public io.superdurable.gen.WorkerTarget getWorkerTarget() {
-      if (workerTargetBuilder_ == null) {
-        return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+    public io.superdurable.gen.LocalActivityInput getLocalActivityInput() {
+      if (localActivityInputBuilder_ == null) {
+        return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
       } else {
-        return workerTargetBuilder_.getMessage();
+        return localActivityInputBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
-    public Builder setWorkerTarget(io.superdurable.gen.WorkerTarget value) {
-      if (workerTargetBuilder_ == null) {
+    public Builder setLocalActivityInput(io.superdurable.gen.LocalActivityInput value) {
+      if (localActivityInputBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        workerTarget_ = value;
+        localActivityInput_ = value;
       } else {
-        workerTargetBuilder_.setMessage(value);
+        localActivityInputBuilder_.setMessage(value);
       }
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
-    public Builder setWorkerTarget(
-        io.superdurable.gen.WorkerTarget.Builder builderForValue) {
-      if (workerTargetBuilder_ == null) {
-        workerTarget_ = builderForValue.build();
+    public Builder setLocalActivityInput(
+        io.superdurable.gen.LocalActivityInput.Builder builderForValue) {
+      if (localActivityInputBuilder_ == null) {
+        localActivityInput_ = builderForValue.build();
       } else {
-        workerTargetBuilder_.setMessage(builderForValue.build());
+        localActivityInputBuilder_.setMessage(builderForValue.build());
       }
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
-    public Builder mergeWorkerTarget(io.superdurable.gen.WorkerTarget value) {
-      if (workerTargetBuilder_ == null) {
+    public Builder mergeLocalActivityInput(io.superdurable.gen.LocalActivityInput value) {
+      if (localActivityInputBuilder_ == null) {
         if (((bitField0_ & 0x00000001) != 0) &&
-          workerTarget_ != null &&
-          workerTarget_ != io.superdurable.gen.WorkerTarget.getDefaultInstance()) {
-          getWorkerTargetBuilder().mergeFrom(value);
+          localActivityInput_ != null &&
+          localActivityInput_ != io.superdurable.gen.LocalActivityInput.getDefaultInstance()) {
+          getLocalActivityInputBuilder().mergeFrom(value);
         } else {
-          workerTarget_ = value;
+          localActivityInput_ = value;
         }
       } else {
-        workerTargetBuilder_.mergeFrom(value);
+        localActivityInputBuilder_.mergeFrom(value);
       }
-      if (workerTarget_ != null) {
+      if (localActivityInput_ != null) {
         bitField0_ |= 0x00000001;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
-    public Builder clearWorkerTarget() {
+    public Builder clearLocalActivityInput() {
       bitField0_ = (bitField0_ & ~0x00000001);
-      workerTarget_ = null;
-      if (workerTargetBuilder_ != null) {
-        workerTargetBuilder_.dispose();
-        workerTargetBuilder_ = null;
+      localActivityInput_ = null;
+      if (localActivityInputBuilder_ != null) {
+        localActivityInputBuilder_.dispose();
+        localActivityInputBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
-    public io.superdurable.gen.WorkerTarget.Builder getWorkerTargetBuilder() {
+    public io.superdurable.gen.LocalActivityInput.Builder getLocalActivityInputBuilder() {
       bitField0_ |= 0x00000001;
       onChanged();
-      return internalGetWorkerTargetFieldBuilder().getBuilder();
+      return internalGetLocalActivityInputFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
-    public io.superdurable.gen.WorkerTargetOrBuilder getWorkerTargetOrBuilder() {
-      if (workerTargetBuilder_ != null) {
-        return workerTargetBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder() {
+      if (localActivityInputBuilder_ != null) {
+        return localActivityInputBuilder_.getMessageOrBuilder();
       } else {
-        return workerTarget_ == null ?
-            io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
+        return localActivityInput_ == null ?
+            io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
       }
     }
     /**
-     * <code>.dex.WorkerTarget worker_target = 1;</code>
+     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder> 
-        internalGetWorkerTargetFieldBuilder() {
-      if (workerTargetBuilder_ == null) {
-        workerTargetBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.WorkerTarget, io.superdurable.gen.WorkerTarget.Builder, io.superdurable.gen.WorkerTargetOrBuilder>(
-                getWorkerTarget(),
+        io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder> 
+        internalGetLocalActivityInputFieldBuilder() {
+      if (localActivityInputBuilder_ == null) {
+        localActivityInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder>(
+                getLocalActivityInput(),
                 getParentForChildren(),
                 isClean());
-        workerTarget_ = null;
+        localActivityInput_ = null;
       }
-      return workerTargetBuilder_;
+      return localActivityInputBuilder_;
     }
 
-    private io.superdurable.gen.InvokeExecuteMethodRequest request_;
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodRequest.Builder, io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder> requestBuilder_;
+    private java.lang.Object stepType_ = "";
     /**
-     * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
-     * @return Whether the request field is set.
+     * <code>string step_type = 2;</code>
+     * @return The stepType.
      */
-    public boolean hasRequest() {
-      return ((bitField0_ & 0x00000002) != 0);
-    }
-    /**
-     * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
-     * @return The request.
-     */
-    public io.superdurable.gen.InvokeExecuteMethodRequest getRequest() {
-      if (requestBuilder_ == null) {
-        return request_ == null ? io.superdurable.gen.InvokeExecuteMethodRequest.getDefaultInstance() : request_;
+    public java.lang.String getStepType() {
+      java.lang.Object ref = stepType_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        stepType_ = s;
+        return s;
       } else {
-        return requestBuilder_.getMessage();
+        return (java.lang.String) ref;
       }
     }
     /**
-     * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
+     * <code>string step_type = 2;</code>
+     * @return The bytes for stepType.
      */
-    public Builder setRequest(io.superdurable.gen.InvokeExecuteMethodRequest value) {
-      if (requestBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        request_ = value;
+    public com.google.protobuf.ByteString
+        getStepTypeBytes() {
+      java.lang.Object ref = stepType_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        stepType_ = b;
+        return b;
       } else {
-        requestBuilder_.setMessage(value);
+        return (com.google.protobuf.ByteString) ref;
       }
+    }
+    /**
+     * <code>string step_type = 2;</code>
+     * @param value The stepType to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStepType(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      stepType_ = value;
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
+     * <code>string step_type = 2;</code>
+     * @return This builder for chaining.
      */
-    public Builder setRequest(
-        io.superdurable.gen.InvokeExecuteMethodRequest.Builder builderForValue) {
-      if (requestBuilder_ == null) {
-        request_ = builderForValue.build();
-      } else {
-        requestBuilder_.setMessage(builderForValue.build());
-      }
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
-     */
-    public Builder mergeRequest(io.superdurable.gen.InvokeExecuteMethodRequest value) {
-      if (requestBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0) &&
-          request_ != null &&
-          request_ != io.superdurable.gen.InvokeExecuteMethodRequest.getDefaultInstance()) {
-          getRequestBuilder().mergeFrom(value);
-        } else {
-          request_ = value;
-        }
-      } else {
-        requestBuilder_.mergeFrom(value);
-      }
-      if (request_ != null) {
-        bitField0_ |= 0x00000002;
-        onChanged();
-      }
-      return this;
-    }
-    /**
-     * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
-     */
-    public Builder clearRequest() {
+    public Builder clearStepType() {
+      stepType_ = getDefaultInstance().getStepType();
       bitField0_ = (bitField0_ & ~0x00000002);
-      request_ = null;
-      if (requestBuilder_ != null) {
-        requestBuilder_.dispose();
-        requestBuilder_ = null;
-      }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
+     * <code>string step_type = 2;</code>
+     * @param value The bytes for stepType to set.
+     * @return This builder for chaining.
      */
-    public io.superdurable.gen.InvokeExecuteMethodRequest.Builder getRequestBuilder() {
+    public Builder setStepTypeBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      stepType_ = value;
       bitField0_ |= 0x00000002;
       onChanged();
-      return internalGetRequestFieldBuilder().getBuilder();
-    }
-    /**
-     * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
-     */
-    public io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder getRequestOrBuilder() {
-      if (requestBuilder_ != null) {
-        return requestBuilder_.getMessageOrBuilder();
-      } else {
-        return request_ == null ?
-            io.superdurable.gen.InvokeExecuteMethodRequest.getDefaultInstance() : request_;
-      }
-    }
-    /**
-     * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodRequest.Builder, io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder> 
-        internalGetRequestFieldBuilder() {
-      if (requestBuilder_ == null) {
-        requestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodRequest.Builder, io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder>(
-                getRequest(),
-                getParentForChildren(),
-                isClean());
-        request_ = null;
-      }
-      return requestBuilder_;
+      return this;
     }
 
     private boolean isTransientStep_ ;
     /**
-     * <pre>
-     * Requires a DeadEnd close decision without next steps.
-     * </pre>
-     *
      * <code>bool is_transient_step = 3;</code>
      * @return The isTransientStep.
      */
@@ -817,10 +794,6 @@ private static final long serialVersionUID = 0L;
       return isTransientStep_;
     }
     /**
-     * <pre>
-     * Requires a DeadEnd close decision without next steps.
-     * </pre>
-     *
      * <code>bool is_transient_step = 3;</code>
      * @param value The isTransientStep to set.
      * @return This builder for chaining.
@@ -833,10 +806,6 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <pre>
-     * Requires a DeadEnd close decision without next steps.
-     * </pre>
-     *
      * <code>bool is_transient_step = 3;</code>
      * @return This builder for chaining.
      */
@@ -968,23 +937,55 @@ private static final long serialVersionUID = 0L;
       return retryContextBuilder_;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.InvokeExecuteMethodActivityInput)
+    private int attempt_ ;
+    /**
+     * <code>int32 attempt = 5;</code>
+     * @return The attempt.
+     */
+    @java.lang.Override
+    public int getAttempt() {
+      return attempt_;
+    }
+    /**
+     * <code>int32 attempt = 5;</code>
+     * @param value The attempt to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAttempt(int value) {
+
+      attempt_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>int32 attempt = 5;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAttempt() {
+      bitField0_ = (bitField0_ & ~0x00000010);
+      attempt_ = 0;
+      onChanged();
+      return this;
+    }
+
+    // @@protoc_insertion_point(builder_scope:dex.InternalLocalStepActivityFailure)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.InvokeExecuteMethodActivityInput)
-  private static final io.superdurable.gen.InvokeExecuteMethodActivityInput DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.InternalLocalStepActivityFailure)
+  private static final io.superdurable.gen.InternalLocalStepActivityFailure DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.InvokeExecuteMethodActivityInput();
+    DEFAULT_INSTANCE = new io.superdurable.gen.InternalLocalStepActivityFailure();
   }
 
-  public static io.superdurable.gen.InvokeExecuteMethodActivityInput getDefaultInstance() {
+  public static io.superdurable.gen.InternalLocalStepActivityFailure getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<InvokeExecuteMethodActivityInput>
-      PARSER = new com.google.protobuf.AbstractParser<InvokeExecuteMethodActivityInput>() {
+  private static final com.google.protobuf.Parser<InternalLocalStepActivityFailure>
+      PARSER = new com.google.protobuf.AbstractParser<InternalLocalStepActivityFailure>() {
     @java.lang.Override
-    public InvokeExecuteMethodActivityInput parsePartialFrom(
+    public InternalLocalStepActivityFailure parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -1003,17 +1004,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<InvokeExecuteMethodActivityInput> parser() {
+  public static com.google.protobuf.Parser<InternalLocalStepActivityFailure> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<InvokeExecuteMethodActivityInput> getParserForType() {
+  public com.google.protobuf.Parser<InternalLocalStepActivityFailure> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.InvokeExecuteMethodActivityInput getDefaultInstanceForType() {
+  public io.superdurable.gen.InternalLocalStepActivityFailure getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

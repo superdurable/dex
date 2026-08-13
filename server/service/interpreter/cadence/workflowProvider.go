@@ -79,7 +79,9 @@ func (w *workflowProvider) MapToWorkerError(err error) (*dexpb.WorkerErrorRespon
 	if errors.As(err, &customError) {
 		var errorResponse *dexpb.ErrorResponse
 		if customError.HasDetails() {
-			if detailsErr := customError.Details(&errorResponse); detailsErr != nil {
+			var detailsErr error
+			errorResponse, _, detailsErr = decodeCadenceStepErrorDetails(customError)
+			if detailsErr != nil {
 				return nil, fmt.Errorf("decode Cadence Step failure details: %w", detailsErr)
 			}
 		}
@@ -286,31 +288,10 @@ func (w *workflowProvider) WithActivityOptions(
 		panic("cannot convert to cadence workflow context")
 	}
 
-	unlimited := time.Hour * 24 * 365
-	startToCloseTimeout := options.StartToCloseTimeout
-	if startToCloseTimeout == 0 {
-		// unlimited to match Temporal for default
-		startToCloseTimeout = unlimited
-	}
+	wfCtx2 := workflow.WithActivityOptions(wfCtx, cadenceActivityOptions(options))
 
-	wfCtx2 := workflow.WithActivityOptions(wfCtx, workflow.ActivityOptions{
-		ActivityID:             options.ActivityID,
-		StartToCloseTimeout:    startToCloseTimeout,
-		ScheduleToStartTimeout: time.Second * 10,
-		HeartbeatTimeout:       options.HeartbeatTimeout,
-		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
-	})
-
-	// Local activity optimization defaults to 7s so the workflow does not need a heartbeat.
-	localActivityTimeout := 7 * time.Second
-	if options.LocalActivityScheduleToCloseTimeout > 0 {
-		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
-	}
-	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, workflow.LocalActivityOptions{
-		ScheduleToCloseTimeout: localActivityTimeout,
-		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
-	})
-	return interfaces.NewUnifiedContext(wfCtx3)
+	wfCtx3 := workflow.WithLocalActivityOptions(wfCtx2, cadenceLocalActivityOptions(options))
+	return interfaces.NewUnifiedActivityContext(wfCtx3, options)
 }
 
 type futureImpl struct {
@@ -352,14 +333,136 @@ func (w *workflowProvider) ExecuteActivity(
 	case dexpb.StepDurability_STEP_DURABILITY_SYNC:
 		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 	case dexpb.StepDurability_STEP_DURABILITY_ASYNC:
-		err = workflow.ExecuteLocalActivity(wfCtx, activity, localArgs...).Get(wfCtx, valuePtr)
+		options, optionsFound := interfaces.ActivityOptionsFromContext(ctx)
+		if !optionsFound {
+			panic("activity options required for ASYNC durability")
+		}
+		localCtx := workflow.WithLocalActivityOptions(wfCtx, cadenceLocalActivityOptions(options))
+		firstAttemptTime := workflow.Now(wfCtx)
+		retryContext, isStepMethodActivity := interfaces.InitializeStepActivityRetryContext(
+			regularInput,
+			options,
+			firstAttemptTime,
+		)
+		err = workflow.ExecuteLocalActivity(localCtx, activity, localArgs...).Get(localCtx, valuePtr)
 		if err == nil {
 			return nil
 		}
-		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		if !isStepMethodActivity {
+			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
+		}
+		customError, localError, isApplicationFailure := cadenceLocalStepActivityError(err)
+		if !isApplicationFailure {
+			return err
+		}
+		previousAttempts := localError.GetFailure().GetAttempt()
+		remainingPolicy, canFallback := retry.RemainingActivityRetryPolicy(
+			options.RetryPolicy,
+			previousAttempts,
+			workflow.Now(wfCtx).Sub(firstAttemptTime),
+		)
+		if !canFallback {
+			return cadenceFinalFlowError(customError, localError.GetErrorResponse())
+		}
+		regularInput = interfaces.StepActivityInputForFallback(regularInput, retryContext, previousAttempts)
+		options.RetryPolicy = remainingPolicy
+		regularCtx := workflow.WithActivityOptions(wfCtx, cadenceActivityOptions(options))
+		regularArgs = []interface{}{regularInput}
+		if localActivityOnlyInput != nil {
+			regularArgs = append(regularArgs, nil)
+		}
+		return workflow.ExecuteActivity(regularCtx, activity, regularArgs...).Get(regularCtx, valuePtr)
 	default:
 		return fmt.Errorf("unsupported step durability %s", durability)
 	}
+}
+
+func cadenceActivityOptions(options interfaces.ActivityOptions) workflow.ActivityOptions {
+	unlimited := time.Hour * 24 * 365
+	startToCloseTimeout := options.StartToCloseTimeout
+	if startToCloseTimeout == 0 {
+		// unlimited to match Temporal for default
+		startToCloseTimeout = unlimited
+	}
+	return workflow.ActivityOptions{
+		ActivityID:             options.ActivityID,
+		StartToCloseTimeout:    startToCloseTimeout,
+		ScheduleToStartTimeout: time.Second * 10,
+		HeartbeatTimeout:       options.HeartbeatTimeout,
+		RetryPolicy:            retry.ConvertCadenceActivityRetryPolicy(options.RetryPolicy),
+	}
+}
+
+func cadenceLocalActivityOptions(options interfaces.ActivityOptions) workflow.LocalActivityOptions {
+	// Local activity optimization defaults to 7s so the workflow does not need a heartbeat.
+	localActivityTimeout := 7 * time.Second
+	if options.LocalActivityScheduleToCloseTimeout > 0 {
+		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
+	}
+	if totalDuration := options.RetryPolicy.GetTotalDurationSeconds(); totalDuration > 0 && time.Duration(totalDuration)*time.Second < localActivityTimeout {
+		localActivityTimeout = time.Duration(totalDuration) * time.Second
+	}
+	localRetryPolicy := retry.LocalActivityRetryPolicy(options.RetryPolicy, localActivityTimeout)
+	return workflow.LocalActivityOptions{
+		ScheduleToCloseTimeout: localActivityTimeout,
+		RetryPolicy:            retry.ConvertCadenceLocalActivityRetryPolicy(localRetryPolicy),
+	}
+}
+
+func cadenceLocalStepActivityError(
+	err error,
+) (*cadence.CustomError, *dexpb.InternalLocalStepActivityError, bool) {
+	var customError *cadence.CustomError
+	if !errors.As(err, &customError) {
+		return nil, nil, false
+	}
+	if !customError.HasDetails() {
+		panic("Cadence local Step failure details required")
+	}
+	var localError *dexpb.InternalLocalStepActivityError
+	if detailErr := customError.Details(&localError); detailErr != nil {
+		panic(fmt.Sprintf("decode Cadence local Step failure details: %v", detailErr))
+	}
+	if localError.GetErrorResponse() == nil || localError.GetFailure() == nil {
+		panic("Cadence local Step failure details are incomplete")
+	}
+	if localError.GetFailure().GetAttempt() <= 0 {
+		panic("Cadence local Step failure attempt required")
+	}
+	return customError, localError, true
+}
+
+func cadenceFinalFlowError(
+	customError *cadence.CustomError,
+	errorResponse *dexpb.ErrorResponse,
+) error {
+	return cadence.NewCustomError(customError.Reason(), errorResponse)
+}
+
+func decodeCadenceStepErrorDetails(
+	customError *cadence.CustomError,
+) (*dexpb.ErrorResponse, *dexpb.InternalLocalStepActivityFailure, error) {
+	var localError *dexpb.InternalLocalStepActivityError
+	localDetailsErr := customError.Details(&localError)
+	if localDetailsErr == nil {
+		if localError.GetErrorResponse() != nil && localError.GetFailure() != nil {
+			return localError.GetErrorResponse(), localError.GetFailure(), nil
+		}
+		localDetailsErr = fmt.Errorf("Cadence local Step failure details are incomplete")
+	}
+	var response *dexpb.ErrorResponse
+	regularDetailsErr := customError.Details(&response)
+	if regularDetailsErr != nil {
+		return nil, nil, fmt.Errorf(
+			"decode local details: %v; decode regular details: %w",
+			localDetailsErr,
+			regularDetailsErr,
+		)
+	}
+	if response == nil {
+		return nil, nil, fmt.Errorf("Cadence Step failure details are nil")
+	}
+	return response, nil, nil
 }
 
 func (w *workflowProvider) ExecuteLocalActivity(

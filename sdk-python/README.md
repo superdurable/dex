@@ -115,6 +115,12 @@ Applications implement two generic interfaces from [`dex`](dex/):
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
 two handler calls. Timer and channel conditions determine how long a Step waits.
 
+`wait_for_retry` and `execute_retry` limit one logical handler execution. With
+`StepDurability.ASYNC`, local and fallback regular activities share maximum
+attempts, total duration, and 1-based attempt numbers. Fallback starts
+immediately; later regular retries continue the backoff sequence at the
+cumulative attempt.
+
 `Registry` validates every Flow, Step, RPC signature, durable name, lock, and
 codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.

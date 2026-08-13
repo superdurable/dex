@@ -70,6 +70,9 @@ module map.
   obvious.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
+- Boolean variables and constants, and methods returning booleans, must use
+  predicate names such as `isXxx`, `hasXxx`, `canXxx`, `shouldXxx`, or
+  `supportsXxx`, following the language's capitalization conventions.
 - Do not defensively `proto.Clone` / deep-copy messages "just in case". Passing a
   message transfers ownership unless the API says otherwise. Workflow inputs,
   signals, and activity payloads are freshly deserialized and single-threaded.

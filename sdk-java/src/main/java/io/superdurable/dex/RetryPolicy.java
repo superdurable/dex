@@ -18,6 +18,9 @@ import java.time.Duration;
  * <p>Only values supplied to the builder override server defaults. An operation stops retrying when
  * either its maximum attempts or total duration limit is reached. Durations use
  * {@link java.time.Duration}; the receiving API determines whether subsecond precision is accepted.
+ * With asynchronous Step durability, local and regular execution share the same attempt and elapsed
+ * duration budgets. Fallback starts immediately, while later regular retries continue the cumulative
+ * exponential-backoff sequence.
  *
  * <pre>{@code
  * RetryPolicy retry = RetryPolicy.newBuilder()

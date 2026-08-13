@@ -54,6 +54,36 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.Equal(t, "worker stack", workerError.GetStackTrace())
 	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
 
+	localWorkerFailure := (&activityProvider{}).NewLocalActivityError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		&dexpb.InternalLocalStepActivityError{
+			ErrorResponse: original,
+			Failure:       &dexpb.InternalLocalStepActivityFailure{Attempt: 2},
+		},
+	)
+	workerError, err = provider.MapToWorkerError(localWorkerFailure)
+	require.NoError(t, err)
+	require.Equal(t, "worker detail", workerError.GetDetail())
+	require.Equal(t, "worker type", workerError.GetErrorType())
+	require.Equal(t, "worker stack", workerError.GetStackTrace())
+	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
+	var localApplicationError *temporalsdk.ApplicationError
+	require.ErrorAs(t, localWorkerFailure, &localApplicationError)
+	require.Equal(t, 11*time.Second, localApplicationError.NextRetryDelay())
+	decodedApplicationError, localError, isApplicationFailure := temporalLocalStepActivityError(localWorkerFailure)
+	require.True(t, isApplicationFailure)
+	require.Same(t, localApplicationError, decodedApplicationError)
+	require.Equal(t, int32(2), localError.GetFailure().GetAttempt())
+
+	finalFailure := temporalFinalFlowError(decodedApplicationError, localError.GetErrorResponse())
+	var finalApplicationError *temporalsdk.ApplicationError
+	require.ErrorAs(t, finalFailure, &finalApplicationError)
+	var finalResponse *dexpb.ErrorResponse
+	require.NoError(t, finalApplicationError.Details(&finalResponse))
+	require.Equal(t, original, finalResponse)
+	var leakedLocalError *dexpb.InternalLocalStepActivityError
+	require.Error(t, temporalApplicationErrorDetails(finalApplicationError, &leakedLocalError))
+
 	timeoutFailure := temporalsdk.NewTimeoutError(enums.TIMEOUT_TYPE_START_TO_CLOSE, nil)
 	timeoutError, err := provider.MapToWorkerError(timeoutFailure)
 	require.NoError(t, err)

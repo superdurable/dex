@@ -345,14 +345,16 @@ message StepExecuteFailedEvent {
   attributes、channel、record event 和 step-local side effects；失败 event 只返回最终
   terminal failure；
 - `context`：step execution identity、lineage、durability、final attempt、started time、
-  duration、method options，以及 SYNC retry 的最近一次 failure。
+  duration、method options，以及 regular Activity retry 的最近一次 failure。
 
 不返回 previous attempt failures。SYNC Activity retry 只返回紧邻最终 attempt 的
 `last_failure_info`；terminal failure 放在 `output.failure`。两者的 `attempt` 分别标识其
 对应 attempt。`backend_error` 在 Temporal 上依次取 application failure type、timeout type
 或 fallback failure message；在 Cadence 上取 activity failure reason 或 timeout type。只有
-backend failure 携带可解码的 `ErrorResponse` 时才设置 `details`。ASYNC local failure 只用于
-触发 regular Activity fallback，不展示为用户事件。
+backend failure 携带可解码的 `ErrorResponse` 时才设置 `details`。
+`StepMethodFailure.attempt` 使用跨 local/regular 的 1-based 累计 attempt。发生 regular
+fallback 时，local failure 不展示为用户事件；retry budget 在 local 阶段耗尽时，local
+failure 本身生成 terminal failed event。
 
 Web 只消费统一的 `input/output/context`，不根据 durability 选择额外 API。Server 在
 `GetHistoryEvents` 内部按实际执行路径补齐数据：
@@ -382,9 +384,12 @@ local snapshot 不存在、external storage 未启用或数据已清理时，ser
 | ASYNC success | LocalActivity marker result | 一个 completed event |
 | ASYNC local failure + fallback success | failure marker + regular Activity lifecycle | 一个 completed event；不展示 local failure |
 | ASYNC local failure + fallback failure | failure marker + regular Activity failure | 一个 failed event；只展示 terminal failure |
+| ASYNC local failure + budget exhausted | failure marker | 一个 failed event；不调度 regular Activity |
 | Flow 在 regular Activity 完成前关闭 | Activity scheduled/started + Flow closed | 一个 pending method event 和一个 close event |
 
 `durability` 表示请求的 Dex durability。ASYNC fallback 最终由 regular Activity 完成时仍返回 `STEP_DURABILITY_ASYNC`。
+local 与 regular 共享 maximum attempts、total duration 和累计 attempt。fallback 不等待
+transition backoff；regular Activity 扣除 local 已用 budget，并按累计 attempt 重算 initial interval。
 
 Pending method 是独立 semantic event，使用 Activity scheduled event ID，并以
 `SCHEDULED` 或 `STARTED` 标识关闭前最后一个已持久化的 lifecycle 阶段。
@@ -693,7 +698,7 @@ Phase 2 使用 `server/integ/`：
 - method options：SYNC 从 scheduled metadata 转换，ASYNC 从 `InternalLocalActivityInput` 保存并恢复。
 - channel values、多个 timers、ANY/ALL results 从保存的 worker request 精确恢复。
 - local failure fallback 使用 regular Activity history request，且不暴露 local failure。
-- sync retry 只返回最近一次 failure；async fallback 不返回 retry failure。
+- sync 和 async regular retry 只返回最近一次 failure；local failure 在 fallback 期间不暴露。
 - 关闭存储或清理后只对缺失的 async snapshot 返回 `input.unavailable=true`。
 - local filesystem storage 覆盖 string/object blob、run-level cleanup 和安全路径。
 

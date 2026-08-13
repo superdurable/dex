@@ -1594,12 +1594,14 @@ class BlobStoreCleanupWorkflowOutput(_message.Message):
     def __init__(self, total_deleted: _Optional[int] = ...) -> None: ...
 
 class InvokeWaitForMethodActivityInput(_message.Message):
-    __slots__ = ("worker_target", "request")
+    __slots__ = ("worker_target", "request", "retry_context")
     WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
     REQUEST_FIELD_NUMBER: _ClassVar[int]
+    RETRY_CONTEXT_FIELD_NUMBER: _ClassVar[int]
     worker_target: WorkerTarget
     request: InvokeWaitForMethodRequest
-    def __init__(self, worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., request: _Optional[_Union[InvokeWaitForMethodRequest, _Mapping]] = ...) -> None: ...
+    retry_context: InternalStepActivityRetryContext
+    def __init__(self, worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., request: _Optional[_Union[InvokeWaitForMethodRequest, _Mapping]] = ..., retry_context: _Optional[_Union[InternalStepActivityRetryContext, _Mapping]] = ...) -> None: ...
 
 class InvokeWaitForMethodActivityOutput(_message.Message):
     __slots__ = ("response",)
@@ -1608,14 +1610,48 @@ class InvokeWaitForMethodActivityOutput(_message.Message):
     def __init__(self, response: _Optional[_Union[InvokeWaitForMethodResponse, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodActivityInput(_message.Message):
-    __slots__ = ("worker_target", "request", "is_transient_step")
+    __slots__ = ("worker_target", "request", "is_transient_step", "retry_context")
     WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
     REQUEST_FIELD_NUMBER: _ClassVar[int]
     IS_TRANSIENT_STEP_FIELD_NUMBER: _ClassVar[int]
+    RETRY_CONTEXT_FIELD_NUMBER: _ClassVar[int]
     worker_target: WorkerTarget
     request: InvokeExecuteMethodRequest
     is_transient_step: bool
-    def __init__(self, worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., request: _Optional[_Union[InvokeExecuteMethodRequest, _Mapping]] = ..., is_transient_step: _Optional[bool] = ...) -> None: ...
+    retry_context: InternalStepActivityRetryContext
+    def __init__(self, worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., request: _Optional[_Union[InvokeExecuteMethodRequest, _Mapping]] = ..., is_transient_step: _Optional[bool] = ..., retry_context: _Optional[_Union[InternalStepActivityRetryContext, _Mapping]] = ...) -> None: ...
+
+class InternalStepActivityRetryContext(_message.Message):
+    __slots__ = ("previous_attempts", "first_attempt_timestamp", "original_method_options")
+    PREVIOUS_ATTEMPTS_FIELD_NUMBER: _ClassVar[int]
+    FIRST_ATTEMPT_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
+    ORIGINAL_METHOD_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    previous_attempts: int
+    first_attempt_timestamp: int
+    original_method_options: StepMethodOptions
+    def __init__(self, previous_attempts: _Optional[int] = ..., first_attempt_timestamp: _Optional[int] = ..., original_method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ...) -> None: ...
+
+class InternalLocalStepActivityFailure(_message.Message):
+    __slots__ = ("local_activity_input", "step_type", "is_transient_step", "retry_context", "attempt")
+    LOCAL_ACTIVITY_INPUT_FIELD_NUMBER: _ClassVar[int]
+    STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
+    IS_TRANSIENT_STEP_FIELD_NUMBER: _ClassVar[int]
+    RETRY_CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    ATTEMPT_FIELD_NUMBER: _ClassVar[int]
+    local_activity_input: LocalActivityInput
+    step_type: str
+    is_transient_step: bool
+    retry_context: InternalStepActivityRetryContext
+    attempt: int
+    def __init__(self, local_activity_input: _Optional[_Union[LocalActivityInput, _Mapping]] = ..., step_type: _Optional[str] = ..., is_transient_step: _Optional[bool] = ..., retry_context: _Optional[_Union[InternalStepActivityRetryContext, _Mapping]] = ..., attempt: _Optional[int] = ...) -> None: ...
+
+class InternalLocalStepActivityError(_message.Message):
+    __slots__ = ("error_response", "failure")
+    ERROR_RESPONSE_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_FIELD_NUMBER: _ClassVar[int]
+    error_response: ErrorResponse
+    failure: InternalLocalStepActivityFailure
+    def __init__(self, error_response: _Optional[_Union[ErrorResponse, _Mapping]] = ..., failure: _Optional[_Union[InternalLocalStepActivityFailure, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodActivityOutput(_message.Message):
     __slots__ = ("response",)

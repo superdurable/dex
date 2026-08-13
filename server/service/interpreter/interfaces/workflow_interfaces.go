@@ -21,6 +21,10 @@ import (
 type ActivityProvider interface {
 	GetLogger(ctx context.Context) UnifiedLogger
 	NewFlowError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse) error
+	NewLocalActivityError(
+		errType dexpb.FlowErrorType,
+		localError *dexpb.InternalLocalStepActivityError,
+	) error
 	GetActivityInfo(ctx context.Context) ActivityInfo
 	RecordHeartbeat(ctx context.Context, details ...interface{})
 }
@@ -68,7 +72,8 @@ type UnifiedContext interface {
 }
 
 type contextHolder struct {
-	ctx interface{}
+	ctx             interface{}
+	activityOptions *ActivityOptions
 }
 
 func (c *contextHolder) GetContext() interface{} {
@@ -79,6 +84,21 @@ func NewUnifiedContext(ctx interface{}) UnifiedContext {
 	return &contextHolder{
 		ctx: ctx,
 	}
+}
+
+func NewUnifiedActivityContext(ctx interface{}, options ActivityOptions) UnifiedContext {
+	return &contextHolder{
+		ctx:             ctx,
+		activityOptions: &options,
+	}
+}
+
+func ActivityOptionsFromContext(ctx UnifiedContext) (ActivityOptions, bool) {
+	holder, ok := ctx.(*contextHolder)
+	if !ok || holder.activityOptions == nil {
+		return ActivityOptions{}, false
+	}
+	return *holder.activityOptions, true
 }
 
 type TimerProcessor interface {

@@ -38,6 +38,32 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.Equal(t, "worker stack", workerError.GetStackTrace())
 	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
 
+	localWorkerFailure := (&activityProvider{}).NewLocalActivityError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		&dexpb.InternalLocalStepActivityError{
+			ErrorResponse: original,
+			Failure:       &dexpb.InternalLocalStepActivityFailure{Attempt: 2},
+		},
+	)
+	workerError, err = provider.MapToWorkerError(localWorkerFailure)
+	require.NoError(t, err)
+	require.Equal(t, "worker detail", workerError.GetDetail())
+	require.Equal(t, "worker type", workerError.GetErrorType())
+	require.Equal(t, "worker stack", workerError.GetStackTrace())
+	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
+	customError, localError, isApplicationFailure := cadenceLocalStepActivityError(localWorkerFailure)
+	require.True(t, isApplicationFailure)
+	require.Equal(t, int32(2), localError.GetFailure().GetAttempt())
+
+	finalFailure := cadenceFinalFlowError(customError, localError.GetErrorResponse())
+	var finalCustomError *cadence.CustomError
+	require.ErrorAs(t, finalFailure, &finalCustomError)
+	var finalResponse *dexpb.ErrorResponse
+	require.NoError(t, finalCustomError.Details(&finalResponse))
+	require.Equal(t, original, finalResponse)
+	var leakedLocalError *dexpb.InternalLocalStepActivityError
+	require.Error(t, finalCustomError.Details(&leakedLocalError))
+
 	timeoutFailure := workflow.NewTimeoutError(shared.TimeoutTypeStartToClose)
 	timeoutError, err := provider.MapToWorkerError(timeoutFailure)
 	require.NoError(t, err)

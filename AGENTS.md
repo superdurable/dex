@@ -286,6 +286,12 @@ receivers are exempt (Go convention: `func (w *Worker) ...`).
 
 Allowed short non-receiver names: `i j k n err ctx ok t mu wg id r w ch`
 
+### Boolean Names Are Predicates
+
+Boolean variables and constants, and methods returning booleans, must use names
+that clearly signal boolean semantics, such as `isXxx`, `hasXxx`, `canXxx`,
+`shouldXxx`, or `supportsXxx`. Follow each language's capitalization conventions.
+
 ## Go SDK Conventions (`sdk-go/`)
 
 Prefer explicit domain naming, thin public APIs, apply-style options, and

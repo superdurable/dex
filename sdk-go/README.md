@@ -89,6 +89,12 @@ handler calls. Timer and channel conditions determine how long a Step waits.
 Use `dex.Until(condition)` for one condition, and `dex.AllOf` or `dex.AnyOf`
 for multiple conditions.
 
+`WaitForRetry` and `ExecuteRetry` limit one logical handler execution. With
+`StepDurabilityAsync`, local and fallback regular activities share maximum
+attempts, total duration, and 1-based attempt numbers. Fallback starts
+immediately; later regular retries continue the backoff sequence at the
+cumulative attempt.
+
 Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass
 `nil` at every call site. It rejects accidental values unlike `any` and makes
 the absence of a payload explicit.

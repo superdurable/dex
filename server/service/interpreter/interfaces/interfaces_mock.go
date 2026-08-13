@@ -88,6 +88,31 @@ func (mr *MockActivityProviderMockRecorder) NewFlowError(errType, errorResponse 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockActivityProvider)(nil).NewFlowError), errType, errorResponse)
 }
 
+// NewLocalActivityError mocks base method.
+func (m *MockActivityProvider) NewLocalActivityError(
+	errType dexpb.FlowErrorType,
+	localError *dexpb.InternalLocalStepActivityError,
+) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewLocalActivityError", errType, localError)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// NewLocalActivityError indicates an expected call of NewLocalActivityError.
+func (mr *MockActivityProviderMockRecorder) NewLocalActivityError(
+	errType, localError interface{},
+) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(
+		mr.mock,
+		"NewLocalActivityError",
+		reflect.TypeOf((*MockActivityProvider)(nil).NewLocalActivityError),
+		errType,
+		localError,
+	)
+}
+
 // RecordHeartbeat mocks base method.
 func (m *MockActivityProvider) RecordHeartbeat(ctx context.Context, details ...interface{}) {
 	m.ctrl.T.Helper()

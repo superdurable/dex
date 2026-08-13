@@ -23,6 +23,7 @@ import (
 	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
 	historybuilder "github.com/superdurable/dex/service/client/history"
+	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/index"
 	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/utils"
@@ -893,6 +894,31 @@ func (t *temporalClient) recordTemporalLocalActivity(
 	result := attributes.GetDetails()["result"]
 	if result == nil {
 		localFallbackCounts[activityMethod(marker.ActivityType)]++
+		failure, metadata, err := t.temporalLocalStepFailure(attributes.GetFailure())
+		if err != nil {
+			return err
+		}
+		if metadata == nil {
+			return nil
+		}
+		switch {
+		case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
+			builder.RecordLocalActivityFailed(
+				event.GetEventId(),
+				event.GetEventTime().AsTime(),
+				blobstore.StepEventInputMethodWaitFor,
+				failure,
+				metadata,
+			)
+		case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
+			builder.RecordLocalActivityFailed(
+				event.GetEventId(),
+				event.GetEventTime().AsTime(),
+				blobstore.StepEventInputMethodExecute,
+				failure,
+				metadata,
+			)
+		}
 		return nil
 	}
 	switch {
@@ -931,8 +957,46 @@ func (t *temporalClient) recordTemporalLocalActivity(
 func (t *temporalClient) temporalStepFailure(
 	failure *failurepb.Failure,
 ) (*dexpb.StepMethodFailure, error) {
+	stepFailure := temporalStepFailureFromBackend(failure)
+	applicationFailure := failure.GetApplicationFailureInfo()
+	if applicationFailure == nil || len(applicationFailure.GetDetails().GetPayloads()) == 0 {
+		return stepFailure, nil
+	}
+	details := &dexpb.ErrorResponse{}
+	payloads := applicationFailure.GetDetails().GetPayloads()
+	if err := t.dataConverter.FromPayload(payloads[0], details); err != nil {
+		return nil, fmt.Errorf("decode step failure details: %w", err)
+	}
+	stepFailure.Details = details
+	return stepFailure, nil
+}
+
+func (t *temporalClient) temporalLocalStepFailure(
+	failure *failurepb.Failure,
+) (*dexpb.StepMethodFailure, *dexpb.InternalLocalStepActivityFailure, error) {
+	stepFailure := temporalStepFailureFromBackend(failure)
+	applicationFailure := failure.GetApplicationFailureInfo()
+	if applicationFailure == nil {
+		return stepFailure, nil, nil
+	}
+	payloads := applicationFailure.GetDetails().GetPayloads()
+	if len(payloads) == 0 {
+		return stepFailure, nil, nil
+	}
+	localError := &dexpb.InternalLocalStepActivityError{}
+	if err := t.dataConverter.FromPayload(payloads[0], localError); err != nil {
+		return nil, nil, fmt.Errorf("decode local step failure details: %w", err)
+	}
+	if localError.GetErrorResponse() == nil || localError.GetFailure() == nil {
+		return nil, nil, fmt.Errorf("local step failure details are incomplete")
+	}
+	stepFailure.Details = localError.GetErrorResponse()
+	return stepFailure, localError.GetFailure(), nil
+}
+
+func temporalStepFailureFromBackend(failure *failurepb.Failure) *dexpb.StepMethodFailure {
 	if failure == nil {
-		return &dexpb.StepMethodFailure{}, nil
+		return &dexpb.StepMethodFailure{}
 	}
 	backendError := failure.GetMessage()
 	applicationFailure := failure.GetApplicationFailureInfo()
@@ -942,18 +1006,7 @@ func (t *temporalClient) temporalStepFailure(
 	if timeoutFailure := failure.GetTimeoutFailureInfo(); timeoutFailure != nil {
 		backendError = timeoutFailure.GetTimeoutType().String()
 	}
-	stepFailure := &dexpb.StepMethodFailure{
-		BackendError: backendError,
-	}
-	if applicationFailure == nil || len(applicationFailure.GetDetails().GetPayloads()) == 0 {
-		return stepFailure, nil
-	}
-	details := &dexpb.ErrorResponse{}
-	if err := t.dataConverter.FromPayloads(applicationFailure.GetDetails(), details); err != nil {
-		return nil, fmt.Errorf("decode step failure details: %w", err)
-	}
-	stepFailure.Details = details
-	return stepFailure, nil
+	return &dexpb.StepMethodFailure{BackendError: backendError}
 }
 
 func temporalFlowErrorType(failure *failurepb.Failure) dexpb.FlowErrorType {
