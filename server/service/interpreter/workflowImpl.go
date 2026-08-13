@@ -49,10 +49,6 @@ func (i *Interpreter) StartEngineFlow(
 	if provider == nil || input == nil {
 		panic("Interpreter requires non-nil dependencies")
 	}
-	invokeRpcBootstrap := newInvokeRpcBootstrap(provider, input.GetIsResumeFromContinueAsNew())
-	if err := invokeRpcBootstrap.register(ctx); err != nil {
-		return nil, err
-	}
 
 	var persistenceManager *PersistenceManager
 
@@ -123,7 +119,6 @@ func (i *Interpreter) StartEngineFlow(
 		continueAsNewer = NewContinueAsNewer(
 			&i.sharedConfig.Api,
 			provider,
-			invokeRpcBootstrap,
 			channelStore,
 			stepExecutionCounter,
 			persistenceManager,
@@ -170,7 +165,6 @@ func (i *Interpreter) StartEngineFlow(
 		continueAsNewer = NewContinueAsNewer(
 			&i.sharedConfig.Api,
 			provider,
-			invokeRpcBootstrap,
 			channelStore,
 			stepExecutionCounter,
 			persistenceManager,
@@ -208,7 +202,7 @@ func (i *Interpreter) StartEngineFlow(
 		signalReceiver,
 		&forceCompleteWf,
 	)
-	workflowUpdater, updateErr := NewWorkflowUpdater(
+	updateErr := NewWorkflowUpdater(
 		&i.sharedConfig.Api,
 		i.activities,
 		ctx,
@@ -227,7 +221,6 @@ func (i *Interpreter) StartEngineFlow(
 	if updateErr != nil {
 		return nil, updateErr
 	}
-	invokeRpcBootstrap.updater = workflowUpdater
 
 	defer func() {
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)

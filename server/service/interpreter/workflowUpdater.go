@@ -27,74 +27,6 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-type invokeRpcBootstrap struct {
-	provider                    interfaces.WorkflowProvider
-	restoringContinueAsNewState bool
-	updater                     *WorkflowUpdater
-	inflightOperations          int
-}
-
-func newInvokeRpcBootstrap(
-	provider interfaces.WorkflowProvider,
-	restoringContinueAsNewState bool,
-) *invokeRpcBootstrap {
-	if provider == nil {
-		panic("invokeRpcBootstrap requires a provider")
-	}
-	return &invokeRpcBootstrap{
-		provider:                    provider,
-		restoringContinueAsNewState: restoringContinueAsNewState,
-	}
-}
-
-func (b *invokeRpcBootstrap) register(ctx interfaces.UnifiedContext) error {
-	return b.provider.SetInvokeRPCUpdateHandler(ctx, b.validate, b.handle)
-}
-
-func (b *invokeRpcBootstrap) validate(
-	_ interfaces.UnifiedContext,
-	input *dexpb.InvokeRPCRequest,
-) error {
-	if input == nil || input.GetRpcName() == "" {
-		return b.provider.NewUpdateError(
-			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
-			"RPC name is required",
-		)
-	}
-	if input.GetTimeoutSeconds() < 0 {
-		return b.provider.NewUpdateError(
-			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
-			"RPC timeout must be non-negative",
-		)
-	}
-	keys, err := normalizeLockKeys(input.GetLockAttributeKeys())
-	if err != nil {
-		return b.provider.NewUpdateError(
-			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
-			err.Error(),
-		)
-	}
-	if len(keys) > 0 && b.restoringContinueAsNewState {
-		return b.provider.NewUpdateError(
-			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED,
-			"continue-as-new is restoring locked attributes",
-		)
-	}
-	return nil
-}
-
-func (b *invokeRpcBootstrap) handle(
-	ctx interfaces.UnifiedContext,
-	input *dexpb.InvokeRPCRequest,
-) (*dexpb.InvokeRpcUpdateResult, error) {
-	b.inflightOperations++
-	defer func() { b.inflightOperations-- }()
-	if err := b.provider.Await(ctx, func() bool { return b.updater != nil }); err != nil {
-		return nil, err
-	}
-	return b.updater.handleWorkerRpc(ctx, input)
-}
-
 type WorkflowUpdater struct {
 	activities           *Activities
 	apiCfg               *config.ApiConfig
@@ -127,7 +59,7 @@ func NewWorkflowUpdater(
 	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	basicInfo service.BasicInfo,
-) (*WorkflowUpdater, error) {
+) error {
 	if apiCfg == nil || activities == nil || provider == nil ||
 		persistenceManager == nil || stepRequestQueue == nil ||
 		continueAsNewer == nil ||
@@ -157,23 +89,23 @@ func NewWorkflowUpdater(
 		updater.validateWorkerRpc,
 		updater.handleWorkerRpc,
 	); err != nil {
-		return nil, err
+		return err
 	}
 	if err := provider.SetWaitForStepCompletionUpdateHandler(
 		ctx,
 		updater.validateWaitForStepCompletion,
 		updater.handleWaitForStepCompletion,
 	); err != nil {
-		return nil, err
+		return err
 	}
 	if err := provider.SetWaitForAttributeUpdateHandler(
 		ctx,
 		updater.validateWaitForAttribute,
 		updater.handleWaitForAttribute,
 	); err != nil {
-		return nil, err
+		return err
 	}
-	return updater, nil
+	return nil
 }
 
 type stepCompletionWait struct {
