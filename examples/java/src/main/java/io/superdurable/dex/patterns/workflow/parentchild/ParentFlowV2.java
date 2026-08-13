@@ -20,6 +20,7 @@ import io.superdurable.dex.Channel;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
@@ -29,7 +30,6 @@ import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.controller.ExampleFlows;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
-import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.patterns.workflow.scalableparallel.ChildFlow;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -153,15 +153,15 @@ public class ParentFlowV2 implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final WaitForChildInput input) {
-            try {
-                client().waitForFlow(input.childWFId, Duration.ofSeconds(Math.max(input.timerSeconds, 1))).getSingleOutput(Object.class);
-            } catch (final LongPollTimeoutException e) {
+            final Client client = client();
+            if (client.describeFlow(input.childWFId).getStatus() == FlowStatus.RUNNING) {
                 return StepDecision.goTo(
                         awaitChildWorkflowCompletion,
                         new WaitForChildInput(
                                 input.childWFId,
                                 Math.min(input.timerSeconds * 2, 10)));
             }
+            client.waitForFlow(input.childWFId);
             return StepDecision.goTo(loopForNextTask, null);
         }
     }

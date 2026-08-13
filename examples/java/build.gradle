@@ -14,6 +14,25 @@ repositories {
     mavenCentral()
 }
 
+sourceSets {
+    test {
+        java.exclude "io/superdurable/dex/integ/**"
+    }
+    integrationTest {
+        java {
+            srcDir "src/test/java"
+            include "io/superdurable/dex/integ/**"
+        }
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+configurations {
+    integrationTestImplementation.extendsFrom testImplementation
+    integrationTestRuntimeOnly.extendsFrom testRuntimeOnly
+}
+
 dependencies {
     implementation "org.springframework.boot:spring-boot-starter-web"
     implementation "io.superdurable:dex-sdk:0.0.5"
@@ -29,6 +48,12 @@ dependencies {
 }
 
 tasks.named("test") {
+    useJUnitPlatform()
+}
+
+tasks.register("integrationTest", Test) {
+    testClassesDirs = sourceSets.integrationTest.output.classesDirs
+    classpath = sourceSets.integrationTest.runtimeClasspath
     useJUnitPlatform()
     // Integ tests share one Worker via SharedIntegExtension.
     maxParallelForks = 1
