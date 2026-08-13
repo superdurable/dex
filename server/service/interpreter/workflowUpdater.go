@@ -189,6 +189,9 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	)
 	u.persistenceManager.UnlockKeys(keysToLock)
 	if err != nil {
+		if u.provider.IsApplicationError(err) {
+			return nil, u.provider.NewFlowErrorFromActivityError(err)
+		}
 		return nil, err
 	}
 	response := activityOutput.GetResponse()
