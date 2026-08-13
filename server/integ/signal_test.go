@@ -90,7 +90,7 @@ func doTestSignalWorkflow(
 		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
-		FlowTimeoutSeconds: 60,
+		FlowTimeoutSeconds: 30,
 
 		StartStepType: signal.State1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
