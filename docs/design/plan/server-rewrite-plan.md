@@ -272,7 +272,7 @@ always-on, no version gate:
   `*dexpb.FlowConfig`; update the `DefaultWorkflowConfig` package var
   (`ContinueAsNewThreshold: 100`).
 - `DumpWorkflowInternalActivityConfig.RetryPolicy`: `*dexpb.RetryPolicy` →
-  `*dexpb.RetryPolicy`.
+  `*config.RetryPolicy` with `time.Duration` intervals.
 - Rename `InterpreterActivityConfig.ApiServiceAddress` →
   `InternalServiceTarget` and its helper accordingly. Use YAML key
   `internalServiceTarget`; default `localhost:<Api.Port>`. Document that the

@@ -172,7 +172,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout:                 budget,
 		LocalActivityScheduleToCloseTimeout: budget,
-		RetryPolicy: &dexpb.RetryPolicy{
+		RetryPolicy: &config.RetryPolicy{
 			MaximumAttempts: maxWorkerRpcActivityAttempts,
 		},
 	}

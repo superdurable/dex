@@ -24,7 +24,7 @@ func InitializeStepActivityRetryContext(
 		FirstAttemptTimestamp: firstAttemptTime.Unix(),
 		OriginalMethodOptions: &dexpb.StepMethodOptions{
 			TimeoutSeconds: int32(options.StartToCloseTimeout / time.Second),
-			RetryPolicy:    retry.ActivityRetryPolicyWithDefaults(options.RetryPolicy),
+			RetryPolicy:    retry.ActivityRetryPolicyToProto(options.RetryPolicy),
 		},
 	}
 	switch activityInput := input.(type) {

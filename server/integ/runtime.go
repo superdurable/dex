@@ -195,7 +195,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			testNamespace,
 			dataConverter,
 			testConfig.MemoEncryption,
-			&cfg.Api.QueryWorkflowFailedRetryPolicy,
+			cfg.Api.QueryWorkflowFailedRetryPolicy,
 		)
 		worker = temporal.NewInterpreterWorker(
 			&cfg,
@@ -235,7 +235,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			cfg.Interpreter.Cadence.AdminSecurityToken,
 			dataConverter,
 			closeServiceClient,
-			&cfg.Api.QueryWorkflowFailedRetryPolicy,
+			cfg.Api.QueryWorkflowFailedRetryPolicy,
 		)
 		worker = cadence.NewInterpreterWorker(
 			&cfg,

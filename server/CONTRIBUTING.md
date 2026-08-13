@@ -70,6 +70,14 @@ deduplication scope. SDK support remains deferred during the server rewrite.
 Memo is reserved for worker-target and request-id metadata. Never store attributes
 in Memo.
 
+Server-only retry settings use `config.RetryPolicy` from `config/config.go`.
+Intervals and total duration use Go duration strings such as `100ms`, `1s`, and
+`1h`. Do not use the second-based protobuf `RetryPolicy` for server config; that
+type remains part of the public Step API and persisted history schema. Zero-valued
+fields inherit the owning setting's defaults. Query retries default to five fixed
+one-second attempts. InvokeRPC current-run retries default to 100ms exponential
+backoff, capped at one second and five seconds total.
+
 # How to run server or integration tests
 
 ## Run the local Dex environment

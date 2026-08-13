@@ -12,11 +12,15 @@ api:
   port: 8801
   includeCadenceRPCInputOutputIntoHistory: false
   queryWorkflowFailedRetryPolicy:
-    initialIntervalSeconds: 1
+    initialInterval: 1s
+    backoffCoefficient: 1
+    maximumInterval: 1s
     maximumAttempts: 5
   invokeRPCContinuedAsNewErrorRetryPolicy:
-    initialIntervalSeconds: 1
-    maximumAttempts: 5
+    initialInterval: 100ms
+    backoffCoefficient: 2
+    maximumInterval: 1s
+    totalDuration: 5s
 interpreter:
   attributeIndexSyncTimeout: 2m
   #  interpreterActivityConfig:

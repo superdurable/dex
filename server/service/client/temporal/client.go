@@ -26,6 +26,7 @@ import (
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/index"
 	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/common/utils"
 	"github.com/superdurable/dex/service/interpreter/temporal"
 	"go.temporal.io/api/common/v1"
@@ -46,7 +47,7 @@ type temporalClient struct {
 	namespace                      string
 	dataConverter                  converter.DataConverter
 	memoEncryption                 bool // this is a workaround for https://github.com/temporalio/sdk-go/issues/1045
-	queryWorkflowFailedRetryPolicy config.QueryWorkflowFailedRetryPolicy
+	queryWorkflowFailedRetryPolicy *config.RetryPolicy
 	it                             *temporal.InterpreterWorker
 }
 
@@ -56,14 +57,14 @@ type localActivityMarkerData struct {
 }
 
 func NewTemporalClient(
-	tClient client.Client, namespace string, dataConverter converter.DataConverter, memoEncryption bool, retryPolicy *config.QueryWorkflowFailedRetryPolicy,
+	tClient client.Client, namespace string, dataConverter converter.DataConverter, memoEncryption bool, retryPolicy *config.RetryPolicy,
 ) uclient.UnifiedClient {
 	return &temporalClient{
 		tClient:                        tClient,
 		namespace:                      namespace,
 		dataConverter:                  dataConverter,
 		memoEncryption:                 memoEncryption,
-		queryWorkflowFailedRetryPolicy: config.QueryWorkflowFailedRetryPolicyWithDefaults(retryPolicy),
+		queryWorkflowFailedRetryPolicy: retryPolicy,
 	}
 }
 
@@ -414,23 +415,23 @@ func (t *temporalClient) QueryWorkflow(
 	var qres converter.EncodedValue
 	var err error
 
-	attempt := 1
+	retryBackoff := retry.NewQueryWorkflowBackoff(t.queryWorkflowFailedRetryPolicy)
 	// Only QueryFailed error causes retry; all other errors make the loop to finish immediately
-	for attempt <= t.queryWorkflowFailedRetryPolicy.MaximumAttempts {
+	for {
 		qres, err = t.tClient.QueryWorkflow(ctx, workflowID, runID, queryType, args...)
 		if err == nil {
 			break
-		} else {
-			if t.isQueryFailedError(err) {
-				time.Sleep(time.Duration(t.queryWorkflowFailedRetryPolicy.InitialIntervalSeconds) * time.Second)
-				attempt++
-				continue
-			}
+		}
+		if !t.isQueryFailedError(err) {
 			return err
 		}
-	}
-	if err != nil {
-		return err
+		shouldRetry, retryErr := retryBackoff.WaitForNextAttempt(ctx)
+		if retryErr != nil {
+			return retryErr
+		}
+		if !shouldRetry {
+			return err
+		}
 	}
 	return qres.Get(valuePtr)
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/tag"
 	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/common/rpc"
 	"github.com/superdurable/dex/service/common/utils"
 	"github.com/superdurable/dex/service/common/workerclient"
@@ -981,8 +982,10 @@ func (s *serviceImpl) InvokeRPC(
 		runID = description.RunId
 	}
 
-	retryPolicy := s.apiCfg.EffectiveInvokeRPCContinuedAsNewErrorRetryPolicy()
-	for attempt := 1; ; attempt++ {
+	retryBackoff := retry.NewInvokeRPCBackoff(
+		s.apiCfg.InvokeRPCContinuedAsNewErrorRetryPolicy,
+	)
+	for {
 		response, err := s.doInvokeRPC(ctx, req, runID)
 		if err == nil {
 			if err := blobstore.HydrateValue(ctx, response.GetOutput(), s.store); err != nil {
@@ -1002,45 +1005,37 @@ func (s *serviceImpl) InvokeRPC(
 				acceptedUpdateCompletedWorkflow)
 		if (backendType == service.BackendTypeCadence && req.GetRunId() != "") ||
 			(!s.client.IsNotFoundError(err) && !unknownUpdate && !continueAsNewPreempted &&
-				!acceptedUpdateCompletedWorkflow) ||
-			attempt >= retryPolicy.MaximumAttempts {
+				!acceptedUpdateCompletedWorkflow) {
 			return nil, s.handleInvokeRPCError(err)
 		}
 		if temporalCurrentRunRetry {
-			if retryErr := waitForCANRetry(
-				ctx,
-				time.Time{},
-				time.Duration(retryPolicy.InitialIntervalSeconds)*time.Second,
-			); retryErr != nil {
-				return nil, s.handleError(retryErr)
-			}
 			runID = ""
-			continue
-		}
-		description, describeErr := s.client.DescribeWorkflowExecution(
-			ctx,
-			req.GetFlowId(),
-			"",
-			nil,
-		)
-		if describeErr != nil {
-			s.logger.Warn(
-				"failed to resolve current run after RPC error",
-				tag.WorkflowID(req.GetFlowId()),
-				tag.Error(describeErr),
+		} else {
+			description, describeErr := s.client.DescribeWorkflowExecution(
+				ctx,
+				req.GetFlowId(),
+				"",
+				nil,
 			)
-			return nil, s.handleInvokeRPCError(err)
+			if describeErr != nil {
+				s.logger.Warn(
+					"failed to resolve current run after RPC error",
+					tag.WorkflowID(req.GetFlowId()),
+					tag.Error(describeErr),
+				)
+				return nil, s.handleInvokeRPCError(err)
+			}
+			if description.RunId == runID {
+				return nil, s.handleInvokeRPCError(err)
+			}
+			runID = description.RunId
 		}
-		if description.RunId == runID {
-			return nil, s.handleInvokeRPCError(err)
-		}
-		runID = description.RunId
-		if retryErr := waitForCANRetry(
-			ctx,
-			time.Time{},
-			time.Duration(retryPolicy.InitialIntervalSeconds)*time.Second,
-		); retryErr != nil {
+		shouldRetry, retryErr := retryBackoff.WaitForNextAttempt(ctx)
+		if retryErr != nil {
 			return nil, s.handleError(retryErr)
+		}
+		if !shouldRetry {
+			return nil, s.handleInvokeRPCError(err)
 		}
 	}
 }

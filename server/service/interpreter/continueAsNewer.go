@@ -79,7 +79,7 @@ func (i *Interpreter) LoadInternalsFromPreviousRun(
 ) (*dexpb.ContinueAsNewDump, error) {
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Second,
-		RetryPolicy:         &dexpb.RetryPolicy{MaximumIntervalSeconds: 5},
+		RetryPolicy:         &config.RetryPolicy{MaximumInterval: 5 * time.Second},
 	}
 	activityCfg := i.sharedConfig.Interpreter.InterpreterActivityConfig
 	if activityConfig := activityCfg.DumpWorkflowInternalActivityConfig; activityConfig != nil {

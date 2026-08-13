@@ -719,7 +719,9 @@ func (i *Interpreter) processStepExecution(
 			if waitForMethodTimeout > 0 {
 				activityOptions.StartToCloseTimeout = time.Duration(waitForMethodTimeout) * time.Second
 			}
-			activityOptions.RetryPolicy = options.GetWaitForRetryPolicy()
+			activityOptions.RetryPolicy = retry.ActivityRetryPolicyFromProto(
+				options.GetWaitForRetryPolicy(),
+			)
 		}
 
 		ctx = provider.WithActivityOptions(ctx, activityOptions)
@@ -1023,7 +1025,9 @@ func (i *Interpreter) invokeExecuteMethod(
 		if executeMethodTimeout > 0 {
 			activityOptions.StartToCloseTimeout = time.Duration(executeMethodTimeout) * time.Second
 		}
-		activityOptions.RetryPolicy = step.GetStepOptions().GetExecuteRetryPolicy()
+		activityOptions.RetryPolicy = retry.ActivityRetryPolicyFromProto(
+			step.GetStepOptions().GetExecuteRetryPolicy(),
+		)
 	}
 
 	ctx = provider.WithActivityOptions(ctx, activityOptions)
@@ -1087,7 +1091,7 @@ func (i *Interpreter) invokeExecuteMethod(
 func stepMethodOptions(options interfaces.ActivityOptions) *dexpb.StepMethodOptions {
 	return &dexpb.StepMethodOptions{
 		TimeoutSeconds: int32(options.StartToCloseTimeout / time.Second),
-		RetryPolicy:    retry.ActivityRetryPolicyWithDefaults(options.RetryPolicy),
+		RetryPolicy:    retry.ActivityRetryPolicyToProto(options.RetryPolicy),
 	}
 }
 
@@ -1110,7 +1114,7 @@ func (i *Interpreter) BlobStoreCleanup(
 ) (int, error) {
 	activityCtx := provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		RetryPolicy:         &dexpb.RetryPolicy{MaximumAttempts: 10},
+		RetryPolicy:         &config.RetryPolicy{MaximumAttempts: 10},
 	})
 	var output dexpb.CleanupBlobStoreActivityOutput
 	if err := provider.ExecuteActivity(

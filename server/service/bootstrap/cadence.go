@@ -75,7 +75,7 @@ func (r *Runtime) createCadenceServices() (
 		r.cfg.Interpreter.Cadence.AdminSecurityToken,
 		dataConverter,
 		closeClient,
-		&r.cfg.Api.QueryWorkflowFailedRetryPolicy,
+		r.cfg.Api.QueryWorkflowFailedRetryPolicy,
 	)
 	store, err := r.createBlobStore(context.Background(), domain, client.MetricsNopHandler)
 	if err != nil {

@@ -23,6 +23,7 @@ import (
 
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/common/retry"
 
 	"github.com/google/uuid"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -49,7 +50,7 @@ type cadenceClient struct {
 	adminClient                    cadenceadmin.AdminAPIYARPCClient
 	adminSecurityToken             string
 	converter                      encoded.DataConverter
-	queryWorkflowFailedRetryPolicy config.QueryWorkflowFailedRetryPolicy
+	queryWorkflowFailedRetryPolicy *config.RetryPolicy
 	it                             *cadence.InterpreterWorker
 }
 
@@ -157,7 +158,7 @@ func (t *cadenceClient) decodeAppErrDetails(err error, detailsPtr interface{}) e
 func NewCadenceClient(
 	domain string, cClient client.Client, serviceClient workflowserviceclient.Interface,
 	adminClient cadenceadmin.AdminAPIYARPCClient, adminSecurityToken string,
-	converter encoded.DataConverter, closeFunc func(), retryPolicy *config.QueryWorkflowFailedRetryPolicy,
+	converter encoded.DataConverter, closeFunc func(), retryPolicy *config.RetryPolicy,
 ) uclient.UnifiedClient {
 	if adminClient == nil {
 		panic("Cadence admin client must not be nil")
@@ -170,7 +171,7 @@ func NewCadenceClient(
 		adminClient:                    adminClient,
 		adminSecurityToken:             adminSecurityToken,
 		converter:                      converter,
-		queryWorkflowFailedRetryPolicy: config.QueryWorkflowFailedRetryPolicyWithDefaults(retryPolicy),
+		queryWorkflowFailedRetryPolicy: retryPolicy,
 	}
 }
 
@@ -369,23 +370,23 @@ func (t *cadenceClient) QueryWorkflow(
 	var qres encoded.Value
 	var err error
 
-	attempt := 1
+	retryBackoff := retry.NewQueryWorkflowBackoff(t.queryWorkflowFailedRetryPolicy)
 	// Only QueryFailed error causes retry; all other errors make the loop to finish immediately
-	for attempt <= t.queryWorkflowFailedRetryPolicy.MaximumAttempts {
+	for {
 		qres, err = t.cClient.QueryWorkflow(ctx, workflowID, runID, queryType, args...)
 		if err == nil {
 			break
-		} else {
-			if t.isQueryFailedError(err) {
-				time.Sleep(time.Duration(t.queryWorkflowFailedRetryPolicy.InitialIntervalSeconds) * time.Second)
-				attempt++
-				continue
-			}
+		}
+		if !t.isQueryFailedError(err) {
 			return err
 		}
-	}
-	if err != nil {
-		return err
+		shouldRetry, retryErr := retryBackoff.WaitForNextAttempt(ctx)
+		if retryErr != nil {
+			return retryErr
+		}
+		if !shouldRetry {
+			return err
+		}
 	}
 	return qres.Get(valuePtr)
 }

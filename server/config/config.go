@@ -11,8 +11,6 @@
 package config
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -24,8 +22,6 @@ import (
 	temporalWorker "go.temporal.io/sdk/worker"
 	cadenceWorker "go.uber.org/cadence/worker"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 	"gopkg.in/yaml.v3"
 )
 
@@ -70,8 +66,8 @@ const (
 	DefaultAttributeStoreSyncBatchSize = 100
 	// DefaultAttributeStoreSyncAttemptTimeout caps each regular Activity attempt at thirty seconds.
 	DefaultAttributeStoreSyncAttemptTimeout = 30 * time.Second
-	// DefaultAttributeStoreSyncTotalDurationSeconds caps regular Activity retries at one hour.
-	DefaultAttributeStoreSyncTotalDurationSeconds int32 = 3600
+	// DefaultAttributeStoreSyncTotalDuration caps regular Activity retries at one hour.
+	DefaultAttributeStoreSyncTotalDuration = time.Hour
 	// DefaultAttributeIndexSyncTimeout bounds backend index registration and propagation checks.
 	DefaultAttributeIndexSyncTimeout = 2 * time.Minute
 )
@@ -87,7 +83,46 @@ var defaultHeadlessFailoverStatusCodes = [...]codes.Code{
 	codes.Unknown,
 }
 
+var (
+	DefaultQueryWorkflowFailedRetryPolicy = RetryPolicy{
+		InitialInterval:    time.Second,
+		BackoffCoefficient: 1,
+		MaximumInterval:    time.Second,
+		MaximumAttempts:    5,
+	}
+	DefaultInvokeRPCContinuedAsNewErrorRetryPolicy = RetryPolicy{
+		InitialInterval:    100 * time.Millisecond,
+		BackoffCoefficient: 2,
+		MaximumInterval:    time.Second,
+		TotalDuration:      5 * time.Second,
+	}
+	DefaultAttributeStoreSyncRetryPolicy = RetryPolicy{
+		InitialInterval:    time.Second,
+		BackoffCoefficient: 2,
+		MaximumInterval:    30 * time.Second,
+		TotalDuration:      DefaultAttributeStoreSyncTotalDuration,
+	}
+	DefaultActivityRetryPolicy = RetryPolicy{
+		InitialInterval:    time.Second,
+		BackoffCoefficient: 2,
+		MaximumInterval:    100 * time.Second,
+	}
+)
+
 type (
+	RetryPolicy struct {
+		// InitialInterval is the first delay between attempts. Zero uses the owning config field's default.
+		InitialInterval time.Duration `yaml:"initialInterval"`
+		// BackoffCoefficient multiplies the delay after each retry. Zero uses the owning config field's default.
+		BackoffCoefficient float64 `yaml:"backoffCoefficient"`
+		// MaximumInterval caps the delay between attempts. Zero uses the owning config field's default.
+		MaximumInterval time.Duration `yaml:"maximumInterval"`
+		// MaximumAttempts includes the initial attempt. Zero uses the owning config field's default or total-duration bound.
+		MaximumAttempts int32 `yaml:"maximumAttempts"`
+		// TotalDuration caps elapsed retry time. Zero uses the owning config field's default or disables the duration bound.
+		TotalDuration time.Duration `yaml:"totalDuration"`
+	}
+
 	Config struct {
 		// Log is process logging (stdout/stderr/file, level, encoding).
 		Log Logger `yaml:"log"`
@@ -141,7 +176,7 @@ type (
 		// SyncAttemptTimeout caps each regular Activity attempt. Default 30s. Must be positive after defaults.
 		SyncAttemptTimeout time.Duration `yaml:"syncAttemptTimeout"`
 		// SyncRetryPolicy controls regular Activity retries. Nil or zero fields default to 1s/30s/2x/unlimited attempts/1h total.
-		SyncRetryPolicy *dexpb.RetryPolicy `yaml:"syncRetryPolicy"`
+		SyncRetryPolicy *RetryPolicy `yaml:"syncRetryPolicy"`
 	}
 
 	AttributeStoreConfigEntry struct {
@@ -196,24 +231,10 @@ type (
 		GrpcMaxMessageBytes int `yaml:"grpcMaxMessageBytes"`
 		// IncludeCadenceRPCInputOutputIntoHistory stores RPC input/output in Cadence signal history for debugging. Default false. Temporal Updates always store both.
 		IncludeCadenceRPCInputOutputIntoHistory bool `yaml:"includeCadenceRPCInputOutputIntoHistory"`
-		// QueryWorkflowFailedRetryPolicy retries failed Describe/Query calls against the backend.
-		QueryWorkflowFailedRetryPolicy QueryWorkflowFailedRetryPolicy `yaml:"queryWorkflowFailedRetryPolicy"`
-		// InvokeRPCContinuedAsNewErrorRetryPolicy retries InvokeRPC after ContinueAsNew. Default interval is 1 second and maximum attempts is 5.
-		InvokeRPCContinuedAsNewErrorRetryPolicy InvokeRPCContinuedAsNewErrorRetryPolicy `yaml:"invokeRPCContinuedAsNewErrorRetryPolicy"`
-	}
-
-	QueryWorkflowFailedRetryPolicy struct {
-		// InitialIntervalSeconds is the first backoff between query retries. Default 1.
-		InitialIntervalSeconds int `yaml:"initialIntervalSeconds"`
-		// MaximumAttempts is the max attempts including the first. Default 5.
-		MaximumAttempts int `yaml:"maximumAttempts"`
-	}
-
-	InvokeRPCContinuedAsNewErrorRetryPolicy struct {
-		// InitialIntervalSeconds is the delay between attempts. Non-positive values default to 1.
-		InitialIntervalSeconds int `yaml:"initialIntervalSeconds"`
-		// MaximumAttempts includes the initial attempt. Non-positive values default to 5.
-		MaximumAttempts int `yaml:"maximumAttempts"`
+		// QueryWorkflowFailedRetryPolicy retries failed backend queries. Nil or zero fields default to 1s fixed intervals and 5 attempts.
+		QueryWorkflowFailedRetryPolicy *RetryPolicy `yaml:"queryWorkflowFailedRetryPolicy"`
+		// InvokeRPCContinuedAsNewErrorRetryPolicy retries transient InvokeRPC failures across current-run changes. Nil or zero fields default to 100ms initial, 2x backoff, 1s maximum, and 5s total duration.
+		InvokeRPCContinuedAsNewErrorRetryPolicy *RetryPolicy `yaml:"invokeRPCContinuedAsNewErrorRetryPolicy"`
 	}
 
 	WorkerConfig struct {
@@ -287,7 +308,7 @@ type (
 		// StartToCloseTimeout is the activity start-to-close timeout. Zero uses the activity registration default.
 		StartToCloseTimeout time.Duration `yaml:"startToCloseTimeout"`
 		// RetryPolicy is the activity retry policy. Nil uses the registration default.
-		RetryPolicy *dexpb.RetryPolicy `yaml:"retryPolicy"`
+		RetryPolicy *RetryPolicy `yaml:"retryPolicy"`
 	}
 
 	Logger struct {
@@ -303,6 +324,30 @@ type (
 		Encoding string `yaml:"encoding"`
 	}
 )
+
+// RetryPolicyWithDefaults applies field-specific defaults to a retry policy.
+func RetryPolicyWithDefaults(policy *RetryPolicy, defaults RetryPolicy) RetryPolicy {
+	effective := RetryPolicy{}
+	if policy != nil {
+		effective = *policy
+	}
+	if effective.InitialInterval == 0 {
+		effective.InitialInterval = defaults.InitialInterval
+	}
+	if effective.BackoffCoefficient == 0 {
+		effective.BackoffCoefficient = defaults.BackoffCoefficient
+	}
+	if effective.MaximumInterval == 0 {
+		effective.MaximumInterval = defaults.MaximumInterval
+	}
+	if effective.MaximumAttempts == 0 {
+		effective.MaximumAttempts = defaults.MaximumAttempts
+	}
+	if effective.TotalDuration == 0 {
+		effective.TotalDuration = defaults.TotalDuration
+	}
+	return effective
+}
 
 // DefaultWorkflowConfig is used when Interpreter.DefaultWorkflowConfig is nil.
 var DefaultWorkflowConfig = &dexpb.FlowConfig{
@@ -328,8 +373,67 @@ func NewConfig(configPath string) (*Config, error) {
 	if err := d.Decode(&cfg); err != nil {
 		return nil, err
 	}
+	if err := cfg.validateRetryPolicies(); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+func (c Config) validateRetryPolicies() error {
+	type namedRetryPolicy struct {
+		name   string
+		policy RetryPolicy
+	}
+
+	policies := []namedRetryPolicy{
+		{
+			name: "api.queryWorkflowFailedRetryPolicy",
+			policy: RetryPolicyWithDefaults(
+				c.Api.QueryWorkflowFailedRetryPolicy,
+				DefaultQueryWorkflowFailedRetryPolicy,
+			),
+		},
+		{
+			name: "api.invokeRPCContinuedAsNewErrorRetryPolicy",
+			policy: RetryPolicyWithDefaults(
+				c.Api.InvokeRPCContinuedAsNewErrorRetryPolicy,
+				DefaultInvokeRPCContinuedAsNewErrorRetryPolicy,
+			),
+		},
+		{
+			name:   "attributeStore.syncRetryPolicy",
+			policy: *c.AttributeStore.EffectiveSyncRetryPolicy(),
+		},
+	}
+	activityConfig := c.Interpreter.InterpreterActivityConfig.DumpWorkflowInternalActivityConfig
+	if activityConfig != nil && activityConfig.RetryPolicy != nil {
+		policies = append(policies, namedRetryPolicy{
+			name: "interpreter.interpreterActivityConfig.dumpWorkflowInternalActivityConfig.retryPolicy",
+			policy: RetryPolicyWithDefaults(
+				activityConfig.RetryPolicy,
+				DefaultActivityRetryPolicy,
+			),
+		})
+	}
+	for _, namedPolicy := range policies {
+		if err := validateRetryPolicy(namedPolicy.name, namedPolicy.policy); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateRetryPolicy(name string, policy RetryPolicy) error {
+	if policy.InitialInterval <= 0 || policy.MaximumInterval <= 0 ||
+		policy.BackoffCoefficient <= 0 || policy.MaximumAttempts < 0 ||
+		policy.TotalDuration < 0 {
+		return fmt.Errorf("%s values must be positive except maximumAttempts and totalDuration may be zero", name)
+	}
+	if policy.MaximumInterval < policy.InitialInterval {
+		return fmt.Errorf("%s maximumInterval must not be less than initialInterval", name)
+	}
+	return nil
 }
 
 // GetInternalServiceTargetWithDefault returns the plaintext gRPC dial target for InternalService.
@@ -351,18 +455,6 @@ func (c ApiConfig) EffectiveMaxWaitSeconds() int64 {
 		return DefaultMaxWaitSeconds
 	}
 	return c.MaxWaitSeconds
-}
-
-// EffectiveInvokeRPCContinuedAsNewErrorRetryPolicy returns the configured policy with defaults.
-func (c ApiConfig) EffectiveInvokeRPCContinuedAsNewErrorRetryPolicy() InvokeRPCContinuedAsNewErrorRetryPolicy {
-	policy := c.InvokeRPCContinuedAsNewErrorRetryPolicy
-	if policy.InitialIntervalSeconds <= 0 {
-		policy.InitialIntervalSeconds = 1
-	}
-	if policy.MaximumAttempts <= 0 {
-		policy.MaximumAttempts = 5
-	}
-	return policy
 }
 
 // EffectiveLazyLoading returns LazyLoading, defaulting to true when omitted.
@@ -408,55 +500,6 @@ func (c BlobCacheConfig) Validate() error {
 	return nil
 }
 
-// UnmarshalYAML decodes camelCase RetryPolicy fields into the shared protobuf type.
-func (c *AttributeStoreConfig) UnmarshalYAML(node *yaml.Node) error {
-	type plainAttributeStoreConfig AttributeStoreConfig
-	filteredNode := *node
-	filteredNode.Content = make([]*yaml.Node, 0, len(node.Content))
-	var retryPolicyNode *yaml.Node
-	for index := 0; index < len(node.Content); index += 2 {
-		keyNode := node.Content[index]
-		valueNode := node.Content[index+1]
-		if keyNode.Value == "syncRetryPolicy" {
-			retryPolicyNode = valueNode
-			continue
-		}
-		filteredNode.Content = append(filteredNode.Content, keyNode, valueNode)
-	}
-
-	filteredYAML, err := yaml.Marshal(&filteredNode)
-	if err != nil {
-		return fmt.Errorf("encode attribute store config: %w", err)
-	}
-	decoder := yaml.NewDecoder(bytes.NewReader(filteredYAML))
-	decoder.KnownFields(true)
-	if err := decoder.Decode((*plainAttributeStoreConfig)(c)); err != nil {
-		return err
-	}
-	if retryPolicyNode == nil || retryPolicyNode.Tag == "!!null" {
-		return nil
-	}
-
-	policy := &dexpb.RetryPolicy{}
-	if err := decodeProtoYAML(retryPolicyNode, policy); err != nil {
-		return fmt.Errorf("decode attribute store syncRetryPolicy: %w", err)
-	}
-	c.SyncRetryPolicy = policy
-	return nil
-}
-
-func decodeProtoYAML(node *yaml.Node, message proto.Message) error {
-	var value any
-	if err := node.Decode(&value); err != nil {
-		return err
-	}
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return err
-	}
-	return protojson.Unmarshal(encoded, message)
-}
-
 // EffectiveSchemaSyncInterval returns the configured schema refresh interval or one minute.
 func (c AttributeStoreConfig) EffectiveSchemaSyncInterval() time.Duration {
 	if c.SchemaSyncInterval == 0 {
@@ -482,27 +525,9 @@ func (c AttributeStoreConfig) EffectiveSyncAttemptTimeout() time.Duration {
 }
 
 // EffectiveSyncRetryPolicy returns a finite policy with Attribute Store defaults.
-func (c AttributeStoreConfig) EffectiveSyncRetryPolicy() *dexpb.RetryPolicy {
-	policy := &dexpb.RetryPolicy{
-		InitialIntervalSeconds: c.SyncRetryPolicy.GetInitialIntervalSeconds(),
-		MaximumIntervalSeconds: c.SyncRetryPolicy.GetMaximumIntervalSeconds(),
-		BackoffCoefficient:     c.SyncRetryPolicy.GetBackoffCoefficient(),
-		MaximumAttempts:        c.SyncRetryPolicy.GetMaximumAttempts(),
-		TotalDurationSeconds:   c.SyncRetryPolicy.GetTotalDurationSeconds(),
-	}
-	if policy.InitialIntervalSeconds == 0 {
-		policy.InitialIntervalSeconds = 1
-	}
-	if policy.MaximumIntervalSeconds == 0 {
-		policy.MaximumIntervalSeconds = 30
-	}
-	if policy.BackoffCoefficient == 0 {
-		policy.BackoffCoefficient = 2
-	}
-	if policy.TotalDurationSeconds == 0 {
-		policy.TotalDurationSeconds = DefaultAttributeStoreSyncTotalDurationSeconds
-	}
-	return policy
+func (c AttributeStoreConfig) EffectiveSyncRetryPolicy() *RetryPolicy {
+	policy := RetryPolicyWithDefaults(c.SyncRetryPolicy, DefaultAttributeStoreSyncRetryPolicy)
+	return &policy
 }
 
 // Validate checks Attribute Store names, destinations, timeouts, and retry bounds.
@@ -517,9 +542,9 @@ func (c AttributeStoreConfig) Validate() error {
 		return fmt.Errorf("attribute store syncAttemptTimeout must be positive")
 	}
 	policy := c.EffectiveSyncRetryPolicy()
-	if policy.GetInitialIntervalSeconds() <= 0 || policy.GetMaximumIntervalSeconds() <= 0 ||
-		policy.GetBackoffCoefficient() <= 0 || policy.GetMaximumAttempts() < 0 ||
-		policy.GetTotalDurationSeconds() <= 0 {
+	if policy.InitialInterval <= 0 || policy.MaximumInterval <= 0 ||
+		policy.BackoffCoefficient <= 0 || policy.MaximumAttempts < 0 ||
+		policy.TotalDuration <= 0 {
 		return fmt.Errorf("attribute store syncRetryPolicy values must be positive except maximumAttempts may be zero")
 	}
 	for name, store := range c.Stores {
@@ -622,23 +647,4 @@ func (c Interpreter) EffectiveAttributeIndexSyncTimeout() time.Duration {
 		return DefaultAttributeIndexSyncTimeout
 	}
 	return c.AttributeIndexSyncTimeout
-}
-
-// QueryWorkflowFailedRetryPolicyWithDefaults fills zero fields with defaults (1s / 5 attempts).
-func QueryWorkflowFailedRetryPolicyWithDefaults(retryPolicy *QueryWorkflowFailedRetryPolicy) QueryWorkflowFailedRetryPolicy {
-	var rp QueryWorkflowFailedRetryPolicy
-
-	if retryPolicy != nil && retryPolicy.InitialIntervalSeconds != 0 {
-		rp.InitialIntervalSeconds = retryPolicy.InitialIntervalSeconds
-	} else {
-		rp.InitialIntervalSeconds = 1
-	}
-
-	if retryPolicy != nil && retryPolicy.MaximumAttempts != 0 {
-		rp.MaximumAttempts = retryPolicy.MaximumAttempts
-	} else {
-		rp.MaximumAttempts = 5
-	}
-
-	return rp
 }

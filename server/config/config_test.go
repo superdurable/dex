@@ -12,9 +12,56 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestRetryPolicyConfigUsesDurations(t *testing.T) {
+	path := writeTestConfig(t, `
+api:
+  queryWorkflowFailedRetryPolicy:
+    initialInterval: 125ms
+    backoffCoefficient: 1.25
+    maximumInterval: 750ms
+    maximumAttempts: 7
+    totalDuration: 3s
+  invokeRPCContinuedAsNewErrorRetryPolicy:
+    initialInterval: 100ms
+    backoffCoefficient: 2
+    maximumInterval: 1s
+    totalDuration: 5s
+interpreter:
+  interpreterActivityConfig:
+    dumpWorkflowInternalActivityConfig:
+      retryPolicy:
+        initialInterval: 250ms
+        backoffCoefficient: 1.5
+        maximumInterval: 2s
+        maximumAttempts: 4
+        totalDuration: 10s
+`)
+	cfg, err := NewConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, 125*time.Millisecond, cfg.Api.QueryWorkflowFailedRetryPolicy.InitialInterval)
+	require.Equal(t, 750*time.Millisecond, cfg.Api.QueryWorkflowFailedRetryPolicy.MaximumInterval)
+	require.Equal(t, 100*time.Millisecond, cfg.Api.InvokeRPCContinuedAsNewErrorRetryPolicy.InitialInterval)
+	require.Equal(t, 5*time.Second, cfg.Api.InvokeRPCContinuedAsNewErrorRetryPolicy.TotalDuration)
+	activityPolicy := cfg.Interpreter.InterpreterActivityConfig.DumpWorkflowInternalActivityConfig.RetryPolicy
+	require.Equal(t, 250*time.Millisecond, activityPolicy.InitialInterval)
+	require.Equal(t, 10*time.Second, activityPolicy.TotalDuration)
+}
+
+func TestRetryPolicyConfigRejectsInvalidDuration(t *testing.T) {
+	path := writeTestConfig(t, `
+api:
+  invokeRPCContinuedAsNewErrorRetryPolicy:
+    initialInterval: 2s
+    maximumInterval: 100ms
+`)
+	_, err := NewConfig(path)
+	require.ErrorContains(t, err, "maximumInterval must not be less than initialInterval")
+}
 
 func TestCleanupStrategyCronSchedule(t *testing.T) {
 	testCases := []struct {

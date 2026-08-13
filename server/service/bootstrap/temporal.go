@@ -89,7 +89,7 @@ func (r *Runtime) createTemporalServices() (
 		temporalConfig.Namespace,
 		dataConverter,
 		false,
-		&r.cfg.Api.QueryWorkflowFailedRetryPolicy,
+		r.cfg.Api.QueryWorkflowFailedRetryPolicy,
 	)
 	store, err := r.createBlobStore(
 		context.Background(),

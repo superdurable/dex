@@ -377,8 +377,8 @@ func (w *workflowProvider) ExecuteActivity(
 func temporalActivityOptions(options interfaces.ActivityOptions) workflow.ActivityOptions {
 	// in Temporal, scheduled to close timeout is the timeout include all retries
 	scheduleToCloseTimeout := time.Duration(0)
-	if options.RetryPolicy.GetTotalDurationSeconds() > 0 {
-		scheduleToCloseTimeout = time.Second * time.Duration(options.RetryPolicy.GetTotalDurationSeconds())
+	if options.RetryPolicy != nil && options.RetryPolicy.TotalDuration > 0 {
+		scheduleToCloseTimeout = options.RetryPolicy.TotalDuration
 	}
 	return workflow.ActivityOptions{
 		ActivityID:             options.ActivityID,
@@ -395,8 +395,8 @@ func temporalLocalActivityOptions(options interfaces.ActivityOptions) workflow.L
 	if options.LocalActivityScheduleToCloseTimeout > 0 {
 		localActivityTimeout = options.LocalActivityScheduleToCloseTimeout
 	}
-	if totalDuration := options.RetryPolicy.GetTotalDurationSeconds(); totalDuration > 0 && time.Duration(totalDuration)*time.Second < localActivityTimeout {
-		localActivityTimeout = time.Duration(totalDuration) * time.Second
+	if options.RetryPolicy != nil && options.RetryPolicy.TotalDuration > 0 && options.RetryPolicy.TotalDuration < localActivityTimeout {
+		localActivityTimeout = options.RetryPolicy.TotalDuration
 	}
 	localRetryPolicy := retry.LocalActivityRetryPolicy(options.RetryPolicy, localActivityTimeout)
 	return workflow.LocalActivityOptions{

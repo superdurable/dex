@@ -12,6 +12,7 @@ package integ
 
 import (
 	"testing"
+	"time"
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service"
@@ -48,9 +49,9 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 		Api: config.ApiConfig{
 			MaxWaitSeconds:                          12, // use 12 so that we can test it in the waiting test
 			IncludeCadenceRPCInputOutputIntoHistory: testCfg.IncludeCadenceRPCInputOutputIntoHistory,
-			QueryWorkflowFailedRetryPolicy: config.QueryWorkflowFailedRetryPolicy{
-				InitialIntervalSeconds: 1,
-				MaximumAttempts:        10,
+			QueryWorkflowFailedRetryPolicy: &config.RetryPolicy{
+				InitialInterval: time.Second,
+				MaximumAttempts: 10,
 			},
 		},
 		Worker: config.WorkerConfig{
