@@ -36,9 +36,9 @@ Here is the repository layout if you are interested to learn about it:
 ## How to update IDL and the generated code
 
 1. Edit [`protos/dex.proto`](../protos/dex.proto)
-2. Server rewrite (preferred while SDKs are frozen): `make idl-code-gen-server`
-   (or `make -C ../protos proto-server-go`) — refreshes only `server/gen/dexpb`.
-3. Full regen (server + SDKs): `make idl-code-gen` (or `make -C ../protos proto`).
+2. Run `make -C .. generated-code` (or `make idl-code-gen`) to refresh every
+   checked-in server and SDK output.
+3. Commit every generated change in the same PR.
 
 ## Temporal / Cadence DataConverters
 

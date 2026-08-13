@@ -49,6 +49,20 @@ jobs:
               - 'web/**'
               - 'protos/**'
               - '.github/workflows/web-ci.yml'
+            generated_code:
+              - 'protos/**'
+              - 'server/gen/dexpb/**'
+              - 'sdk-go/gen/dexpb/**'
+              - 'sdk-java/src/main/java/io/superdurable/gen/**'
+              - 'sdk-python/dex/dexpb/**'
+              - 'sdk-python/pyproject.toml'
+              - 'sdk-python/uv.lock'
+              - 'sdk-typescript/src/gen/**'
+              - 'sdk-typescript/scripts/generate-proto.mjs'
+              - 'sdk-typescript/package.json'
+              - 'sdk-typescript/package-lock.json'
+              - 'Makefile'
+              - '.github/workflows/generated-code-ci.yml'
             copyright:
               - 'server/**'
               - 'cli/**'
@@ -81,13 +95,14 @@ jobs:
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
           FILTER_EXAMPLES_GO: ${{ steps.filter.outputs.examples_go }}
           FILTER_WEB: ${{ steps.filter.outputs.web }}
+          FILTER_GENERATED_CODE: ${{ steps.filter.outputs.generated_code }}
           FILTER_COPYRIGHT: ${{ steps.filter.outputs.copyright }}
         run: |
           set -euo pipefail
 
           expected=()
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            expected=("Server CI" "Go SDK CI" "Rust SDK CI" "Go examples CI" "Web CI" "Copyright")
+            expected=("Server CI" "Go SDK CI" "Rust SDK CI" "Go examples CI" "Web CI" "Generated Code CI" "Copyright")
           else
             expected+=("CLA")
             [[ "$FILTER_SERVER" == "true" ]] && expected+=("Server CI")
@@ -95,6 +110,7 @@ jobs:
             [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
             [[ "$FILTER_EXAMPLES_GO" == "true" ]] && expected+=("Go examples CI")
             [[ "$FILTER_WEB" == "true" ]] && expected+=("Web CI")
+            [[ "$FILTER_GENERATED_CODE" == "true" ]] && expected+=("Generated Code CI")
             [[ "$FILTER_COPYRIGHT" == "true" ]] && expected+=("Copyright")
           fi
 

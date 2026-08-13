@@ -169,6 +169,8 @@ make -C protos proto
 | `sdk-go/gen/dexpb/` | `sdk-go/gen/dexpb/` |
 | `sdk-java/src/main/java/io/superdurable/gen/` | OpenAPI `build/generated` |
 | `sdk-python/dex/dexpb/` | `sdk-python/dex/dex_api/` |
+| `sdk-typescript/src/gen/` | `sdk-typescript/src/gen/` |
 
 `make -C server idl-code-gen` and `make -C sdk-go idl-code-gen` delegate to `make -C protos proto`.
-Use `make -C server idl-code-gen-server` to regenerate only server Go stubs.
+When `dex.proto` changes, commit every generated output from the full command.
+Component-only targets are for troubleshooting without an IDL change.

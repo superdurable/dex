@@ -40,7 +40,8 @@ coverage limited to `./dex/...`, writing reports under `coverage/`.
 
 ## How to update IDL and the generated code
 1. Edit [`protos/dex.proto`](../protos/dex.proto)
-2. Run `make idl-code-gen` (or `make -C ../protos proto`) to refresh stubs in server + SDKs
+2. Run `make idl-code-gen` (or `make -C .. generated-code`) to refresh stubs in server + SDKs
+3. Commit every generated change in the same PR
 
 ## Blob cache dependency
 
