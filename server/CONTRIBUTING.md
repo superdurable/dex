@@ -76,7 +76,7 @@ Intervals and total duration use Go duration strings such as `100ms`, `1s`, and
 type remains part of the public Step API and persisted history schema. Zero-valued
 fields inherit the owning setting's defaults. Query retries default to five fixed
 100ms attempts. InvokeRPC current-run retries default to 100ms exponential
-backoff, capped at one second and thirty seconds total. Attribute Store and
+backoff, capped at one second and five seconds total. Attribute Store and
 internal Activity retries also start at 100ms.
 
 # How to run server or integration tests

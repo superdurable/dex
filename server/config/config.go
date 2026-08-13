@@ -94,7 +94,7 @@ var (
 		InitialInterval:    100 * time.Millisecond,
 		BackoffCoefficient: 2,
 		MaximumInterval:    time.Second,
-		TotalDuration:      30 * time.Second,
+		TotalDuration:      5 * time.Second,
 	}
 	DefaultAttributeStoreSyncRetryPolicy = RetryPolicy{
 		InitialInterval:    100 * time.Millisecond,
@@ -233,7 +233,7 @@ type (
 		IncludeCadenceRPCInputOutputIntoHistory bool `yaml:"includeCadenceRPCInputOutputIntoHistory"`
 		// QueryWorkflowFailedRetryPolicy retries failed backend queries. Nil or zero fields default to 100ms fixed intervals and 5 attempts.
 		QueryWorkflowFailedRetryPolicy *RetryPolicy `yaml:"queryWorkflowFailedRetryPolicy"`
-		// InvokeRPCContinuedAsNewErrorRetryPolicy retries transient InvokeRPC failures across current-run changes. Nil or zero fields default to 100ms initial, 2x backoff, 1s maximum, and 30s total duration.
+		// InvokeRPCContinuedAsNewErrorRetryPolicy retries transient InvokeRPC failures across current-run changes. Nil or zero fields default to 100ms initial, 2x backoff, 1s maximum, and 5s total duration.
 		InvokeRPCContinuedAsNewErrorRetryPolicy *RetryPolicy `yaml:"invokeRPCContinuedAsNewErrorRetryPolicy"`
 	}
 

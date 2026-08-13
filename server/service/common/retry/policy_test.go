@@ -29,7 +29,7 @@ func TestServiceBackoffDefaults(t *testing.T) {
 	require.Equal(t, 100*time.Millisecond, invokeRPCBackoff.nextInterval)
 	require.Equal(t, 2.0, invokeRPCBackoff.backoffCoefficient)
 	require.Equal(t, time.Second, invokeRPCBackoff.maximumInterval)
-	require.Equal(t, 30*time.Second, invokeRPCBackoff.totalDuration)
+	require.Equal(t, 5*time.Second, invokeRPCBackoff.totalDuration)
 }
 
 func TestConvertCadenceActivityRetryPolicyNilMatchesTemporalDefaults(t *testing.T) {

@@ -130,6 +130,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 ) (output *dexpb.InvokeRpcUpdateResult, err error) {
 	u.continueAsNewer.IncreaseInflightOperation()
 	defer u.continueAsNewer.DecreaseInflightOperation()
+	u.signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
 
 	info := u.provider.GetWorkflowInfo(ctx)
 	rpcExecutionStartTime := u.provider.Now(ctx).UnixMilli()
@@ -217,12 +218,6 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 ) error {
 	if err := u.rejectTerminalUpdate(); err != nil {
 		return err
-	}
-	if u.continueAsNewCounter.IsThresholdMet() {
-		return u.provider.NewUpdateError(
-			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED,
-			service.InvokeRpcContinueAsNewPreempted,
-		)
 	}
 	if input == nil || input.GetRpcName() == "" {
 		return u.provider.NewUpdateError(

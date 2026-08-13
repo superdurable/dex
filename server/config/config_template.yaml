@@ -22,7 +22,7 @@ api:
     initialInterval: 100ms
     backoffCoefficient: 2
     maximumInterval: 1s
-    totalDuration: 30s
+    totalDuration: 5s
 worker:
   # Refresh individual endpoints behind headless WorkerService DNS.
   headlessAddressRefreshInterval: 60s
