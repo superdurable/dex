@@ -38,7 +38,7 @@ concurrency:
 jobs:
   unit:
     name: Unit tests
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: sdk-go
@@ -57,7 +57,7 @@ jobs:
 
   worker-integration:
     name: Worker integration tests
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: sdk-go
@@ -74,7 +74,7 @@ jobs:
 
   client-integration:
     name: Client integration tests
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: sdk-go
@@ -91,7 +91,7 @@ jobs:
 
   e2e:
     name: Integration coverage
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
     timeout-minutes: 25
     permissions:
       contents: read

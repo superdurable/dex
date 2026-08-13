@@ -108,6 +108,10 @@ func (h *handler) InvokeExecuteMethod(
 }
 
 func validateTimeoutRecoveryError(recoveryError *dexpb.RecoveryErrorInfo) {
+	if recoveryError.GetErrorType() == dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String() {
+		return
+	}
+
 	normalizedType := strings.ReplaceAll(strings.ToUpper(recoveryError.GetErrorType()), "_", "")
 	if recoveryError.GetDetail() == "" ||
 		!strings.Contains(normalizedType, "STARTTOCLOSE") {

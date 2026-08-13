@@ -40,7 +40,7 @@ concurrency:
 jobs:
   contracts:
     name: User contracts (Java ${{ matrix.java-version }})
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     env:
       RUSTUP_TOOLCHAIN: "1.97.1"
     strategy:
@@ -67,7 +67,7 @@ jobs:
 
   publication:
     name: Maven publication
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       RUSTUP_TOOLCHAIN: '1.97.1'
@@ -91,7 +91,7 @@ jobs:
 
   tests:
     name: Integration tests
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
     timeout-minutes: 25
     permissions:
       contents: read

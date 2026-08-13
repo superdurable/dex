@@ -43,7 +43,7 @@ concurrency:
 jobs:
   contracts:
     name: User contracts (Python ${{ matrix.python-version }})
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
@@ -72,7 +72,7 @@ jobs:
       run: uv run --frozen pyright tests/typecheck_contracts.py tests/integ
 
   lint:
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: sdk-python
@@ -136,7 +136,7 @@ jobs:
 
   integration:
     name: Integration tests
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
     timeout-minutes: 25
     permissions:
       contents: read

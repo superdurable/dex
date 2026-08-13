@@ -22,7 +22,7 @@ concurrency:
 jobs:
   blob-cache:
     name: Blob cache tests
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     defaults:
       run:
         working-directory: blob-cache-go

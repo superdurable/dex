@@ -27,7 +27,7 @@ env:
 jobs:
   quality:
     name: Published SDK, format, Clippy, and tests
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     timeout-minutes: 15
     defaults:
       run:

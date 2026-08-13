@@ -16,7 +16,7 @@ concurrency:
 jobs:
   check-gate:
     name: Check Gate CI
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
@@ -102,7 +102,23 @@ jobs:
 
           expected=()
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            expected=("Server CI" "Go SDK CI" "Rust SDK CI" "Go examples CI" "Web CI" "Generated Code CI" "Copyright")
+            expected=(
+              "Blob Cache Go CI"
+              "Dex CLI CI"
+              "Copyright"
+              "Go examples CI"
+              "Java examples CI"
+              "Python examples CI"
+              "Rust examples CI"
+              "Generated Code CI"
+              "Go SDK CI"
+              "Java SDK CI"
+              "Python SDK CI"
+              "Rust SDK CI"
+              "TypeScript SDK CI"
+              "Server CI"
+              "Web CI"
+            )
           else
             expected+=("CLA")
             [[ "$FILTER_SERVER" == "true" ]] && expected+=("Server CI")
