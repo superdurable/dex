@@ -1,0 +1,76 @@
+name: Generated Code CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "protos/**"
+      - "server/gen/dexpb/**"
+      - "sdk-go/gen/dexpb/**"
+      - "sdk-java/src/main/java/io/superdurable/gen/**"
+      - "sdk-python/dex/dexpb/**"
+      - "sdk-python/pyproject.toml"
+      - "sdk-python/uv.lock"
+      - "sdk-typescript/src/gen/**"
+      - "sdk-typescript/scripts/generate-proto.mjs"
+      - "sdk-typescript/package.json"
+      - "sdk-typescript/package-lock.json"
+      - "Makefile"
+      - ".github/workflows/generated-code-ci.yml"
+  pull_request:
+    paths:
+      - "protos/**"
+      - "server/gen/dexpb/**"
+      - "sdk-go/gen/dexpb/**"
+      - "sdk-java/src/main/java/io/superdurable/gen/**"
+      - "sdk-python/dex/dexpb/**"
+      - "sdk-python/pyproject.toml"
+      - "sdk-python/uv.lock"
+      - "sdk-typescript/src/gen/**"
+      - "sdk-typescript/scripts/generate-proto.mjs"
+      - "sdk-typescript/package.json"
+      - "sdk-typescript/package-lock.json"
+      - "Makefile"
+      - ".github/workflows/generated-code-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generated-code-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  freshness:
+    name: Generated code freshness
+    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25.x"
+          cache: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: sdk-typescript/package-lock.json
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.12.2"
+          python-version: "3.11"
+          working-directory: sdk-python
+          enable-cache: true
+      - name: Install Protoc
+        id: protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "35.1"
+          repo-token: ${{ github.token }}
+      - name: Verify generated code
+        env:
+          PROTOC_INCLUDE: ${{ steps.protoc.outputs.path }}/include
+        run: make generated-code-check

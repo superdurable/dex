@@ -237,9 +237,6 @@ enum IdReusePolicy {
 }
 
 message FlowAlreadyStartedOptions {
-  reserved 2;
-  reserved "request_id";
-
   bool ignore_already_started_error = 1;
 }
 
@@ -541,12 +538,9 @@ message StepMethodPendingEvent {
 }
 
 message StepMethodFailure {
-  reserved 2, 3, 4;
-  reserved "message", "error_type", "stack_trace", "retry_state";
-
   string backend_error = 1;
-  ErrorResponse details = 5;
-  int32 attempt = 6;
+  ErrorResponse details = 2;
+  int32 attempt = 3;
 }
 
 message StepMethodOptions {
@@ -785,9 +779,6 @@ message HealthInfo {
 }
 
 message ErrorResponse {
-  reserved 7, 8;
-  reserved "original_worker_retry_after_seconds";
-
   string detail = 1;
   ErrorSubStatus sub_status = 2;
   string original_worker_error_detail = 3;
@@ -1070,9 +1061,6 @@ message BlobStoreCleanupWorkflowOutput {
 }
 
 message InvokeWaitForMethodActivityInput {
-  reserved 3;
-  reserved "retry_context";
-
   WorkerTarget worker_target = 1;
   InvokeWaitForMethodRequest request = 2;
 }
@@ -1082,9 +1070,6 @@ message InvokeWaitForMethodActivityOutput {
 }
 
 message InvokeExecuteMethodActivityInput {
-  reserved 4;
-  reserved "retry_context";
-
   WorkerTarget worker_target = 1;
   InvokeExecuteMethodRequest request = 2;
   // Requires a DeadEnd close decision without next steps.

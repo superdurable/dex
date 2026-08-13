@@ -89,10 +89,10 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int DETAILS_FIELD_NUMBER = 5;
+  public static final int DETAILS_FIELD_NUMBER = 2;
   private io.superdurable.gen.ErrorResponse details_;
   /**
-   * <code>.dex.ErrorResponse details = 5;</code>
+   * <code>.dex.ErrorResponse details = 2;</code>
    * @return Whether the details field is set.
    */
   @java.lang.Override
@@ -100,7 +100,7 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.ErrorResponse details = 5;</code>
+   * <code>.dex.ErrorResponse details = 2;</code>
    * @return The details.
    */
   @java.lang.Override
@@ -108,17 +108,17 @@ private static final long serialVersionUID = 0L;
     return details_ == null ? io.superdurable.gen.ErrorResponse.getDefaultInstance() : details_;
   }
   /**
-   * <code>.dex.ErrorResponse details = 5;</code>
+   * <code>.dex.ErrorResponse details = 2;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.ErrorResponseOrBuilder getDetailsOrBuilder() {
     return details_ == null ? io.superdurable.gen.ErrorResponse.getDefaultInstance() : details_;
   }
 
-  public static final int ATTEMPT_FIELD_NUMBER = 6;
+  public static final int ATTEMPT_FIELD_NUMBER = 3;
   private int attempt_ = 0;
   /**
-   * <code>int32 attempt = 6;</code>
+   * <code>int32 attempt = 3;</code>
    * @return The attempt.
    */
   @java.lang.Override
@@ -144,10 +144,10 @@ private static final long serialVersionUID = 0L;
       com.google.protobuf.GeneratedMessage.writeString(output, 1, backendError_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(5, getDetails());
+      output.writeMessage(2, getDetails());
     }
     if (attempt_ != 0) {
-      output.writeInt32(6, attempt_);
+      output.writeInt32(3, attempt_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -158,11 +158,11 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(5, getDetails());
+        .computeMessageSize(2, getDetails());
     }
     if (attempt_ != 0) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(6, attempt_);
+        .computeInt32Size(3, attempt_);
     }
     return size;
   }
@@ -463,18 +463,18 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 42: {
+            case 18: {
               input.readMessage(
                   internalGetDetailsFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000002;
               break;
-            } // case 42
-            case 48: {
+            } // case 18
+            case 24: {
               attempt_ = input.readInt32();
               bitField0_ |= 0x00000004;
               break;
-            } // case 48
+            } // case 24
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -568,14 +568,14 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.ErrorResponse, io.superdurable.gen.ErrorResponse.Builder, io.superdurable.gen.ErrorResponseOrBuilder> detailsBuilder_;
     /**
-     * <code>.dex.ErrorResponse details = 5;</code>
+     * <code>.dex.ErrorResponse details = 2;</code>
      * @return Whether the details field is set.
      */
     public boolean hasDetails() {
       return ((bitField0_ & 0x00000002) != 0);
     }
     /**
-     * <code>.dex.ErrorResponse details = 5;</code>
+     * <code>.dex.ErrorResponse details = 2;</code>
      * @return The details.
      */
     public io.superdurable.gen.ErrorResponse getDetails() {
@@ -586,7 +586,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.ErrorResponse details = 5;</code>
+     * <code>.dex.ErrorResponse details = 2;</code>
      */
     public Builder setDetails(io.superdurable.gen.ErrorResponse value) {
       if (detailsBuilder_ == null) {
@@ -602,7 +602,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ErrorResponse details = 5;</code>
+     * <code>.dex.ErrorResponse details = 2;</code>
      */
     public Builder setDetails(
         io.superdurable.gen.ErrorResponse.Builder builderForValue) {
@@ -616,7 +616,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ErrorResponse details = 5;</code>
+     * <code>.dex.ErrorResponse details = 2;</code>
      */
     public Builder mergeDetails(io.superdurable.gen.ErrorResponse value) {
       if (detailsBuilder_ == null) {
@@ -637,7 +637,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ErrorResponse details = 5;</code>
+     * <code>.dex.ErrorResponse details = 2;</code>
      */
     public Builder clearDetails() {
       bitField0_ = (bitField0_ & ~0x00000002);
@@ -650,7 +650,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ErrorResponse details = 5;</code>
+     * <code>.dex.ErrorResponse details = 2;</code>
      */
     public io.superdurable.gen.ErrorResponse.Builder getDetailsBuilder() {
       bitField0_ |= 0x00000002;
@@ -658,7 +658,7 @@ private static final long serialVersionUID = 0L;
       return internalGetDetailsFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.ErrorResponse details = 5;</code>
+     * <code>.dex.ErrorResponse details = 2;</code>
      */
     public io.superdurable.gen.ErrorResponseOrBuilder getDetailsOrBuilder() {
       if (detailsBuilder_ != null) {
@@ -669,7 +669,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.ErrorResponse details = 5;</code>
+     * <code>.dex.ErrorResponse details = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.ErrorResponse, io.superdurable.gen.ErrorResponse.Builder, io.superdurable.gen.ErrorResponseOrBuilder> 
@@ -687,7 +687,7 @@ private static final long serialVersionUID = 0L;
 
     private int attempt_ ;
     /**
-     * <code>int32 attempt = 6;</code>
+     * <code>int32 attempt = 3;</code>
      * @return The attempt.
      */
     @java.lang.Override
@@ -695,7 +695,7 @@ private static final long serialVersionUID = 0L;
       return attempt_;
     }
     /**
-     * <code>int32 attempt = 6;</code>
+     * <code>int32 attempt = 3;</code>
      * @param value The attempt to set.
      * @return This builder for chaining.
      */
@@ -707,7 +707,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>int32 attempt = 6;</code>
+     * <code>int32 attempt = 3;</code>
      * @return This builder for chaining.
      */
     public Builder clearAttempt() {

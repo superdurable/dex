@@ -10,15 +10,21 @@ SERVER_GO_OUT := ../server/gen/dexpb
 SDK_GO_OUT := ../sdk-go/gen/dexpb
 SDK_JAVA_OUT := ../sdk-java/src/main/java
 SDK_PYTHON_OUT := ../sdk-python/dex/dexpb
+SDK_TYPESCRIPT_OUT := ../sdk-typescript/src/gen
 
 SERVER_GO_PKG := github.com/superdurable/dex/gen/dexpb
 SDK_GO_PKG := github.com/superdurable/dex/sdk-go/gen/dexpb
 
-GOPATH_BIN := $(shell go env GOPATH)/bin
-export PATH := $(GOPATH_BIN):$(PATH)
-
 TOOLS_DIR := .tools
+TOOLS_BIN := $(abspath $(TOOLS_DIR))
+PROTOC_GEN_GO_PLUGIN := $(TOOLS_DIR)/protoc-gen-go
+PROTOC_GEN_GO_GRPC_PLUGIN := $(TOOLS_DIR)/protoc-gen-go-grpc
+PROTOC_GEN_GO_STAMP := $(PROTOC_GEN_GO_PLUGIN)-$(PROTOC_GEN_GO_VERSION)
+PROTOC_GEN_GO_GRPC_STAMP := $(PROTOC_GEN_GO_GRPC_PLUGIN)-$(PROTOC_GEN_GO_GRPC_VERSION)
 GRPC_JAVA_PLUGIN := $(TOOLS_DIR)/protoc-gen-grpc-java
+GOPATH_BIN := $(shell go env GOPATH)/bin
+export PATH := $(TOOLS_BIN):$(GOPATH_BIN):$(PATH)
+
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 ifeq ($(UNAME_S),Darwin)
@@ -37,9 +43,9 @@ else
   GRPC_JAVA_CLASSIFIER := windows-x86_64
 endif
 
-.PHONY: proto proto-server-go proto-sdk-go proto-java proto-python clean ensure-tools ensure-python-tools
+.PHONY: proto proto-server-go proto-sdk-go proto-java proto-python proto-typescript clean ensure-protoc ensure-tools ensure-python-tools ensure-typescript-tools
 
-proto: proto-server-go
+proto: proto-server-go proto-sdk-go proto-java proto-python proto-typescript
 
 # Server-only codegen for the server rewrite. Does not touch SDK trees.
 proto-server-go: ensure-tools
@@ -68,7 +74,7 @@ proto-sdk-go: ensure-tools
 		--go-grpc_opt=Mdex.proto=$(SDK_GO_PKG) \
 		$(PROTO_FILE)
 
-proto-java: ensure-tools $(GRPC_JAVA_PLUGIN)
+proto-java: ensure-protoc $(GRPC_JAVA_PLUGIN)
 	rm -rf $(SDK_JAVA_OUT)/io/superdurable/gen
 	mkdir -p $(SDK_JAVA_OUT)
 	protoc \
@@ -93,18 +99,39 @@ proto-python: ensure-python-tools
 		sed -i.bak 's/^import dex_pb2 as/from . import dex_pb2 as/' $(SDK_PYTHON_OUT)/dex_pb2_grpc.py && rm -f $(SDK_PYTHON_OUT)/dex_pb2_grpc.py.bak; \
 	fi
 
+proto-typescript: ensure-protoc ensure-typescript-tools
+	npm --prefix ../sdk-typescript ci --ignore-scripts
+	npm --prefix ../sdk-typescript run generate:proto
+
 clean:
 	rm -rf $(SERVER_GO_OUT) $(SDK_GO_OUT)
 	rm -rf $(SDK_JAVA_OUT)/io/superdurable/gen
 	rm -rf $(SDK_PYTHON_OUT)
+	rm -rf $(SDK_TYPESCRIPT_OUT)
 
-ensure-tools:
+ensure-protoc:
 	@which protoc > /dev/null 2>&1 || (echo "protoc not found. Install protoc $(PROTOC_VERSION)" && exit 1)
-	@which protoc-gen-go > /dev/null 2>&1 || go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
-	@which protoc-gen-go-grpc > /dev/null 2>&1 || go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	@version="$$(protoc --version)"; \
+		test "$$version" = "libprotoc $(PROTOC_VERSION)" || \
+		(echo "Expected libprotoc $(PROTOC_VERSION), found $$version" && exit 1)
+
+ensure-tools: ensure-protoc $(PROTOC_GEN_GO_STAMP) $(PROTOC_GEN_GO_GRPC_STAMP)
 
 ensure-python-tools:
 	@which uv > /dev/null 2>&1 || (echo "uv not found. Install uv 0.12.2" && exit 1)
+
+ensure-typescript-tools:
+	@which npm > /dev/null 2>&1 || (echo "npm not found. Install Node.js 22 or 24" && exit 1)
+
+$(PROTOC_GEN_GO_STAMP):
+	mkdir -p $(TOOLS_DIR)
+	GOBIN="$(TOOLS_BIN)" go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	touch $@
+
+$(PROTOC_GEN_GO_GRPC_STAMP):
+	mkdir -p $(TOOLS_DIR)
+	GOBIN="$(TOOLS_BIN)" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	touch $@
 
 $(GRPC_JAVA_PLUGIN):
 	mkdir -p $(TOOLS_DIR)

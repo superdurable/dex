@@ -118,8 +118,8 @@ endef
 
 .PHONY: release clean docsCheck
 
-idl-code-gen: # regenerate Go SDK protobuf stubs from protos/dex.proto
-	$(MAKE) -C ../protos proto-sdk-go
+idl-code-gen: # regenerate protobuf stubs from protos/dex.proto across the repository
+	$(MAKE) -C ../protos proto
 
 clean: ## Clean binaries and build folder
 	rm -f $(BINS)

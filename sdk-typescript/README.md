@@ -197,9 +197,9 @@ enum value, type parameter, input, and output; generated sources are excluded.
 The comments appear in TypeScript language-service and IDE hovers.
 
 Run `./run-integration-tests.sh` for all 58 IWF
-compatibility scenarios against an isolated `dexcli dev` environment. Run
-`npm run generate:proto` after changing `protos/dex.proto`; `protoc` and its
-standard protobuf includes must be installed.
+compatibility scenarios against an isolated `dexcli dev` environment. After
+changing `protos/dex.proto`, run `make generated-code` from the repository root
+and commit every server and SDK output.
 
 ## Integration coverage
 

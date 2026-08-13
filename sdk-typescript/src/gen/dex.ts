@@ -5573,10 +5573,10 @@ export const StepMethodFailure: MessageFns<StepMethodFailure> = {
       writer.uint32(10).string(message.backendError);
     }
     if (message.details !== undefined) {
-      ErrorResponse.encode(message.details, writer.uint32(42).fork()).join();
+      ErrorResponse.encode(message.details, writer.uint32(18).fork()).join();
     }
     if (message.attempt !== 0) {
-      writer.uint32(48).int32(message.attempt);
+      writer.uint32(24).int32(message.attempt);
     }
     return writer;
   },
@@ -5596,16 +5596,16 @@ export const StepMethodFailure: MessageFns<StepMethodFailure> = {
           message.backendError = reader.string();
           continue;
         }
-        case 5: {
-          if (tag !== 42) {
+        case 2: {
+          if (tag !== 18) {
             break;
           }
 
           message.details = ErrorResponse.decode(reader, reader.uint32());
           continue;
         }
-        case 6: {
-          if (tag !== 48) {
+        case 3: {
+          if (tag !== 24) {
             break;
           }
 
