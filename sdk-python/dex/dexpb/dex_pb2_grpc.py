@@ -62,9 +62,10 @@ class FlowServiceStub:
     locking InvokeRPC (Temporal sync update required)
 
     Notable per-RPC behavior:
-    InvokeRPC — Temporal uses one synchronous Update for locking and non-locking
-    calls. Cadence uses query + WorkerService + optional signal when
-    LockAttributeKeys is empty; non-empty LockAttributeKeys → Unimplemented.
+    InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
+    signal by default. Temporal can opt into synchronous Updates for all RPCs.
+    Non-empty LockAttributeKeys requires a Temporal synchronous Update;
+    Cadence returns Unimplemented.
     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
@@ -227,9 +228,10 @@ class FlowServiceServicer:
     locking InvokeRPC (Temporal sync update required)
 
     Notable per-RPC behavior:
-    InvokeRPC — Temporal uses one synchronous Update for locking and non-locking
-    calls. Cadence uses query + WorkerService + optional signal when
-    LockAttributeKeys is empty; non-empty LockAttributeKeys → Unimplemented.
+    InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
+    signal by default. Temporal can opt into synchronous Updates for all RPCs.
+    Non-empty LockAttributeKeys requires a Temporal synchronous Update;
+    Cadence returns Unimplemented.
     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
@@ -521,9 +523,10 @@ class FlowService:
     locking InvokeRPC (Temporal sync update required)
 
     Notable per-RPC behavior:
-    InvokeRPC — Temporal uses one synchronous Update for locking and non-locking
-    calls. Cadence uses query + WorkerService + optional signal when
-    LockAttributeKeys is empty; non-empty LockAttributeKeys → Unimplemented.
+    InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
+    signal by default. Temporal can opt into synchronous Updates for all RPCs.
+    Non-empty LockAttributeKeys requires a Temporal synchronous Update;
+    Cadence returns Unimplemented.
     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
     WORKER_API_ERROR + OriginalWorker* when present.
     WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API

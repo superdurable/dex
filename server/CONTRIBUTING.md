@@ -58,14 +58,16 @@ Interpreter workflows and activities use constructor injection. Do not add mutab
 package-global environments or registries.
 
 `WaitForStepCompletion` and `WaitForAttribute` are Temporal-only synchronous
-updates. Every Temporal InvokeRPC is an `InvokeRpc` synchronous update. Cadence
-supports non-locking InvokeRPC through query, WorkerService, and optional signal.
+updates. Locking Temporal InvokeRPC uses an `InvokeRpc` synchronous Update.
+Non-locking InvokeRPC uses query, WorkerService, and optional signal unless
+`api.useTemporalSynchronousUpdateForAllRPCs` opts Temporal into Updates.
 
 Their protobuf requests require a client-generated `request_id`. For Temporal
-InvokeRPC and waits, the server passes it as the Update ID, so one logical call
-must reuse the same ID across retries and keep the operation and input unchanged. Temporal deduplicates only
-within one namespace, workflow ID, and run ID; Continue-as-New starts a new
-deduplication scope. SDK support remains deferred during the server rewrite.
+InvokeRPC Update paths and waits, the server passes it as the Update ID, so one
+logical call must reuse the same ID across retries and keep the operation and
+input unchanged. Temporal deduplicates only within one namespace, workflow ID,
+and run ID; Continue-as-New starts a new deduplication scope. SDK support remains
+deferred during the server rewrite.
 
 Memo is reserved for worker-target and request-id metadata. Never store attributes
 in Memo.

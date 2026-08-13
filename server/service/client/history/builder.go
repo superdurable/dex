@@ -440,6 +440,7 @@ func (b *Builder) RecordInvokeRpcUpdate(
 	eventTime time.Time,
 	request *dexpb.InvokeRPCRequest,
 	result *dexpb.InvokeRpcUpdateResult,
+	workerResponse *dexpb.InvokeWorkerRPCResponse,
 ) {
 	b.events = append(b.events, newEvent(
 		eventID,
@@ -449,10 +450,10 @@ func (b *Builder) RecordInvokeRpcUpdate(
 				RpcName:          request.GetRpcName(),
 				Input:            request.GetInput(),
 				Output:           result.GetResponse().GetOutput(),
-				StepDecision:     result.GetStepDecision(),
-				UpsertAttributes: result.GetUpsertAttributes(),
-				RecordEvents:     result.GetRecordEvents(),
-				PublishToChannel: result.GetPublishToChannel(),
+				StepDecision:     workerResponse.GetStepDecision(),
+				UpsertAttributes: workerResponse.GetUpsertAttributes(),
+				RecordEvents:     workerResponse.GetRecordEvents(),
+				PublishToChannel: workerResponse.GetPublishToChannel(),
 			},
 		},
 	))

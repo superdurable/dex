@@ -417,7 +417,10 @@ func (a *Activities) InvokeWorkerRPC(
 	if err != nil {
 		return nil, composeWorkerError(provider, a.unifiedClient.GetBackendType(), err)
 	}
-	out := &dexpb.InvokeWorkerRPCActivityOutput{Response: resp}
+	out := &dexpb.InvokeWorkerRPCActivityOutput{
+		Response:  resp,
+		RequestId: input.GetRequest().GetRequestId(),
+	}
 	if activityInfo.IsLocalActivity {
 		payloadSize, sized := jsonPayloadSize(logger, out)
 		if threshold := a.cfg.Interpreter.InterpreterActivityConfig.LogLocalActivityThresholdBytes; sized && threshold > 0 && payloadSize >= threshold {

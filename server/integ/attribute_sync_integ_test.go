@@ -92,7 +92,8 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 	require.NoError(t, err)
 
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType: service.BackendTypeTemporal,
+		BackendType:                            service.BackendTypeTemporal,
+		UseTemporalSynchronousUpdateForAllRPCs: true,
 		AttributeStore: config.AttributeStoreConfig{
 			Stores: map[string]config.AttributeStoreConfigEntry{
 				"reporting": {

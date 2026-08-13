@@ -587,6 +587,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 	scheduledTypes := map[int64]string{}
 	localFallbackCounts := map[string]int{}
 	acceptedRpcUpdates := map[int64]*dexpb.InvokeRPCRequest{}
+	rpcLocalActivityResults := map[string]*dexpb.InvokeWorkerRPCResponse{}
 	for iterator.HasNext() {
 		event, err := iterator.Next()
 		if err != nil {
@@ -597,6 +598,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 			scheduledTypes,
 			localFallbackCounts,
 			acceptedRpcUpdates,
+			rpcLocalActivityResults,
 			event,
 		); err != nil {
 			return nil, err
@@ -638,6 +640,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 	scheduledTypes map[int64]string,
 	localFallbackCounts map[string]int,
 	acceptedRpcUpdates map[int64]*dexpb.InvokeRPCRequest,
+	rpcLocalActivityResults map[string]*dexpb.InvokeWorkerRPCResponse,
 	event *history.HistoryEvent,
 ) error {
 	eventTime := event.GetEventTime().AsTime()
@@ -715,6 +718,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		return t.recordTemporalLocalActivity(
 			builder,
 			localFallbackCounts,
+			rpcLocalActivityResults,
 			event,
 		)
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
@@ -743,8 +747,8 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		acceptedRpcUpdates[event.GetEventId()] = &request
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
 		attributes := event.GetWorkflowExecutionUpdateCompletedEventAttributes()
-		request := acceptedRpcUpdates[attributes.GetAcceptedEventId()]
-		if request == nil || attributes.GetOutcome().GetSuccess() == nil {
+		accepted := acceptedRpcUpdates[attributes.GetAcceptedEventId()]
+		if accepted == nil || attributes.GetOutcome().GetSuccess() == nil {
 			return nil
 		}
 		var result dexpb.InvokeRpcUpdateResult
@@ -754,7 +758,22 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		); err != nil {
 			return err
 		}
-		builder.RecordInvokeRpcUpdate(event.GetEventId(), eventTime, request, &result)
+		workerResponse := rpcLocalActivityResults[accepted.GetRequestId()]
+		if workerResponse == nil {
+			return fmt.Errorf(
+				"InvokeRpc Update %q has no InvokeWorkerRPC local activity result",
+				accepted.GetRequestId(),
+			)
+		}
+		builder.RecordInvokeRpcUpdate(
+			event.GetEventId(),
+			eventTime,
+			accepted,
+			&result,
+			workerResponse,
+		)
+		delete(acceptedRpcUpdates, attributes.GetAcceptedEventId())
+		delete(rpcLocalActivityResults, accepted.GetRequestId())
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
 		var output dexpb.InterpreterWorkflowOutput
 		attributes := event.GetWorkflowExecutionCompletedEventAttributes()
@@ -917,6 +936,7 @@ func (t *temporalClient) recordTemporalCompletedActivity(
 func (t *temporalClient) recordTemporalLocalActivity(
 	builder *historybuilder.Builder,
 	localFallbackCounts map[string]int,
+	rpcLocalActivityResults map[string]*dexpb.InvokeWorkerRPCResponse,
 	event *history.HistoryEvent,
 ) error {
 	attributes := event.GetMarkerRecordedEventAttributes()
@@ -986,6 +1006,12 @@ func (t *temporalClient) recordTemporalLocalActivity(
 			return err
 		}
 		builder.RecordContinueDump(&output)
+	case strings.Contains(marker.ActivityType, "InvokeWorkerRPC"):
+		var output dexpb.InvokeWorkerRPCActivityOutput
+		if err := t.dataConverter.FromPayloads(result, &output); err != nil {
+			return err
+		}
+		rpcLocalActivityResults[output.GetRequestId()] = output.GetResponse()
 	}
 	return nil
 }

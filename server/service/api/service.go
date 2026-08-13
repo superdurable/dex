@@ -954,6 +954,7 @@ func (s *serviceImpl) InvokeRPC(
 	if len(req.GetLockAttributeKeys()) > 0 && backendType == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
 	}
+	useSynchronousUpdate := s.shouldInvokeRPCWithSynchronousUpdate(req)
 	if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
@@ -983,7 +984,7 @@ func (s *serviceImpl) InvokeRPC(
 		s.apiCfg.InvokeRPCContinuedAsNewErrorRetryPolicy,
 	)
 	for {
-		response, err := s.doInvokeRPC(ctx, req, runID)
+		response, err := s.doInvokeRPC(ctx, req, runID, useSynchronousUpdate)
 		if err == nil {
 			if !s.blobStoreCfg.EffectiveLazyLoading() {
 				if err := blobstore.HydrateValue(ctx, response.GetOutput(), s.store); err != nil {
@@ -992,7 +993,7 @@ func (s *serviceImpl) InvokeRPC(
 			}
 			return response, nil
 		}
-		updateTransitionError := s.isInvokeRPCUpdateTransitionError(err)
+		updateTransitionError := useSynchronousUpdate && s.isInvokeRPCUpdateTransitionError(err)
 		if req.GetRunId() != "" ||
 			(!s.client.IsNotFoundError(err) && !updateTransitionError) {
 			return nil, s.handleInvokeRPCError(err)
@@ -1038,8 +1039,9 @@ func (s *serviceImpl) doInvokeRPC(
 	ctx context.Context,
 	req *dexpb.InvokeRPCRequest,
 	runID string,
+	useSynchronousUpdate bool,
 ) (*dexpb.InvokeRPCResponse, error) {
-	if s.client.GetBackendType() == service.BackendTypeTemporal {
+	if useSynchronousUpdate {
 		return s.doInvokeRpcUpdate(ctx, req, runID)
 	}
 
@@ -1079,7 +1081,7 @@ func (s *serviceImpl) doInvokeRPC(
 			RecordEvents:     workerResponse.GetRecordEvents(),
 			PublishToChannel: workerResponse.GetPublishToChannel(),
 		}
-		if s.apiCfg.IncludeCadenceRPCInputOutputIntoHistory {
+		if s.apiCfg.IncludeRPCInputOutputIntoHistory {
 			signalRequest.RpcInput = req.GetInput()
 			signalRequest.RpcOutput = workerResponse.GetOutput()
 		}
@@ -1094,6 +1096,12 @@ func (s *serviceImpl) doInvokeRPC(
 		}
 	}
 	return &dexpb.InvokeRPCResponse{Output: workerResponse.GetOutput()}, nil
+}
+
+func (s *serviceImpl) shouldInvokeRPCWithSynchronousUpdate(req *dexpb.InvokeRPCRequest) bool {
+	return s.client.GetBackendType() == service.BackendTypeTemporal &&
+		(len(req.GetLockAttributeKeys()) > 0 ||
+			s.apiCfg.UseTemporalSynchronousUpdateForAllRPCs)
 }
 
 func (s *serviceImpl) handleInvokeRPCError(err error) error {

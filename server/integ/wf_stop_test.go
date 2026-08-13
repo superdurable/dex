@@ -159,7 +159,10 @@ func doTestWorkflowCancelWaitsForProducer(
 
 func doTestInvokeRPCTerminalValidation(t *testing.T, stopType dexpb.StopType) {
 	handler := newFinalizingRPCHandler(false)
-	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:                            service.BackendTypeTemporal,
+		UseTemporalSynchronousUpdateForAllRPCs: true,
+	})
 	workerTarget := startWorker(t, handler)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
