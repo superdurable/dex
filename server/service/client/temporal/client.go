@@ -178,14 +178,6 @@ func (t *temporalClient) IsNotFoundError(err error) bool {
 	return ok
 }
 
-func (t *temporalClient) IsUnknownUpdateError(err error, updateName string) bool {
-	return strings.HasPrefix(err.Error(), fmt.Sprintf("unknown update %s. KnownUpdates=", updateName))
-}
-
-func (t *temporalClient) IsAcceptedUpdateCompletedWorkflowError(err error) bool {
-	return strings.Contains(err.Error(), "AcceptedUpdateCompletedWorkflow")
-}
-
 func (t *temporalClient) isQueryFailedError(err error) bool {
 	var serviceError *serviceerror.QueryFailed
 	ok := errors.As(err, &serviceError)

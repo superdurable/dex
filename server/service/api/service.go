@@ -1026,10 +1026,6 @@ func (s *serviceImpl) InvokeRPC(
 }
 
 func (s *serviceImpl) isInvokeRPCUpdateTransitionError(err error) bool {
-	if s.client.IsUnknownUpdateError(err, service.InvokeRpcUpdateType) ||
-		s.client.IsAcceptedUpdateCompletedWorkflowError(err) {
-		return true
-	}
 	updateType, updateError := s.client.GetIfUpdateError(err, nil)
 	return updateError &&
 		updateType == dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED

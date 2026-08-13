@@ -40,6 +40,7 @@ func InvokeWorkerRpc(
 			return nil, err
 		}
 		if workerInput != nil {
+			// Preserve the request's blob reference because eager hydration replaces Value.Kind in place.
 			workerInput = &dexpb.Value{Kind: workerInput.GetKind()}
 		}
 		if err := blobstore.HydrateValue(ctx, workerInput, blobStore); err != nil {
