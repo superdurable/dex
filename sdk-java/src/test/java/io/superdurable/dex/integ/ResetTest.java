@@ -64,7 +64,7 @@ public final class ResetTest {
 
             final String resetRunId = environment.client().resetFlow(
                     flowId,
-                    resetOptions(false, false));
+                    resetOptions(false));
 
             assertCompletedWithAttributes(environment, flowId, true);
             assertEquals(resetRunId, environment.client().describeFlow(flowId).getRunId());
@@ -79,7 +79,7 @@ public final class ResetTest {
 
             final String resetRunId = environment.client().resetFlow(
                     flowId,
-                    resetOptions(true, true));
+                    resetOptions(true));
 
             assertResetTimesOutWithoutAttributes(environment, flowId, resetRunId);
         }
@@ -93,7 +93,7 @@ public final class ResetTest {
 
             final String resetRunId = environment.client().resetFlow(
                     flowId,
-                    resetOptions(false, false));
+                    resetOptions(false));
 
             assertCompletedWithAttributes(environment, flowId, false);
             assertEquals(resetRunId, environment.client().describeFlow(flowId).getRunId());
@@ -108,7 +108,7 @@ public final class ResetTest {
 
             final String resetRunId = environment.client().resetFlow(
                     flowId,
-                    resetOptions(true, true));
+                    resetOptions(true));
 
             assertResetTimesOutWithoutAttributes(environment, flowId, resetRunId);
         }
@@ -123,17 +123,16 @@ public final class ResetTest {
         client.invokeRPC(stub::withAttributeMapLock);
         final ResetFlowOptions options = ResetFlowOptions.newBuilder(ResetType.BEGINNING)
                 .reason("replay locking RPC")
-                .skipLockingRpcReapply(false)
+                .skipWritesReapply(false)
                 .build();
         final String runId = client.resetFlow("reset-locking", options);
         consume(runId);
     }
 
-    void compileSkipRpcAndChannelReapply(final Client client) {
+    void compileSkipWritesReapply(final Client client) {
         final ResetFlowOptions options = ResetFlowOptions.newBuilder(ResetType.STEP_TYPE)
                 .stepType("LockWaitStep")
-                .skipLockingRpcReapply(true)
-                .skipChannelMessagesReapply(true)
+                .skipWritesReapply(true)
                 .build();
         final String runId = client.resetFlow("reset-locking", options);
         consume(runId);
@@ -162,13 +161,10 @@ public final class ResetTest {
         return flowId;
     }
 
-    private static ResetFlowOptions resetOptions(
-            final boolean skipLockingRpc,
-            final boolean skipChannels) {
+    private static ResetFlowOptions resetOptions(final boolean skipWrites) {
         return ResetFlowOptions.newBuilder(ResetType.BEGINNING)
                 .reason("testing reset")
-                .skipLockingRpcReapply(skipLockingRpc)
-                .skipChannelMessagesReapply(skipChannels)
+                .skipWritesReapply(skipWrites)
                 .build();
     }
 

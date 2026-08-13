@@ -21,18 +21,17 @@ def compile_locking_rpc_reapply(client: Client) -> None:
     options = ResetFlowOptions(
         type=ResetType.BEGINNING,
         reason="replay locking RPC",
-        skip_locking_rpc_reapply=False,
+        skip_writes_reapply=False,
     )
     run_id: str = client.reset_flow("reset-locking", options)
     del run_id
 
 
-def compile_skip_rpc_and_channel_reapply(client: Client) -> None:
+def compile_skip_writes_reapply(client: Client) -> None:
     options = ResetFlowOptions(
         type=ResetType.STEP_TYPE,
         step_type="LockWaitStep",
-        skip_locking_rpc_reapply=True,
-        skip_channel_messages_reapply=True,
+        skip_writes_reapply=True,
     )
     run_id: str = client.reset_flow("reset-locking", options)
     del run_id

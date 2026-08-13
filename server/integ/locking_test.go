@@ -163,65 +163,200 @@ func doTestLockingWorkflow(
 		assertions.True(rpcLockingFailure > 0)
 	}
 
-	time.Sleep(time.Second)
-	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		RequestId: newRequestID(),
-		FlowId:    flowId,
-		RpcName:   locking.RPCName,
-		Input:     objJSONValue(locking.ShouldUnblockStateWaiting),
-	})
-	require.NoError(t, err)
-
-	time.Sleep(20 * time.Second)
-	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
-		FlowId: flowId,
-	})
-	require.NoError(t, err)
-
 	s2StartsDecides := locking.InParallelS2 + rpcIncrease
 	finalCounterValue := int64(locking.InParallelS2 + 2*rpcIncrease)
+	initialStateWaitingExecutes := int64(0)
+	resetSourceRunID := ""
+	if backendType == service.BackendTypeTemporal {
+		require.Eventually(t, func() bool {
+			initialHistory := workerHandler.GetTestResult().InvokeHistory
+			return initialHistory["S2_waitFor"] == int64(s2StartsDecides) &&
+				initialHistory["S2_execute"] == int64(s2StartsDecides)
+		}, 60*time.Second, 100*time.Millisecond)
+		description, describeErr := runtime.UnifiedClient.DescribeWorkflowExecution(
+			ctx,
+			flowId,
+			"",
+			nil,
+		)
+		require.NoError(t, describeErr)
+		resetSourceRunID = description.RunId
+		require.Eventually(t, func() bool {
+			isCompleted, historyErr := hasStepExecuteCompletedHistory(
+				ctx,
+				flowClient,
+				flowId,
+				description.RunId,
+				fmt.Sprintf("%s-%d", locking.State2, s2StartsDecides),
+			)
+			return historyErr == nil && isCompleted
+		}, 60*time.Second, 100*time.Millisecond)
+	} else {
+		time.Sleep(time.Second)
+		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+			RequestId: newRequestID(),
+			FlowId:    flowId,
+			RpcName:   locking.RPCName,
+			Input:     objJSONValue(locking.ShouldUnblockStateWaiting),
+		})
+		require.NoError(t, err)
+
+		time.Sleep(20 * time.Second)
+		response, waitErr := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+			FlowId: flowId,
+		})
+		require.NoError(t, waitErr)
+		assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+		assertions.Empty(response.GetResults())
+		initialStateWaitingExecutes = 1
+	}
+
 	history := workerHandler.GetTestResult().InvokeHistory
-	assertions.Equalf(map[string]int64{
+	expectedInitialHistory := map[string]int64{
 		"S1_waitFor":           1,
 		"S1_execute":           1,
 		"StateWaiting_waitFor": 1,
-		"StateWaiting_execute": 1,
 		"S2_waitFor":           int64(s2StartsDecides),
 		"S2_execute":           int64(s2StartsDecides),
-	}, history, "locking.test fail, %v", history)
-
-	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
-	assertions.Equal(0, len(response.GetResults()))
-
-	attributesResp, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
-		FlowId: flowId,
-		Keys:   []string{locking.TestSearchAttributeIntKey, locking.TestDataAttributeKey1},
-	})
-	if status.Code(err) == codes.DeadlineExceeded {
-		attributesResp, err = flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
-			FlowId: flowId,
-			Keys:   []string{locking.TestSearchAttributeIntKey, locking.TestDataAttributeKey1},
-		})
 	}
-	require.NoError(t, err)
-	attributeMap := attributesToMap(attributesResp.GetAttributes())
-	assertions.Equal(finalCounterValue, attributeMap[locking.TestSearchAttributeIntKey].GetIntValue())
-	assertions.Equal(
-		fmt.Sprintf("%v", finalCounterValue),
-		string(attributeMap[locking.TestDataAttributeKey1].GetObjValue().GetPayload()),
-	)
+	if initialStateWaitingExecutes > 0 {
+		expectedInitialHistory["StateWaiting_execute"] = initialStateWaitingExecutes
+	}
+	assertions.Equalf(expectedInitialHistory, history, "locking.test fail, %v", history)
 
-	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
+	assertions.Equal(int32(rpcIncrease), workerHandler.GetRPCInvokeCount())
+
+	resetRequest := &dexpb.ResetFlowRequest{
 		FlowId:    flowId,
 		ResetType: dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE,
 		StepType:  locking.StateWaiting,
-	})
+	}
+	expectedRPCInvokes := int32(2 * rpcIncrease)
+	expectedS2Invokes := int64(2 * s2StartsDecides)
+	expectedStateWaitingWaitForInvokes := int64(2)
+	shouldReapplyRPC := backendType == service.BackendTypeTemporal && flowConfig == nil
+	if backendType == service.BackendTypeTemporal {
+		resetRequest.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID
+		resetRequest.RunId = resetSourceRunID
+		resetRequest.StepType = ""
+		resetRequest.StepExecutionId = fmt.Sprintf("%s-%d", locking.State2, s2StartsDecides)
+		expectedRPCInvokes = int32(rpcIncrease)
+		expectedS2Invokes = int64(s2StartsDecides + 1)
+		expectedStateWaitingWaitForInvokes = 1
+		if shouldReapplyRPC {
+			expectedRPCInvokes++
+		} else {
+			resetRequest.SkipWritesReapply = true
+		}
+	}
+	resetFlowResponse, err := flowClient.ResetFlow(ctx, resetRequest)
 	require.NoError(t, err)
 
-	time.Sleep(20 * time.Second)
-	resetResponse, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+	if backendType == service.BackendTypeTemporal {
+		require.Eventually(t, func() bool {
+			return workerHandler.GetRPCInvokeCount() == expectedRPCInvokes
+		}, 30*time.Second, 100*time.Millisecond)
+		require.Eventually(t, func() bool {
+			resetHistory := workerHandler.GetTestResult().InvokeHistory
+			return resetHistory["S2_waitFor"] == expectedS2Invokes &&
+				resetHistory["S2_execute"] == expectedS2Invokes
+		}, 60*time.Second, 100*time.Millisecond)
+		_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+			RequestId: newRequestID(),
+			FlowId:    flowId,
+			RpcName:   locking.RPCName,
+			Input:     objJSONValue(locking.ShouldUnblockStateWaiting),
+		})
+		require.NoError(t, err)
+	} else {
+		time.Sleep(20 * time.Second)
+	}
+	resetWaitResponse, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
 	require.NoError(t, err)
-	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resetResponse.GetFlowStatus())
+	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resetWaitResponse.GetFlowStatus())
+	if shouldReapplyRPC {
+		assertReappliedLockingRPCResult(
+			t,
+			workerHandler.GetRPCResults(resetFlowResponse.GetRunId()),
+		)
+	}
+
+	resetHistory := workerHandler.GetTestResult().InvokeHistory
+	finalStateWaitingExecutes := int64(1)
+	if backendType == service.BackendTypeCadence {
+		finalStateWaitingExecutes = 2
+	}
+	assertions.Equalf(map[string]int64{
+		"S1_waitFor":           1,
+		"S1_execute":           1,
+		"StateWaiting_waitFor": expectedStateWaitingWaitForInvokes,
+		"StateWaiting_execute": finalStateWaitingExecutes,
+		"S2_waitFor":           expectedS2Invokes,
+		"S2_execute":           expectedS2Invokes,
+	}, resetHistory, "locking reset reapply failed, %v", resetHistory)
+	assertions.Equal(expectedRPCInvokes, workerHandler.GetRPCInvokeCount())
+
+	resetAttributesResp, err := flowClient.GetAttributes(ctx, &dexpb.GetAttributesRequest{
+		FlowId: flowId,
+		Keys:   []string{locking.TestSearchAttributeIntKey, locking.TestDataAttributeKey1},
+	})
+	require.NoError(t, err)
+	resetAttributeMap := attributesToMap(resetAttributesResp.GetAttributes())
+	assertions.Equal(
+		finalCounterValue,
+		resetAttributeMap[locking.TestSearchAttributeIntKey].GetIntValue(),
+	)
+	assertions.Equal(
+		fmt.Sprintf("%v", finalCounterValue),
+		string(resetAttributeMap[locking.TestDataAttributeKey1].GetObjValue().GetPayload()),
+	)
+}
+
+func hasStepExecuteCompletedHistory(
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+	runID string,
+	stepExecutionID string,
+) (bool, error) {
+	var pageToken []byte
+	nextEventID := int64(1)
+	for {
+		response, err := flowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+			FlowId:               flowID,
+			RunId:                runID,
+			StartInternalEventId: nextEventID,
+			EstimatePageSize:     100,
+			NextPageToken:        pageToken,
+		})
+		if err != nil {
+			return false, err
+		}
+		for _, event := range response.GetEvents() {
+			executeEvent := event.GetStepExecuteCompleted()
+			if executeEvent != nil && executeEvent.GetContext().GetStepExecutionId() == stepExecutionID {
+				return true, nil
+			}
+		}
+		nextEventID = response.GetNextInternalEventId()
+		pageToken = response.GetNextPageToken()
+		if len(pageToken) == 0 {
+			return false, nil
+		}
+	}
+}
+
+func assertReappliedLockingRPCResult(t *testing.T, rpcResults []locking.RPCResult) {
+	t.Helper()
+	require.Len(t, rpcResults, 1)
+	rpcResult := rpcResults[0]
+	require.Equal(t, "data", rpcResult.InputPayload)
+	require.Equal(t, "data", rpcResult.OutputPayload)
+	require.Equal(t, 4, rpcResult.UpsertAttributeCount)
+	require.Equal(t, 1, rpcResult.RecordEventCount)
+	require.Equal(t, 1, rpcResult.PublishedMessageCount)
+	require.Equal(t, 1, rpcResult.NextStepCount)
+	require.Equal(t, locking.State2, rpcResult.NextStepType)
 }

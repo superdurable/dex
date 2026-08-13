@@ -839,14 +839,13 @@ func mapResetOptions(options ResetOptions) (*dexpb.ResetFlowRequest, error) {
 		historyTime = options.HistoryEventTime.Format(dateTimeFormat)
 	}
 	return &dexpb.ResetFlowRequest{
-		ResetType:                  resetType,
-		HistoryEventId:             options.HistoryEventID,
-		Reason:                     options.Reason,
-		HistoryEventTime:           historyTime,
-		StepType:                   options.StepType,
-		StepExecutionId:            options.StepExecutionID,
-		SkipChannelMessagesReapply: options.SkipChannelMessagesReapply,
-		SkipLockingRpcReapply:      options.SkipLockingRPCReapply,
+		ResetType:         resetType,
+		HistoryEventId:    options.HistoryEventID,
+		Reason:            options.Reason,
+		HistoryEventTime:  historyTime,
+		StepType:          options.StepType,
+		StepExecutionId:   options.StepExecutionID,
+		SkipWritesReapply: options.SkipWritesReapply,
 	}, nil
 }
 

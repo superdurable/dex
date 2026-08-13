@@ -20,17 +20,16 @@ export async function compileLockingRpcReapply(client: Client): Promise<void> {
   const runId: string = await client.resetFlow("reset-locking", {
     type: ResetType.BEGINNING,
     reason: "replay locking RPC",
-    skipLockingRpcReapply: false,
+    skipWritesReapply: false,
   });
   void runId;
 }
 
-export async function compileSkipRpcAndChannelReapply(client: Client): Promise<void> {
+export async function compileSkipWritesReapply(client: Client): Promise<void> {
   const runId: string = await client.resetFlow("reset-locking", {
     type: ResetType.STEP_TYPE,
     stepType: "LockWaitStep",
-    skipLockingRpcReapply: true,
-    skipChannelMessagesReapply: true,
+    skipWritesReapply: true,
   });
   void runId;
 }

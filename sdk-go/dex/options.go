@@ -282,8 +282,6 @@ type ResetOptions struct {
 	StepType string
 	// StepExecutionID supplies the exact execution for ResetByStepExecutionID.
 	StepExecutionID string
-	// SkipChannelMessagesReapply prevents replay of post-reset Channel messages.
-	SkipChannelMessagesReapply bool
-	// SkipLockingRPCReapply prevents replay of post-reset locking RPCs.
-	SkipLockingRPCReapply bool
+	// SkipWritesReapply prevents replay of post-reset RPCs, Channel publications, and Attribute writes.
+	SkipWritesReapply bool
 }

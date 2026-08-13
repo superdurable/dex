@@ -87,13 +87,13 @@ var (
 	DefaultQueryWorkflowFailedRetryPolicy = RetryPolicy{
 		InitialInterval:    100 * time.Millisecond,
 		BackoffCoefficient: 1,
-		MaximumInterval:    100 * time.Millisecond,
+		MaximumInterval:    2 * time.Second,
 		MaximumAttempts:    5,
 	}
 	DefaultInvokeRPCContinuedAsNewErrorRetryPolicy = RetryPolicy{
 		InitialInterval:    100 * time.Millisecond,
 		BackoffCoefficient: 2,
-		MaximumInterval:    time.Second,
+		MaximumInterval:    500 * time.Millisecond,
 		TotalDuration:      5 * time.Second,
 	}
 	DefaultAttributeStoreSyncRetryPolicy = RetryPolicy{
@@ -105,7 +105,7 @@ var (
 	DefaultInternalActivityRetryPolicy = RetryPolicy{
 		InitialInterval:    100 * time.Millisecond,
 		BackoffCoefficient: 2,
-		MaximumInterval:    100 * time.Second,
+		MaximumInterval:    60 * time.Second,
 	}
 )
 

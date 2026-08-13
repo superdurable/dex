@@ -33,7 +33,7 @@ def test_reset_reapplies_rpc_or_channel(locking: bool) -> None:
         assert_completed_with_attributes(environment, flow, flow_id)
         reset_run_id = environment.client.reset_flow(
             flow_id,
-            reset_options(skip_locking_rpc=False, skip_channels=False),
+            reset_options(skip_writes=False),
         )
         assert_completed_with_attributes(environment, flow, flow_id)
         assert environment.client.describe_flow(flow_id).run_id == reset_run_id
@@ -47,7 +47,7 @@ def test_reset_can_skip_rpc_or_channel_reapply(locking: bool) -> None:
         assert_completed_with_attributes(environment, flow, flow_id)
         reset_run_id = environment.client.reset_flow(
             flow_id,
-            reset_options(skip_locking_rpc=True, skip_channels=True),
+            reset_options(skip_writes=True),
         )
         with pytest.raises(FlowUncompletedError) as captured:
             environment.client.wait_for_flow(
@@ -82,14 +82,12 @@ def start_and_invoke(
 
 def reset_options(
     *,
-    skip_locking_rpc: bool,
-    skip_channels: bool,
+    skip_writes: bool,
 ) -> ResetFlowOptions:
     return ResetFlowOptions(
         ResetType.BEGINNING,
         reason="testing reset",
-        skip_locking_rpc_reapply=skip_locking_rpc,
-        skip_channel_messages_reapply=skip_channels,
+        skip_writes_reapply=skip_writes,
     )
 
 

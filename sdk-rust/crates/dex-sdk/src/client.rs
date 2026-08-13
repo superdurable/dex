@@ -506,8 +506,7 @@ impl Client {
             history_event_time: String::new(),
             step_type: String::new(),
             step_execution_id: String::new(),
-            skip_channel_messages_reapply: options.skip_channel_messages_reapply,
-            skip_locking_rpc_reapply: options.skip_locking_rpc_reapply,
+            skip_writes_reapply: options.skip_writes_reapply,
         };
         match options.point {
             ResetPoint::Beginning => request.reset_type = FlowResetType::Beginning as i32,

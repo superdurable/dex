@@ -6,6 +6,11 @@
 package io.superdurable.gen;
 
 /**
+ * <pre>
+ * Successful RPC history projection. Updates include input/output; signals include
+ * them only when configured.
+ * </pre>
+ *
  * Protobuf type {@code dex.RpcExecutionCompletedEvent}
  */
 @com.google.protobuf.Generated
@@ -579,6 +584,11 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
+   * <pre>
+   * Successful RPC history projection. Updates include input/output; signals include
+   * them only when configured.
+   * </pre>
+   *
    * Protobuf type {@code dex.RpcExecutionCompletedEvent}
    */
   public static final class Builder extends

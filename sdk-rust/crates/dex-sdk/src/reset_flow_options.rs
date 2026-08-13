@@ -14,13 +14,11 @@ use crate::{Step, StepExecutionId};
 /// Selects a historical point from which [`crate::Client::reset_flow`] creates a new run.
 ///
 /// Constructors identify exactly one reset point. Builder methods add an audit reason and control
-/// whether Channel messages and locking RPCs are reapplied. Both reapply switches default to
-/// `false`, so historical operations are reapplied.
+/// whether writes are reapplied. Write reapplication defaults to enabled.
 pub struct ResetFlowOptions {
     pub(crate) point: ResetPoint,
     pub(crate) reason: Option<String>,
-    pub(crate) skip_channel_messages_reapply: bool,
-    pub(crate) skip_locking_rpc_reapply: bool,
+    pub(crate) skip_writes_reapply: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -64,15 +62,9 @@ impl ResetFlowOptions {
         self
     }
 
-    /// Controls whether post-reset Channel messages are skipped instead of reapplied.
-    pub fn skip_channel_messages_reapply(mut self, skip: bool) -> Self {
-        self.skip_channel_messages_reapply = skip;
-        self
-    }
-
-    /// Controls whether post-reset locking RPCs are skipped instead of reapplied.
-    pub fn skip_locking_rpc_reapply(mut self, skip: bool) -> Self {
-        self.skip_locking_rpc_reapply = skip;
+    /// Controls whether post-reset RPCs, Channel publications, and Attribute writes are skipped.
+    pub fn skip_writes_reapply(mut self, skip: bool) -> Self {
+        self.skip_writes_reapply = skip;
         self
     }
 
@@ -80,8 +72,7 @@ impl ResetFlowOptions {
         Self {
             point,
             reason: None,
-            skip_channel_messages_reapply: false,
-            skip_locking_rpc_reapply: false,
+            skip_writes_reapply: false,
         }
     }
 }

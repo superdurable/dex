@@ -640,9 +640,13 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 
 	require.NoError(t, client.StopFlow(ctx, "order-1", StopOptions{}))
 	require.Equal(t, dexpb.StopType_STOP_TYPE_CANCEL, service.stopRequest.StopType)
-	newRunID, err := client.ResetFlow(ctx, "order-1", ResetOptions{Type: ResetToBeginning})
+	newRunID, err := client.ResetFlow(ctx, "order-1", ResetOptions{
+		Type:              ResetToBeginning,
+		SkipWritesReapply: true,
+	})
 	require.NoError(t, err)
 	require.Equal(t, "run-2", newRunID)
+	require.True(t, service.resetRequest.GetSkipWritesReapply())
 	require.NoError(t, client.SkipTimer(
 		ctx,
 		"order-1",

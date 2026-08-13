@@ -23,11 +23,19 @@ public interface InvokeRPCRequestOrBuilder extends
       getFlowIdBytes();
 
   /**
+   * <pre>
+   * Targets this run when set.
+   * </pre>
+   *
    * <code>string run_id = 2;</code>
    * @return The runId.
    */
   java.lang.String getRunId();
   /**
+   * <pre>
+   * Targets this run when set.
+   * </pre>
+   *
    * <code>string run_id = 2;</code>
    * @return The bytes for runId.
    */
@@ -70,7 +78,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * Acquire exclusive lock on these attribute keys for the RPC's
-   * read-modify-write. Empty = non-locking RPC.
+   * read-modify-write. Empty means no locking and uses the configured RPC path.
    * </pre>
    *
    * <code>repeated string lock_attribute_keys = 6;</code>
@@ -81,7 +89,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * Acquire exclusive lock on these attribute keys for the RPC's
-   * read-modify-write. Empty = non-locking RPC.
+   * read-modify-write. Empty means no locking and uses the configured RPC path.
    * </pre>
    *
    * <code>repeated string lock_attribute_keys = 6;</code>
@@ -91,7 +99,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * Acquire exclusive lock on these attribute keys for the RPC's
-   * read-modify-write. Empty = non-locking RPC.
+   * read-modify-write. Empty means no locking and uses the configured RPC path.
    * </pre>
    *
    * <code>repeated string lock_attribute_keys = 6;</code>
@@ -102,7 +110,7 @@ public interface InvokeRPCRequestOrBuilder extends
   /**
    * <pre>
    * Acquire exclusive lock on these attribute keys for the RPC's
-   * read-modify-write. Empty = non-locking RPC.
+   * read-modify-write. Empty means no locking and uses the configured RPC path.
    * </pre>
    *
    * <code>repeated string lock_attribute_keys = 6;</code>
@@ -114,7 +122,7 @@ public interface InvokeRPCRequestOrBuilder extends
 
   /**
    * <pre>
-   * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
    * </pre>
    *
    * <code>string request_id = 7;</code>
@@ -123,7 +131,7 @@ public interface InvokeRPCRequestOrBuilder extends
   java.lang.String getRequestId();
   /**
    * <pre>
-   * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
    * </pre>
    *
    * <code>string request_id = 7;</code>

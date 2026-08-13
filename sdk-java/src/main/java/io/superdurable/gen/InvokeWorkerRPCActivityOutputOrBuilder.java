@@ -24,4 +24,24 @@ public interface InvokeWorkerRPCActivityOutputOrBuilder extends
    * <code>.dex.InvokeWorkerRPCResponse response = 1;</code>
    */
   io.superdurable.gen.InvokeWorkerRPCResponseOrBuilder getResponseOrBuilder();
+
+  /**
+   * <pre>
+   * Correlates this local Activity result with its InvokeRpc Update.
+   * </pre>
+   *
+   * <code>string request_id = 2;</code>
+   * @return The requestId.
+   */
+  java.lang.String getRequestId();
+  /**
+   * <pre>
+   * Correlates this local Activity result with its InvokeRpc Update.
+   * </pre>
+   *
+   * <code>string request_id = 2;</code>
+   * @return The bytes for requestId.
+   */
+  com.google.protobuf.ByteString
+      getRequestIdBytes();
 }

@@ -98,6 +98,10 @@ private static final long serialVersionUID = 0L;
   @SuppressWarnings("serial")
   private volatile java.lang.Object runId_ = "";
   /**
+   * <pre>
+   * Targets this run when set.
+   * </pre>
+   *
    * <code>string run_id = 2;</code>
    * @return The runId.
    */
@@ -115,6 +119,10 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
+   * <pre>
+   * Targets this run when set.
+   * </pre>
+   *
    * <code>string run_id = 2;</code>
    * @return The bytes for runId.
    */
@@ -216,7 +224,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Acquire exclusive lock on these attribute keys for the RPC's
-   * read-modify-write. Empty = non-locking RPC.
+   * read-modify-write. Empty means no locking and uses the configured RPC path.
    * </pre>
    *
    * <code>repeated string lock_attribute_keys = 6;</code>
@@ -229,7 +237,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Acquire exclusive lock on these attribute keys for the RPC's
-   * read-modify-write. Empty = non-locking RPC.
+   * read-modify-write. Empty means no locking and uses the configured RPC path.
    * </pre>
    *
    * <code>repeated string lock_attribute_keys = 6;</code>
@@ -241,7 +249,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Acquire exclusive lock on these attribute keys for the RPC's
-   * read-modify-write. Empty = non-locking RPC.
+   * read-modify-write. Empty means no locking and uses the configured RPC path.
    * </pre>
    *
    * <code>repeated string lock_attribute_keys = 6;</code>
@@ -254,7 +262,7 @@ private static final long serialVersionUID = 0L;
   /**
    * <pre>
    * Acquire exclusive lock on these attribute keys for the RPC's
-   * read-modify-write. Empty = non-locking RPC.
+   * read-modify-write. Empty means no locking and uses the configured RPC path.
    * </pre>
    *
    * <code>repeated string lock_attribute_keys = 6;</code>
@@ -271,7 +279,7 @@ private static final long serialVersionUID = 0L;
   private volatile java.lang.Object requestId_ = "";
   /**
    * <pre>
-   * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
    * </pre>
    *
    * <code>string request_id = 7;</code>
@@ -292,7 +300,7 @@ private static final long serialVersionUID = 0L;
   }
   /**
    * <pre>
-   * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+   * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
    * </pre>
    *
    * <code>string request_id = 7;</code>
@@ -863,6 +871,10 @@ private static final long serialVersionUID = 0L;
 
     private java.lang.Object runId_ = "";
     /**
+     * <pre>
+     * Targets this run when set.
+     * </pre>
+     *
      * <code>string run_id = 2;</code>
      * @return The runId.
      */
@@ -879,6 +891,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Targets this run when set.
+     * </pre>
+     *
      * <code>string run_id = 2;</code>
      * @return The bytes for runId.
      */
@@ -896,6 +912,10 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
+     * <pre>
+     * Targets this run when set.
+     * </pre>
+     *
      * <code>string run_id = 2;</code>
      * @param value The runId to set.
      * @return This builder for chaining.
@@ -909,6 +929,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Targets this run when set.
+     * </pre>
+     *
      * <code>string run_id = 2;</code>
      * @return This builder for chaining.
      */
@@ -919,6 +943,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
+     * <pre>
+     * Targets this run when set.
+     * </pre>
+     *
      * <code>string run_id = 2;</code>
      * @param value The bytes for runId to set.
      * @return This builder for chaining.
@@ -1169,7 +1197,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Acquire exclusive lock on these attribute keys for the RPC's
-     * read-modify-write. Empty = non-locking RPC.
+     * read-modify-write. Empty means no locking and uses the configured RPC path.
      * </pre>
      *
      * <code>repeated string lock_attribute_keys = 6;</code>
@@ -1183,7 +1211,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Acquire exclusive lock on these attribute keys for the RPC's
-     * read-modify-write. Empty = non-locking RPC.
+     * read-modify-write. Empty means no locking and uses the configured RPC path.
      * </pre>
      *
      * <code>repeated string lock_attribute_keys = 6;</code>
@@ -1195,7 +1223,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Acquire exclusive lock on these attribute keys for the RPC's
-     * read-modify-write. Empty = non-locking RPC.
+     * read-modify-write. Empty means no locking and uses the configured RPC path.
      * </pre>
      *
      * <code>repeated string lock_attribute_keys = 6;</code>
@@ -1208,7 +1236,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Acquire exclusive lock on these attribute keys for the RPC's
-     * read-modify-write. Empty = non-locking RPC.
+     * read-modify-write. Empty means no locking and uses the configured RPC path.
      * </pre>
      *
      * <code>repeated string lock_attribute_keys = 6;</code>
@@ -1222,7 +1250,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Acquire exclusive lock on these attribute keys for the RPC's
-     * read-modify-write. Empty = non-locking RPC.
+     * read-modify-write. Empty means no locking and uses the configured RPC path.
      * </pre>
      *
      * <code>repeated string lock_attribute_keys = 6;</code>
@@ -1242,7 +1270,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Acquire exclusive lock on these attribute keys for the RPC's
-     * read-modify-write. Empty = non-locking RPC.
+     * read-modify-write. Empty means no locking and uses the configured RPC path.
      * </pre>
      *
      * <code>repeated string lock_attribute_keys = 6;</code>
@@ -1261,7 +1289,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Acquire exclusive lock on these attribute keys for the RPC's
-     * read-modify-write. Empty = non-locking RPC.
+     * read-modify-write. Empty means no locking and uses the configured RPC path.
      * </pre>
      *
      * <code>repeated string lock_attribute_keys = 6;</code>
@@ -1280,7 +1308,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Acquire exclusive lock on these attribute keys for the RPC's
-     * read-modify-write. Empty = non-locking RPC.
+     * read-modify-write. Empty means no locking and uses the configured RPC path.
      * </pre>
      *
      * <code>repeated string lock_attribute_keys = 6;</code>
@@ -1296,7 +1324,7 @@ private static final long serialVersionUID = 0L;
     /**
      * <pre>
      * Acquire exclusive lock on these attribute keys for the RPC's
-     * read-modify-write. Empty = non-locking RPC.
+     * read-modify-write. Empty means no locking and uses the configured RPC path.
      * </pre>
      *
      * <code>repeated string lock_attribute_keys = 6;</code>
@@ -1317,7 +1345,7 @@ private static final long serialVersionUID = 0L;
     private java.lang.Object requestId_ = "";
     /**
      * <pre>
-     * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
      * </pre>
      *
      * <code>string request_id = 7;</code>
@@ -1337,7 +1365,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
      * </pre>
      *
      * <code>string request_id = 7;</code>
@@ -1358,7 +1386,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
      * </pre>
      *
      * <code>string request_id = 7;</code>
@@ -1375,7 +1403,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
      * </pre>
      *
      * <code>string request_id = 7;</code>
@@ -1389,7 +1417,7 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Locking RPCs require per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Server forwards run-scoped UpdateID; Continue-as-New resets scope.
+     * Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
      * </pre>
      *
      * <code>string request_id = 7;</code>
