@@ -584,8 +584,6 @@ public final class Client implements AutoCloseable {
             final Duration timeout) {
         final io.superdurable.gen.FlowResult response = waitForFlowResponse(flowId, timeout);
         return new FlowResult(
-                response.getFlowId().isEmpty() ? flowId : response.getFlowId(),
-                response.getRunId().isEmpty() ? null : response.getRunId(),
                 mapFlowStatus(response.getFlowStatus()),
                 mapNullableFlowErrorType(response.getErrorType()),
                 response.getErrorMessage().isEmpty() ? null : response.getErrorMessage(),

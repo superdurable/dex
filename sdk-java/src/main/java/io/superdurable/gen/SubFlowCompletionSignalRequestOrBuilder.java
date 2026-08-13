@@ -11,17 +11,29 @@ public interface SubFlowCompletionSignalRequestOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>.dex.FlowResult flow_result = 1;</code>
+   * <code>string sub_flow_id = 1;</code>
+   * @return The subFlowId.
+   */
+  java.lang.String getSubFlowId();
+  /**
+   * <code>string sub_flow_id = 1;</code>
+   * @return The bytes for subFlowId.
+   */
+  com.google.protobuf.ByteString
+      getSubFlowIdBytes();
+
+  /**
+   * <code>.dex.FlowResult flow_result = 2;</code>
    * @return Whether the flowResult field is set.
    */
   boolean hasFlowResult();
   /**
-   * <code>.dex.FlowResult flow_result = 1;</code>
+   * <code>.dex.FlowResult flow_result = 2;</code>
    * @return The flowResult.
    */
   io.superdurable.gen.FlowResult getFlowResult();
   /**
-   * <code>.dex.FlowResult flow_result = 1;</code>
+   * <code>.dex.FlowResult flow_result = 2;</code>
    */
   io.superdurable.gen.FlowResultOrBuilder getFlowResultOrBuilder();
 }

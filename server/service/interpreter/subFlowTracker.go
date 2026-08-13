@@ -93,7 +93,7 @@ func (t *subFlowTracker) handleCompletion(signal *dexpb.SubFlowCompletionSignalR
 	if result == nil {
 		return
 	}
-	tracked := t.byFlowID[result.GetFlowId()]
+	tracked := t.byFlowID[signal.GetSubFlowId()]
 	if tracked == nil {
 		return
 	}

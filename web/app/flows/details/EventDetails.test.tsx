@@ -398,8 +398,6 @@ describe('selected step event details', () => {
     const event = executeEvent(1);
     event.payload.input = {
       conditionResults: { subFlowResults: [{
-        flowId: 'SubFlow-parent-Parent-1-0',
-        runId: 'child-run',
         flowStatus: 3,
         errorType: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
         errorMessage: 'child failed',
@@ -434,8 +432,8 @@ describe('selected step event details', () => {
     expect(waitMarkup).toContain('Flow configuration override');
     expect(waitMarkup).toContain('continueAsNewThreshold');
 
-    const resultMarkup = renderDetails(event);
-    expect(resultMarkup).toContain('href="/flows/SubFlow-parent-Parent-1-0/child-run"');
+    const resultMarkup = renderDetails(event, [wait, event]);
+    expect(resultMarkup).toContain('href="/flows/SubFlow-parent-charge-1-0"');
     expect(resultMarkup).toContain('Worker method failed');
     expect(resultMarkup).toContain('child failed');
     expect(resultMarkup).toContain('ChildStep-1');

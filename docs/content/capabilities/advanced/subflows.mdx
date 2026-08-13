@@ -31,8 +31,8 @@ public StepDecision execute(Context context, Order input) {
 
 The zero-based result index is the stable order of SubFlow conditions in the current `Wait`. An
 `allOf` result is terminal. If another condition wins an `anyOf`, the unfinished SubFlow result has
-status `RUNNING`, a non-empty Flow ID, and no run ID or outputs. `RUNNING` is the parent’s durable
-snapshot, not a fresh backend query.
+status `RUNNING` and no outputs. `RUNNING` is the parent’s durable snapshot, not a fresh backend
+query.
 
 ## Identity and stopping an `anyOf` loser
 
@@ -43,13 +43,14 @@ Flow ID    SubFlow-{parentFlowID}-{stepExecutionID}-{index}
 request ID {parentRunID}{stepExecutionID}
 ```
 
-The generated Flow ID is present in every `FlowResult`. A losing SubFlow continues independently;
-stop it explicitly when that is the application’s desired cleanup policy:
+`FlowResult` contains only status, failure, and output data. Generate the stable SubFlow Flow ID
+from the current execution context when the application needs its identity. A losing SubFlow
+continues independently; stop it explicitly when that is the application’s desired cleanup policy:
 
 ```java
 FlowResult loser = SubFlow.getConditionResults(context, 1);
 if (!loser.isTerminal()) {
-    cleanupRequests.publish(context, loser.getFlowId());
+    cleanupRequests.publish(context, SubFlow.getFlowId(context, 1));
 }
 ```
 
@@ -93,8 +94,8 @@ intentionally server-owned.
 
 Across continue-as-new, Dex carries only the canonical waiting condition, request ID,
 received terminal results, and existing Step resume state. This preserves partial `allOf` results
-without restarting already-started SubFlows. Runtime channels, start flags, pending status, and run
-ID copies are not persisted separately. A terminal `FlowResult` still carries its own run ID.
+without restarting already-started SubFlows. Runtime channels, start flags, pending status, and
+execution identity copies are not persisted separately.
 
 Parent completion, failure, cancellation, reset, or restart does not automatically cancel a
 SubFlow. A SubFlow reports terminal completion to the current parent execution by parent Flow ID.

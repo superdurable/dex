@@ -133,7 +133,7 @@ describe('step graph', () => {
     expect(node?.pendingExecute?.type).toBe('StepExecutePending');
   });
 
-  it('creates linked SubFlow leaf nodes with terminal run identity', () => {
+  it('creates linked SubFlow leaf nodes with deterministic identity', () => {
     const graph = buildStepGraph([
       event(1, 'StepWaitForCompleted', {
         stepExecutionId: 'Parent-1',
@@ -153,8 +153,6 @@ describe('step graph', () => {
         stepType: 'Parent',
       }, {
         input: { conditionResults: { subFlowResults: [{
-          flowId: 'SubFlow-parent-Parent-1-0',
-          runId: 'child-run',
           flowStatus: 2,
         }] } },
       }),
@@ -164,7 +162,6 @@ describe('step graph', () => {
     expect(subFlow).toMatchObject({
       parentStepId: 'Parent-1',
       flowId: 'SubFlow-parent-Parent-1-0',
-      runId: 'child-run',
       flowType: 'ChildFlow',
       subFlowStatus: 'COMPLETED',
       reusePolicy: 'Attach',
@@ -191,15 +188,12 @@ describe('step graph', () => {
         options: { reusePolicy: 2 },
       }] },
       completedConditions: { completedSubFlowResults: { 0: {
-        flowId: 'SubFlow-parent-Parent-1-0',
-        runId: 'child-run',
         flowStatus: 3,
       } } },
     }]);
 
     expect(graph.nodes.find((node) => node.kind === 'subflow')).toMatchObject({
       status: 'Failed',
-      runId: 'child-run',
       subFlowStatus: 'FAILED',
       reusePolicy: 'Restart if previous exits abnormally',
     });

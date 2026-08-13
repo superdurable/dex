@@ -20,55 +20,28 @@ import java.util.List;
  * <p>A result returned by {@link Client#waitForFlow(String)} is always terminal. A result obtained
  * from {@link SubFlow#getConditionResults(Context)} may have {@link FlowStatus#RUNNING} when a
  * surrounding {@link Wait#anyOf(Condition...)} completed first. That running status is a durable
- * snapshot, not a live backend query. Its Flow ID remains available so the application can later
- * inspect or stop the SubFlow.
+ * snapshot, not a live backend query. Use {@link SubFlow#getFlowId(Context)} when an application
+ * needs to inspect or stop that SubFlow.
  */
 public final class FlowResult {
-    private final String flowId;
-    private final String runId;
     private final FlowStatus status;
     private final FlowErrorType errorType;
     private final String errorMessage;
     private final List<StepCompletion> completions;
 
     FlowResult(
-            final String flowId,
-            final String runId,
             final FlowStatus status,
             final FlowErrorType errorType,
             final String errorMessage,
             final List<StepCompletion> completions) {
-        if (flowId == null || flowId.isEmpty()) {
-            throw new IllegalArgumentException("Flow result requires a Flow ID");
-        }
         if (status == null) {
             throw new IllegalArgumentException("Flow result requires a status");
         }
-        this.flowId = flowId;
-        this.runId = runId;
         this.status = status;
         this.errorType = errorType;
         this.errorMessage = errorMessage;
         this.completions = Collections.unmodifiableList(
                 new ArrayList<StepCompletion>(completions));
-    }
-
-    /**
-     * Returns the stable Flow ID used to inspect, signal, or stop this Flow.
-     *
-     * @return the nonempty Flow ID
-     */
-    public String getFlowId() {
-        return flowId;
-    }
-
-    /**
-     * Returns the terminal run ID.
-     *
-     * @return the run ID, or {@code null} for a running SubFlow snapshot
-     */
-    public String getRunId() {
-        return runId;
     }
 
     /**

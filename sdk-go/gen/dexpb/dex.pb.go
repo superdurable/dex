@@ -3023,8 +3023,6 @@ type FlowResult struct {
 	Results       []*StepCompletionOutput `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
 	ErrorType     FlowErrorType           `protobuf:"varint,3,opt,name=error_type,json=errorType,proto3,enum=dex.FlowErrorType" json:"error_type,omitempty"`
 	ErrorMessage  string                  `protobuf:"bytes,4,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`
-	FlowId        string                  `protobuf:"bytes,5,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
-	RunId         string                  `protobuf:"bytes,6,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3083,20 +3081,6 @@ func (x *FlowResult) GetErrorType() FlowErrorType {
 func (x *FlowResult) GetErrorMessage() string {
 	if x != nil {
 		return x.ErrorMessage
-	}
-	return ""
-}
-
-func (x *FlowResult) GetFlowId() string {
-	if x != nil {
-		return x.FlowId
-	}
-	return ""
-}
-
-func (x *FlowResult) GetRunId() string {
-	if x != nil {
-		return x.RunId
 	}
 	return ""
 }
@@ -9981,7 +9965,8 @@ func (x *StartSubFlowActivityOutput) GetImmediateFlowResult() *FlowResult {
 
 type SubFlowCompletionSignalRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FlowResult    *FlowResult            `protobuf:"bytes,1,opt,name=flow_result,json=flowResult,proto3" json:"flow_result,omitempty"`
+	SubFlowId     string                 `protobuf:"bytes,1,opt,name=sub_flow_id,json=subFlowId,proto3" json:"sub_flow_id,omitempty"`
+	FlowResult    *FlowResult            `protobuf:"bytes,2,opt,name=flow_result,json=flowResult,proto3" json:"flow_result,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10014,6 +9999,13 @@ func (x *SubFlowCompletionSignalRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use SubFlowCompletionSignalRequest.ProtoReflect.Descriptor instead.
 func (*SubFlowCompletionSignalRequest) Descriptor() ([]byte, []int) {
 	return file_dex_proto_rawDescGZIP(), []int{130}
+}
+
+func (x *SubFlowCompletionSignalRequest) GetSubFlowId() string {
+	if x != nil {
+		return x.SubFlowId
+	}
+	return ""
 }
 
 func (x *SubFlowCompletionSignalRequest) GetFlowResult() *FlowResult {
@@ -11056,7 +11048,7 @@ const file_dex_proto_rawDesc = "" +
 	"\x13completed_step_type\x18\x01 \x01(\tR\x11completedStepType\x12=\n" +
 	"\x1bcompleted_step_execution_id\x18\x02 \x01(\tR\x18completedStepExecutionId\x12>\n" +
 	"\x15completed_step_output\x18\x03 \x01(\v2\n" +
-	".dex.ValueR\x13completedStepOutput\"\xfb\x01\n" +
+	".dex.ValueR\x13completedStepOutput\"\xcb\x01\n" +
 	"\n" +
 	"FlowResult\x120\n" +
 	"\vflow_status\x18\x01 \x01(\x0e2\x0f.dex.FlowStatusR\n" +
@@ -11064,9 +11056,7 @@ const file_dex_proto_rawDesc = "" +
 	"\aresults\x18\x02 \x03(\v2\x19.dex.StepCompletionOutputR\aresults\x121\n" +
 	"\n" +
 	"error_type\x18\x03 \x01(\x0e2\x12.dex.FlowErrorTypeR\terrorType\x12#\n" +
-	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\x12\x17\n" +
-	"\aflow_id\x18\x05 \x01(\tR\x06flowId\x12\x15\n" +
-	"\x06run_id\x18\x06 \x01(\tR\x05runId\"o\n" +
+	"\rerror_message\x18\x04 \x01(\tR\ferrorMessage\"o\n" +
 	"\x12SearchFlowsRequest\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1b\n" +
 	"\tpage_size\x18\x02 \x01(\x05R\bpageSize\x12&\n" +
@@ -11660,9 +11650,10 @@ const file_dex_proto_rawDesc = "" +
 	"\tcondition\x18\x01 \x01(\v2\x15.dex.SubFlowConditionR\tcondition\x12=\n" +
 	"\x12parent_flow_config\x18\x02 \x01(\v2\x0f.dex.FlowConfigR\x10parentFlowConfig\"a\n" +
 	"\x1aStartSubFlowActivityOutput\x12C\n" +
-	"\x15immediate_flow_result\x18\x01 \x01(\v2\x0f.dex.FlowResultR\x13immediateFlowResult\"R\n" +
-	"\x1eSubFlowCompletionSignalRequest\x120\n" +
-	"\vflow_result\x18\x01 \x01(\v2\x0f.dex.FlowResultR\n" +
+	"\x15immediate_flow_result\x18\x01 \x01(\v2\x0f.dex.FlowResultR\x13immediateFlowResult\"r\n" +
+	"\x1eSubFlowCompletionSignalRequest\x12\x1e\n" +
+	"\vsub_flow_id\x18\x01 \x01(\tR\tsubFlowId\x120\n" +
+	"\vflow_result\x18\x02 \x01(\v2\x0f.dex.FlowResultR\n" +
 	"flowResult\"e\n" +
 	"$ReportSubFlowCompletionActivityInput\x12=\n" +
 	"\arequest\x18\x01 \x01(\v2#.dex.SubFlowCompletionSignalRequestR\arequest\"e\n" +

@@ -67,28 +67,4 @@ public interface FlowResultOrBuilder extends
    */
   com.google.protobuf.ByteString
       getErrorMessageBytes();
-
-  /**
-   * <code>string flow_id = 5;</code>
-   * @return The flowId.
-   */
-  java.lang.String getFlowId();
-  /**
-   * <code>string flow_id = 5;</code>
-   * @return The bytes for flowId.
-   */
-  com.google.protobuf.ByteString
-      getFlowIdBytes();
-
-  /**
-   * <code>string run_id = 6;</code>
-   * @return The runId.
-   */
-  java.lang.String getRunId();
-  /**
-   * <code>string run_id = 6;</code>
-   * @return The bytes for runId.
-   */
-  com.google.protobuf.ByteString
-      getRunIdBytes();
 }

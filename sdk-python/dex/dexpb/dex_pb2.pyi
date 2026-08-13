@@ -583,20 +583,16 @@ class StepCompletionOutput(_message.Message):
     def __init__(self, completed_step_type: _Optional[str] = ..., completed_step_execution_id: _Optional[str] = ..., completed_step_output: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class FlowResult(_message.Message):
-    __slots__ = ("flow_status", "results", "error_type", "error_message", "flow_id", "run_id")
+    __slots__ = ("flow_status", "results", "error_type", "error_message")
     FLOW_STATUS_FIELD_NUMBER: _ClassVar[int]
     RESULTS_FIELD_NUMBER: _ClassVar[int]
     ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
     ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
-    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    RUN_ID_FIELD_NUMBER: _ClassVar[int]
     flow_status: FlowStatus
     results: _containers.RepeatedCompositeFieldContainer[StepCompletionOutput]
     error_type: FlowErrorType
     error_message: str
-    flow_id: str
-    run_id: str
-    def __init__(self, flow_status: _Optional[_Union[FlowStatus, str]] = ..., results: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., error_type: _Optional[_Union[FlowErrorType, str]] = ..., error_message: _Optional[str] = ..., flow_id: _Optional[str] = ..., run_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, flow_status: _Optional[_Union[FlowStatus, str]] = ..., results: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., error_type: _Optional[_Union[FlowErrorType, str]] = ..., error_message: _Optional[str] = ...) -> None: ...
 
 class SearchFlowsRequest(_message.Message):
     __slots__ = ("query", "page_size", "next_page_token")
@@ -1819,10 +1815,12 @@ class StartSubFlowActivityOutput(_message.Message):
     def __init__(self, immediate_flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
 
 class SubFlowCompletionSignalRequest(_message.Message):
-    __slots__ = ("flow_result",)
+    __slots__ = ("sub_flow_id", "flow_result")
+    SUB_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_RESULT_FIELD_NUMBER: _ClassVar[int]
+    sub_flow_id: str
     flow_result: FlowResult
-    def __init__(self, flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
+    def __init__(self, sub_flow_id: _Optional[str] = ..., flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
 
 class ReportSubFlowCompletionActivityInput(_message.Message):
     __slots__ = ("request",)

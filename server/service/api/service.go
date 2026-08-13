@@ -687,7 +687,7 @@ func (s *serviceImpl) WaitForFlow(
 	)
 	defer cancel()
 	var output dexpb.InterpreterWorkflowOutput
-	resolvedRunID, flowStatus, getErr := s.client.GetWorkflowResult(
+	_, flowStatus, getErr := s.client.GetWorkflowResult(
 		getCtx,
 		&output,
 		req.GetFlowId(),
@@ -695,8 +695,6 @@ func (s *serviceImpl) WaitForFlow(
 	)
 	response := &dexpb.FlowResult{
 		FlowStatus: flowStatus,
-		FlowId:     req.GetFlowId(),
-		RunId:      resolvedRunID,
 	}
 	if getErr == nil {
 		if req.GetNeedsResults() {

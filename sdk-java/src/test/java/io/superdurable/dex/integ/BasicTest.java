@@ -111,10 +111,9 @@ public final class BasicTest {
                     .waitForFlow(flowId, Duration.ofSeconds(30))
                     .getSingleOutput(String.class);
             final String[] parts = output.split("\\|", -1);
-            assertEquals(3, parts.length);
-            assertTrue(parts[0].startsWith("SubFlow-" + flowId + "-ParentStep-1-0"));
-            assertTrue(!parts[1].isEmpty());
-            assertEquals("6", parts[2]);
+            assertEquals(2, parts.length);
+            assertEquals("SubFlow-" + flowId + "-ParentStep-1-0", parts[0]);
+            assertEquals("6", parts[1]);
         }
     }
 
@@ -150,12 +149,11 @@ public final class BasicTest {
                     .waitForFlow(flowId, Duration.ofSeconds(30))
                     .getSingleOutput(String.class);
             final String[] result = output.split("\\|", -1);
-            assertEquals(5, result.length);
+            assertEquals(4, result.length);
             assertEquals("SubFlow-" + flowId + "-ParentStep-1-0", result[0]);
             assertEquals("RUNNING", result[1]);
-            assertEquals("true", result[2]);
-            assertEquals("false", result[3]);
-            assertEquals("true", result[4]);
+            assertEquals("false", result[2]);
+            assertEquals("true", result[3]);
 
             environment.client().stopFlow(result[0]);
             assertEquals(
@@ -183,12 +181,14 @@ public final class BasicTest {
                 SUB_FLOW_ABNORMAL_PARENT_WORKFLOW,
                 ABNORMAL_EXIT_WORKFLOW)) {
             final String flowId = flowId("sub-flow-abnormal");
+            final String childFlowId = "SubFlow-" + flowId + "-ParentStep-1-0";
             environment.client().startFlow(SUB_FLOW_ABNORMAL_PARENT_WORKFLOW, flowId, 1);
             final String[] first = environment.client()
                     .waitForFlow(flowId, Duration.ofSeconds(30))
                     .getSingleOutput(String.class)
                     .split("\\|", -1);
-            assertEquals("FAILED", first[2]);
+            assertEquals("FAILED", first[1]);
+            final String firstChildRunId = environment.client().describeFlow(childFlowId).getRunId();
 
             environment.client().resetFlow(
                     flowId,
@@ -199,8 +199,9 @@ public final class BasicTest {
                     .waitForFlow(flowId, Duration.ofSeconds(30))
                     .getSingleOutput(String.class)
                     .split("\\|", -1);
-            assertEquals("FAILED", second[2]);
-            assertTrue(!first[1].equals(second[1]));
+            assertEquals("FAILED", second[1]);
+            assertTrue(!firstChildRunId.equals(
+                    environment.client().describeFlow(childFlowId).getRunId()));
         }
     }
 
@@ -237,9 +238,9 @@ public final class BasicTest {
                     .getSingleOutput(String.class)
                     .split("\\|", -1);
             assertEquals(4, output.length);
-            assertEquals(completedChildRunId, output[0]);
+            assertEquals(completedChildId, output[0]);
             assertEquals("6", output[1]);
-            assertTrue(!output[2].isEmpty());
+            assertEquals(delayedChildId, output[2]);
             assertEquals("COMPLETED", output[3]);
             assertEquals(
                     completedChildRunId,
@@ -283,14 +284,13 @@ public final class BasicTest {
             final StartFlowOptions options = StartFlowOptions.newBuilder()
                     .idReusePolicy(IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED)
                     .build();
-            final String failedRun = environment.client().startFlow(
+            environment.client().startFlow(
                     ABNORMAL_EXIT_WORKFLOW,
                     flowId,
                     0,
                     options);
             final FlowResult failure =
                     environment.client().waitForFlow(flowId, Duration.ofSeconds(30));
-            assertEquals(failedRun, failure.getRunId());
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             environment.client().startFlow(WORKFLOW, flowId, 0, options);
             assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
@@ -532,8 +532,7 @@ public final class BasicTest {
                     .getSingleOutput(String.class)
                     .split("\\|", -1);
             assertEquals(childFlowId, output[0]);
-            assertEquals(activeChildRunId, output[1]);
-            assertEquals("COMPLETED", output[2]);
+            assertEquals("COMPLETED", output[1]);
         }
     }
 
@@ -565,11 +564,10 @@ public final class BasicTest {
             final String status,
             final String output) {
         final String[] fields = encoded.split("\\|", -1);
-        assertEquals(4, fields.length);
+        assertEquals(3, fields.length);
         assertEquals("SubFlow-" + parentFlowId + "-ParentStep-1-" + index, fields[0]);
-        assertTrue(!fields[1].isEmpty());
-        assertEquals(status, fields[2]);
-        assertEquals(output, fields[3]);
+        assertEquals(status, fields[1]);
+        assertEquals(output, fields[2]);
     }
 
     private static String flowId(final String prefix) {

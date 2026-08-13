@@ -97,4 +97,38 @@ public final class SubFlow {
         }
         return ((InvocationContext) context).subFlowResult(index);
     }
+
+    /**
+     * Returns the generated Flow ID for the first SubFlow condition in this Step invocation.
+     *
+     * <p>The ID is available for running and terminal results. It can be passed to
+     * {@link Client#stopFlow(String)} when another condition wins a {@link Wait#anyOf}.
+     *
+     * @param context the current execute invocation context
+     * @return the generated SubFlow Flow ID at index zero
+     * @throws IllegalStateException if called outside the Step's execute invocation
+     * @throws IllegalArgumentException if the context is not managed by Dex or no SubFlow exists
+     */
+    public static String getFlowId(final Context context) {
+        return getFlowId(context, 0);
+    }
+
+    /**
+     * Returns the generated Flow ID for one SubFlow condition in this Step invocation.
+     *
+     * <p>The zero-based index uses the stable order of SubFlow conditions in the surrounding
+     * {@link Wait}. The ID remains valid after the parent Step completes.
+     *
+     * @param context the current execute invocation context
+     * @param index the zero-based SubFlow condition index
+     * @return the generated SubFlow Flow ID
+     * @throws IllegalStateException if called outside the Step's execute invocation
+     * @throws IllegalArgumentException if the context is not managed by Dex or the index is invalid
+     */
+    public static String getFlowId(final Context context, final int index) {
+        if (!(context instanceof InvocationContext)) {
+            throw new IllegalArgumentException("SubFlow IDs require a Dex invocation Context");
+        }
+        return ((InvocationContext) context).subFlowId(index);
+    }
 }

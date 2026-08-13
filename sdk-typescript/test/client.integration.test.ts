@@ -134,8 +134,6 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
           ? ProtoFlowErrorType.FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW
           : ProtoFlowErrorType.FLOW_ERROR_TYPE_UNSPECIFIED,
         errorMessage: call.request.flowId === "failed" ? "failed by test" : "",
-        flowId: call.request.flowId,
-        runId: "run-1",
       });
     },
     loadBlobs(call, callback: sendUnaryData<LoadBlobsResponse>) {

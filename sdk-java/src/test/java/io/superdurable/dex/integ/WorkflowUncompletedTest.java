@@ -70,14 +70,14 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 WAIT_TIMEOUT_WORKFLOW)) {
             final String flowId = flowId("flow-timeout");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     WAIT_TIMEOUT_WORKFLOW,
                     flowId,
                     1,
                     StartFlowOptions.newBuilder().timeout(Duration.ofSeconds(1)).build());
 
             final FlowResult failure = waitForFailure(environment, flowId);
-            assertFailure(failure, runId, FlowStatus.TIMED_OUT, null, null, 0);
+            assertFailure(failure, FlowStatus.TIMED_OUT, null, null, 0);
         }
     }
 
@@ -112,7 +112,7 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 FORCE_FAIL_WORKFLOW)) {
             final String flowId = flowId("force-fail");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     FORCE_FAIL_WORKFLOW,
                     flowId,
                     5);
@@ -120,7 +120,6 @@ public final class WorkflowUncompletedTest {
             final FlowResult failure = waitForFailure(environment, flowId);
             assertFailure(
                     failure,
-                    runId,
                     FlowStatus.FAILED,
                     FlowErrorType.STEP_DECISION_FAILED,
                     "a failing message",
@@ -134,13 +133,12 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 STATE_FAILURE_WORKFLOW)) {
             final String flowId = flowId("worker-api-failure");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     STATE_FAILURE_WORKFLOW,
                     flowId,
                     5);
 
             final FlowResult failure = waitForFailure(environment, flowId);
-            assertEquals(runId, failure.getRunId());
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertTrue(failure.getErrorMessage().contains("test api failing"), failure.getErrorMessage());
@@ -154,13 +152,12 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 STATE_TIMEOUT_WORKFLOW)) {
             final String flowId = flowId("worker-api-timeout");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     STATE_TIMEOUT_WORKFLOW,
                     flowId,
                     5);
 
             final FlowResult failure = waitForFailure(environment, flowId);
-            assertEquals(runId, failure.getRunId());
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertTrue(failure.getErrorMessage().toLowerCase().contains("timeout"), failure.getErrorMessage());
@@ -174,13 +171,12 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 EMPTY_DECISION_WORKFLOW)) {
             final String flowId = flowId("empty-decision");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     EMPTY_DECISION_WORKFLOW,
                     flowId,
                     5);
 
             final FlowResult failure = waitForFailure(environment, flowId);
-            assertEquals(runId, failure.getRunId());
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertTrue(
@@ -200,7 +196,7 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 WAIT_TIMEOUT_WORKFLOW)) {
             final String flowId = flowId("stopped");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     WAIT_TIMEOUT_WORKFLOW,
                     flowId,
                     1);
@@ -209,7 +205,6 @@ public final class WorkflowUncompletedTest {
             final FlowResult failure = waitForFailure(environment, flowId);
             assertFailure(
                     failure,
-                    runId,
                     expectedStatus,
                     expectedErrorType,
                     expectedMessage,
@@ -225,12 +220,10 @@ public final class WorkflowUncompletedTest {
 
     private static void assertFailure(
             final FlowResult failure,
-            final String runId,
             final FlowStatus status,
             final FlowErrorType errorType,
             final String message,
             final int resultCount) {
-        assertEquals(runId, failure.getRunId());
         assertEquals(status, failure.getStatus());
         assertEquals(errorType, failure.getErrorType());
         if (message == null) {

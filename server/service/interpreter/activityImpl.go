@@ -584,7 +584,7 @@ func (a *Activities) ReportSubFlowCompletion(
 	request := input.GetRequest()
 	result := request.GetFlowResult()
 	activityInfo := a.activityProvider.GetActivityInfo(ctx)
-	if result == nil || result.GetFlowId() != activityInfo.WorkflowExecution.ID {
+	if result == nil || request.GetSubFlowId() != activityInfo.WorkflowExecution.ID {
 		return nil, fmt.Errorf("SubFlow completion result does not match the reporting workflow")
 	}
 	description, describeErr := a.unifiedClient.DescribeWorkflowExecution(

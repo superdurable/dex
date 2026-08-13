@@ -188,7 +188,7 @@ function addSubFlowNodes(nodes: Map<string, StepGraphNode>, stepNode: StepGraphN
       : activeResults[String(index)] && typeof activeResults[String(index)] === 'object'
         ? activeResults[String(index)] as Record<string, unknown>
         : {};
-    const flowId = stringField(result.flowId) || generatedSubFlowID(condition, stepNode.id, index);
+    const flowId = generatedSubFlowID(condition, stepNode.id, index);
     if (!flowId) return;
     const status = subFlowStatusName(result.flowStatus ?? 1);
     const options = condition.options && typeof condition.options === 'object'
@@ -204,7 +204,6 @@ function addSubFlowNodes(nodes: Map<string, StepGraphNode>, stepNode: StepGraphN
       parentStepId: stepNode.id,
       flowType: stringField(condition.subFlowType),
       flowId,
-      runId: stringField(result.runId),
       subFlowStatus: status,
       reusePolicy: subFlowReusePolicyLabel(options.reusePolicy),
     });

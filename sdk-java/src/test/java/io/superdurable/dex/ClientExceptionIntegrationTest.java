@@ -154,7 +154,6 @@ final class ClientExceptionIntegrationTest {
                         .getSingleOutput(String.class));
 
         final FlowResult failure = client.waitForFlow("failed", Duration.ofSeconds(1));
-        assertEquals("run-failed", failure.getRunId());
         assertEquals("Second-2", failure.getCompletions().get(1).getStepExecutionId());
         assertArrayEquals(
                 ByteString.copyFromUtf8("done").toByteArray(),
@@ -294,8 +293,6 @@ final class ClientExceptionIntegrationTest {
                     || "failed".equals(request.getFlowId())) {
                 final io.superdurable.gen.FlowResult.Builder response =
                         io.superdurable.gen.FlowResult.newBuilder()
-                                .setFlowId(request.getFlowId())
-                                .setRunId("run-" + request.getFlowId())
                                 .setFlowStatus("failed".equals(request.getFlowId())
                                         ? io.superdurable.gen.FlowStatus.FLOW_STATUS_FAILED
                                         : io.superdurable.gen.FlowStatus.FLOW_STATUS_COMPLETED);

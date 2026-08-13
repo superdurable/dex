@@ -170,12 +170,21 @@ final class InvocationContext implements Context {
                     (value, outputType) -> values.decode(value, outputType)));
         }
         return new io.superdurable.dex.FlowResult(
-                result.getFlowId(),
-                result.getRunId().isEmpty() ? null : result.getRunId(),
                 Client.mapFlowStatus(result.getFlowStatus()),
                 Client.mapNullableFlowErrorType(result.getErrorType()),
                 result.getErrorMessage().isEmpty() ? null : result.getErrorMessage(),
                 completions);
+    }
+
+    String subFlowId(final int index) {
+        if (method != Method.EXECUTE || conditionResults == null) {
+            throw new IllegalStateException(
+                    "SubFlow IDs are only available during Step execute");
+        }
+        if (index < 0 || index >= conditionResults.getSubFlowResultsCount()) {
+            throw new IllegalArgumentException("SubFlow condition index is out of range: " + index);
+        }
+        return "SubFlow-" + metadata.getFlowId() + "-" + metadata.getStepExecutionId() + "-" + index;
     }
 
     @Override

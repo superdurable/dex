@@ -103,20 +103,15 @@ func (r *subFlowReuseResolver) readTerminal(
 	description *uclient.DescribeWorkflowExecutionResponse,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	var workflowOutput dexpb.InterpreterWorkflowOutput
-	resolvedRunID, flowStatus, err := r.client.GetWorkflowResult(
+	_, flowStatus, err := r.client.GetWorkflowResult(
 		ctx, &workflowOutput, subFlowID, description.RunId,
 	)
 	if r.client.IsNotFoundError(err) {
 		return nil, nil
 	}
 	result := &dexpb.FlowResult{
-		FlowId:     subFlowID,
-		RunId:      resolvedRunID,
 		FlowStatus: flowStatus,
 		Results:    workflowOutput.GetStepCompletionOutputs(),
-	}
-	if result.RunId == "" {
-		result.RunId = description.RunId
 	}
 	if err != nil {
 		var errorResponse dexpb.ServiceErrorResponse

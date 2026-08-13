@@ -80,7 +80,8 @@ public final class ResetTest {
                     flowId,
                     resetOptions(true));
 
-            assertResetTimesOutWithoutAttributes(environment, flowId, resetRunId);
+            assertEquals(resetRunId, environment.client().describeFlow(flowId).getRunId());
+            assertResetTimesOutWithoutAttributes(environment, flowId);
         }
     }
 
@@ -109,7 +110,8 @@ public final class ResetTest {
                     flowId,
                     resetOptions(true));
 
-            assertResetTimesOutWithoutAttributes(environment, flowId, resetRunId);
+            assertEquals(resetRunId, environment.client().describeFlow(flowId).getRunId());
+            assertResetTimesOutWithoutAttributes(environment, flowId);
         }
     }
 
@@ -194,11 +196,9 @@ public final class ResetTest {
 
     private static void assertResetTimesOutWithoutAttributes(
             final DexDevTestEnvironment environment,
-            final String flowId,
-            final String resetRunId) {
+            final String flowId) {
         final FlowResult failure =
                 environment.client().waitForFlow(flowId, Duration.ofSeconds(10));
-        assertEquals(resetRunId, failure.getRunId());
         assertEquals(FlowStatus.TIMED_OUT, failure.getStatus());
         assertEquals(0, failure.getCompletions().size());
         assertNull(environment.client().getAttribute(flowId, WORKFLOW.data));

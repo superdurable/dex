@@ -50,9 +50,7 @@ final class SubFlowParentWorkflow implements Flow<Integer> {
         public StepDecision execute(final Context context, final Integer input) {
             final FlowResult result = SubFlow.getConditionResults(context);
             return StepDecision.gracefulComplete(
-                    result.getFlowId()
-                            + "|"
-                            + result.getRunId()
+                    SubFlow.getFlowId(context)
                             + "|"
                             + result.getSingleOutput(Integer.class));
         }
@@ -84,13 +82,15 @@ final class SubFlowAllParentWorkflow implements Flow<Integer> {
         public StepDecision execute(final Context context, final Integer input) {
             final FlowResult first = SubFlow.getConditionResults(context);
             final FlowResult second = SubFlow.getConditionResults(context, 1);
-            return StepDecision.gracefulComplete(format(first) + ";" + format(second));
+            return StepDecision.gracefulComplete(
+                    format(context, 0, first) + ";" + format(context, 1, second));
         }
 
-        private static String format(final FlowResult result) {
-            return result.getFlowId()
-                    + "|"
-                    + result.getRunId()
+        private static String format(
+                final Context context,
+                final int index,
+                final FlowResult result) {
+            return SubFlow.getFlowId(context, index)
                     + "|"
                     + result.getStatus()
                     + "|"
@@ -130,11 +130,9 @@ final class SubFlowAnyParentWorkflow implements Flow<Integer> {
                 rejectedOutput = true;
             }
             return StepDecision.gracefulComplete(
-                    result.getFlowId()
+                    SubFlow.getFlowId(context)
                             + "|"
                             + result.getStatus()
-                            + "|"
-                            + (result.getRunId() == null)
                             + "|"
                             + result.isTerminal()
                             + "|"
@@ -176,7 +174,7 @@ abstract class TimerSubFlowParentWorkflow implements Flow<Integer> {
         public StepDecision execute(final Context context, final Integer input) {
             final FlowResult result = SubFlow.getConditionResults(context);
             return StepDecision.gracefulComplete(
-                    result.getFlowId() + "|" + result.getRunId() + "|" + result.getStatus());
+                    SubFlow.getFlowId(context) + "|" + result.getStatus());
         }
     }
 }
@@ -216,7 +214,7 @@ final class SubFlowAbnormalRestartParentWorkflow implements Flow<Integer> {
         public StepDecision execute(final Context context, final Integer input) {
             final FlowResult result = SubFlow.getConditionResults(context);
             return StepDecision.gracefulComplete(
-                    result.getFlowId() + "|" + result.getRunId() + "|" + result.getStatus());
+                    SubFlow.getFlowId(context) + "|" + result.getStatus());
         }
     }
 }
@@ -251,8 +249,8 @@ final class SubFlowContinueAsNewParentWorkflow implements Flow<Integer> {
             final FlowResult completed = SubFlow.getConditionResults(context);
             final FlowResult delayed = SubFlow.getConditionResults(context, 1);
             return StepDecision.gracefulComplete(
-                    completed.getRunId() + "|" + completed.getSingleOutput(Integer.class)
-                            + "|" + delayed.getRunId() + "|" + delayed.getStatus());
+                    SubFlow.getFlowId(context) + "|" + completed.getSingleOutput(Integer.class)
+                            + "|" + SubFlow.getFlowId(context, 1) + "|" + delayed.getStatus());
         }
     }
 }

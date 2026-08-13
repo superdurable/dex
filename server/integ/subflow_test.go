@@ -33,8 +33,6 @@ const (
 )
 
 type subFlowObservation struct {
-	flowID string
-	runID  string
 	status dexpb.FlowStatus
 }
 
@@ -96,8 +94,6 @@ func doTestSubFlowCondition(t *testing.T, backendType service.BackendType) {
 		WaitTimeSeconds: 30,
 	})
 	require.NoError(t, err)
-	require.Equal(t, parentFlowID, firstResult.GetFlowId())
-	require.NotEmpty(t, firstResult.GetRunId())
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, firstResult.GetFlowStatus())
 	require.Len(t, firstResult.GetResults(), 1)
 	require.True(t, proto.Equal(input, firstResult.GetResults()[0].GetCompletedStepOutput()))
@@ -144,8 +140,8 @@ func doTestSubFlowCondition(t *testing.T, backendType service.BackendType) {
 	require.Equal(t, firstChild.GetFlowExecutionId().GetRunId(), secondChild.GetFlowExecutionId().GetRunId())
 	require.Equal(t, firstChild.GetRequestId(), secondChild.GetRequestId())
 	require.Equal(t, []subFlowObservation{
-		{flowID: childFlowID, runID: firstChild.GetFlowExecutionId().GetRunId(), status: dexpb.FlowStatus_FLOW_STATUS_COMPLETED},
-		{flowID: childFlowID, runID: firstChild.GetFlowExecutionId().GetRunId(), status: dexpb.FlowStatus_FLOW_STATUS_COMPLETED},
+		{status: dexpb.FlowStatus_FLOW_STATUS_COMPLETED},
+		{status: dexpb.FlowStatus_FLOW_STATUS_COMPLETED},
 	}, handler.results())
 }
 
@@ -200,8 +196,6 @@ func (h *subFlowHandler) InvokeExecuteMethod(
 		}
 		h.mu.Lock()
 		h.observations = append(h.observations, subFlowObservation{
-			flowID: results[0].GetFlowId(),
-			runID:  results[0].GetRunId(),
 			status: results[0].GetFlowStatus(),
 		})
 		h.mu.Unlock()

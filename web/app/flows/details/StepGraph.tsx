@@ -200,13 +200,10 @@ function StepNodeLabel({
 }
 
 function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
-  const target = flow.subFlowStatus !== 'RUNNING' && flow.runId
-    ? `/flows/${encodeURIComponent(flow.flowId ?? '')}/${encodeURIComponent(flow.runId)}`
-    : `/flows/${encodeURIComponent(flow.flowId ?? '')}`;
   return (
     <Link
       className="graph-sub-flow-link nodrag nopan"
-      to={target}
+      to={`/flows/${encodeURIComponent(flow.flowId ?? '')}`}
       aria-label={`Open SubFlow ${flow.flowId ?? ''}`}
     >
       <span><ConditionIcon type="subflow" />SubFlow · {flow.subFlowStatus}</span>

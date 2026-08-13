@@ -392,8 +392,6 @@ message FlowResult {
   repeated StepCompletionOutput results = 2;
   FlowErrorType error_type = 3;
   string error_message = 4;
-  string flow_id = 5;
-  string run_id = 6;
 }
 
 message SearchFlowsRequest {
@@ -1197,7 +1195,8 @@ message StartSubFlowActivityOutput {
 }
 
 message SubFlowCompletionSignalRequest {
-  FlowResult flow_result = 1;
+  string sub_flow_id = 1;
+  FlowResult flow_result = 2;
 }
 
 enum SubFlowCompletionDeliveryStatus {

@@ -406,7 +406,17 @@ function unixTime(value: unknown, timezone: TimezonePreference): string | undefi
   return formatDate(new Date(timestamp * 1000).toISOString(), timezone);
 }
 
-function ConditionResultsContent({ value, showEmpty = false }: { value: unknown; showEmpty?: boolean }) {
+function ConditionResultsContent({
+  value,
+  subFlowConditions = [],
+  stepExecutionId = '',
+  showEmpty = false,
+}: {
+  value: unknown;
+  subFlowConditions?: Data[];
+  stepExecutionId?: string;
+  showEmpty?: boolean;
+}) {
   const results = asData(value);
   if (!hasData(results)) {
     return showEmpty ? <p className="muted">No condition results</p> : null;
@@ -440,7 +450,13 @@ function ConditionResultsContent({ value, showEmpty = false }: { value: unknown;
           </div>
         ))}
         {subFlows.map((subFlow, index) => (
-          <SubFlowResultRecord value={subFlow} index={index} key={`${String(subFlow.flowId)}-${index}`} />
+          <SubFlowResultRecord
+            value={subFlow}
+            condition={subFlowConditions[index]}
+            stepExecutionId={stepExecutionId}
+            index={index}
+            key={index}
+          />
         ))}
       </div>
     </>
@@ -499,23 +515,27 @@ function generatedSubFlowID(value: Data, stepExecutionId: string, fallbackIndex:
   return `SubFlow-${parentFlowId}-${stepExecutionId}-${index}`;
 }
 
-function SubFlowResultRecord({ value, index }: { value: Data; index: number }) {
-  const flowId = typeof value.flowId === 'string' ? value.flowId : '';
-  const runId = typeof value.runId === 'string' ? value.runId : '';
-  const running = value.flowStatus === 'FLOW_STATUS_RUNNING' || value.flowStatus === 1;
-  const target = runId && !running
-    ? `/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(runId)}`
-    : `/flows/${encodeURIComponent(flowId)}`;
+function SubFlowResultRecord({
+  value,
+  condition = {},
+  stepExecutionId,
+  index,
+}: {
+  value: Data;
+  condition?: Data;
+  stepExecutionId: string;
+  index: number;
+}) {
+  const flowId = generatedSubFlowID(condition, stepExecutionId, index);
   return (
     <a
       className="semantic-record sub-flow-record"
-      href={flowId ? target : '#'}
+      href={flowId ? `/flows/${encodeURIComponent(flowId)}` : '#'}
       aria-label={`Open SubFlow result ${flowId || index + 1}`}
     >
       <strong><SubFlowIcon />SubFlow {index + 1}</strong>
       <Fields values={[
-        ['Flow ID', value.flowId],
-        ['Run ID', value.runId],
+        ['Flow ID', flowId],
         ['Status', flowStatusLabel(value.flowStatus)],
         ['Failure type', isPresent(value.errorType) ? flowErrorTypeLabel(value.errorType) : undefined],
         ['Failure', value.errorMessage],
@@ -698,6 +718,8 @@ function StepMethodDetails({
   const isAsyncTerminalFailure = event.type.endsWith('Failed')
     && durabilityLabel(context.durability) === 'async';
   const hasInput = payload.input !== undefined && input.unavailable !== true;
+  const stepExecutionId = typeof context.stepExecutionId === 'string' ? context.stepExecutionId : '';
+  const subFlowConditions = findSubFlowConditions(history, stepExecutionId);
   return (
     <>
       <DetailSection title="Input">
@@ -722,7 +744,12 @@ function StepMethodDetails({
             {!isWaitFor && (
               <div className="semantic-subsection">
                 <h5>Condition results</h5>
-                <ConditionResultsContent value={input.conditionResults} showEmpty />
+                <ConditionResultsContent
+                  value={input.conditionResults}
+                  subFlowConditions={subFlowConditions}
+                  stepExecutionId={stepExecutionId}
+                  showEmpty
+                />
               </div>
             )}
             <div className="semantic-subsection">
@@ -786,6 +813,19 @@ function StepMethodDetails({
       </DetailSection>
     </>
   );
+}
+
+function findSubFlowConditions(history: FlowHistoryEvent[], stepExecutionId: string): Data[] {
+  if (!stepExecutionId) return [];
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const candidate = history[index];
+    if (candidate.type !== 'StepWaitForCompleted') continue;
+    const candidateContext = asData(candidate.payload.context);
+    if (candidateContext.stepExecutionId !== stepExecutionId) continue;
+    const output = asData(candidate.payload.output);
+    return asDataArray(asData(output.waitForCondition).subFlowConditions);
+  }
+  return [];
 }
 
 function protobufDuration(value: unknown): string | undefined {

@@ -11,10 +11,7 @@
 // Package channel plans waiting-condition channel consumption.
 package channel
 
-import (
-	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service"
-)
+import "github.com/superdurable/dex/gen/dexpb"
 
 // ChannelAvailability snapshots message counts by channel.
 type ChannelAvailability map[string]int32
@@ -284,7 +281,6 @@ func normalizeChannel(condition *dexpb.ChannelCondition) normalizedChannelCondit
 // BuildConditionResults reports timer, channel, and SubFlow states.
 func BuildConditionResults(
 	waitingCondition *dexpb.WaitingCondition,
-	stepExecutionID string,
 	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
 	consumedByChannelConditionIndex map[int][]*dexpb.Value,
 	completedSubFlowConditions ...map[int32]*dexpb.FlowResult,
@@ -316,13 +312,10 @@ func BuildConditionResults(
 	if len(completedSubFlowConditions) > 0 {
 		completedSubFlows = completedSubFlowConditions[0]
 	}
-	for subFlowIndex, subFlowCondition := range waitingCondition.GetSubFlowConditions() {
+	for subFlowIndex := range waitingCondition.GetSubFlowConditions() {
 		result := completedSubFlows[int32(subFlowIndex)]
 		if result == nil {
 			result = &dexpb.FlowResult{
-				FlowId: service.SubFlowID(
-					subFlowCondition.GetParentFlowId(), stepExecutionID, int32(subFlowIndex),
-				),
 				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 			}
 		}

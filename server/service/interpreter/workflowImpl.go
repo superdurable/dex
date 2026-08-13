@@ -950,7 +950,6 @@ func (i *Interpreter) processStepExecution(
 	consumed := channelStore.CommitMatch(matchPlan)
 	conditionResults := channel.BuildConditionResults(
 		waitingCondition,
-		stepExeId,
 		completedTimerConditions,
 		consumed,
 		completedSubFlowResults,
@@ -1010,8 +1009,6 @@ func (i *Interpreter) reportSubFlowCompletion(
 ) error {
 	info := provider.GetWorkflowInfo(ctx)
 	result := &dexpb.FlowResult{
-		FlowId:     info.WorkflowExecution.ID,
-		RunId:      info.WorkflowExecution.RunID,
 		FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 		Results:    outputs,
 	}
@@ -1039,6 +1036,7 @@ func (i *Interpreter) reportSubFlowCompletion(
 		i.activities.ReportSubFlowCompletion,
 		&dexpb.ReportSubFlowCompletionActivityInput{
 			Request: &dexpb.SubFlowCompletionSignalRequest{
+				SubFlowId:  info.WorkflowExecution.ID,
 				FlowResult: result,
 			},
 		},
