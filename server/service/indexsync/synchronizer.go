@@ -42,6 +42,8 @@ type Synchronizer struct {
 	cfg    *config.Interpreter
 	client Client
 	logger log.Logger
+	// Cadence mutates shared search-attribute state unsafely during concurrent registrations.
+	syncSlot chan struct{}
 }
 
 // New creates an attribute index synchronizer.
@@ -55,7 +57,14 @@ func New(interpreterCfg *config.Interpreter, client Client, logger log.Logger) *
 	if logger == nil {
 		panic("attribute index logger must not be nil")
 	}
-	return &Synchronizer{cfg: interpreterCfg, client: client, logger: logger}
+	synchronizer := &Synchronizer{
+		cfg:      interpreterCfg,
+		client:   client,
+		logger:   logger,
+		syncSlot: make(chan struct{}, 1),
+	}
+	synchronizer.syncSlot <- struct{}{}
+	return synchronizer
 }
 
 // Sync creates missing indexes and waits until the backend reports them.
@@ -66,9 +75,14 @@ func (s *Synchronizer) Sync(ctx context.Context, requested map[string]dexpb.Inde
 	if len(requested) == 0 {
 		return nil
 	}
-
 	syncCtx, cancel := context.WithTimeout(ctx, s.cfg.EffectiveAttributeIndexSyncTimeout())
 	defer cancel()
+	select {
+	case <-syncCtx.Done():
+		return backendError(syncCtx.Err())
+	case <-s.syncSlot:
+	}
+	defer func() { s.syncSlot <- struct{}{} }()
 
 	existing, err := s.listUntilAvailable(syncCtx)
 	if err != nil {
