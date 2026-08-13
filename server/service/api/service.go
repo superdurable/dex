@@ -985,8 +985,10 @@ func (s *serviceImpl) InvokeRPC(
 	for {
 		response, err := s.doInvokeRPC(ctx, req, runID)
 		if err == nil {
-			if err := blobstore.HydrateValue(ctx, response.GetOutput(), s.store); err != nil {
-				return nil, s.handleError(err)
+			if !s.blobStoreCfg.EffectiveLazyLoading() {
+				if err := blobstore.HydrateValue(ctx, response.GetOutput(), s.store); err != nil {
+					return nil, s.handleError(err)
+				}
 			}
 			return response, nil
 		}

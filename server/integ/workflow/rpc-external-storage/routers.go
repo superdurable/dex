@@ -94,7 +94,12 @@ func (h *handler) InvokeWorkerRPC(
 		return nil, status.Error(codes.InvalidArgument, fmt.Sprintf("invalid flow type: %s", request.GetFlowType()))
 	}
 
-	h.testData.Store(request.GetRpcName()+"-input", request.GetInput())
+	h.testData.Store(request.GetRpcName()+"-raw-input", request.GetInput())
+	resolvedInput, err := common.LoadBlobsValue(ctx, h.flowClient, request.GetInput())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "LoadBlobs for RPC input: %v", err)
+	}
+	h.testData.Store(request.GetRpcName()+"-input", resolvedInput)
 
 	resolvedAttributes := make([]*dexpb.KV, 0, len(request.GetAttributes()))
 	for _, attribute := range request.GetAttributes() {

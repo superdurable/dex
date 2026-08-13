@@ -124,7 +124,11 @@ func doTestRpcExternalStorage(
 
 	rpcResp, err := flowClient.InvokeRPC(ctx, rpcRequest)
 	require.NoError(t, err)
-	require.True(t, proto.Equal(rpcStorage.TestOutput, rpcResp.GetOutput()))
+	rpcOutput := rpcResp.GetOutput()
+	require.Equal(t, lazyLoading, integcommon.BlobIdFromValue(rpcOutput) != "")
+	rpcOutput, err = integcommon.LoadBlobsValue(ctx, flowClient, rpcOutput)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(rpcStorage.TestOutput, rpcOutput))
 
 	require.Eventually(t, func() bool {
 		testData := workerHandler.GetTestResult().InvokeData
@@ -133,6 +137,13 @@ func doTestRpcExternalStorage(
 	}, 2*time.Second, 50*time.Millisecond)
 
 	testData := workerHandler.GetTestResult().InvokeData
+	rawInput, exists := testData[rpcStorage.UpdateDataAttributesRPC+"-raw-input"]
+	require.True(t, exists)
+	require.Equal(
+		t,
+		lazyLoading,
+		integcommon.BlobIdFromValue(rawInput.(*dexpb.Value)) != "",
+	)
 	receivedInput, exists := testData[rpcStorage.UpdateDataAttributesRPC+"-input"]
 	require.True(t, exists)
 	require.True(t, proto.Equal(rpcStorage.TestInput, receivedInput.(*dexpb.Value)))

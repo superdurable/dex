@@ -34,17 +34,17 @@ func InvokeWorkerRpc(
 	blobStoreCfg *config.BlobStoreConfig,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
 
+	workerInput := req.GetInput()
 	if !blobStoreCfg.EffectiveLazyLoading() {
 		if err := blobstore.HydrateKVs(ctx, rpcPrep.GetAttributes(), blobStore); err != nil {
 			return nil, err
 		}
-	}
-	var workerInput *dexpb.Value
-	if req.GetInput() != nil {
-		workerInput = &dexpb.Value{Kind: req.GetInput().GetKind()}
-	}
-	if err := blobstore.HydrateValue(ctx, workerInput, blobStore); err != nil {
-		return nil, err
+		if workerInput != nil {
+			workerInput = &dexpb.Value{Kind: workerInput.GetKind()}
+		}
+		if err := blobstore.HydrateValue(ctx, workerInput, blobStore); err != nil {
+			return nil, err
+		}
 	}
 
 	timeoutSeconds := req.GetTimeoutSeconds()
