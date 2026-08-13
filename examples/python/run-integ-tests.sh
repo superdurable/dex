@@ -23,6 +23,7 @@ web_port="${DEX_EXAMPLES_WEB_PORT:-19902}"
 temporal_port="${DEX_EXAMPLES_TEMPORAL_PORT:-19234}"
 temporal_ui_port="${DEX_EXAMPLES_TEMPORAL_UI_PORT:-19334}"
 dex_address="127.0.0.1:${dex_port}"
+compose_project="python-examples-$$"
 log_file="/tmp/test-python-examples-integ-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
@@ -35,12 +36,21 @@ cleanup() {
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
   fi
+  docker compose \
+    -p "$compose_project" \
+    -f "$repo_root/examples/entity-store/docker-compose.yml" \
+    down --volumes >/dev/null 2>&1 || true
   if [[ "$status" -ne 0 ]]; then
     cat "$log_file" >&2
   fi
   rm -r "$test_dir" "$binary_dir"
 }
 trap cleanup EXIT
+
+docker compose \
+  -p "$compose_project" \
+  -f "$repo_root/examples/entity-store/docker-compose.yml" \
+  up -d --wait
 
 if [[ ! -f "$repo_root/web/assets/dist/index.html" ]]; then
   (
@@ -62,6 +72,7 @@ fi
   -temporal-port "$temporal_port" \
   -temporal-ui-port "$temporal_ui_port" \
   -temporal-db-filename "$test_dir/temporal.db" \
+  -attribute-store-config "$repo_root/examples/entity-store/attribute-store.yaml" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 
@@ -84,4 +95,6 @@ fi
 
 cd "$script_dir"
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen pytest -vv tests/ sync-python/tests/integ
+  uv run --frozen --with-editable "$repo_root/sdk-python" pytest -vv tests/
+DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+  uv run --frozen --with-editable "$repo_root/sdk-python" pytest -vv sync-python/tests/integ

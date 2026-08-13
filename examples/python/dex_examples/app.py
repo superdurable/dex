@@ -185,14 +185,7 @@ class ExampleApp:
             ),
         )
         self.worker = AsyncWorker(self.registry, self.blob_cache, worker_options)
-        self._client = AsyncClient(
-            self.registry,
-            self.blob_cache,
-            ClientOptions(
-                server_address=config.server_address,
-                worker_target=self.worker.worker_target,
-            ),
-        )
+        self._client: AsyncClient | None = None
         self._worker_task: asyncio.Task[None] | None = None
 
     @property
@@ -208,7 +201,15 @@ class ExampleApp:
         if self._worker_task is not None:
             return
         self._worker_task = asyncio.create_task(self.worker.start())
-        await _await_worker(self.worker.worker_target.address, self._worker_task)
+        await _await_worker(self.worker, self._worker_task)
+        self._client = AsyncClient(
+            self.registry,
+            self.blob_cache,
+            ClientOptions(
+                server_address=self.config.server_address,
+                worker_target=self.worker.worker_target,
+            ),
+        )
 
     async def close(self) -> None:
         if self._client is not None:
@@ -224,9 +225,9 @@ class ExampleApp:
         self.blob_cache.close()
 
 
-async def _await_worker(address: str, worker_task: asyncio.Task[None]) -> None:
-    host, _, port_text = address.rpartition(":")
-    port = int(port_text)
+async def _await_worker(
+    worker: AsyncWorker, worker_task: asyncio.Task[None]
+) -> None:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         if worker_task.done():
@@ -234,6 +235,8 @@ async def _await_worker(address: str, worker_task: asyncio.Task[None]) -> None:
             if error is not None:
                 raise RuntimeError("AsyncWorker failed") from error
             raise RuntimeError("AsyncWorker stopped before becoming ready")
+        host, _, port_text = worker.worker_target.address.rpartition(":")
+        port = int(port_text)
         try:
             with socket.create_connection((host or "127.0.0.1", port), timeout=0.1):
                 return
