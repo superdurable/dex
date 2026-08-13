@@ -68,6 +68,11 @@ func (t *cadenceClient) IsWorkflowAlreadyStartedError(err error) bool {
 	return ok
 }
 
+func (t *cadenceClient) IsWorkflowAlreadyCompletedError(err error) bool {
+	var workflowExecutionAlreadyCompletedError *shared.WorkflowExecutionAlreadyCompletedError
+	return errors.As(err, &workflowExecutionAlreadyCompletedError)
+}
+
 func (t *cadenceClient) GetRunIdFromWorkflowAlreadyStartedError(err error) (string, bool) {
 	var res *shared.WorkflowExecutionAlreadyStartedError
 	ok := errors.As(err, &res)
