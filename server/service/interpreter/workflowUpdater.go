@@ -130,7 +130,6 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 ) (output *dexpb.InvokeRpcUpdateResult, err error) {
 	u.continueAsNewer.IncreaseInflightOperation()
 	defer u.continueAsNewer.DecreaseInflightOperation()
-	u.signalReceiver.drainReceivedRpcSignals(ctx)
 
 	info := u.provider.GetWorkflowInfo(ctx)
 	rpcExecutionStartTime := u.provider.Now(ctx).UnixMilli()
@@ -399,7 +398,7 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 }
 
 func (u *WorkflowUpdater) rejectTerminalUpdate() error {
-	if !u.terminalCoordinator.hasStartedFinalizing() {
+	if !u.terminalCoordinator.HasStartedFinalizing() {
 		return nil
 	}
 	return u.provider.NewUpdateError(

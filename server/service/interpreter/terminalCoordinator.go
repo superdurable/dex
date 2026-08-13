@@ -47,8 +47,8 @@ func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
 	}
 	c.startedFinalizing = true
 	if err := c.provider.Await(c.ctx, func() bool {
-		return c.continueAsNewer.inflightUpdateOperations == 0 &&
-			(*c.forceComplete || c.attributeSyncer.ProducersDrained())
+		return *c.forceComplete ||
+			(c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0)
 	}); err != nil {
 		return err
 	}
@@ -66,6 +66,6 @@ func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
 	}
 }
 
-func (c *TerminalCoordinator) hasStartedFinalizing() bool {
+func (c *TerminalCoordinator) HasStartedFinalizing() bool {
 	return c.startedFinalizing
 }
