@@ -155,9 +155,9 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 			err.Error(),
 		)
 	}
-	attributes, err := u.persistenceManager.LoadAttributes(ctx, keysToLock)
-	if err != nil {
-		return nil, err
+	attributes, locked := u.persistenceManager.TryLoadAttributes(keysToLock)
+	if !locked {
+		return nil, u.rpcLockError()
 	}
 
 	rpcPrep := &dexpb.PrepareRpcQueryResponse{
@@ -235,12 +235,16 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 		)
 	}
 	if !u.persistenceManager.CanLockKeys(keys) {
-		return u.provider.NewUpdateError(
-			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE,
-			"one or more attribute keys are locked",
-		)
+		return u.rpcLockError()
 	}
 	return nil
+}
+
+func (u *WorkflowUpdater) rpcLockError() error {
+	return u.provider.NewUpdateError(
+		dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE,
+		"one or more attribute keys are locked",
+	)
 }
 
 func (u *WorkflowUpdater) effectiveRPCBudget(requestedSeconds int32) time.Duration {
