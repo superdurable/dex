@@ -149,9 +149,9 @@ func (w *workflowProvider) GetFlowError(err error) (dexpb.FlowErrorType, *dexpb.
 	if !ok {
 		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, false
 	}
-	response := &dexpb.ErrorResponse{}
-	if detailsErr := applicationError.Details(response); detailsErr != nil {
-		response.Detail = err.Error()
+	response, _, detailsErr := decodeTemporalStepErrorDetails(applicationError)
+	if detailsErr != nil {
+		response = &dexpb.ErrorResponse{Detail: err.Error()}
 	}
 	return dexpb.FlowErrorType(value), response, true
 }
