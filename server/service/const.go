@@ -29,6 +29,7 @@ const (
 	PrepareRpcQueryType               = "PrepareRpcQueryType"
 
 	InvokeRpcUpdateType             = "InvokeRpc"
+	InvokeRpcContinueAsNewPreempted = "continue-as-new preempted RPC"
 	WaitForStepCompletionUpdateType = "WaitForStepCompletion"
 	WaitForAttributeUpdateType      = "WaitForAttribute"
 

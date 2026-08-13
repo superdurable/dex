@@ -221,7 +221,7 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 	if u.continueAsNewCounter.IsThresholdMet() {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED,
-			"continue-as-new preempted RPC",
+			service.InvokeRpcContinueAsNewPreempted,
 		)
 	}
 	if input == nil || input.GetRpcName() == "" {

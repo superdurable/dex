@@ -1011,7 +1011,9 @@ func (s *serviceImpl) InvokeRPC(
 			)
 			return nil, s.handleInvokeRPCError(err)
 		}
-		if description.RunId == runID && !updateTransitionError {
+		if description.RunId == runID &&
+			!updateTransitionError &&
+			description.Status != dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW {
 			return nil, s.handleInvokeRPCError(err)
 		}
 		shouldRetry, retryErr := retryBackoff.WaitForNextAttempt(ctx)
@@ -1027,6 +1029,10 @@ func (s *serviceImpl) InvokeRPC(
 
 func (s *serviceImpl) isInvokeRPCUpdateTransitionError(err error) bool {
 	if s.client.IsUnknownUpdateError(err, service.InvokeRpcUpdateType) {
+		return true
+	}
+	// Temporal validator rejections omit the application error type.
+	if err.Error() == service.InvokeRpcContinueAsNewPreempted {
 		return true
 	}
 	updateType, updateError := s.client.GetIfUpdateError(err, nil)
