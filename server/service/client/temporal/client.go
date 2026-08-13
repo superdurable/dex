@@ -227,11 +227,11 @@ func (t *temporalClient) GetIfFlowError(err error, resp *dexpb.ServiceErrorRespo
 		panic("resp required")
 	}
 	flowErrorType := dexpb.FlowErrorType(value)
-	activityError := &dexpb.InternalActivityError{}
-	if decodeErr := t.decodeAppErrDetails(err, activityError); decodeErr != nil {
-		activityError.ServerDetail = err.Error()
+	flowError := &dexpb.InternalFlowError{}
+	if decodeErr := t.decodeAppErrDetails(err, flowError); decodeErr != nil {
+		flowError.Failure = &dexpb.InternalFlowError_ServerDetail{ServerDetail: err.Error()}
 	}
-	*resp = *serviceerrors.ServiceErrorResponseFromActivityError(flowErrorType, activityError)
+	*resp = *serviceerrors.ServiceErrorResponseFromFlowError(flowErrorType, flowError)
 	return flowErrorType, true
 }
 

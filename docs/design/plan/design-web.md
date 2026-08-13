@@ -458,6 +458,13 @@ message InternalWorkerError {
   string stack_trace = 3;
 }
 
+message InternalFlowError {
+  oneof failure {
+    string server_detail = 1;
+    InternalActivityError activity_error = 2;
+  }
+}
+
 message InternalLocalStepActivityFailure {
   LocalActivityMetadata local_activity_metadata = 1;
   int64 first_attempt_timestamp = 2;
@@ -473,6 +480,9 @@ message InternalLocalStepActivityFailure {
   保存准确发送给 worker 的 request 和 method options；
 - regular failure 使用单一 `InternalActivityError` detail；local failure 使用单一
   `InternalLocalStepActivityFailure` detail，并在其中嵌套 `activity_error`；
+- 最终 workflow failure 使用单一 `InternalFlowError`：interpreter 自身错误设置
+  `server_detail`，activity 错误设置 `activity_error`；service client 在公开边界统一生成
+  `ServiceErrorResponse`；
 - fallback regular activity 只在 request `Context` 中保存累计 attempt 和首次 attempt 时间，
   不重复保存 method options；
 - SYNC regular activity 同一个第二参数位置传 `nil`，可以产生极小 null payload；

@@ -78,6 +78,23 @@ func ServiceErrorResponseDetail(errorResponse *dexpb.ServiceErrorResponse) strin
 	return errorResponse.GetDetail()
 }
 
+// ServiceErrorResponseFromFlowError converts a final internal failure at the public boundary.
+func ServiceErrorResponseFromFlowError(
+	flowErrorType dexpb.FlowErrorType,
+	flowError *dexpb.InternalFlowError,
+) *dexpb.ServiceErrorResponse {
+	if flowError == nil {
+		panic("flow error required")
+	}
+	if activityError := flowError.GetActivityError(); activityError != nil {
+		return ServiceErrorResponseFromActivityError(flowErrorType, activityError)
+	}
+	return &dexpb.ServiceErrorResponse{
+		Detail:    flowError.GetServerDetail(),
+		SubStatus: workflowErrorSubStatus(flowErrorType),
+	}
+}
+
 // ServiceErrorResponseFromActivityError converts an internal failure at the public boundary.
 func ServiceErrorResponseFromActivityError(
 	flowErrorType dexpb.FlowErrorType,
@@ -112,6 +129,13 @@ func activityErrorSubStatus(flowErrorType dexpb.FlowErrorType) dexpb.ErrorSubSta
 	default:
 		return dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED
 	}
+}
+
+func workflowErrorSubStatus(flowErrorType dexpb.FlowErrorType) dexpb.ErrorSubStatus {
+	if flowErrorType == dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL {
+		return dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR
+	}
+	return dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED
 }
 
 // InvalidArgument is a convenience for bad client/worker input.

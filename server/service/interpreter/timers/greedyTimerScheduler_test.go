@@ -26,7 +26,11 @@ type fakeWorkflowProvider struct {
 	awaitErr       error
 }
 
-func (p *fakeWorkflowProvider) NewFlowError(dexpb.FlowErrorType, *dexpb.InternalActivityError) error {
+func (p *fakeWorkflowProvider) NewFlowError(dexpb.FlowErrorType, string) error {
+	return nil
+}
+
+func (p *fakeWorkflowProvider) NewFlowErrorFromActivityError(error) error {
 	return nil
 }
 

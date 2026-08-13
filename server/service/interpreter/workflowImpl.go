@@ -338,7 +338,7 @@ func (i *Interpreter) StartEngineFlow(
 					if !ok {
 						errToFailWf = provider.NewFlowError(
 							dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-							&dexpb.InternalActivityError{ServerDetail: "cannot read step request from workflow context"},
+							"cannot read step request from workflow context",
 						)
 						return
 					}
@@ -408,7 +408,7 @@ func (i *Interpreter) StartEngineFlow(
 							}
 							errToFailWf = provider.NewFlowError(
 								dexpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
-								&dexpb.InternalActivityError{ServerDetail: detail},
+								detail,
 							)
 						}
 						if canGoNext {
@@ -428,7 +428,7 @@ func (i *Interpreter) StartEngineFlow(
 						if mappingErr != nil {
 							errToFailWf = provider.NewFlowError(
 								dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-								&dexpb.InternalActivityError{ServerDetail: mappingErr.Error()},
+								mappingErr.Error(),
 							)
 							return
 						}
@@ -549,13 +549,16 @@ func normalizeStepFailureError(
 	provider interfaces.WorkflowProvider,
 	err error,
 ) error {
-	if err == nil || provider.IsApplicationError(err) {
-		return err
+	if err == nil {
+		return nil
+	}
+	if provider.IsApplicationError(err) {
+		return provider.NewFlowErrorFromActivityError(err)
 	}
 	// Non-application activity failures (timeout, cancel, etc.) as worker API fail.
 	return provider.NewFlowError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
-		&dexpb.InternalActivityError{ServerDetail: err.Error()},
+		err.Error(),
 	)
 }
 
@@ -626,7 +629,7 @@ func checkClosingWorkflow(
 	default:
 		err = provider.NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-			&dexpb.InternalActivityError{ServerDetail: "invalid close decision type"},
+			"invalid close decision type",
 		)
 		return
 	}

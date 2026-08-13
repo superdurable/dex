@@ -39,12 +39,31 @@ func newCadenceWorkflowProvider() interfaces.WorkflowProvider {
 
 func (w *workflowProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
-	activityError *dexpb.InternalActivityError,
+	detail string,
 ) error {
-	if activityError == nil {
-		panic("activity error required")
+	return cadence.NewCustomError(
+		errType.String(),
+		&dexpb.InternalFlowError{
+			Failure: &dexpb.InternalFlowError_ServerDetail{ServerDetail: detail},
+		},
+	)
+}
+
+func (w *workflowProvider) NewFlowErrorFromActivityError(err error) error {
+	var customError *cadence.CustomError
+	if !errors.As(err, &customError) {
+		panic("Cadence custom error required")
 	}
-	return cadence.NewCustomError(errType.String(), activityError)
+	activityError, detailsErr := decodeCadenceStepErrorDetails(customError)
+	if detailsErr != nil {
+		panic(fmt.Sprintf("decode Cadence activity error: %v", detailsErr))
+	}
+	return cadence.NewCustomError(
+		customError.Reason(),
+		&dexpb.InternalFlowError{
+			Failure: &dexpb.InternalFlowError_ActivityError{ActivityError: activityError},
+		},
+	)
 }
 
 func (w *workflowProvider) NewCanceledError(reason string) error {

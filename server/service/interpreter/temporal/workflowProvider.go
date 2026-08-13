@@ -40,12 +40,33 @@ func newTemporalWorkflowProvider() interfaces.WorkflowProvider {
 
 func (w *workflowProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
-	activityError *dexpb.InternalActivityError,
+	detail string,
 ) error {
-	if activityError == nil {
-		panic("activity error required")
+	return temporal.NewApplicationError(
+		"",
+		errType.String(),
+		&dexpb.InternalFlowError{
+			Failure: &dexpb.InternalFlowError_ServerDetail{ServerDetail: detail},
+		},
+	)
+}
+
+func (w *workflowProvider) NewFlowErrorFromActivityError(err error) error {
+	var applicationError *temporal.ApplicationError
+	if !errors.As(err, &applicationError) {
+		panic("Temporal application error required")
 	}
-	return temporal.NewApplicationError("", errType.String(), activityError)
+	activityError, detailsErr := decodeTemporalStepErrorDetails(applicationError)
+	if detailsErr != nil {
+		panic(fmt.Sprintf("decode Temporal activity error: %v", detailsErr))
+	}
+	return temporal.NewApplicationError(
+		"",
+		applicationError.Type(),
+		&dexpb.InternalFlowError{
+			Failure: &dexpb.InternalFlowError_ActivityError{ActivityError: activityError},
+		},
+	)
 }
 
 func (w *workflowProvider) NewCanceledError(reason string) error {

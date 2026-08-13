@@ -36,6 +36,35 @@ func TestActivityProviderAppliesNextRetryDelay(t *testing.T) {
 	require.Equal(t, activityError, decoded)
 }
 
+func TestWorkflowProviderUsesFlowFailureEnvelope(t *testing.T) {
+	provider := &workflowProvider{}
+	err := provider.NewFlowError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+		"invalid close decision type",
+	)
+
+	var applicationError *temporalsdk.ApplicationError
+	require.ErrorAs(t, err, &applicationError)
+	var flowError *dexpb.InternalFlowError
+	require.NoError(t, applicationError.Details(&flowError))
+	require.Equal(t, "invalid close decision type", flowError.GetServerDetail())
+	require.Nil(t, flowError.GetActivityError())
+
+	activityError := &dexpb.InternalActivityError{
+		WorkerError: &dexpb.InternalWorkerError{Detail: "worker detail"},
+	}
+	activityFailure := (&activityProvider{}).NewActivityError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		activityError,
+		0,
+	)
+	wrappedFailure := provider.NewFlowErrorFromActivityError(activityFailure)
+	require.ErrorAs(t, wrappedFailure, &applicationError)
+	require.NoError(t, applicationError.Details(&flowError))
+	require.Equal(t, activityError, flowError.GetActivityError())
+	require.Empty(t, flowError.GetServerDetail())
+}
+
 func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	provider := &workflowProvider{}
 	original := &dexpb.InternalActivityError{

@@ -824,6 +824,13 @@ export interface InternalWorkerError {
   stackTrace: string;
 }
 
+export interface InternalFlowError {
+  failure:
+    | { $case: "serverDetail"; value: string }
+    | { $case: "activityError"; value: InternalActivityError }
+    | undefined;
+}
+
 export interface ChannelInfo {
   size: number;
 }
@@ -8660,6 +8667,78 @@ export const InternalWorkerError: MessageFns<InternalWorkerError> = {
     message.detail = object.detail ?? "";
     message.errorType = object.errorType ?? "";
     message.stackTrace = object.stackTrace ?? "";
+    return message;
+  },
+};
+
+function createBaseInternalFlowError(): InternalFlowError {
+  return { failure: undefined };
+}
+
+export const InternalFlowError: MessageFns<InternalFlowError> = {
+  encode(message: InternalFlowError, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    switch (message.failure?.$case) {
+      case "serverDetail":
+        writer.uint32(10).string(message.failure.value);
+        break;
+      case "activityError":
+        InternalActivityError.encode(message.failure.value, writer.uint32(18).fork()).join();
+        break;
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InternalFlowError {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInternalFlowError();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.failure = { $case: "serverDetail", value: reader.string() };
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.failure = { $case: "activityError", value: InternalActivityError.decode(reader, reader.uint32()) };
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InternalFlowError>, I>>(base?: I): InternalFlowError {
+    return InternalFlowError.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InternalFlowError>, I>>(object: I): InternalFlowError {
+    const message = createBaseInternalFlowError();
+    switch (object.failure?.$case) {
+      case "serverDetail": {
+        if (object.failure?.value !== undefined && object.failure?.value !== null) {
+          message.failure = { $case: "serverDetail", value: object.failure.value };
+        }
+        break;
+      }
+      case "activityError": {
+        if (object.failure?.value !== undefined && object.failure?.value !== null) {
+          message.failure = { $case: "activityError", value: InternalActivityError.fromPartial(object.failure.value) };
+        }
+        break;
+      }
+    }
     return message;
   },
 };

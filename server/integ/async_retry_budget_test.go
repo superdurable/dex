@@ -464,7 +464,7 @@ func requireSingleTemporalRegularAndWorkflowFailureDetail(
 			regularFailureFound = true
 		}
 		if attributes := historyEvent.GetWorkflowExecutionFailedEventAttributes(); attributes != nil {
-			requireSingleTemporalActivityError(t, dataConverter, attributes.GetFailure())
+			requireSingleTemporalFlowActivityError(t, dataConverter, attributes.GetFailure())
 			workflowFailureFound = true
 		}
 	}
@@ -489,6 +489,24 @@ func requireSingleTemporalActivityError(
 	require.NotEmpty(t, activityError.GetServerDetail())
 }
 
+func requireSingleTemporalFlowActivityError(
+	t *testing.T,
+	dataConverter converter.DataConverter,
+	failure *failurepb.Failure,
+) {
+	t.Helper()
+	for failure != nil && failure.GetApplicationFailureInfo() == nil {
+		failure = failure.GetCause()
+	}
+	require.NotNil(t, failure)
+	payloads := failure.GetApplicationFailureInfo().GetDetails().GetPayloads()
+	require.Len(t, payloads, 1)
+	flowError := &dexpb.InternalFlowError{}
+	require.NoError(t, dataConverter.FromPayload(payloads[0], flowError))
+	require.NotNil(t, flowError.GetActivityError())
+	require.NotEmpty(t, flowError.GetActivityError().GetServerDetail())
+}
+
 func requireSingleCadenceRegularAndWorkflowFailureDetail(
 	t *testing.T,
 	ctx context.Context,
@@ -510,7 +528,7 @@ func requireSingleCadenceRegularAndWorkflowFailureDetail(
 			regularFailureFound = true
 		}
 		if attributes := historyEvent.GetWorkflowExecutionFailedEventAttributes(); attributes != nil {
-			requireSingleCadenceActivityError(t, dataConverter, attributes.GetDetails())
+			requireSingleCadenceFlowActivityError(t, dataConverter, attributes.GetDetails())
 			workflowFailureFound = true
 		}
 	}
@@ -529,6 +547,20 @@ func requireSingleCadenceActivityError(
 	require.NotEmpty(t, activityError.GetServerDetail())
 	var extraDetail *dexpb.InternalActivityError
 	require.Error(t, dataConverter.FromData(details, &activityError, &extraDetail))
+}
+
+func requireSingleCadenceFlowActivityError(
+	t *testing.T,
+	dataConverter encoded.DataConverter,
+	details []byte,
+) {
+	t.Helper()
+	var flowError *dexpb.InternalFlowError
+	require.NoError(t, dataConverter.FromData(details, &flowError))
+	require.NotNil(t, flowError.GetActivityError())
+	require.NotEmpty(t, flowError.GetActivityError().GetServerDetail())
+	var extraDetail *dexpb.InternalFlowError
+	require.Error(t, dataConverter.FromData(details, &flowError, &extraDetail))
 }
 
 func requireSingleTemporalLocalFailureDetail(

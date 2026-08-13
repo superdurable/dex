@@ -130,6 +130,10 @@ timeouts normally expose only `backend_error`.
 `InternalLocalStepActivityFailure` carries the local attempt count, first
 attempt time, original method options, and nested `InternalActivityError` as one
 failure detail. A regular activity carries one `InternalActivityError` detail.
+Final workflow failures carry one `InternalFlowError`. Interpreter-originated
+failures set `server_detail`; activity-originated failures set `activity_error`.
+The service client converts both sources to `ServiceErrorResponse` at the public
+boundary.
 A fallback regular activity carries only its prior attempt count and
 first-attempt time in `Context`.
 `InternalAsyncStepInputSnapshot` is the run-scoped request and method-options

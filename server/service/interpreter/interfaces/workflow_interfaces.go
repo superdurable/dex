@@ -120,7 +120,8 @@ type TimerProcessor interface {
 }
 
 type WorkflowProvider interface {
-	NewFlowError(errType dexpb.FlowErrorType, activityError *dexpb.InternalActivityError) error
+	NewFlowError(errType dexpb.FlowErrorType, detail string) error
+	NewFlowErrorFromActivityError(err error) error
 	NewCanceledError(reason string) error
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool

@@ -1227,6 +1227,14 @@ class InternalWorkerError(_message.Message):
     stack_trace: str
     def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ...) -> None: ...
 
+class InternalFlowError(_message.Message):
+    __slots__ = ("server_detail", "activity_error")
+    SERVER_DETAIL_FIELD_NUMBER: _ClassVar[int]
+    ACTIVITY_ERROR_FIELD_NUMBER: _ClassVar[int]
+    server_detail: str
+    activity_error: InternalActivityError
+    def __init__(self, server_detail: _Optional[str] = ..., activity_error: _Optional[_Union[InternalActivityError, _Mapping]] = ...) -> None: ...
+
 class ChannelInfo(_message.Message):
     __slots__ = ("size",)
     SIZE_FIELD_NUMBER: _ClassVar[int]

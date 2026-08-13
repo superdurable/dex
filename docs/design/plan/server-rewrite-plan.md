@@ -560,7 +560,7 @@ contains a struct. Complete this table before assigning fields:
 | Queries | `GetAttributesQueryRequest`/`Response`, `PrepareRpcQueryRequest`/`Response`, `GetCurrentTimerInfosQueryResponse`, `GetScheduledGreedyTimerTimesQueryResponse`, `DebugDumpResponse` | Every handler argument and result is a proto pointer. |
 | Synchronous updates | Reuse public wait/RPC request/response messages | Prefer returning the public response plus a Go error. Add an internal result envelope only if response/error multiplexing remains necessary. |
 | Nested timer/status data | `TimerInfo`, `InternalTimerStatus` | These become proto only because a serialized query/snapshot contains them. |
-| Serialized failures | `InternalActivityError` | Persist the internal activity contract and convert it to `ServiceErrorResponse` only at service/history boundaries; never JSON-wrap it inside an activity/update result. |
+| Serialized failures | `InternalActivityError`; `InternalFlowError` | Persist the internal activity contract in activity history. Wrap final workflow failures with either a server detail or activity error, then convert to `ServiceErrorResponse` only at service/history boundaries. |
 
 The inventory must cover exported structs outside
 [`server/service/interfaces.go`](../../../server/service/interfaces.go), especially
