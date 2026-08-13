@@ -40,12 +40,12 @@ func newTemporalWorkflowProvider() interfaces.WorkflowProvider {
 
 func (w *workflowProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
-	resp *dexpb.ErrorResponse,
+	activityError *dexpb.InternalActivityError,
 ) error {
-	if resp == nil {
-		panic("resp required")
+	if activityError == nil {
+		panic("activity error required")
 	}
-	return temporal.NewApplicationError("", errType.String(), resp)
+	return temporal.NewApplicationError("", errType.String(), activityError)
 }
 
 func (w *workflowProvider) NewCanceledError(reason string) error {
@@ -78,34 +78,32 @@ func (w *workflowProvider) MapToRecoveryError(err error) (*dexpb.RecoveryErrorIn
 
 	var applicationError *temporal.ApplicationError
 	if errors.As(err, &applicationError) {
-		errorResponse := &dexpb.ErrorResponse{}
+		activityError := &dexpb.InternalActivityError{}
 		if applicationError.HasDetails() {
 			var detailsErr error
-			errorResponse, detailsErr = decodeTemporalStepErrorDetails(applicationError)
+			activityError, detailsErr = decodeTemporalStepErrorDetails(applicationError)
 			if detailsErr != nil {
 				return nil, fmt.Errorf("decode Temporal Step failure details: %w", detailsErr)
 			}
 		}
-		return temporalRecoveryError(errorResponse, applicationError.Message(), applicationError.Type()), nil
+		return temporalRecoveryError(activityError, applicationError.Message(), applicationError.Type()), nil
 	}
 
 	return &dexpb.RecoveryErrorInfo{Detail: err.Error(), ErrorType: err.Error()}, nil
 }
 
 func temporalRecoveryError(
-	errorResponse *dexpb.ErrorResponse,
+	activityError *dexpb.InternalActivityError,
 	backendDetail string,
 	backendType string,
 ) *dexpb.RecoveryErrorInfo {
-	if errorResponse.GetOriginalWorkerErrorStatus() != 0 ||
-		errorResponse.GetOriginalWorkerErrorDetail() != "" ||
-		errorResponse.GetOriginalWorkerErrorType() != "" ||
-		errorResponse.GetOriginalWorkerErrorStackTrace() != "" {
-		detail := errorResponse.GetOriginalWorkerErrorDetail()
+	workerError := activityError.GetWorkerError()
+	if activityError.GetWorkerGrpcStatus() != 0 || workerError != nil {
+		detail := workerError.GetDetail()
 		if detail == "" {
 			detail = backendDetail
 		}
-		errorType := errorResponse.GetOriginalWorkerErrorType()
+		errorType := workerError.GetErrorType()
 		if errorType == "" {
 			errorType = backendType
 		}
@@ -114,7 +112,7 @@ func temporalRecoveryError(
 			ErrorType: errorType,
 		}
 	}
-	detail := errorResponse.GetDetail()
+	detail := activityError.GetServerDetail()
 	if detail == "" {
 		detail = backendDetail
 	}
@@ -341,7 +339,7 @@ func (w *workflowProvider) ExecuteActivity(
 		if !isStepMethodActivity {
 			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 		}
-		applicationError, errorResponse, localFailure, isApplicationFailure := temporalLocalStepActivityError(err)
+		applicationError, localFailure, isApplicationFailure := temporalLocalStepActivityError(err)
 		if !isApplicationFailure {
 			return err
 		}
@@ -352,7 +350,7 @@ func (w *workflowProvider) ExecuteActivity(
 			workflow.Now(wfCtx).Sub(firstAttemptTime),
 		)
 		if !canFallback {
-			return temporalFinalFlowError(applicationError, errorResponse)
+			return temporalFinalFlowError(applicationError, localFailure.GetActivityError())
 		}
 		regularInput = interfaces.StepActivityInputWithAttemptContext(
 			regularInput,
@@ -404,61 +402,44 @@ func temporalLocalActivityOptions(options interfaces.ActivityOptions) workflow.L
 
 func temporalLocalStepActivityError(
 	err error,
-) (*temporal.ApplicationError, *dexpb.ErrorResponse, *dexpb.InternalLocalStepActivityFailure, bool) {
+) (*temporal.ApplicationError, *dexpb.InternalLocalStepActivityFailure, bool) {
 	var applicationError *temporal.ApplicationError
 	if !errors.As(err, &applicationError) {
-		return nil, nil, nil, false
+		return nil, nil, false
 	}
 	if !applicationError.HasDetails() {
 		panic("Temporal local Step failure details required")
 	}
-	errorResponse, failure, detailErr := decodeTemporalLocalStepErrorDetails(applicationError)
+	failure, detailErr := decodeTemporalLocalStepErrorDetails(applicationError)
 	if detailErr != nil {
 		panic(fmt.Sprintf("decode Temporal local Step failure details: %v", detailErr))
+	}
+	if failure.GetActivityError() == nil {
+		panic("Temporal local Step activity error required")
 	}
 	if failure.GetAttempt() <= 0 {
 		panic("Temporal local Step failure attempt required")
 	}
-	return applicationError, errorResponse, failure, true
+	return applicationError, failure, true
 }
 
 func temporalFinalFlowError(
 	applicationError *temporal.ApplicationError,
-	errorResponse *dexpb.ErrorResponse,
+	activityError *dexpb.InternalActivityError,
 ) error {
-	return temporal.NewApplicationError("", applicationError.Type(), errorResponse)
+	return temporal.NewApplicationError("", applicationError.Type(), activityError)
 }
 
 func decodeTemporalStepErrorDetails(
 	applicationError *temporal.ApplicationError,
-) (*dexpb.ErrorResponse, error) {
-	return decodeTemporalApplicationErrorDetail[dexpb.ErrorResponse](applicationError)
+) (*dexpb.InternalActivityError, error) {
+	return decodeTemporalApplicationErrorDetail[dexpb.InternalActivityError](applicationError)
 }
 
 func decodeTemporalLocalStepErrorDetails(
 	applicationError *temporal.ApplicationError,
-) (*dexpb.ErrorResponse, *dexpb.InternalLocalStepActivityFailure, error) {
-	errorResponse := &dexpb.ErrorResponse{}
-	failure := &dexpb.InternalLocalStepActivityFailure{}
-	valueErr := temporalApplicationErrorDetails(applicationError, errorResponse, failure)
-	if valueErr == nil {
-		return errorResponse, failure, nil
-	}
-
-	var errorResponsePointer *dexpb.ErrorResponse
-	var failurePointer *dexpb.InternalLocalStepActivityFailure
-	pointerErr := temporalApplicationErrorDetails(
-		applicationError,
-		&errorResponsePointer,
-		&failurePointer,
-	)
-	if pointerErr == nil && errorResponsePointer != nil && failurePointer != nil {
-		return errorResponsePointer, failurePointer, nil
-	}
-	if pointerErr == nil {
-		pointerErr = fmt.Errorf("decoded detail pointer is nil")
-	}
-	return nil, nil, fmt.Errorf("decode values: %v; decode pointers: %w", valueErr, pointerErr)
+) (*dexpb.InternalLocalStepActivityFailure, error) {
+	return decodeTemporalApplicationErrorDetail[dexpb.InternalLocalStepActivityFailure](applicationError)
 }
 
 func decodeTemporalApplicationErrorDetail[Detail any](

@@ -10,7 +10,7 @@ import { BinaryReader, BinaryWriter } from "@bufbuild/protobuf/wire";
 import { Metadata, status, type ServiceError as GrpcServiceError } from "@grpc/grpc-js";
 
 import {
-  ErrorResponse,
+  ServiceErrorResponse,
   ErrorSubStatus as ProtoErrorSubStatus,
   WorkerErrorResponse,
 } from "./gen/dex.js";
@@ -66,9 +66,9 @@ export function translateServiceError(
   flowId: string | undefined,
   requirement: FlowTargetRequirement,
 ): DexServiceError {
-  let response: ErrorResponse | undefined;
+  let response: ServiceErrorResponse | undefined;
   try {
-    response = errorResponse(error);
+    response = serviceErrorResponse(error);
   } catch (failure) {
     return new DexServiceError(
       error.code,
@@ -123,19 +123,19 @@ export function translateServiceError(
   }
 }
 
-function errorResponse(error: GrpcServiceError): ErrorResponse | undefined {
+function serviceErrorResponse(error: GrpcServiceError): ServiceErrorResponse | undefined {
   const encoded = error.metadata.get(statusDetailsKey)[0];
   if (!(encoded instanceof Buffer)) {
     return undefined;
   }
   const decoded = decodeStatus(encoded);
   const detail = decoded.details.find((candidate) =>
-    candidate.typeUrl.endsWith("/dex.ErrorResponse"),
+    candidate.typeUrl.endsWith("/dex.ServiceErrorResponse"),
   );
-  return detail === undefined ? undefined : ErrorResponse.decode(detail.value);
+  return detail === undefined ? undefined : ServiceErrorResponse.decode(detail.value);
 }
 
-function workerCode(response: ErrorResponse | undefined): status | undefined {
+function workerCode(response: ServiceErrorResponse | undefined): status | undefined {
   if (response === undefined || response.originalWorkerErrorStatus === 0) {
     return undefined;
   }

@@ -78,32 +78,32 @@ func (mr *MockActivityProviderMockRecorder) GetLogger(ctx interface{}) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLogger", reflect.TypeOf((*MockActivityProvider)(nil).GetLogger), ctx)
 }
 
-// NewFlowError mocks base method.
-func (m *MockActivityProvider) NewFlowError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse, retryAfterSeconds int32) error {
+// NewActivityError mocks base method.
+func (m *MockActivityProvider) NewActivityError(errType dexpb.FlowErrorType, activityError *dexpb.InternalActivityError, retryAfterSeconds int32) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewFlowError", errType, errorResponse, retryAfterSeconds)
+	ret := m.ctrl.Call(m, "NewActivityError", errType, activityError, retryAfterSeconds)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// NewFlowError indicates an expected call of NewFlowError.
-func (mr *MockActivityProviderMockRecorder) NewFlowError(errType, errorResponse, retryAfterSeconds interface{}) *gomock.Call {
+// NewActivityError indicates an expected call of NewActivityError.
+func (mr *MockActivityProviderMockRecorder) NewActivityError(errType, activityError, retryAfterSeconds interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockActivityProvider)(nil).NewFlowError), errType, errorResponse, retryAfterSeconds)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewActivityError", reflect.TypeOf((*MockActivityProvider)(nil).NewActivityError), errType, activityError, retryAfterSeconds)
 }
 
 // NewLocalActivityError mocks base method.
-func (m *MockActivityProvider) NewLocalActivityError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse, failure *dexpb.InternalLocalStepActivityFailure, retryAfterSeconds int32) error {
+func (m *MockActivityProvider) NewLocalActivityError(errType dexpb.FlowErrorType, failure *dexpb.InternalLocalStepActivityFailure, retryAfterSeconds int32) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewLocalActivityError", errType, errorResponse, failure, retryAfterSeconds)
+	ret := m.ctrl.Call(m, "NewLocalActivityError", errType, failure, retryAfterSeconds)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // NewLocalActivityError indicates an expected call of NewLocalActivityError.
-func (mr *MockActivityProviderMockRecorder) NewLocalActivityError(errType, errorResponse, failure, retryAfterSeconds interface{}) *gomock.Call {
+func (mr *MockActivityProviderMockRecorder) NewLocalActivityError(errType, failure, retryAfterSeconds interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewLocalActivityError", reflect.TypeOf((*MockActivityProvider)(nil).NewLocalActivityError), errType, errorResponse, failure, retryAfterSeconds)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewLocalActivityError", reflect.TypeOf((*MockActivityProvider)(nil).NewLocalActivityError), errType, failure, retryAfterSeconds)
 }
 
 // RecordHeartbeat mocks base method.
@@ -663,17 +663,17 @@ func (mr *MockWorkflowProviderMockRecorder) NewCanceledError(reason interface{})
 }
 
 // NewFlowError mocks base method.
-func (m *MockWorkflowProvider) NewFlowError(errType dexpb.FlowErrorType, resp *dexpb.ErrorResponse) error {
+func (m *MockWorkflowProvider) NewFlowError(errType dexpb.FlowErrorType, activityError *dexpb.InternalActivityError) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewFlowError", errType, resp)
+	ret := m.ctrl.Call(m, "NewFlowError", errType, activityError)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // NewFlowError indicates an expected call of NewFlowError.
-func (mr *MockWorkflowProviderMockRecorder) NewFlowError(errType, resp interface{}) *gomock.Call {
+func (mr *MockWorkflowProviderMockRecorder) NewFlowError(errType, activityError interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewFlowError), errType, resp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewFlowError), errType, activityError)
 }
 
 // NewInterpreterContinueAsNewError mocks base method.

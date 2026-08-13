@@ -134,7 +134,7 @@ def rich_error(
     worker_type: str = "",
     worker_detail: str = "",
 ) -> FakeRpcError:
-    response = pb.ErrorResponse(
+    response = pb.ServiceErrorResponse(
         detail="service detail",
         sub_status=cast(Any, sub_status),
         original_worker_error_status=(worker_code.value[0] if worker_code else 0),

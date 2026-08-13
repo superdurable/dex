@@ -276,7 +276,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 func (sr *SignalReceiver) failInvalidFlowConfig(err error) {
 	sr.doRequestStopFlowWithError(sr.provider.NewFlowError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
-		&dexpb.ErrorResponse{Detail: err.Error()},
+		&dexpb.InternalActivityError{ServerDetail: err.Error()},
 	))
 }
 
@@ -294,7 +294,7 @@ func (sr *SignalReceiver) requestStopFlow(request *dexpb.StopFlowSignalRequest) 
 		}
 		sr.doRequestStopFlowWithError(sr.provider.NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
-			&dexpb.ErrorResponse{Detail: reason},
+			&dexpb.InternalActivityError{ServerDetail: reason},
 		))
 	}
 }

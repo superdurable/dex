@@ -175,7 +175,7 @@ func doTestRpcWorkflow(
 	require.Error(t, err)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 	assertions.Equal(rpc.WorkerApiErrorDetails, status.Convert(err).Message())
-	errResp := grpcErrorResponse(t, err)
+	errResp := grpcServiceErrorResponse(t, err)
 	assertions.Equal(
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		errResp.GetSubStatus(),
@@ -282,7 +282,7 @@ func doTestRpcLockingErrorMapping(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 	assertions.Equal(rpc.WorkerApiErrorDetails, status.Convert(err).Message())
-	workerFail := grpcErrorResponse(t, err)
+	workerFail := grpcServiceErrorResponse(t, err)
 	assertions.Equal(
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		workerFail.GetSubStatus(),
@@ -302,7 +302,7 @@ func doTestRpcLockingErrorMapping(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	invalidArg := grpcErrorResponse(t, err)
+	invalidArg := grpcServiceErrorResponse(t, err)
 	assertions.Equal(
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 		invalidArg.GetSubStatus(),

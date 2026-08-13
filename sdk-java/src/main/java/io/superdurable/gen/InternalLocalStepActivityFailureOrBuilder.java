@@ -51,4 +51,19 @@ public interface InternalLocalStepActivityFailureOrBuilder extends
    * @return The attempt.
    */
   int getAttempt();
+
+  /**
+   * <code>.dex.InternalActivityError activity_error = 5;</code>
+   * @return Whether the activityError field is set.
+   */
+  boolean hasActivityError();
+  /**
+   * <code>.dex.InternalActivityError activity_error = 5;</code>
+   * @return The activityError.
+   */
+  io.superdurable.gen.InternalActivityError getActivityError();
+  /**
+   * <code>.dex.InternalActivityError activity_error = 5;</code>
+   */
+  io.superdurable.gen.InternalActivityErrorOrBuilder getActivityErrorOrBuilder();
 }

@@ -20,10 +20,12 @@ import (
 
 func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	provider := &workflowProvider{}
-	original := &dexpb.ErrorResponse{
-		OriginalWorkerErrorDetail:     "worker detail",
-		OriginalWorkerErrorType:       "worker type",
-		OriginalWorkerErrorStackTrace: "worker stack",
+	original := &dexpb.InternalActivityError{
+		WorkerError: &dexpb.InternalWorkerError{
+			Detail:     "worker detail",
+			ErrorType:  "worker type",
+			StackTrace: "worker stack",
+		},
 	}
 	workerFailure := cadence.NewCustomError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
@@ -35,29 +37,35 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.Equal(t, "worker detail", recoveryError.GetDetail())
 	require.Equal(t, "worker type", recoveryError.GetErrorType())
 
+	localFailure := &dexpb.InternalLocalStepActivityFailure{
+		Attempt:       2,
+		ActivityError: original,
+	}
 	localWorkerFailure := (&activityProvider{}).NewLocalActivityError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
-		original,
-		&dexpb.InternalLocalStepActivityFailure{Attempt: 2},
+		localFailure,
 		0,
 	)
-	recoveryError, err = provider.MapToRecoveryError(localWorkerFailure)
+	customError, decodedLocalFailure, isApplicationFailure := cadenceLocalStepActivityError(localWorkerFailure)
+	require.True(t, isApplicationFailure)
+	require.Equal(t, original, decodedLocalFailure.GetActivityError())
+	require.Equal(t, int32(2), decodedLocalFailure.GetAttempt())
+	var extraDetail *dexpb.InternalActivityError
+	require.Error(t, customError.Details(&decodedLocalFailure, &extraDetail))
+
+	finalFailure := cadenceFinalFlowError(customError, decodedLocalFailure.GetActivityError())
+	var finalCustomError *cadence.CustomError
+	require.ErrorAs(t, finalFailure, &finalCustomError)
+	var finalActivityError *dexpb.InternalActivityError
+	require.NoError(t, finalCustomError.Details(&finalActivityError))
+	require.Equal(t, original, finalActivityError)
+	var leakedFailure *dexpb.InternalLocalStepActivityFailure
+	require.Error(t, finalCustomError.Details(&leakedFailure))
+
+	recoveryError, err = provider.MapToRecoveryError(finalFailure)
 	require.NoError(t, err)
 	require.Equal(t, "worker detail", recoveryError.GetDetail())
 	require.Equal(t, "worker type", recoveryError.GetErrorType())
-	customError, decodedResponse, localFailure, isApplicationFailure := cadenceLocalStepActivityError(localWorkerFailure)
-	require.True(t, isApplicationFailure)
-	require.Equal(t, original, decodedResponse)
-	require.Equal(t, int32(2), localFailure.GetAttempt())
-
-	finalFailure := cadenceFinalFlowError(customError, decodedResponse)
-	var finalCustomError *cadence.CustomError
-	require.ErrorAs(t, finalFailure, &finalCustomError)
-	var finalResponse *dexpb.ErrorResponse
-	require.NoError(t, finalCustomError.Details(&finalResponse))
-	require.Equal(t, original, finalResponse)
-	var leakedFailure *dexpb.InternalLocalStepActivityFailure
-	require.Error(t, finalCustomError.Details(&finalResponse, &leakedFailure))
 
 	timeoutFailure := workflow.NewTimeoutError(shared.TimeoutTypeStartToClose)
 	timeoutError, err := provider.MapToRecoveryError(timeoutFailure)

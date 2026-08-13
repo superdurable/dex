@@ -93,7 +93,7 @@ func doIgnoreAlreadyStartedFlow(
 		require.Equal(
 			t,
 			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED,
-			grpcErrorResponse(t, err).GetSubStatus(),
+			grpcServiceErrorResponse(t, err).GetSubStatus(),
 		)
 	} else {
 		require.NoError(t, err)

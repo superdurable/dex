@@ -369,7 +369,7 @@ always-on, no version gate:
   | Dex application WorkerService failure or unreachable | `FailedPrecondition` |
   | violated trusted invariant or unexpected failure | `Internal` |
 
-  Attach `dexpb.ErrorResponse` via `status.WithDetails`, preserving
+  Attach `dexpb.ServiceErrorResponse` via `status.WithDetails`, preserving
   `ErrorSubStatus`. WorkerService failures (business or transport-to-worker)
   map to `FailedPrecondition` + `WORKER_API_ERROR` — never `Unavailable`, so they
   do not count against server SLA/SLO. Copy detail/type and the numeric gRPC
@@ -560,7 +560,7 @@ contains a struct. Complete this table before assigning fields:
 | Queries | `GetAttributesQueryRequest`/`Response`, `PrepareRpcQueryRequest`/`Response`, `GetCurrentTimerInfosQueryResponse`, `GetScheduledGreedyTimerTimesQueryResponse`, `DebugDumpResponse` | Every handler argument and result is a proto pointer. |
 | Synchronous updates | Reuse public wait/RPC request/response messages | Prefer returning the public response plus a Go error. Add an internal result envelope only if response/error multiplexing remains necessary. |
 | Nested timer/status data | `TimerInfo`, `InternalTimerStatus` | These become proto only because a serialized query/snapshot contains them. |
-| Serialized failures | `InterpreterError` or equivalent | Preserve the gRPC code and `ErrorResponse` currently carried by `ErrorAndStatus`; never JSON-wrap it inside an activity/update result. |
+| Serialized failures | `InternalActivityError` | Persist the internal activity contract and convert it to `ServiceErrorResponse` only at service/history boundaries; never JSON-wrap it inside an activity/update result. |
 
 The inventory must cover exported structs outside
 [`server/service/interfaces.go`](../../../server/service/interfaces.go), especially

@@ -26,16 +26,16 @@ func (a *activityProvider) GetLogger(ctx context.Context) interfaces.UnifiedLogg
 	return activity.GetLogger(ctx)
 }
 
-func (a *activityProvider) NewFlowError(
+func (a *activityProvider) NewActivityError(
 	errType dexpb.FlowErrorType,
-	errorResponse *dexpb.ErrorResponse,
+	activityError *dexpb.InternalActivityError,
 	retryAfterSeconds int32,
 ) error {
 	return temporal.NewApplicationErrorWithOptions(
 		"",
 		errType.String(),
 		temporal.ApplicationErrorOptions{
-			Details:        []interface{}{errorResponse},
+			Details:        []interface{}{activityError},
 			NextRetryDelay: time.Duration(retryAfterSeconds) * time.Second,
 		},
 	)
@@ -43,7 +43,6 @@ func (a *activityProvider) NewFlowError(
 
 func (a *activityProvider) NewLocalActivityError(
 	errType dexpb.FlowErrorType,
-	errorResponse *dexpb.ErrorResponse,
 	failure *dexpb.InternalLocalStepActivityFailure,
 	retryAfterSeconds int32,
 ) error {
@@ -51,7 +50,7 @@ func (a *activityProvider) NewLocalActivityError(
 		"",
 		errType.String(),
 		temporal.ApplicationErrorOptions{
-			Details:        []interface{}{errorResponse, failure},
+			Details:        []interface{}{failure},
 			NextRetryDelay: time.Duration(retryAfterSeconds) * time.Second,
 		},
 	)

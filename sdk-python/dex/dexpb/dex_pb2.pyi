@@ -812,9 +812,9 @@ class StepMethodFailure(_message.Message):
     DETAILS_FIELD_NUMBER: _ClassVar[int]
     ATTEMPT_FIELD_NUMBER: _ClassVar[int]
     backend_error: str
-    details: ErrorResponse
+    details: ServiceErrorResponse
     attempt: int
-    def __init__(self, backend_error: _Optional[str] = ..., details: _Optional[_Union[ErrorResponse, _Mapping]] = ..., attempt: _Optional[int] = ...) -> None: ...
+    def __init__(self, backend_error: _Optional[str] = ..., details: _Optional[_Union[ServiceErrorResponse, _Mapping]] = ..., attempt: _Optional[int] = ...) -> None: ...
 
 class StepMethodOptions(_message.Message):
     __slots__ = ("timeout_seconds", "retry_policy")
@@ -1179,7 +1179,7 @@ class HealthInfo(_message.Message):
     duration: int
     def __init__(self, condition: _Optional[str] = ..., hostname: _Optional[str] = ..., duration: _Optional[int] = ...) -> None: ...
 
-class ErrorResponse(_message.Message):
+class ServiceErrorResponse(_message.Message):
     __slots__ = ("detail", "sub_status", "original_worker_error_detail", "original_worker_error_type", "original_worker_error_status", "original_worker_error_stack_trace")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     SUB_STATUS_FIELD_NUMBER: _ClassVar[int]
@@ -1206,6 +1206,26 @@ class WorkerErrorResponse(_message.Message):
     stack_trace: str
     retry_after_seconds: int
     def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ..., retry_after_seconds: _Optional[int] = ...) -> None: ...
+
+class InternalActivityError(_message.Message):
+    __slots__ = ("server_detail", "worker_grpc_status", "worker_error")
+    SERVER_DETAIL_FIELD_NUMBER: _ClassVar[int]
+    WORKER_GRPC_STATUS_FIELD_NUMBER: _ClassVar[int]
+    WORKER_ERROR_FIELD_NUMBER: _ClassVar[int]
+    server_detail: str
+    worker_grpc_status: int
+    worker_error: InternalWorkerError
+    def __init__(self, server_detail: _Optional[str] = ..., worker_grpc_status: _Optional[int] = ..., worker_error: _Optional[_Union[InternalWorkerError, _Mapping]] = ...) -> None: ...
+
+class InternalWorkerError(_message.Message):
+    __slots__ = ("detail", "error_type", "stack_trace")
+    DETAIL_FIELD_NUMBER: _ClassVar[int]
+    ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
+    STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
+    detail: str
+    error_type: str
+    stack_trace: str
+    def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ..., stack_trace: _Optional[str] = ...) -> None: ...
 
 class ChannelInfo(_message.Message):
     __slots__ = ("size",)
@@ -1622,16 +1642,18 @@ class RecoveryErrorInfo(_message.Message):
     def __init__(self, detail: _Optional[str] = ..., error_type: _Optional[str] = ...) -> None: ...
 
 class InternalLocalStepActivityFailure(_message.Message):
-    __slots__ = ("local_activity_metadata", "first_attempt_timestamp", "method_options", "attempt")
+    __slots__ = ("local_activity_metadata", "first_attempt_timestamp", "method_options", "attempt", "activity_error")
     LOCAL_ACTIVITY_METADATA_FIELD_NUMBER: _ClassVar[int]
     FIRST_ATTEMPT_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     METHOD_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     ATTEMPT_FIELD_NUMBER: _ClassVar[int]
+    ACTIVITY_ERROR_FIELD_NUMBER: _ClassVar[int]
     local_activity_metadata: LocalActivityMetadata
     first_attempt_timestamp: int
     method_options: StepMethodOptions
     attempt: int
-    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., first_attempt_timestamp: _Optional[int] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., attempt: _Optional[int] = ...) -> None: ...
+    activity_error: InternalActivityError
+    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., first_attempt_timestamp: _Optional[int] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., attempt: _Optional[int] = ..., activity_error: _Optional[_Union[InternalActivityError, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodActivityOutput(_message.Message):
     __slots__ = ("response",)

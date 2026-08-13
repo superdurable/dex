@@ -22,9 +22,9 @@ option java_outer_classname = "DexProto";
 // ---------------------------------------------------------------------------
 // FlowService error handling
 //
-// Failures return a gRPC status with dexpb.ErrorResponse in status details
-// (see ErrorResponse / ErrorSubStatus). Clients should read both the gRPC code
-// and ErrorResponse.sub_status / detail / original_worker_error_*.
+// Failures return a gRPC status with dexpb.ServiceErrorResponse in status details
+// (see ServiceErrorResponse / ErrorSubStatus). Clients should read both the gRPC code
+// and ServiceErrorResponse.sub_status / detail / original_worker_error_*.
 //
 // Common gRPC codes (all RPCs unless noted):
 //   InvalidArgument   — bad request / invalid Value / empty lock keys, etc.
@@ -539,7 +539,7 @@ message StepMethodPendingEvent {
 
 message StepMethodFailure {
   string backend_error = 1;
-  ErrorResponse details = 2;
+  ServiceErrorResponse details = 2;
   int32 attempt = 3;
 }
 
@@ -778,7 +778,7 @@ message HealthInfo {
   int32 duration = 3;
 }
 
-message ErrorResponse {
+message ServiceErrorResponse {
   string detail = 1;
   ErrorSubStatus sub_status = 2;
   string original_worker_error_detail = 3;
@@ -801,6 +801,18 @@ message WorkerErrorResponse {
   string error_type = 2;
   string stack_trace = 3;
   int32 retry_after_seconds = 4;
+}
+
+message InternalActivityError {
+  string server_detail = 1;
+  int32 worker_grpc_status = 2;
+  InternalWorkerError worker_error = 3;
+}
+
+message InternalWorkerError {
+  string detail = 1;
+  string error_type = 2;
+  string stack_trace = 3;
 }
 
 message ChannelInfo {
@@ -1086,6 +1098,7 @@ message InternalLocalStepActivityFailure {
   int64 first_attempt_timestamp = 2;
   StepMethodOptions method_options = 3;
   int32 attempt = 4;
+  InternalActivityError activity_error = 5;
 }
 
 message InvokeExecuteMethodActivityOutput {

@@ -1056,9 +1056,8 @@ func composeStepWorkerError(
 	if detail == "" {
 		detail = err.Error()
 	}
-	errorResponse := &dexpb.ErrorResponse{
-		SubStatus:                 dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
-		OriginalWorkerErrorStatus: int32(grpcStatus.Code()),
+	activityError := &dexpb.InternalActivityError{
+		WorkerGrpcStatus: int32(grpcStatus.Code()),
 	}
 	for _, statusDetail := range grpcStatus.Details() {
 		workerError, ok := statusDetail.(*dexpb.WorkerErrorResponse)
@@ -1066,60 +1065,40 @@ func composeStepWorkerError(
 			continue
 		}
 		if backendType == service.BackendTypeCadence && workerError.GetRetryAfterSeconds() != 0 {
-			invalidResponse := &dexpb.ErrorResponse{
-				Detail:    "WorkerErrorResponse.retry_after_seconds requires the Temporal backend",
-				SubStatus: dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+			invalidActivityError := &dexpb.InternalActivityError{
+				ServerDetail: "WorkerErrorResponse.retry_after_seconds requires the Temporal backend",
 			}
-			if localActivityFailure != nil {
-				return newLocalActivityError(
-					provider,
-					dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
-					invalidResponse,
-					localActivityFailure,
-					0,
-				)
-			}
-			return provider.NewFlowError(
+			return newStepActivityError(
+				provider,
 				dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
-				invalidResponse,
+				invalidActivityError,
+				localActivityFailure,
 				0,
 			)
 		}
-		errorResponse.OriginalWorkerErrorDetail = workerError.GetDetail()
-		if errorResponse.GetOriginalWorkerErrorDetail() == "" {
-			errorResponse.OriginalWorkerErrorDetail = detail
+		activityError.WorkerError = &dexpb.InternalWorkerError{
+			Detail:     workerError.GetDetail(),
+			ErrorType:  workerError.GetErrorType(),
+			StackTrace: workerError.GetStackTrace(),
 		}
-		errorResponse.OriginalWorkerErrorType = workerError.GetErrorType()
-		errorResponse.OriginalWorkerErrorStackTrace = workerError.GetStackTrace()
+		if activityError.GetWorkerError().GetDetail() == "" {
+			activityError.WorkerError.Detail = detail
+		}
 		retryAfterSeconds := workerError.GetRetryAfterSeconds()
-		if localActivityFailure != nil {
-			return newLocalActivityError(
-				provider,
-				dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
-				errorResponse,
-				localActivityFailure,
-				retryAfterSeconds,
-			)
-		}
-		return provider.NewFlowError(
+		return newStepActivityError(
+			provider,
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
-			errorResponse,
+			activityError,
+			localActivityFailure,
 			retryAfterSeconds,
 		)
 	}
-	errorResponse.Detail = detail
-	if localActivityFailure != nil {
-		return newLocalActivityError(
-			provider,
-			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
-			errorResponse,
-			localActivityFailure,
-			0,
-		)
-	}
-	return provider.NewFlowError(
+	activityError.ServerDetail = detail
+	return newStepActivityError(
+		provider,
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
-		errorResponse,
+		activityError,
+		localActivityFailure,
 		0,
 	)
 }
@@ -1128,9 +1107,9 @@ func composeInternalActivityError(
 	provider interfaces.ActivityProvider,
 	err error,
 ) error {
-	return provider.NewFlowError(
+	return provider.NewActivityError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-		internalActivityErrorResponse(err),
+		internalActivityError(err),
 		0,
 	)
 }
@@ -1140,34 +1119,36 @@ func composeStepInternalError(
 	err error,
 	localActivityFailure *dexpb.InternalLocalStepActivityFailure,
 ) error {
-	response := internalActivityErrorResponse(err)
-	if localActivityFailure != nil {
-		return newLocalActivityError(
-			provider,
-			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-			response,
-			localActivityFailure,
-			0,
-		)
-	}
-	return provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL, response, 0)
+	return newStepActivityError(
+		provider,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+		internalActivityError(err),
+		localActivityFailure,
+		0,
+	)
 }
 
-func internalActivityErrorResponse(err error) *dexpb.ErrorResponse {
-	return &dexpb.ErrorResponse{
-		Detail:    err.Error(),
-		SubStatus: dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+func internalActivityError(err error) *dexpb.InternalActivityError {
+	return &dexpb.InternalActivityError{
+		ServerDetail: err.Error(),
 	}
 }
 
-func newLocalActivityError(
+func newStepActivityError(
 	provider interfaces.ActivityProvider,
 	errorType dexpb.FlowErrorType,
-	response *dexpb.ErrorResponse,
+	activityError *dexpb.InternalActivityError,
 	failure *dexpb.InternalLocalStepActivityFailure,
 	retryAfterSeconds int32,
 ) error {
-	return provider.NewLocalActivityError(errorType, response, failure, retryAfterSeconds)
+	if activityError == nil {
+		panic("activity error required")
+	}
+	if failure != nil {
+		failure.ActivityError = activityError
+		return provider.NewLocalActivityError(errorType, failure, retryAfterSeconds)
+	}
+	return provider.NewActivityError(errorType, activityError, retryAfterSeconds)
 }
 
 func (a *Activities) logLocalActivityWarn(

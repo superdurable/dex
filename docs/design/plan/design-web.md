@@ -261,7 +261,7 @@ message StepMethodFailure {
   reserved "message", "error_type", "stack_trace", "retry_state";
 
   string backend_error = 1;
-  ErrorResponse details = 5;
+  ServiceErrorResponse details = 5;
   int32 attempt = 6;
 }
 
@@ -351,7 +351,9 @@ message StepExecuteFailedEvent {
 `last_failure_info`；terminal failure 放在 `output.failure`。两者的 `attempt` 分别标识其
 对应 attempt。`backend_error` 在 Temporal 上依次取 application failure type、timeout type
 或 fallback failure message；在 Cadence 上取 activity failure reason 或 timeout type。只有
-backend failure 携带可解码的 `ErrorResponse` 时才设置 `details`。
+backend failure 携带可解码的 `InternalActivityError` 或
+`InternalLocalStepActivityFailure` 时才设置 `details`，history client 会在公开边界转换成
+`ServiceErrorResponse`。
 `StepMethodFailure.attempt` 使用跨 local/regular 的 1-based 累计 attempt。发生 regular
 fallback 时，local failure 不展示为用户事件；retry budget 在 local 阶段耗尽时，local
 failure 本身生成 terminal failed event。
@@ -444,11 +446,24 @@ message InternalAsyncStepInputSnapshot {
   }
 }
 
+message InternalActivityError {
+  string server_detail = 1;
+  int32 worker_grpc_status = 2;
+  InternalWorkerError worker_error = 3;
+}
+
+message InternalWorkerError {
+  string detail = 1;
+  string error_type = 2;
+  string stack_trace = 3;
+}
+
 message InternalLocalStepActivityFailure {
   LocalActivityMetadata local_activity_metadata = 1;
   int64 first_attempt_timestamp = 2;
   StepMethodOptions method_options = 3;
   int32 attempt = 4;
+  InternalActivityError activity_error = 5;
 }
 ```
 
@@ -456,8 +471,8 @@ message InternalLocalStepActivityFailure {
   用于携带当前 run start time 和无法从 local marker 恢复的 method options；
 - `InternalAsyncStepInputSnapshot` 是成功 local activity 写入 external storage 的 protobuf，
   保存准确发送给 worker 的 request 和 method options；
-- local failure 的第一个 detail 是标准 `ErrorResponse`，第二个 detail 是精简的
-  `InternalLocalStepActivityFailure`；
+- regular failure 使用单一 `InternalActivityError` detail；local failure 使用单一
+  `InternalLocalStepActivityFailure` detail，并在其中嵌套 `activity_error`；
 - fallback regular activity 只在 request `Context` 中保存累计 attempt 和首次 attempt 时间，
   不重复保存 method options；
 - SYNC regular activity 同一个第二参数位置传 `nil`，可以产生极小 null payload；

@@ -9,7 +9,7 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use dex_protocol::dex::{ErrorResponse, ErrorSubStatus as ProtoErrorSubStatus};
+use dex_protocol::dex::{ErrorSubStatus as ProtoErrorSubStatus, ServiceErrorResponse};
 use prost::Message;
 use prost_types::Any;
 use tonic::Status;
@@ -329,20 +329,22 @@ struct GoogleRpcStatus {
     details: Vec<Any>,
 }
 
-fn decode_details(bytes: &[u8]) -> Result<Option<ErrorResponse>, prost::DecodeError> {
+fn decode_details(bytes: &[u8]) -> Result<Option<ServiceErrorResponse>, prost::DecodeError> {
     if bytes.is_empty() {
         return Ok(None);
     }
     match GoogleRpcStatus::decode(bytes) {
         Ok(status) => {
             for detail in status.details {
-                if detail.type_url.ends_with("/dex.ErrorResponse") {
-                    return ErrorResponse::decode(detail.value.as_slice()).map(Some);
+                if detail.type_url.ends_with("/dex.ServiceErrorResponse") {
+                    return ServiceErrorResponse::decode(detail.value.as_slice()).map(Some);
                 }
             }
             Ok(None)
         }
-        Err(status_error) => ErrorResponse::decode(bytes).map(Some).or(Err(status_error)),
+        Err(status_error) => ServiceErrorResponse::decode(bytes)
+            .map(Some)
+            .or(Err(status_error)),
     }
 }
 
@@ -428,10 +430,10 @@ mod tests {
     fn rich_status(code: GrpcCode, sub_status: ProtoErrorSubStatus) -> Status {
         status_with_response(
             code,
-            ErrorResponse {
+            ServiceErrorResponse {
                 detail: "service detail".to_string(),
                 sub_status: sub_status as i32,
-                ..ErrorResponse::default()
+                ..ServiceErrorResponse::default()
             },
         )
     }
@@ -439,7 +441,7 @@ mod tests {
     fn worker_status(code: GrpcCode) -> Status {
         status_with_response(
             code,
-            ErrorResponse {
+            ServiceErrorResponse {
                 detail: "worker failure".to_string(),
                 sub_status: ProtoErrorSubStatus::WorkerApiError as i32,
                 original_worker_error_detail: "invalid order".to_string(),
@@ -450,12 +452,12 @@ mod tests {
         )
     }
 
-    fn status_with_response(code: GrpcCode, response: ErrorResponse) -> Status {
+    fn status_with_response(code: GrpcCode, response: ServiceErrorResponse) -> Status {
         let status = GoogleRpcStatus {
             code: code as i32,
             message: "gRPC detail".to_string(),
             details: vec![Any {
-                type_url: "type.googleapis.com/dex.ErrorResponse".to_string(),
+                type_url: "type.googleapis.com/dex.ServiceErrorResponse".to_string(),
                 value: response.encode_to_vec(),
             }],
         };

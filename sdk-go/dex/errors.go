@@ -328,7 +328,7 @@ func translateRPCError(
 		Detail:    rpcStatus.Message(),
 		cause:     err,
 	}
-	var response *dexpb.ErrorResponse
+	var response *dexpb.ServiceErrorResponse
 	for _, detail := range rpcStatus.Details() {
 		if malformed, isMalformed := detail.(error); isMalformed {
 			serviceError.Detail = fmt.Sprintf(
@@ -338,7 +338,7 @@ func translateRPCError(
 			return serviceError
 		}
 		var isDexError bool
-		response, isDexError = detail.(*dexpb.ErrorResponse)
+		response, isDexError = detail.(*dexpb.ServiceErrorResponse)
 		if isDexError {
 			break
 		}
@@ -377,7 +377,7 @@ func translateRPCError(
 	}
 }
 
-func mapWorkerError(response *dexpb.ErrorResponse) *WorkerError {
+func mapWorkerError(response *dexpb.ServiceErrorResponse) *WorkerError {
 	if response.OriginalWorkerErrorDetail == "" &&
 		response.OriginalWorkerErrorType == "" &&
 		response.OriginalWorkerErrorStatus == 0 {

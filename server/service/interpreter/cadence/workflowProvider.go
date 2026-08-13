@@ -39,12 +39,12 @@ func newCadenceWorkflowProvider() interfaces.WorkflowProvider {
 
 func (w *workflowProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
-	resp *dexpb.ErrorResponse,
+	activityError *dexpb.InternalActivityError,
 ) error {
-	if resp == nil {
-		panic("resp required")
+	if activityError == nil {
+		panic("activity error required")
 	}
-	return cadence.NewCustomError(errType.String(), resp)
+	return cadence.NewCustomError(errType.String(), activityError)
 }
 
 func (w *workflowProvider) NewCanceledError(reason string) error {
@@ -77,37 +77,35 @@ func (w *workflowProvider) MapToRecoveryError(err error) (*dexpb.RecoveryErrorIn
 
 	var customError *cadence.CustomError
 	if errors.As(err, &customError) {
-		var errorResponse *dexpb.ErrorResponse
+		var activityError *dexpb.InternalActivityError
 		if customError.HasDetails() {
 			var detailsErr error
-			errorResponse, detailsErr = decodeCadenceStepErrorDetails(customError)
+			activityError, detailsErr = decodeCadenceStepErrorDetails(customError)
 			if detailsErr != nil {
 				return nil, fmt.Errorf("decode Cadence Step failure details: %w", detailsErr)
 			}
 		}
-		if errorResponse == nil {
-			errorResponse = &dexpb.ErrorResponse{}
+		if activityError == nil {
+			activityError = &dexpb.InternalActivityError{}
 		}
-		return cadenceRecoveryError(errorResponse, customError.Error(), customError.Reason()), nil
+		return cadenceRecoveryError(activityError, customError.Error(), customError.Reason()), nil
 	}
 
 	return &dexpb.RecoveryErrorInfo{Detail: err.Error(), ErrorType: err.Error()}, nil
 }
 
 func cadenceRecoveryError(
-	errorResponse *dexpb.ErrorResponse,
+	activityError *dexpb.InternalActivityError,
 	backendDetail string,
 	backendType string,
 ) *dexpb.RecoveryErrorInfo {
-	if errorResponse.GetOriginalWorkerErrorStatus() != 0 ||
-		errorResponse.GetOriginalWorkerErrorDetail() != "" ||
-		errorResponse.GetOriginalWorkerErrorType() != "" ||
-		errorResponse.GetOriginalWorkerErrorStackTrace() != "" {
-		detail := errorResponse.GetOriginalWorkerErrorDetail()
+	workerError := activityError.GetWorkerError()
+	if activityError.GetWorkerGrpcStatus() != 0 || workerError != nil {
+		detail := workerError.GetDetail()
 		if detail == "" {
 			detail = backendDetail
 		}
-		errorType := errorResponse.GetOriginalWorkerErrorType()
+		errorType := workerError.GetErrorType()
 		if errorType == "" {
 			errorType = backendType
 		}
@@ -116,7 +114,7 @@ func cadenceRecoveryError(
 			ErrorType: errorType,
 		}
 	}
-	detail := errorResponse.GetDetail()
+	detail := activityError.GetServerDetail()
 	if detail == "" {
 		detail = backendDetail
 	}
@@ -344,7 +342,7 @@ func (w *workflowProvider) ExecuteActivity(
 		if !isStepMethodActivity {
 			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 		}
-		customError, errorResponse, localFailure, isApplicationFailure := cadenceLocalStepActivityError(err)
+		customError, localFailure, isApplicationFailure := cadenceLocalStepActivityError(err)
 		if !isApplicationFailure {
 			return err
 		}
@@ -355,7 +353,7 @@ func (w *workflowProvider) ExecuteActivity(
 			workflow.Now(wfCtx).Sub(firstAttemptTime),
 		)
 		if !canFallback {
-			return cadenceFinalFlowError(customError, errorResponse)
+			return cadenceFinalFlowError(customError, localFailure.GetActivityError())
 		}
 		regularInput = interfaces.StepActivityInputWithAttemptContext(
 			regularInput,
@@ -408,46 +406,45 @@ func cadenceLocalActivityOptions(options interfaces.ActivityOptions) workflow.Lo
 
 func cadenceLocalStepActivityError(
 	err error,
-) (*cadence.CustomError, *dexpb.ErrorResponse, *dexpb.InternalLocalStepActivityFailure, bool) {
+) (*cadence.CustomError, *dexpb.InternalLocalStepActivityFailure, bool) {
 	var customError *cadence.CustomError
 	if !errors.As(err, &customError) {
-		return nil, nil, nil, false
+		return nil, nil, false
 	}
 	if !customError.HasDetails() {
 		panic("Cadence local Step failure details required")
 	}
-	var errorResponse *dexpb.ErrorResponse
 	var failure *dexpb.InternalLocalStepActivityFailure
-	if detailErr := customError.Details(&errorResponse, &failure); detailErr != nil {
+	if detailErr := customError.Details(&failure); detailErr != nil {
 		panic(fmt.Sprintf("decode Cadence local Step failure details: %v", detailErr))
 	}
-	if errorResponse == nil || failure == nil {
-		panic("Cadence local Step failure details are incomplete")
+	if failure == nil || failure.GetActivityError() == nil {
+		panic("Cadence local Step activity error required")
 	}
 	if failure.GetAttempt() <= 0 {
 		panic("Cadence local Step failure attempt required")
 	}
-	return customError, errorResponse, failure, true
+	return customError, failure, true
 }
 
 func cadenceFinalFlowError(
 	customError *cadence.CustomError,
-	errorResponse *dexpb.ErrorResponse,
+	activityError *dexpb.InternalActivityError,
 ) error {
-	return cadence.NewCustomError(customError.Reason(), errorResponse)
+	return cadence.NewCustomError(customError.Reason(), activityError)
 }
 
 func decodeCadenceStepErrorDetails(
 	customError *cadence.CustomError,
-) (*dexpb.ErrorResponse, error) {
-	var response *dexpb.ErrorResponse
-	if detailsErr := customError.Details(&response); detailsErr != nil {
-		return nil, fmt.Errorf("decode error response: %w", detailsErr)
+) (*dexpb.InternalActivityError, error) {
+	var activityError *dexpb.InternalActivityError
+	if detailsErr := customError.Details(&activityError); detailsErr != nil {
+		return nil, fmt.Errorf("decode activity error: %w", detailsErr)
 	}
-	if response == nil {
+	if activityError == nil {
 		return nil, fmt.Errorf("Cadence Step failure details are nil")
 	}
-	return response, nil
+	return activityError, nil
 }
 
 func (w *workflowProvider) ExecuteLocalActivity(

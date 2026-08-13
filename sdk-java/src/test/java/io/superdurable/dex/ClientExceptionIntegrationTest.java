@@ -31,7 +31,7 @@ import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
-import io.superdurable.gen.ErrorResponse;
+import io.superdurable.gen.ServiceErrorResponse;
 import io.superdurable.gen.EncodedObject;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.GetFlowSummaryRequest;
@@ -190,7 +190,7 @@ final class ClientExceptionIntegrationTest {
             final Status.Code code,
             final io.superdurable.gen.ErrorSubStatus subStatus,
             final String detail) {
-        return error(code, ErrorResponse.newBuilder()
+        return error(code, ServiceErrorResponse.newBuilder()
                 .setSubStatus(subStatus)
                 .setDetail(detail)
                 .build());
@@ -198,7 +198,7 @@ final class ClientExceptionIntegrationTest {
 
     private static StatusRuntimeException error(
             final Status.Code code,
-            final ErrorResponse response) {
+            final ServiceErrorResponse response) {
         return StatusProto.toStatusRuntimeException(com.google.rpc.Status.newBuilder()
                 .setCode(code.value())
                 .setMessage(response.getDetail())
@@ -231,7 +231,7 @@ final class ClientExceptionIntegrationTest {
             if ("unknown".equals(request.getFlowId())) {
                 observer.onError(error(
                         Status.Code.NOT_FOUND,
-                        ErrorResponse.newBuilder()
+                        ServiceErrorResponse.newBuilder()
                                 .setSubStatusValue(999)
                                 .setDetail("unknown sub-status")
                                 .build()));
@@ -239,7 +239,7 @@ final class ClientExceptionIntegrationTest {
             }
             if ("malformed".equals(request.getFlowId())) {
                 final Any malformed = Any.newBuilder()
-                        .setTypeUrl("type.googleapis.com/dex.ErrorResponse")
+                        .setTypeUrl("type.googleapis.com/dex.ServiceErrorResponse")
                         .setValue(ByteString.copyFromUtf8("malformed"))
                         .build();
                 observer.onError(StatusProto.toStatusRuntimeException(
@@ -263,7 +263,7 @@ final class ClientExceptionIntegrationTest {
             if ("worker".equals(request.getFlowId())) {
                 observer.onError(error(
                         Status.Code.FAILED_PRECONDITION,
-                        ErrorResponse.newBuilder()
+                        ServiceErrorResponse.newBuilder()
                                 .setSubStatus(io.superdurable.gen.ErrorSubStatus
                                         .ERROR_SUB_STATUS_WORKER_API_ERROR)
                                 .setDetail("worker invocation failed")

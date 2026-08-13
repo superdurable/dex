@@ -21,7 +21,7 @@ import {
   RpcLockConflictError,
   WorkerInvocationError,
 } from "../src/errors.js";
-import { ErrorResponse, ErrorSubStatus } from "../src/gen/dex.js";
+import { ServiceErrorResponse, ErrorSubStatus } from "../src/gen/dex.js";
 import { translateServiceError } from "../src/grpc-status.js";
 
 test("missing Flow uses the endpoint lifecycle requirement", () => {
@@ -107,9 +107,9 @@ test("missing and malformed details fall back to DexServiceError", () => {
 function serviceError(
   code: status,
   subStatus: ErrorSubStatus,
-  worker: Partial<ErrorResponse> = {},
+  worker: Partial<ServiceErrorResponse> = {},
 ): ServiceError {
-  const response = ErrorResponse.encode({
+  const response = ServiceErrorResponse.encode({
     detail: "service detail",
     subStatus,
     originalWorkerErrorDetail: "",
@@ -120,7 +120,7 @@ function serviceError(
   }).finish();
   const writer = new BinaryWriter();
   writer.uint32(26).fork();
-  writer.uint32(10).string("type.googleapis.com/dex.ErrorResponse");
+  writer.uint32(10).string("type.googleapis.com/dex.ServiceErrorResponse");
   writer.uint32(18).bytes(response);
   writer.join();
   const metadata = new Metadata();

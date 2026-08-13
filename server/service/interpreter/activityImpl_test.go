@@ -522,34 +522,29 @@ func newChannelCondition(
 func TestComposeStepWorkerErrorUsesInternalForNonGRPCError(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	inputError := errors.New("dial failed")
-	activityError := errors.New("activity error")
-	var errorResponse *dexpb.ErrorResponse
+	expectedError := errors.New("activity error")
+	var internalActivityError *dexpb.InternalActivityError
 	provider.EXPECT().
-		NewFlowError(
+		NewActivityError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			gomock.Any(),
 			int32(0),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
-			response *dexpb.ErrorResponse,
+			activityError *dexpb.InternalActivityError,
 			_ int32,
 		) error {
-			errorResponse = response
-			return activityError
+			internalActivityError = activityError
+			return expectedError
 		})
 
 	require.ErrorIs(
 		t,
 		composeStepWorkerError(provider, service.BackendTypeTemporal, inputError, nil),
-		activityError,
+		expectedError,
 	)
-	require.Equal(t, "dial failed", errorResponse.GetDetail())
-	require.Equal(
-		t,
-		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
-		errorResponse.GetSubStatus(),
-	)
+	require.Equal(t, "dial failed", internalActivityError.GetServerDetail())
 }
 
 func TestComposeStepWorkerErrorPreservesWorkerDetails(t *testing.T) {
@@ -564,40 +559,35 @@ func TestComposeStepWorkerErrorPreservesWorkerDetails(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	activityError := errors.New("activity error")
-	var errorResponse *dexpb.ErrorResponse
+	expectedError := errors.New("activity error")
+	var internalActivityError *dexpb.InternalActivityError
 	var retryAfterSeconds int32
 	provider.EXPECT().
-		NewFlowError(
+		NewActivityError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			gomock.Any(),
 			int32(17),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
-			response *dexpb.ErrorResponse,
+			activityError *dexpb.InternalActivityError,
 			retryAfter int32,
 		) error {
-			errorResponse = response
+			internalActivityError = activityError
 			retryAfterSeconds = retryAfter
-			return activityError
+			return expectedError
 		})
 
 	require.ErrorIs(
 		t,
 		composeStepWorkerError(provider, service.BackendTypeTemporal, grpcStatus.Err(), nil),
-		activityError,
+		expectedError,
 	)
-	require.Empty(t, errorResponse.GetDetail())
-	require.Equal(
-		t,
-		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
-		errorResponse.GetSubStatus(),
-	)
-	require.Equal(t, int32(codes.Internal), errorResponse.GetOriginalWorkerErrorStatus())
-	require.Equal(t, "worker detail", errorResponse.GetOriginalWorkerErrorDetail())
-	require.Equal(t, "worker type", errorResponse.GetOriginalWorkerErrorType())
-	require.Equal(t, "worker stack", errorResponse.GetOriginalWorkerErrorStackTrace())
+	require.Empty(t, internalActivityError.GetServerDetail())
+	require.Equal(t, int32(codes.Internal), internalActivityError.GetWorkerGrpcStatus())
+	require.Equal(t, "worker detail", internalActivityError.GetWorkerError().GetDetail())
+	require.Equal(t, "worker type", internalActivityError.GetWorkerError().GetErrorType())
+	require.Equal(t, "worker stack", internalActivityError.GetWorkerError().GetStackTrace())
 	require.Equal(t, int32(17), retryAfterSeconds)
 }
 
@@ -608,99 +598,84 @@ func TestComposeStepWorkerErrorRejectsRetryAfterOnCadence(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	activityError := errors.New("activity error")
-	var errorResponse *dexpb.ErrorResponse
+	expectedError := errors.New("activity error")
+	var internalActivityError *dexpb.InternalActivityError
 	provider.EXPECT().
-		NewFlowError(
+		NewActivityError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
 			gomock.Any(),
 			int32(0),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
-			response *dexpb.ErrorResponse,
+			activityError *dexpb.InternalActivityError,
 			_ int32,
 		) error {
-			errorResponse = response
-			return activityError
+			internalActivityError = activityError
+			return expectedError
 		})
 
 	require.ErrorIs(
 		t,
 		composeStepWorkerError(provider, service.BackendTypeCadence, grpcStatus.Err(), nil),
-		activityError,
+		expectedError,
 	)
 	require.Equal(
 		t,
 		"WorkerErrorResponse.retry_after_seconds requires the Temporal backend",
-		errorResponse.GetDetail(),
-	)
-	require.Equal(
-		t,
-		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
-		errorResponse.GetSubStatus(),
+		internalActivityError.GetServerDetail(),
 	)
 }
 
 func TestComposeStepWorkerErrorFallsBackWhenMessageEmpty(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	inputError := status.Error(codes.Canceled, "")
-	activityError := errors.New("activity error")
-	var errorResponse *dexpb.ErrorResponse
+	expectedError := errors.New("activity error")
+	var internalActivityError *dexpb.InternalActivityError
 	provider.EXPECT().
-		NewFlowError(
+		NewActivityError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			gomock.Any(),
 			int32(0),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
-			response *dexpb.ErrorResponse,
+			activityError *dexpb.InternalActivityError,
 			_ int32,
 		) error {
-			errorResponse = response
-			return activityError
+			internalActivityError = activityError
+			return expectedError
 		})
 
 	require.ErrorIs(
 		t,
 		composeStepWorkerError(provider, service.BackendTypeTemporal, inputError, nil),
-		activityError,
+		expectedError,
 	)
-	require.Equal(t, inputError.Error(), errorResponse.GetDetail())
-	require.Equal(
-		t,
-		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
-		errorResponse.GetSubStatus(),
-	)
-	require.Equal(t, int32(codes.Canceled), errorResponse.GetOriginalWorkerErrorStatus())
+	require.Equal(t, inputError.Error(), internalActivityError.GetServerDetail())
+	require.Equal(t, int32(codes.Canceled), internalActivityError.GetWorkerGrpcStatus())
 }
 
 func TestComposeInternalActivityErrorKeepsGRPCErrorInternal(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	inputError := status.Error(codes.Unavailable, "internal service unavailable")
-	activityError := errors.New("activity error")
-	var errorResponse *dexpb.ErrorResponse
+	expectedError := errors.New("activity error")
+	var internalActivityError *dexpb.InternalActivityError
 	provider.EXPECT().
-		NewFlowError(
+		NewActivityError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			gomock.Any(),
 			int32(0),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
-			response *dexpb.ErrorResponse,
+			activityError *dexpb.InternalActivityError,
 			_ int32,
 		) error {
-			errorResponse = response
-			return activityError
+			internalActivityError = activityError
+			return expectedError
 		})
 
-	require.ErrorIs(t, composeInternalActivityError(provider, inputError), activityError)
-	require.Contains(t, errorResponse.GetDetail(), "internal service unavailable")
-	require.Equal(
-		t,
-		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
-		errorResponse.GetSubStatus(),
-	)
+	require.ErrorIs(t, composeInternalActivityError(provider, inputError), expectedError)
+	require.Contains(t, internalActivityError.GetServerDetail(), "internal service unavailable")
 }

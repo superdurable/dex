@@ -172,7 +172,7 @@ func doTestWaitForStateCompletionTimeout(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
-	errResp := grpcErrorResponse(t, err)
+	errResp := grpcServiceErrorResponse(t, err)
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
@@ -300,7 +300,7 @@ func doTestWaitForStateCompletionNotFound(t *testing.T) {
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
-		grpcErrorResponse(t, err).GetSubStatus(),
+		grpcServiceErrorResponse(t, err).GetSubStatus(),
 	)
 }
 
@@ -435,7 +435,7 @@ func doTestWaitForStateCompletionInvalidArgs(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
+	require.Equal(t, "request ID is required", grpcServiceErrorResponse(t, err).GetDetail())
 
 	_, err = flowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
 		FlowId:              flowId,

@@ -408,17 +408,17 @@ func createTemporalClient(
 	return temporalClient
 }
 
-func grpcErrorResponse(t *testing.T, err error) *dexpb.ErrorResponse {
+func grpcServiceErrorResponse(t *testing.T, err error) *dexpb.ServiceErrorResponse {
 	t.Helper()
 	require.Error(t, err)
 	statusError, ok := status.FromError(err)
 	require.True(t, ok)
 	for _, detail := range statusError.Details() {
-		if response, ok := detail.(*dexpb.ErrorResponse); ok {
+		if response, ok := detail.(*dexpb.ServiceErrorResponse); ok {
 			return response
 		}
 	}
-	require.FailNow(t, "gRPC error has no ErrorResponse details", err)
+	require.FailNow(t, "gRPC error has no ServiceErrorResponse details", err)
 	return nil
 }
 

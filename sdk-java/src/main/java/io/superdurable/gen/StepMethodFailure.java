@@ -90,9 +90,9 @@ private static final long serialVersionUID = 0L;
   }
 
   public static final int DETAILS_FIELD_NUMBER = 2;
-  private io.superdurable.gen.ErrorResponse details_;
+  private io.superdurable.gen.ServiceErrorResponse details_;
   /**
-   * <code>.dex.ErrorResponse details = 2;</code>
+   * <code>.dex.ServiceErrorResponse details = 2;</code>
    * @return Whether the details field is set.
    */
   @java.lang.Override
@@ -100,19 +100,19 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.ErrorResponse details = 2;</code>
+   * <code>.dex.ServiceErrorResponse details = 2;</code>
    * @return The details.
    */
   @java.lang.Override
-  public io.superdurable.gen.ErrorResponse getDetails() {
-    return details_ == null ? io.superdurable.gen.ErrorResponse.getDefaultInstance() : details_;
+  public io.superdurable.gen.ServiceErrorResponse getDetails() {
+    return details_ == null ? io.superdurable.gen.ServiceErrorResponse.getDefaultInstance() : details_;
   }
   /**
-   * <code>.dex.ErrorResponse details = 2;</code>
+   * <code>.dex.ServiceErrorResponse details = 2;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.ErrorResponseOrBuilder getDetailsOrBuilder() {
-    return details_ == null ? io.superdurable.gen.ErrorResponse.getDefaultInstance() : details_;
+  public io.superdurable.gen.ServiceErrorResponseOrBuilder getDetailsOrBuilder() {
+    return details_ == null ? io.superdurable.gen.ServiceErrorResponse.getDefaultInstance() : details_;
   }
 
   public static final int ATTEMPT_FIELD_NUMBER = 3;
@@ -564,31 +564,31 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private io.superdurable.gen.ErrorResponse details_;
+    private io.superdurable.gen.ServiceErrorResponse details_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ErrorResponse, io.superdurable.gen.ErrorResponse.Builder, io.superdurable.gen.ErrorResponseOrBuilder> detailsBuilder_;
+        io.superdurable.gen.ServiceErrorResponse, io.superdurable.gen.ServiceErrorResponse.Builder, io.superdurable.gen.ServiceErrorResponseOrBuilder> detailsBuilder_;
     /**
-     * <code>.dex.ErrorResponse details = 2;</code>
+     * <code>.dex.ServiceErrorResponse details = 2;</code>
      * @return Whether the details field is set.
      */
     public boolean hasDetails() {
       return ((bitField0_ & 0x00000002) != 0);
     }
     /**
-     * <code>.dex.ErrorResponse details = 2;</code>
+     * <code>.dex.ServiceErrorResponse details = 2;</code>
      * @return The details.
      */
-    public io.superdurable.gen.ErrorResponse getDetails() {
+    public io.superdurable.gen.ServiceErrorResponse getDetails() {
       if (detailsBuilder_ == null) {
-        return details_ == null ? io.superdurable.gen.ErrorResponse.getDefaultInstance() : details_;
+        return details_ == null ? io.superdurable.gen.ServiceErrorResponse.getDefaultInstance() : details_;
       } else {
         return detailsBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.ErrorResponse details = 2;</code>
+     * <code>.dex.ServiceErrorResponse details = 2;</code>
      */
-    public Builder setDetails(io.superdurable.gen.ErrorResponse value) {
+    public Builder setDetails(io.superdurable.gen.ServiceErrorResponse value) {
       if (detailsBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -602,10 +602,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ErrorResponse details = 2;</code>
+     * <code>.dex.ServiceErrorResponse details = 2;</code>
      */
     public Builder setDetails(
-        io.superdurable.gen.ErrorResponse.Builder builderForValue) {
+        io.superdurable.gen.ServiceErrorResponse.Builder builderForValue) {
       if (detailsBuilder_ == null) {
         details_ = builderForValue.build();
       } else {
@@ -616,13 +616,13 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ErrorResponse details = 2;</code>
+     * <code>.dex.ServiceErrorResponse details = 2;</code>
      */
-    public Builder mergeDetails(io.superdurable.gen.ErrorResponse value) {
+    public Builder mergeDetails(io.superdurable.gen.ServiceErrorResponse value) {
       if (detailsBuilder_ == null) {
         if (((bitField0_ & 0x00000002) != 0) &&
           details_ != null &&
-          details_ != io.superdurable.gen.ErrorResponse.getDefaultInstance()) {
+          details_ != io.superdurable.gen.ServiceErrorResponse.getDefaultInstance()) {
           getDetailsBuilder().mergeFrom(value);
         } else {
           details_ = value;
@@ -637,7 +637,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ErrorResponse details = 2;</code>
+     * <code>.dex.ServiceErrorResponse details = 2;</code>
      */
     public Builder clearDetails() {
       bitField0_ = (bitField0_ & ~0x00000002);
@@ -650,33 +650,33 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.ErrorResponse details = 2;</code>
+     * <code>.dex.ServiceErrorResponse details = 2;</code>
      */
-    public io.superdurable.gen.ErrorResponse.Builder getDetailsBuilder() {
+    public io.superdurable.gen.ServiceErrorResponse.Builder getDetailsBuilder() {
       bitField0_ |= 0x00000002;
       onChanged();
       return internalGetDetailsFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.ErrorResponse details = 2;</code>
+     * <code>.dex.ServiceErrorResponse details = 2;</code>
      */
-    public io.superdurable.gen.ErrorResponseOrBuilder getDetailsOrBuilder() {
+    public io.superdurable.gen.ServiceErrorResponseOrBuilder getDetailsOrBuilder() {
       if (detailsBuilder_ != null) {
         return detailsBuilder_.getMessageOrBuilder();
       } else {
         return details_ == null ?
-            io.superdurable.gen.ErrorResponse.getDefaultInstance() : details_;
+            io.superdurable.gen.ServiceErrorResponse.getDefaultInstance() : details_;
       }
     }
     /**
-     * <code>.dex.ErrorResponse details = 2;</code>
+     * <code>.dex.ServiceErrorResponse details = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ErrorResponse, io.superdurable.gen.ErrorResponse.Builder, io.superdurable.gen.ErrorResponseOrBuilder> 
+        io.superdurable.gen.ServiceErrorResponse, io.superdurable.gen.ServiceErrorResponse.Builder, io.superdurable.gen.ServiceErrorResponseOrBuilder> 
         internalGetDetailsFieldBuilder() {
       if (detailsBuilder_ == null) {
         detailsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.ErrorResponse, io.superdurable.gen.ErrorResponse.Builder, io.superdurable.gen.ErrorResponseOrBuilder>(
+            io.superdurable.gen.ServiceErrorResponse, io.superdurable.gen.ServiceErrorResponse.Builder, io.superdurable.gen.ServiceErrorResponseOrBuilder>(
                 getDetails(),
                 getParentForChildren(),
                 isClean());

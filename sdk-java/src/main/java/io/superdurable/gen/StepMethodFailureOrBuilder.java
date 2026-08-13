@@ -23,19 +23,19 @@ public interface StepMethodFailureOrBuilder extends
       getBackendErrorBytes();
 
   /**
-   * <code>.dex.ErrorResponse details = 2;</code>
+   * <code>.dex.ServiceErrorResponse details = 2;</code>
    * @return Whether the details field is set.
    */
   boolean hasDetails();
   /**
-   * <code>.dex.ErrorResponse details = 2;</code>
+   * <code>.dex.ServiceErrorResponse details = 2;</code>
    * @return The details.
    */
-  io.superdurable.gen.ErrorResponse getDetails();
+  io.superdurable.gen.ServiceErrorResponse getDetails();
   /**
-   * <code>.dex.ErrorResponse details = 2;</code>
+   * <code>.dex.ServiceErrorResponse details = 2;</code>
    */
-  io.superdurable.gen.ErrorResponseOrBuilder getDetailsOrBuilder();
+  io.superdurable.gen.ServiceErrorResponseOrBuilder getDetailsOrBuilder();
 
   /**
    * <code>int32 attempt = 3;</code>
