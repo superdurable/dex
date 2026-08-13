@@ -2594,8 +2594,7 @@ type ResetOptions struct {
 	HistoryEventTime           time.Time
 	StepType                   string
 	StepExecutionID            string
-	SkipChannelMessagesReapply bool
-	SkipLockingRPCReapply      bool
+	SkipWritesReapply          bool
 }
 ```
 

@@ -278,10 +278,8 @@ export interface ResetFlowOptions {
   readonly stepExecutionId?: string;
   /** Optional operator-readable reset reason. */
   readonly reason?: string;
-  /** Prevents reapplication of Channel messages after the reset point. */
-  readonly skipChannelMessagesReapply?: boolean;
-  /** Prevents reapplication of locking RPC effects after the reset point. */
-  readonly skipLockingRpcReapply?: boolean;
+  /** Prevents reapplication of RPCs, Channel publications, and Attribute writes after reset. */
+  readonly skipWritesReapply?: boolean;
 }
 
 /** Selects how an active Flow should close. */

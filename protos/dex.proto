@@ -700,8 +700,8 @@ message ResetFlowRequest {
   string history_event_time = 6;
   string step_type = 7;
   string step_execution_id = 8;
-  bool skip_channel_messages_reapply = 9;
-  bool skip_locking_rpc_reapply = 10;
+  // Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
+  bool skip_writes_reapply = 9;
 }
 
 message ResetFlowResponse {

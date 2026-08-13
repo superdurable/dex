@@ -16,8 +16,8 @@ import java.time.Instant;
  * Selects a reset point and replay behavior for {@link Client#resetFlow}.
  *
  * <p>Create the builder with one {@link ResetType}, then set the selector that corresponds to that
- * type. Reset creates a new run of the Flow. Channel messages and locking RPCs are reapplied by
- * default unless explicitly skipped.
+ * type. Reset creates a new run of the Flow. Writes after the reset point are reapplied by default
+ * unless explicitly skipped.
  *
  * <pre>{@code
  * ResetFlowOptions options = ResetFlowOptions.newBuilder(ResetType.STEP_TYPE)
@@ -34,8 +34,7 @@ public final class ResetFlowOptions {
     private final String stepType;
     private final String stepExecutionId;
     private final String reason;
-    private final boolean skipChannelMessagesReapply;
-    private final boolean skipLockingRpcReapply;
+    private final boolean skipWritesReapply;
 
     private ResetFlowOptions(final Builder builder) {
         this.type = builder.type;
@@ -44,8 +43,7 @@ public final class ResetFlowOptions {
         this.stepType = builder.stepType;
         this.stepExecutionId = builder.stepExecutionId;
         this.reason = builder.reason;
-        this.skipChannelMessagesReapply = builder.skipChannelMessagesReapply;
-        this.skipLockingRpcReapply = builder.skipLockingRpcReapply;
+        this.skipWritesReapply = builder.skipWritesReapply;
     }
 
     /**
@@ -82,12 +80,8 @@ public final class ResetFlowOptions {
         return reason;
     }
 
-    boolean isSkipChannelMessagesReapply() {
-        return skipChannelMessagesReapply;
-    }
-
-    boolean isSkipLockingRpcReapply() {
-        return skipLockingRpcReapply;
+    boolean isSkipWritesReapply() {
+        return skipWritesReapply;
     }
 
     /** Builds immutable {@link ResetFlowOptions} values. */
@@ -98,8 +92,7 @@ public final class ResetFlowOptions {
         private String stepType;
         private String stepExecutionId;
         private String reason;
-        private boolean skipChannelMessagesReapply;
-        private boolean skipLockingRpcReapply;
+        private boolean skipWritesReapply;
 
         private Builder(final ResetType type) {
             this.type = type;
@@ -161,24 +154,15 @@ public final class ResetFlowOptions {
         }
 
         /**
-         * Controls whether historical Channel messages are omitted from replay.
+         * Controls whether historical writes are omitted from replay.
          *
-         * @param value {@code true} to skip reapplying Channel messages
+         * <p>Writes include RPCs, Channel publications, and Attribute writes after the reset point.
+         *
+         * @param value {@code true} to skip reapplying writes
          * @return this builder
          */
-        public Builder skipChannelMessagesReapply(final boolean value) {
-            skipChannelMessagesReapply = value;
-            return this;
-        }
-
-        /**
-         * Controls whether historical locking RPCs are omitted from replay.
-         *
-         * @param value {@code true} to skip reapplying locking RPCs
-         * @return this builder
-         */
-        public Builder skipLockingRpcReapply(final boolean value) {
-            skipLockingRpcReapply = value;
+        public Builder skipWritesReapply(final boolean value) {
+            skipWritesReapply = value;
             return this;
         }
 

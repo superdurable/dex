@@ -1170,7 +1170,7 @@ func (t *cadenceClient) ResetWorkflow(
 		Reason:                &request.Reason,
 		DecisionFinishEventId: ptr.Any(decisionFinishID),
 		RequestId:             &requestId,
-		SkipSignalReapply:     ptr.Any(request.GetSkipChannelMessagesReapply()),
+		SkipSignalReapply:     ptr.Any(request.GetSkipWritesReapply()),
 	}
 	resp, err := t.serviceClient.ResetWorkflowExecution(ctx, resetReq)
 	if err != nil {

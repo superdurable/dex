@@ -371,8 +371,11 @@ func executeReset(c *flowCommand, ctx context.Context, args []string, options op
 	resetTypeName := flags.String("type", "", "reset point type")
 	target := flags.String("target", "", "reset point value")
 	reason := flags.String("reason", "", "reset reason")
-	skipChannels := flags.Bool("skip-channel-reapply", false, "skip channel message reapply")
-	skipLocks := flags.Bool("skip-locking-rpc-reapply", false, "skip locking RPC reapply")
+	shouldSkipWritesReapply := flags.Bool(
+		"skip-writes-reapply",
+		false,
+		"skip RPC, Channel publication, and Attribute write reapply",
+	)
 	yes := flags.Bool("yes", false, "confirm the operation")
 	addCommonFlags(flags, &options)
 	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow reset FLOW_ID --run-id ID --type TYPE --reason TEXT --yes"); done || err != nil {
@@ -386,8 +389,7 @@ func executeReset(c *flowCommand, ctx context.Context, args []string, options op
 	if err != nil {
 		return newUsageError("flow reset", err)
 	}
-	request.SkipChannelMessagesReapply = *skipChannels
-	request.SkipLockingRpcReapply = *skipLocks
+	request.SkipWritesReapply = *shouldSkipWritesReapply
 	if !*yes {
 		return newConfirmationError("flow reset")
 	}

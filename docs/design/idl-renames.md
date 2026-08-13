@@ -110,8 +110,7 @@ Canonical naming for the protobuf rewrite. Old OpenAPI names are not kept as ali
 | ALLOW_IF_PREVIOUS_EXITS_ABNORMALLY | ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY |
 | waitUntilApi* / startApi* / decideApi* dual fields | wait_for_* / execute_* only |
 | skipWaitUntil | skip_wait_for |
-| skipSignalReapply / skip_signal_reapply | skip_channel_messages_reapply |
-| skipUpdateReapply / skip_update_reapply | skip_locking_rpc_reapply |
+| skipSignalReapply / skipUpdateReapply | skip_writes_reapply |
 | waitForKey / wait_for_key | **deleted** |
 | upsert_step_exe_locals on InvokeWorkerRPCResponse | **deleted** (RPC is not a step execution) |
 

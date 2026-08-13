@@ -693,8 +693,7 @@ public final class Client implements AutoCloseable {
                 .setFlowId(flowId)
                 .setResetType(mapResetType(options.getType()))
                 .setReason(options.getReason() == null ? "" : options.getReason())
-                .setSkipChannelMessagesReapply(options.isSkipChannelMessagesReapply())
-                .setSkipLockingRpcReapply(options.isSkipLockingRpcReapply());
+                .setSkipWritesReapply(options.isSkipWritesReapply());
         if (options.getHistoryEventId() != null) {
             request.setHistoryEventId(Math.toIntExact(options.getHistoryEventId()));
         }

@@ -13,12 +13,12 @@ package locking
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/dex/integ/workflow/common"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -73,13 +73,33 @@ var state2StepOptions = &dexpb.StepOptions{
 
 type handler struct {
 	dexpb.UnimplementedWorkerServiceServer
-	invokeHistory sync.Map
-	rpcInvokes    int32
+	invokeHistoryMutex sync.Mutex
+	invokeHistory      map[string]int64
+	rpcInvokesMutex    sync.Mutex
+	rpcInvokes         map[string]*rpcRunState
+}
+
+// RPCResult summarizes one successful test Worker RPC.
+type RPCResult struct {
+	InputPayload          string
+	OutputPayload         string
+	UpsertAttributeCount  int
+	RecordEventCount      int
+	PublishedMessageCount int
+	NextStepCount         int
+	NextStepType          string
+}
+
+type rpcRunState struct {
+	initialInternalChannelSize int32
+	invokeCount                int32
+	results                    []RPCResult
 }
 
 func NewHandler() *handler {
 	return &handler{
-		invokeHistory: sync.Map{},
+		invokeHistory: make(map[string]int64),
+		rpcInvokes:    make(map[string]*rpcRunState),
 	}
 }
 
@@ -115,13 +135,9 @@ func (h *handler) InvokeWorkerRPC(
 		return nil, status.Error(codes.InvalidArgument, "incorrect signal channel size")
 	}
 
-	if h.rpcInvokes > 0 {
-		internalChannelInfo := request.GetChannelInfos()[UnusedInternalChannelName]
-		if h.rpcInvokes != internalChannelInfo.GetSize() {
-			return nil, status.Error(codes.InvalidArgument, "incorrect internal channel size")
-		}
+	if err := h.recordRPCInvoke(request); err != nil {
+		return nil, err
 	}
-	h.rpcInvokes++
 
 	time.Sleep(time.Millisecond)
 
@@ -159,7 +175,7 @@ func (h *handler) InvokeWorkerRPC(
 		dataObjectWrite(TestDataAttributeKey2, stepContext.GetStepExecutionId()),
 	)
 
-	return &dexpb.InvokeWorkerRPCResponse{
+	response := &dexpb.InvokeWorkerRPCResponse{
 		Output: testValue,
 		StepDecision: &dexpb.StepDecision{
 			NextSteps: []*dexpb.StepMovement{
@@ -179,7 +195,54 @@ func (h *handler) InvokeWorkerRPC(
 				Value:       testValue,
 			},
 		},
-	}, nil
+	}
+	h.recordRPCResult(request, inputPayload, response)
+	return response, nil
+}
+
+func (h *handler) recordRPCInvoke(request *dexpb.InvokeWorkerRPCRequest) error {
+	h.rpcInvokesMutex.Lock()
+	defer h.rpcInvokesMutex.Unlock()
+
+	runID := request.GetContext().GetRunId()
+	internalChannelSize := request.GetChannelInfos()[UnusedInternalChannelName].GetSize()
+	runState, hasRunState := h.rpcInvokes[runID]
+	if !hasRunState {
+		runState = &rpcRunState{initialInternalChannelSize: internalChannelSize}
+		h.rpcInvokes[runID] = runState
+	}
+	expectedChannelSize := runState.initialInternalChannelSize + runState.invokeCount
+	if internalChannelSize != expectedChannelSize {
+		return status.Error(codes.InvalidArgument, "incorrect internal channel size")
+	}
+	runState.invokeCount++
+	return nil
+}
+
+func (h *handler) recordRPCResult(
+	request *dexpb.InvokeWorkerRPCRequest,
+	inputPayload string,
+	response *dexpb.InvokeWorkerRPCResponse,
+) {
+	h.rpcInvokesMutex.Lock()
+	defer h.rpcInvokesMutex.Unlock()
+
+	outputPayload, _ := objPayloadFromValue(response.GetOutput())
+	nextSteps := response.GetStepDecision().GetNextSteps()
+	nextStepType := ""
+	if len(nextSteps) > 0 {
+		nextStepType = nextSteps[0].GetStepType()
+	}
+	runState := h.rpcInvokes[request.GetContext().GetRunId()]
+	runState.results = append(runState.results, RPCResult{
+		InputPayload:          inputPayload,
+		OutputPayload:         outputPayload,
+		UpsertAttributeCount:  len(response.GetUpsertAttributes()),
+		RecordEventCount:      len(response.GetRecordEvents()),
+		PublishedMessageCount: len(response.GetPublishToChannel()),
+		NextStepCount:         len(nextSteps),
+		NextStepType:          nextStepType,
+	})
 }
 
 func (h *handler) InvokeWaitForMethod(
@@ -308,20 +371,37 @@ func (h *handler) InvokeExecuteMethod(
 }
 
 func (h *handler) GetTestResult() common.TestResult {
+	h.invokeHistoryMutex.Lock()
+	defer h.invokeHistoryMutex.Unlock()
+
 	invokeHistory := make(map[string]int64)
-	h.invokeHistory.Range(func(key, value interface{}) bool {
-		invokeHistory[key.(string)] = value.(int64)
-		return true
-	})
+	for key, value := range h.invokeHistory {
+		invokeHistory[key] = value
+	}
 	return common.TestResult{InvokeHistory: invokeHistory}
 }
 
 func (h *handler) incrementInvokeHistory(key string) {
-	if value, ok := h.invokeHistory.Load(key); ok {
-		h.invokeHistory.Store(key, value.(int64)+1)
-		return
+	h.invokeHistoryMutex.Lock()
+	defer h.invokeHistoryMutex.Unlock()
+	h.invokeHistory[key]++
+}
+
+func (h *handler) GetRPCInvokeCount() int32 {
+	h.rpcInvokesMutex.Lock()
+	defer h.rpcInvokesMutex.Unlock()
+
+	var invokeCount int32
+	for _, runState := range h.rpcInvokes {
+		invokeCount += runState.invokeCount
 	}
-	h.invokeHistory.Store(key, int64(1))
+	return invokeCount
+}
+
+func (h *handler) GetRPCResults(runID string) []RPCResult {
+	h.rpcInvokesMutex.Lock()
+	defer h.rpcInvokesMutex.Unlock()
+	return append([]RPCResult(nil), h.rpcInvokes[runID].results...)
 }
 
 func validateStepContext(stepContext *dexpb.Context) error {

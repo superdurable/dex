@@ -688,8 +688,7 @@ class Client:
                 ResetType.STEP_EXECUTION_ID: pb.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
             }[options.type],
             reason=options.reason or "",
-            skip_channel_messages_reapply=options.skip_channel_messages_reapply,
-            skip_locking_rpc_reapply=options.skip_locking_rpc_reapply,
+            skip_writes_reapply=options.skip_writes_reapply,
         )
         if options.history_event_id is not None:
             request.history_event_id = options.history_event_id

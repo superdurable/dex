@@ -20,28 +20,28 @@ use crate::support::{DexDevTestEnvironment, flow_id};
 #[test]
 #[ignore = "requires dexcli dev"]
 fn test_reset_with_locking_reapplies_rpc() {
-    run_reset_scenario(true, false, false);
+    run_reset_scenario(true, false);
 }
 
 #[test]
 #[ignore = "requires dexcli dev"]
 fn test_reset_with_locking_can_skip_rpc_reapply() {
-    run_reset_scenario(true, true, true);
+    run_reset_scenario(true, true);
 }
 
 #[test]
 #[ignore = "requires dexcli dev"]
 fn test_reset_without_locking_reapplies_channel_rpc() {
-    run_reset_scenario(false, false, false);
+    run_reset_scenario(false, false);
 }
 
 #[test]
 #[ignore = "requires dexcli dev"]
 fn test_reset_without_locking_can_skip_channel_reapply() {
-    run_reset_scenario(false, true, true);
+    run_reset_scenario(false, true);
 }
 
-fn run_reset_scenario(locking: bool, skip_locking_rpc: bool, skip_channels: bool) {
+fn run_reset_scenario(locking: bool, skip_writes: bool) {
     let environment = DexDevTestEnvironment::start(Registry::new().register(ResetWorkflow::new()));
     let workflow = ResetWorkflow::new();
     let flow_id = flow_id("reset");
@@ -76,11 +76,10 @@ fn run_reset_scenario(locking: bool, skip_locking_rpc: bool, skip_channels: bool
             &flow_id,
             ResetFlowOptions::from_beginning()
                 .reason("testing reset")
-                .skip_locking_rpc_reapply(skip_locking_rpc)
-                .skip_channel_messages_reapply(skip_channels),
+                .skip_writes_reapply(skip_writes),
         )
         .expect("reset Flow");
-    if skip_locking_rpc && skip_channels {
+    if skip_writes {
         assert_reset_times_out_without_attributes(&environment, &workflow, &flow_id, &reset_run_id);
     } else {
         assert_completed_with_attributes(&environment, &workflow, &flow_id, locking);
@@ -234,17 +233,15 @@ fn compile_locking_rpc_reapply(client: &Client) -> SdkResult<()> {
         .invoke_rpc_without_input::<()>("reset-locking", ResetWorkflow::WITH_ATTRIBUTE_MAP_LOCK)?;
     let options = ResetFlowOptions::from_beginning()
         .reason("replay locking RPC")
-        .skip_locking_rpc_reapply(false);
+        .skip_writes_reapply(false);
     let _run_id = client.reset_flow("reset-locking", options)?;
     Ok(())
 }
 
 #[allow(dead_code)]
-fn compile_skip_rpc_and_channel_reapply(client: &Client) -> SdkResult<()> {
+fn compile_skip_writes_reapply(client: &Client) -> SdkResult<()> {
     let workflow = ResetWorkflow::new();
-    let options = ResetFlowOptions::from_step(&workflow.first)
-        .skip_locking_rpc_reapply(true)
-        .skip_channel_messages_reapply(true);
+    let options = ResetFlowOptions::from_step(&workflow.first).skip_writes_reapply(true);
     let _run_id = client.reset_flow("reset-locking", options)?;
     Ok(())
 }

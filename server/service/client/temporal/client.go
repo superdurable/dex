@@ -1298,11 +1298,12 @@ func (t *temporalClient) ResetWorkflow(
 
 	requestId := uuid.New().String()
 	var resetReapplyExcludeTypes []enums.ResetReapplyExcludeType
-	if request.GetSkipChannelMessagesReapply() {
-		resetReapplyExcludeTypes = append(resetReapplyExcludeTypes, enums.RESET_REAPPLY_EXCLUDE_TYPE_SIGNAL)
-	}
-	if request.GetSkipLockingRpcReapply() {
-		resetReapplyExcludeTypes = append(resetReapplyExcludeTypes, enums.RESET_REAPPLY_EXCLUDE_TYPE_UPDATE)
+	if request.GetSkipWritesReapply() {
+		resetReapplyExcludeTypes = append(
+			resetReapplyExcludeTypes,
+			enums.RESET_REAPPLY_EXCLUDE_TYPE_SIGNAL,
+			enums.RESET_REAPPLY_EXCLUDE_TYPE_UPDATE,
+		)
 	}
 
 	resp, err := t.tClient.ResetWorkflowExecution(ctx, &workflowservice.ResetWorkflowExecutionRequest{
@@ -1314,7 +1315,9 @@ func (t *temporalClient) ResetWorkflow(
 		Reason:                    request.GetReason(),
 		WorkflowTaskFinishEventId: resetEventId,
 		RequestId:                 requestId,
-		ResetReapplyExcludeTypes:  resetReapplyExcludeTypes,
+		// Temporal defaults to signal-only reapply; exclusions refine the all-eligible set.
+		ResetReapplyType:         enums.RESET_REAPPLY_TYPE_ALL_ELIGIBLE,
+		ResetReapplyExcludeTypes: resetReapplyExcludeTypes,
 	})
 
 	if err != nil {

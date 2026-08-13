@@ -318,26 +318,19 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int SKIP_CHANNEL_MESSAGES_REAPPLY_FIELD_NUMBER = 9;
-  private boolean skipChannelMessagesReapply_ = false;
+  public static final int SKIP_WRITES_REAPPLY_FIELD_NUMBER = 9;
+  private boolean skipWritesReapply_ = false;
   /**
-   * <code>bool skip_channel_messages_reapply = 9;</code>
-   * @return The skipChannelMessagesReapply.
+   * <pre>
+   * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
+   * </pre>
+   *
+   * <code>bool skip_writes_reapply = 9;</code>
+   * @return The skipWritesReapply.
    */
   @java.lang.Override
-  public boolean getSkipChannelMessagesReapply() {
-    return skipChannelMessagesReapply_;
-  }
-
-  public static final int SKIP_LOCKING_RPC_REAPPLY_FIELD_NUMBER = 10;
-  private boolean skipLockingRpcReapply_ = false;
-  /**
-   * <code>bool skip_locking_rpc_reapply = 10;</code>
-   * @return The skipLockingRpcReapply.
-   */
-  @java.lang.Override
-  public boolean getSkipLockingRpcReapply() {
-    return skipLockingRpcReapply_;
+  public boolean getSkipWritesReapply() {
+    return skipWritesReapply_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -378,11 +371,8 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepExecutionId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 8, stepExecutionId_);
     }
-    if (skipChannelMessagesReapply_ != false) {
-      output.writeBool(9, skipChannelMessagesReapply_);
-    }
-    if (skipLockingRpcReapply_ != false) {
-      output.writeBool(10, skipLockingRpcReapply_);
+    if (skipWritesReapply_ != false) {
+      output.writeBool(9, skipWritesReapply_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -414,13 +404,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepExecutionId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(8, stepExecutionId_);
     }
-    if (skipChannelMessagesReapply_ != false) {
+    if (skipWritesReapply_ != false) {
       size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(9, skipChannelMessagesReapply_);
-    }
-    if (skipLockingRpcReapply_ != false) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(10, skipLockingRpcReapply_);
+        .computeBoolSize(9, skipWritesReapply_);
     }
     return size;
   }
@@ -461,10 +447,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getStepType())) return false;
     if (!getStepExecutionId()
         .equals(other.getStepExecutionId())) return false;
-    if (getSkipChannelMessagesReapply()
-        != other.getSkipChannelMessagesReapply()) return false;
-    if (getSkipLockingRpcReapply()
-        != other.getSkipLockingRpcReapply()) return false;
+    if (getSkipWritesReapply()
+        != other.getSkipWritesReapply()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -492,12 +476,9 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getStepType().hashCode();
     hash = (37 * hash) + STEP_EXECUTION_ID_FIELD_NUMBER;
     hash = (53 * hash) + getStepExecutionId().hashCode();
-    hash = (37 * hash) + SKIP_CHANNEL_MESSAGES_REAPPLY_FIELD_NUMBER;
+    hash = (37 * hash) + SKIP_WRITES_REAPPLY_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-        getSkipChannelMessagesReapply());
-    hash = (37 * hash) + SKIP_LOCKING_RPC_REAPPLY_FIELD_NUMBER;
-    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-        getSkipLockingRpcReapply());
+        getSkipWritesReapply());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -637,8 +618,7 @@ private static final long serialVersionUID = 0L;
       historyEventTime_ = "";
       stepType_ = "";
       stepExecutionId_ = "";
-      skipChannelMessagesReapply_ = false;
-      skipLockingRpcReapply_ = false;
+      skipWritesReapply_ = false;
       return this;
     }
 
@@ -697,10 +677,7 @@ private static final long serialVersionUID = 0L;
         result.stepExecutionId_ = stepExecutionId_;
       }
       if (((from_bitField0_ & 0x00000100) != 0)) {
-        result.skipChannelMessagesReapply_ = skipChannelMessagesReapply_;
-      }
-      if (((from_bitField0_ & 0x00000200) != 0)) {
-        result.skipLockingRpcReapply_ = skipLockingRpcReapply_;
+        result.skipWritesReapply_ = skipWritesReapply_;
       }
     }
 
@@ -752,11 +729,8 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000080;
         onChanged();
       }
-      if (other.getSkipChannelMessagesReapply() != false) {
-        setSkipChannelMessagesReapply(other.getSkipChannelMessagesReapply());
-      }
-      if (other.getSkipLockingRpcReapply() != false) {
-        setSkipLockingRpcReapply(other.getSkipLockingRpcReapply());
+      if (other.getSkipWritesReapply() != false) {
+        setSkipWritesReapply(other.getSkipWritesReapply());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -825,15 +799,10 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 66
             case 72: {
-              skipChannelMessagesReapply_ = input.readBool();
+              skipWritesReapply_ = input.readBool();
               bitField0_ |= 0x00000100;
               break;
             } // case 72
-            case 80: {
-              skipLockingRpcReapply_ = input.readBool();
-              bitField0_ |= 0x00000200;
-              break;
-            } // case 80
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1367,66 +1336,46 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private boolean skipChannelMessagesReapply_ ;
+    private boolean skipWritesReapply_ ;
     /**
-     * <code>bool skip_channel_messages_reapply = 9;</code>
-     * @return The skipChannelMessagesReapply.
+     * <pre>
+     * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
+     * </pre>
+     *
+     * <code>bool skip_writes_reapply = 9;</code>
+     * @return The skipWritesReapply.
      */
     @java.lang.Override
-    public boolean getSkipChannelMessagesReapply() {
-      return skipChannelMessagesReapply_;
+    public boolean getSkipWritesReapply() {
+      return skipWritesReapply_;
     }
     /**
-     * <code>bool skip_channel_messages_reapply = 9;</code>
-     * @param value The skipChannelMessagesReapply to set.
+     * <pre>
+     * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
+     * </pre>
+     *
+     * <code>bool skip_writes_reapply = 9;</code>
+     * @param value The skipWritesReapply to set.
      * @return This builder for chaining.
      */
-    public Builder setSkipChannelMessagesReapply(boolean value) {
+    public Builder setSkipWritesReapply(boolean value) {
 
-      skipChannelMessagesReapply_ = value;
+      skipWritesReapply_ = value;
       bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }
     /**
-     * <code>bool skip_channel_messages_reapply = 9;</code>
+     * <pre>
+     * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
+     * </pre>
+     *
+     * <code>bool skip_writes_reapply = 9;</code>
      * @return This builder for chaining.
      */
-    public Builder clearSkipChannelMessagesReapply() {
+    public Builder clearSkipWritesReapply() {
       bitField0_ = (bitField0_ & ~0x00000100);
-      skipChannelMessagesReapply_ = false;
-      onChanged();
-      return this;
-    }
-
-    private boolean skipLockingRpcReapply_ ;
-    /**
-     * <code>bool skip_locking_rpc_reapply = 10;</code>
-     * @return The skipLockingRpcReapply.
-     */
-    @java.lang.Override
-    public boolean getSkipLockingRpcReapply() {
-      return skipLockingRpcReapply_;
-    }
-    /**
-     * <code>bool skip_locking_rpc_reapply = 10;</code>
-     * @param value The skipLockingRpcReapply to set.
-     * @return This builder for chaining.
-     */
-    public Builder setSkipLockingRpcReapply(boolean value) {
-
-      skipLockingRpcReapply_ = value;
-      bitField0_ |= 0x00000200;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>bool skip_locking_rpc_reapply = 10;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearSkipLockingRpcReapply() {
-      bitField0_ = (bitField0_ & ~0x00000200);
-      skipLockingRpcReapply_ = false;
+      skipWritesReapply_ = false;
       onChanged();
       return this;
     }

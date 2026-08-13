@@ -28,7 +28,7 @@ flowchart LR
   lock_attribute_keys` on `InvokeRPCRequest`. Temporal uses one synchronous
   `InvokeRpc` Update for non-empty lists and may opt all RPCs into Updates. Keeps
   the retained
-  `RPC_ACQUIRE_LOCK_FAILURE` + `skip_locking_rpc_reapply` meaningful. Because the
+  `RPC_ACQUIRE_LOCK_FAILURE` + `skip_writes_reapply` meaningful. Because the
   locking path uses `SynchronousUpdateWorkflow`, a **non-empty `lock_attribute_keys`
   is Temporal-only** — Cadence returns `codes.Unimplemented`; non-locking RPC works
   on Cadence via query, WorkerService, and conditional signal.

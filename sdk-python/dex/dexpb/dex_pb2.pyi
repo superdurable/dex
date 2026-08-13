@@ -1040,7 +1040,7 @@ class GetFlowStateResponse(_message.Message):
     def __init__(self, flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., active_step_executions: _Optional[_Iterable[_Union[ActiveStepExecutionState, _Mapping]]] = ..., queued_steps: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., pending_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., completed_steps: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ...) -> None: ...
 
 class ResetFlowRequest(_message.Message):
-    __slots__ = ("flow_id", "run_id", "reset_type", "history_event_id", "reason", "history_event_time", "step_type", "step_execution_id", "skip_channel_messages_reapply", "skip_locking_rpc_reapply")
+    __slots__ = ("flow_id", "run_id", "reset_type", "history_event_id", "reason", "history_event_time", "step_type", "step_execution_id", "skip_writes_reapply")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     RESET_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -1049,8 +1049,7 @@ class ResetFlowRequest(_message.Message):
     HISTORY_EVENT_TIME_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
-    SKIP_CHANNEL_MESSAGES_REAPPLY_FIELD_NUMBER: _ClassVar[int]
-    SKIP_LOCKING_RPC_REAPPLY_FIELD_NUMBER: _ClassVar[int]
+    SKIP_WRITES_REAPPLY_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
     reset_type: FlowResetType
@@ -1059,9 +1058,8 @@ class ResetFlowRequest(_message.Message):
     history_event_time: str
     step_type: str
     step_execution_id: str
-    skip_channel_messages_reapply: bool
-    skip_locking_rpc_reapply: bool
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., reset_type: _Optional[_Union[FlowResetType, str]] = ..., history_event_id: _Optional[int] = ..., reason: _Optional[str] = ..., history_event_time: _Optional[str] = ..., step_type: _Optional[str] = ..., step_execution_id: _Optional[str] = ..., skip_channel_messages_reapply: _Optional[bool] = ..., skip_locking_rpc_reapply: _Optional[bool] = ...) -> None: ...
+    skip_writes_reapply: bool
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., reset_type: _Optional[_Union[FlowResetType, str]] = ..., history_event_id: _Optional[int] = ..., reason: _Optional[str] = ..., history_event_time: _Optional[str] = ..., step_type: _Optional[str] = ..., step_execution_id: _Optional[str] = ..., skip_writes_reapply: _Optional[bool] = ...) -> None: ...
 
 class ResetFlowResponse(_message.Message):
     __slots__ = ("run_id",)

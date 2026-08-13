@@ -100,14 +100,12 @@ public interface ResetFlowRequestOrBuilder extends
       getStepExecutionIdBytes();
 
   /**
-   * <code>bool skip_channel_messages_reapply = 9;</code>
-   * @return The skipChannelMessagesReapply.
+   * <pre>
+   * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
+   * </pre>
+   *
+   * <code>bool skip_writes_reapply = 9;</code>
+   * @return The skipWritesReapply.
    */
-  boolean getSkipChannelMessagesReapply();
-
-  /**
-   * <code>bool skip_locking_rpc_reapply = 10;</code>
-   * @return The skipLockingRpcReapply.
-   */
-  boolean getSkipLockingRpcReapply();
+  boolean getSkipWritesReapply();
 }

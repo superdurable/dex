@@ -29,8 +29,7 @@ for (const locking of [true, false]) {
       const resetRunId = await client.resetFlow(id, {
         type: ResetType.BEGINNING,
         reason: "testing reset",
-        skipLockingRpcReapply: false,
-        skipChannelMessagesReapply: false,
+        skipWritesReapply: false,
       });
       await assertCompletedWithAttributes(client, flow, id);
       assert.equal((await client.describeFlow(id)).runId, resetRunId);
@@ -45,8 +44,7 @@ for (const locking of [true, false]) {
       const resetRunId = await client.resetFlow(id, {
         type: ResetType.BEGINNING,
         reason: "testing reset",
-        skipLockingRpcReapply: true,
-        skipChannelMessagesReapply: true,
+        skipWritesReapply: true,
       });
       const failure = await expectError(
         client.waitForFlow(id, 10_000).then((result) => result.singleOutput(stringCodec)),

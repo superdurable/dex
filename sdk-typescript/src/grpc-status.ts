@@ -40,6 +40,7 @@ export function workerServiceError(failure: unknown): GrpcServiceError {
     detail,
     errorType: cause.name,
     stackTrace: cause.stack ?? "",
+    retryAfterSeconds: 0,
   }).finish();
   const metadata = new Metadata();
   metadata.set(

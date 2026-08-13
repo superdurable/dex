@@ -172,9 +172,8 @@ class ResetFlowOptions:
         step_type: Registered Step type used by ``STEP_TYPE``.
         step_execution_id: Exact execution ID used by ``STEP_EXECUTION_ID``.
         reason: Optional operator-readable reset reason.
-        skip_channel_messages_reapply: Do not replay Channel publications after the
-            reset point.
-        skip_locking_rpc_reapply: Do not replay locking RPC effects after the point.
+        skip_writes_reapply: Do not replay RPCs, Channel publications, or Attribute
+            writes after the reset point.
     """
 
     type: ResetType
@@ -183,8 +182,7 @@ class ResetFlowOptions:
     step_type: str | None = None
     step_execution_id: str | None = None
     reason: str | None = None
-    skip_channel_messages_reapply: bool = False
-    skip_locking_rpc_reapply: bool = False
+    skip_writes_reapply: bool = False
 
 
 class StopType(Enum):
