@@ -14,8 +14,9 @@ Reset, and Selected event use that common structure.
 `POST /api/blobs/load` batches Dex `LoadBlobs` calls. The browser recursively
 hydrates the selected event and current flow state, dedupes by blob kind and ID,
 and caches loaded values across tabs. Missing values are labeled
-`Value blob unavailable`; missing async input snapshots are labeled
-`Step event input unavailable`. Neither exposes blob IDs or storage paths.
+`Value blob unavailable`. Terminal async failures without a retained invocation
+snapshot explain the short-retry behavior in Selected event without raising a
+page-level data warning. Neither state exposes blob IDs or storage paths.
 
 ## Run through dexcli
 
@@ -70,6 +71,10 @@ Run input beside Identity), Step graph, Timeline, attributes, timers, queued
 steps, channels, completed outputs, stop, and reset. Timeline and Step graph keep
 Selected event in the sidebar.
 Continued runs link to their previous run from Timeline and Step graph.
+Timeline connects each Step execution's first method event to the Flow start,
+Flow continued, RPC, Step decision, transient movement, or recovery event that
+scheduled it. Selecting the first event reveals that source link; selecting a
+WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
 Methods interrupted by a forced close remain visible as Pending Timeline events
 with their last persisted Scheduled or Started phase.

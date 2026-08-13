@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent } from '@/lib/types';
-import { STEP_EVENT_INPUT_UNAVAILABLE } from '@/lib/unavailable';
+import { ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED } from '@/lib/unavailable';
 import { eventTitle, eventTypeLabel, SemanticEventDetails } from './EventDetails';
 
 function executeEvent(durability: number): FlowHistoryEvent {
@@ -167,12 +167,18 @@ describe('selected step event details', () => {
     expect(markup).not.toContain('Detail');
   });
 
-  it('distinguishes an unavailable step input from a missing value blob', () => {
+  it('explains why a terminal async failure has no invocation input snapshot', () => {
     const event = executeEvent(2);
+    event.type = 'StepExecuteFailed';
     event.payload.input = { unavailable: true };
+    event.payload.output = { failure: { attempt: 1, backendError: 'Unavailable' } };
     const markup = renderDetails(event);
 
-    expect(markup).toContain(STEP_EVENT_INPUT_UNAVAILABLE);
+    expect(markup).toContain('Invocation inputs were not recorded');
+    expect(markup).toContain(ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED);
+    expect(markup).toContain('Step input, attributes, condition results, and step locals are absent');
+    expect(markup).toContain('Follow its source arrow in Timeline');
+    expect(markup).not.toContain('Step event input unavailable');
     expect(markup).not.toContain('Value blob unavailable');
   });
 

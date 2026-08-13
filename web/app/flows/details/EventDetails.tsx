@@ -16,7 +16,8 @@ import {
 } from '@/lib/blobs';
 import type { FlowHistoryEvent } from '@/lib/types';
 import {
-  STEP_EVENT_INPUT_UNAVAILABLE,
+  ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED,
+  STEP_INPUT_SNAPSHOT_NOT_RETAINED,
   VALUE_BLOB_UNAVAILABLE,
 } from '@/lib/unavailable';
 import {
@@ -586,12 +587,27 @@ function StepMethodDetails({
   const lastFailure = asData(context.lastFailureInfo);
   const isWaitFor = event.type.startsWith('StepWaitFor');
   const isPending = event.type.endsWith('Pending');
+  const isAsyncTerminalFailure = event.type.endsWith('Failed')
+    && durabilityLabel(context.durability) === 'async';
   const hasInput = payload.input !== undefined && input.unavailable !== true;
   return (
     <>
       <DetailSection title="Input">
         {input.unavailable === true ? (
-          <p className="muted">{STEP_EVENT_INPUT_UNAVAILABLE}</p>
+          <div className="semantic-notice">
+            <strong>Invocation inputs were not recorded</strong>
+            <p>
+              {isAsyncTerminalFailure
+                ? ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED
+                : STEP_INPUT_SNAPSHOT_NOT_RETAINED}
+            </p>
+            {isAsyncTerminalFailure && (
+              <p>
+                Step input, attributes, condition results, and step locals are absent for this failure.
+                Follow its source arrow in Timeline to inspect the event that scheduled the Step.
+              </p>
+            )}
+          </div>
         ) : hasInput ? (
           <>
             <ValueBlock label="Step input" value={input.stepInput} showEmpty />

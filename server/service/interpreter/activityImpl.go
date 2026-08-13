@@ -123,22 +123,6 @@ func (a *Activities) InvokeWaitForMethod(
 			return nil, composeStepInternalError(provider, err, localActivityFailure)
 		}
 	}
-	if err := a.persistStepEventInput(
-		ctx,
-		localInput.GetCurrentRunStartedTimestamp(),
-		activityInfo,
-		req.GetContext().GetStepExecutionId(),
-		blobstore.StepEventInputMethodWaitFor,
-		&dexpb.InternalAsyncStepInputSnapshot{
-			MethodOptions: localInput.GetMethodOptions(),
-			Request: &dexpb.InternalAsyncStepInputSnapshot_WaitForRequest{
-				WaitForRequest: req,
-			},
-		},
-	); err != nil {
-		return nil, composeStepInternalError(provider, err, localActivityFailure)
-	}
-
 	client, callCtx, release, err := a.workerPool.Acquire(
 		ctx,
 		input.GetWorkerTarget(),
@@ -166,6 +150,21 @@ func (a *Activities) InvokeWaitForMethod(
 	}
 	if err := validateWorkerWaitForResponse(resp); err != nil {
 		return nil, composeStepWorkerError(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
+	}
+	if err := a.persistStepEventInput(
+		ctx,
+		localInput.GetCurrentRunStartedTimestamp(),
+		activityInfo,
+		req.GetContext().GetStepExecutionId(),
+		blobstore.StepEventInputMethodWaitFor,
+		&dexpb.InternalAsyncStepInputSnapshot{
+			MethodOptions: localInput.GetMethodOptions(),
+			Request: &dexpb.InternalAsyncStepInputSnapshot_WaitForRequest{
+				WaitForRequest: req,
+			},
+		},
+	); err != nil {
+		return nil, composeStepInternalError(provider, err, localActivityFailure)
 	}
 
 	transientStep := resp.GetTransientStepMovement()
@@ -254,22 +253,6 @@ func (a *Activities) InvokeExecuteMethod(
 			return nil, composeStepInternalError(provider, err, localActivityFailure)
 		}
 	}
-	if err := a.persistStepEventInput(
-		ctx,
-		localInput.GetCurrentRunStartedTimestamp(),
-		activityInfo,
-		req.GetContext().GetStepExecutionId(),
-		blobstore.StepEventInputMethodExecute,
-		&dexpb.InternalAsyncStepInputSnapshot{
-			MethodOptions: localInput.GetMethodOptions(),
-			Request: &dexpb.InternalAsyncStepInputSnapshot_ExecuteRequest{
-				ExecuteRequest: req,
-			},
-		},
-	); err != nil {
-		return nil, composeStepInternalError(provider, err, localActivityFailure)
-	}
-
 	client, callCtx, release, err := a.workerPool.Acquire(
 		ctx,
 		input.GetWorkerTarget(),
@@ -289,6 +272,21 @@ func (a *Activities) InvokeExecuteMethod(
 	}
 	if err := validateExecuteResponse(resp, input.GetIsTransientStep()); err != nil {
 		return nil, composeStepWorkerError(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
+	}
+	if err := a.persistStepEventInput(
+		ctx,
+		localInput.GetCurrentRunStartedTimestamp(),
+		activityInfo,
+		req.GetContext().GetStepExecutionId(),
+		blobstore.StepEventInputMethodExecute,
+		&dexpb.InternalAsyncStepInputSnapshot{
+			MethodOptions: localInput.GetMethodOptions(),
+			Request: &dexpb.InternalAsyncStepInputSnapshot_ExecuteRequest{
+				ExecuteRequest: req,
+			},
+		},
+	); err != nil {
+		return nil, composeStepInternalError(provider, err, localActivityFailure)
 	}
 
 	service.SetFromStepExecutionIDForStepDecision(

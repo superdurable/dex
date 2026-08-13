@@ -364,10 +364,13 @@ Web 只消费统一的 `input/output/context`，不根据 durability 选择额�
 | SYNC regular Activity | ActivityTaskScheduled input | scheduled event metadata 和 input context |
 | ASYNC local success | run-scoped async input snapshot | LocalActivity marker 与 async input snapshot |
 | ASYNC local failure + regular fallback | fallback ActivityTaskScheduled input | scheduled event metadata；durability 仍为 ASYNC |
+| ASYNC local failure + budget exhausted | unavailable | LocalActivity failure marker metadata |
 
 local snapshot 不存在、external storage 未启用或数据已清理时，server 返回
 `input.unavailable=true`。这只代表 step method input snapshot 不可恢复，不代表其中某个
-独立 Value blob 加载失败。
+独立 Value blob 加载失败。Web 不显示 page-level data warning；terminal ASYNC failure
+说明 short retry budget 可在 sync fallback 前耗尽，因此没有记录 invocation
+input snapshot，并引导用户沿 Timeline source link 回看调度来源。
 
 `from_step_execution_id` 只接受 server 写入的值：
 
@@ -485,7 +488,7 @@ Web Go bridge 提供 `POST /api/blobs/load`，统一 string/object blob referenc
 shape。前端递归收集所选 event 或 live state 中的 references，按 `kind + blob ID`
 去重并批量加载；缓存跨 Overview、Step Graph 和 Timeline 共用。失败时保留页面：
 
-- `input.unavailable=true` 显示 “Step event input unavailable”；
+- terminal ASYNC failure 的 `input.unavailable=true` 显示 short-retry snapshot 说明；
 - 单个 blob-backed Value 无法加载显示 “Value blob unavailable”；
 - Raw JSON 不泄露 blob ID、store ID 或 object path。
 
@@ -658,6 +661,8 @@ Timeline：
 
 - 只展示 Dex semantic events；
 - 默认倒序，最新 event 位于顶部；
+- 选中 step execution 的第一个 method event 时，连回 Flow start/continued、RPC、Step decision、transient movement 或 recovery source；
+- 只渲染与 selected event 相连的 source/WaitFor-to-Execute links，端点落在 event card 并上下错开；
 - 同一个 step execution 的 WaitForCondition started 和 Execute 用独立 lane 连线；
 - completed/failed method event 展开统一的 Input、Output、Context；
 - long poll 增量更新；
@@ -699,7 +704,7 @@ Phase 2 使用 `server/integ/`：
 - channel values、多个 timers、ANY/ALL results 从保存的 worker request 精确恢复。
 - local failure fallback 使用 regular Activity history request，且不暴露 local failure。
 - sync 和 async regular retry 只返回最近一次 failure；local failure 在 fallback 期间不暴露。
-- 关闭存储或清理后只对缺失的 async snapshot 返回 `input.unavailable=true`。
+- local retry budget 耗尽且没有 fallback 时，以及关闭存储或清理后缺失 async snapshot 时，返回 `input.unavailable=true`。
 - local filesystem storage 覆盖 string/object blob、run-level cleanup 和安全路径。
 
 Web Go integration：
@@ -713,7 +718,7 @@ Web Vitest：
 - batch cache 避免切换 tab 后重复加载。
 - timeline、step graph、reset dialog 和 selected event 不再读取旧的 execution/request/response。
 - Input 按 step input、condition results、attributes、locals 排列；Output 和 Context 使用新结构。
-- step snapshot unavailable 与单个 Value blob unavailable 使用不同提示。
+- terminal ASYNC failure 缺少 snapshot 时解释 short retry 行为；单个 Value blob unavailable 仍使用数据提示。
 - 加载失败显示 unavailable，结构化 details 和 Raw JSON 都不泄露 blob ID。
 
 Web E2E：
@@ -738,4 +743,5 @@ Web 功能覆盖本地 `dex-base/web` 与 `durableworkflow/iwf-web` 的功能并
 Temporal/Cadence 缺失的数据展示为 `—`。ASYNC local activity 在 marker 持久化前无法审计，UI 显示 “active, history pending”，不伪造 started event、worker 或 failure。
 
 Selected Event 固定按 Input、Output、Context 顺序展示。SYNC/ASYNC 不改变页面结构；
-`input.unavailable` 与 Value blob unavailable 分别说明 snapshot 缺失和单个值缺失。
+terminal ASYNC failure 的 `input.unavailable` 解释 short retry snapshot 语义；Value blob
+unavailable 仍表示单个值缺失。
