@@ -960,7 +960,6 @@ export interface WaitingCondition {
 export interface SubFlowOptions {
   reusePolicy: SubFlowReusePolicy;
   flowTimeoutSeconds: number;
-  cronSchedule: string;
   flowStartDelaySeconds: number;
   retryPolicy: FlowRetryPolicy | undefined;
   attributes: AttributeWrite[];
@@ -10074,7 +10073,6 @@ function createBaseSubFlowOptions(): SubFlowOptions {
   return {
     reusePolicy: 0,
     flowTimeoutSeconds: 0,
-    cronSchedule: "",
     flowStartDelaySeconds: 0,
     retryPolicy: undefined,
     attributes: [],
@@ -10090,20 +10088,17 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
     if (message.flowTimeoutSeconds !== 0) {
       writer.uint32(16).int32(message.flowTimeoutSeconds);
     }
-    if (message.cronSchedule !== "") {
-      writer.uint32(26).string(message.cronSchedule);
-    }
     if (message.flowStartDelaySeconds !== 0) {
-      writer.uint32(32).int32(message.flowStartDelaySeconds);
+      writer.uint32(24).int32(message.flowStartDelaySeconds);
     }
     if (message.retryPolicy !== undefined) {
-      FlowRetryPolicy.encode(message.retryPolicy, writer.uint32(42).fork()).join();
+      FlowRetryPolicy.encode(message.retryPolicy, writer.uint32(34).fork()).join();
     }
     for (const v of message.attributes) {
-      AttributeWrite.encode(v!, writer.uint32(50).fork()).join();
+      AttributeWrite.encode(v!, writer.uint32(42).fork()).join();
     }
     if (message.flowConfigOverride !== undefined) {
-      FlowConfig.encode(message.flowConfigOverride, writer.uint32(58).fork()).join();
+      FlowConfig.encode(message.flowConfigOverride, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -10132,19 +10127,19 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
           continue;
         }
         case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.cronSchedule = reader.string();
-          continue;
-        }
-        case 4: {
-          if (tag !== 32) {
+          if (tag !== 24) {
             break;
           }
 
           message.flowStartDelaySeconds = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.retryPolicy = FlowRetryPolicy.decode(reader, reader.uint32());
           continue;
         }
         case 5: {
@@ -10152,19 +10147,11 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
             break;
           }
 
-          message.retryPolicy = FlowRetryPolicy.decode(reader, reader.uint32());
+          message.attributes.push(AttributeWrite.decode(reader, reader.uint32()));
           continue;
         }
         case 6: {
           if (tag !== 50) {
-            break;
-          }
-
-          message.attributes.push(AttributeWrite.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 7: {
-          if (tag !== 58) {
             break;
           }
 
@@ -10187,7 +10174,6 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
     const message = createBaseSubFlowOptions();
     message.reusePolicy = object.reusePolicy ?? 0;
     message.flowTimeoutSeconds = object.flowTimeoutSeconds ?? 0;
-    message.cronSchedule = object.cronSchedule ?? "";
     message.flowStartDelaySeconds = object.flowStartDelaySeconds ?? 0;
     message.retryPolicy = (object.retryPolicy !== undefined && object.retryPolicy !== null)
       ? FlowRetryPolicy.fromPartial(object.retryPolicy)

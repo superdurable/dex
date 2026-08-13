@@ -1434,22 +1434,20 @@ class WaitingCondition(_message.Message):
     def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowCondition, _Mapping]]] = ...) -> None: ...
 
 class SubFlowOptions(_message.Message):
-    __slots__ = ("reuse_policy", "flow_timeout_seconds", "cron_schedule", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override")
+    __slots__ = ("reuse_policy", "flow_timeout_seconds", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override")
     REUSE_POLICY_FIELD_NUMBER: _ClassVar[int]
     FLOW_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
-    CRON_SCHEDULE_FIELD_NUMBER: _ClassVar[int]
     FLOW_START_DELAY_SECONDS_FIELD_NUMBER: _ClassVar[int]
     RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     FLOW_CONFIG_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
     reuse_policy: SubFlowReusePolicy
     flow_timeout_seconds: int
-    cron_schedule: str
     flow_start_delay_seconds: int
     retry_policy: FlowRetryPolicy
     attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     flow_config_override: FlowConfig
-    def __init__(self, reuse_policy: _Optional[_Union[SubFlowReusePolicy, str]] = ..., flow_timeout_seconds: _Optional[int] = ..., cron_schedule: _Optional[str] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
+    def __init__(self, reuse_policy: _Optional[_Union[SubFlowReusePolicy, str]] = ..., flow_timeout_seconds: _Optional[int] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
 
 class SubFlowCondition(_message.Message):
     __slots__ = ("condition_id", "flow_type", "start_step_type", "step_input", "step_options", "options", "sub_flow_index", "flow_id", "normalized_request_id", "start_resolution")

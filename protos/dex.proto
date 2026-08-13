@@ -944,11 +944,10 @@ enum SubFlowReusePolicy {
 message SubFlowOptions {
   SubFlowReusePolicy reuse_policy = 1;
   int32 flow_timeout_seconds = 2;
-  string cron_schedule = 3;
-  int32 flow_start_delay_seconds = 4;
-  FlowRetryPolicy retry_policy = 5;
-  repeated AttributeWrite attributes = 6;
-  FlowConfig flow_config_override = 7;
+  int32 flow_start_delay_seconds = 3;
+  FlowRetryPolicy retry_policy = 4;
+  repeated AttributeWrite attributes = 5;
+  FlowConfig flow_config_override = 6;
 }
 
 message SubFlowCondition {

@@ -122,7 +122,7 @@ func (r *subFlowReuseResolver) readTerminal(
 		result.RunId = description.RunId
 	}
 	if err != nil {
-		var errorResponse dexpb.ErrorResponse
+		var errorResponse dexpb.ServiceErrorResponse
 		if errorType, ok := r.client.GetIfFlowError(err, &errorResponse); ok {
 			result.ErrorType = errorType
 			result.ErrorMessage = errorResponse.GetDetail()

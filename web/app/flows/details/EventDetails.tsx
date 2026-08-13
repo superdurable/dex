@@ -460,7 +460,6 @@ function SubFlowRecord({ value, index }: { value: Data; index: number }) {
         ['Reuse resolution', subFlowStartResolutionLabel(value.startResolution)],
         ['Timeout', seconds(options.flowTimeoutSeconds)],
         ['Start delay', seconds(options.flowStartDelaySeconds)],
-        ['Cron schedule', options.cronSchedule],
         ['Retry initial interval', seconds(retry.initialIntervalSeconds)],
         ['Retry backoff coefficient', retry.backoffCoefficient],
         ['Retry maximum interval', seconds(retry.maximumIntervalSeconds)],

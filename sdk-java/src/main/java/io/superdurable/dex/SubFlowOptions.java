@@ -37,7 +37,6 @@ import java.util.Objects;
 public final class SubFlowOptions {
     private final Duration timeout;
     private final Duration startDelay;
-    private final String cronSchedule;
     private final RetryPolicy retryPolicy;
     private final List<AttributeInitialization> attributes;
     private final FlowConfig configOverride;
@@ -47,7 +46,6 @@ public final class SubFlowOptions {
     private SubFlowOptions(final Builder builder) {
         timeout = builder.timeout;
         startDelay = builder.startDelay;
-        cronSchedule = builder.cronSchedule;
         retryPolicy = builder.retryPolicy;
         attributes = Collections.unmodifiableList(
                 new ArrayList<AttributeInitialization>(builder.attributes));
@@ -71,10 +69,6 @@ public final class SubFlowOptions {
 
     Duration getStartDelay() {
         return startDelay;
-    }
-
-    String getCronSchedule() {
-        return cronSchedule;
     }
 
     RetryPolicy getRetryPolicy() {
@@ -106,7 +100,6 @@ public final class SubFlowOptions {
     public static final class Builder {
         private Duration timeout;
         private Duration startDelay;
-        private String cronSchedule;
         private RetryPolicy retryPolicy;
         private final List<AttributeInitialization> attributes =
                 new ArrayList<AttributeInitialization>();
@@ -139,19 +132,6 @@ public final class SubFlowOptions {
          */
         public Builder startDelay(final Duration value) {
             startDelay = value;
-            return this;
-        }
-
-        /**
-         * Sets the cron schedule used by the configured backend.
-         *
-         * <p>Intermediate cron iterations do not complete the SubFlow condition.
-         *
-         * @param value the cron expression, or {@code null} for no schedule
-         * @return this builder
-         */
-        public Builder cronSchedule(final String value) {
-            cronSchedule = value;
             return this;
         }
 

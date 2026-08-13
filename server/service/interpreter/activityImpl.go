@@ -633,9 +633,6 @@ func buildSubFlowStartOptions(
 		},
 	}
 	workflowOptions.SearchAttributes[service.SearchAttributeDexWorkflowType] = condition.GetFlowType()
-	if options.GetCronSchedule() != "" {
-		workflowOptions.CronSchedule = ptr.Any(options.GetCronSchedule())
-	}
 	if options.GetFlowStartDelaySeconds() > 0 {
 		workflowOptions.WorkflowStartDelay = ptr.Any(time.Duration(options.GetFlowStartDelaySeconds()) * time.Second)
 	}

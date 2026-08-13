@@ -536,9 +536,6 @@ final class WorkerDispatcher {
             if (options.getStartDelay() != null) {
                 mappedOptions.setFlowStartDelaySeconds(seconds32(options.getStartDelay()));
             }
-            if (options.getCronSchedule() != null) {
-                mappedOptions.setCronSchedule(options.getCronSchedule());
-            }
             if (options.getRetryPolicy() != null) {
                 mappedOptions.setRetryPolicy(mapFlowRetry(options.getRetryPolicy()));
             }
