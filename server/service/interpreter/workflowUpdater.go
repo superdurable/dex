@@ -218,6 +218,12 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 	if err := u.rejectTerminalUpdate(); err != nil {
 		return err
 	}
+	if u.continueAsNewCounter.IsThresholdMet() {
+		return u.provider.NewUpdateError(
+			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED,
+			"continue-as-new preempted RPC",
+		)
+	}
 	if input == nil || input.GetRpcName() == "" {
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
