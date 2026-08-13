@@ -272,7 +272,7 @@ func (service *clientTestFlowService) StopFlow(
 func (service *clientTestFlowService) WaitForFlow(
 	_ context.Context,
 	request *dexpb.WaitForFlowRequest,
-) (*dexpb.WaitForFlowResponse, error) {
+) (*dexpb.FlowResult, error) {
 	service.waitFlowRequest = request
 	if request.FlowId == "timeout" {
 		return nil, clientTestServiceError(
@@ -286,7 +286,7 @@ func (service *clientTestFlowService) WaitForFlow(
 		return nil, clientTestMissingFlowError()
 	}
 	if request.FlowId == "uncompleted" {
-		return &dexpb.WaitForFlowResponse{
+		return &dexpb.FlowResult{
 			FlowStatus:   dexpb.FlowStatus_FLOW_STATUS_FAILED,
 			ErrorType:    dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			ErrorMessage: "worker failed",
@@ -300,7 +300,7 @@ func (service *clientTestFlowService) WaitForFlow(
 		}, nil
 	}
 	if request.FlowId == "multi" {
-		return &dexpb.WaitForFlowResponse{
+		return &dexpb.FlowResult{
 			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 			Results: []*dexpb.StepCompletionOutput{
 				{
@@ -324,7 +324,7 @@ func (service *clientTestFlowService) WaitForFlow(
 			},
 		}, nil
 	}
-	return &dexpb.WaitForFlowResponse{
+	return &dexpb.FlowResult{
 		FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 		Results: []*dexpb.StepCompletionOutput{{
 			CompletedStepType:        "dex.clientTestStep",

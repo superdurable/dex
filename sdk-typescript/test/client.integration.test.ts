@@ -29,7 +29,9 @@ import {
 import {
   FlowServiceService,
   FlowErrorType as ProtoFlowErrorType,
+  type FlowResult as ProtoFlowResult,
   FlowStatus,
+  SubFlowStartResolution,
   Value,
   type FlowServiceServer,
   type InvokeRPCRequest,
@@ -39,7 +41,6 @@ import {
   type StartFlowRequest,
   type StartFlowResponse,
   type WaitForFlowRequest,
-  type WaitForFlowResponse,
 } from "../src/gen/dex.js";
 
 interface Input {
@@ -103,7 +104,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     },
     waitForFlow(
       call: { request: WaitForFlowRequest },
-      callback: sendUnaryData<WaitForFlowResponse>,
+      callback: sendUnaryData<ProtoFlowResult>,
     ) {
       const results = [
         {
@@ -134,6 +135,10 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
           ? ProtoFlowErrorType.FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW
           : ProtoFlowErrorType.FLOW_ERROR_TYPE_UNSPECIFIED,
         errorMessage: call.request.flowId === "failed" ? "failed by test" : "",
+        flowId: call.request.flowId,
+        runId: "run-1",
+        startResolution:
+          SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED,
       });
     },
     loadBlobs(call, callback: sendUnaryData<LoadBlobsResponse>) {

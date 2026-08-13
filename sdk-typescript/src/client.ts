@@ -35,8 +35,8 @@ import {
   WaitForMethodFailurePolicy,
   type FlowServiceClient as FlowServiceClientType,
   type FlowConfig as ProtoFlowConfig,
+  type FlowResult as ProtoFlowResult,
   type IndexConfig,
-  type WaitForFlowResponse,
   type WaitForStepCompletionResponse,
 } from "./gen/dex.js";
 import type { Empty } from "./gen/google/protobuf/empty.js";
@@ -501,7 +501,7 @@ export class Client {
     flowId: string,
     timeoutMs?: number,
   ): Promise<WaitForFlowResult> {
-    const response = await unary<WaitForFlowResponse>(
+    const response = await unary<ProtoFlowResult>(
       { operation: "waitForFlow", flowId, requirement: "existing" },
       (callback) =>
         this.service.waitForFlow(

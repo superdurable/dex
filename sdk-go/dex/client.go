@@ -636,7 +636,7 @@ func (client *Client) flowRunID(ctx context.Context, flowID string) (string, err
 	return response.FlowExecutionId.RunId, nil
 }
 
-func waitForFlowValuePointers(response *dexpb.WaitForFlowResponse) []**dexpb.Value {
+func waitForFlowValuePointers(response *dexpb.FlowResult) []**dexpb.Value {
 	if response == nil {
 		return nil
 	}

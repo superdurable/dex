@@ -269,12 +269,12 @@ func TestClientOptionMapping(t *testing.T) {
 }
 
 func TestResultMappingRejectsUnknownEnumsAndBlobValues(t *testing.T) {
-	_, err := mapWaitForFlowResult(&dexpb.WaitForFlowResponse{
+	_, err := mapWaitForFlowResult(&dexpb.FlowResult{
 		FlowStatus: dexpb.FlowStatus(99),
 	})
 	require.ErrorContains(t, err, "unsupported flow status")
 
-	_, err = mapWaitForFlowResult(&dexpb.WaitForFlowResponse{
+	_, err = mapWaitForFlowResult(&dexpb.FlowResult{
 		FlowStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
 		Results: []*dexpb.StepCompletionOutput{{
 			CompletedStepOutput: &dexpb.Value{
