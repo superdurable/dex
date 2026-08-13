@@ -43,6 +43,13 @@ root and commit every resulting change. Proto-changing PRs must refresh all
 checked-in generated code across the server and SDKs. Do not use component-only
 codegen targets for these PRs; they leave stale outputs for the next PR.
 
+### Do Not Reserve Proto Fields Before Launch
+
+Do not add `reserved` field numbers or names to `.proto` files. The project has
+not launched, so removed fields do not need compatibility protection. Delete the
+field and renumber the remaining fields in that message into contiguous order,
+then regenerate the entire repository.
+
 ### License Headers
 
 Every new or edited `.go` / `.java` / `.py` / `.rs` / `.proto` file, Web

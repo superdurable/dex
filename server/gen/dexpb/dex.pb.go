@@ -4376,8 +4376,8 @@ func (x *StepMethodPendingEvent) GetPhase() PendingStepMethodPhase {
 type StepMethodFailure struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	BackendError  string                 `protobuf:"bytes,1,opt,name=backend_error,json=backendError,proto3" json:"backend_error,omitempty"`
-	Details       *ErrorResponse         `protobuf:"bytes,5,opt,name=details,proto3" json:"details,omitempty"`
-	Attempt       int32                  `protobuf:"varint,6,opt,name=attempt,proto3" json:"attempt,omitempty"`
+	Details       *ErrorResponse         `protobuf:"bytes,2,opt,name=details,proto3" json:"details,omitempty"`
+	Attempt       int32                  `protobuf:"varint,3,opt,name=attempt,proto3" json:"attempt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10190,10 +10190,9 @@ const file_dex_proto_rawDesc = "" +
 	" \x01(\x0e2\x13.dex.StepDurabilityR\x19waitForDurabilityOverride\x12S\n" +
 	"\x1bexecute_durability_override\x18\v \x01(\x0e2\x13.dex.StepDurabilityR\x19executeDurabilityOverride\x12>\n" +
 	"\x1cwait_for_lock_attribute_keys\x18\f \x03(\tR\x18waitForLockAttributeKeys\x12=\n" +
-	"\x1bexecute_lock_attribute_keys\x18\r \x03(\tR\x18executeLockAttributeKeys\"n\n" +
+	"\x1bexecute_lock_attribute_keys\x18\r \x03(\tR\x18executeLockAttributeKeys\"\\\n" +
 	"\x19FlowAlreadyStartedOptions\x12?\n" +
-	"\x1cignore_already_started_error\x18\x01 \x01(\bR\x19ignoreAlreadyStartedErrorJ\x04\b\x02\x10\x03R\n" +
-	"request_id\"\xbe\x03\n" +
+	"\x1cignore_already_started_error\x18\x01 \x01(\bR\x19ignoreAlreadyStartedError\"\xbe\x03\n" +
 	"\x10FlowStartOptions\x12:\n" +
 	"\x0fid_reuse_policy\x18\x01 \x01(\x0e2\x12.dex.IdReusePolicyR\ridReusePolicy\x12#\n" +
 	"\rcron_schedule\x18\x02 \x01(\tR\fcronSchedule\x127\n" +
@@ -10408,12 +10407,11 @@ const file_dex_proto_rawDesc = "" +
 	"\x16StepMethodPendingEvent\x12/\n" +
 	"\x05input\x18\x01 \x01(\v2\x19.dex.StepMethodEventInputR\x05input\x125\n" +
 	"\acontext\x18\x02 \x01(\v2\x1b.dex.StepMethodEventContextR\acontext\x121\n" +
-	"\x05phase\x18\x03 \x01(\x0e2\x1b.dex.PendingStepMethodPhaseR\x05phase\"\xc1\x01\n" +
+	"\x05phase\x18\x03 \x01(\x0e2\x1b.dex.PendingStepMethodPhaseR\x05phase\"\x80\x01\n" +
 	"\x11StepMethodFailure\x12#\n" +
 	"\rbackend_error\x18\x01 \x01(\tR\fbackendError\x12,\n" +
-	"\adetails\x18\x05 \x01(\v2\x12.dex.ErrorResponseR\adetails\x12\x18\n" +
-	"\aattempt\x18\x06 \x01(\x05R\aattemptJ\x04\b\x02\x10\x03J\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\amessageR\n" +
-	"error_typeR\vstack_traceR\vretry_state\"q\n" +
+	"\adetails\x18\x02 \x01(\v2\x12.dex.ErrorResponseR\adetails\x12\x18\n" +
+	"\aattempt\x18\x03 \x01(\x05R\aattempt\"q\n" +
 	"\x11StepMethodOptions\x12'\n" +
 	"\x0ftimeout_seconds\x18\x01 \x01(\x05R\x0etimeoutSeconds\x123\n" +
 	"\fretry_policy\x18\x02 \x01(\v2\x10.dex.RetryPolicyR\vretryPolicy\"\x8d\x02\n" +
@@ -10590,7 +10588,7 @@ const file_dex_proto_rawDesc = "" +
 	"HealthInfo\x12\x1c\n" +
 	"\tcondition\x18\x01 \x01(\tR\tcondition\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x1a\n" +
-	"\bduration\x18\x03 \x01(\x05R\bduration\"\x95\x03\n" +
+	"\bduration\x18\x03 \x01(\x05R\bduration\"\xe4\x02\n" +
 	"\rErrorResponse\x12\x16\n" +
 	"\x06detail\x18\x01 \x01(\tR\x06detail\x122\n" +
 	"\n" +
@@ -10598,7 +10596,7 @@ const file_dex_proto_rawDesc = "" +
 	"\x1coriginal_worker_error_detail\x18\x03 \x01(\tR\x19originalWorkerErrorDetail\x12;\n" +
 	"\x1aoriginal_worker_error_type\x18\x04 \x01(\tR\x17originalWorkerErrorType\x12?\n" +
 	"\x1coriginal_worker_error_status\x18\x05 \x01(\x05R\x19originalWorkerErrorStatus\x12H\n" +
-	"!original_worker_error_stack_trace\x18\x06 \x01(\tR\x1doriginalWorkerErrorStackTraceJ\x04\b\a\x10\bJ\x04\b\b\x10\tR#original_worker_retry_after_seconds\"\x9d\x01\n" +
+	"!original_worker_error_stack_trace\x18\x06 \x01(\tR\x1doriginalWorkerErrorStackTrace\"\x9d\x01\n" +
 	"\x13WorkerErrorResponse\x12\x16\n" +
 	"\x06detail\x18\x01 \x01(\tR\x06detail\x12\x1d\n" +
 	"\n" +
@@ -10791,16 +10789,16 @@ const file_dex_proto_rawDesc = "" +
 	"\x1dBlobStoreCleanupWorkflowInput\x12\x19\n" +
 	"\bstore_id\x18\x01 \x01(\tR\astoreId\"E\n" +
 	"\x1eBlobStoreCleanupWorkflowOutput\x12#\n" +
-	"\rtotal_deleted\x18\x01 \x01(\x05R\ftotalDeleted\"\xaa\x01\n" +
+	"\rtotal_deleted\x18\x01 \x01(\x05R\ftotalDeleted\"\x95\x01\n" +
 	" InvokeWaitForMethodActivityInput\x126\n" +
 	"\rworker_target\x18\x01 \x01(\v2\x11.dex.WorkerTargetR\fworkerTarget\x129\n" +
-	"\arequest\x18\x02 \x01(\v2\x1f.dex.InvokeWaitForMethodRequestR\arequestJ\x04\b\x03\x10\x04R\rretry_context\"a\n" +
+	"\arequest\x18\x02 \x01(\v2\x1f.dex.InvokeWaitForMethodRequestR\arequest\"a\n" +
 	"!InvokeWaitForMethodActivityOutput\x12<\n" +
-	"\bresponse\x18\x01 \x01(\v2 .dex.InvokeWaitForMethodResponseR\bresponse\"\xd6\x01\n" +
+	"\bresponse\x18\x01 \x01(\v2 .dex.InvokeWaitForMethodResponseR\bresponse\"\xc1\x01\n" +
 	" InvokeExecuteMethodActivityInput\x126\n" +
 	"\rworker_target\x18\x01 \x01(\v2\x11.dex.WorkerTargetR\fworkerTarget\x129\n" +
 	"\arequest\x18\x02 \x01(\v2\x1f.dex.InvokeExecuteMethodRequestR\arequest\x12*\n" +
-	"\x11is_transient_step\x18\x03 \x01(\bR\x0fisTransientStepJ\x04\b\x04\x10\x05R\rretry_context\"J\n" +
+	"\x11is_transient_step\x18\x03 \x01(\bR\x0fisTransientStep\"J\n" +
 	"\x11RecoveryErrorInfo\x12\x16\n" +
 	"\x06detail\x18\x01 \x01(\tR\x06detail\x12\x1d\n" +
 	"\n" +
