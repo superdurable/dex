@@ -80,7 +80,7 @@ impl WorkerDispatcher {
             })?;
             let (attributes, locals, events, publications) = context.take_outputs();
             Ok(InvokeWaitForMethodResponse {
-                local_activity_input: None,
+                local_activity_metadata: None,
                 upsert_attributes: attributes,
                 waiting_condition,
                 upsert_step_exe_locals: locals,
@@ -127,7 +127,7 @@ impl WorkerDispatcher {
             })?;
             let (attributes, locals, events, publications) = context.take_outputs();
             Ok(InvokeExecuteMethodResponse {
-                local_activity_input: None,
+                local_activity_metadata: None,
                 step_decision: Some(decision),
                 upsert_attributes: attributes,
                 record_events: events,

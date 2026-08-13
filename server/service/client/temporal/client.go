@@ -1045,15 +1045,19 @@ func (t *temporalClient) temporalLocalStepFailure(
 	if len(payloads) == 0 {
 		return stepFailure, nil, nil
 	}
-	localError := &dexpb.InternalLocalStepActivityError{}
-	if err := t.dataConverter.FromPayload(payloads[0], localError); err != nil {
-		return nil, nil, fmt.Errorf("decode local step failure details: %w", err)
+	if len(payloads) < 2 {
+		return nil, nil, fmt.Errorf("local step failure metadata is missing")
 	}
-	if localError.GetErrorResponse() == nil || localError.GetFailure() == nil {
-		return nil, nil, fmt.Errorf("local step failure details are incomplete")
+	errorResponse := &dexpb.ErrorResponse{}
+	if err := t.dataConverter.FromPayload(payloads[0], errorResponse); err != nil {
+		return nil, nil, fmt.Errorf("decode local step error response: %w", err)
 	}
-	stepFailure.Details = localError.GetErrorResponse()
-	return stepFailure, localError.GetFailure(), nil
+	metadata := &dexpb.InternalLocalStepActivityFailure{}
+	if err := t.dataConverter.FromPayload(payloads[1], metadata); err != nil {
+		return nil, nil, fmt.Errorf("decode local step failure metadata: %w", err)
+	}
+	stepFailure.Details = errorResponse
+	return stepFailure, metadata, nil
 }
 
 func temporalStepFailureFromBackend(failure *failurepb.Failure) *dexpb.StepMethodFailure {

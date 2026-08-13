@@ -238,17 +238,6 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int ORIGINAL_WORKER_RETRY_AFTER_SECONDS_FIELD_NUMBER = 7;
-  private int originalWorkerRetryAfterSeconds_ = 0;
-  /**
-   * <code>int32 original_worker_retry_after_seconds = 7;</code>
-   * @return The originalWorkerRetryAfterSeconds.
-   */
-  @java.lang.Override
-  public int getOriginalWorkerRetryAfterSeconds() {
-    return originalWorkerRetryAfterSeconds_;
-  }
-
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -281,9 +270,6 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(originalWorkerErrorStackTrace_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 6, originalWorkerErrorStackTrace_);
     }
-    if (originalWorkerRetryAfterSeconds_ != 0) {
-      output.writeInt32(7, originalWorkerRetryAfterSeconds_);
-    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -307,10 +293,6 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(originalWorkerErrorStackTrace_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(6, originalWorkerErrorStackTrace_);
-    }
-    if (originalWorkerRetryAfterSeconds_ != 0) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(7, originalWorkerRetryAfterSeconds_);
     }
     return size;
   }
@@ -347,8 +329,6 @@ private static final long serialVersionUID = 0L;
         != other.getOriginalWorkerErrorStatus()) return false;
     if (!getOriginalWorkerErrorStackTrace()
         .equals(other.getOriginalWorkerErrorStackTrace())) return false;
-    if (getOriginalWorkerRetryAfterSeconds()
-        != other.getOriginalWorkerRetryAfterSeconds()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -372,8 +352,6 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getOriginalWorkerErrorStatus();
     hash = (37 * hash) + ORIGINAL_WORKER_ERROR_STACK_TRACE_FIELD_NUMBER;
     hash = (53 * hash) + getOriginalWorkerErrorStackTrace().hashCode();
-    hash = (37 * hash) + ORIGINAL_WORKER_RETRY_AFTER_SECONDS_FIELD_NUMBER;
-    hash = (53 * hash) + getOriginalWorkerRetryAfterSeconds();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -511,7 +489,6 @@ private static final long serialVersionUID = 0L;
       originalWorkerErrorType_ = "";
       originalWorkerErrorStatus_ = 0;
       originalWorkerErrorStackTrace_ = "";
-      originalWorkerRetryAfterSeconds_ = 0;
       return this;
     }
 
@@ -563,9 +540,6 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000020) != 0)) {
         result.originalWorkerErrorStackTrace_ = originalWorkerErrorStackTrace_;
       }
-      if (((from_bitField0_ & 0x00000040) != 0)) {
-        result.originalWorkerRetryAfterSeconds_ = originalWorkerRetryAfterSeconds_;
-      }
     }
 
     @java.lang.Override
@@ -605,9 +579,6 @@ private static final long serialVersionUID = 0L;
         originalWorkerErrorStackTrace_ = other.originalWorkerErrorStackTrace_;
         bitField0_ |= 0x00000020;
         onChanged();
-      }
-      if (other.getOriginalWorkerRetryAfterSeconds() != 0) {
-        setOriginalWorkerRetryAfterSeconds(other.getOriginalWorkerRetryAfterSeconds());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -665,11 +636,6 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000020;
               break;
             } // case 50
-            case 56: {
-              originalWorkerRetryAfterSeconds_ = input.readInt32();
-              bitField0_ |= 0x00000040;
-              break;
-            } // case 56
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1055,38 +1021,6 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       originalWorkerErrorStackTrace_ = value;
       bitField0_ |= 0x00000020;
-      onChanged();
-      return this;
-    }
-
-    private int originalWorkerRetryAfterSeconds_ ;
-    /**
-     * <code>int32 original_worker_retry_after_seconds = 7;</code>
-     * @return The originalWorkerRetryAfterSeconds.
-     */
-    @java.lang.Override
-    public int getOriginalWorkerRetryAfterSeconds() {
-      return originalWorkerRetryAfterSeconds_;
-    }
-    /**
-     * <code>int32 original_worker_retry_after_seconds = 7;</code>
-     * @param value The originalWorkerRetryAfterSeconds to set.
-     * @return This builder for chaining.
-     */
-    public Builder setOriginalWorkerRetryAfterSeconds(int value) {
-
-      originalWorkerRetryAfterSeconds_ = value;
-      bitField0_ |= 0x00000040;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>int32 original_worker_retry_after_seconds = 7;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearOriginalWorkerRetryAfterSeconds() {
-      bitField0_ = (bitField0_ & ~0x00000040);
-      originalWorkerRetryAfterSeconds_ = 0;
       onChanged();
       return this;
     }

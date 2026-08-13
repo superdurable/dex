@@ -39,14 +39,16 @@ type Builder struct {
 }
 
 type scheduledActivity struct {
-	scheduledTime    time.Time
-	durability       dexpb.StepDurability
-	methodOptions    *dexpb.StepMethodOptions
-	waitInput        *dexpb.InvokeWaitForMethodActivityInput
-	executeInput     *dexpb.InvokeExecuteMethodActivityInput
-	firstStartedTime time.Time
-	finalAttempt     int32
-	lastFailure      *dexpb.StepMethodFailure
+	scheduledTime     time.Time
+	durability        dexpb.StepDurability
+	methodOptions     *dexpb.StepMethodOptions
+	waitInput         *dexpb.InvokeWaitForMethodActivityInput
+	executeInput      *dexpb.InvokeExecuteMethodActivityInput
+	firstStartedTime  time.Time
+	firstAttemptTime  time.Time
+	priorAttemptCount int32
+	finalAttempt      int32
+	lastFailure       *dexpb.StepMethodFailure
 }
 
 type pendingLocalActivityFailure struct {
@@ -123,10 +125,21 @@ func (b *Builder) RecordWaitScheduled(
 	durability dexpb.StepDurability,
 	methodOptions *dexpb.StepMethodOptions,
 ) {
-	if input.GetRetryContext().GetPreviousAttempts() > 0 {
+	if metadata := b.takeLocalFailure(
+		blobstore.StepEventInputMethodWaitFor,
+		input.GetRequest().GetContext().GetStepExecutionId(),
+	); metadata != nil {
 		durability = dexpb.StepDurability_STEP_DURABILITY_ASYNC
-		methodOptions = input.GetRetryContext().GetOriginalMethodOptions()
-		b.discardLocalFailure(blobstore.StepEventInputMethodWaitFor, input.GetRequest().GetContext().GetStepExecutionId())
+		methodOptions = metadata.GetMethodOptions()
+		b.scheduledActivities[eventID] = &scheduledActivity{
+			scheduledTime:     eventTime,
+			durability:        durability,
+			methodOptions:     methodOptions,
+			waitInput:         input,
+			firstAttemptTime:  time.Unix(metadata.GetFirstAttemptTimestamp(), 0),
+			priorAttemptCount: metadata.GetAttempt(),
+		}
+		return
 	}
 	b.scheduledActivities[eventID] = &scheduledActivity{
 		scheduledTime: eventTime,
@@ -143,10 +156,21 @@ func (b *Builder) RecordExecuteScheduled(
 	durability dexpb.StepDurability,
 	methodOptions *dexpb.StepMethodOptions,
 ) {
-	if input.GetRetryContext().GetPreviousAttempts() > 0 {
+	if metadata := b.takeLocalFailure(
+		blobstore.StepEventInputMethodExecute,
+		input.GetRequest().GetContext().GetStepExecutionId(),
+	); metadata != nil {
 		durability = dexpb.StepDurability_STEP_DURABILITY_ASYNC
-		methodOptions = input.GetRetryContext().GetOriginalMethodOptions()
-		b.discardLocalFailure(blobstore.StepEventInputMethodExecute, input.GetRequest().GetContext().GetStepExecutionId())
+		methodOptions = metadata.GetMethodOptions()
+		b.scheduledActivities[eventID] = &scheduledActivity{
+			scheduledTime:     eventTime,
+			durability:        durability,
+			methodOptions:     methodOptions,
+			executeInput:      input,
+			firstAttemptTime:  time.Unix(metadata.GetFirstAttemptTimestamp(), 0),
+			priorAttemptCount: metadata.GetAttempt(),
+		}
+		return
 	}
 	b.scheduledActivities[eventID] = &scheduledActivity{
 		scheduledTime: eventTime,
@@ -190,13 +214,13 @@ func (b *Builder) RecordLocalActivityFailed(
 	failure *dexpb.StepMethodFailure,
 	metadata *dexpb.InternalLocalStepActivityFailure,
 ) {
-	if metadata.GetLocalActivityInput().GetCurrentStepExecutionId() == "" {
+	if metadata.GetLocalActivityMetadata().GetCurrentStepExecutionId() == "" {
 		return
 	}
 	failure.Attempt = metadata.GetAttempt()
 	b.pendingLocalFailures[localFailureKey(
 		method,
-		metadata.GetLocalActivityInput().GetCurrentStepExecutionId(),
+		metadata.GetLocalActivityMetadata().GetCurrentStepExecutionId(),
 	)] = &pendingLocalActivityFailure{
 		eventID:   eventID,
 		eventTime: eventTime,
@@ -356,7 +380,7 @@ func (b *Builder) RecordLocalWaitCompleted(
 			StepWaitForCompleted: &dexpb.StepWaitForCompletedEvent{
 				Output: waitCompletedOutput(response),
 				Context: localStepMethodEventContext(
-					response.GetLocalActivityInput(),
+					response.GetLocalActivityMetadata(),
 					false,
 					finalAttempt,
 				),
@@ -372,8 +396,8 @@ func (b *Builder) RecordLocalExecuteCompleted(
 	finalAttempt int32,
 ) {
 	response := output.GetResponse()
-	localInput := response.GetLocalActivityInput()
-	isTransient := b.consumeTransientStep(localInput)
+	localMetadata := response.GetLocalActivityMetadata()
+	isTransient := b.consumeTransientStep(localMetadata)
 	b.events = append(b.events, newEvent(
 		eventID,
 		eventTime,
@@ -381,7 +405,7 @@ func (b *Builder) RecordLocalExecuteCompleted(
 			StepExecuteCompleted: &dexpb.StepExecuteCompletedEvent{
 				Output: executeCompletedOutput(response),
 				Context: localStepMethodEventContext(
-					localInput,
+					localMetadata,
 					isTransient,
 					finalAttempt,
 				),
@@ -521,20 +545,24 @@ func (b *Builder) EventsInRange(
 func (b *Builder) flushLocalFailures() {
 	for key, pending := range b.pendingLocalFailures {
 		metadata := pending.metadata
-		localInput := metadata.GetLocalActivityInput()
-		startedTime := time.Unix(metadata.GetRetryContext().GetFirstAttemptTimestamp(), 0)
+		localMetadata := metadata.GetLocalActivityMetadata()
+		startedTime := time.Unix(metadata.GetFirstAttemptTimestamp(), 0)
+		isTransient := false
+		if pending.method == blobstore.StepEventInputMethodExecute {
+			isTransient = b.consumeTransientStep(localMetadata)
+		}
 		context := stepMethodEventContext(
 			&dexpb.Context{
-				StepExecutionId:     localInput.GetCurrentStepExecutionId(),
-				FromStepExecutionId: localInput.GetFromStepExecutionId(),
+				StepExecutionId:     localMetadata.GetCurrentStepExecutionId(),
+				FromStepExecutionId: localMetadata.GetFromStepExecutionId(),
 			},
-			metadata.GetStepType(),
+			stepTypeFromExecutionID(localMetadata.GetCurrentStepExecutionId()),
 			dexpb.StepDurability_STEP_DURABILITY_ASYNC,
-			metadata.GetIsTransientStep(),
+			isTransient,
 			startedTime,
 			pending.eventTime,
 			metadata.GetAttempt(),
-			metadata.GetRetryContext().GetOriginalMethodOptions(),
+			metadata.GetMethodOptions(),
 			nil,
 		)
 		switch pending.method {
@@ -565,8 +593,17 @@ func (b *Builder) flushLocalFailures() {
 	}
 }
 
-func (b *Builder) discardLocalFailure(method string, stepExecutionID string) {
-	delete(b.pendingLocalFailures, localFailureKey(method, stepExecutionID))
+func (b *Builder) takeLocalFailure(
+	method string,
+	stepExecutionID string,
+) *dexpb.InternalLocalStepActivityFailure {
+	key := localFailureKey(method, stepExecutionID)
+	pending := b.pendingLocalFailures[key]
+	delete(b.pendingLocalFailures, key)
+	if pending == nil {
+		return nil
+	}
+	return pending.metadata
 }
 
 func localFailureKey(method string, stepExecutionID string) string {
@@ -655,8 +692,8 @@ func (s *scheduledActivity) pendingStepMethodEvent(
 
 func (s *scheduledActivity) executionTiming() (time.Time, int32) {
 	startedTime := s.firstStartedTime
-	if firstAttemptTimestamp := s.retryContext().GetFirstAttemptTimestamp(); firstAttemptTimestamp > 0 {
-		startedTime = time.Unix(firstAttemptTimestamp, 0)
+	if !s.firstAttemptTime.IsZero() {
+		startedTime = s.firstAttemptTime
 	}
 	if startedTime.IsZero() {
 		startedTime = s.scheduledTime
@@ -677,17 +714,7 @@ func (s *scheduledActivity) executionTiming() (time.Time, int32) {
 }
 
 func (s *scheduledActivity) previousAttempts() int32 {
-	return s.retryContext().GetPreviousAttempts()
-}
-
-func (s *scheduledActivity) retryContext() *dexpb.InternalStepActivityRetryContext {
-	if s.waitInput != nil {
-		return s.waitInput.GetRetryContext()
-	}
-	if s.executeInput != nil {
-		return s.executeInput.GetRetryContext()
-	}
-	return nil
+	return s.priorAttemptCount
 }
 
 func (b *Builder) recordTransientStep(movement *dexpb.StepMovement) {
@@ -700,7 +727,7 @@ func (b *Builder) recordTransientStep(movement *dexpb.StepMovement) {
 	)] = true
 }
 
-func (b *Builder) consumeTransientStep(input *dexpb.LocalActivityInput) bool {
+func (b *Builder) consumeTransientStep(input *dexpb.LocalActivityMetadata) bool {
 	key := transientStepKey(
 		input.GetFromStepExecutionId(),
 		stepTypeFromExecutionID(input.GetCurrentStepExecutionId()),
@@ -815,7 +842,7 @@ func stepMethodEventContext(
 }
 
 func localStepMethodEventContext(
-	input *dexpb.LocalActivityInput,
+	input *dexpb.LocalActivityMetadata,
 	isTransient bool,
 	finalAttempt int32,
 ) *dexpb.StepMethodEventContext {

@@ -251,13 +251,13 @@ private static final long serialVersionUID = 0L;
   }
 
   public static final int RECOVERY_ERROR_FIELD_NUMBER = 8;
-  private io.superdurable.gen.WorkerErrorResponse recoveryError_;
+  private io.superdurable.gen.RecoveryErrorInfo recoveryError_;
   /**
    * <pre>
    * Previous Step method failure supplied only to its configured recovery method.
    * </pre>
    *
-   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
    * @return Whether the recoveryError field is set.
    */
   @java.lang.Override
@@ -269,23 +269,23 @@ private static final long serialVersionUID = 0L;
    * Previous Step method failure supplied only to its configured recovery method.
    * </pre>
    *
-   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
    * @return The recoveryError.
    */
   @java.lang.Override
-  public io.superdurable.gen.WorkerErrorResponse getRecoveryError() {
-    return recoveryError_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryError_;
+  public io.superdurable.gen.RecoveryErrorInfo getRecoveryError() {
+    return recoveryError_ == null ? io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance() : recoveryError_;
   }
   /**
    * <pre>
    * Previous Step method failure supplied only to its configured recovery method.
    * </pre>
    *
-   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorOrBuilder() {
-    return recoveryError_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryError_;
+  public io.superdurable.gen.RecoveryErrorInfoOrBuilder getRecoveryErrorOrBuilder() {
+    return recoveryError_ == null ? io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance() : recoveryError_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -1178,15 +1178,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private io.superdurable.gen.WorkerErrorResponse recoveryError_;
+    private io.superdurable.gen.RecoveryErrorInfo recoveryError_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder> recoveryErrorBuilder_;
+        io.superdurable.gen.RecoveryErrorInfo, io.superdurable.gen.RecoveryErrorInfo.Builder, io.superdurable.gen.RecoveryErrorInfoOrBuilder> recoveryErrorBuilder_;
     /**
      * <pre>
      * Previous Step method failure supplied only to its configured recovery method.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
      * @return Whether the recoveryError field is set.
      */
     public boolean hasRecoveryError() {
@@ -1197,12 +1197,12 @@ private static final long serialVersionUID = 0L;
      * Previous Step method failure supplied only to its configured recovery method.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
      * @return The recoveryError.
      */
-    public io.superdurable.gen.WorkerErrorResponse getRecoveryError() {
+    public io.superdurable.gen.RecoveryErrorInfo getRecoveryError() {
       if (recoveryErrorBuilder_ == null) {
-        return recoveryError_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryError_;
+        return recoveryError_ == null ? io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance() : recoveryError_;
       } else {
         return recoveryErrorBuilder_.getMessage();
       }
@@ -1212,9 +1212,9 @@ private static final long serialVersionUID = 0L;
      * Previous Step method failure supplied only to its configured recovery method.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
      */
-    public Builder setRecoveryError(io.superdurable.gen.WorkerErrorResponse value) {
+    public Builder setRecoveryError(io.superdurable.gen.RecoveryErrorInfo value) {
       if (recoveryErrorBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -1232,10 +1232,10 @@ private static final long serialVersionUID = 0L;
      * Previous Step method failure supplied only to its configured recovery method.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
      */
     public Builder setRecoveryError(
-        io.superdurable.gen.WorkerErrorResponse.Builder builderForValue) {
+        io.superdurable.gen.RecoveryErrorInfo.Builder builderForValue) {
       if (recoveryErrorBuilder_ == null) {
         recoveryError_ = builderForValue.build();
       } else {
@@ -1250,13 +1250,13 @@ private static final long serialVersionUID = 0L;
      * Previous Step method failure supplied only to its configured recovery method.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
      */
-    public Builder mergeRecoveryError(io.superdurable.gen.WorkerErrorResponse value) {
+    public Builder mergeRecoveryError(io.superdurable.gen.RecoveryErrorInfo value) {
       if (recoveryErrorBuilder_ == null) {
         if (((bitField0_ & 0x00000080) != 0) &&
           recoveryError_ != null &&
-          recoveryError_ != io.superdurable.gen.WorkerErrorResponse.getDefaultInstance()) {
+          recoveryError_ != io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance()) {
           getRecoveryErrorBuilder().mergeFrom(value);
         } else {
           recoveryError_ = value;
@@ -1275,7 +1275,7 @@ private static final long serialVersionUID = 0L;
      * Previous Step method failure supplied only to its configured recovery method.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
      */
     public Builder clearRecoveryError() {
       bitField0_ = (bitField0_ & ~0x00000080);
@@ -1292,9 +1292,9 @@ private static final long serialVersionUID = 0L;
      * Previous Step method failure supplied only to its configured recovery method.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
      */
-    public io.superdurable.gen.WorkerErrorResponse.Builder getRecoveryErrorBuilder() {
+    public io.superdurable.gen.RecoveryErrorInfo.Builder getRecoveryErrorBuilder() {
       bitField0_ |= 0x00000080;
       onChanged();
       return internalGetRecoveryErrorFieldBuilder().getBuilder();
@@ -1304,14 +1304,14 @@ private static final long serialVersionUID = 0L;
      * Previous Step method failure supplied only to its configured recovery method.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
      */
-    public io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorOrBuilder() {
+    public io.superdurable.gen.RecoveryErrorInfoOrBuilder getRecoveryErrorOrBuilder() {
       if (recoveryErrorBuilder_ != null) {
         return recoveryErrorBuilder_.getMessageOrBuilder();
       } else {
         return recoveryError_ == null ?
-            io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryError_;
+            io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance() : recoveryError_;
       }
     }
     /**
@@ -1319,14 +1319,14 @@ private static final long serialVersionUID = 0L;
      * Previous Step method failure supplied only to its configured recovery method.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder> 
+        io.superdurable.gen.RecoveryErrorInfo, io.superdurable.gen.RecoveryErrorInfo.Builder, io.superdurable.gen.RecoveryErrorInfoOrBuilder> 
         internalGetRecoveryErrorFieldBuilder() {
       if (recoveryErrorBuilder_ == null) {
         recoveryErrorBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder>(
+            io.superdurable.gen.RecoveryErrorInfo, io.superdurable.gen.RecoveryErrorInfo.Builder, io.superdurable.gen.RecoveryErrorInfoOrBuilder>(
                 getRecoveryError(),
                 getParentForChildren(),
                 isClean());

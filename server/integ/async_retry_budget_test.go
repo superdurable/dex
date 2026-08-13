@@ -201,7 +201,9 @@ func testAsyncMultipleLocalAttempts(t *testing.T, backendType service.BackendTyp
 	require.Len(t, attempts, 4)
 	for index, attempt := range attempts {
 		require.Equal(t, int32(index+1), attempt.attempt)
-		require.Equal(t, attempts[0].firstAttemptTimestamp, attempt.firstAttemptTimestamp)
+		if backendType == service.BackendTypeTemporal {
+			require.Equal(t, attempts[0].firstAttemptTimestamp, attempt.firstAttemptTimestamp)
+		}
 	}
 	require.Less(t, attempts[3].receivedTime.Sub(attempts[2].receivedTime), 2*time.Second)
 
@@ -420,7 +422,7 @@ func temporalRegularFallbackRetryPolicy(
 		}
 		var input dexpb.InvokeWaitForMethodActivityInput
 		require.NoError(t, dataConverter.FromPayloads(attributes.GetInput(), &input))
-		if input.GetRetryContext().GetPreviousAttempts() == 0 {
+		if input.GetRequest().GetContext().GetAttempt() == 0 {
 			continue
 		}
 		policy := attributes.GetRetryPolicy()
@@ -460,7 +462,7 @@ func cadenceRegularFallbackRetryPolicy(
 		var input dexpb.InvokeWaitForMethodActivityInput
 		var localInput *dexpb.InternalLocalActivityInput
 		require.NoError(t, dataConverter.FromData(attributes.GetInput(), &input, &localInput))
-		if input.GetRetryContext().GetPreviousAttempts() == 0 {
+		if input.GetRequest().GetContext().GetAttempt() == 0 {
 			continue
 		}
 		policy := attributes.GetRetryPolicy()

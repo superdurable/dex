@@ -1,5 +1,9 @@
-// Legacy Materials in this file remain under their original licenses.
-// See LEGACY_NOTICES.md.
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+
+// Modifications after the Legacy Cutoff are licensed under the
+// Super Durable Source License 1.0.
+// Legacy Materials remain under their original licenses.
+// See LICENSE and LEGACY_NOTICES.md.
 
 // Modifications Copyright (c) 2026 Super Durable, Inc.
 //
@@ -75,42 +79,31 @@ func (mr *MockActivityProviderMockRecorder) GetLogger(ctx interface{}) *gomock.C
 }
 
 // NewFlowError mocks base method.
-func (m *MockActivityProvider) NewFlowError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse) error {
+func (m *MockActivityProvider) NewFlowError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse, retryAfterSeconds int32) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewFlowError", errType, errorResponse)
+	ret := m.ctrl.Call(m, "NewFlowError", errType, errorResponse, retryAfterSeconds)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // NewFlowError indicates an expected call of NewFlowError.
-func (mr *MockActivityProviderMockRecorder) NewFlowError(errType, errorResponse interface{}) *gomock.Call {
+func (mr *MockActivityProviderMockRecorder) NewFlowError(errType, errorResponse, retryAfterSeconds interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockActivityProvider)(nil).NewFlowError), errType, errorResponse)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockActivityProvider)(nil).NewFlowError), errType, errorResponse, retryAfterSeconds)
 }
 
 // NewLocalActivityError mocks base method.
-func (m *MockActivityProvider) NewLocalActivityError(
-	errType dexpb.FlowErrorType,
-	localError *dexpb.InternalLocalStepActivityError,
-) error {
+func (m *MockActivityProvider) NewLocalActivityError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse, failure *dexpb.InternalLocalStepActivityFailure, retryAfterSeconds int32) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewLocalActivityError", errType, localError)
+	ret := m.ctrl.Call(m, "NewLocalActivityError", errType, errorResponse, failure, retryAfterSeconds)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // NewLocalActivityError indicates an expected call of NewLocalActivityError.
-func (mr *MockActivityProviderMockRecorder) NewLocalActivityError(
-	errType, localError interface{},
-) *gomock.Call {
+func (mr *MockActivityProviderMockRecorder) NewLocalActivityError(errType, errorResponse, failure, retryAfterSeconds interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(
-		mr.mock,
-		"NewLocalActivityError",
-		reflect.TypeOf((*MockActivityProvider)(nil).NewLocalActivityError),
-		errType,
-		localError,
-	)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewLocalActivityError", reflect.TypeOf((*MockActivityProvider)(nil).NewLocalActivityError), errType, errorResponse, failure, retryAfterSeconds)
 }
 
 // RecordHeartbeat mocks base method.
@@ -294,7 +287,7 @@ func (mr *MockTimerProcessorMockRecorder) AddTimers(stepExeId, timerConditions, 
 }
 
 // Dump mocks base method.
-func (m *MockTimerProcessor) Dump(isStepExecutionActive func(stepExeId string) bool) []*dexpb.StaleSkipTimer {
+func (m *MockTimerProcessor) Dump(isStepExecutionActive func(string) bool) []*dexpb.StaleSkipTimer {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Dump", isStepExecutionActive)
 	ret0, _ := ret[0].([]*dexpb.StaleSkipTimer)
@@ -335,18 +328,6 @@ func (mr *MockTimerProcessorMockRecorder) GetTimerStartedUnixTimestamps() *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTimerStartedUnixTimestamps", reflect.TypeOf((*MockTimerProcessor)(nil).GetTimerStartedUnixTimestamps))
 }
 
-// RemovePendingTimersOfStep mocks base method.
-func (m *MockTimerProcessor) RemovePendingTimersOfStep(stepExeId string) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RemovePendingTimersOfStep", stepExeId)
-}
-
-// RemovePendingTimersOfStep indicates an expected call of RemovePendingTimersOfStep.
-func (mr *MockTimerProcessorMockRecorder) RemovePendingTimersOfStep(stepExeId interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemovePendingTimersOfStep", reflect.TypeOf((*MockTimerProcessor)(nil).RemovePendingTimersOfStep), stepExeId)
-}
-
 // ReapplyStaleSkipTimer mocks base method.
 func (m *MockTimerProcessor) ReapplyStaleSkipTimer() bool {
 	m.ctrl.T.Helper()
@@ -359,6 +340,18 @@ func (m *MockTimerProcessor) ReapplyStaleSkipTimer() bool {
 func (mr *MockTimerProcessorMockRecorder) ReapplyStaleSkipTimer() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReapplyStaleSkipTimer", reflect.TypeOf((*MockTimerProcessor)(nil).ReapplyStaleSkipTimer))
+}
+
+// RemovePendingTimersOfStep mocks base method.
+func (m *MockTimerProcessor) RemovePendingTimersOfStep(stepExeId string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RemovePendingTimersOfStep", stepExeId)
+}
+
+// RemovePendingTimersOfStep indicates an expected call of RemovePendingTimersOfStep.
+func (mr *MockTimerProcessorMockRecorder) RemovePendingTimersOfStep(stepExeId interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemovePendingTimersOfStep", reflect.TypeOf((*MockTimerProcessor)(nil).RemovePendingTimersOfStep), stepExeId)
 }
 
 // SkipTimer mocks base method.
@@ -427,45 +420,17 @@ func (mr *MockWorkflowProviderMockRecorder) Await(ctx, condition interface{}) *g
 }
 
 // ExecuteActivity mocks base method.
-func (m *MockWorkflowProvider) ExecuteActivity(
-	valuePtr interface{},
-	durability dexpb.StepDurability,
-	ctx UnifiedContext,
-	activity interface{},
-	regularInput interface{},
-	localActivityOnlyInput interface{},
-) error {
+func (m *MockWorkflowProvider) ExecuteActivity(valuePtr interface{}, durability dexpb.StepDurability, ctx UnifiedContext, activity, regularInput, localActivityOnlyInput interface{}) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(
-		m,
-		"ExecuteActivity",
-		valuePtr,
-		durability,
-		ctx,
-		activity,
-		regularInput,
-		localActivityOnlyInput,
-	)
+	ret := m.ctrl.Call(m, "ExecuteActivity", valuePtr, durability, ctx, activity, regularInput, localActivityOnlyInput)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // ExecuteActivity indicates an expected call of ExecuteActivity.
-func (mr *MockWorkflowProviderMockRecorder) ExecuteActivity(
-	valuePtr, durability, ctx, activity, regularInput, localActivityOnlyInput interface{},
-) *gomock.Call {
+func (mr *MockWorkflowProviderMockRecorder) ExecuteActivity(valuePtr, durability, ctx, activity, regularInput, localActivityOnlyInput interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(
-		mr.mock,
-		"ExecuteActivity",
-		reflect.TypeOf((*MockWorkflowProvider)(nil).ExecuteActivity),
-		valuePtr,
-		durability,
-		ctx,
-		activity,
-		regularInput,
-		localActivityOnlyInput,
-	)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteActivity", reflect.TypeOf((*MockWorkflowProvider)(nil).ExecuteActivity), valuePtr, durability, ctx, activity, regularInput, localActivityOnlyInput)
 }
 
 // ExecuteLocalActivity mocks base method.
@@ -640,21 +605,6 @@ func (mr *MockWorkflowProviderMockRecorder) IsApplicationError(err interface{}) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsApplicationError", reflect.TypeOf((*MockWorkflowProvider)(nil).IsApplicationError), err)
 }
 
-// MapToWorkerError mocks base method.
-func (m *MockWorkflowProvider) MapToWorkerError(err error) (*dexpb.WorkerErrorResponse, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MapToWorkerError", err)
-	ret0, _ := ret[0].(*dexpb.WorkerErrorResponse)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// MapToWorkerError indicates an expected call of MapToWorkerError.
-func (mr *MockWorkflowProviderMockRecorder) MapToWorkerError(err interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MapToWorkerError", reflect.TypeOf((*MockWorkflowProvider)(nil).MapToWorkerError), err)
-}
-
 // IsContinueAsNewError mocks base method.
 func (m *MockWorkflowProvider) IsContinueAsNewError(err error) bool {
 	m.ctrl.T.Helper()
@@ -681,6 +631,49 @@ func (m *MockWorkflowProvider) IsReplaying(ctx UnifiedContext) bool {
 func (mr *MockWorkflowProviderMockRecorder) IsReplaying(ctx interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsReplaying", reflect.TypeOf((*MockWorkflowProvider)(nil).IsReplaying), ctx)
+}
+
+// MapToRecoveryError mocks base method.
+func (m *MockWorkflowProvider) MapToRecoveryError(err error) (*dexpb.RecoveryErrorInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MapToRecoveryError", err)
+	ret0, _ := ret[0].(*dexpb.RecoveryErrorInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// MapToRecoveryError indicates an expected call of MapToRecoveryError.
+func (mr *MockWorkflowProviderMockRecorder) MapToRecoveryError(err interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MapToRecoveryError", reflect.TypeOf((*MockWorkflowProvider)(nil).MapToRecoveryError), err)
+}
+
+// NewCanceledError mocks base method.
+func (m *MockWorkflowProvider) NewCanceledError(reason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewCanceledError", reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// NewCanceledError indicates an expected call of NewCanceledError.
+func (mr *MockWorkflowProviderMockRecorder) NewCanceledError(reason interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewCanceledError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewCanceledError), reason)
+}
+
+// NewFlowError mocks base method.
+func (m *MockWorkflowProvider) NewFlowError(errType dexpb.FlowErrorType, resp *dexpb.ErrorResponse) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "NewFlowError", errType, resp)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// NewFlowError indicates an expected call of NewFlowError.
+func (mr *MockWorkflowProviderMockRecorder) NewFlowError(errType, resp interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewFlowError), errType, resp)
 }
 
 // NewInterpreterContinueAsNewError mocks base method.
@@ -723,34 +716,6 @@ func (m *MockWorkflowProvider) NewUpdateError(errType dexpb.UpdateErrorType, det
 func (mr *MockWorkflowProviderMockRecorder) NewUpdateError(errType, detail interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewUpdateError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewUpdateError), errType, detail)
-}
-
-// NewFlowError mocks base method.
-func (m *MockWorkflowProvider) NewFlowError(errType dexpb.FlowErrorType, resp *dexpb.ErrorResponse) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewFlowError", errType, resp)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// NewFlowError indicates an expected call of NewFlowError.
-func (mr *MockWorkflowProviderMockRecorder) NewFlowError(errType, resp interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewFlowError), errType, resp)
-}
-
-// NewCanceledError mocks base method.
-func (m *MockWorkflowProvider) NewCanceledError(reason string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "NewCanceledError", reason)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// NewCanceledError indicates an expected call of NewCanceledError.
-func (mr *MockWorkflowProviderMockRecorder) NewCanceledError(reason interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewCanceledError", reflect.TypeOf((*MockWorkflowProvider)(nil).NewCanceledError), reason)
 }
 
 // Now mocks base method.

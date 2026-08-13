@@ -528,10 +528,12 @@ func TestComposeStepWorkerErrorUsesInternalForNonGRPCError(t *testing.T) {
 		NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			gomock.Any(),
+			int32(0),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
 			response *dexpb.ErrorResponse,
+			_ int32,
 		) error {
 			errorResponse = response
 			return activityError
@@ -564,16 +566,20 @@ func TestComposeStepWorkerErrorPreservesWorkerDetails(t *testing.T) {
 
 	activityError := errors.New("activity error")
 	var errorResponse *dexpb.ErrorResponse
+	var retryAfterSeconds int32
 	provider.EXPECT().
 		NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			gomock.Any(),
+			int32(17),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
 			response *dexpb.ErrorResponse,
+			retryAfter int32,
 		) error {
 			errorResponse = response
+			retryAfterSeconds = retryAfter
 			return activityError
 		})
 
@@ -592,7 +598,7 @@ func TestComposeStepWorkerErrorPreservesWorkerDetails(t *testing.T) {
 	require.Equal(t, "worker detail", errorResponse.GetOriginalWorkerErrorDetail())
 	require.Equal(t, "worker type", errorResponse.GetOriginalWorkerErrorType())
 	require.Equal(t, "worker stack", errorResponse.GetOriginalWorkerErrorStackTrace())
-	require.Equal(t, int32(17), errorResponse.GetOriginalWorkerRetryAfterSeconds())
+	require.Equal(t, int32(17), retryAfterSeconds)
 }
 
 func TestComposeStepWorkerErrorRejectsRetryAfterOnCadence(t *testing.T) {
@@ -608,10 +614,12 @@ func TestComposeStepWorkerErrorRejectsRetryAfterOnCadence(t *testing.T) {
 		NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
 			gomock.Any(),
+			int32(0),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
 			response *dexpb.ErrorResponse,
+			_ int32,
 		) error {
 			errorResponse = response
 			return activityError
@@ -643,10 +651,12 @@ func TestComposeStepWorkerErrorFallsBackWhenMessageEmpty(t *testing.T) {
 		NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			gomock.Any(),
+			int32(0),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
 			response *dexpb.ErrorResponse,
+			_ int32,
 		) error {
 			errorResponse = response
 			return activityError
@@ -675,10 +685,12 @@ func TestComposeInternalActivityErrorKeepsGRPCErrorInternal(t *testing.T) {
 		NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			gomock.Any(),
+			int32(0),
 		).
 		DoAndReturn(func(
 			_ dexpb.FlowErrorType,
 			response *dexpb.ErrorResponse,
+			_ int32,
 		) error {
 			errorResponse = response
 			return activityError

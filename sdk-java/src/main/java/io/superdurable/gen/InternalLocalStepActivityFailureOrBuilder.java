@@ -11,55 +11,43 @@ public interface InternalLocalStepActivityFailureOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-   * @return Whether the localActivityInput field is set.
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+   * @return Whether the localActivityMetadata field is set.
    */
-  boolean hasLocalActivityInput();
+  boolean hasLocalActivityMetadata();
   /**
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-   * @return The localActivityInput.
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+   * @return The localActivityMetadata.
    */
-  io.superdurable.gen.LocalActivityInput getLocalActivityInput();
+  io.superdurable.gen.LocalActivityMetadata getLocalActivityMetadata();
   /**
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
    */
-  io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder();
+  io.superdurable.gen.LocalActivityMetadataOrBuilder getLocalActivityMetadataOrBuilder();
 
   /**
-   * <code>string step_type = 2;</code>
-   * @return The stepType.
+   * <code>int64 first_attempt_timestamp = 2;</code>
+   * @return The firstAttemptTimestamp.
    */
-  java.lang.String getStepType();
-  /**
-   * <code>string step_type = 2;</code>
-   * @return The bytes for stepType.
-   */
-  com.google.protobuf.ByteString
-      getStepTypeBytes();
+  long getFirstAttemptTimestamp();
 
   /**
-   * <code>bool is_transient_step = 3;</code>
-   * @return The isTransientStep.
+   * <code>.dex.StepMethodOptions method_options = 3;</code>
+   * @return Whether the methodOptions field is set.
    */
-  boolean getIsTransientStep();
+  boolean hasMethodOptions();
+  /**
+   * <code>.dex.StepMethodOptions method_options = 3;</code>
+   * @return The methodOptions.
+   */
+  io.superdurable.gen.StepMethodOptions getMethodOptions();
+  /**
+   * <code>.dex.StepMethodOptions method_options = 3;</code>
+   */
+  io.superdurable.gen.StepMethodOptionsOrBuilder getMethodOptionsOrBuilder();
 
   /**
-   * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
-   * @return Whether the retryContext field is set.
-   */
-  boolean hasRetryContext();
-  /**
-   * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
-   * @return The retryContext.
-   */
-  io.superdurable.gen.InternalStepActivityRetryContext getRetryContext();
-  /**
-   * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
-   */
-  io.superdurable.gen.InternalStepActivityRetryContextOrBuilder getRetryContextOrBuilder();
-
-  /**
-   * <code>int32 attempt = 5;</code>
+   * <code>int32 attempt = 4;</code>
    * @return The attempt.
    */
   int getAttempt();

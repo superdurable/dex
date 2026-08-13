@@ -109,9 +109,9 @@ final class InvocationContext implements Context {
     }
 
     @Override
-    public WorkerError getRecoveryError() {
+    public RecoveryErrorInfo getRecoveryError() {
         return metadata.hasRecoveryError()
-                ? WorkerError.fromProto(metadata.getRecoveryError())
+                ? RecoveryErrorInfo.fromProto(metadata.getRecoveryError())
                 : null;
     }
 

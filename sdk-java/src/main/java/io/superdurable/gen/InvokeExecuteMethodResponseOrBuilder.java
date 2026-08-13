@@ -15,27 +15,27 @@ public interface InvokeExecuteMethodResponseOrBuilder extends
    * Server-populated lineage input for local activity history.
    * </pre>
    *
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-   * @return Whether the localActivityInput field is set.
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+   * @return Whether the localActivityMetadata field is set.
    */
-  boolean hasLocalActivityInput();
+  boolean hasLocalActivityMetadata();
   /**
    * <pre>
    * Server-populated lineage input for local activity history.
    * </pre>
    *
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-   * @return The localActivityInput.
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+   * @return The localActivityMetadata.
    */
-  io.superdurable.gen.LocalActivityInput getLocalActivityInput();
+  io.superdurable.gen.LocalActivityMetadata getLocalActivityMetadata();
   /**
    * <pre>
    * Server-populated lineage input for local activity history.
    * </pre>
    *
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
    */
-  io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder();
+  io.superdurable.gen.LocalActivityMetadataOrBuilder getLocalActivityMetadataOrBuilder();
 
   /**
    * <code>.dex.StepDecision step_decision = 2;</code>

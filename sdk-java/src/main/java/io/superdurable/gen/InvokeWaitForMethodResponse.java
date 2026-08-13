@@ -53,18 +53,18 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int LOCAL_ACTIVITY_INPUT_FIELD_NUMBER = 1;
-  private io.superdurable.gen.LocalActivityInput localActivityInput_;
+  public static final int LOCAL_ACTIVITY_METADATA_FIELD_NUMBER = 1;
+  private io.superdurable.gen.LocalActivityMetadata localActivityMetadata_;
   /**
    * <pre>
    * Server-populated lineage input for local activity history.
    * </pre>
    *
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-   * @return Whether the localActivityInput field is set.
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+   * @return Whether the localActivityMetadata field is set.
    */
   @java.lang.Override
-  public boolean hasLocalActivityInput() {
+  public boolean hasLocalActivityMetadata() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
@@ -72,23 +72,23 @@ private static final long serialVersionUID = 0L;
    * Server-populated lineage input for local activity history.
    * </pre>
    *
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-   * @return The localActivityInput.
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+   * @return The localActivityMetadata.
    */
   @java.lang.Override
-  public io.superdurable.gen.LocalActivityInput getLocalActivityInput() {
-    return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
+  public io.superdurable.gen.LocalActivityMetadata getLocalActivityMetadata() {
+    return localActivityMetadata_ == null ? io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
   }
   /**
    * <pre>
    * Server-populated lineage input for local activity history.
    * </pre>
    *
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder() {
-    return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
+  public io.superdurable.gen.LocalActivityMetadataOrBuilder getLocalActivityMetadataOrBuilder() {
+    return localActivityMetadata_ == null ? io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
   }
 
   public static final int UPSERT_ATTRIBUTES_FIELD_NUMBER = 2;
@@ -322,7 +322,7 @@ private static final long serialVersionUID = 0L;
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(1, getLocalActivityInput());
+      output.writeMessage(1, getLocalActivityMetadata());
     }
     for (int i = 0; i < upsertAttributes_.size(); i++) {
       output.writeMessage(2, upsertAttributes_.get(i));
@@ -348,7 +348,7 @@ private static final long serialVersionUID = 0L;
     int size = 0;
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(1, getLocalActivityInput());
+        .computeMessageSize(1, getLocalActivityMetadata());
     }
 
         {
@@ -418,10 +418,10 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.InvokeWaitForMethodResponse other = (io.superdurable.gen.InvokeWaitForMethodResponse) obj;
 
-    if (hasLocalActivityInput() != other.hasLocalActivityInput()) return false;
-    if (hasLocalActivityInput()) {
-      if (!getLocalActivityInput()
-          .equals(other.getLocalActivityInput())) return false;
+    if (hasLocalActivityMetadata() != other.hasLocalActivityMetadata()) return false;
+    if (hasLocalActivityMetadata()) {
+      if (!getLocalActivityMetadata()
+          .equals(other.getLocalActivityMetadata())) return false;
     }
     if (!getUpsertAttributesList()
         .equals(other.getUpsertAttributesList())) return false;
@@ -452,9 +452,9 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    if (hasLocalActivityInput()) {
-      hash = (37 * hash) + LOCAL_ACTIVITY_INPUT_FIELD_NUMBER;
-      hash = (53 * hash) + getLocalActivityInput().hashCode();
+    if (hasLocalActivityMetadata()) {
+      hash = (37 * hash) + LOCAL_ACTIVITY_METADATA_FIELD_NUMBER;
+      hash = (53 * hash) + getLocalActivityMetadata().hashCode();
     }
     if (getUpsertAttributesCount() > 0) {
       hash = (37 * hash) + UPSERT_ATTRIBUTES_FIELD_NUMBER;
@@ -610,7 +610,7 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetLocalActivityInputFieldBuilder();
+        internalGetLocalActivityMetadataFieldBuilder();
         internalGetUpsertAttributesFieldBuilder();
         internalGetWaitingConditionFieldBuilder();
         internalGetUpsertStepExeLocalsFieldBuilder();
@@ -623,10 +623,10 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      localActivityInput_ = null;
-      if (localActivityInputBuilder_ != null) {
-        localActivityInputBuilder_.dispose();
-        localActivityInputBuilder_ = null;
+      localActivityMetadata_ = null;
+      if (localActivityMetadataBuilder_ != null) {
+        localActivityMetadataBuilder_.dispose();
+        localActivityMetadataBuilder_ = null;
       }
       if (upsertAttributesBuilder_ == null) {
         upsertAttributes_ = java.util.Collections.emptyList();
@@ -741,9 +741,9 @@ private static final long serialVersionUID = 0L;
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.localActivityInput_ = localActivityInputBuilder_ == null
-            ? localActivityInput_
-            : localActivityInputBuilder_.build();
+        result.localActivityMetadata_ = localActivityMetadataBuilder_ == null
+            ? localActivityMetadata_
+            : localActivityMetadataBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000004) != 0)) {
@@ -773,8 +773,8 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.InvokeWaitForMethodResponse other) {
       if (other == io.superdurable.gen.InvokeWaitForMethodResponse.getDefaultInstance()) return this;
-      if (other.hasLocalActivityInput()) {
-        mergeLocalActivityInput(other.getLocalActivityInput());
+      if (other.hasLocalActivityMetadata()) {
+        mergeLocalActivityMetadata(other.getLocalActivityMetadata());
       }
       if (upsertAttributesBuilder_ == null) {
         if (!other.upsertAttributes_.isEmpty()) {
@@ -914,7 +914,7 @@ private static final long serialVersionUID = 0L;
               break;
             case 10: {
               input.readMessage(
-                  internalGetLocalActivityInputFieldBuilder().getBuilder(),
+                  internalGetLocalActivityMetadataFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
@@ -1002,18 +1002,18 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private io.superdurable.gen.LocalActivityInput localActivityInput_;
+    private io.superdurable.gen.LocalActivityMetadata localActivityMetadata_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder> localActivityInputBuilder_;
+        io.superdurable.gen.LocalActivityMetadata, io.superdurable.gen.LocalActivityMetadata.Builder, io.superdurable.gen.LocalActivityMetadataOrBuilder> localActivityMetadataBuilder_;
     /**
      * <pre>
      * Server-populated lineage input for local activity history.
      * </pre>
      *
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-     * @return Whether the localActivityInput field is set.
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+     * @return Whether the localActivityMetadata field is set.
      */
-    public boolean hasLocalActivityInput() {
+    public boolean hasLocalActivityMetadata() {
       return ((bitField0_ & 0x00000001) != 0);
     }
     /**
@@ -1021,14 +1021,14 @@ private static final long serialVersionUID = 0L;
      * Server-populated lineage input for local activity history.
      * </pre>
      *
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-     * @return The localActivityInput.
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+     * @return The localActivityMetadata.
      */
-    public io.superdurable.gen.LocalActivityInput getLocalActivityInput() {
-      if (localActivityInputBuilder_ == null) {
-        return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
+    public io.superdurable.gen.LocalActivityMetadata getLocalActivityMetadata() {
+      if (localActivityMetadataBuilder_ == null) {
+        return localActivityMetadata_ == null ? io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
       } else {
-        return localActivityInputBuilder_.getMessage();
+        return localActivityMetadataBuilder_.getMessage();
       }
     }
     /**
@@ -1036,16 +1036,16 @@ private static final long serialVersionUID = 0L;
      * Server-populated lineage input for local activity history.
      * </pre>
      *
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public Builder setLocalActivityInput(io.superdurable.gen.LocalActivityInput value) {
-      if (localActivityInputBuilder_ == null) {
+    public Builder setLocalActivityMetadata(io.superdurable.gen.LocalActivityMetadata value) {
+      if (localActivityMetadataBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        localActivityInput_ = value;
+        localActivityMetadata_ = value;
       } else {
-        localActivityInputBuilder_.setMessage(value);
+        localActivityMetadataBuilder_.setMessage(value);
       }
       bitField0_ |= 0x00000001;
       onChanged();
@@ -1056,14 +1056,14 @@ private static final long serialVersionUID = 0L;
      * Server-populated lineage input for local activity history.
      * </pre>
      *
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public Builder setLocalActivityInput(
-        io.superdurable.gen.LocalActivityInput.Builder builderForValue) {
-      if (localActivityInputBuilder_ == null) {
-        localActivityInput_ = builderForValue.build();
+    public Builder setLocalActivityMetadata(
+        io.superdurable.gen.LocalActivityMetadata.Builder builderForValue) {
+      if (localActivityMetadataBuilder_ == null) {
+        localActivityMetadata_ = builderForValue.build();
       } else {
-        localActivityInputBuilder_.setMessage(builderForValue.build());
+        localActivityMetadataBuilder_.setMessage(builderForValue.build());
       }
       bitField0_ |= 0x00000001;
       onChanged();
@@ -1074,21 +1074,21 @@ private static final long serialVersionUID = 0L;
      * Server-populated lineage input for local activity history.
      * </pre>
      *
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public Builder mergeLocalActivityInput(io.superdurable.gen.LocalActivityInput value) {
-      if (localActivityInputBuilder_ == null) {
+    public Builder mergeLocalActivityMetadata(io.superdurable.gen.LocalActivityMetadata value) {
+      if (localActivityMetadataBuilder_ == null) {
         if (((bitField0_ & 0x00000001) != 0) &&
-          localActivityInput_ != null &&
-          localActivityInput_ != io.superdurable.gen.LocalActivityInput.getDefaultInstance()) {
-          getLocalActivityInputBuilder().mergeFrom(value);
+          localActivityMetadata_ != null &&
+          localActivityMetadata_ != io.superdurable.gen.LocalActivityMetadata.getDefaultInstance()) {
+          getLocalActivityMetadataBuilder().mergeFrom(value);
         } else {
-          localActivityInput_ = value;
+          localActivityMetadata_ = value;
         }
       } else {
-        localActivityInputBuilder_.mergeFrom(value);
+        localActivityMetadataBuilder_.mergeFrom(value);
       }
-      if (localActivityInput_ != null) {
+      if (localActivityMetadata_ != null) {
         bitField0_ |= 0x00000001;
         onChanged();
       }
@@ -1099,14 +1099,14 @@ private static final long serialVersionUID = 0L;
      * Server-populated lineage input for local activity history.
      * </pre>
      *
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public Builder clearLocalActivityInput() {
+    public Builder clearLocalActivityMetadata() {
       bitField0_ = (bitField0_ & ~0x00000001);
-      localActivityInput_ = null;
-      if (localActivityInputBuilder_ != null) {
-        localActivityInputBuilder_.dispose();
-        localActivityInputBuilder_ = null;
+      localActivityMetadata_ = null;
+      if (localActivityMetadataBuilder_ != null) {
+        localActivityMetadataBuilder_.dispose();
+        localActivityMetadataBuilder_ = null;
       }
       onChanged();
       return this;
@@ -1116,26 +1116,26 @@ private static final long serialVersionUID = 0L;
      * Server-populated lineage input for local activity history.
      * </pre>
      *
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public io.superdurable.gen.LocalActivityInput.Builder getLocalActivityInputBuilder() {
+    public io.superdurable.gen.LocalActivityMetadata.Builder getLocalActivityMetadataBuilder() {
       bitField0_ |= 0x00000001;
       onChanged();
-      return internalGetLocalActivityInputFieldBuilder().getBuilder();
+      return internalGetLocalActivityMetadataFieldBuilder().getBuilder();
     }
     /**
      * <pre>
      * Server-populated lineage input for local activity history.
      * </pre>
      *
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder() {
-      if (localActivityInputBuilder_ != null) {
-        return localActivityInputBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.LocalActivityMetadataOrBuilder getLocalActivityMetadataOrBuilder() {
+      if (localActivityMetadataBuilder_ != null) {
+        return localActivityMetadataBuilder_.getMessageOrBuilder();
       } else {
-        return localActivityInput_ == null ?
-            io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
+        return localActivityMetadata_ == null ?
+            io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
       }
     }
     /**
@@ -1143,20 +1143,20 @@ private static final long serialVersionUID = 0L;
      * Server-populated lineage input for local activity history.
      * </pre>
      *
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder> 
-        internalGetLocalActivityInputFieldBuilder() {
-      if (localActivityInputBuilder_ == null) {
-        localActivityInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder>(
-                getLocalActivityInput(),
+        io.superdurable.gen.LocalActivityMetadata, io.superdurable.gen.LocalActivityMetadata.Builder, io.superdurable.gen.LocalActivityMetadataOrBuilder> 
+        internalGetLocalActivityMetadataFieldBuilder() {
+      if (localActivityMetadataBuilder_ == null) {
+        localActivityMetadataBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.LocalActivityMetadata, io.superdurable.gen.LocalActivityMetadata.Builder, io.superdurable.gen.LocalActivityMetadataOrBuilder>(
+                getLocalActivityMetadata(),
                 getParentForChildren(),
                 isClean());
-        localActivityInput_ = null;
+        localActivityMetadata_ = null;
       }
-      return localActivityInputBuilder_;
+      return localActivityMetadataBuilder_;
     }
 
     private java.util.List<io.superdurable.gen.AttributeWrite> upsertAttributes_ =

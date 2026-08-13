@@ -89,7 +89,7 @@ public interface ContextOrBuilder extends
    * Previous Step method failure supplied only to its configured recovery method.
    * </pre>
    *
-   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
    * @return Whether the recoveryError field is set.
    */
   boolean hasRecoveryError();
@@ -98,16 +98,16 @@ public interface ContextOrBuilder extends
    * Previous Step method failure supplied only to its configured recovery method.
    * </pre>
    *
-   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
    * @return The recoveryError.
    */
-  io.superdurable.gen.WorkerErrorResponse getRecoveryError();
+  io.superdurable.gen.RecoveryErrorInfo getRecoveryError();
   /**
    * <pre>
    * Previous Step method failure supplied only to its configured recovery method.
    * </pre>
    *
-   * <code>.dex.WorkerErrorResponse recovery_error = 8;</code>
+   * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
    */
-  io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorOrBuilder();
+  io.superdurable.gen.RecoveryErrorInfoOrBuilder getRecoveryErrorOrBuilder();
 }

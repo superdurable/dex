@@ -16,48 +16,47 @@ import (
 
 // StepActivityAttempt holds cumulative retry metadata for one Step method activity attempt.
 type StepActivityAttempt struct {
-	retryContext *dexpb.InternalStepActivityRetryContext
-	attempt      int32
+	firstAttemptTimestamp int64
+	attempt               int32
 }
 
 // NewStepActivityAttempt resolves cumulative attempt metadata.
 func NewStepActivityAttempt(
-	retryContext *dexpb.InternalStepActivityRetryContext,
+	workerContext *dexpb.Context,
 	scheduledTime time.Time,
 	backendAttempt int32,
 ) *StepActivityAttempt {
-	if retryContext == nil {
-		retryContext = &dexpb.InternalStepActivityRetryContext{}
+	if workerContext == nil {
+		panic("step activity Context required")
 	}
-	if retryContext.GetFirstAttemptTimestamp() <= 0 {
-		retryContext.FirstAttemptTimestamp = scheduledTime.Unix()
+	firstAttemptTimestamp := workerContext.GetFirstAttemptTimestamp()
+	if firstAttemptTimestamp <= 0 {
+		firstAttemptTimestamp = scheduledTime.Unix()
 	}
 	return &StepActivityAttempt{
-		retryContext: retryContext,
-		attempt:      retryContext.GetPreviousAttempts() + backendAttempt,
+		firstAttemptTimestamp: firstAttemptTimestamp,
+		attempt:               workerContext.GetAttempt() + backendAttempt,
 	}
 }
 
 // ApplyToWorkerContext exposes cumulative metadata to the worker.
 func (a *StepActivityAttempt) ApplyToWorkerContext(workerContext *dexpb.Context) {
 	workerContext.Attempt = a.attempt
-	workerContext.FirstAttemptTimestamp = a.retryContext.GetFirstAttemptTimestamp()
+	workerContext.FirstAttemptTimestamp = a.firstAttemptTimestamp
 }
 
 // LocalFailureDetails builds local failure metadata for workflow error handling.
 func (a *StepActivityAttempt) LocalFailureDetails(
 	workerContext *dexpb.Context,
-	stepType string,
-	isTransientStep bool,
+	methodOptions *dexpb.StepMethodOptions,
 ) *dexpb.InternalLocalStepActivityFailure {
 	return &dexpb.InternalLocalStepActivityFailure{
-		LocalActivityInput: &dexpb.LocalActivityInput{
+		LocalActivityMetadata: &dexpb.LocalActivityMetadata{
 			CurrentStepExecutionId: workerContext.GetStepExecutionId(),
 			FromStepExecutionId:    workerContext.GetFromStepExecutionId(),
 		},
-		StepType:        stepType,
-		IsTransientStep: isTransientStep,
-		RetryContext:    a.retryContext,
-		Attempt:         a.attempt,
+		FirstAttemptTimestamp: a.firstAttemptTimestamp,
+		MethodOptions:         methodOptions,
+		Attempt:               a.attempt,
 	}
 }

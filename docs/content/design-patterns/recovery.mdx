@@ -14,7 +14,7 @@ the Flow or enters an application-defined recovery path.
 failure. Execute runs in the same workflow run; continue-as-new cannot occur
 between the failed WaitFor call and that Execute call. Existing
 `context.waitForMethodFailed()` code continues to identify this path, and
-`context.getRecoveryError()` provides the complete failure.
+`context.getRecoveryError()` provides its type and detail.
 
 ```java
 @Override
@@ -27,7 +27,7 @@ public StepOptions getStepOptions() {
 
 @Override
 public StepDecision execute(Context context, Order input) {
-    WorkerError error = context.getRecoveryError();
+    RecoveryErrorInfo error = context.getRecoveryError();
     if (error != null) {
         recordWaitFailure(error.getErrorType(), error.getDetail());
     }
@@ -38,7 +38,7 @@ public StepDecision execute(Context context, Order input) {
 ## Execute recovery Step
 
 Configure a recovery Step with `onExecuteFailureProceedTo`. The failed
-Execute's `WorkerError` is available to both WaitFor and Execute in that
+Execute's `RecoveryErrorInfo` is available to both WaitFor and Execute in that
 recovery Step. Dex persists it with the queued movement, so it remains available
 after continue-as-new.
 
@@ -78,11 +78,11 @@ failure, rather than `RetryAfterException`, is exposed as the Worker error.
 
 ## Backend failures
 
-When a Worker returns structured error details, recovery receives its detail,
-type, stack trace, and retry delay. For timeouts and other failures without a
-Worker response, Dex creates a `WorkerError` whose type is the Temporal or
-Cadence backend failure type. Backend-generated failures normally have no
-Worker stack trace.
+When a Worker returns structured error details, recovery receives its detail
+and type. Stack traces remain available in failure history, while retry delays
+are used only for retry scheduling. For timeouts and other failures without a
+Worker response, Dex creates `RecoveryErrorInfo` whose type is the Temporal or
+Cadence backend failure type.
 
 ## Related
 

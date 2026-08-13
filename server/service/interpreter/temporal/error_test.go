@@ -19,10 +19,11 @@ import (
 )
 
 func TestActivityProviderAppliesNextRetryDelay(t *testing.T) {
-	errorResponse := &dexpb.ErrorResponse{OriginalWorkerRetryAfterSeconds: 7}
+	errorResponse := &dexpb.ErrorResponse{OriginalWorkerErrorDetail: "worker detail"}
 	err := (&activityProvider{}).NewFlowError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 		errorResponse,
+		7,
 	)
 
 	var applicationError *temporalsdk.ApplicationError
@@ -36,10 +37,9 @@ func TestActivityProviderAppliesNextRetryDelay(t *testing.T) {
 func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	provider := &workflowProvider{}
 	original := &dexpb.ErrorResponse{
-		OriginalWorkerErrorDetail:       "worker detail",
-		OriginalWorkerErrorType:         "worker type",
-		OriginalWorkerErrorStackTrace:   "worker stack",
-		OriginalWorkerRetryAfterSeconds: 11,
+		OriginalWorkerErrorDetail:     "worker detail",
+		OriginalWorkerErrorType:       "worker type",
+		OriginalWorkerErrorStackTrace: "worker stack",
 	}
 	workerFailure := temporalsdk.NewApplicationError(
 		"",
@@ -47,45 +47,41 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 		*original,
 	)
 
-	workerError, err := provider.MapToWorkerError(workerFailure)
+	recoveryError, err := provider.MapToRecoveryError(workerFailure)
 	require.NoError(t, err)
-	require.Equal(t, "worker detail", workerError.GetDetail())
-	require.Equal(t, "worker type", workerError.GetErrorType())
-	require.Equal(t, "worker stack", workerError.GetStackTrace())
-	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
+	require.Equal(t, "worker detail", recoveryError.GetDetail())
+	require.Equal(t, "worker type", recoveryError.GetErrorType())
 
 	localWorkerFailure := (&activityProvider{}).NewLocalActivityError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
-		&dexpb.InternalLocalStepActivityError{
-			ErrorResponse: original,
-			Failure:       &dexpb.InternalLocalStepActivityFailure{Attempt: 2},
-		},
+		original,
+		&dexpb.InternalLocalStepActivityFailure{Attempt: 2},
+		11,
 	)
-	workerError, err = provider.MapToWorkerError(localWorkerFailure)
+	recoveryError, err = provider.MapToRecoveryError(localWorkerFailure)
 	require.NoError(t, err)
-	require.Equal(t, "worker detail", workerError.GetDetail())
-	require.Equal(t, "worker type", workerError.GetErrorType())
-	require.Equal(t, "worker stack", workerError.GetStackTrace())
-	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
+	require.Equal(t, "worker detail", recoveryError.GetDetail())
+	require.Equal(t, "worker type", recoveryError.GetErrorType())
 	var localApplicationError *temporalsdk.ApplicationError
 	require.ErrorAs(t, localWorkerFailure, &localApplicationError)
 	require.Equal(t, 11*time.Second, localApplicationError.NextRetryDelay())
-	decodedApplicationError, localError, isApplicationFailure := temporalLocalStepActivityError(localWorkerFailure)
+	decodedApplicationError, decodedResponse, localFailure, isApplicationFailure := temporalLocalStepActivityError(localWorkerFailure)
 	require.True(t, isApplicationFailure)
 	require.Same(t, localApplicationError, decodedApplicationError)
-	require.Equal(t, int32(2), localError.GetFailure().GetAttempt())
+	require.Equal(t, original, decodedResponse)
+	require.Equal(t, int32(2), localFailure.GetAttempt())
 
-	finalFailure := temporalFinalFlowError(decodedApplicationError, localError.GetErrorResponse())
+	finalFailure := temporalFinalFlowError(decodedApplicationError, decodedResponse)
 	var finalApplicationError *temporalsdk.ApplicationError
 	require.ErrorAs(t, finalFailure, &finalApplicationError)
 	var finalResponse *dexpb.ErrorResponse
 	require.NoError(t, finalApplicationError.Details(&finalResponse))
 	require.Equal(t, original, finalResponse)
-	var leakedLocalError *dexpb.InternalLocalStepActivityError
-	require.Error(t, temporalApplicationErrorDetails(finalApplicationError, &leakedLocalError))
+	var leakedFailure *dexpb.InternalLocalStepActivityFailure
+	require.Error(t, temporalApplicationErrorDetails(finalApplicationError, &finalResponse, &leakedFailure))
 
 	timeoutFailure := temporalsdk.NewTimeoutError(enums.TIMEOUT_TYPE_START_TO_CLOSE, nil)
-	timeoutError, err := provider.MapToWorkerError(timeoutFailure)
+	timeoutError, err := provider.MapToRecoveryError(timeoutFailure)
 	require.NoError(t, err)
 	require.Equal(t, enums.TIMEOUT_TYPE_START_TO_CLOSE.String(), timeoutError.GetErrorType())
 	require.NotEmpty(t, timeoutError.GetDetail())

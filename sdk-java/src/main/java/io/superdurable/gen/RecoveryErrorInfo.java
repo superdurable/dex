@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.LocalActivityInput}
+ * Protobuf type {@code dex.RecoveryErrorInfo}
  */
 @com.google.protobuf.Generated
-public final class LocalActivityInput extends
+public final class RecoveryErrorInfo extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.LocalActivityInput)
-    LocalActivityInputOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.RecoveryErrorInfo)
+    RecoveryErrorInfoOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,107 +21,107 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "LocalActivityInput");
+      "RecoveryErrorInfo");
   }
-  // Use LocalActivityInput.newBuilder() to construct.
-  private LocalActivityInput(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use RecoveryErrorInfo.newBuilder() to construct.
+  private RecoveryErrorInfo(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private LocalActivityInput() {
-    currentStepExecutionId_ = "";
-    fromStepExecutionId_ = "";
+  private RecoveryErrorInfo() {
+    detail_ = "";
+    errorType_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_LocalActivityInput_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_RecoveryErrorInfo_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_LocalActivityInput_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_RecoveryErrorInfo_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_LocalActivityInput_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_RecoveryErrorInfo_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.LocalActivityInput.class, io.superdurable.gen.LocalActivityInput.Builder.class);
+            io.superdurable.gen.RecoveryErrorInfo.class, io.superdurable.gen.RecoveryErrorInfo.Builder.class);
   }
 
-  public static final int CURRENT_STEP_EXECUTION_ID_FIELD_NUMBER = 1;
+  public static final int DETAIL_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
-  private volatile java.lang.Object currentStepExecutionId_ = "";
+  private volatile java.lang.Object detail_ = "";
   /**
-   * <code>string current_step_execution_id = 1;</code>
-   * @return The currentStepExecutionId.
+   * <code>string detail = 1;</code>
+   * @return The detail.
    */
   @java.lang.Override
-  public java.lang.String getCurrentStepExecutionId() {
-    java.lang.Object ref = currentStepExecutionId_;
+  public java.lang.String getDetail() {
+    java.lang.Object ref = detail_;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
       com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
-      currentStepExecutionId_ = s;
+      detail_ = s;
       return s;
     }
   }
   /**
-   * <code>string current_step_execution_id = 1;</code>
-   * @return The bytes for currentStepExecutionId.
+   * <code>string detail = 1;</code>
+   * @return The bytes for detail.
    */
   @java.lang.Override
   public com.google.protobuf.ByteString
-      getCurrentStepExecutionIdBytes() {
-    java.lang.Object ref = currentStepExecutionId_;
+      getDetailBytes() {
+    java.lang.Object ref = detail_;
     if (ref instanceof java.lang.String) {
       com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
-      currentStepExecutionId_ = b;
+      detail_ = b;
       return b;
     } else {
       return (com.google.protobuf.ByteString) ref;
     }
   }
 
-  public static final int FROM_STEP_EXECUTION_ID_FIELD_NUMBER = 2;
+  public static final int ERROR_TYPE_FIELD_NUMBER = 2;
   @SuppressWarnings("serial")
-  private volatile java.lang.Object fromStepExecutionId_ = "";
+  private volatile java.lang.Object errorType_ = "";
   /**
-   * <code>string from_step_execution_id = 2;</code>
-   * @return The fromStepExecutionId.
+   * <code>string error_type = 2;</code>
+   * @return The errorType.
    */
   @java.lang.Override
-  public java.lang.String getFromStepExecutionId() {
-    java.lang.Object ref = fromStepExecutionId_;
+  public java.lang.String getErrorType() {
+    java.lang.Object ref = errorType_;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
       com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
-      fromStepExecutionId_ = s;
+      errorType_ = s;
       return s;
     }
   }
   /**
-   * <code>string from_step_execution_id = 2;</code>
-   * @return The bytes for fromStepExecutionId.
+   * <code>string error_type = 2;</code>
+   * @return The bytes for errorType.
    */
   @java.lang.Override
   public com.google.protobuf.ByteString
-      getFromStepExecutionIdBytes() {
-    java.lang.Object ref = fromStepExecutionId_;
+      getErrorTypeBytes() {
+    java.lang.Object ref = errorType_;
     if (ref instanceof java.lang.String) {
       com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
-      fromStepExecutionId_ = b;
+      errorType_ = b;
       return b;
     } else {
       return (com.google.protobuf.ByteString) ref;
@@ -142,21 +142,21 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(currentStepExecutionId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, currentStepExecutionId_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(detail_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 1, detail_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, fromStepExecutionId_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorType_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, errorType_);
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(currentStepExecutionId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, currentStepExecutionId_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(detail_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, detail_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(fromStepExecutionId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, fromStepExecutionId_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(errorType_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, errorType_);
     }
     return size;
   }
@@ -177,15 +177,15 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.LocalActivityInput)) {
+    if (!(obj instanceof io.superdurable.gen.RecoveryErrorInfo)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.LocalActivityInput other = (io.superdurable.gen.LocalActivityInput) obj;
+    io.superdurable.gen.RecoveryErrorInfo other = (io.superdurable.gen.RecoveryErrorInfo) obj;
 
-    if (!getCurrentStepExecutionId()
-        .equals(other.getCurrentStepExecutionId())) return false;
-    if (!getFromStepExecutionId()
-        .equals(other.getFromStepExecutionId())) return false;
+    if (!getDetail()
+        .equals(other.getDetail())) return false;
+    if (!getErrorType()
+        .equals(other.getErrorType())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -197,53 +197,53 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + CURRENT_STEP_EXECUTION_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getCurrentStepExecutionId().hashCode();
-    hash = (37 * hash) + FROM_STEP_EXECUTION_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getFromStepExecutionId().hashCode();
+    hash = (37 * hash) + DETAIL_FIELD_NUMBER;
+    hash = (53 * hash) + getDetail().hashCode();
+    hash = (37 * hash) + ERROR_TYPE_FIELD_NUMBER;
+    hash = (53 * hash) + getErrorType().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
   }
 
-  public static io.superdurable.gen.LocalActivityInput parseFrom(
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.LocalActivityInput parseFrom(
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.LocalActivityInput parseFrom(
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.LocalActivityInput parseFrom(
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.LocalActivityInput parseFrom(byte[] data)
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.LocalActivityInput parseFrom(
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.LocalActivityInput parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.LocalActivityInput parseFrom(
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -251,26 +251,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.LocalActivityInput parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.RecoveryErrorInfo parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.LocalActivityInput parseDelimitedFrom(
+  public static io.superdurable.gen.RecoveryErrorInfo parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.LocalActivityInput parseFrom(
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.LocalActivityInput parseFrom(
+  public static io.superdurable.gen.RecoveryErrorInfo parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -283,7 +283,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.LocalActivityInput prototype) {
+  public static Builder newBuilder(io.superdurable.gen.RecoveryErrorInfo prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -299,26 +299,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.LocalActivityInput}
+   * Protobuf type {@code dex.RecoveryErrorInfo}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.LocalActivityInput)
-      io.superdurable.gen.LocalActivityInputOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.RecoveryErrorInfo)
+      io.superdurable.gen.RecoveryErrorInfoOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_LocalActivityInput_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_RecoveryErrorInfo_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_LocalActivityInput_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_RecoveryErrorInfo_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.LocalActivityInput.class, io.superdurable.gen.LocalActivityInput.Builder.class);
+              io.superdurable.gen.RecoveryErrorInfo.class, io.superdurable.gen.RecoveryErrorInfo.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.LocalActivityInput.newBuilder()
+    // Construct using io.superdurable.gen.RecoveryErrorInfo.newBuilder()
     private Builder() {
 
     }
@@ -332,25 +332,25 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      currentStepExecutionId_ = "";
-      fromStepExecutionId_ = "";
+      detail_ = "";
+      errorType_ = "";
       return this;
     }
 
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_LocalActivityInput_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_RecoveryErrorInfo_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.LocalActivityInput getDefaultInstanceForType() {
-      return io.superdurable.gen.LocalActivityInput.getDefaultInstance();
+    public io.superdurable.gen.RecoveryErrorInfo getDefaultInstanceForType() {
+      return io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.LocalActivityInput build() {
-      io.superdurable.gen.LocalActivityInput result = buildPartial();
+    public io.superdurable.gen.RecoveryErrorInfo build() {
+      io.superdurable.gen.RecoveryErrorInfo result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -358,42 +358,42 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.LocalActivityInput buildPartial() {
-      io.superdurable.gen.LocalActivityInput result = new io.superdurable.gen.LocalActivityInput(this);
+    public io.superdurable.gen.RecoveryErrorInfo buildPartial() {
+      io.superdurable.gen.RecoveryErrorInfo result = new io.superdurable.gen.RecoveryErrorInfo(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.LocalActivityInput result) {
+    private void buildPartial0(io.superdurable.gen.RecoveryErrorInfo result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.currentStepExecutionId_ = currentStepExecutionId_;
+        result.detail_ = detail_;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.fromStepExecutionId_ = fromStepExecutionId_;
+        result.errorType_ = errorType_;
       }
     }
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.LocalActivityInput) {
-        return mergeFrom((io.superdurable.gen.LocalActivityInput)other);
+      if (other instanceof io.superdurable.gen.RecoveryErrorInfo) {
+        return mergeFrom((io.superdurable.gen.RecoveryErrorInfo)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.LocalActivityInput other) {
-      if (other == io.superdurable.gen.LocalActivityInput.getDefaultInstance()) return this;
-      if (!other.getCurrentStepExecutionId().isEmpty()) {
-        currentStepExecutionId_ = other.currentStepExecutionId_;
+    public Builder mergeFrom(io.superdurable.gen.RecoveryErrorInfo other) {
+      if (other == io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance()) return this;
+      if (!other.getDetail().isEmpty()) {
+        detail_ = other.detail_;
         bitField0_ |= 0x00000001;
         onChanged();
       }
-      if (!other.getFromStepExecutionId().isEmpty()) {
-        fromStepExecutionId_ = other.fromStepExecutionId_;
+      if (!other.getErrorType().isEmpty()) {
+        errorType_ = other.errorType_;
         bitField0_ |= 0x00000002;
         onChanged();
       }
@@ -424,12 +424,12 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              currentStepExecutionId_ = input.readStringRequireUtf8();
+              detail_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000001;
               break;
             } // case 10
             case 18: {
-              fromStepExecutionId_ = input.readStringRequireUtf8();
+              errorType_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000002;
               break;
             } // case 18
@@ -450,167 +450,167 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object currentStepExecutionId_ = "";
+    private java.lang.Object detail_ = "";
     /**
-     * <code>string current_step_execution_id = 1;</code>
-     * @return The currentStepExecutionId.
+     * <code>string detail = 1;</code>
+     * @return The detail.
      */
-    public java.lang.String getCurrentStepExecutionId() {
-      java.lang.Object ref = currentStepExecutionId_;
+    public java.lang.String getDetail() {
+      java.lang.Object ref = detail_;
       if (!(ref instanceof java.lang.String)) {
         com.google.protobuf.ByteString bs =
             (com.google.protobuf.ByteString) ref;
         java.lang.String s = bs.toStringUtf8();
-        currentStepExecutionId_ = s;
+        detail_ = s;
         return s;
       } else {
         return (java.lang.String) ref;
       }
     }
     /**
-     * <code>string current_step_execution_id = 1;</code>
-     * @return The bytes for currentStepExecutionId.
+     * <code>string detail = 1;</code>
+     * @return The bytes for detail.
      */
     public com.google.protobuf.ByteString
-        getCurrentStepExecutionIdBytes() {
-      java.lang.Object ref = currentStepExecutionId_;
+        getDetailBytes() {
+      java.lang.Object ref = detail_;
       if (ref instanceof String) {
         com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
-        currentStepExecutionId_ = b;
+        detail_ = b;
         return b;
       } else {
         return (com.google.protobuf.ByteString) ref;
       }
     }
     /**
-     * <code>string current_step_execution_id = 1;</code>
-     * @param value The currentStepExecutionId to set.
+     * <code>string detail = 1;</code>
+     * @param value The detail to set.
      * @return This builder for chaining.
      */
-    public Builder setCurrentStepExecutionId(
+    public Builder setDetail(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      currentStepExecutionId_ = value;
+      detail_ = value;
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>string current_step_execution_id = 1;</code>
+     * <code>string detail = 1;</code>
      * @return This builder for chaining.
      */
-    public Builder clearCurrentStepExecutionId() {
-      currentStepExecutionId_ = getDefaultInstance().getCurrentStepExecutionId();
+    public Builder clearDetail() {
+      detail_ = getDefaultInstance().getDetail();
       bitField0_ = (bitField0_ & ~0x00000001);
       onChanged();
       return this;
     }
     /**
-     * <code>string current_step_execution_id = 1;</code>
-     * @param value The bytes for currentStepExecutionId to set.
+     * <code>string detail = 1;</code>
+     * @param value The bytes for detail to set.
      * @return This builder for chaining.
      */
-    public Builder setCurrentStepExecutionIdBytes(
+    public Builder setDetailBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      currentStepExecutionId_ = value;
+      detail_ = value;
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
 
-    private java.lang.Object fromStepExecutionId_ = "";
+    private java.lang.Object errorType_ = "";
     /**
-     * <code>string from_step_execution_id = 2;</code>
-     * @return The fromStepExecutionId.
+     * <code>string error_type = 2;</code>
+     * @return The errorType.
      */
-    public java.lang.String getFromStepExecutionId() {
-      java.lang.Object ref = fromStepExecutionId_;
+    public java.lang.String getErrorType() {
+      java.lang.Object ref = errorType_;
       if (!(ref instanceof java.lang.String)) {
         com.google.protobuf.ByteString bs =
             (com.google.protobuf.ByteString) ref;
         java.lang.String s = bs.toStringUtf8();
-        fromStepExecutionId_ = s;
+        errorType_ = s;
         return s;
       } else {
         return (java.lang.String) ref;
       }
     }
     /**
-     * <code>string from_step_execution_id = 2;</code>
-     * @return The bytes for fromStepExecutionId.
+     * <code>string error_type = 2;</code>
+     * @return The bytes for errorType.
      */
     public com.google.protobuf.ByteString
-        getFromStepExecutionIdBytes() {
-      java.lang.Object ref = fromStepExecutionId_;
+        getErrorTypeBytes() {
+      java.lang.Object ref = errorType_;
       if (ref instanceof String) {
         com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
-        fromStepExecutionId_ = b;
+        errorType_ = b;
         return b;
       } else {
         return (com.google.protobuf.ByteString) ref;
       }
     }
     /**
-     * <code>string from_step_execution_id = 2;</code>
-     * @param value The fromStepExecutionId to set.
+     * <code>string error_type = 2;</code>
+     * @param value The errorType to set.
      * @return This builder for chaining.
      */
-    public Builder setFromStepExecutionId(
+    public Builder setErrorType(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      fromStepExecutionId_ = value;
+      errorType_ = value;
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>string from_step_execution_id = 2;</code>
+     * <code>string error_type = 2;</code>
      * @return This builder for chaining.
      */
-    public Builder clearFromStepExecutionId() {
-      fromStepExecutionId_ = getDefaultInstance().getFromStepExecutionId();
+    public Builder clearErrorType() {
+      errorType_ = getDefaultInstance().getErrorType();
       bitField0_ = (bitField0_ & ~0x00000002);
       onChanged();
       return this;
     }
     /**
-     * <code>string from_step_execution_id = 2;</code>
-     * @param value The bytes for fromStepExecutionId to set.
+     * <code>string error_type = 2;</code>
+     * @param value The bytes for errorType to set.
      * @return This builder for chaining.
      */
-    public Builder setFromStepExecutionIdBytes(
+    public Builder setErrorTypeBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      fromStepExecutionId_ = value;
+      errorType_ = value;
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.LocalActivityInput)
+    // @@protoc_insertion_point(builder_scope:dex.RecoveryErrorInfo)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.LocalActivityInput)
-  private static final io.superdurable.gen.LocalActivityInput DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.RecoveryErrorInfo)
+  private static final io.superdurable.gen.RecoveryErrorInfo DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.LocalActivityInput();
+    DEFAULT_INSTANCE = new io.superdurable.gen.RecoveryErrorInfo();
   }
 
-  public static io.superdurable.gen.LocalActivityInput getDefaultInstance() {
+  public static io.superdurable.gen.RecoveryErrorInfo getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<LocalActivityInput>
-      PARSER = new com.google.protobuf.AbstractParser<LocalActivityInput>() {
+  private static final com.google.protobuf.Parser<RecoveryErrorInfo>
+      PARSER = new com.google.protobuf.AbstractParser<RecoveryErrorInfo>() {
     @java.lang.Override
-    public LocalActivityInput parsePartialFrom(
+    public RecoveryErrorInfo parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -629,17 +629,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<LocalActivityInput> parser() {
+  public static com.google.protobuf.Parser<RecoveryErrorInfo> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<LocalActivityInput> getParserForType() {
+  public com.google.protobuf.Parser<RecoveryErrorInfo> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.LocalActivityInput getDefaultInstanceForType() {
+  public io.superdurable.gen.RecoveryErrorInfo getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 
