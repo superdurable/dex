@@ -21,14 +21,13 @@ import (
 
 type ActivityProvider interface {
 	GetLogger(ctx context.Context) UnifiedLogger
-	NewFlowError(
+	NewActivityError(
 		errType dexpb.FlowErrorType,
-		errorResponse *dexpb.ErrorResponse,
+		activityError *dexpb.InternalActivityError,
 		retryAfterSeconds int32,
 	) error
 	NewLocalActivityError(
 		errType dexpb.FlowErrorType,
-		errorResponse *dexpb.ErrorResponse,
 		failure *dexpb.InternalLocalStepActivityFailure,
 		retryAfterSeconds int32,
 	) error
@@ -121,7 +120,8 @@ type TimerProcessor interface {
 }
 
 type WorkflowProvider interface {
-	NewFlowError(errType dexpb.FlowErrorType, resp *dexpb.ErrorResponse) error
+	NewFlowError(errType dexpb.FlowErrorType, detail string) error
+	NewFlowErrorFromActivityError(err error) error
 	NewCanceledError(reason string) error
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool

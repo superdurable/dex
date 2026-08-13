@@ -139,7 +139,7 @@ func (i *Interpreter) LoadInternalsFromPreviousRun(
 	if err := proto.Unmarshal(wholeData, &resp); err != nil {
 		return nil, provider.NewFlowError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
-			&dexpb.ErrorResponse{Detail: fmt.Sprintf("unmarshal continue-as-new dump: %v", err)},
+			fmt.Sprintf("unmarshal continue-as-new dump: %v", err),
 		)
 	}
 	return &resp, nil

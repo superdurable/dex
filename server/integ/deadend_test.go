@@ -113,7 +113,7 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 		RpcName: deadend.RPCWriteData,
 	})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
+	require.Equal(t, "request ID is required", grpcServiceErrorResponse(t, err).GetDetail())
 	require.Zero(t, workerHandler.GetRPCInvokes())
 	require.Eventually(t, func() bool {
 		var dump dexpb.DebugDumpResponse

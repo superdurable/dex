@@ -92,8 +92,9 @@ local failure is terminal and produces the Step failed event without scheduling
 a regular activity.
 
 `WorkerErrorResponse.stack_trace` carries an optional Worker-language stack.
-The server persists it as `ErrorResponse.original_worker_error_stack_trace`
-inside structured failure details. `StepMethodFailure` does not retain a
+The server persists it in `InternalWorkerError` inside the activity failure and
+exposes it as `ServiceErrorResponse.original_worker_error_stack_trace` at the
+service and semantic-history boundaries. `StepMethodFailure` does not retain a
 separate backend stack. The Java Worker caps its UTF-8 value at 16 KiB; other
 Worker SDKs may omit the field.
 
@@ -109,10 +110,10 @@ recovery information from the backend application or timeout type.
 
 `WorkerErrorResponse.retry_after_seconds` requests the next retry interval.
 Temporal applies it directly to the Activity failure's next-retry delay without
-persisting it in `ErrorResponse`. Cadence rejects a nonzero value with an
+persisting it in `InternalActivityError`. Cadence rejects a nonzero value with an
 `INVALID_USER_FLOW_CODE` validation error from the Step method Activity.
 
-`ErrorResponse.detail` and `original_worker_error_detail` are mutually exclusive.
+`ServiceErrorResponse.detail` and `original_worker_error_detail` are mutually exclusive.
 Worker responses use the original field; transport failures without a
 `WorkerErrorResponse` use `detail`. Consumers should prefer the original Worker
 detail and fall back to `detail`.
@@ -120,15 +121,21 @@ detail and fall back to `detail`.
 `StepMethodFailure.backend_error` uses Temporal's application failure type,
 timeout type, or fallback failure message. Cadence uses the activity failure
 reason or timeout type. `details` is present only when the failure carries a
-decodable `ErrorResponse`, so backend timeouts normally expose only
-`backend_error`.
+decodable `InternalActivityError` or `InternalLocalStepActivityFailure`. The
+history client converts its activity error to `ServiceErrorResponse`; backend
+timeouts normally expose only `backend_error`.
 
 `LocalActivityMetadata` stores marker lineage only.
 `InternalLocalActivityInput` is the local-only runtime argument.
 `InternalLocalStepActivityFailure` carries the local attempt count, first
-attempt time, and original method options as a second failure detail after the
-standard `ErrorResponse`. A fallback regular activity carries only its prior
-attempt count and first-attempt time in `Context`.
+attempt time, original method options, and nested `InternalActivityError` as one
+failure detail. A regular activity carries one `InternalActivityError` detail.
+Final workflow failures carry one `InternalFlowError`. Interpreter-originated
+failures set `server_detail`; activity-originated failures set `activity_error`.
+The service client converts both sources to `ServiceErrorResponse` at the public
+boundary.
+A fallback regular activity carries only its prior attempt count and
+first-attempt time in `Context`.
 `InternalAsyncStepInputSnapshot` is the run-scoped request and method-options
 record; none of these internal types is returned by `FlowService`.
 

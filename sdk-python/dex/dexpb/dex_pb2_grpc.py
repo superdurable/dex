@@ -30,9 +30,9 @@ class FlowServiceStub:
     """---------------------------------------------------------------------------
     FlowService error handling
 
-    Failures return a gRPC status with dexpb.ErrorResponse in status details
-    (see ErrorResponse / ErrorSubStatus). Clients should read both the gRPC code
-    and ErrorResponse.sub_status / detail / original_worker_error_*.
+    Failures return a gRPC status with dexpb.ServiceErrorResponse in status details
+    (see ServiceErrorResponse / ErrorSubStatus). Clients should read both the gRPC code
+    and ServiceErrorResponse.sub_status / detail / original_worker_error_*.
 
     Common gRPC codes (all RPCs unless noted):
     InvalidArgument   — bad request / invalid Value / empty lock keys, etc.
@@ -196,9 +196,9 @@ class FlowServiceServicer:
     """---------------------------------------------------------------------------
     FlowService error handling
 
-    Failures return a gRPC status with dexpb.ErrorResponse in status details
-    (see ErrorResponse / ErrorSubStatus). Clients should read both the gRPC code
-    and ErrorResponse.sub_status / detail / original_worker_error_*.
+    Failures return a gRPC status with dexpb.ServiceErrorResponse in status details
+    (see ServiceErrorResponse / ErrorSubStatus). Clients should read both the gRPC code
+    and ServiceErrorResponse.sub_status / detail / original_worker_error_*.
 
     Common gRPC codes (all RPCs unless noted):
     InvalidArgument   — bad request / invalid Value / empty lock keys, etc.
@@ -491,9 +491,9 @@ class FlowService:
     """---------------------------------------------------------------------------
     FlowService error handling
 
-    Failures return a gRPC status with dexpb.ErrorResponse in status details
-    (see ErrorResponse / ErrorSubStatus). Clients should read both the gRPC code
-    and ErrorResponse.sub_status / detail / original_worker_error_*.
+    Failures return a gRPC status with dexpb.ServiceErrorResponse in status details
+    (see ServiceErrorResponse / ErrorSubStatus). Clients should read both the gRPC code
+    and ServiceErrorResponse.sub_status / detail / original_worker_error_*.
 
     Common gRPC codes (all RPCs unless noted):
     InvalidArgument   — bad request / invalid Value / empty lock keys, etc.

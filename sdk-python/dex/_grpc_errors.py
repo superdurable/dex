@@ -36,12 +36,12 @@ def translate_rpc_error(
     flow_id: str | None,
     requirement: FlowTargetRequirement,
 ) -> DexServiceError:
-    details: pb.ErrorResponse | None = None
+    details: pb.ServiceErrorResponse | None = None
     try:
         status = rpc_status.from_call(cast(grpc.Call, error))
         if status is not None:
             for packed in status.details:
-                candidate = pb.ErrorResponse()
+                candidate = pb.ServiceErrorResponse()
                 if packed.Is(candidate.DESCRIPTOR):
                     packed.Unpack(candidate)
                     details = candidate
@@ -87,7 +87,7 @@ def translate_rpc_error(
     return DexServiceError(*parameters)
 
 
-def _worker_code(details: pb.ErrorResponse | None) -> grpc.StatusCode | None:
+def _worker_code(details: pb.ServiceErrorResponse | None) -> grpc.StatusCode | None:
     if details is None or details.original_worker_error_status == 0:
         return None
     return next(

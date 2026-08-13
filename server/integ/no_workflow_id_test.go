@@ -48,6 +48,6 @@ func TestPublishToChannelNoFlowId(t *testing.T) {
 	require.Equal(
 		t,
 		"flow ID is required",
-		grpcErrorResponse(t, err).GetDetail(),
+		grpcServiceErrorResponse(t, err).GetDetail(),
 	)
 }

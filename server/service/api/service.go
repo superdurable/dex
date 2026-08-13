@@ -711,11 +711,11 @@ func (s *serviceImpl) WaitForFlow(
 		return nil, waitContextStatus(getCtx.Err())
 	}
 
-	var errorResponse dexpb.ErrorResponse
+	var errorResponse dexpb.ServiceErrorResponse
 	if errorType, ok := s.client.GetIfFlowError(getErr, &errorResponse); ok {
 		response.FlowStatus = dexpb.FlowStatus_FLOW_STATUS_FAILED
 		response.ErrorType = errorType
-		response.ErrorMessage = serviceerrors.ErrorResponseDetail(&errorResponse)
+		response.ErrorMessage = serviceerrors.ServiceErrorResponseDetail(&errorResponse)
 		return response, nil
 	}
 
@@ -1319,7 +1319,7 @@ func (s *serviceImpl) handleError(err error) error {
 		}
 	}
 
-	var errorResponse dexpb.ErrorResponse
+	var errorResponse dexpb.ServiceErrorResponse
 	if flowErrorType, ok := s.client.GetIfFlowError(err, &errorResponse); ok {
 		switch flowErrorType {
 		case dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,

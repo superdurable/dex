@@ -81,11 +81,11 @@ func doTestFlowWithWaitTimeout(
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
-		grpcErrorResponse(t, err).GetSubStatus(),
+		grpcServiceErrorResponse(t, err).GetSubStatus(),
 	)
 	require.Contains(
 		t,
-		grpcErrorResponse(t, err).GetDetail(),
+		grpcServiceErrorResponse(t, err).GetDetail(),
 		"flow is still running",
 	)
 	require.True(t, elapsedSeconds >= 5 && elapsedSeconds <= 12,

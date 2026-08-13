@@ -24,7 +24,7 @@ import (
 
 func TestTranslateRPCErrorPreservesWorkerDetailsAndUnwraps(t *testing.T) {
 	rpcStatus, err := status.New(codes.FailedPrecondition, "fallback").WithDetails(
-		&dexpb.ErrorResponse{
+		&dexpb.ServiceErrorResponse{
 			Detail:                    "worker failed",
 			SubStatus:                 dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 			OriginalWorkerErrorStatus: int32(codes.InvalidArgument),
@@ -78,7 +78,7 @@ func TestTranslateRPCErrorMalformedDetailsFallback(t *testing.T) {
 		Code:    int32(codes.Internal),
 		Message: "broken details",
 		Details: []*anypb.Any{{
-			TypeUrl: "type.googleapis.com/dex.ErrorResponse",
+			TypeUrl: "type.googleapis.com/dex.ServiceErrorResponse",
 			Value:   []byte{0xff},
 		}},
 	})

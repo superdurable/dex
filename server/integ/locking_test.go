@@ -109,7 +109,7 @@ func doTestLockingWorkflow(
 		LockAttributeKeys: []string{locking.TestSearchAttributeIntKey},
 	})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
+	require.Equal(t, "request ID is required", grpcServiceErrorResponse(t, err).GetDetail())
 
 	for i := 0; i < locking.NumUnusedSignals; i++ {
 		_, err = flowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
@@ -145,7 +145,7 @@ func doTestLockingWorkflow(
 			})
 			if rpcErr != nil {
 				if status.Code(rpcErr) == codes.Aborted {
-					errResp := grpcErrorResponse(t, rpcErr)
+					errResp := grpcServiceErrorResponse(t, rpcErr)
 					assertions.Equal("one or more attribute keys are locked", errResp.GetDetail())
 					assertions.Equal(
 						dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,

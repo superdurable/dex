@@ -442,7 +442,7 @@ func clientTestServiceError(
 	detail string,
 	worker *WorkerError,
 ) error {
-	response := &dexpb.ErrorResponse{SubStatus: subStatus, Detail: detail}
+	response := &dexpb.ServiceErrorResponse{SubStatus: subStatus, Detail: detail}
 	if worker != nil {
 		response.OriginalWorkerErrorStatus = int32(worker.Code)
 		response.OriginalWorkerErrorType = worker.Type

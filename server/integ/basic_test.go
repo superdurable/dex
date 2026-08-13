@@ -149,7 +149,7 @@ func doTestBasicFlow(
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_ALREADY_STARTED,
-		grpcErrorResponse(t, err).GetSubStatus(),
+		grpcServiceErrorResponse(t, err).GetSubStatus(),
 	)
 
 	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
@@ -167,7 +167,7 @@ func doTestBasicFlow(
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
-		grpcErrorResponse(t, err).GetSubStatus(),
+		grpcServiceErrorResponse(t, err).GetSubStatus(),
 	)
 
 	history := workerHandler.GetTestResult().InvokeHistory

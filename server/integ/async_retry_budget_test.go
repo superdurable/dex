@@ -24,9 +24,12 @@ import (
 	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
 	"go.temporal.io/api/workflowservice/v1"
+	"go.temporal.io/sdk/converter"
 	"go.uber.org/cadence/.gen/go/shared"
 	"go.uber.org/cadence/client"
+	"go.uber.org/cadence/encoded"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -37,6 +40,11 @@ type asyncRetryAttempt struct {
 	attempt               int32
 	firstAttemptTimestamp int64
 	receivedTime          time.Time
+}
+
+type cadenceLocalFailureMarker struct {
+	ErrReason string `json:"errReason,omitempty"`
+	ErrJSON   string `json:"errJson,omitempty"`
 }
 
 type asyncRetryBudgetHandler struct {
@@ -241,6 +249,7 @@ func testAsyncAttemptBudgetExhausted(t *testing.T, backendType service.BackendTy
 	require.Equal(t, int32(1), failedEvent.GetContext().GetFinalAttempt())
 	require.Equal(t, int32(1), failedEvent.GetOutput().GetFailure().GetAttempt())
 	require.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, failedEvent.GetContext().GetDurability())
+	requireSingleLocalFailureDetail(t, ctx, runtime, backendType, flowID, runID)
 }
 
 func testAsyncDurationBudgetExhausted(t *testing.T, backendType service.BackendType) {
@@ -292,6 +301,7 @@ func testAsyncCombinedRetryBudget(t *testing.T, backendType service.BackendType)
 	require.NotNil(t, failedEvent)
 	require.Equal(t, int32(2), failedEvent.GetContext().GetFinalAttempt())
 	require.Equal(t, int32(2), failedEvent.GetOutput().GetFailure().GetAttempt())
+	requireSingleRegularAndWorkflowFailureDetail(t, ctx, runtime, backendType, flowID, runID)
 }
 
 func testAsyncExecuteAttemptBudgetExhausted(t *testing.T, backendType service.BackendType) {
@@ -391,6 +401,229 @@ func regularFallbackRetryPolicy(
 		require.FailNow(t, "unsupported backend", backendType)
 		return nil
 	}
+}
+
+func requireSingleLocalFailureDetail(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	backendType service.BackendType,
+	flowID string,
+	runID string,
+) {
+	t.Helper()
+	switch backendType {
+	case service.BackendTypeTemporal:
+		requireSingleTemporalLocalFailureDetail(t, ctx, runtime, flowID, runID)
+	case service.BackendTypeCadence:
+		requireSingleCadenceLocalFailureDetail(t, ctx, runtime, flowID, runID)
+	default:
+		require.FailNow(t, "unsupported backend", backendType)
+	}
+}
+
+func requireSingleRegularAndWorkflowFailureDetail(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	backendType service.BackendType,
+	flowID string,
+	runID string,
+) {
+	t.Helper()
+	switch backendType {
+	case service.BackendTypeTemporal:
+		requireSingleTemporalRegularAndWorkflowFailureDetail(t, ctx, runtime, flowID, runID)
+	case service.BackendTypeCadence:
+		requireSingleCadenceRegularAndWorkflowFailureDetail(t, ctx, runtime, flowID, runID)
+	default:
+		require.FailNow(t, "unsupported backend", backendType)
+	}
+}
+
+func requireSingleTemporalRegularAndWorkflowFailureDetail(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	runID string,
+) {
+	t.Helper()
+	api := runtime.UnifiedClient.GetApiService().(workflowservice.WorkflowServiceClient)
+	response, err := api.GetWorkflowExecutionHistory(ctx, &workflowservice.GetWorkflowExecutionHistoryRequest{
+		Namespace: testNamespace,
+		Execution: &common.WorkflowExecution{WorkflowId: flowID, RunId: runID},
+	})
+	require.NoError(t, err)
+	dataConverter := dexconverter.NewTemporalDataConverter()
+	regularFailureFound := false
+	workflowFailureFound := false
+	for _, historyEvent := range response.GetHistory().GetEvents() {
+		if attributes := historyEvent.GetActivityTaskFailedEventAttributes(); attributes != nil {
+			requireSingleTemporalActivityError(t, dataConverter, attributes.GetFailure())
+			regularFailureFound = true
+		}
+		if attributes := historyEvent.GetWorkflowExecutionFailedEventAttributes(); attributes != nil {
+			requireSingleTemporalFlowActivityError(t, dataConverter, attributes.GetFailure())
+			workflowFailureFound = true
+		}
+	}
+	require.True(t, regularFailureFound, "Temporal regular failure not found")
+	require.True(t, workflowFailureFound, "Temporal workflow failure not found")
+}
+
+func requireSingleTemporalActivityError(
+	t *testing.T,
+	dataConverter converter.DataConverter,
+	failure *failurepb.Failure,
+) {
+	t.Helper()
+	for failure != nil && failure.GetApplicationFailureInfo() == nil {
+		failure = failure.GetCause()
+	}
+	require.NotNil(t, failure)
+	payloads := failure.GetApplicationFailureInfo().GetDetails().GetPayloads()
+	require.Len(t, payloads, 1)
+	activityError := &dexpb.InternalActivityError{}
+	require.NoError(t, dataConverter.FromPayload(payloads[0], activityError))
+	require.NotEmpty(t, activityError.GetServerDetail())
+}
+
+func requireSingleTemporalFlowActivityError(
+	t *testing.T,
+	dataConverter converter.DataConverter,
+	failure *failurepb.Failure,
+) {
+	t.Helper()
+	for failure != nil && failure.GetApplicationFailureInfo() == nil {
+		failure = failure.GetCause()
+	}
+	require.NotNil(t, failure)
+	payloads := failure.GetApplicationFailureInfo().GetDetails().GetPayloads()
+	require.Len(t, payloads, 1)
+	flowError := &dexpb.InternalFlowError{}
+	require.NoError(t, dataConverter.FromPayload(payloads[0], flowError))
+	require.NotNil(t, flowError.GetActivityError())
+	require.NotEmpty(t, flowError.GetActivityError().GetServerDetail())
+}
+
+func requireSingleCadenceRegularAndWorkflowFailureDetail(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	runID string,
+) {
+	t.Helper()
+	api := runtime.UnifiedClient.GetApiService().(client.Client)
+	iterator := api.GetWorkflowHistory(ctx, flowID, runID, false, shared.HistoryEventFilterTypeAllEvent)
+	dataConverter := dexconverter.NewCadenceDataConverter()
+	regularFailureFound := false
+	workflowFailureFound := false
+	for iterator.HasNext() {
+		historyEvent, err := iterator.Next()
+		require.NoError(t, err)
+		if attributes := historyEvent.GetActivityTaskFailedEventAttributes(); attributes != nil {
+			requireSingleCadenceActivityError(t, dataConverter, attributes.GetDetails())
+			regularFailureFound = true
+		}
+		if attributes := historyEvent.GetWorkflowExecutionFailedEventAttributes(); attributes != nil {
+			requireSingleCadenceFlowActivityError(t, dataConverter, attributes.GetDetails())
+			workflowFailureFound = true
+		}
+	}
+	require.True(t, regularFailureFound, "Cadence regular failure not found")
+	require.True(t, workflowFailureFound, "Cadence workflow failure not found")
+}
+
+func requireSingleCadenceActivityError(
+	t *testing.T,
+	dataConverter encoded.DataConverter,
+	details []byte,
+) {
+	t.Helper()
+	var activityError *dexpb.InternalActivityError
+	require.NoError(t, dataConverter.FromData(details, &activityError))
+	require.NotEmpty(t, activityError.GetServerDetail())
+	var extraDetail *dexpb.InternalActivityError
+	require.Error(t, dataConverter.FromData(details, &activityError, &extraDetail))
+}
+
+func requireSingleCadenceFlowActivityError(
+	t *testing.T,
+	dataConverter encoded.DataConverter,
+	details []byte,
+) {
+	t.Helper()
+	var flowError *dexpb.InternalFlowError
+	require.NoError(t, dataConverter.FromData(details, &flowError))
+	require.NotNil(t, flowError.GetActivityError())
+	require.NotEmpty(t, flowError.GetActivityError().GetServerDetail())
+	var extraDetail *dexpb.InternalFlowError
+	require.Error(t, dataConverter.FromData(details, &flowError, &extraDetail))
+}
+
+func requireSingleTemporalLocalFailureDetail(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	runID string,
+) {
+	t.Helper()
+	api := runtime.UnifiedClient.GetApiService().(workflowservice.WorkflowServiceClient)
+	response, err := api.GetWorkflowExecutionHistory(ctx, &workflowservice.GetWorkflowExecutionHistoryRequest{
+		Namespace: testNamespace,
+		Execution: &common.WorkflowExecution{WorkflowId: flowID, RunId: runID},
+	})
+	require.NoError(t, err)
+	dataConverter := dexconverter.NewTemporalDataConverter()
+	for _, historyEvent := range response.GetHistory().GetEvents() {
+		attributes := historyEvent.GetMarkerRecordedEventAttributes()
+		if attributes.GetMarkerName() != "LocalActivity" || attributes.GetFailure() == nil {
+			continue
+		}
+		payloads := attributes.GetFailure().GetApplicationFailureInfo().GetDetails().GetPayloads()
+		require.Len(t, payloads, 1)
+		failure := &dexpb.InternalLocalStepActivityFailure{}
+		require.NoError(t, dataConverter.FromPayload(payloads[0], failure))
+		require.NotNil(t, failure.GetActivityError())
+		return
+	}
+	require.FailNow(t, "Temporal local failure marker not found")
+}
+
+func requireSingleCadenceLocalFailureDetail(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	runID string,
+) {
+	t.Helper()
+	api := runtime.UnifiedClient.GetApiService().(client.Client)
+	iterator := api.GetWorkflowHistory(ctx, flowID, runID, false, shared.HistoryEventFilterTypeAllEvent)
+	dataConverter := dexconverter.NewCadenceDataConverter()
+	for iterator.HasNext() {
+		historyEvent, err := iterator.Next()
+		require.NoError(t, err)
+		attributes := historyEvent.GetMarkerRecordedEventAttributes()
+		if attributes.GetMarkerName() != "LocalActivity" {
+			continue
+		}
+		var marker cadenceLocalFailureMarker
+		require.NoError(t, dataConverter.FromData(attributes.GetDetails(), &marker))
+		if marker.ErrReason == "" {
+			continue
+		}
+		var failure *dexpb.InternalLocalStepActivityFailure
+		require.NoError(t, dataConverter.FromData([]byte(marker.ErrJSON), &failure))
+		require.NotNil(t, failure.GetActivityError())
+		var extraDetail *dexpb.InternalActivityError
+		require.Error(t, dataConverter.FromData([]byte(marker.ErrJSON), &failure, &extraDetail))
+		return
+	}
+	require.FailNow(t, "Cadence local failure marker not found")
 }
 
 func temporalRegularFallbackRetryPolicy(

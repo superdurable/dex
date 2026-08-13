@@ -22,7 +22,7 @@ import io.superdurable.dex.exceptions.FlowNotFoundException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
-import io.superdurable.gen.ErrorResponse;
+import io.superdurable.gen.ServiceErrorResponse;
 
 final class GrpcExceptionTranslator {
     enum FlowTargetRequirement {
@@ -38,7 +38,7 @@ final class GrpcExceptionTranslator {
             final StatusRuntimeException exception,
             final FlowTargetRequirement requirement,
             final String flowId) {
-        final ErrorResponse details;
+        final ServiceErrorResponse details;
         try {
             details = unpackDetails(exception);
         } catch (InvalidProtocolBufferException malformed) {
@@ -70,7 +70,7 @@ final class GrpcExceptionTranslator {
         }
     }
 
-    private static ErrorResponse unpackDetails(
+    private static ServiceErrorResponse unpackDetails(
             final StatusRuntimeException exception)
             throws InvalidProtocolBufferException {
         final com.google.rpc.Status status = StatusProto.fromThrowable(exception);
@@ -78,8 +78,8 @@ final class GrpcExceptionTranslator {
             return null;
         }
         for (com.google.protobuf.Any value : status.getDetailsList()) {
-            if (value.is(ErrorResponse.class)) {
-                return value.unpack(ErrorResponse.class);
+            if (value.is(ServiceErrorResponse.class)) {
+                return value.unpack(ServiceErrorResponse.class);
             }
         }
         return null;
@@ -87,7 +87,7 @@ final class GrpcExceptionTranslator {
 
     private static String errorDetail(
             final StatusRuntimeException exception,
-            final ErrorResponse details) {
+            final ServiceErrorResponse details) {
         if (details != null && !details.getDetail().isEmpty()) {
             return details.getDetail();
         }
@@ -120,7 +120,7 @@ final class GrpcExceptionTranslator {
             final Status.Code code,
             final String detail,
             final StatusRuntimeException cause,
-            final ErrorResponse details) {
+            final ServiceErrorResponse details) {
         if (code == Status.Code.ABORTED) {
             return new RpcLockConflictException(detail, cause);
         }

@@ -19,14 +19,14 @@ import (
 // ErrorAndStatus is an API-layer failure carrying ErrorSubStatus and a gRPC code.
 type ErrorAndStatus struct {
 	Code  codes.Code
-	Error *dexpb.ErrorResponse
+	Error *dexpb.ServiceErrorResponse
 }
 
 // NewErrorAndStatus builds an ErrorAndStatus without worker-origin details.
 func NewErrorAndStatus(code codes.Code, subStatus dexpb.ErrorSubStatus, details string) *ErrorAndStatus {
 	return &ErrorAndStatus{
 		Code: code,
-		Error: &dexpb.ErrorResponse{
+		Error: &dexpb.ServiceErrorResponse{
 			SubStatus: subStatus,
 			Detail:    details,
 		},
@@ -44,7 +44,7 @@ func NewErrorAndStatusWithWorkerError(
 	}
 	return &ErrorAndStatus{
 		Code: code,
-		Error: &dexpb.ErrorResponse{
+		Error: &dexpb.ServiceErrorResponse{
 			SubStatus:                     subStatus,
 			Detail:                        details,
 			OriginalWorkerErrorDetail:     originalWorkerDetails,
@@ -55,12 +55,12 @@ func NewErrorAndStatusWithWorkerError(
 	}
 }
 
-// ToGRPCError converts ErrorAndStatus into a gRPC status with ErrorResponse details.
+// ToGRPCError converts ErrorAndStatus into a gRPC status with ServiceErrorResponse details.
 func (e *ErrorAndStatus) ToGRPCError() error {
 	if e == nil {
 		return nil
 	}
-	st := status.New(e.Code, ErrorResponseDetail(e.Error))
+	st := status.New(e.Code, ServiceErrorResponseDetail(e.Error))
 	if e.Error != nil {
 		withDetails, err := st.WithDetails(e.Error)
 		if err == nil {
@@ -70,12 +70,72 @@ func (e *ErrorAndStatus) ToGRPCError() error {
 	return st.Err()
 }
 
-// ErrorResponseDetail returns the Worker detail when present, otherwise the server detail.
-func ErrorResponseDetail(errorResponse *dexpb.ErrorResponse) string {
+// ServiceErrorResponseDetail returns the Worker detail when present, otherwise the server detail.
+func ServiceErrorResponseDetail(errorResponse *dexpb.ServiceErrorResponse) string {
 	if errorResponse.GetOriginalWorkerErrorDetail() != "" {
 		return errorResponse.GetOriginalWorkerErrorDetail()
 	}
 	return errorResponse.GetDetail()
+}
+
+// ServiceErrorResponseFromFlowError converts a final internal failure at the public boundary.
+func ServiceErrorResponseFromFlowError(
+	flowErrorType dexpb.FlowErrorType,
+	flowError *dexpb.InternalFlowError,
+) *dexpb.ServiceErrorResponse {
+	if flowError == nil {
+		panic("flow error required")
+	}
+	if activityError := flowError.GetActivityError(); activityError != nil {
+		return ServiceErrorResponseFromActivityError(flowErrorType, activityError)
+	}
+	return &dexpb.ServiceErrorResponse{
+		Detail:    flowError.GetServerDetail(),
+		SubStatus: workflowErrorSubStatus(flowErrorType),
+	}
+}
+
+// ServiceErrorResponseFromActivityError converts an internal failure at the public boundary.
+func ServiceErrorResponseFromActivityError(
+	flowErrorType dexpb.FlowErrorType,
+	activityError *dexpb.InternalActivityError,
+) *dexpb.ServiceErrorResponse {
+	if activityError == nil {
+		panic("activity error required")
+	}
+	response := &dexpb.ServiceErrorResponse{
+		Detail:                    activityError.GetServerDetail(),
+		SubStatus:                 activityErrorSubStatus(flowErrorType),
+		OriginalWorkerErrorStatus: activityError.GetWorkerGrpcStatus(),
+	}
+	workerError := activityError.GetWorkerError()
+	if workerError == nil {
+		return response
+	}
+	response.OriginalWorkerErrorDetail = workerError.GetDetail()
+	response.OriginalWorkerErrorType = workerError.GetErrorType()
+	response.OriginalWorkerErrorStackTrace = workerError.GetStackTrace()
+	if response.GetOriginalWorkerErrorDetail() != "" {
+		response.Detail = ""
+	}
+	return response
+}
+
+func activityErrorSubStatus(flowErrorType dexpb.FlowErrorType) dexpb.ErrorSubStatus {
+	switch flowErrorType {
+	case dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE:
+		return dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR
+	default:
+		return dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED
+	}
+}
+
+func workflowErrorSubStatus(flowErrorType dexpb.FlowErrorType) dexpb.ErrorSubStatus {
+	if flowErrorType == dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL {
+		return dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR
+	}
+	return dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNSPECIFIED
 }
 
 // InvalidArgument is a convenience for bad client/worker input.

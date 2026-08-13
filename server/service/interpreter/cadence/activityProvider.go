@@ -29,21 +29,20 @@ func (a *activityProvider) GetLogger(ctx context.Context) interfaces.UnifiedLogg
 	}
 }
 
-func (a *activityProvider) NewFlowError(
+func (a *activityProvider) NewActivityError(
 	errType dexpb.FlowErrorType,
-	errorResponse *dexpb.ErrorResponse,
+	activityError *dexpb.InternalActivityError,
 	_ int32,
 ) error {
-	return cadence.NewCustomError(errType.String(), errorResponse)
+	return cadence.NewCustomError(errType.String(), activityError)
 }
 
 func (a *activityProvider) NewLocalActivityError(
 	errType dexpb.FlowErrorType,
-	errorResponse *dexpb.ErrorResponse,
 	failure *dexpb.InternalLocalStepActivityFailure,
 	_ int32,
 ) error {
-	return cadence.NewCustomError(errType.String(), errorResponse, failure)
+	return cadence.NewCustomError(errType.String(), failure)
 }
 
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {

@@ -126,7 +126,7 @@ func doTestWaitForAttributeBlobBacked(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
-	errResp := grpcErrorResponse(t, err)
+	errResp := grpcServiceErrorResponse(t, err)
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
@@ -162,7 +162,7 @@ func doTestWaitForAttributeSuccess(t *testing.T) {
 		WaitTimeSeconds: 0,
 	})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
-	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
+	require.Equal(t, "request ID is required", grpcServiceErrorResponse(t, err).GetDetail())
 
 	_, err = flowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
 		RequestId: newRequestID(),
@@ -208,7 +208,7 @@ func doTestWaitForAttributeTimeout(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
-	errResp := grpcErrorResponse(t, err)
+	errResp := grpcServiceErrorResponse(t, err)
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
@@ -276,7 +276,7 @@ func doTestWaitForAttributeNotFound(t *testing.T) {
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
-		grpcErrorResponse(t, err).GetSubStatus(),
+		grpcServiceErrorResponse(t, err).GetSubStatus(),
 	)
 }
 
@@ -310,7 +310,7 @@ func doTestWaitForAttributeClosed(t *testing.T) {
 	require.Equal(
 		t,
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_FLOW_NOT_EXISTS,
-		grpcErrorResponse(t, err).GetSubStatus(),
+		grpcServiceErrorResponse(t, err).GetSubStatus(),
 	)
 }
 

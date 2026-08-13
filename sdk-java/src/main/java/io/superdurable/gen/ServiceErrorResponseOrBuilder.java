@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface ErrorResponseOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.ErrorResponse)
+public interface ServiceErrorResponseOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.ServiceErrorResponse)
     com.google.protobuf.MessageOrBuilder {
 
   /**

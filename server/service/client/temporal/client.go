@@ -24,6 +24,7 @@ import (
 	uclient "github.com/superdurable/dex/service/client"
 	historybuilder "github.com/superdurable/dex/service/client/history"
 	"github.com/superdurable/dex/service/common/blobstore"
+	serviceerrors "github.com/superdurable/dex/service/common/errors"
 	"github.com/superdurable/dex/service/common/index"
 	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/retry"
@@ -216,7 +217,7 @@ func (t *temporalClient) GetIfUpdateError(err error, detail *string) (dexpb.Upda
 	return dexpb.UpdateErrorType(value), true
 }
 
-func (t *temporalClient) GetIfFlowError(err error, resp *dexpb.ErrorResponse) (dexpb.FlowErrorType, bool) {
+func (t *temporalClient) GetIfFlowError(err error, resp *dexpb.ServiceErrorResponse) (dexpb.FlowErrorType, bool) {
 	typeName := t.extractAppErrType(err)
 	value, ok := dexpb.FlowErrorType_value[typeName]
 	if !ok {
@@ -225,12 +226,13 @@ func (t *temporalClient) GetIfFlowError(err error, resp *dexpb.ErrorResponse) (d
 	if resp == nil {
 		panic("resp required")
 	}
-	if decodeErr := t.decodeAppErrDetails(err, resp); decodeErr != nil {
-		if resp.Detail == "" {
-			resp.Detail = err.Error()
-		}
+	flowErrorType := dexpb.FlowErrorType(value)
+	flowError := &dexpb.InternalFlowError{}
+	if decodeErr := t.decodeAppErrDetails(err, flowError); decodeErr != nil {
+		flowError.Failure = &dexpb.InternalFlowError_ServerDetail{ServerDetail: err.Error()}
 	}
-	return dexpb.FlowErrorType(value), true
+	*resp = *serviceerrors.ServiceErrorResponseFromFlowError(flowErrorType, flowError)
+	return flowErrorType, true
 }
 
 func (t *temporalClient) extractAppErrType(err error) string {
@@ -1024,12 +1026,15 @@ func (t *temporalClient) temporalStepFailure(
 	if applicationFailure == nil || len(applicationFailure.GetDetails().GetPayloads()) == 0 {
 		return stepFailure, nil
 	}
-	details := &dexpb.ErrorResponse{}
+	activityError := &dexpb.InternalActivityError{}
 	payloads := applicationFailure.GetDetails().GetPayloads()
-	if err := t.dataConverter.FromPayload(payloads[0], details); err != nil {
+	if err := t.dataConverter.FromPayload(payloads[0], activityError); err != nil {
 		return nil, fmt.Errorf("decode step failure details: %w", err)
 	}
-	stepFailure.Details = details
+	stepFailure.Details = serviceerrors.ServiceErrorResponseFromActivityError(
+		temporalFlowErrorType(failure),
+		activityError,
+	)
 	return stepFailure, nil
 }
 
@@ -1045,18 +1050,17 @@ func (t *temporalClient) temporalLocalStepFailure(
 	if len(payloads) == 0 {
 		return stepFailure, nil, nil
 	}
-	if len(payloads) < 2 {
-		return nil, nil, fmt.Errorf("local step failure metadata is missing")
-	}
-	errorResponse := &dexpb.ErrorResponse{}
-	if err := t.dataConverter.FromPayload(payloads[0], errorResponse); err != nil {
-		return nil, nil, fmt.Errorf("decode local step error response: %w", err)
-	}
 	metadata := &dexpb.InternalLocalStepActivityFailure{}
-	if err := t.dataConverter.FromPayload(payloads[1], metadata); err != nil {
+	if err := t.dataConverter.FromPayload(payloads[0], metadata); err != nil {
 		return nil, nil, fmt.Errorf("decode local step failure metadata: %w", err)
 	}
-	stepFailure.Details = errorResponse
+	if metadata.GetActivityError() == nil {
+		return nil, nil, fmt.Errorf("local step activity error is missing")
+	}
+	stepFailure.Details = serviceerrors.ServiceErrorResponseFromActivityError(
+		temporalFlowErrorType(failure),
+		metadata.GetActivityError(),
+	)
 	return stepFailure, metadata, nil
 }
 

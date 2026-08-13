@@ -30,6 +30,7 @@ import (
 	uclient "github.com/superdurable/dex/service/client"
 	historybuilder "github.com/superdurable/dex/service/client/history"
 	"github.com/superdurable/dex/service/common/blobstore"
+	serviceerrors "github.com/superdurable/dex/service/common/errors"
 	"github.com/superdurable/dex/service/common/index"
 	cadenceadmin "github.com/uber/cadence-idl/go/proto/admin/v1"
 	cadenceapi "github.com/uber/cadence-idl/go/proto/api/v1"
@@ -115,7 +116,7 @@ func (t *cadenceClient) GetIfUpdateError(err error, detail *string) (dexpb.Updat
 	return dexpb.UpdateErrorType(value), true
 }
 
-func (t *cadenceClient) GetIfFlowError(err error, resp *dexpb.ErrorResponse) (dexpb.FlowErrorType, bool) {
+func (t *cadenceClient) GetIfFlowError(err error, resp *dexpb.ServiceErrorResponse) (dexpb.FlowErrorType, bool) {
 	typeName := t.extractAppErrType(err)
 	value, ok := dexpb.FlowErrorType_value[typeName]
 	if !ok {
@@ -124,12 +125,13 @@ func (t *cadenceClient) GetIfFlowError(err error, resp *dexpb.ErrorResponse) (de
 	if resp == nil {
 		panic("resp required")
 	}
-	if decodeErr := t.decodeAppErrDetails(err, resp); decodeErr != nil {
-		if resp.Detail == "" {
-			resp.Detail = err.Error()
-		}
+	flowErrorType := dexpb.FlowErrorType(value)
+	flowError := &dexpb.InternalFlowError{}
+	if decodeErr := t.decodeAppErrDetails(err, flowError); decodeErr != nil {
+		flowError.Failure = &dexpb.InternalFlowError_ServerDetail{ServerDetail: err.Error()}
 	}
-	return dexpb.FlowErrorType(value), true
+	*resp = *serviceerrors.ServiceErrorResponseFromFlowError(flowErrorType, flowError)
+	return flowErrorType, true
 }
 
 func (t *cadenceClient) extractAppErrType(err error) string {
@@ -951,11 +953,14 @@ func (t *cadenceClient) cadenceStepFailure(
 	if len(detailsData) == 0 {
 		return failure, nil
 	}
-	details := &dexpb.ErrorResponse{}
-	if err := t.converter.FromData(detailsData, details); err != nil {
+	activityError := &dexpb.InternalActivityError{}
+	if err := t.converter.FromData(detailsData, activityError); err != nil {
 		return nil, fmt.Errorf("decode step failure details: %w", err)
 	}
-	failure.Details = details
+	failure.Details = serviceerrors.ServiceErrorResponseFromActivityError(
+		cadenceFlowErrorType(reason),
+		activityError,
+	)
 	return failure, nil
 }
 
@@ -966,17 +971,19 @@ func (t *cadenceClient) cadenceLocalStepFailure(
 	if len(detailsData) == 0 {
 		return &dexpb.StepMethodFailure{BackendError: reason}, nil, nil
 	}
-	var errorResponse *dexpb.ErrorResponse
 	var metadata *dexpb.InternalLocalStepActivityFailure
-	if err := t.converter.FromData(detailsData, &errorResponse, &metadata); err != nil {
+	if err := t.converter.FromData(detailsData, &metadata); err != nil {
 		return nil, nil, fmt.Errorf("decode local step failure details: %w", err)
 	}
-	if errorResponse == nil || metadata == nil {
+	if metadata == nil || metadata.GetActivityError() == nil {
 		return nil, nil, fmt.Errorf("local step failure details are incomplete")
 	}
 	return &dexpb.StepMethodFailure{
 		BackendError: reason,
-		Details:      errorResponse,
+		Details: serviceerrors.ServiceErrorResponseFromActivityError(
+			cadenceFlowErrorType(reason),
+			metadata.GetActivityError(),
+		),
 	}, metadata, nil
 }
 

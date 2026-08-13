@@ -562,7 +562,7 @@ export interface StepMethodPendingEvent {
 
 export interface StepMethodFailure {
   backendError: string;
-  details: ErrorResponse | undefined;
+  details: ServiceErrorResponse | undefined;
   attempt: number;
 }
 
@@ -796,7 +796,7 @@ export interface HealthInfo {
   duration: number;
 }
 
-export interface ErrorResponse {
+export interface ServiceErrorResponse {
   detail: string;
   subStatus: ErrorSubStatus;
   originalWorkerErrorDetail: string;
@@ -810,6 +810,25 @@ export interface WorkerErrorResponse {
   errorType: string;
   stackTrace: string;
   retryAfterSeconds: number;
+}
+
+export interface InternalActivityError {
+  serverDetail: string;
+  workerGrpcStatus: number;
+  workerError: InternalWorkerError | undefined;
+}
+
+export interface InternalWorkerError {
+  detail: string;
+  errorType: string;
+  stackTrace: string;
+}
+
+export interface InternalFlowError {
+  failure:
+    | { $case: "serverDetail"; value: string }
+    | { $case: "activityError"; value: InternalActivityError }
+    | undefined;
 }
 
 export interface ChannelInfo {
@@ -1087,6 +1106,7 @@ export interface InternalLocalStepActivityFailure {
   firstAttemptTimestamp: bigint;
   methodOptions: StepMethodOptions | undefined;
   attempt: number;
+  activityError: InternalActivityError | undefined;
 }
 
 export interface InvokeExecuteMethodActivityOutput {
@@ -5573,7 +5593,7 @@ export const StepMethodFailure: MessageFns<StepMethodFailure> = {
       writer.uint32(10).string(message.backendError);
     }
     if (message.details !== undefined) {
-      ErrorResponse.encode(message.details, writer.uint32(18).fork()).join();
+      ServiceErrorResponse.encode(message.details, writer.uint32(18).fork()).join();
     }
     if (message.attempt !== 0) {
       writer.uint32(24).int32(message.attempt);
@@ -5601,7 +5621,7 @@ export const StepMethodFailure: MessageFns<StepMethodFailure> = {
             break;
           }
 
-          message.details = ErrorResponse.decode(reader, reader.uint32());
+          message.details = ServiceErrorResponse.decode(reader, reader.uint32());
           continue;
         }
         case 3: {
@@ -5628,7 +5648,7 @@ export const StepMethodFailure: MessageFns<StepMethodFailure> = {
     const message = createBaseStepMethodFailure();
     message.backendError = object.backendError ?? "";
     message.details = (object.details !== undefined && object.details !== null)
-      ? ErrorResponse.fromPartial(object.details)
+      ? ServiceErrorResponse.fromPartial(object.details)
       : undefined;
     message.attempt = object.attempt ?? 0;
     return message;
@@ -8314,7 +8334,7 @@ export const HealthInfo: MessageFns<HealthInfo> = {
   },
 };
 
-function createBaseErrorResponse(): ErrorResponse {
+function createBaseServiceErrorResponse(): ServiceErrorResponse {
   return {
     detail: "",
     subStatus: 0,
@@ -8325,8 +8345,8 @@ function createBaseErrorResponse(): ErrorResponse {
   };
 }
 
-export const ErrorResponse: MessageFns<ErrorResponse> = {
-  encode(message: ErrorResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const ServiceErrorResponse: MessageFns<ServiceErrorResponse> = {
+  encode(message: ServiceErrorResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.detail !== "") {
       writer.uint32(10).string(message.detail);
     }
@@ -8348,10 +8368,10 @@ export const ErrorResponse: MessageFns<ErrorResponse> = {
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): ErrorResponse {
+  decode(input: BinaryReader | Uint8Array, length?: number): ServiceErrorResponse {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseErrorResponse();
+    const message = createBaseServiceErrorResponse();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -8412,11 +8432,11 @@ export const ErrorResponse: MessageFns<ErrorResponse> = {
     return message;
   },
 
-  create<I extends Exact<DeepPartial<ErrorResponse>, I>>(base?: I): ErrorResponse {
-    return ErrorResponse.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<ServiceErrorResponse>, I>>(base?: I): ServiceErrorResponse {
+    return ServiceErrorResponse.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<ErrorResponse>, I>>(object: I): ErrorResponse {
-    const message = createBaseErrorResponse();
+  fromPartial<I extends Exact<DeepPartial<ServiceErrorResponse>, I>>(object: I): ServiceErrorResponse {
+    const message = createBaseServiceErrorResponse();
     message.detail = object.detail ?? "";
     message.subStatus = object.subStatus ?? 0;
     message.originalWorkerErrorDetail = object.originalWorkerErrorDetail ?? "";
@@ -8505,6 +8525,220 @@ export const WorkerErrorResponse: MessageFns<WorkerErrorResponse> = {
     message.errorType = object.errorType ?? "";
     message.stackTrace = object.stackTrace ?? "";
     message.retryAfterSeconds = object.retryAfterSeconds ?? 0;
+    return message;
+  },
+};
+
+function createBaseInternalActivityError(): InternalActivityError {
+  return { serverDetail: "", workerGrpcStatus: 0, workerError: undefined };
+}
+
+export const InternalActivityError: MessageFns<InternalActivityError> = {
+  encode(message: InternalActivityError, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.serverDetail !== "") {
+      writer.uint32(10).string(message.serverDetail);
+    }
+    if (message.workerGrpcStatus !== 0) {
+      writer.uint32(16).int32(message.workerGrpcStatus);
+    }
+    if (message.workerError !== undefined) {
+      InternalWorkerError.encode(message.workerError, writer.uint32(26).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InternalActivityError {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInternalActivityError();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.serverDetail = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.workerGrpcStatus = reader.int32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.workerError = InternalWorkerError.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InternalActivityError>, I>>(base?: I): InternalActivityError {
+    return InternalActivityError.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InternalActivityError>, I>>(object: I): InternalActivityError {
+    const message = createBaseInternalActivityError();
+    message.serverDetail = object.serverDetail ?? "";
+    message.workerGrpcStatus = object.workerGrpcStatus ?? 0;
+    message.workerError = (object.workerError !== undefined && object.workerError !== null)
+      ? InternalWorkerError.fromPartial(object.workerError)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseInternalWorkerError(): InternalWorkerError {
+  return { detail: "", errorType: "", stackTrace: "" };
+}
+
+export const InternalWorkerError: MessageFns<InternalWorkerError> = {
+  encode(message: InternalWorkerError, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.detail !== "") {
+      writer.uint32(10).string(message.detail);
+    }
+    if (message.errorType !== "") {
+      writer.uint32(18).string(message.errorType);
+    }
+    if (message.stackTrace !== "") {
+      writer.uint32(26).string(message.stackTrace);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InternalWorkerError {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInternalWorkerError();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.detail = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.errorType = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.stackTrace = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InternalWorkerError>, I>>(base?: I): InternalWorkerError {
+    return InternalWorkerError.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InternalWorkerError>, I>>(object: I): InternalWorkerError {
+    const message = createBaseInternalWorkerError();
+    message.detail = object.detail ?? "";
+    message.errorType = object.errorType ?? "";
+    message.stackTrace = object.stackTrace ?? "";
+    return message;
+  },
+};
+
+function createBaseInternalFlowError(): InternalFlowError {
+  return { failure: undefined };
+}
+
+export const InternalFlowError: MessageFns<InternalFlowError> = {
+  encode(message: InternalFlowError, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    switch (message.failure?.$case) {
+      case "serverDetail":
+        writer.uint32(10).string(message.failure.value);
+        break;
+      case "activityError":
+        InternalActivityError.encode(message.failure.value, writer.uint32(18).fork()).join();
+        break;
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InternalFlowError {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInternalFlowError();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.failure = { $case: "serverDetail", value: reader.string() };
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.failure = { $case: "activityError", value: InternalActivityError.decode(reader, reader.uint32()) };
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InternalFlowError>, I>>(base?: I): InternalFlowError {
+    return InternalFlowError.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InternalFlowError>, I>>(object: I): InternalFlowError {
+    const message = createBaseInternalFlowError();
+    switch (object.failure?.$case) {
+      case "serverDetail": {
+        if (object.failure?.value !== undefined && object.failure?.value !== null) {
+          message.failure = { $case: "serverDetail", value: object.failure.value };
+        }
+        break;
+      }
+      case "activityError": {
+        if (object.failure?.value !== undefined && object.failure?.value !== null) {
+          message.failure = { $case: "activityError", value: InternalActivityError.fromPartial(object.failure.value) };
+        }
+        break;
+      }
+    }
     return message;
   },
 };
@@ -11724,7 +11958,13 @@ export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
 };
 
 function createBaseInternalLocalStepActivityFailure(): InternalLocalStepActivityFailure {
-  return { localActivityMetadata: undefined, firstAttemptTimestamp: 0n, methodOptions: undefined, attempt: 0 };
+  return {
+    localActivityMetadata: undefined,
+    firstAttemptTimestamp: 0n,
+    methodOptions: undefined,
+    attempt: 0,
+    activityError: undefined,
+  };
 }
 
 export const InternalLocalStepActivityFailure: MessageFns<InternalLocalStepActivityFailure> = {
@@ -11743,6 +11983,9 @@ export const InternalLocalStepActivityFailure: MessageFns<InternalLocalStepActiv
     }
     if (message.attempt !== 0) {
       writer.uint32(32).int32(message.attempt);
+    }
+    if (message.activityError !== undefined) {
+      InternalActivityError.encode(message.activityError, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -11786,6 +12029,14 @@ export const InternalLocalStepActivityFailure: MessageFns<InternalLocalStepActiv
           message.attempt = reader.int32();
           continue;
         }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.activityError = InternalActivityError.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -11816,6 +12067,9 @@ export const InternalLocalStepActivityFailure: MessageFns<InternalLocalStepActiv
       ? StepMethodOptions.fromPartial(object.methodOptions)
       : undefined;
     message.attempt = object.attempt ?? 0;
+    message.activityError = (object.activityError !== undefined && object.activityError !== null)
+      ? InternalActivityError.fromPartial(object.activityError)
+      : undefined;
     return message;
   },
 };

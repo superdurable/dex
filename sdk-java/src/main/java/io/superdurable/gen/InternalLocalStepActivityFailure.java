@@ -123,6 +123,32 @@ private static final long serialVersionUID = 0L;
     return attempt_;
   }
 
+  public static final int ACTIVITY_ERROR_FIELD_NUMBER = 5;
+  private io.superdurable.gen.InternalActivityError activityError_;
+  /**
+   * <code>.dex.InternalActivityError activity_error = 5;</code>
+   * @return Whether the activityError field is set.
+   */
+  @java.lang.Override
+  public boolean hasActivityError() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <code>.dex.InternalActivityError activity_error = 5;</code>
+   * @return The activityError.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.InternalActivityError getActivityError() {
+    return activityError_ == null ? io.superdurable.gen.InternalActivityError.getDefaultInstance() : activityError_;
+  }
+  /**
+   * <code>.dex.InternalActivityError activity_error = 5;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.InternalActivityErrorOrBuilder getActivityErrorOrBuilder() {
+    return activityError_ == null ? io.superdurable.gen.InternalActivityError.getDefaultInstance() : activityError_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -149,6 +175,9 @@ private static final long serialVersionUID = 0L;
     if (attempt_ != 0) {
       output.writeInt32(4, attempt_);
     }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      output.writeMessage(5, getActivityError());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -168,6 +197,10 @@ private static final long serialVersionUID = 0L;
     if (attempt_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(4, attempt_);
+    }
+    if (((bitField0_ & 0x00000004) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(5, getActivityError());
     }
     return size;
   }
@@ -207,6 +240,11 @@ private static final long serialVersionUID = 0L;
     }
     if (getAttempt()
         != other.getAttempt()) return false;
+    if (hasActivityError() != other.hasActivityError()) return false;
+    if (hasActivityError()) {
+      if (!getActivityError()
+          .equals(other.getActivityError())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -231,6 +269,10 @@ private static final long serialVersionUID = 0L;
     }
     hash = (37 * hash) + ATTEMPT_FIELD_NUMBER;
     hash = (53 * hash) + getAttempt();
+    if (hasActivityError()) {
+      hash = (37 * hash) + ACTIVITY_ERROR_FIELD_NUMBER;
+      hash = (53 * hash) + getActivityError().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -363,6 +405,7 @@ private static final long serialVersionUID = 0L;
               .alwaysUseFieldBuilders) {
         internalGetLocalActivityMetadataFieldBuilder();
         internalGetMethodOptionsFieldBuilder();
+        internalGetActivityErrorFieldBuilder();
       }
     }
     @java.lang.Override
@@ -381,6 +424,11 @@ private static final long serialVersionUID = 0L;
         methodOptionsBuilder_ = null;
       }
       attempt_ = 0;
+      activityError_ = null;
+      if (activityErrorBuilder_ != null) {
+        activityErrorBuilder_.dispose();
+        activityErrorBuilder_ = null;
+      }
       return this;
     }
 
@@ -433,6 +481,12 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000008) != 0)) {
         result.attempt_ = attempt_;
       }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.activityError_ = activityErrorBuilder_ == null
+            ? activityError_
+            : activityErrorBuilder_.build();
+        to_bitField0_ |= 0x00000004;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -459,6 +513,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.getAttempt() != 0) {
         setAttempt(other.getAttempt());
+      }
+      if (other.hasActivityError()) {
+        mergeActivityError(other.getActivityError());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -510,6 +567,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000008;
               break;
             } // case 32
+            case 42: {
+              input.readMessage(
+                  internalGetActivityErrorFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 42
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -831,6 +895,127 @@ private static final long serialVersionUID = 0L;
       attempt_ = 0;
       onChanged();
       return this;
+    }
+
+    private io.superdurable.gen.InternalActivityError activityError_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.InternalActivityError, io.superdurable.gen.InternalActivityError.Builder, io.superdurable.gen.InternalActivityErrorOrBuilder> activityErrorBuilder_;
+    /**
+     * <code>.dex.InternalActivityError activity_error = 5;</code>
+     * @return Whether the activityError field is set.
+     */
+    public boolean hasActivityError() {
+      return ((bitField0_ & 0x00000010) != 0);
+    }
+    /**
+     * <code>.dex.InternalActivityError activity_error = 5;</code>
+     * @return The activityError.
+     */
+    public io.superdurable.gen.InternalActivityError getActivityError() {
+      if (activityErrorBuilder_ == null) {
+        return activityError_ == null ? io.superdurable.gen.InternalActivityError.getDefaultInstance() : activityError_;
+      } else {
+        return activityErrorBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.dex.InternalActivityError activity_error = 5;</code>
+     */
+    public Builder setActivityError(io.superdurable.gen.InternalActivityError value) {
+      if (activityErrorBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        activityError_ = value;
+      } else {
+        activityErrorBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.InternalActivityError activity_error = 5;</code>
+     */
+    public Builder setActivityError(
+        io.superdurable.gen.InternalActivityError.Builder builderForValue) {
+      if (activityErrorBuilder_ == null) {
+        activityError_ = builderForValue.build();
+      } else {
+        activityErrorBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.InternalActivityError activity_error = 5;</code>
+     */
+    public Builder mergeActivityError(io.superdurable.gen.InternalActivityError value) {
+      if (activityErrorBuilder_ == null) {
+        if (((bitField0_ & 0x00000010) != 0) &&
+          activityError_ != null &&
+          activityError_ != io.superdurable.gen.InternalActivityError.getDefaultInstance()) {
+          getActivityErrorBuilder().mergeFrom(value);
+        } else {
+          activityError_ = value;
+        }
+      } else {
+        activityErrorBuilder_.mergeFrom(value);
+      }
+      if (activityError_ != null) {
+        bitField0_ |= 0x00000010;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.InternalActivityError activity_error = 5;</code>
+     */
+    public Builder clearActivityError() {
+      bitField0_ = (bitField0_ & ~0x00000010);
+      activityError_ = null;
+      if (activityErrorBuilder_ != null) {
+        activityErrorBuilder_.dispose();
+        activityErrorBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.InternalActivityError activity_error = 5;</code>
+     */
+    public io.superdurable.gen.InternalActivityError.Builder getActivityErrorBuilder() {
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return internalGetActivityErrorFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.InternalActivityError activity_error = 5;</code>
+     */
+    public io.superdurable.gen.InternalActivityErrorOrBuilder getActivityErrorOrBuilder() {
+      if (activityErrorBuilder_ != null) {
+        return activityErrorBuilder_.getMessageOrBuilder();
+      } else {
+        return activityError_ == null ?
+            io.superdurable.gen.InternalActivityError.getDefaultInstance() : activityError_;
+      }
+    }
+    /**
+     * <code>.dex.InternalActivityError activity_error = 5;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.InternalActivityError, io.superdurable.gen.InternalActivityError.Builder, io.superdurable.gen.InternalActivityErrorOrBuilder> 
+        internalGetActivityErrorFieldBuilder() {
+      if (activityErrorBuilder_ == null) {
+        activityErrorBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.InternalActivityError, io.superdurable.gen.InternalActivityError.Builder, io.superdurable.gen.InternalActivityErrorOrBuilder>(
+                getActivityError(),
+                getParentForChildren(),
+                isClean());
+        activityError_ = null;
+      }
+      return activityErrorBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.InternalLocalStepActivityFailure)
