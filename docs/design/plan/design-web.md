@@ -364,6 +364,7 @@ Web 只消费统一的 `input/output/context`，不根据 durability 选择额�
 | SYNC regular Activity | ActivityTaskScheduled input | scheduled event metadata 和 input context |
 | ASYNC local success | run-scoped async input snapshot | LocalActivity marker 与 async input snapshot |
 | ASYNC local failure + regular fallback | fallback ActivityTaskScheduled input | scheduled event metadata；durability 仍为 ASYNC |
+| ASYNC local failure + budget exhausted | unavailable | LocalActivity failure marker metadata |
 
 local snapshot 不存在、external storage 未启用或数据已清理时，server 返回
 `input.unavailable=true`。这只代表 step method input snapshot 不可恢复，不代表其中某个
@@ -699,7 +700,7 @@ Phase 2 使用 `server/integ/`：
 - channel values、多个 timers、ANY/ALL results 从保存的 worker request 精确恢复。
 - local failure fallback 使用 regular Activity history request，且不暴露 local failure。
 - sync 和 async regular retry 只返回最近一次 failure；local failure 在 fallback 期间不暴露。
-- 关闭存储或清理后只对缺失的 async snapshot 返回 `input.unavailable=true`。
+- local retry budget 耗尽且没有 fallback 时，以及关闭存储或清理后缺失 async snapshot 时，返回 `input.unavailable=true`。
 - local filesystem storage 覆盖 string/object blob、run-level cleanup 和安全路径。
 
 Web Go integration：

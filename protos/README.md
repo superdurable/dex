@@ -63,7 +63,9 @@ duration. An absent duration means the flow has no timeout.
 Step method events expose the same `input`, `output`, and `context` structure
 for sync, async, and async-fallback execution. Regular Activity inputs come from
 scheduled history; successful local Activity inputs come from run-scoped
-external storage. Missing or cleaned-up snapshots set `input.unavailable=true`.
+external storage. A local failure that exhausts its retry budget before regular
+fallback has no snapshot and sets `input.unavailable=true`, as do missing or
+cleaned-up snapshots.
 
 Each event context includes the effective method timeout and retry policy.
 Regular Activity options come from scheduled metadata; local Activity options
