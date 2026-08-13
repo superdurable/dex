@@ -88,29 +88,29 @@ func (mr *MockActivityProviderMockRecorder) NewFlowError(errType, errorResponse 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowError", reflect.TypeOf((*MockActivityProvider)(nil).NewFlowError), errType, errorResponse)
 }
 
-// NewFlowErrorWithDetails mocks base method.
-func (m *MockActivityProvider) NewFlowErrorWithDetails(
+// NewLocalActivityError mocks base method.
+func (m *MockActivityProvider) NewLocalActivityError(
 	errType dexpb.FlowErrorType,
-	errorResponse *dexpb.ErrorResponse,
-	additionalDetails ...interface{},
+	localError *dexpb.InternalLocalStepActivityError,
 ) error {
 	m.ctrl.T.Helper()
-	varargs := []interface{}{errType, errorResponse}
-	varargs = append(varargs, additionalDetails...)
-	ret := m.ctrl.Call(m, "NewFlowErrorWithDetails", varargs...)
+	ret := m.ctrl.Call(m, "NewLocalActivityError", errType, localError)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// NewFlowErrorWithDetails indicates an expected call of NewFlowErrorWithDetails.
-func (mr *MockActivityProviderMockRecorder) NewFlowErrorWithDetails(
-	errType, errorResponse interface{},
-	additionalDetails ...interface{},
+// NewLocalActivityError indicates an expected call of NewLocalActivityError.
+func (mr *MockActivityProviderMockRecorder) NewLocalActivityError(
+	errType, localError interface{},
 ) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := []interface{}{errType, errorResponse}
-	varargs = append(varargs, additionalDetails...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "NewFlowErrorWithDetails", reflect.TypeOf((*MockActivityProvider)(nil).NewFlowErrorWithDetails), varargs...)
+	return mr.mock.ctrl.RecordCallWithMethodType(
+		mr.mock,
+		"NewLocalActivityError",
+		reflect.TypeOf((*MockActivityProvider)(nil).NewLocalActivityError),
+		errType,
+		localError,
+	)
 }
 
 // RecordHeartbeat mocks base method.

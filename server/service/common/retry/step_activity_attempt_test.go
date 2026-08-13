@@ -21,14 +21,14 @@ func TestStepActivityAttemptAppliesCumulativeMetadata(t *testing.T) {
 		PreviousAttempts:      2,
 		FirstAttemptTimestamp: 123,
 	}
-	attempt := NewStepActivityAttempt(retryContext, time.Unix(456, 0), 3, true)
+	attempt := NewStepActivityAttempt(retryContext, time.Unix(456, 0), 3)
 	workerContext := &dexpb.Context{
 		StepExecutionId:     "S1-1",
 		FromStepExecutionId: "__start__",
 	}
 
 	attempt.ApplyToWorkerContext(workerContext)
-	failure := attempt.FailureDetails(workerContext, "S1", true)
+	failure := attempt.LocalFailureDetails(workerContext, "S1", true)
 
 	require.Equal(t, int32(5), workerContext.GetAttempt())
 	require.Equal(t, int64(123), workerContext.GetFirstAttemptTimestamp())
@@ -41,13 +41,11 @@ func TestStepActivityAttemptAppliesCumulativeMetadata(t *testing.T) {
 }
 
 func TestStepActivityAttemptInitializesFirstAttemptTime(t *testing.T) {
-	attempt := NewStepActivityAttempt(nil, time.Unix(456, 0), 1, false)
+	attempt := NewStepActivityAttempt(nil, time.Unix(456, 0), 1)
 	workerContext := &dexpb.Context{}
 
 	attempt.ApplyToWorkerContext(workerContext)
-	failure := attempt.FailureDetails(workerContext, "S1", false)
 
 	require.Equal(t, int32(1), workerContext.GetAttempt())
 	require.Equal(t, int64(456), workerContext.GetFirstAttemptTimestamp())
-	require.Nil(t, failure.GetLocalActivityInput())
 }

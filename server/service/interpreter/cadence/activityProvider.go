@@ -36,14 +36,11 @@ func (a *activityProvider) NewFlowError(
 	return cadence.NewCustomError(errType.String(), errorResponse)
 }
 
-func (a *activityProvider) NewFlowErrorWithDetails(
+func (a *activityProvider) NewLocalActivityError(
 	errType dexpb.FlowErrorType,
-	errorResponse *dexpb.ErrorResponse,
-	additionalDetails ...interface{},
+	localError *dexpb.InternalLocalStepActivityError,
 ) error {
-	details := []interface{}{errorResponse}
-	details = append(details, additionalDetails...)
-	return cadence.NewCustomError(errType.String(), details...)
+	return cadence.NewCustomError(errType.String(), localError)
 }
 
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {

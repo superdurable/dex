@@ -1182,7 +1182,7 @@ class HealthInfo(_message.Message):
     def __init__(self, condition: _Optional[str] = ..., hostname: _Optional[str] = ..., duration: _Optional[int] = ...) -> None: ...
 
 class ErrorResponse(_message.Message):
-    __slots__ = ("detail", "sub_status", "original_worker_error_detail", "original_worker_error_type", "original_worker_error_status", "original_worker_error_stack_trace", "original_worker_retry_after_seconds", "attempt")
+    __slots__ = ("detail", "sub_status", "original_worker_error_detail", "original_worker_error_type", "original_worker_error_status", "original_worker_error_stack_trace", "original_worker_retry_after_seconds")
     DETAIL_FIELD_NUMBER: _ClassVar[int]
     SUB_STATUS_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_DETAIL_FIELD_NUMBER: _ClassVar[int]
@@ -1190,7 +1190,6 @@ class ErrorResponse(_message.Message):
     ORIGINAL_WORKER_ERROR_STATUS_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_ERROR_STACK_TRACE_FIELD_NUMBER: _ClassVar[int]
     ORIGINAL_WORKER_RETRY_AFTER_SECONDS_FIELD_NUMBER: _ClassVar[int]
-    ATTEMPT_FIELD_NUMBER: _ClassVar[int]
     detail: str
     sub_status: ErrorSubStatus
     original_worker_error_detail: str
@@ -1198,8 +1197,7 @@ class ErrorResponse(_message.Message):
     original_worker_error_status: int
     original_worker_error_stack_trace: str
     original_worker_retry_after_seconds: int
-    attempt: int
-    def __init__(self, detail: _Optional[str] = ..., sub_status: _Optional[_Union[ErrorSubStatus, str]] = ..., original_worker_error_detail: _Optional[str] = ..., original_worker_error_type: _Optional[str] = ..., original_worker_error_status: _Optional[int] = ..., original_worker_error_stack_trace: _Optional[str] = ..., original_worker_retry_after_seconds: _Optional[int] = ..., attempt: _Optional[int] = ...) -> None: ...
+    def __init__(self, detail: _Optional[str] = ..., sub_status: _Optional[_Union[ErrorSubStatus, str]] = ..., original_worker_error_detail: _Optional[str] = ..., original_worker_error_type: _Optional[str] = ..., original_worker_error_status: _Optional[int] = ..., original_worker_error_stack_trace: _Optional[str] = ..., original_worker_retry_after_seconds: _Optional[int] = ...) -> None: ...
 
 class WorkerErrorResponse(_message.Message):
     __slots__ = ("detail", "error_type", "stack_trace", "retry_after_seconds")
@@ -1646,6 +1644,14 @@ class InternalLocalStepActivityFailure(_message.Message):
     retry_context: InternalStepActivityRetryContext
     attempt: int
     def __init__(self, local_activity_input: _Optional[_Union[LocalActivityInput, _Mapping]] = ..., step_type: _Optional[str] = ..., is_transient_step: _Optional[bool] = ..., retry_context: _Optional[_Union[InternalStepActivityRetryContext, _Mapping]] = ..., attempt: _Optional[int] = ...) -> None: ...
+
+class InternalLocalStepActivityError(_message.Message):
+    __slots__ = ("error_response", "failure")
+    ERROR_RESPONSE_FIELD_NUMBER: _ClassVar[int]
+    FAILURE_FIELD_NUMBER: _ClassVar[int]
+    error_response: ErrorResponse
+    failure: InternalLocalStepActivityFailure
+    def __init__(self, error_response: _Optional[_Union[ErrorResponse, _Mapping]] = ..., failure: _Optional[_Union[InternalLocalStepActivityFailure, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodActivityOutput(_message.Message):
     __slots__ = ("response",)

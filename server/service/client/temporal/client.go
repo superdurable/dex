@@ -957,20 +957,8 @@ func (t *temporalClient) recordTemporalLocalActivity(
 func (t *temporalClient) temporalStepFailure(
 	failure *failurepb.Failure,
 ) (*dexpb.StepMethodFailure, error) {
-	if failure == nil {
-		return &dexpb.StepMethodFailure{}, nil
-	}
-	backendError := failure.GetMessage()
+	stepFailure := temporalStepFailureFromBackend(failure)
 	applicationFailure := failure.GetApplicationFailureInfo()
-	if applicationFailure != nil && applicationFailure.GetType() != "" {
-		backendError = applicationFailure.GetType()
-	}
-	if timeoutFailure := failure.GetTimeoutFailureInfo(); timeoutFailure != nil {
-		backendError = timeoutFailure.GetTimeoutType().String()
-	}
-	stepFailure := &dexpb.StepMethodFailure{
-		BackendError: backendError,
-	}
 	if applicationFailure == nil || len(applicationFailure.GetDetails().GetPayloads()) == 0 {
 		return stepFailure, nil
 	}
@@ -986,20 +974,39 @@ func (t *temporalClient) temporalStepFailure(
 func (t *temporalClient) temporalLocalStepFailure(
 	failure *failurepb.Failure,
 ) (*dexpb.StepMethodFailure, *dexpb.InternalLocalStepActivityFailure, error) {
-	stepFailure, err := t.temporalStepFailure(failure)
-	if err != nil {
-		return nil, nil, err
-	}
+	stepFailure := temporalStepFailureFromBackend(failure)
 	applicationFailure := failure.GetApplicationFailureInfo()
-	payloads := applicationFailure.GetDetails().GetPayloads()
-	if len(payloads) < 2 {
+	if applicationFailure == nil {
 		return stepFailure, nil, nil
 	}
-	metadata := &dexpb.InternalLocalStepActivityFailure{}
-	if err := t.dataConverter.FromPayload(payloads[1], metadata); err != nil {
-		return nil, nil, fmt.Errorf("decode local step failure metadata: %w", err)
+	payloads := applicationFailure.GetDetails().GetPayloads()
+	if len(payloads) == 0 {
+		return stepFailure, nil, nil
 	}
-	return stepFailure, metadata, nil
+	localError := &dexpb.InternalLocalStepActivityError{}
+	if err := t.dataConverter.FromPayload(payloads[0], localError); err != nil {
+		return nil, nil, fmt.Errorf("decode local step failure details: %w", err)
+	}
+	if localError.GetErrorResponse() == nil || localError.GetFailure() == nil {
+		return nil, nil, fmt.Errorf("local step failure details are incomplete")
+	}
+	stepFailure.Details = localError.GetErrorResponse()
+	return stepFailure, localError.GetFailure(), nil
+}
+
+func temporalStepFailureFromBackend(failure *failurepb.Failure) *dexpb.StepMethodFailure {
+	if failure == nil {
+		return &dexpb.StepMethodFailure{}
+	}
+	backendError := failure.GetMessage()
+	applicationFailure := failure.GetApplicationFailureInfo()
+	if applicationFailure != nil && applicationFailure.GetType() != "" {
+		backendError = applicationFailure.GetType()
+	}
+	if timeoutFailure := failure.GetTimeoutFailureInfo(); timeoutFailure != nil {
+		backendError = timeoutFailure.GetTimeoutType().String()
+	}
+	return &dexpb.StepMethodFailure{BackendError: backendError}
 }
 
 func temporalFlowErrorType(failure *failurepb.Failure) dexpb.FlowErrorType {

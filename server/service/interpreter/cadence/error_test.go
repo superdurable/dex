@@ -38,10 +38,12 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.Equal(t, "worker stack", workerError.GetStackTrace())
 	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
 
-	localWorkerFailure := cadence.NewCustomError(
-		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
-		original,
-		&dexpb.InternalLocalStepActivityFailure{Attempt: 2},
+	localWorkerFailure := (&activityProvider{}).NewLocalActivityError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		&dexpb.InternalLocalStepActivityError{
+			ErrorResponse: original,
+			Failure:       &dexpb.InternalLocalStepActivityFailure{Attempt: 2},
+		},
 	)
 	workerError, err = provider.MapToWorkerError(localWorkerFailure)
 	require.NoError(t, err)
@@ -49,6 +51,10 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.Equal(t, "worker type", workerError.GetErrorType())
 	require.Equal(t, "worker stack", workerError.GetStackTrace())
 	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
+	attempt, hasAttempt, err := cadenceLocalActivityAttempt(localWorkerFailure)
+	require.NoError(t, err)
+	require.True(t, hasAttempt)
+	require.Equal(t, int32(2), attempt)
 
 	timeoutFailure := workflow.NewTimeoutError(shared.TimeoutTypeStartToClose)
 	timeoutError, err := provider.MapToWorkerError(timeoutFailure)

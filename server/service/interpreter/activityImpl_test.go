@@ -539,7 +539,7 @@ func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		composeActivityError(provider, service.BackendTypeTemporal, inputError),
+		composeActivityError(provider, service.BackendTypeTemporal, inputError, nil),
 		activityError,
 	)
 	require.Equal(t, "dial failed", errorResponse.GetDetail())
@@ -579,7 +579,7 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		composeActivityError(provider, service.BackendTypeTemporal, grpcStatus.Err()),
+		composeActivityError(provider, service.BackendTypeTemporal, grpcStatus.Err(), nil),
 		activityError,
 	)
 	require.Empty(t, errorResponse.GetDetail())
@@ -619,7 +619,7 @@ func TestComposeActivityErrorRejectsRetryAfterOnCadence(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		composeActivityError(provider, service.BackendTypeCadence, grpcStatus.Err()),
+		composeActivityError(provider, service.BackendTypeCadence, grpcStatus.Err(), nil),
 		activityError,
 	)
 	require.Equal(
@@ -654,7 +654,7 @@ func TestComposeActivityErrorFallsBackWhenMessageEmpty(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		composeActivityError(provider, service.BackendTypeTemporal, inputError),
+		composeActivityError(provider, service.BackendTypeTemporal, inputError, nil),
 		activityError,
 	)
 	require.Equal(t, inputError.Error(), errorResponse.GetDetail())

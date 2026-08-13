@@ -781,6 +781,8 @@ message HealthInfo {
 }
 
 message ErrorResponse {
+  reserved 8;
+
   string detail = 1;
   ErrorSubStatus sub_status = 2;
   string original_worker_error_detail = 3;
@@ -788,7 +790,6 @@ message ErrorResponse {
   int32 original_worker_error_status = 5;
   string original_worker_error_stack_trace = 6;
   int32 original_worker_retry_after_seconds = 7;
-  int32 attempt = 8;
 }
 
 enum ErrorSubStatus {
@@ -1094,6 +1095,11 @@ message InternalLocalStepActivityFailure {
   bool is_transient_step = 3;
   InternalStepActivityRetryContext retry_context = 4;
   int32 attempt = 5;
+}
+
+message InternalLocalStepActivityError {
+  ErrorResponse error_response = 1;
+  InternalLocalStepActivityFailure failure = 2;
 }
 
 message InvokeExecuteMethodActivityOutput {

@@ -80,10 +80,4 @@ public interface ErrorResponseOrBuilder extends
    * @return The originalWorkerRetryAfterSeconds.
    */
   int getOriginalWorkerRetryAfterSeconds();
-
-  /**
-   * <code>int32 attempt = 8;</code>
-   * @return The attempt.
-   */
-  int getAttempt();
 }

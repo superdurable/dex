@@ -16,9 +16,8 @@ import (
 
 // StepActivityAttempt holds cumulative retry metadata for one Step method activity attempt.
 type StepActivityAttempt struct {
-	retryContext    *dexpb.InternalStepActivityRetryContext
-	attempt         int32
-	isLocalActivity bool
+	retryContext *dexpb.InternalStepActivityRetryContext
+	attempt      int32
 }
 
 // NewStepActivityAttempt resolves cumulative attempt metadata.
@@ -26,7 +25,6 @@ func NewStepActivityAttempt(
 	retryContext *dexpb.InternalStepActivityRetryContext,
 	scheduledTime time.Time,
 	backendAttempt int32,
-	isLocalActivity bool,
 ) *StepActivityAttempt {
 	if retryContext == nil {
 		retryContext = &dexpb.InternalStepActivityRetryContext{}
@@ -35,9 +33,8 @@ func NewStepActivityAttempt(
 		retryContext.FirstAttemptTimestamp = scheduledTime.Unix()
 	}
 	return &StepActivityAttempt{
-		retryContext:    retryContext,
-		attempt:         retryContext.GetPreviousAttempts() + backendAttempt,
-		isLocalActivity: isLocalActivity,
+		retryContext: retryContext,
+		attempt:      retryContext.GetPreviousAttempts() + backendAttempt,
 	}
 }
 
@@ -47,23 +44,20 @@ func (a *StepActivityAttempt) ApplyToWorkerContext(workerContext *dexpb.Context)
 	workerContext.FirstAttemptTimestamp = a.retryContext.GetFirstAttemptTimestamp()
 }
 
-// FailureDetails builds failure metadata for workflow error handling.
-func (a *StepActivityAttempt) FailureDetails(
+// LocalFailureDetails builds local failure metadata for workflow error handling.
+func (a *StepActivityAttempt) LocalFailureDetails(
 	workerContext *dexpb.Context,
 	stepType string,
 	isTransientStep bool,
 ) *dexpb.InternalLocalStepActivityFailure {
-	failure := &dexpb.InternalLocalStepActivityFailure{
+	return &dexpb.InternalLocalStepActivityFailure{
+		LocalActivityInput: &dexpb.LocalActivityInput{
+			CurrentStepExecutionId: workerContext.GetStepExecutionId(),
+			FromStepExecutionId:    workerContext.GetFromStepExecutionId(),
+		},
 		StepType:        stepType,
 		IsTransientStep: isTransientStep,
 		RetryContext:    a.retryContext,
 		Attempt:         a.attempt,
 	}
-	if a.isLocalActivity {
-		failure.LocalActivityInput = &dexpb.LocalActivityInput{
-			CurrentStepExecutionId: workerContext.GetStepExecutionId(),
-			FromStepExecutionId:    workerContext.GetFromStepExecutionId(),
-		}
-	}
-	return failure
 }

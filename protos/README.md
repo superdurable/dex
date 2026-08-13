@@ -81,14 +81,13 @@ back to a regular activity.
 
 ASYNC local and regular activities share one logical retry sequence. Maximum
 attempts and total duration apply across both phases, and attempts remain
-1-based and cumulative in Worker `Context`, `ErrorResponse`, and semantic
-history. Fallback is immediate, without the local failure's transition delay.
+1-based and cumulative in Worker `Context` and semantic history. Fallback is
+immediate, without the local failure's transition delay.
 The regular policy subtracts consumed attempts and elapsed local duration, then
 sets its initial interval to the original backoff for the cumulative attempt,
 capped by the configured maximum interval. If either budget is exhausted, the
 local failure is terminal and produces the Step failed event without scheduling
-a regular activity. `ErrorResponse.attempt` is zero for errors outside a Step
-method attempt.
+a regular activity.
 
 `WorkerErrorResponse.stack_trace` carries an optional Worker-language stack.
 The server persists it as `ErrorResponse.original_worker_error_stack_trace`
@@ -124,6 +123,8 @@ decodable `ErrorResponse`, so backend timeouts normally expose only
 `LocalActivityInput` stores marker lineage only. `InternalLocalActivityInput`
 is the local-only runtime argument. `InternalStepActivityRetryContext` and
 `InternalLocalStepActivityFailure` carry fallback bookkeeping.
+`InternalLocalStepActivityError` groups the local error response and fallback
+metadata into one backend error detail.
 `InternalAsyncStepInputSnapshot` is the run-scoped request and method-options
 record; none of these internal types is returned by `FlowService`.
 

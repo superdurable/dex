@@ -416,29 +416,28 @@ func cadenceLocalActivityAttempt(err error) (int32, bool, error) {
 	if !errors.As(err, &customError) || !customError.HasDetails() {
 		return 0, false, nil
 	}
-	response, localFailure, detailErr := decodeCadenceStepErrorDetails(customError)
+	_, localFailure, detailErr := decodeCadenceStepErrorDetails(customError)
 	if detailErr != nil {
 		return 0, false, fmt.Errorf("decode Cadence local Step failure details: %w", detailErr)
 	}
-	if localFailure == nil || response.GetAttempt() <= 0 {
+	if localFailure.GetAttempt() <= 0 {
 		return 0, false, nil
 	}
-	return response.GetAttempt(), true, nil
+	return localFailure.GetAttempt(), true, nil
 }
 
 func decodeCadenceStepErrorDetails(
 	customError *cadence.CustomError,
 ) (*dexpb.ErrorResponse, *dexpb.InternalLocalStepActivityFailure, error) {
-	var response *dexpb.ErrorResponse
-	var localFailure *dexpb.InternalLocalStepActivityFailure
-	localDetailsErr := customError.Details(&response, &localFailure)
+	var localError *dexpb.InternalLocalStepActivityError
+	localDetailsErr := customError.Details(&localError)
 	if localDetailsErr == nil {
-		if response == nil || localFailure == nil {
-			return nil, nil, fmt.Errorf("Cadence local Step failure details are nil")
+		if localError.GetErrorResponse() != nil && localError.GetFailure() != nil {
+			return localError.GetErrorResponse(), localError.GetFailure(), nil
 		}
-		return response, localFailure, nil
+		localDetailsErr = fmt.Errorf("Cadence local Step failure details are incomplete")
 	}
-	response = nil
+	var response *dexpb.ErrorResponse
 	regularDetailsErr := customError.Details(&response)
 	if regularDetailsErr != nil {
 		return nil, nil, fmt.Errorf(

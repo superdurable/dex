@@ -216,7 +216,6 @@ func testAsyncMultipleLocalAttempts(t *testing.T, backendType service.BackendTyp
 	require.NotNil(t, failedEvent)
 	require.Equal(t, int32(4), failedEvent.GetContext().GetFinalAttempt())
 	require.Equal(t, int32(4), failedEvent.GetOutput().GetFailure().GetAttempt())
-	require.Equal(t, int32(4), failedEvent.GetOutput().GetFailure().GetDetails().GetAttempt())
 }
 
 func testAsyncAttemptBudgetExhausted(t *testing.T, backendType service.BackendType) {
@@ -236,7 +235,6 @@ func testAsyncAttemptBudgetExhausted(t *testing.T, backendType service.BackendTy
 	require.NotNil(t, failedEvent)
 	require.Equal(t, int32(1), failedEvent.GetContext().GetFinalAttempt())
 	require.Equal(t, int32(1), failedEvent.GetOutput().GetFailure().GetAttempt())
-	require.Equal(t, int32(1), failedEvent.GetOutput().GetFailure().GetDetails().GetAttempt())
 	require.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, failedEvent.GetContext().GetDurability())
 }
 
@@ -289,7 +287,6 @@ func testAsyncCombinedRetryBudget(t *testing.T, backendType service.BackendType)
 	require.NotNil(t, failedEvent)
 	require.Equal(t, int32(2), failedEvent.GetContext().GetFinalAttempt())
 	require.Equal(t, int32(2), failedEvent.GetOutput().GetFailure().GetAttempt())
-	require.Equal(t, int32(2), failedEvent.GetOutput().GetFailure().GetDetails().GetAttempt())
 }
 
 func testAsyncExecuteAttemptBudgetExhausted(t *testing.T, backendType service.BackendType) {
@@ -316,7 +313,6 @@ func testAsyncExecuteAttemptBudgetExhausted(t *testing.T, backendType service.Ba
 	require.NotNil(t, failedEvent)
 	require.Equal(t, int32(1), failedEvent.GetContext().GetFinalAttempt())
 	require.Equal(t, int32(1), failedEvent.GetOutput().GetFailure().GetAttempt())
-	require.Equal(t, int32(1), failedEvent.GetOutput().GetFailure().GetDetails().GetAttempt())
 	require.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, failedEvent.GetContext().GetDurability())
 }
 

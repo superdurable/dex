@@ -352,9 +352,9 @@ message StepExecuteFailedEvent {
 对应 attempt。`backend_error` 在 Temporal 上依次取 application failure type、timeout type
 或 fallback failure message；在 Cadence 上取 activity failure reason 或 timeout type。只有
 backend failure 携带可解码的 `ErrorResponse` 时才设置 `details`。
-`ErrorResponse.attempt` 与 `StepMethodFailure.attempt` 都使用跨 local/regular 的 1-based
-累计 attempt。发生 regular fallback 时，local failure 不展示为用户事件；retry budget
-在 local 阶段耗尽时，local failure 本身生成 terminal failed event。
+`StepMethodFailure.attempt` 使用跨 local/regular 的 1-based 累计 attempt。发生 regular
+fallback 时，local failure 不展示为用户事件；retry budget 在 local 阶段耗尽时，local
+failure 本身生成 terminal failed event。
 
 Web 只消费统一的 `input/output/context`，不根据 durability 选择额外 API。Server 在
 `GetHistoryEvents` 内部按实际执行路径补齐数据：

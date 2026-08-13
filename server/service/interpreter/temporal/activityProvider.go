@@ -40,14 +40,20 @@ func (a *activityProvider) NewFlowError(
 	)
 }
 
-func (a *activityProvider) NewFlowErrorWithDetails(
+func (a *activityProvider) NewLocalActivityError(
 	errType dexpb.FlowErrorType,
-	errorResponse *dexpb.ErrorResponse,
-	additionalDetails ...interface{},
+	localError *dexpb.InternalLocalStepActivityError,
 ) error {
-	details := []interface{}{errorResponse}
-	details = append(details, additionalDetails...)
-	return temporal.NewApplicationError("", errType.String(), details...)
+	return temporal.NewApplicationErrorWithOptions(
+		"",
+		errType.String(),
+		temporal.ApplicationErrorOptions{
+			Details: []interface{}{localError},
+			NextRetryDelay: time.Duration(
+				localError.GetErrorResponse().GetOriginalWorkerRetryAfterSeconds(),
+			) * time.Second,
+		},
+	)
 }
 
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {

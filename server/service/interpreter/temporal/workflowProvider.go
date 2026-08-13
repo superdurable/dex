@@ -80,7 +80,9 @@ func (w *workflowProvider) MapToWorkerError(err error) (*dexpb.WorkerErrorRespon
 	if errors.As(err, &applicationError) {
 		errorResponse := &dexpb.ErrorResponse{}
 		if applicationError.HasDetails() {
-			if detailsErr := applicationError.Details(errorResponse); detailsErr != nil {
+			var detailsErr error
+			errorResponse, _, detailsErr = decodeTemporalStepErrorDetails(applicationError)
+			if detailsErr != nil {
 				return nil, fmt.Errorf("decode Temporal Step failure details: %w", detailsErr)
 			}
 		}
@@ -410,14 +412,68 @@ func temporalLocalActivityAttempt(err error) (int32, bool, error) {
 	if !errors.As(err, &applicationError) || !applicationError.HasDetails() {
 		return 0, false, nil
 	}
-	var response dexpb.ErrorResponse
-	if detailErr := applicationError.Details(&response); detailErr != nil {
+	_, localFailure, detailErr := decodeTemporalStepErrorDetails(applicationError)
+	if detailErr != nil {
 		return 0, false, fmt.Errorf("decode Temporal local Step failure details: %w", detailErr)
 	}
-	if response.GetAttempt() <= 0 {
+	if localFailure.GetAttempt() <= 0 {
 		return 0, false, nil
 	}
-	return response.GetAttempt(), true, nil
+	return localFailure.GetAttempt(), true, nil
+}
+
+func decodeTemporalStepErrorDetails(
+	applicationError *temporal.ApplicationError,
+) (*dexpb.ErrorResponse, *dexpb.InternalLocalStepActivityFailure, error) {
+	localError, localDetailsErr := decodeTemporalApplicationErrorDetail[dexpb.InternalLocalStepActivityError](applicationError)
+	if localDetailsErr == nil {
+		if localError.GetErrorResponse() != nil && localError.GetFailure() != nil {
+			return localError.GetErrorResponse(), localError.GetFailure(), nil
+		}
+		localDetailsErr = fmt.Errorf("Temporal local Step failure details are incomplete")
+	}
+
+	errorResponse, regularDetailsErr := decodeTemporalApplicationErrorDetail[dexpb.ErrorResponse](applicationError)
+	if regularDetailsErr != nil {
+		return nil, nil, fmt.Errorf(
+			"decode local details: %v; decode regular details: %w",
+			localDetailsErr,
+			regularDetailsErr,
+		)
+	}
+	return errorResponse, nil, nil
+}
+
+func decodeTemporalApplicationErrorDetail[Detail any](
+	applicationError *temporal.ApplicationError,
+) (*Detail, error) {
+	detail := new(Detail)
+	valueErr := temporalApplicationErrorDetails(applicationError, detail)
+	if valueErr == nil {
+		return detail, nil
+	}
+
+	var detailPointer *Detail
+	pointerErr := temporalApplicationErrorDetails(applicationError, &detailPointer)
+	if pointerErr == nil {
+		if detailPointer != nil {
+			return detailPointer, nil
+		}
+		pointerErr = fmt.Errorf("decoded detail pointer is nil")
+	}
+	return nil, fmt.Errorf("decode value: %v; decode pointer: %w", valueErr, pointerErr)
+}
+
+func temporalApplicationErrorDetails(
+	applicationError *temporal.ApplicationError,
+	detail interface{},
+) (detailsErr error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			detailsErr = fmt.Errorf("Temporal detail type mismatch: %v", recovered)
+		}
+	}()
+	return applicationError.Details(detail)
 }
 
 func (w *workflowProvider) ExecuteLocalActivity(

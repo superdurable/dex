@@ -961,19 +961,17 @@ func (t *cadenceClient) cadenceLocalStepFailure(
 	if len(detailsData) == 0 {
 		return &dexpb.StepMethodFailure{BackendError: reason}, nil, nil
 	}
-	details := &dexpb.ErrorResponse{}
-	metadata := &dexpb.InternalLocalStepActivityFailure{}
-	if err := t.converter.FromData(detailsData, details, metadata); err != nil {
-		legacyFailure, legacyErr := t.cadenceStepFailure(reason, detailsData)
-		if legacyErr != nil {
-			return nil, nil, legacyErr
-		}
-		return legacyFailure, nil, nil
+	localError := &dexpb.InternalLocalStepActivityError{}
+	if err := t.converter.FromData(detailsData, localError); err != nil {
+		return nil, nil, fmt.Errorf("decode local step failure details: %w", err)
+	}
+	if localError.GetErrorResponse() == nil || localError.GetFailure() == nil {
+		return nil, nil, fmt.Errorf("local step failure details are incomplete")
 	}
 	return &dexpb.StepMethodFailure{
 		BackendError: reason,
-		Details:      details,
-	}, metadata, nil
+		Details:      localError.GetErrorResponse(),
+	}, localError.GetFailure(), nil
 }
 
 func cadenceFlowErrorType(reason string) dexpb.FlowErrorType {

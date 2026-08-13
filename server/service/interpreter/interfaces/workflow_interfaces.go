@@ -21,10 +21,9 @@ import (
 type ActivityProvider interface {
 	GetLogger(ctx context.Context) UnifiedLogger
 	NewFlowError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse) error
-	NewFlowErrorWithDetails(
+	NewLocalActivityError(
 		errType dexpb.FlowErrorType,
-		errorResponse *dexpb.ErrorResponse,
-		additionalDetails ...interface{},
+		localError *dexpb.InternalLocalStepActivityError,
 	) error
 	GetActivityInfo(ctx context.Context) ActivityInfo
 	RecordHeartbeat(ctx context.Context, details ...interface{})

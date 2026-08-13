@@ -54,6 +54,27 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.Equal(t, "worker stack", workerError.GetStackTrace())
 	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
 
+	localWorkerFailure := (&activityProvider{}).NewLocalActivityError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		&dexpb.InternalLocalStepActivityError{
+			ErrorResponse: original,
+			Failure:       &dexpb.InternalLocalStepActivityFailure{Attempt: 2},
+		},
+	)
+	workerError, err = provider.MapToWorkerError(localWorkerFailure)
+	require.NoError(t, err)
+	require.Equal(t, "worker detail", workerError.GetDetail())
+	require.Equal(t, "worker type", workerError.GetErrorType())
+	require.Equal(t, "worker stack", workerError.GetStackTrace())
+	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
+	var localApplicationError *temporalsdk.ApplicationError
+	require.ErrorAs(t, localWorkerFailure, &localApplicationError)
+	require.Equal(t, 11*time.Second, localApplicationError.NextRetryDelay())
+	attempt, hasAttempt, err := temporalLocalActivityAttempt(localWorkerFailure)
+	require.NoError(t, err)
+	require.True(t, hasAttempt)
+	require.Equal(t, int32(2), attempt)
+
 	timeoutFailure := temporalsdk.NewTimeoutError(enums.TIMEOUT_TYPE_START_TO_CLOSE, nil)
 	timeoutError, err := provider.MapToWorkerError(timeoutFailure)
 	require.NoError(t, err)
