@@ -54,9 +54,10 @@ option java_outer_classname = "DexProto";
 //                       locking InvokeRPC (Temporal sync update required)
 //
 // Notable per-RPC behavior:
-//   InvokeRPC — Temporal uses one synchronous Update for locking and non-locking
-//     calls. Cadence uses query + WorkerService + optional signal when
-//     LockAttributeKeys is empty; non-empty LockAttributeKeys → Unimplemented.
+//   InvokeRPC — empty LockAttributeKeys uses query + WorkerService + optional
+//     signal by default. Temporal can opt into synchronous Updates for all RPCs.
+//     Non-empty LockAttributeKeys requires a Temporal synchronous Update;
+//     Cadence returns Unimplemented.
 //     WorkerService errors (app or transport-to-worker) → FailedPrecondition +
 //     WORKER_API_ERROR + OriginalWorker* when present.
 //   WaitForStepCompletion / WaitForAttribute — Temporal-only sync updates; API
@@ -619,8 +620,8 @@ message StepExecuteFailedEvent {
   StepMethodEventContext context = 3;
 }
 
-// Successful RPC history projection. Temporal always includes input/output;
-// Cadence includes them only when configured.
+// Successful RPC history projection. Updates include input/output; signals include
+// them only when configured.
 message RpcExecutionCompletedEvent {
   string rpc_name = 1;
   Value input = 2;
@@ -709,16 +710,15 @@ message ResetFlowResponse {
 
 message InvokeRPCRequest {
   string flow_id = 1;
-  // Cadence may target this run. Temporal always invokes the current run.
+  // Targets this run when set.
   string run_id = 2;
   string rpc_name = 3;
   Value input = 4;
   int32 timeout_seconds = 5;
   // Acquire exclusive lock on these attribute keys for the RPC's
-  // read-modify-write. Empty means the Temporal Update runs without locks or
-  // Cadence uses its query/signal implementation.
+  // read-modify-write. Empty means no locking and uses the configured RPC path.
   repeated string lock_attribute_keys = 6;
-  // Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal forwards it as the run-scoped Update ID; Continue-as-New resets scope.
+  // Per-call UUID, SDK-generated and future-overridable; identical retries reuse it. Temporal Update paths use it as the run-scoped Update ID; Continue-as-New resets scope.
   string request_id = 7;
 }
 
@@ -1125,6 +1125,8 @@ message InvokeWorkerRPCActivityInput {
 
 message InvokeWorkerRPCActivityOutput {
   InvokeWorkerRPCResponse response = 1;
+  // Correlates this local Activity result with its InvokeRpc Update.
+  string request_id = 2;
 }
 
 message CleanupBlobStoreActivityInput {
@@ -1217,13 +1219,9 @@ message DebugDumpResponse {
   repeated ActiveStepExecutionState active_step_executions = 4;
 }
 
-// Successful InvokeRpc Update result used for response and history projection.
+// Sync-update InvokeRPC handler result when response and error are multiplexed.
 message InvokeRpcUpdateResult {
   InvokeRPCResponse response = 1;
-  StepDecision step_decision = 2;
-  repeated AttributeWrite upsert_attributes = 3;
-  repeated KV record_events = 4;
-  repeated ChannelMessage publish_to_channel = 5;
 }
 
 message StepExecutionNumbers {

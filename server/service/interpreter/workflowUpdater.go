@@ -204,11 +204,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 	u.continueAsNewCounter.IncSyncUpdateReceived()
 	return &dexpb.InvokeRpcUpdateResult{
-		Response:         &dexpb.InvokeRPCResponse{Output: response.GetOutput()},
-		StepDecision:     response.GetStepDecision(),
-		UpsertAttributes: response.GetUpsertAttributes(),
-		RecordEvents:     response.GetRecordEvents(),
-		PublishToChannel: response.GetPublishToChannel(),
+		Response: &dexpb.InvokeRPCResponse{Output: response.GetOutput()},
 	}, nil
 }
 

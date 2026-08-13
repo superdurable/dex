@@ -89,7 +89,10 @@ func TestDeadEndFlowCadenceContinueAsNew(t *testing.T) {
 func doTestSynchronousUpdateRequestID(t *testing.T) {
 	workerHandler := deadend.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startDexService(t, DexServiceTestConfig{BackendType: service.BackendTypeTemporal})
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:                            service.BackendTypeTemporal,
+		UseTemporalSynchronousUpdateForAllRPCs: true,
+	})
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

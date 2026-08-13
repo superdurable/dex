@@ -105,8 +105,8 @@ request, pass `--no-hydrate`:
 dexcli flow history order-123 --no-hydrate
 ```
 
-Temporal RPC Update input and output use the same Blob Store hydration as other
-history values. Pass `--no-hydrate` to retain their references.
+RPC input and output use the same Blob Store hydration as other history values.
+Pass `--no-hydrate` to retain their references.
 
 The friendly Flow commands are:
 

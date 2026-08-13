@@ -10,7 +10,9 @@
 
 api:
   port: 8801
-  includeCadenceRPCInputOutputIntoHistory: false
+  includeRPCInputOutputIntoHistory: false
+  # Ignored by Cadence; shown for parity with the Temporal template.
+  useTemporalSynchronousUpdateForAllRPCs: false
   queryWorkflowFailedRetryPolicy:
     initialInterval: 100ms
     backoffCoefficient: 1

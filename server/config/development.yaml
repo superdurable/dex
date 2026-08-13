@@ -14,7 +14,9 @@ log:
   levelKey: "level"
 api:
   port: 8801
-  includeCadenceRPCInputOutputIntoHistory: false
+  includeRPCInputOutputIntoHistory: false
+  # Opt in only when Update validation and atomic commits justify Temporal's Update concurrency usage.
+  useTemporalSynchronousUpdateForAllRPCs: false
   queryWorkflowFailedRetryPolicy:
     initialInterval: 100ms
     backoffCoefficient: 1

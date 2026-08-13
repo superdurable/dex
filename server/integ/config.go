@@ -24,16 +24,17 @@ const testNamespace = "default"
 // Api.Port / fixed worker ports are unused: startWorker and startDexService bind 127.0.0.1:0.
 
 type DexServiceTestConfig struct {
-	BackendType                             service.BackendType
-	MemoEncryption                          bool
-	DefaultHeaders                          map[string]string
-	S3TestThreshold                         int
-	LocalBlobDirectory                      string
-	LocalBlobThreshold                      int
-	AttributeStore                          config.AttributeStoreConfig
-	BlobCacheDirectory                      string
-	BlobStoreEnabled                        *bool
-	IncludeCadenceRPCInputOutputIntoHistory bool
+	BackendType                            service.BackendType
+	MemoEncryption                         bool
+	DefaultHeaders                         map[string]string
+	S3TestThreshold                        int
+	LocalBlobDirectory                     string
+	LocalBlobThreshold                     int
+	AttributeStore                         config.AttributeStoreConfig
+	BlobCacheDirectory                     string
+	BlobStoreEnabled                       *bool
+	IncludeRPCInputOutputIntoHistory       bool
+	UseTemporalSynchronousUpdateForAllRPCs bool
 	// LazyLoading overrides BlobStore.LazyLoading.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool
@@ -47,8 +48,9 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 	}
 	cfg := config.Config{
 		Api: config.ApiConfig{
-			MaxWaitSeconds:                          12, // use 12 so that we can test it in the waiting test
-			IncludeCadenceRPCInputOutputIntoHistory: testCfg.IncludeCadenceRPCInputOutputIntoHistory,
+			MaxWaitSeconds:                         12, // use 12 so that we can test it in the waiting test
+			IncludeRPCInputOutputIntoHistory:       testCfg.IncludeRPCInputOutputIntoHistory,
+			UseTemporalSynchronousUpdateForAllRPCs: testCfg.UseTemporalSynchronousUpdateForAllRPCs,
 			QueryWorkflowFailedRetryPolicy: &config.RetryPolicy{
 				InitialInterval: 100 * time.Millisecond,
 				MaximumAttempts: 10,

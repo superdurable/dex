@@ -462,11 +462,12 @@ compile only after S5 migrates updater/query/CAN files.
 ### InvokeRPC update
 
 - Full attributes; no LoadingPolicy. Temporal uses one synchronous `InvokeRpc`
-  Update for empty and non-empty `lock_attribute_keys`.
+  Update for non-empty `lock_attribute_keys` or when all RPCs opt into Updates.
 - The API owns a WorkerService connection pool built from
   `InterpreterActivityConfig`. The non-locking path queries `PrepareRpc`, invokes
   WorkerService directly, signals mutations as one `ExecuteRpcSignalRequest`, and
-  closes the pool during API shutdown. This path is Cadence-only.
+  closes the pool during API shutdown. Both backends use this path for non-locking
+  RPCs by default.
 - A non-empty key list requires Temporal synchronous updates. Cadence returns
   `codes.Unimplemented` at the API before query/signal/worker calls.
 - Validator: accept empty keys, normalize duplicates, sort keys, and read the lock

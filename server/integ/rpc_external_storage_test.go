@@ -36,9 +36,14 @@ func TestRpcExternalStorageNonLockingTemporal(t *testing.T) {
 	}
 	for _, lazyLoading := range []bool{true, false} {
 		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
-			doTestRpcExternalStorage(t, service.BackendTypeTemporal, false, lazyLoading, false)
+			doTestRpcExternalStorage(
+				t, service.BackendTypeTemporal, false, false, lazyLoading, false,
+			)
 		})
 	}
+	t.Run("history-input-output", func(t *testing.T) {
+		doTestRpcExternalStorage(t, service.BackendTypeTemporal, false, false, true, true)
+	})
 }
 
 func TestRpcExternalStorageSynchronousUpdateTemporal(t *testing.T) {
@@ -47,7 +52,22 @@ func TestRpcExternalStorageSynchronousUpdateTemporal(t *testing.T) {
 	}
 	for _, lazyLoading := range []bool{true, false} {
 		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
-			doTestRpcExternalStorage(t, service.BackendTypeTemporal, true, lazyLoading, false)
+			doTestRpcExternalStorage(
+				t, service.BackendTypeTemporal, false, true, lazyLoading, false,
+			)
+		})
+	}
+}
+
+func TestRpcExternalStorageLockingTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	for _, lazyLoading := range []bool{true, false} {
+		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
+			doTestRpcExternalStorage(
+				t, service.BackendTypeTemporal, true, false, lazyLoading, false,
+			)
 		})
 	}
 }
@@ -58,11 +78,13 @@ func TestRpcExternalStorageNonLockingCadence(t *testing.T) {
 	}
 	for _, lazyLoading := range []bool{true, false} {
 		t.Run(fmt.Sprintf("lazy=%v", lazyLoading), func(t *testing.T) {
-			doTestRpcExternalStorage(t, service.BackendTypeCadence, false, lazyLoading, false)
+			doTestRpcExternalStorage(
+				t, service.BackendTypeCadence, false, false, lazyLoading, false,
+			)
 		})
 	}
 	t.Run("history-input-output", func(t *testing.T) {
-		doTestRpcExternalStorage(t, service.BackendTypeCadence, false, true, true)
+		doTestRpcExternalStorage(t, service.BackendTypeCadence, false, false, true, true)
 	})
 }
 
@@ -70,14 +92,16 @@ func doTestRpcExternalStorage(
 	t *testing.T,
 	backendType service.BackendType,
 	useLocking bool,
+	useSynchronousUpdate bool,
 	lazyLoading bool,
-	includeCadenceHistory bool,
+	includeSignalHistory bool,
 ) {
 	runtime := startDexService(t, DexServiceTestConfig{
-		BackendType:                             backendType,
-		S3TestThreshold:                         100,
-		LazyLoading:                             ptr.Any(lazyLoading),
-		IncludeCadenceRPCInputOutputIntoHistory: includeCadenceHistory,
+		BackendType:                            backendType,
+		S3TestThreshold:                        100,
+		LazyLoading:                            ptr.Any(lazyLoading),
+		IncludeRPCInputOutputIntoHistory:       includeSignalHistory,
+		UseTemporalSynchronousUpdateForAllRPCs: useSynchronousUpdate,
 	})
 	workerHandler := rpcStorage.NewHandler(runtime.FlowClient)
 	workerTarget := startWorker(t, workerHandler)
@@ -172,7 +196,7 @@ func doTestRpcExternalStorage(
 	})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
-	if backendType == service.BackendTypeTemporal {
+	if backendType == service.BackendTypeTemporal && (useLocking || useSynchronousUpdate) {
 		assertTemporalRpcBlobHistory(
 			t,
 			ctx,
@@ -182,13 +206,14 @@ func doTestRpcExternalStorage(
 			rpcRequest.GetRequestId(),
 		)
 	} else {
-		assertCadenceRpcHistory(
+		assertSignalRpcHistory(
 			t,
 			ctx,
 			runtime,
 			flowId,
 			startResponse.GetRunId(),
-			includeCadenceHistory,
+			rpcRequest.GetRequestId(),
+			includeSignalHistory,
 		)
 	}
 }
@@ -207,7 +232,10 @@ func assertTemporalRpcBlobHistory(
 		ctx,
 		&workflowservice.GetWorkflowExecutionHistoryRequest{
 			Namespace: testNamespace,
-			Execution: &temporalcommon.WorkflowExecution{WorkflowId: flowID},
+			Execution: &temporalcommon.WorkflowExecution{
+				WorkflowId: flowID,
+				RunId:      runID,
+			},
 		},
 	)
 	require.NoError(t, err)
@@ -271,6 +299,8 @@ func assertTemporalRpcBlobHistory(
 	require.NotNil(t, rpcEvent)
 	require.NotEmpty(t, integcommon.BlobIdFromValue(rpcEvent.GetInput()))
 	require.NotEmpty(t, integcommon.BlobIdFromValue(rpcEvent.GetOutput()))
+	require.Len(t, rpcEvent.GetUpsertAttributes(), 2)
+	require.Len(t, rpcEvent.GetPublishToChannel(), 1)
 	loadedInput, err := integcommon.LoadBlobsValue(ctx, runtime.FlowClient, rpcEvent.GetInput())
 	require.NoError(t, err)
 	require.True(t, proto.Equal(rpcStorage.TestInput, loadedInput))
@@ -279,15 +309,27 @@ func assertTemporalRpcBlobHistory(
 	require.True(t, proto.Equal(rpcStorage.TestOutput, loadedOutput))
 }
 
-func assertCadenceRpcHistory(
+func assertSignalRpcHistory(
 	t *testing.T,
 	ctx context.Context,
 	runtime *integRuntime,
 	flowID string,
 	runID string,
+	requestID string,
 	includeInputOutput bool,
 ) {
 	t.Helper()
+	if runtime.UnifiedClient.GetBackendType() == service.BackendTypeTemporal {
+		assertTemporalRpcSignalHistory(
+			t,
+			ctx,
+			runtime,
+			flowID,
+			runID,
+			requestID,
+			includeInputOutput,
+		)
+	}
 	events, _ := getAllWebHistoryEvents(t, ctx, runtime.FlowClient, flowID, runID)
 	var rpcEvent *dexpb.RpcExecutionCompletedEvent
 	for _, event := range events {
@@ -309,6 +351,67 @@ func assertCadenceRpcHistory(
 	loadedOutput, err := integcommon.LoadBlobsValue(ctx, runtime.FlowClient, rpcEvent.GetOutput())
 	require.NoError(t, err)
 	require.True(t, proto.Equal(rpcStorage.TestOutput, loadedOutput))
+}
+
+func assertTemporalRpcSignalHistory(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+	runID string,
+	requestID string,
+	includeInputOutput bool,
+) {
+	t.Helper()
+	api := runtime.UnifiedClient.GetApiService().(workflowservice.WorkflowServiceClient)
+	response, err := api.GetWorkflowExecutionHistory(
+		ctx,
+		&workflowservice.GetWorkflowExecutionHistoryRequest{
+			Namespace: testNamespace,
+			Execution: &temporalcommon.WorkflowExecution{
+				WorkflowId: flowID,
+				RunId:      runID,
+			},
+		},
+	)
+	require.NoError(t, err)
+	dataConverter := dexconverter.NewTemporalDataConverter()
+	resultSignals := 0
+	for _, event := range response.GetHistory().GetEvents() {
+		switch event.GetEventType() {
+		case temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
+			accepted := event.GetWorkflowExecutionUpdateAcceptedEventAttributes().GetAcceptedRequest()
+			require.NotEqual(t, requestID, accepted.GetMeta().GetUpdateId())
+		case temporalenums.EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED:
+			attributes := event.GetWorkflowExecutionSignaledEventAttributes()
+			if attributes.GetSignalName() != service.ExecuteRpcSignalChannelName {
+				continue
+			}
+			var request dexpb.ExecuteRpcSignalRequest
+			require.NoError(t, dataConverter.FromPayloads(attributes.GetInput(), &request))
+			for _, payload := range attributes.GetInput().GetPayloads() {
+				require.NotContains(
+					t,
+					string(payload.GetData()),
+					string(rpcStorage.TestInput.GetObjValue().GetPayload()),
+				)
+				require.NotContains(
+					t,
+					string(payload.GetData()),
+					string(rpcStorage.TestOutput.GetObjValue().GetPayload()),
+				)
+			}
+			if includeInputOutput {
+				require.NotEmpty(t, integcommon.BlobIdFromValue(request.GetRpcInput()))
+				require.NotEmpty(t, integcommon.BlobIdFromValue(request.GetRpcOutput()))
+			} else {
+				require.Nil(t, request.GetRpcInput())
+				require.Nil(t, request.GetRpcOutput())
+			}
+			resultSignals++
+		}
+	}
+	require.Equal(t, 1, resultSignals)
 }
 
 func hasObjPayload(value *dexpb.Value) bool {
