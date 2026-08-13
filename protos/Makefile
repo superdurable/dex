@@ -15,11 +15,16 @@ SDK_TYPESCRIPT_OUT := ../sdk-typescript/src/gen
 SERVER_GO_PKG := github.com/superdurable/dex/gen/dexpb
 SDK_GO_PKG := github.com/superdurable/dex/sdk-go/gen/dexpb
 
-GOPATH_BIN := $(shell go env GOPATH)/bin
-export PATH := $(GOPATH_BIN):$(PATH)
-
 TOOLS_DIR := .tools
+TOOLS_BIN := $(abspath $(TOOLS_DIR))
+PROTOC_GEN_GO_PLUGIN := $(TOOLS_DIR)/protoc-gen-go
+PROTOC_GEN_GO_GRPC_PLUGIN := $(TOOLS_DIR)/protoc-gen-go-grpc
+PROTOC_GEN_GO_STAMP := $(PROTOC_GEN_GO_PLUGIN)-$(PROTOC_GEN_GO_VERSION)
+PROTOC_GEN_GO_GRPC_STAMP := $(PROTOC_GEN_GO_GRPC_PLUGIN)-$(PROTOC_GEN_GO_GRPC_VERSION)
 GRPC_JAVA_PLUGIN := $(TOOLS_DIR)/protoc-gen-grpc-java
+GOPATH_BIN := $(shell go env GOPATH)/bin
+export PATH := $(TOOLS_BIN):$(GOPATH_BIN):$(PATH)
+
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
 ifeq ($(UNAME_S),Darwin)
@@ -110,15 +115,23 @@ ensure-protoc:
 		test "$$version" = "libprotoc $(PROTOC_VERSION)" || \
 		(echo "Expected libprotoc $(PROTOC_VERSION), found $$version" && exit 1)
 
-ensure-tools: ensure-protoc
-	@which protoc-gen-go > /dev/null 2>&1 || go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
-	@which protoc-gen-go-grpc > /dev/null 2>&1 || go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+ensure-tools: ensure-protoc $(PROTOC_GEN_GO_STAMP) $(PROTOC_GEN_GO_GRPC_STAMP)
 
 ensure-python-tools:
 	@which uv > /dev/null 2>&1 || (echo "uv not found. Install uv 0.12.2" && exit 1)
 
 ensure-typescript-tools:
 	@which npm > /dev/null 2>&1 || (echo "npm not found. Install Node.js 22 or 24" && exit 1)
+
+$(PROTOC_GEN_GO_STAMP):
+	mkdir -p $(TOOLS_DIR)
+	GOBIN="$(TOOLS_BIN)" go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	touch $@
+
+$(PROTOC_GEN_GO_GRPC_STAMP):
+	mkdir -p $(TOOLS_DIR)
+	GOBIN="$(TOOLS_BIN)" go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	touch $@
 
 $(GRPC_JAVA_PLUGIN):
 	mkdir -p $(TOOLS_DIR)
