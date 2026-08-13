@@ -619,20 +619,20 @@ func (mr *MockWorkflowProviderMockRecorder) IsContinueAsNewError(err interface{}
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsContinueAsNewError", reflect.TypeOf((*MockWorkflowProvider)(nil).IsContinueAsNewError), err)
 }
 
-// GetFlowError mocks base method.
-func (m *MockWorkflowProvider) GetFlowError(err error) (dexpb.FlowErrorType, *dexpb.ErrorResponse, bool) {
+// MapToFlowResultError mocks base method.
+func (m *MockWorkflowProvider) MapToFlowResultError(err error) (dexpb.FlowErrorType, *dexpb.RecoveryErrorInfo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetFlowError", err)
+	ret := m.ctrl.Call(m, "MapToFlowResultError", err)
 	ret0, _ := ret[0].(dexpb.FlowErrorType)
-	ret1, _ := ret[1].(*dexpb.ErrorResponse)
-	ret2, _ := ret[2].(bool)
+	ret1, _ := ret[1].(*dexpb.RecoveryErrorInfo)
+	ret2, _ := ret[2].(error)
 	return ret0, ret1, ret2
 }
 
-// GetFlowError indicates an expected call of GetFlowError.
-func (mr *MockWorkflowProviderMockRecorder) GetFlowError(err interface{}) *gomock.Call {
+// MapToFlowResultError indicates an expected call of MapToFlowResultError.
+func (mr *MockWorkflowProviderMockRecorder) MapToFlowResultError(err interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetFlowError", reflect.TypeOf((*MockWorkflowProvider)(nil).GetFlowError), err)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MapToFlowResultError", reflect.TypeOf((*MockWorkflowProvider)(nil).MapToFlowResultError), err)
 }
 
 // IsCanceledError mocks base method.

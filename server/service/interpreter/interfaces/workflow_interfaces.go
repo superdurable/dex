@@ -127,6 +127,7 @@ type WorkflowProvider interface {
 	NewCanceledError(reason string) error
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool
+	MapToFlowResultError(err error) (dexpb.FlowErrorType, *dexpb.RecoveryErrorInfo, error)
 	MapToRecoveryError(err error) (*dexpb.RecoveryErrorInfo, error)
 	IsCanceledError(err error) bool
 	IsContinueAsNewError(err error) bool

@@ -85,6 +85,24 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 	return errors.As(err, &applicationError)
 }
 
+func (w *workflowProvider) MapToFlowResultError(
+	err error,
+) (dexpb.FlowErrorType, *dexpb.RecoveryErrorInfo, error) {
+	recoveryError, mappingErr := w.MapToRecoveryError(err)
+	if mappingErr != nil {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, mappingErr
+	}
+	var applicationError *cadence.CustomError
+	if !errors.As(err, &applicationError) {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, recoveryError, nil
+	}
+	value, ok := dexpb.FlowErrorType_value[applicationError.Reason()]
+	if !ok {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, recoveryError, nil
+	}
+	return dexpb.FlowErrorType(value), recoveryError, nil
+}
+
 func (w *workflowProvider) MapToRecoveryError(err error) (*dexpb.RecoveryErrorInfo, error) {
 	var timeoutError *workflow.TimeoutError
 	if errors.As(err, &timeoutError) {
@@ -139,23 +157,6 @@ func cadenceRecoveryError(
 	}
 	return &dexpb.RecoveryErrorInfo{Detail: detail, ErrorType: backendType}
 }
-
-func (w *workflowProvider) GetFlowError(err error) (dexpb.FlowErrorType, *dexpb.ErrorResponse, bool) {
-	var applicationError *cadence.CustomError
-	if !errors.As(err, &applicationError) {
-		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, false
-	}
-	value, ok := dexpb.FlowErrorType_value[applicationError.Reason()]
-	if !ok {
-		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, false
-	}
-	response, _, detailsErr := decodeCadenceStepErrorDetails(applicationError)
-	if detailsErr != nil {
-		response = &dexpb.ErrorResponse{Detail: err.Error()}
-	}
-	return dexpb.FlowErrorType(value), response, true
-}
-
 func (w *workflowProvider) IsCanceledError(err error) bool {
 	return cadence.IsCanceledError(err)
 }

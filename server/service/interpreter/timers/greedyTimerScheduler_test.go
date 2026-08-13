@@ -48,8 +48,8 @@ func (p *fakeWorkflowProvider) MapToRecoveryError(error) (*dexpb.RecoveryErrorIn
 	return nil, nil
 }
 
-func (p *fakeWorkflowProvider) GetFlowError(error) (dexpb.FlowErrorType, *dexpb.ErrorResponse, bool) {
-	return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, false
+func (p *fakeWorkflowProvider) MapToFlowResultError(error) (dexpb.FlowErrorType, *dexpb.RecoveryErrorInfo, error) {
+	return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, nil
 }
 
 func (p *fakeWorkflowProvider) IsCanceledError(error) bool {

@@ -1019,12 +1019,12 @@ func (i *Interpreter) reportSubFlowCompletion(
 		if provider.IsCanceledError(flowErr) {
 			result.FlowStatus = dexpb.FlowStatus_FLOW_STATUS_CANCELED
 		}
-		if errorType, errorResponse, ok := provider.GetFlowError(flowErr); ok {
-			result.ErrorType = errorType
-			result.ErrorMessage = errorResponse.GetDetail()
-		} else {
-			result.ErrorMessage = flowErr.Error()
+		errorType, recoveryError, mappingErr := provider.MapToFlowResultError(flowErr)
+		if mappingErr != nil {
+			return fmt.Errorf("map SubFlow completion error: %w", mappingErr)
 		}
+		result.ErrorType = errorType
+		result.ErrorMessage = recoveryError.GetDetail()
 		ctx = provider.NewDisconnectedContext(ctx)
 	}
 	ctx = provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
