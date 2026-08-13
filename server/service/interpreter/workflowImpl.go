@@ -670,6 +670,9 @@ func (i *Interpreter) processStepExecution(
 	}
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: retry.ActivityRetryPolicyFromProto(
+			step.GetStepOptions().GetWaitForRetryPolicy(),
+		),
 	}
 	if globalVersioner.UsesDeterministicStepActivityIDs() {
 		activityOptions.ActivityID = service.WaitForStepActivityID(stepExeId)
@@ -719,9 +722,6 @@ func (i *Interpreter) processStepExecution(
 			if waitForMethodTimeout > 0 {
 				activityOptions.StartToCloseTimeout = time.Duration(waitForMethodTimeout) * time.Second
 			}
-			activityOptions.RetryPolicy = retry.ActivityRetryPolicyFromProto(
-				options.GetWaitForRetryPolicy(),
-			)
 		}
 
 		ctx = provider.WithActivityOptions(ctx, activityOptions)
@@ -1016,6 +1016,9 @@ func (i *Interpreter) invokeExecuteMethod(
 	var err error
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: retry.ActivityRetryPolicyFromProto(
+			step.GetStepOptions().GetExecuteRetryPolicy(),
+		),
 	}
 	if globalVersioner.UsesDeterministicStepActivityIDs() {
 		activityOptions.ActivityID = service.ExecuteStepActivityID(stepExeId)
@@ -1025,9 +1028,6 @@ func (i *Interpreter) invokeExecuteMethod(
 		if executeMethodTimeout > 0 {
 			activityOptions.StartToCloseTimeout = time.Duration(executeMethodTimeout) * time.Second
 		}
-		activityOptions.RetryPolicy = retry.ActivityRetryPolicyFromProto(
-			step.GetStepOptions().GetExecuteRetryPolicy(),
-		)
 	}
 
 	ctx = provider.WithActivityOptions(ctx, activityOptions)

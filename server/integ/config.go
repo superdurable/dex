@@ -50,7 +50,7 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 			MaxWaitSeconds:                          12, // use 12 so that we can test it in the waiting test
 			IncludeCadenceRPCInputOutputIntoHistory: testCfg.IncludeCadenceRPCInputOutputIntoHistory,
 			QueryWorkflowFailedRetryPolicy: &config.RetryPolicy{
-				InitialInterval: time.Second,
+				InitialInterval: 100 * time.Millisecond,
 				MaximumAttempts: 10,
 			},
 		},

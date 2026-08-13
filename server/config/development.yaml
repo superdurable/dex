@@ -16,9 +16,9 @@ api:
   port: 8801
   includeCadenceRPCInputOutputIntoHistory: false
   queryWorkflowFailedRetryPolicy:
-    initialInterval: 1s
+    initialInterval: 100ms
     backoffCoefficient: 1
-    maximumInterval: 1s
+    maximumInterval: 100ms
     maximumAttempts: 5
   invokeRPCContinuedAsNewErrorRetryPolicy:
     initialInterval: 100ms
@@ -76,7 +76,7 @@ blobStore:
 #   syncBatchSize: 100
 #   syncAttemptTimeout: 30s
 #   syncRetryPolicy:
-#     initialInterval: 1s
+#     initialInterval: 100ms
 #     maximumInterval: 30s
 #     backoffCoefficient: 2
 #     maximumAttempts: 0

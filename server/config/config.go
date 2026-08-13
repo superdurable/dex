@@ -85,9 +85,9 @@ var defaultHeadlessFailoverStatusCodes = [...]codes.Code{
 
 var (
 	DefaultQueryWorkflowFailedRetryPolicy = RetryPolicy{
-		InitialInterval:    time.Second,
+		InitialInterval:    100 * time.Millisecond,
 		BackoffCoefficient: 1,
-		MaximumInterval:    time.Second,
+		MaximumInterval:    100 * time.Millisecond,
 		MaximumAttempts:    5,
 	}
 	DefaultInvokeRPCContinuedAsNewErrorRetryPolicy = RetryPolicy{
@@ -97,13 +97,13 @@ var (
 		TotalDuration:      5 * time.Second,
 	}
 	DefaultAttributeStoreSyncRetryPolicy = RetryPolicy{
-		InitialInterval:    time.Second,
+		InitialInterval:    100 * time.Millisecond,
 		BackoffCoefficient: 2,
 		MaximumInterval:    30 * time.Second,
 		TotalDuration:      DefaultAttributeStoreSyncTotalDuration,
 	}
-	DefaultActivityRetryPolicy = RetryPolicy{
-		InitialInterval:    time.Second,
+	DefaultInternalActivityRetryPolicy = RetryPolicy{
+		InitialInterval:    100 * time.Millisecond,
 		BackoffCoefficient: 2,
 		MaximumInterval:    100 * time.Second,
 	}
@@ -175,7 +175,7 @@ type (
 		SyncBatchSize int `yaml:"syncBatchSize"`
 		// SyncAttemptTimeout caps each regular Activity attempt. Default 30s. Must be positive after defaults.
 		SyncAttemptTimeout time.Duration `yaml:"syncAttemptTimeout"`
-		// SyncRetryPolicy controls regular Activity retries. Nil or zero fields default to 1s/30s/2x/unlimited attempts/1h total.
+		// SyncRetryPolicy controls regular Activity retries. Nil or zero fields default to 100ms/30s/2x/unlimited attempts/1h total.
 		SyncRetryPolicy *RetryPolicy `yaml:"syncRetryPolicy"`
 	}
 
@@ -231,7 +231,7 @@ type (
 		GrpcMaxMessageBytes int `yaml:"grpcMaxMessageBytes"`
 		// IncludeCadenceRPCInputOutputIntoHistory stores RPC input/output in Cadence signal history for debugging. Default false. Temporal Updates always store both.
 		IncludeCadenceRPCInputOutputIntoHistory bool `yaml:"includeCadenceRPCInputOutputIntoHistory"`
-		// QueryWorkflowFailedRetryPolicy retries failed backend queries. Nil or zero fields default to 1s fixed intervals and 5 attempts.
+		// QueryWorkflowFailedRetryPolicy retries failed backend queries. Nil or zero fields default to 100ms fixed intervals and 5 attempts.
 		QueryWorkflowFailedRetryPolicy *RetryPolicy `yaml:"queryWorkflowFailedRetryPolicy"`
 		// InvokeRPCContinuedAsNewErrorRetryPolicy retries transient InvokeRPC failures across current-run changes. Nil or zero fields default to 100ms initial, 2x backoff, 1s maximum, and 5s total duration.
 		InvokeRPCContinuedAsNewErrorRetryPolicy *RetryPolicy `yaml:"invokeRPCContinuedAsNewErrorRetryPolicy"`
@@ -307,7 +307,7 @@ type (
 	DumpWorkflowInternalActivityConfig struct {
 		// StartToCloseTimeout is the activity start-to-close timeout. Zero uses the activity registration default.
 		StartToCloseTimeout time.Duration `yaml:"startToCloseTimeout"`
-		// RetryPolicy is the activity retry policy. Nil uses the registration default.
+		// RetryPolicy is the activity retry policy. Nil or zero fields default to 100ms/100s/2x/unlimited attempts and no total-duration bound.
 		RetryPolicy *RetryPolicy `yaml:"retryPolicy"`
 	}
 
@@ -381,43 +381,40 @@ func NewConfig(configPath string) (*Config, error) {
 }
 
 func (c Config) validateRetryPolicies() error {
-	type namedRetryPolicy struct {
-		name   string
-		policy RetryPolicy
+	queryRetryPolicy := RetryPolicyWithDefaults(
+		c.Api.QueryWorkflowFailedRetryPolicy,
+		DefaultQueryWorkflowFailedRetryPolicy,
+	)
+	if err := validateRetryPolicy("api.queryWorkflowFailedRetryPolicy", queryRetryPolicy); err != nil {
+		return err
 	}
 
-	policies := []namedRetryPolicy{
-		{
-			name: "api.queryWorkflowFailedRetryPolicy",
-			policy: RetryPolicyWithDefaults(
-				c.Api.QueryWorkflowFailedRetryPolicy,
-				DefaultQueryWorkflowFailedRetryPolicy,
-			),
-		},
-		{
-			name: "api.invokeRPCContinuedAsNewErrorRetryPolicy",
-			policy: RetryPolicyWithDefaults(
-				c.Api.InvokeRPCContinuedAsNewErrorRetryPolicy,
-				DefaultInvokeRPCContinuedAsNewErrorRetryPolicy,
-			),
-		},
-		{
-			name:   "attributeStore.syncRetryPolicy",
-			policy: *c.AttributeStore.EffectiveSyncRetryPolicy(),
-		},
+	invokeRPCRetryPolicy := RetryPolicyWithDefaults(
+		c.Api.InvokeRPCContinuedAsNewErrorRetryPolicy,
+		DefaultInvokeRPCContinuedAsNewErrorRetryPolicy,
+	)
+	if err := validateRetryPolicy("api.invokeRPCContinuedAsNewErrorRetryPolicy", invokeRPCRetryPolicy); err != nil {
+		return err
 	}
+
+	attributeStoreRetryPolicy := RetryPolicyWithDefaults(
+		c.AttributeStore.SyncRetryPolicy,
+		DefaultAttributeStoreSyncRetryPolicy,
+	)
+	if err := validateRetryPolicy("attributeStore.syncRetryPolicy", attributeStoreRetryPolicy); err != nil {
+		return err
+	}
+
 	activityConfig := c.Interpreter.InterpreterActivityConfig.DumpWorkflowInternalActivityConfig
 	if activityConfig != nil && activityConfig.RetryPolicy != nil {
-		policies = append(policies, namedRetryPolicy{
-			name: "interpreter.interpreterActivityConfig.dumpWorkflowInternalActivityConfig.retryPolicy",
-			policy: RetryPolicyWithDefaults(
-				activityConfig.RetryPolicy,
-				DefaultActivityRetryPolicy,
-			),
-		})
-	}
-	for _, namedPolicy := range policies {
-		if err := validateRetryPolicy(namedPolicy.name, namedPolicy.policy); err != nil {
+		dumpWorkflowRetryPolicy := RetryPolicyWithDefaults(
+			activityConfig.RetryPolicy,
+			DefaultInternalActivityRetryPolicy,
+		)
+		if err := validateRetryPolicy(
+			"interpreter.interpreterActivityConfig.dumpWorkflowInternalActivityConfig.retryPolicy",
+			dumpWorkflowRetryPolicy,
+		); err != nil {
 			return err
 		}
 	}

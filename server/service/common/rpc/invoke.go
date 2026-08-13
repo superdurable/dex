@@ -39,7 +39,11 @@ func InvokeWorkerRpc(
 			return nil, err
 		}
 	}
-	if err := blobstore.HydrateValue(ctx, req.GetInput(), blobStore); err != nil {
+	var workerInput *dexpb.Value
+	if req.GetInput() != nil {
+		workerInput = &dexpb.Value{Kind: req.GetInput().GetKind()}
+	}
+	if err := blobstore.HydrateValue(ctx, workerInput, blobStore); err != nil {
 		return nil, err
 	}
 
@@ -74,7 +78,7 @@ func InvokeWorkerRpc(
 		},
 		FlowType:     rpcPrep.GetFlowType(),
 		RpcName:      req.GetRpcName(),
-		Input:        req.GetInput(),
+		Input:        workerInput,
 		Attributes:   rpcPrep.GetAttributes(),
 		ChannelInfos: channelInfos,
 	}

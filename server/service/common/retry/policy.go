@@ -31,6 +31,12 @@ type Backoff struct {
 	startedAt          time.Time
 }
 
+var defaultStepActivityRetryPolicy = config.RetryPolicy{
+	InitialInterval:    time.Second,
+	BackoffCoefficient: 2,
+	MaximumInterval:    100 * time.Second,
+}
+
 func NewQueryWorkflowBackoff(policy *config.RetryPolicy) *Backoff {
 	return newBackoff(config.RetryPolicyWithDefaults(
 		policy,
@@ -109,7 +115,11 @@ func ConvertCadenceWorkflowRetryPolicy(policy *dexpb.FlowRetryPolicy) *workflow.
 func ConvertCadenceActivityRetryPolicy(policy *config.RetryPolicy) *workflow.RetryPolicy {
 	// Cadence has no server-side default; Temporal does when RetryPolicy is omitted.
 	// Match Temporal's defaults so waitFor/execute keep infinite backoff without options.
-	policy = ActivityRetryPolicyWithDefaults(policy)
+	if policy == nil {
+		policy = stepActivityRetryPolicyWithDefaults(nil)
+	} else {
+		policy = ActivityRetryPolicyWithDefaults(policy)
+	}
 
 	expirationInterval := time.Duration(0)
 	if policy.TotalDuration > 0 {
@@ -170,20 +180,19 @@ func ConvertTemporalActivityRetryPolicy(policy *config.RetryPolicy) *temporal.Re
 }
 
 func ActivityRetryPolicyFromProto(policy *dexpb.RetryPolicy) *config.RetryPolicy {
-	if policy == nil {
-		return nil
+	converted := &config.RetryPolicy{}
+	if policy != nil {
+		converted.InitialInterval = time.Duration(policy.GetInitialIntervalSeconds()) * time.Second
+		converted.BackoffCoefficient = float64(policy.GetBackoffCoefficient())
+		converted.MaximumInterval = time.Duration(policy.GetMaximumIntervalSeconds()) * time.Second
+		converted.MaximumAttempts = policy.GetMaximumAttempts()
+		converted.TotalDuration = time.Duration(policy.GetTotalDurationSeconds()) * time.Second
 	}
-	return &config.RetryPolicy{
-		InitialInterval:    time.Duration(policy.GetInitialIntervalSeconds()) * time.Second,
-		BackoffCoefficient: float64(policy.GetBackoffCoefficient()),
-		MaximumInterval:    time.Duration(policy.GetMaximumIntervalSeconds()) * time.Second,
-		MaximumAttempts:    policy.GetMaximumAttempts(),
-		TotalDuration:      time.Duration(policy.GetTotalDurationSeconds()) * time.Second,
-	}
+	return stepActivityRetryPolicyWithDefaults(converted)
 }
 
 func ActivityRetryPolicyToProto(policy *config.RetryPolicy) *dexpb.RetryPolicy {
-	policy = ActivityRetryPolicyWithDefaults(policy)
+	policy = stepActivityRetryPolicyWithDefaults(policy)
 	return &dexpb.RetryPolicy{
 		InitialIntervalSeconds: durationSeconds(policy.InitialInterval),
 		BackoffCoefficient:     float32(policy.BackoffCoefficient),
@@ -194,7 +203,12 @@ func ActivityRetryPolicyToProto(policy *config.RetryPolicy) *dexpb.RetryPolicy {
 }
 
 func ActivityRetryPolicyWithDefaults(policy *config.RetryPolicy) *config.RetryPolicy {
-	effective := config.RetryPolicyWithDefaults(policy, config.DefaultActivityRetryPolicy)
+	effective := config.RetryPolicyWithDefaults(policy, config.DefaultInternalActivityRetryPolicy)
+	return &effective
+}
+
+func stepActivityRetryPolicyWithDefaults(policy *config.RetryPolicy) *config.RetryPolicy {
+	effective := config.RetryPolicyWithDefaults(policy, defaultStepActivityRetryPolicy)
 	return &effective
 }
 

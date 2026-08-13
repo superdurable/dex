@@ -290,6 +290,8 @@ func assertCadenceRpcHistory(
 		return
 	}
 	require.NotNil(t, rpcEvent)
+	require.NotEmpty(t, integcommon.BlobIdFromValue(rpcEvent.GetInput()))
+	require.NotEmpty(t, integcommon.BlobIdFromValue(rpcEvent.GetOutput()))
 	loadedInput, err := integcommon.LoadBlobsValue(ctx, runtime.FlowClient, rpcEvent.GetInput())
 	require.NoError(t, err)
 	require.True(t, proto.Equal(rpcStorage.TestInput, loadedInput))

@@ -20,8 +20,9 @@ import (
 
 func TestServiceBackoffDefaults(t *testing.T) {
 	queryBackoff := NewQueryWorkflowBackoff(nil)
-	require.Equal(t, time.Second, queryBackoff.nextInterval)
+	require.Equal(t, 100*time.Millisecond, queryBackoff.nextInterval)
 	require.Equal(t, 1.0, queryBackoff.backoffCoefficient)
+	require.Equal(t, 100*time.Millisecond, queryBackoff.maximumInterval)
 	require.Equal(t, int32(5), queryBackoff.maximumAttempts)
 
 	invokeRPCBackoff := NewInvokeRPCBackoff(nil)
@@ -61,6 +62,13 @@ func TestConvertTemporalActivityRetryPolicyNilStaysNil(t *testing.T) {
 	require.Nil(t, ConvertTemporalActivityRetryPolicy(nil))
 }
 
+func TestActivityRetryPolicyFromProtoUsesPublicDefaults(t *testing.T) {
+	policy := ActivityRetryPolicyFromProto(nil)
+	require.Equal(t, time.Second, policy.InitialInterval)
+	require.Equal(t, 2.0, policy.BackoffCoefficient)
+	require.Equal(t, 100*time.Second, policy.MaximumInterval)
+}
+
 func TestLocalActivityRetryPolicyCapsAttemptsByBackoffWindow(t *testing.T) {
 	policy := LocalActivityRetryPolicy(&config.RetryPolicy{
 		InitialInterval:    8 * time.Second,
@@ -74,7 +82,7 @@ func TestLocalActivityRetryPolicyCapsAttemptsByBackoffWindow(t *testing.T) {
 
 func TestLocalActivityRetryPolicyUsesDefaultBackoffWindow(t *testing.T) {
 	policy := LocalActivityRetryPolicy(nil, 7*time.Second)
-	require.Equal(t, int32(3), policy.MaximumAttempts)
+	require.Equal(t, int32(7), policy.MaximumAttempts)
 	require.Equal(t, 7*time.Second, policy.TotalDuration)
 }
 

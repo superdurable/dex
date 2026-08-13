@@ -117,12 +117,22 @@ func doTestSignalWorkflow(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(2 * time.Second)
-
-	err = unifiedClient.QueryWorkflow(ctx, &debugDump, flowId, "", service.DebugDumpQueryType)
-	require.NoError(t, err)
 	expectedConfig.ContinueAsNewPageSizeInBytes = ptr.Any(int32(3000000))
-	assertions.True(proto.Equal(expectedConfig, debugDump.GetConfig()))
+	require.Eventually(t, func() bool {
+		var currentDebugDump dexpb.DebugDumpResponse
+		queryErr := unifiedClient.QueryWorkflow(
+			ctx,
+			&currentDebugDump,
+			flowId,
+			"",
+			service.DebugDumpQueryType,
+		)
+		if queryErr != nil {
+			return false
+		}
+		debugDump = currentDebugDump
+		return proto.Equal(expectedConfig, debugDump.GetConfig())
+	}, 2*time.Second, 50*time.Millisecond)
 
 	var unhandledSignalVals []*dexpb.Value
 	for i := 0; i < 10; i++ {

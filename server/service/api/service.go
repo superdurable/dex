@@ -954,27 +954,24 @@ func (s *serviceImpl) InvokeRPC(
 	if len(req.GetLockAttributeKeys()) > 0 && backendType == service.BackendTypeCadence {
 		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
 	}
-	if backendType == service.BackendTypeTemporal {
-		if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
-			return nil, makeInvalidRequestError(err.Error())
-		}
-		if err := blobstore.OffloadLargeValue(
-			ctx,
-			req.GetInput(),
-			req.GetFlowId(),
-			req.GetRequestId(),
-			s.blobStoreCfg.EffectiveThresholdInBytes(),
-			s.store,
-			s.blobStoreCfg.EffectiveEnabled(),
-		); err != nil {
-			return nil, s.handleError(err)
-		}
+	if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
 	}
-	runID := ""
-	if backendType == service.BackendTypeCadence {
-		runID = req.GetRunId()
+	if err := blobstore.OffloadLargeValue(
+		ctx,
+		req.GetInput(),
+		req.GetFlowId(),
+		req.GetRequestId(),
+		s.blobStoreCfg.EffectiveThresholdInBytes(),
+		s.store,
+		s.blobStoreCfg.EffectiveEnabled(),
+	); err != nil {
+		return nil, s.handleError(err)
 	}
-	if runID == "" && backendType == service.BackendTypeCadence {
+
+	// Pin each attempt to one run so its query, signal, or Update cannot cross Continue-as-New.
+	runID := req.GetRunId()
+	if runID == "" {
 		description, err := s.client.DescribeWorkflowExecution(ctx, req.GetFlowId(), "", nil)
 		if err != nil {
 			return nil, s.handleError(err)
@@ -993,42 +990,27 @@ func (s *serviceImpl) InvokeRPC(
 			}
 			return response, nil
 		}
-		unknownUpdate := backendType == service.BackendTypeTemporal &&
-			s.client.IsUnknownUpdateError(err, service.InvokeRpcUpdateType)
-		updateType, updateError := s.client.GetIfUpdateError(err, nil)
-		continueAsNewPreempted := backendType == service.BackendTypeTemporal &&
-			updateError && updateType == dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED
-		acceptedUpdateCompletedWorkflow := backendType == service.BackendTypeTemporal &&
-			s.client.IsAcceptedUpdateCompletedWorkflowError(err)
-		temporalCurrentRunRetry := backendType == service.BackendTypeTemporal &&
-			(s.client.IsNotFoundError(err) || unknownUpdate || continueAsNewPreempted ||
-				acceptedUpdateCompletedWorkflow)
-		if (backendType == service.BackendTypeCadence && req.GetRunId() != "") ||
-			(!s.client.IsNotFoundError(err) && !unknownUpdate && !continueAsNewPreempted &&
-				!acceptedUpdateCompletedWorkflow) {
+		updateTransitionError := s.isInvokeRPCUpdateTransitionError(err)
+		if req.GetRunId() != "" ||
+			(!s.client.IsNotFoundError(err) && !updateTransitionError) {
 			return nil, s.handleInvokeRPCError(err)
 		}
-		if temporalCurrentRunRetry {
-			runID = ""
-		} else {
-			description, describeErr := s.client.DescribeWorkflowExecution(
-				ctx,
-				req.GetFlowId(),
-				"",
-				nil,
+		description, describeErr := s.client.DescribeWorkflowExecution(
+			ctx,
+			req.GetFlowId(),
+			"",
+			nil,
+		)
+		if describeErr != nil {
+			s.logger.Warn(
+				"failed to resolve current run after RPC error",
+				tag.WorkflowID(req.GetFlowId()),
+				tag.Error(describeErr),
 			)
-			if describeErr != nil {
-				s.logger.Warn(
-					"failed to resolve current run after RPC error",
-					tag.WorkflowID(req.GetFlowId()),
-					tag.Error(describeErr),
-				)
-				return nil, s.handleInvokeRPCError(err)
-			}
-			if description.RunId == runID {
-				return nil, s.handleInvokeRPCError(err)
-			}
-			runID = description.RunId
+			return nil, s.handleInvokeRPCError(err)
+		}
+		if description.RunId == runID && !updateTransitionError {
+			return nil, s.handleInvokeRPCError(err)
 		}
 		shouldRetry, retryErr := retryBackoff.WaitForNextAttempt(ctx)
 		if retryErr != nil {
@@ -1037,7 +1019,18 @@ func (s *serviceImpl) InvokeRPC(
 		if !shouldRetry {
 			return nil, s.handleInvokeRPCError(err)
 		}
+		runID = description.RunId
 	}
+}
+
+func (s *serviceImpl) isInvokeRPCUpdateTransitionError(err error) bool {
+	if s.client.IsUnknownUpdateError(err, service.InvokeRpcUpdateType) ||
+		s.client.IsAcceptedUpdateCompletedWorkflowError(err) {
+		return true
+	}
+	updateType, updateError := s.client.GetIfUpdateError(err, nil)
+	return updateError &&
+		updateType == dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED
 }
 
 func (s *serviceImpl) doInvokeRPC(
