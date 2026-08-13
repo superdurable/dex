@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
-import { buildTimelineLinks, formatElapsedDuration, newestTimelineEvents } from '@/lib/timeline';
+import { buildSelectedTimelineLinks, formatElapsedDuration, newestTimelineEvents } from '@/lib/timeline';
 import { usePreferences } from '../../providers';
 import { eventTitle, eventTypeLabel } from './EventDetails';
 
@@ -87,9 +87,12 @@ export function Timeline({
 }) {
   const { timezone } = usePreferences();
   const timelineRef = useRef<HTMLDivElement>(null);
-  const eventDots = useRef(new Map<number, HTMLSpanElement>());
+  const eventCards = useRef(new Map<number, HTMLDivElement>());
   const orderedEvents = useMemo(() => newestTimelineEvents(events), [events]);
-  const stepLinks = useMemo(() => buildTimelineLinks(events), [events]);
+  const stepLinks = useMemo(
+    () => buildSelectedTimelineLinks(events, selectedEvent?.eventId),
+    [events, selectedEvent?.eventId],
+  );
   const linkLaneCount = Math.max(1, ...stepLinks.map((link) => link.lane + 1));
   const timelineStyle = {
     '--timeline-link-rail-width': `${88 + (linkLaneCount - 1) * 48}px`,
@@ -102,17 +105,19 @@ export function Timeline({
     if (!timeline) return;
     const timelineRect = timeline.getBoundingClientRect();
     const paths = stepLinks.flatMap((link) => {
-      const fromDot = eventDots.current.get(link.fromEventId);
-      const toDot = eventDots.current.get(link.toEventId);
-      if (!fromDot || !toDot) return [];
-      const fromRect = fromDot.getBoundingClientRect();
-      const toRect = toDot.getBoundingClientRect();
-      const fromX = fromRect.right - timelineRect.left + 2;
-      const toX = toRect.right - timelineRect.left + 2;
-      const fromY = fromRect.top + fromRect.height / 2 - timelineRect.top;
-      const toY = toRect.top + toRect.height / 2 - timelineRect.top;
-      const linkX = Math.max(fromX, toX) + 15 + link.lane * 48;
+      const fromCard = eventCards.current.get(link.fromEventId);
+      const toCard = eventCards.current.get(link.toEventId);
+      if (!fromCard || !toCard) return [];
+      const fromRect = fromCard.getBoundingClientRect();
+      const toRect = toCard.getBoundingClientRect();
+      const flowsUpward = fromRect.top > toRect.top;
+      const fromX = fromRect.left - timelineRect.left - 1;
+      const toX = toRect.left - timelineRect.left + 1;
+      const fromY = fromRect.top + fromRect.height * (flowsUpward ? 0.34 : 0.66) - timelineRect.top;
+      const toY = toRect.top + toRect.height * (flowsUpward ? 0.66 : 0.34) - timelineRect.top;
+      const linkX = Math.min(fromX, toX) - 22 - link.lane * 16;
       const duration = formatElapsedDuration(link.elapsedDurationMs);
+      const durationWidth = Math.max(28, duration.length * 7 + 10);
       return [{
         id: `${link.kind}-${link.stepExecutionId}-${link.fromEventId}-${link.toEventId}`,
         kind: link.kind,
@@ -123,9 +128,9 @@ export function Timeline({
         fromEventId: link.fromEventId,
         toEventId: link.toEventId,
         duration,
-        durationX: linkX + 6,
+        durationX: linkX - durationWidth,
         durationY: (fromY + toY) / 2,
-        durationWidth: Math.max(28, duration.length * 7 + 10),
+        durationWidth,
       }];
     });
     setStepLinkLayout({ width: timelineRect.width, height: timelineRect.height, paths });
@@ -137,7 +142,7 @@ export function Timeline({
     const frame = window.requestAnimationFrame(updateStepLinks);
     const observer = new ResizeObserver(updateStepLinks);
     observer.observe(timeline);
-    eventDots.current.forEach((dot) => observer.observe(dot));
+    eventCards.current.forEach((card) => observer.observe(card));
     window.addEventListener('resize', updateStepLinks);
     return () => {
       window.cancelAnimationFrame(frame);
@@ -179,9 +184,6 @@ export function Timeline({
               <marker id="timeline-step-arrow" markerHeight="7" markerWidth="7" orient="auto" refX="5" refY="3.5">
                 <path d="M 0 0 L 6 3.5 L 0 7 z" />
               </marker>
-              <marker id="timeline-step-arrow-active" markerHeight="9" markerWidth="9" orient="auto" refX="7" refY="4.5">
-                <path d="M 0 0 L 8 4.5 L 0 9 z" />
-              </marker>
               <marker id="timeline-lineage-arrow" markerHeight="7" markerWidth="7" orient="auto" refX="5" refY="3.5">
                 <path d="M 0 0 L 6 3.5 L 0 7 z" />
               </marker>
@@ -220,11 +222,9 @@ export function Timeline({
                     aria-hidden="true"
                     className="timeline-step-link"
                     d={link.path}
-                    markerEnd={active
-                      ? 'url(#timeline-step-arrow-active)'
-                      : link.kind === 'lineage'
-                        ? 'url(#timeline-lineage-arrow)'
-                        : 'url(#timeline-step-arrow)'}
+                    markerEnd={link.kind === 'lineage'
+                      ? 'url(#timeline-lineage-arrow)'
+                      : 'url(#timeline-step-arrow)'}
                   />
                   {link.duration && (
                     <>
@@ -278,13 +278,15 @@ export function Timeline({
               <div className="timeline-rail">
                 <span
                   className={`timeline-dot tone-${eventTone(event)}${linked ? ' link-highlighted' : ''}`}
-                  ref={(node) => {
-                    if (node) eventDots.current.set(event.eventId, node);
-                    else eventDots.current.delete(event.eventId);
-                  }}
                 />
               </div>
-              <div className="event-card">
+              <div
+                className="event-card"
+                ref={(node) => {
+                  if (node) eventCards.current.set(event.eventId, node);
+                  else eventCards.current.delete(event.eventId);
+                }}
+              >
                 <header>
                   <div>
                     <span className="event-id">#{event.eventId}</span>

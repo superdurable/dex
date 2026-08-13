@@ -70,6 +70,25 @@ export function buildTimelineStepLinks(events: FlowHistoryEvent[]): TimelineStep
 }
 
 export function buildTimelineLinks(events: FlowHistoryEvent[]): TimelineLink[] {
+  return assignTimelineLinkLanes(buildUnassignedTimelineLinks(events));
+}
+
+export function buildSelectedTimelineLinks(
+  events: FlowHistoryEvent[],
+  selectedEventId: number | undefined,
+): TimelineLink[] {
+  if (selectedEventId === undefined) return [];
+  const selectedLinks = buildUnassignedTimelineLinks(events).filter((link) => (
+    link.kind === 'lineage'
+      ? link.toEventId === selectedEventId
+      : link.fromEventId === selectedEventId || link.toEventId === selectedEventId
+  ));
+  return assignTimelineLinkLanes(selectedLinks);
+}
+
+function buildUnassignedTimelineLinks(
+  events: FlowHistoryEvent[],
+): Omit<TimelineLink, 'lane'>[] {
   const conditionLinks = buildTimelineStepLinks(events).map((link) => ({
     kind: 'condition-wait' as const,
     stepExecutionId: link.stepExecutionId,
@@ -79,7 +98,7 @@ export function buildTimelineLinks(events: FlowHistoryEvent[]): TimelineLink[] {
     elapsedDurationMs: link.conditionWaitDurationMs,
   }));
   const lineageLinks = buildTimelineLineageLinks(events);
-  return assignTimelineLinkLanes([...lineageLinks, ...conditionLinks]);
+  return [...lineageLinks, ...conditionLinks];
 }
 
 export function formatElapsedDuration(milliseconds: number | null): string {

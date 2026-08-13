@@ -1656,27 +1656,20 @@ pre {
 }
 
 #timeline-lineage-arrow path {
-  fill: #7c5ad6;
+  fill: #4f7d75;
 }
 
 .timeline-step-link-group.kind-lineage .timeline-step-link {
-  stroke: #7c5ad6;
-}
-
-#timeline-step-arrow-active path {
-  fill: var(--brand-bright);
-  filter: drop-shadow(0 0 2px rgba(79, 129, 39, 0.45));
+  stroke: #4f7d75;
 }
 
 .timeline-step-link-group:hover .timeline-step-link,
 .timeline-step-link-group:focus .timeline-step-link,
 .timeline-step-link-group.is-active .timeline-step-link {
   animation: timeline-step-link-flow 650ms linear infinite;
-  filter: drop-shadow(0 0 3px rgba(79, 129, 39, 0.38));
-  marker-end: url("#timeline-step-arrow-active");
-  stroke: var(--brand-bright);
+  filter: drop-shadow(0 0 2px rgba(54, 98, 90, 0.3));
   stroke-dasharray: 8 5;
-  stroke-width: 3px;
+  stroke-width: 2.5px;
 }
 
 .timeline-step-duration-background {

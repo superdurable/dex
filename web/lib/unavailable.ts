@@ -8,6 +8,6 @@
 
 export const VALUE_BLOB_UNAVAILABLE = 'Value blob unavailable';
 export const ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED =
-  'Async step methods that exhaust a short retry policy before regular Activity fallback do not record invocation inputs.';
+  'Async Step methods that exhaust a short retry policy before sync fallback do not record invocation inputs.';
 export const STEP_INPUT_SNAPSHOT_NOT_RETAINED =
   'The invocation input snapshot was not recorded or is no longer retained.';

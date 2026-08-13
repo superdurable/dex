@@ -369,7 +369,7 @@ Web 只消费统一的 `input/output/context`，不根据 durability 选择额�
 local snapshot 不存在、external storage 未启用或数据已清理时，server 返回
 `input.unavailable=true`。这只代表 step method input snapshot 不可恢复，不代表其中某个
 独立 Value blob 加载失败。Web 不显示 page-level data warning；terminal ASYNC failure
-说明 short retry budget 可在 regular Activity fallback 前耗尽，因此没有记录 invocation
+说明 short retry budget 可在 sync fallback 前耗尽，因此没有记录 invocation
 input snapshot，并引导用户沿 Timeline source link 回看调度来源。
 
 `from_step_execution_id` 只接受 server 写入的值：
@@ -661,7 +661,8 @@ Timeline：
 
 - 只展示 Dex semantic events；
 - 默认倒序，最新 event 位于顶部；
-- 每个 step execution 的第一个 method event 连回 Flow start/continued、RPC、Step decision、transient movement 或 recovery source；
+- 选中 step execution 的第一个 method event 时，连回 Flow start/continued、RPC、Step decision、transient movement 或 recovery source；
+- 只渲染与 selected event 相连的 source/WaitFor-to-Execute links，端点落在 event card 并上下错开；
 - 同一个 step execution 的 WaitForCondition started 和 Execute 用独立 lane 连线；
 - completed/failed method event 展开统一的 Input、Output、Context；
 - long poll 增量更新；

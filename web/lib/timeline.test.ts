@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  buildSelectedTimelineLinks,
   buildTimelineLinks,
   buildTimelineStepLinks,
   formatElapsedDuration,
@@ -134,6 +135,58 @@ describe('timeline', () => {
         lane: 0,
       },
     ]);
+  });
+
+  it('shows only links connected to the selected event', () => {
+    const start = event(1, 'FlowStartedOrContinued');
+    const source = event(7, 'StepExecuteCompleted', 'source-1');
+    source.payload.context = {
+      ...source.payload.context as Record<string, unknown>,
+      fromStepExecutionId: '__start__',
+      stepType: 'source',
+    };
+    source.payload.output = {
+      stepDecision: { nextSteps: [{ stepType: 'terminal-failure' }] },
+    };
+    const waitFor = event(8, 'StepWaitForCompleted', 'terminal-failure-1');
+    waitFor.payload.context = {
+      ...waitFor.payload.context as Record<string, unknown>,
+      fromStepExecutionId: 'source-1',
+      stepType: 'terminal-failure',
+    };
+    const execute = event(9, 'StepExecuteFailed', 'terminal-failure-1');
+
+    expect(buildSelectedTimelineLinks([start, source, waitFor, execute], undefined)).toEqual([]);
+    expect(buildSelectedTimelineLinks([start, source, waitFor, execute], 1)).toEqual([]);
+    expect(buildSelectedTimelineLinks([start, source, waitFor, execute], 8)).toEqual([
+      {
+        kind: 'lineage',
+        stepExecutionId: 'terminal-failure-1',
+        fromEventId: 7,
+        toEventId: 8,
+        label: 'source-1 decision to terminal-failure-1 first event',
+        elapsedDurationMs: null,
+        lane: 0,
+      },
+      {
+        kind: 'condition-wait',
+        stepExecutionId: 'terminal-failure-1',
+        fromEventId: 8,
+        toEventId: 9,
+        label: 'terminal-failure-1: WaitForCondition started to Execute',
+        elapsedDurationMs: null,
+        lane: 0,
+      },
+    ]);
+    expect(buildSelectedTimelineLinks([start, source, waitFor, execute], 9)).toEqual([{
+      kind: 'condition-wait',
+      stepExecutionId: 'terminal-failure-1',
+      fromEventId: 8,
+      toEventId: 9,
+      label: 'terminal-failure-1: WaitForCondition started to Execute',
+      elapsedDurationMs: null,
+      lane: 0,
+    }]);
   });
 
   it('links a Step decision to the first event of the scheduled execution', () => {

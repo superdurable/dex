@@ -73,7 +73,8 @@ Selected event in the sidebar.
 Continued runs link to their previous run from Timeline and Step graph.
 Timeline connects each Step execution's first method event to the Flow start,
 Flow continued, RPC, Step decision, transient movement, or recovery event that
-scheduled it. The existing WaitFor-to-Execute link continues from that event.
+scheduled it. Selecting the first event reveals that source link; selecting a
+WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
 Methods interrupted by a forced close remain visible as Pending Timeline events
 with their last persisted Scheduled or Started phase.
