@@ -91,19 +91,45 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 func (w *workflowProvider) MapToFlowResultError(
 	err error,
 ) (dexpb.FlowErrorType, *dexpb.RecoveryErrorInfo, error) {
-	recoveryError, mappingErr := w.MapToRecoveryError(err)
-	if mappingErr != nil {
-		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, mappingErr
-	}
 	var applicationError *temporal.ApplicationError
 	if !errors.As(err, &applicationError) {
+		recoveryError, mappingErr := w.MapToRecoveryError(err)
+		if mappingErr != nil {
+			return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, mappingErr
+		}
 		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, recoveryError, nil
 	}
 	value, ok := dexpb.FlowErrorType_value[applicationError.Type()]
 	if !ok {
+		recoveryError, mappingErr := w.MapToRecoveryError(err)
+		if mappingErr != nil {
+			return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, mappingErr
+		}
 		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, recoveryError, nil
 	}
-	return dexpb.FlowErrorType(value), recoveryError, nil
+	flowError, detailsErr := decodeTemporalFlowErrorDetails(applicationError)
+	if detailsErr != nil {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil,
+			fmt.Errorf("decode Temporal Flow failure details: %w", detailsErr)
+	}
+	return dexpb.FlowErrorType(value), temporalFlowRecoveryError(
+		flowError, applicationError.Message(), applicationError.Type(),
+	), nil
+}
+
+func temporalFlowRecoveryError(
+	flowError *dexpb.InternalFlowError,
+	backendDetail string,
+	backendType string,
+) *dexpb.RecoveryErrorInfo {
+	if activityError := flowError.GetActivityError(); activityError != nil {
+		return temporalRecoveryError(activityError, backendDetail, backendType)
+	}
+	detail := flowError.GetServerDetail()
+	if detail == "" {
+		detail = backendDetail
+	}
+	return &dexpb.RecoveryErrorInfo{Detail: detail, ErrorType: backendType}
 }
 
 func (w *workflowProvider) MapToRecoveryError(err error) (*dexpb.RecoveryErrorInfo, error) {
@@ -487,6 +513,12 @@ func decodeTemporalStepErrorDetails(
 	applicationError *temporal.ApplicationError,
 ) (*dexpb.InternalActivityError, error) {
 	return decodeTemporalApplicationErrorDetail[dexpb.InternalActivityError](applicationError)
+}
+
+func decodeTemporalFlowErrorDetails(
+	applicationError *temporal.ApplicationError,
+) (*dexpb.InternalFlowError, error) {
+	return decodeTemporalApplicationErrorDetail[dexpb.InternalFlowError](applicationError)
 }
 
 func decodeTemporalLocalStepErrorDetails(

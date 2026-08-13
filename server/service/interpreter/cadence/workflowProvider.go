@@ -88,19 +88,45 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 func (w *workflowProvider) MapToFlowResultError(
 	err error,
 ) (dexpb.FlowErrorType, *dexpb.RecoveryErrorInfo, error) {
-	recoveryError, mappingErr := w.MapToRecoveryError(err)
-	if mappingErr != nil {
-		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, mappingErr
-	}
 	var applicationError *cadence.CustomError
 	if !errors.As(err, &applicationError) {
+		recoveryError, mappingErr := w.MapToRecoveryError(err)
+		if mappingErr != nil {
+			return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, mappingErr
+		}
 		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, recoveryError, nil
 	}
 	value, ok := dexpb.FlowErrorType_value[applicationError.Reason()]
 	if !ok {
+		recoveryError, mappingErr := w.MapToRecoveryError(err)
+		if mappingErr != nil {
+			return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, mappingErr
+		}
 		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, recoveryError, nil
 	}
-	return dexpb.FlowErrorType(value), recoveryError, nil
+	flowError, detailsErr := decodeCadenceFlowErrorDetails(applicationError)
+	if detailsErr != nil {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil,
+			fmt.Errorf("decode Cadence Flow failure details: %w", detailsErr)
+	}
+	return dexpb.FlowErrorType(value), cadenceFlowRecoveryError(
+		flowError, applicationError.Error(), applicationError.Reason(),
+	), nil
+}
+
+func cadenceFlowRecoveryError(
+	flowError *dexpb.InternalFlowError,
+	backendDetail string,
+	backendType string,
+) *dexpb.RecoveryErrorInfo {
+	if activityError := flowError.GetActivityError(); activityError != nil {
+		return cadenceRecoveryError(activityError, backendDetail, backendType)
+	}
+	detail := flowError.GetServerDetail()
+	if detail == "" {
+		detail = backendDetail
+	}
+	return &dexpb.RecoveryErrorInfo{Detail: detail, ErrorType: backendType}
 }
 
 func (w *workflowProvider) MapToRecoveryError(err error) (*dexpb.RecoveryErrorInfo, error) {
@@ -499,6 +525,19 @@ func decodeCadenceStepErrorDetails(
 		return nil, fmt.Errorf("Cadence Step failure details are nil")
 	}
 	return activityError, nil
+}
+
+func decodeCadenceFlowErrorDetails(
+	customError *cadence.CustomError,
+) (*dexpb.InternalFlowError, error) {
+	var flowError *dexpb.InternalFlowError
+	if detailsErr := customError.Details(&flowError); detailsErr != nil {
+		return nil, fmt.Errorf("decode Flow error: %w", detailsErr)
+	}
+	if flowError == nil {
+		return nil, fmt.Errorf("Cadence Flow failure details are nil")
+	}
+	return flowError, nil
 }
 
 func (w *workflowProvider) ExecuteLocalActivity(
