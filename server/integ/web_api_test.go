@@ -602,13 +602,53 @@ func testWebSyncTimeoutFailure(
 	require.Nil(t, eventContext.GetLastFailureInfo())
 	require.NotNil(t, terminalFailure)
 	require.Equal(t, int32(1), terminalFailure.GetAttempt())
-	expectedBackendError := "START_TO_CLOSE"
-	if backendType == service.BackendTypeTemporal {
-		expectedBackendError = "StartToClose"
-	}
-	require.Equal(t, expectedBackendError, terminalFailure.GetBackendError())
-	require.Nil(t, terminalFailure.GetDetails())
+	requireSyncTimeoutFailure(t, backendType, terminalFailure)
 	requireStepMethodFailureJSON(t, terminalFailure)
+}
+
+func requireSyncTimeoutFailure(
+	t *testing.T,
+	backendType service.BackendType,
+	failure *dexpb.StepMethodFailure,
+) {
+	t.Helper()
+	expectedBackendError := "START_TO_CLOSE"
+	switch backendType {
+	case service.BackendTypeTemporal:
+		expectedBackendError = "StartToClose"
+	case service.BackendTypeCadence:
+	default:
+		t.Fatalf("unexpected backend type %v", backendType)
+	}
+	if failure.GetBackendError() == expectedBackendError {
+		require.Nil(t, failure.GetDetails())
+		return
+	}
+	require.Equal(
+		t,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL.String(),
+		failure.GetBackendError(),
+	)
+	details := failure.GetDetails()
+	require.NotNil(t, details)
+	require.Equal(
+		t,
+		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
+		details.GetSubStatus(),
+	)
+	switch codes.Code(details.GetOriginalWorkerErrorStatus()) {
+	case codes.DeadlineExceeded:
+		require.Contains(t, details.GetDetail(), "context deadline exceeded")
+	case codes.Internal:
+		require.Equal(t, service.BackendTypeCadence, backendType)
+		require.Contains(t, details.GetDetail(), "RST_STREAM")
+	default:
+		t.Fatalf(
+			"unexpected worker status %v: %q",
+			codes.Code(details.GetOriginalWorkerErrorStatus()),
+			details.GetDetail(),
+		)
+	}
 }
 
 func requireStepMethodFailureJSON(t *testing.T, failure *dexpb.StepMethodFailure) {

@@ -1,0 +1,49 @@
+name: Main CI (all)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: main-ci-all
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Dispatch latest main CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Dispatch CI workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          workflows=(
+            blob-cache-go-ci.yml
+            cli-ci.yml
+            copyright-ci.yml
+            examples-go-ci.yml
+            examples-java-ci.yml
+            examples-python-ci.yml
+            examples-rust-ci.yml
+            generated-code-ci.yml
+            sdk-go-ci.yml
+            sdk-java-ci.yml
+            sdk-python-ci.yml
+            sdk-rust-ci.yml
+            sdk-typescript-ci.yml
+            server-ci.yml
+            web-ci.yml
+          )
+
+          for workflow in "${workflows[@]}"; do
+            gh workflow run "$workflow" --repo "$REPO" --ref main
+          done
+
+          gh workflow run check-gate-ci.yml --repo "$REPO" --ref main

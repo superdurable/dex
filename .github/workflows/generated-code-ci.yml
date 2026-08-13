@@ -44,10 +44,14 @@ concurrency:
 jobs:
   freshness:
     name: Generated code freshness
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     timeout-minutes: 10
+    env:
+      RUSTUP_TOOLCHAIN: "1.97.1"
     steps:
       - uses: actions/checkout@v7
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
       - uses: actions/setup-go@v7
         with:
           go-version: "1.25.x"

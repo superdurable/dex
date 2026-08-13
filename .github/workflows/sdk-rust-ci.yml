@@ -37,7 +37,7 @@ env:
 jobs:
   quality:
     name: Format and Clippy
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
     timeout-minutes: 15
     defaults:
       run:
@@ -55,7 +55,7 @@ jobs:
 
   tests:
     name: Tests (${{ matrix.os }})
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || matrix.os }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -73,7 +73,7 @@ jobs:
 
   integration:
     name: Integration coverage
-    runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
     timeout-minutes: 25
     permissions:
       contents: read
