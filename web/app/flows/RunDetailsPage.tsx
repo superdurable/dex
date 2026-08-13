@@ -15,10 +15,7 @@ import type {
 } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
-import {
-  STEP_EVENT_INPUT_UNAVAILABLE,
-  VALUE_BLOB_UNAVAILABLE,
-} from '@/lib/unavailable';
+import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
   FlowState,
@@ -185,10 +182,6 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       || hydratingEventIDs.current.has(event.eventId)) return;
     hydratingEventIDs.current.add(event.eventId);
     try {
-      const stepInput = event.payload.input as Record<string, unknown> | undefined;
-      if (stepInput?.unavailable === true) {
-        addDataWarning(STEP_EVENT_INPUT_UNAVAILABLE);
-      }
       const hydrated = await hydrateBlobs(event, blobCache.current);
       setHydratedEvents((current) => ({ ...current, [event.eventId]: hydrated.value }));
       hydratedEventIDs.current.add(event.eventId);

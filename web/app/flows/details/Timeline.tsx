@@ -12,17 +12,19 @@ import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
-import { buildTimelineStepLinks, formatElapsedDuration, newestTimelineEvents } from '@/lib/timeline';
+import { buildTimelineLinks, formatElapsedDuration, newestTimelineEvents } from '@/lib/timeline';
 import { usePreferences } from '../../providers';
 import { eventTitle, eventTypeLabel } from './EventDetails';
 
 interface StepLinkPath {
   id: string;
+  kind: 'lineage' | 'condition-wait';
+  stepExecutionId: string;
   label: string;
   lane: number;
   path: string;
-  waitForEventId: number;
-  executeEventId: number;
+  fromEventId: number;
+  toEventId: number;
   duration: string;
   durationX: number;
   durationY: number;
@@ -87,7 +89,7 @@ export function Timeline({
   const timelineRef = useRef<HTMLDivElement>(null);
   const eventDots = useRef(new Map<number, HTMLSpanElement>());
   const orderedEvents = useMemo(() => newestTimelineEvents(events), [events]);
-  const stepLinks = useMemo(() => buildTimelineStepLinks(events), [events]);
+  const stepLinks = useMemo(() => buildTimelineLinks(events), [events]);
   const linkLaneCount = Math.max(1, ...stepLinks.map((link) => link.lane + 1));
   const timelineStyle = {
     '--timeline-link-rail-width': `${88 + (linkLaneCount - 1) * 48}px`,
@@ -100,27 +102,29 @@ export function Timeline({
     if (!timeline) return;
     const timelineRect = timeline.getBoundingClientRect();
     const paths = stepLinks.flatMap((link) => {
-      const waitForDot = eventDots.current.get(link.waitForEventId);
-      const executeDot = eventDots.current.get(link.executeEventId);
-      if (!waitForDot || !executeDot) return [];
-      const waitForRect = waitForDot.getBoundingClientRect();
-      const executeRect = executeDot.getBoundingClientRect();
-      const waitForX = waitForRect.right - timelineRect.left + 2;
-      const executeX = executeRect.right - timelineRect.left + 2;
-      const waitForY = waitForRect.top + waitForRect.height / 2 - timelineRect.top;
-      const executeY = executeRect.top + executeRect.height / 2 - timelineRect.top;
-      const linkX = Math.max(waitForX, executeX) + 15 + link.lane * 48;
-      const duration = formatElapsedDuration(link.conditionWaitDurationMs);
+      const fromDot = eventDots.current.get(link.fromEventId);
+      const toDot = eventDots.current.get(link.toEventId);
+      if (!fromDot || !toDot) return [];
+      const fromRect = fromDot.getBoundingClientRect();
+      const toRect = toDot.getBoundingClientRect();
+      const fromX = fromRect.right - timelineRect.left + 2;
+      const toX = toRect.right - timelineRect.left + 2;
+      const fromY = fromRect.top + fromRect.height / 2 - timelineRect.top;
+      const toY = toRect.top + toRect.height / 2 - timelineRect.top;
+      const linkX = Math.max(fromX, toX) + 15 + link.lane * 48;
+      const duration = formatElapsedDuration(link.elapsedDurationMs);
       return [{
-        id: `${link.stepExecutionId}-${link.waitForEventId}-${link.executeEventId}`,
-        label: `${link.stepExecutionId}: WaitForCondition started to Execute`,
+        id: `${link.kind}-${link.stepExecutionId}-${link.fromEventId}-${link.toEventId}`,
+        kind: link.kind,
+        stepExecutionId: link.stepExecutionId,
+        label: link.label,
         lane: link.lane,
-        path: `M ${waitForX} ${waitForY} H ${linkX} V ${executeY} H ${executeX}`,
-        waitForEventId: link.waitForEventId,
-        executeEventId: link.executeEventId,
+        path: `M ${fromX} ${fromY} H ${linkX} V ${toY} H ${toX}`,
+        fromEventId: link.fromEventId,
+        toEventId: link.toEventId,
         duration,
         durationX: linkX + 6,
-        durationY: (waitForY + executeY) / 2,
+        durationY: (fromY + toY) / 2,
         durationWidth: Math.max(28, duration.length * 7 + 10),
       }];
     });
@@ -149,7 +153,7 @@ export function Timeline({
     return earliest ? Math.min(earliest, eventMs) : eventMs;
   }, 0);
   const selectedStepLink = stepLinkLayout.paths.find((link) => (
-    link.waitForEventId === selectedEvent?.eventId || link.executeEventId === selectedEvent?.eventId
+    link.fromEventId === selectedEvent?.eventId || link.toEventId === selectedEvent?.eventId
   ));
   const pinnedStepLink = stepLinkLayout.paths.find((link) => link.id === pinnedStepLinkID);
   const activeStepLinkID = interactionStepLinkID ?? pinnedStepLink?.id ?? selectedStepLink?.id ?? null;
@@ -164,7 +168,7 @@ export function Timeline({
       <div className="timeline" ref={timelineRef} style={timelineStyle}>
         {stepLinkLayout.paths.length > 0 && (
           <svg
-            aria-label="WaitForCondition to Execute links"
+            aria-label="Step execution lineage and condition links"
             className="timeline-step-links"
             height={stepLinkLayout.height}
             role="group"
@@ -178,6 +182,9 @@ export function Timeline({
               <marker id="timeline-step-arrow-active" markerHeight="9" markerWidth="9" orient="auto" refX="7" refY="4.5">
                 <path d="M 0 0 L 8 4.5 L 0 9 z" />
               </marker>
+              <marker id="timeline-lineage-arrow" markerHeight="7" markerWidth="7" orient="auto" refX="5" refY="3.5">
+                <path d="M 0 0 L 6 3.5 L 0 7 z" />
+              </marker>
             </defs>
             {stepLinkLayout.paths.map((link) => {
               const active = activeStepLinkID === link.id;
@@ -187,8 +194,9 @@ export function Timeline({
                 <g
                   aria-label={accessibleLabel}
                   aria-pressed={pinned}
-                  className={`timeline-step-link-group${active ? ' is-active' : ''}`}
-                  data-step-execution-id={link.id}
+                  className={`timeline-step-link-group kind-${link.kind}${active ? ' is-active' : ''}`}
+                  data-step-execution-id={link.stepExecutionId}
+                  data-timeline-link-kind={link.kind}
                   data-timeline-lane={link.lane}
                   key={link.id}
                   onBlur={() => setInteractionStepLinkID(null)}
@@ -212,7 +220,11 @@ export function Timeline({
                     aria-hidden="true"
                     className="timeline-step-link"
                     d={link.path}
-                    markerEnd={active ? 'url(#timeline-step-arrow-active)' : 'url(#timeline-step-arrow)'}
+                    markerEnd={active
+                      ? 'url(#timeline-step-arrow-active)'
+                      : link.kind === 'lineage'
+                        ? 'url(#timeline-lineage-arrow)'
+                        : 'url(#timeline-step-arrow)'}
                   />
                   {link.duration && (
                     <>
@@ -245,7 +257,7 @@ export function Timeline({
           const eventMs = event.eventTime ? Date.parse(event.eventTime) : 0;
           const relative = startMs && eventMs ? Math.max(0, Math.round((eventMs - startMs) / 1000)) : null;
           const selected = selectedEvent?.eventId === event.eventId;
-          const linked = activeStepLink?.waitForEventId === event.eventId || activeStepLink?.executeEventId === event.eventId;
+          const linked = activeStepLink?.fromEventId === event.eventId || activeStepLink?.toEventId === event.eventId;
           const counterpart = activeStepLink?.id === selectedStepLink?.id && linked && !selected;
           const previousRunId = previousRunID(event);
           return (

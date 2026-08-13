@@ -7,4 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 export const VALUE_BLOB_UNAVAILABLE = 'Value blob unavailable';
-export const STEP_EVENT_INPUT_UNAVAILABLE = 'Step event input unavailable';
+export const ASYNC_STEP_INPUT_SNAPSHOT_NOT_RECORDED =
+  'Async step methods that exhaust a short retry policy before regular Activity fallback do not record invocation inputs.';
+export const STEP_INPUT_SNAPSHOT_NOT_RETAINED =
+  'The invocation input snapshot was not recorded or is no longer retained.';

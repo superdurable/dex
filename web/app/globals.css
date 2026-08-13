@@ -1176,6 +1176,30 @@ pre {
   font-size: 10px;
 }
 
+.semantic-notice {
+  padding: 9px;
+  border: 1px solid #c9d9eb;
+  border-radius: 7px;
+  color: #31556e;
+  background: #f2f7fc;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.semantic-notice strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #24485f;
+}
+
+.semantic-notice p {
+  margin: 0;
+}
+
+.semantic-notice p + p {
+  margin-top: 5px;
+}
+
 .semantic-alert > strong {
   display: block;
   margin-bottom: 7px;
@@ -1631,6 +1655,14 @@ pre {
   fill: #4f87a3;
 }
 
+#timeline-lineage-arrow path {
+  fill: #7c5ad6;
+}
+
+.timeline-step-link-group.kind-lineage .timeline-step-link {
+  stroke: #7c5ad6;
+}
+
 #timeline-step-arrow-active path {
   fill: var(--brand-bright);
   filter: drop-shadow(0 0 2px rgba(79, 129, 39, 0.45));
@@ -1875,7 +1907,7 @@ pre {
   border: 1px solid rgba(79, 135, 163, 0.55);
   border-radius: 999px;
   color: #315e74;
-  content: "Paired event";
+  content: "Linked event";
   background: #edf7fa;
   font-size: 8px;
   font-weight: 800;
