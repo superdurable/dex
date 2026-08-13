@@ -1013,6 +1013,7 @@ func (s *serviceImpl) InvokeRPC(
 		}
 		if description.RunId == runID &&
 			!updateTransitionError &&
+			description.Status != dexpb.FlowStatus_FLOW_STATUS_RUNNING &&
 			description.Status != dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW {
 			return nil, s.handleInvokeRPCError(err)
 		}
