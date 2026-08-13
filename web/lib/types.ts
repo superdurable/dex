@@ -118,7 +118,7 @@ export interface StepGraphNode {
   runId?: string;
   flowType?: string;
   subFlowStatus?: string;
-  reuseResolution?: string;
+  reusePolicy?: string;
 }
 
 export interface StepGraphEdge {

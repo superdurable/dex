@@ -59,6 +59,12 @@ func (i *Interpreter) StartEngineFlow(
 		FlowType:            input.GetFlowType(),
 		RunStartedTimestamp: runStartedTimestamp,
 	}
+	parentFlowID, parentFlowErr := provider.GetSearchAttributeKeyword(
+		ctx, service.SearchAttributeDexParentFlowID,
+	)
+	if parentFlowErr != nil {
+		return nil, fmt.Errorf("read SubFlow parent identity: %w", parentFlowErr)
+	}
 
 	var channelStore *ChannelStore
 	var stepRequestQueue *StepRequestQueue
@@ -228,9 +234,9 @@ func (i *Interpreter) StartEngineFlow(
 
 	defer func() {
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
-		if shouldReportSubFlowCompletion(provider, ctx, input.GetSubFlowParent(), retErr) {
+		if shouldReportSubFlowCompletion(provider, ctx, parentFlowID, retErr) {
 			if reportErr := i.reportSubFlowCompletion(
-				ctx, provider, input.GetSubFlowParent(), outputCollector.GetAll(), retErr,
+				ctx, provider, outputCollector.GetAll(), retErr,
 			); reportErr != nil {
 				retErr = reportErr
 			}
@@ -829,7 +835,6 @@ func (i *Interpreter) processStepExecution(
 				i.activities,
 				subFlowTracker,
 				stepExeId,
-				info.WorkflowExecution.ID,
 				flowConfiger.Get(),
 				waitingCondition,
 			)
@@ -945,6 +950,7 @@ func (i *Interpreter) processStepExecution(
 	consumed := channelStore.CommitMatch(matchPlan)
 	conditionResults := channel.BuildConditionResults(
 		waitingCondition,
+		stepExeId,
 		completedTimerConditions,
 		consumed,
 		completedSubFlowResults,
@@ -980,30 +986,25 @@ func (i *Interpreter) processStepExecution(
 func shouldReportSubFlowCompletion(
 	provider interfaces.WorkflowProvider,
 	ctx interfaces.UnifiedContext,
-	parent *dexpb.SubFlowParent,
+	parentFlowID string,
 	flowErr error,
 ) bool {
-	if parent == nil || provider.IsContinueAsNewError(flowErr) {
+	if parentFlowID == "" || provider.IsContinueAsNewError(flowErr) {
 		return false
 	}
 	if provider.IsCanceledError(flowErr) {
 		return true
 	}
 	info := provider.GetWorkflowInfo(ctx)
-	if info.CronSchedule != "" {
-		return false
-	}
-	retryPolicy := parent.GetRetryPolicy()
-	if flowErr == nil || retryPolicy == nil {
+	if flowErr == nil || info.RetryMaximumAttempts == nil {
 		return true
 	}
-	return retryPolicy.GetMaximumAttempts() > 0 && info.Attempt >= retryPolicy.GetMaximumAttempts()
+	return *info.RetryMaximumAttempts > 0 && info.Attempt >= *info.RetryMaximumAttempts
 }
 
 func (i *Interpreter) reportSubFlowCompletion(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
-	parent *dexpb.SubFlowParent,
 	outputs []*dexpb.StepCompletionOutput,
 	flowErr error,
 ) error {
@@ -1031,18 +1032,14 @@ func (i *Interpreter) reportSubFlowCompletion(
 		StartToCloseTimeout:                 30 * time.Second,
 		LocalActivityScheduleToCloseTimeout: 2 * time.Minute,
 	})
-	var deliveryResult dexpb.SubFlowCompletionDeliveryResult
+	var activityOutput dexpb.ReportSubFlowCompletionActivityOutput
 	return provider.ExecuteLocalActivity(
-		&deliveryResult,
+		&activityOutput,
 		ctx,
 		i.activities.ReportSubFlowCompletion,
 		&dexpb.ReportSubFlowCompletionActivityInput{
-			ParentFlowId: parent.GetFlowId(),
-			Signal: &dexpb.SubFlowCompletionSignalRequest{
-				StepExecutionId:     parent.GetStepExecutionId(),
-				SubFlowIndex:        parent.GetSubFlowIndex(),
-				NormalizedRequestId: parent.GetNormalizedRequestId(),
-				Result:              result,
+			Request: &dexpb.SubFlowCompletionSignalRequest{
+				FlowResult: result,
 			},
 		},
 	)

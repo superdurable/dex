@@ -64,7 +64,7 @@ type WorkflowInfo struct {
 	FirstRunID               string
 	CurrentRunID             string
 	Attempt                  int32
-	CronSchedule             string
+	RetryMaximumAttempts     *int32
 }
 
 type ActivityOptions struct {
@@ -133,6 +133,7 @@ type WorkflowProvider interface {
 	IsContinueAsNewError(err error) bool
 	NewDisconnectedContext(ctx UnifiedContext) UnifiedContext
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
+	GetSearchAttributeKeyword(ctx UnifiedContext, key string) (string, error)
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)
 	UpsertSearchAttributes(ctx UnifiedContext, attributes map[string]interface{}) error
 	SetQueryHandler(ctx UnifiedContext, queryType string, handler interface{}) error

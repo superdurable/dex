@@ -13,6 +13,7 @@ package channel
 
 import (
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 )
 
 // ChannelAvailability snapshots message counts by channel.
@@ -283,6 +284,7 @@ func normalizeChannel(condition *dexpb.ChannelCondition) normalizedChannelCondit
 // BuildConditionResults reports timer, channel, and SubFlow states.
 func BuildConditionResults(
 	waitingCondition *dexpb.WaitingCondition,
+	stepExecutionID string,
 	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
 	consumedByChannelConditionIndex map[int][]*dexpb.Value,
 	completedSubFlowConditions ...map[int32]*dexpb.FlowResult,
@@ -318,12 +320,11 @@ func BuildConditionResults(
 		result := completedSubFlows[int32(subFlowIndex)]
 		if result == nil {
 			result = &dexpb.FlowResult{
-				FlowId:          subFlowCondition.GetFlowId(),
-				FlowStatus:      dexpb.FlowStatus_FLOW_STATUS_RUNNING,
-				StartResolution: subFlowCondition.GetStartResolution(),
+				FlowId: service.SubFlowID(
+					subFlowCondition.GetParentFlowId(), stepExecutionID, int32(subFlowIndex),
+				),
+				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
 			}
-		} else {
-			result.StartResolution = subFlowCondition.GetStartResolution()
 		}
 		results.SubFlowResults = append(results.SubFlowResults, result)
 	}

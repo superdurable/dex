@@ -29,11 +29,10 @@ private static final long serialVersionUID = 0L;
   }
   private SubFlowCondition() {
     conditionId_ = "";
-    flowType_ = "";
+    subFlowType_ = "";
     startStepType_ = "";
-    flowId_ = "";
-    normalizedRequestId_ = "";
-    startResolution_ = 0;
+    parentFlowId_ = "";
+    requestId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -102,39 +101,39 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int FLOW_TYPE_FIELD_NUMBER = 2;
+  public static final int SUB_FLOW_TYPE_FIELD_NUMBER = 2;
   @SuppressWarnings("serial")
-  private volatile java.lang.Object flowType_ = "";
+  private volatile java.lang.Object subFlowType_ = "";
   /**
-   * <code>string flow_type = 2;</code>
-   * @return The flowType.
+   * <code>string sub_flow_type = 2;</code>
+   * @return The subFlowType.
    */
   @java.lang.Override
-  public java.lang.String getFlowType() {
-    java.lang.Object ref = flowType_;
+  public java.lang.String getSubFlowType() {
+    java.lang.Object ref = subFlowType_;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
       com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
-      flowType_ = s;
+      subFlowType_ = s;
       return s;
     }
   }
   /**
-   * <code>string flow_type = 2;</code>
-   * @return The bytes for flowType.
+   * <code>string sub_flow_type = 2;</code>
+   * @return The bytes for subFlowType.
    */
   @java.lang.Override
   public com.google.protobuf.ByteString
-      getFlowTypeBytes() {
-    java.lang.Object ref = flowType_;
+      getSubFlowTypeBytes() {
+    java.lang.Object ref = subFlowType_;
     if (ref instanceof java.lang.String) {
       com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
-      flowType_ = b;
+      subFlowType_ = b;
       return b;
     } else {
       return (com.google.protobuf.ByteString) ref;
@@ -269,27 +268,27 @@ private static final long serialVersionUID = 0L;
     return subFlowIndex_;
   }
 
-  public static final int FLOW_ID_FIELD_NUMBER = 8;
+  public static final int PARENT_FLOW_ID_FIELD_NUMBER = 8;
   @SuppressWarnings("serial")
-  private volatile java.lang.Object flowId_ = "";
+  private volatile java.lang.Object parentFlowId_ = "";
   /**
    * <pre>
    * Server-generated during WaitFor normalization.
    * </pre>
    *
-   * <code>string flow_id = 8;</code>
-   * @return The flowId.
+   * <code>string parent_flow_id = 8;</code>
+   * @return The parentFlowId.
    */
   @java.lang.Override
-  public java.lang.String getFlowId() {
-    java.lang.Object ref = flowId_;
+  public java.lang.String getParentFlowId() {
+    java.lang.Object ref = parentFlowId_;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
       com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
-      flowId_ = s;
+      parentFlowId_ = s;
       return s;
     }
   }
@@ -298,87 +297,69 @@ private static final long serialVersionUID = 0L;
    * Server-generated during WaitFor normalization.
    * </pre>
    *
-   * <code>string flow_id = 8;</code>
-   * @return The bytes for flowId.
+   * <code>string parent_flow_id = 8;</code>
+   * @return The bytes for parentFlowId.
    */
   @java.lang.Override
   public com.google.protobuf.ByteString
-      getFlowIdBytes() {
-    java.lang.Object ref = flowId_;
+      getParentFlowIdBytes() {
+    java.lang.Object ref = parentFlowId_;
     if (ref instanceof java.lang.String) {
       com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
-      flowId_ = b;
+      parentFlowId_ = b;
       return b;
     } else {
       return (com.google.protobuf.ByteString) ref;
     }
   }
 
-  public static final int NORMALIZED_REQUEST_ID_FIELD_NUMBER = 9;
+  public static final int REQUEST_ID_FIELD_NUMBER = 9;
   @SuppressWarnings("serial")
-  private volatile java.lang.Object normalizedRequestId_ = "";
+  private volatile java.lang.Object requestId_ = "";
   /**
    * <pre>
-   * Server-normalized after start or attach.
+   * Server-generated during WaitFor normalization.
    * </pre>
    *
-   * <code>string normalized_request_id = 9;</code>
-   * @return The normalizedRequestId.
+   * <code>string request_id = 9;</code>
+   * @return The requestId.
    */
   @java.lang.Override
-  public java.lang.String getNormalizedRequestId() {
-    java.lang.Object ref = normalizedRequestId_;
+  public java.lang.String getRequestId() {
+    java.lang.Object ref = requestId_;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
       com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
-      normalizedRequestId_ = s;
+      requestId_ = s;
       return s;
     }
   }
   /**
    * <pre>
-   * Server-normalized after start or attach.
+   * Server-generated during WaitFor normalization.
    * </pre>
    *
-   * <code>string normalized_request_id = 9;</code>
-   * @return The bytes for normalizedRequestId.
+   * <code>string request_id = 9;</code>
+   * @return The bytes for requestId.
    */
   @java.lang.Override
   public com.google.protobuf.ByteString
-      getNormalizedRequestIdBytes() {
-    java.lang.Object ref = normalizedRequestId_;
+      getRequestIdBytes() {
+    java.lang.Object ref = requestId_;
     if (ref instanceof java.lang.String) {
       com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
-      normalizedRequestId_ = b;
+      requestId_ = b;
       return b;
     } else {
       return (com.google.protobuf.ByteString) ref;
     }
-  }
-
-  public static final int START_RESOLUTION_FIELD_NUMBER = 10;
-  private int startResolution_ = 0;
-  /**
-   * <code>.dex.SubFlowStartResolution start_resolution = 10;</code>
-   * @return The enum numeric value on the wire for startResolution.
-   */
-  @java.lang.Override public int getStartResolutionValue() {
-    return startResolution_;
-  }
-  /**
-   * <code>.dex.SubFlowStartResolution start_resolution = 10;</code>
-   * @return The startResolution.
-   */
-  @java.lang.Override public io.superdurable.gen.SubFlowStartResolution getStartResolution() {
-    io.superdurable.gen.SubFlowStartResolution result = io.superdurable.gen.SubFlowStartResolution.forNumber(startResolution_);
-    return result == null ? io.superdurable.gen.SubFlowStartResolution.UNRECOGNIZED : result;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -398,8 +379,8 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(conditionId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 1, conditionId_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, flowType_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(subFlowType_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, subFlowType_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(startStepType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 3, startStepType_);
@@ -416,14 +397,11 @@ private static final long serialVersionUID = 0L;
     if (subFlowIndex_ != 0) {
       output.writeInt32(7, subFlowIndex_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 8, flowId_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentFlowId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 8, parentFlowId_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(normalizedRequestId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 9, normalizedRequestId_);
-    }
-    if (startResolution_ != io.superdurable.gen.SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED.getNumber()) {
-      output.writeEnum(10, startResolution_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 9, requestId_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -432,8 +410,8 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(conditionId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(1, conditionId_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, flowType_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(subFlowType_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, subFlowType_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(startStepType_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(3, startStepType_);
@@ -454,15 +432,11 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(7, subFlowIndex_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(8, flowId_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentFlowId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(8, parentFlowId_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(normalizedRequestId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(9, normalizedRequestId_);
-    }
-    if (startResolution_ != io.superdurable.gen.SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED.getNumber()) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeEnumSize(10, startResolution_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(9, requestId_);
     }
     return size;
   }
@@ -490,8 +464,8 @@ private static final long serialVersionUID = 0L;
 
     if (!getConditionId()
         .equals(other.getConditionId())) return false;
-    if (!getFlowType()
-        .equals(other.getFlowType())) return false;
+    if (!getSubFlowType()
+        .equals(other.getSubFlowType())) return false;
     if (!getStartStepType()
         .equals(other.getStartStepType())) return false;
     if (hasStepInput() != other.hasStepInput()) return false;
@@ -511,11 +485,10 @@ private static final long serialVersionUID = 0L;
     }
     if (getSubFlowIndex()
         != other.getSubFlowIndex()) return false;
-    if (!getFlowId()
-        .equals(other.getFlowId())) return false;
-    if (!getNormalizedRequestId()
-        .equals(other.getNormalizedRequestId())) return false;
-    if (startResolution_ != other.startResolution_) return false;
+    if (!getParentFlowId()
+        .equals(other.getParentFlowId())) return false;
+    if (!getRequestId()
+        .equals(other.getRequestId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -529,8 +502,8 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + CONDITION_ID_FIELD_NUMBER;
     hash = (53 * hash) + getConditionId().hashCode();
-    hash = (37 * hash) + FLOW_TYPE_FIELD_NUMBER;
-    hash = (53 * hash) + getFlowType().hashCode();
+    hash = (37 * hash) + SUB_FLOW_TYPE_FIELD_NUMBER;
+    hash = (53 * hash) + getSubFlowType().hashCode();
     hash = (37 * hash) + START_STEP_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getStartStepType().hashCode();
     if (hasStepInput()) {
@@ -547,12 +520,10 @@ private static final long serialVersionUID = 0L;
     }
     hash = (37 * hash) + SUB_FLOW_INDEX_FIELD_NUMBER;
     hash = (53 * hash) + getSubFlowIndex();
-    hash = (37 * hash) + FLOW_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getFlowId().hashCode();
-    hash = (37 * hash) + NORMALIZED_REQUEST_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getNormalizedRequestId().hashCode();
-    hash = (37 * hash) + START_RESOLUTION_FIELD_NUMBER;
-    hash = (53 * hash) + startResolution_;
+    hash = (37 * hash) + PARENT_FLOW_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getParentFlowId().hashCode();
+    hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getRequestId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -693,7 +664,7 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       conditionId_ = "";
-      flowType_ = "";
+      subFlowType_ = "";
       startStepType_ = "";
       stepInput_ = null;
       if (stepInputBuilder_ != null) {
@@ -711,9 +682,8 @@ private static final long serialVersionUID = 0L;
         optionsBuilder_ = null;
       }
       subFlowIndex_ = 0;
-      flowId_ = "";
-      normalizedRequestId_ = "";
-      startResolution_ = 0;
+      parentFlowId_ = "";
+      requestId_ = "";
       return this;
     }
 
@@ -751,7 +721,7 @@ private static final long serialVersionUID = 0L;
         result.conditionId_ = conditionId_;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.flowType_ = flowType_;
+        result.subFlowType_ = subFlowType_;
       }
       if (((from_bitField0_ & 0x00000004) != 0)) {
         result.startStepType_ = startStepType_;
@@ -779,13 +749,10 @@ private static final long serialVersionUID = 0L;
         result.subFlowIndex_ = subFlowIndex_;
       }
       if (((from_bitField0_ & 0x00000080) != 0)) {
-        result.flowId_ = flowId_;
+        result.parentFlowId_ = parentFlowId_;
       }
       if (((from_bitField0_ & 0x00000100) != 0)) {
-        result.normalizedRequestId_ = normalizedRequestId_;
-      }
-      if (((from_bitField0_ & 0x00000200) != 0)) {
-        result.startResolution_ = startResolution_;
+        result.requestId_ = requestId_;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -807,8 +774,8 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000001;
         onChanged();
       }
-      if (!other.getFlowType().isEmpty()) {
-        flowType_ = other.flowType_;
+      if (!other.getSubFlowType().isEmpty()) {
+        subFlowType_ = other.subFlowType_;
         bitField0_ |= 0x00000002;
         onChanged();
       }
@@ -829,18 +796,15 @@ private static final long serialVersionUID = 0L;
       if (other.getSubFlowIndex() != 0) {
         setSubFlowIndex(other.getSubFlowIndex());
       }
-      if (!other.getFlowId().isEmpty()) {
-        flowId_ = other.flowId_;
+      if (!other.getParentFlowId().isEmpty()) {
+        parentFlowId_ = other.parentFlowId_;
         bitField0_ |= 0x00000080;
         onChanged();
       }
-      if (!other.getNormalizedRequestId().isEmpty()) {
-        normalizedRequestId_ = other.normalizedRequestId_;
+      if (!other.getRequestId().isEmpty()) {
+        requestId_ = other.requestId_;
         bitField0_ |= 0x00000100;
         onChanged();
-      }
-      if (other.startResolution_ != 0) {
-        setStartResolutionValue(other.getStartResolutionValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -874,7 +838,7 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 10
             case 18: {
-              flowType_ = input.readStringRequireUtf8();
+              subFlowType_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000002;
               break;
             } // case 18
@@ -910,20 +874,15 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 56
             case 66: {
-              flowId_ = input.readStringRequireUtf8();
+              parentFlowId_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000080;
               break;
             } // case 66
             case 74: {
-              normalizedRequestId_ = input.readStringRequireUtf8();
+              requestId_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000100;
               break;
             } // case 74
-            case 80: {
-              startResolution_ = input.readEnum();
-              bitField0_ |= 0x00000200;
-              break;
-            } // case 80
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1033,73 +992,73 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.lang.Object flowType_ = "";
+    private java.lang.Object subFlowType_ = "";
     /**
-     * <code>string flow_type = 2;</code>
-     * @return The flowType.
+     * <code>string sub_flow_type = 2;</code>
+     * @return The subFlowType.
      */
-    public java.lang.String getFlowType() {
-      java.lang.Object ref = flowType_;
+    public java.lang.String getSubFlowType() {
+      java.lang.Object ref = subFlowType_;
       if (!(ref instanceof java.lang.String)) {
         com.google.protobuf.ByteString bs =
             (com.google.protobuf.ByteString) ref;
         java.lang.String s = bs.toStringUtf8();
-        flowType_ = s;
+        subFlowType_ = s;
         return s;
       } else {
         return (java.lang.String) ref;
       }
     }
     /**
-     * <code>string flow_type = 2;</code>
-     * @return The bytes for flowType.
+     * <code>string sub_flow_type = 2;</code>
+     * @return The bytes for subFlowType.
      */
     public com.google.protobuf.ByteString
-        getFlowTypeBytes() {
-      java.lang.Object ref = flowType_;
+        getSubFlowTypeBytes() {
+      java.lang.Object ref = subFlowType_;
       if (ref instanceof String) {
         com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
-        flowType_ = b;
+        subFlowType_ = b;
         return b;
       } else {
         return (com.google.protobuf.ByteString) ref;
       }
     }
     /**
-     * <code>string flow_type = 2;</code>
-     * @param value The flowType to set.
+     * <code>string sub_flow_type = 2;</code>
+     * @param value The subFlowType to set.
      * @return This builder for chaining.
      */
-    public Builder setFlowType(
+    public Builder setSubFlowType(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      flowType_ = value;
+      subFlowType_ = value;
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>string flow_type = 2;</code>
+     * <code>string sub_flow_type = 2;</code>
      * @return This builder for chaining.
      */
-    public Builder clearFlowType() {
-      flowType_ = getDefaultInstance().getFlowType();
+    public Builder clearSubFlowType() {
+      subFlowType_ = getDefaultInstance().getSubFlowType();
       bitField0_ = (bitField0_ & ~0x00000002);
       onChanged();
       return this;
     }
     /**
-     * <code>string flow_type = 2;</code>
-     * @param value The bytes for flowType to set.
+     * <code>string sub_flow_type = 2;</code>
+     * @param value The bytes for subFlowType to set.
      * @return This builder for chaining.
      */
-    public Builder setFlowTypeBytes(
+    public Builder setSubFlowTypeBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      flowType_ = value;
+      subFlowType_ = value;
       bitField0_ |= 0x00000002;
       onChanged();
       return this;
@@ -1572,22 +1531,22 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.lang.Object flowId_ = "";
+    private java.lang.Object parentFlowId_ = "";
     /**
      * <pre>
      * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string flow_id = 8;</code>
-     * @return The flowId.
+     * <code>string parent_flow_id = 8;</code>
+     * @return The parentFlowId.
      */
-    public java.lang.String getFlowId() {
-      java.lang.Object ref = flowId_;
+    public java.lang.String getParentFlowId() {
+      java.lang.Object ref = parentFlowId_;
       if (!(ref instanceof java.lang.String)) {
         com.google.protobuf.ByteString bs =
             (com.google.protobuf.ByteString) ref;
         java.lang.String s = bs.toStringUtf8();
-        flowId_ = s;
+        parentFlowId_ = s;
         return s;
       } else {
         return (java.lang.String) ref;
@@ -1598,17 +1557,17 @@ private static final long serialVersionUID = 0L;
      * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string flow_id = 8;</code>
-     * @return The bytes for flowId.
+     * <code>string parent_flow_id = 8;</code>
+     * @return The bytes for parentFlowId.
      */
     public com.google.protobuf.ByteString
-        getFlowIdBytes() {
-      java.lang.Object ref = flowId_;
+        getParentFlowIdBytes() {
+      java.lang.Object ref = parentFlowId_;
       if (ref instanceof String) {
         com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
-        flowId_ = b;
+        parentFlowId_ = b;
         return b;
       } else {
         return (com.google.protobuf.ByteString) ref;
@@ -1619,14 +1578,14 @@ private static final long serialVersionUID = 0L;
      * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string flow_id = 8;</code>
-     * @param value The flowId to set.
+     * <code>string parent_flow_id = 8;</code>
+     * @param value The parentFlowId to set.
      * @return This builder for chaining.
      */
-    public Builder setFlowId(
+    public Builder setParentFlowId(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      flowId_ = value;
+      parentFlowId_ = value;
       bitField0_ |= 0x00000080;
       onChanged();
       return this;
@@ -1636,11 +1595,11 @@ private static final long serialVersionUID = 0L;
      * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string flow_id = 8;</code>
+     * <code>string parent_flow_id = 8;</code>
      * @return This builder for chaining.
      */
-    public Builder clearFlowId() {
-      flowId_ = getDefaultInstance().getFlowId();
+    public Builder clearParentFlowId() {
+      parentFlowId_ = getDefaultInstance().getParentFlowId();
       bitField0_ = (bitField0_ & ~0x00000080);
       onChanged();
       return this;
@@ -1650,36 +1609,36 @@ private static final long serialVersionUID = 0L;
      * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string flow_id = 8;</code>
-     * @param value The bytes for flowId to set.
+     * <code>string parent_flow_id = 8;</code>
+     * @param value The bytes for parentFlowId to set.
      * @return This builder for chaining.
      */
-    public Builder setFlowIdBytes(
+    public Builder setParentFlowIdBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      flowId_ = value;
+      parentFlowId_ = value;
       bitField0_ |= 0x00000080;
       onChanged();
       return this;
     }
 
-    private java.lang.Object normalizedRequestId_ = "";
+    private java.lang.Object requestId_ = "";
     /**
      * <pre>
-     * Server-normalized after start or attach.
+     * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string normalized_request_id = 9;</code>
-     * @return The normalizedRequestId.
+     * <code>string request_id = 9;</code>
+     * @return The requestId.
      */
-    public java.lang.String getNormalizedRequestId() {
-      java.lang.Object ref = normalizedRequestId_;
+    public java.lang.String getRequestId() {
+      java.lang.Object ref = requestId_;
       if (!(ref instanceof java.lang.String)) {
         com.google.protobuf.ByteString bs =
             (com.google.protobuf.ByteString) ref;
         java.lang.String s = bs.toStringUtf8();
-        normalizedRequestId_ = s;
+        requestId_ = s;
         return s;
       } else {
         return (java.lang.String) ref;
@@ -1687,20 +1646,20 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Server-normalized after start or attach.
+     * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string normalized_request_id = 9;</code>
-     * @return The bytes for normalizedRequestId.
+     * <code>string request_id = 9;</code>
+     * @return The bytes for requestId.
      */
     public com.google.protobuf.ByteString
-        getNormalizedRequestIdBytes() {
-      java.lang.Object ref = normalizedRequestId_;
+        getRequestIdBytes() {
+      java.lang.Object ref = requestId_;
       if (ref instanceof String) {
         com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
-        normalizedRequestId_ = b;
+        requestId_ = b;
         return b;
       } else {
         return (com.google.protobuf.ByteString) ref;
@@ -1708,102 +1667,50 @@ private static final long serialVersionUID = 0L;
     }
     /**
      * <pre>
-     * Server-normalized after start or attach.
+     * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string normalized_request_id = 9;</code>
-     * @param value The normalizedRequestId to set.
+     * <code>string request_id = 9;</code>
+     * @param value The requestId to set.
      * @return This builder for chaining.
      */
-    public Builder setNormalizedRequestId(
+    public Builder setRequestId(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      normalizedRequestId_ = value;
+      requestId_ = value;
       bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Server-normalized after start or attach.
+     * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string normalized_request_id = 9;</code>
+     * <code>string request_id = 9;</code>
      * @return This builder for chaining.
      */
-    public Builder clearNormalizedRequestId() {
-      normalizedRequestId_ = getDefaultInstance().getNormalizedRequestId();
+    public Builder clearRequestId() {
+      requestId_ = getDefaultInstance().getRequestId();
       bitField0_ = (bitField0_ & ~0x00000100);
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Server-normalized after start or attach.
+     * Server-generated during WaitFor normalization.
      * </pre>
      *
-     * <code>string normalized_request_id = 9;</code>
-     * @param value The bytes for normalizedRequestId to set.
+     * <code>string request_id = 9;</code>
+     * @param value The bytes for requestId to set.
      * @return This builder for chaining.
      */
-    public Builder setNormalizedRequestIdBytes(
+    public Builder setRequestIdBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      normalizedRequestId_ = value;
+      requestId_ = value;
       bitField0_ |= 0x00000100;
-      onChanged();
-      return this;
-    }
-
-    private int startResolution_ = 0;
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 10;</code>
-     * @return The enum numeric value on the wire for startResolution.
-     */
-    @java.lang.Override public int getStartResolutionValue() {
-      return startResolution_;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 10;</code>
-     * @param value The enum numeric value on the wire for startResolution to set.
-     * @return This builder for chaining.
-     */
-    public Builder setStartResolutionValue(int value) {
-      startResolution_ = value;
-      bitField0_ |= 0x00000200;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 10;</code>
-     * @return The startResolution.
-     */
-    @java.lang.Override
-    public io.superdurable.gen.SubFlowStartResolution getStartResolution() {
-      io.superdurable.gen.SubFlowStartResolution result = io.superdurable.gen.SubFlowStartResolution.forNumber(startResolution_);
-      return result == null ? io.superdurable.gen.SubFlowStartResolution.UNRECOGNIZED : result;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 10;</code>
-     * @param value The startResolution to set.
-     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
-     * @return This builder for chaining.
-     */
-    public Builder setStartResolution(io.superdurable.gen.SubFlowStartResolution value) {
-      if (value == null) { throw new NullPointerException(); }
-      bitField0_ |= 0x00000200;
-      startResolution_ = value.getNumber();
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 10;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearStartResolution() {
-      bitField0_ = (bitField0_ & ~0x00000200);
-      startResolution_ = 0;
       onChanged();
       return this;
     }

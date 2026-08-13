@@ -17,6 +17,7 @@ import (
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"go.temporal.io/sdk/converter"
@@ -237,7 +238,7 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		panic("cannot convert to temporal workflow context")
 	}
 	info := workflow.GetInfo(wfCtx)
-	return interfaces.WorkflowInfo{
+	workflowInfo := interfaces.WorkflowInfo{
 		WorkflowExecution: interfaces.WorkflowExecution{
 			ID:    info.WorkflowExecution.ID,
 			RunID: info.WorkflowExecution.RunID,
@@ -247,8 +248,30 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		FirstRunID:               info.FirstRunID,
 		CurrentRunID:             info.WorkflowExecution.RunID,
 		Attempt:                  info.Attempt,
-		CronSchedule:             info.CronSchedule,
 	}
+	if info.RetryPolicy != nil {
+		workflowInfo.RetryMaximumAttempts = ptr.Any(info.RetryPolicy.MaximumAttempts)
+	}
+	return workflowInfo
+}
+
+func (w *workflowProvider) GetSearchAttributeKeyword(
+	ctx interfaces.UnifiedContext,
+	key string,
+) (string, error) {
+	wfCtx, ok := ctx.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to temporal workflow context")
+	}
+	field, ok := workflow.GetInfo(wfCtx).SearchAttributes.GetIndexedFields()[key]
+	if !ok {
+		return "", nil
+	}
+	var value string
+	if err := converter.GetDefaultDataConverter().FromPayload(field, &value); err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func (w *workflowProvider) GetSearchAttributeKeywordArray(

@@ -573,7 +573,7 @@ final class WorkerDispatcher {
             }
             final SubFlowCondition.Builder mapped = SubFlowCondition.newBuilder()
                     .setConditionId(conditionId)
-                    .setFlowType(target.getName())
+                    .setSubFlowType(target.getName())
                     .setStartStepType(start.getName())
                     .setStepInput(values.encode(condition.getSubFlowInput()))
                     .setOptions(mappedOptions)

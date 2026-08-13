@@ -68,6 +68,13 @@ func (p *fakeWorkflowProvider) GetWorkflowInfo(interfaces.UnifiedContext) interf
 	return interfaces.WorkflowInfo{}
 }
 
+func (p *fakeWorkflowProvider) GetSearchAttributeKeyword(
+	interfaces.UnifiedContext,
+	string,
+) (string, error) {
+	return "", nil
+}
+
 func (p *fakeWorkflowProvider) GetSearchAttributeKeywordArray(
 	interfaces.UnifiedContext,
 	string,

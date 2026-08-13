@@ -21,7 +21,6 @@ type subFlowStarter struct {
 	activities       *Activities
 	tracker          *subFlowTracker
 	stepExecutionID  string
-	parentFlowID     string
 	parentFlowConfig *dexpb.FlowConfig
 	condition        *dexpb.WaitingCondition
 	done             []bool
@@ -33,7 +32,6 @@ func newSubFlowStarter(
 	activities *Activities,
 	tracker *subFlowTracker,
 	stepExecutionID string,
-	parentFlowID string,
 	parentFlowConfig *dexpb.FlowConfig,
 	condition *dexpb.WaitingCondition,
 ) *subFlowStarter {
@@ -42,7 +40,6 @@ func newSubFlowStarter(
 		activities:       activities,
 		tracker:          tracker,
 		stepExecutionID:  stepExecutionID,
-		parentFlowID:     parentFlowID,
 		parentFlowConfig: parentFlowConfig,
 		condition:        condition,
 		done:             make([]bool, len(condition.GetSubFlowConditions())),
@@ -78,13 +75,6 @@ func (s *subFlowStarter) startOne(ctx interfaces.UnifiedContext) {
 		&dexpb.StartSubFlowActivityInput{
 			Condition:        condition,
 			ParentFlowConfig: s.parentFlowConfig,
-			Parent: &dexpb.SubFlowParent{
-				FlowId:              s.parentFlowID,
-				StepExecutionId:     s.stepExecutionID,
-				SubFlowIndex:        int32(index),
-				NormalizedRequestId: condition.GetNormalizedRequestId(),
-				RetryPolicy:         condition.GetOptions().GetRetryPolicy(),
-			},
 		},
 	)
 	if err != nil && s.err == nil {

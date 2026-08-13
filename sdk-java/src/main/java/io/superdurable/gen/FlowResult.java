@@ -34,7 +34,6 @@ private static final long serialVersionUID = 0L;
     errorMessage_ = "";
     flowId_ = "";
     runId_ = "";
-    startResolution_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -249,24 +248,6 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int START_RESOLUTION_FIELD_NUMBER = 7;
-  private int startResolution_ = 0;
-  /**
-   * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
-   * @return The enum numeric value on the wire for startResolution.
-   */
-  @java.lang.Override public int getStartResolutionValue() {
-    return startResolution_;
-  }
-  /**
-   * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
-   * @return The startResolution.
-   */
-  @java.lang.Override public io.superdurable.gen.SubFlowStartResolution getStartResolution() {
-    io.superdurable.gen.SubFlowStartResolution result = io.superdurable.gen.SubFlowStartResolution.forNumber(startResolution_);
-    return result == null ? io.superdurable.gen.SubFlowStartResolution.UNRECOGNIZED : result;
-  }
-
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -299,9 +280,6 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 6, runId_);
     }
-    if (startResolution_ != io.superdurable.gen.SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED.getNumber()) {
-      output.writeEnum(7, startResolution_);
-    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -331,10 +309,6 @@ private static final long serialVersionUID = 0L;
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(runId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(6, runId_);
-    }
-    if (startResolution_ != io.superdurable.gen.SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED.getNumber()) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeEnumSize(7, startResolution_);
     }
     return size;
   }
@@ -370,7 +344,6 @@ private static final long serialVersionUID = 0L;
         .equals(other.getFlowId())) return false;
     if (!getRunId()
         .equals(other.getRunId())) return false;
-    if (startResolution_ != other.startResolution_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -396,8 +369,6 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getFlowId().hashCode();
     hash = (37 * hash) + RUN_ID_FIELD_NUMBER;
     hash = (53 * hash) + getRunId().hashCode();
-    hash = (37 * hash) + START_RESOLUTION_FIELD_NUMBER;
-    hash = (53 * hash) + startResolution_;
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -541,7 +512,6 @@ private static final long serialVersionUID = 0L;
       errorMessage_ = "";
       flowId_ = "";
       runId_ = "";
-      startResolution_ = 0;
       return this;
     }
 
@@ -603,9 +573,6 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000020) != 0)) {
         result.runId_ = runId_;
       }
-      if (((from_bitField0_ & 0x00000040) != 0)) {
-        result.startResolution_ = startResolution_;
-      }
     }
 
     @java.lang.Override
@@ -666,9 +633,6 @@ private static final long serialVersionUID = 0L;
         runId_ = other.runId_;
         bitField0_ |= 0x00000020;
         onChanged();
-      }
-      if (other.startResolution_ != 0) {
-        setStartResolutionValue(other.getStartResolutionValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -734,11 +698,6 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000020;
               break;
             } // case 50
-            case 56: {
-              startResolution_ = input.readEnum();
-              bitField0_ |= 0x00000040;
-              break;
-            } // case 56
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1312,58 +1271,6 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       runId_ = value;
       bitField0_ |= 0x00000020;
-      onChanged();
-      return this;
-    }
-
-    private int startResolution_ = 0;
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
-     * @return The enum numeric value on the wire for startResolution.
-     */
-    @java.lang.Override public int getStartResolutionValue() {
-      return startResolution_;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
-     * @param value The enum numeric value on the wire for startResolution to set.
-     * @return This builder for chaining.
-     */
-    public Builder setStartResolutionValue(int value) {
-      startResolution_ = value;
-      bitField0_ |= 0x00000040;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
-     * @return The startResolution.
-     */
-    @java.lang.Override
-    public io.superdurable.gen.SubFlowStartResolution getStartResolution() {
-      io.superdurable.gen.SubFlowStartResolution result = io.superdurable.gen.SubFlowStartResolution.forNumber(startResolution_);
-      return result == null ? io.superdurable.gen.SubFlowStartResolution.UNRECOGNIZED : result;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
-     * @param value The startResolution to set.
-     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
-     * @return This builder for chaining.
-     */
-    public Builder setStartResolution(io.superdurable.gen.SubFlowStartResolution value) {
-      if (value == null) { throw new NullPointerException(); }
-      bitField0_ |= 0x00000040;
-      startResolution_ = value.getNumber();
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearStartResolution() {
-      bitField0_ = (bitField0_ & ~0x00000040);
-      startResolution_ = 0;
       onChanged();
       return this;
     }

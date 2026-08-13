@@ -56,6 +56,10 @@ if (!loser.isTerminal()) {
 An external worker or service can consume that ID and call `Client.stopFlow`. Completion can race
 with the stop request, so callers should treat an already-closed Flow as a successful cleanup.
 
+Every SubFlow execution also has the keyword Search Attribute `DexParentFlowID`. Query it to list
+all SubFlows for one parent. Together with the generated SubFlow Flow ID, it identifies the source
+Step execution ID and condition index without copying parent metadata into workflow input.
+
 ## Reuse behavior
 
 `SubFlowOptions` defaults to `RESTART_IF_PREVIOUS_EXITS_ABNORMALLY`:
@@ -67,7 +71,7 @@ with the stop request, so callers should treat an already-closed Flow as a succe
 | Completed | Return result | Return result | Start |
 | Failed, canceled, timed out, or terminated | Return result | Start | Start |
 
-The same normalized request ID always attaches or returns the existing result. This makes retries
+The same request ID always attaches or returns the existing result. This makes retries
 safe when the backend accepted a start but the local activity response was lost. Backend ID reuse
 policies provide only the atomic start operation; Dex describes and resolves the existing execution
 before invoking it.
@@ -87,7 +91,7 @@ intentionally server-owned.
 
 ## Continue-as-new and lifecycle
 
-Across continue-as-new, Dex carries only the canonical waiting condition, normalized request ID,
+Across continue-as-new, Dex carries only the canonical waiting condition, request ID,
 received terminal results, and existing Step resume state. This preserves partial `allOf` results
 without restarting already-started SubFlows. Runtime channels, start flags, pending status, and run
 ID copies are not persisted separately. A terminal `FlowResult` still carries its own run ID.
@@ -100,5 +104,5 @@ normally.
 
 Hard termination and Workflow execution timeout cannot run the reporting local activity. A parent
 waiting only for that completion signal may therefore remain waiting. Use cooperative cancellation
-when completion delivery is required, or reset/restart the parent so reuse resolution can read the
+when completion delivery is required, or reset/restart the parent so reuse handling can read the
 SubFlow’s terminal result directly.

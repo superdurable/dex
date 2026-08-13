@@ -75,44 +75,18 @@ private static final long serialVersionUID = 0L;
     return condition_ == null ? io.superdurable.gen.SubFlowCondition.getDefaultInstance() : condition_;
   }
 
-  public static final int PARENT_FIELD_NUMBER = 2;
-  private io.superdurable.gen.SubFlowParent parent_;
-  /**
-   * <code>.dex.SubFlowParent parent = 2;</code>
-   * @return Whether the parent field is set.
-   */
-  @java.lang.Override
-  public boolean hasParent() {
-    return ((bitField0_ & 0x00000002) != 0);
-  }
-  /**
-   * <code>.dex.SubFlowParent parent = 2;</code>
-   * @return The parent.
-   */
-  @java.lang.Override
-  public io.superdurable.gen.SubFlowParent getParent() {
-    return parent_ == null ? io.superdurable.gen.SubFlowParent.getDefaultInstance() : parent_;
-  }
-  /**
-   * <code>.dex.SubFlowParent parent = 2;</code>
-   */
-  @java.lang.Override
-  public io.superdurable.gen.SubFlowParentOrBuilder getParentOrBuilder() {
-    return parent_ == null ? io.superdurable.gen.SubFlowParent.getDefaultInstance() : parent_;
-  }
-
-  public static final int PARENT_FLOW_CONFIG_FIELD_NUMBER = 3;
+  public static final int PARENT_FLOW_CONFIG_FIELD_NUMBER = 2;
   private io.superdurable.gen.FlowConfig parentFlowConfig_;
   /**
-   * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+   * <code>.dex.FlowConfig parent_flow_config = 2;</code>
    * @return Whether the parentFlowConfig field is set.
    */
   @java.lang.Override
   public boolean hasParentFlowConfig() {
-    return ((bitField0_ & 0x00000004) != 0);
+    return ((bitField0_ & 0x00000002) != 0);
   }
   /**
-   * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+   * <code>.dex.FlowConfig parent_flow_config = 2;</code>
    * @return The parentFlowConfig.
    */
   @java.lang.Override
@@ -120,7 +94,7 @@ private static final long serialVersionUID = 0L;
     return parentFlowConfig_ == null ? io.superdurable.gen.FlowConfig.getDefaultInstance() : parentFlowConfig_;
   }
   /**
-   * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+   * <code>.dex.FlowConfig parent_flow_config = 2;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.FlowConfigOrBuilder getParentFlowConfigOrBuilder() {
@@ -145,10 +119,7 @@ private static final long serialVersionUID = 0L;
       output.writeMessage(1, getCondition());
     }
     if (((bitField0_ & 0x00000002) != 0)) {
-      output.writeMessage(2, getParent());
-    }
-    if (((bitField0_ & 0x00000004) != 0)) {
-      output.writeMessage(3, getParentFlowConfig());
+      output.writeMessage(2, getParentFlowConfig());
     }
     getUnknownFields().writeTo(output);
   }
@@ -160,11 +131,7 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(2, getParent());
-    }
-    if (((bitField0_ & 0x00000004) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(3, getParentFlowConfig());
+        .computeMessageSize(2, getParentFlowConfig());
     }
     return size;
   }
@@ -195,11 +162,6 @@ private static final long serialVersionUID = 0L;
       if (!getCondition()
           .equals(other.getCondition())) return false;
     }
-    if (hasParent() != other.hasParent()) return false;
-    if (hasParent()) {
-      if (!getParent()
-          .equals(other.getParent())) return false;
-    }
     if (hasParentFlowConfig() != other.hasParentFlowConfig()) return false;
     if (hasParentFlowConfig()) {
       if (!getParentFlowConfig()
@@ -219,10 +181,6 @@ private static final long serialVersionUID = 0L;
     if (hasCondition()) {
       hash = (37 * hash) + CONDITION_FIELD_NUMBER;
       hash = (53 * hash) + getCondition().hashCode();
-    }
-    if (hasParent()) {
-      hash = (37 * hash) + PARENT_FIELD_NUMBER;
-      hash = (53 * hash) + getParent().hashCode();
     }
     if (hasParentFlowConfig()) {
       hash = (37 * hash) + PARENT_FLOW_CONFIG_FIELD_NUMBER;
@@ -359,7 +317,6 @@ private static final long serialVersionUID = 0L;
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
         internalGetConditionFieldBuilder();
-        internalGetParentFieldBuilder();
         internalGetParentFlowConfigFieldBuilder();
       }
     }
@@ -371,11 +328,6 @@ private static final long serialVersionUID = 0L;
       if (conditionBuilder_ != null) {
         conditionBuilder_.dispose();
         conditionBuilder_ = null;
-      }
-      parent_ = null;
-      if (parentBuilder_ != null) {
-        parentBuilder_.dispose();
-        parentBuilder_ = null;
       }
       parentFlowConfig_ = null;
       if (parentFlowConfigBuilder_ != null) {
@@ -423,16 +375,10 @@ private static final long serialVersionUID = 0L;
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.parent_ = parentBuilder_ == null
-            ? parent_
-            : parentBuilder_.build();
-        to_bitField0_ |= 0x00000002;
-      }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.parentFlowConfig_ = parentFlowConfigBuilder_ == null
             ? parentFlowConfig_
             : parentFlowConfigBuilder_.build();
-        to_bitField0_ |= 0x00000004;
+        to_bitField0_ |= 0x00000002;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -451,9 +397,6 @@ private static final long serialVersionUID = 0L;
       if (other == io.superdurable.gen.StartSubFlowActivityInput.getDefaultInstance()) return this;
       if (other.hasCondition()) {
         mergeCondition(other.getCondition());
-      }
-      if (other.hasParent()) {
-        mergeParent(other.getParent());
       }
       if (other.hasParentFlowConfig()) {
         mergeParentFlowConfig(other.getParentFlowConfig());
@@ -493,18 +436,11 @@ private static final long serialVersionUID = 0L;
             } // case 10
             case 18: {
               input.readMessage(
-                  internalGetParentFieldBuilder().getBuilder(),
+                  internalGetParentFlowConfigFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000002;
               break;
             } // case 18
-            case 26: {
-              input.readMessage(
-                  internalGetParentFlowConfigFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -643,139 +579,18 @@ private static final long serialVersionUID = 0L;
       return conditionBuilder_;
     }
 
-    private io.superdurable.gen.SubFlowParent parent_;
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.SubFlowParent, io.superdurable.gen.SubFlowParent.Builder, io.superdurable.gen.SubFlowParentOrBuilder> parentBuilder_;
-    /**
-     * <code>.dex.SubFlowParent parent = 2;</code>
-     * @return Whether the parent field is set.
-     */
-    public boolean hasParent() {
-      return ((bitField0_ & 0x00000002) != 0);
-    }
-    /**
-     * <code>.dex.SubFlowParent parent = 2;</code>
-     * @return The parent.
-     */
-    public io.superdurable.gen.SubFlowParent getParent() {
-      if (parentBuilder_ == null) {
-        return parent_ == null ? io.superdurable.gen.SubFlowParent.getDefaultInstance() : parent_;
-      } else {
-        return parentBuilder_.getMessage();
-      }
-    }
-    /**
-     * <code>.dex.SubFlowParent parent = 2;</code>
-     */
-    public Builder setParent(io.superdurable.gen.SubFlowParent value) {
-      if (parentBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        parent_ = value;
-      } else {
-        parentBuilder_.setMessage(value);
-      }
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowParent parent = 2;</code>
-     */
-    public Builder setParent(
-        io.superdurable.gen.SubFlowParent.Builder builderForValue) {
-      if (parentBuilder_ == null) {
-        parent_ = builderForValue.build();
-      } else {
-        parentBuilder_.setMessage(builderForValue.build());
-      }
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowParent parent = 2;</code>
-     */
-    public Builder mergeParent(io.superdurable.gen.SubFlowParent value) {
-      if (parentBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0) &&
-          parent_ != null &&
-          parent_ != io.superdurable.gen.SubFlowParent.getDefaultInstance()) {
-          getParentBuilder().mergeFrom(value);
-        } else {
-          parent_ = value;
-        }
-      } else {
-        parentBuilder_.mergeFrom(value);
-      }
-      if (parent_ != null) {
-        bitField0_ |= 0x00000002;
-        onChanged();
-      }
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowParent parent = 2;</code>
-     */
-    public Builder clearParent() {
-      bitField0_ = (bitField0_ & ~0x00000002);
-      parent_ = null;
-      if (parentBuilder_ != null) {
-        parentBuilder_.dispose();
-        parentBuilder_ = null;
-      }
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowParent parent = 2;</code>
-     */
-    public io.superdurable.gen.SubFlowParent.Builder getParentBuilder() {
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return internalGetParentFieldBuilder().getBuilder();
-    }
-    /**
-     * <code>.dex.SubFlowParent parent = 2;</code>
-     */
-    public io.superdurable.gen.SubFlowParentOrBuilder getParentOrBuilder() {
-      if (parentBuilder_ != null) {
-        return parentBuilder_.getMessageOrBuilder();
-      } else {
-        return parent_ == null ?
-            io.superdurable.gen.SubFlowParent.getDefaultInstance() : parent_;
-      }
-    }
-    /**
-     * <code>.dex.SubFlowParent parent = 2;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.SubFlowParent, io.superdurable.gen.SubFlowParent.Builder, io.superdurable.gen.SubFlowParentOrBuilder> 
-        internalGetParentFieldBuilder() {
-      if (parentBuilder_ == null) {
-        parentBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.SubFlowParent, io.superdurable.gen.SubFlowParent.Builder, io.superdurable.gen.SubFlowParentOrBuilder>(
-                getParent(),
-                getParentForChildren(),
-                isClean());
-        parent_ = null;
-      }
-      return parentBuilder_;
-    }
-
     private io.superdurable.gen.FlowConfig parentFlowConfig_;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> parentFlowConfigBuilder_;
     /**
-     * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+     * <code>.dex.FlowConfig parent_flow_config = 2;</code>
      * @return Whether the parentFlowConfig field is set.
      */
     public boolean hasParentFlowConfig() {
-      return ((bitField0_ & 0x00000004) != 0);
+      return ((bitField0_ & 0x00000002) != 0);
     }
     /**
-     * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+     * <code>.dex.FlowConfig parent_flow_config = 2;</code>
      * @return The parentFlowConfig.
      */
     public io.superdurable.gen.FlowConfig getParentFlowConfig() {
@@ -786,7 +601,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+     * <code>.dex.FlowConfig parent_flow_config = 2;</code>
      */
     public Builder setParentFlowConfig(io.superdurable.gen.FlowConfig value) {
       if (parentFlowConfigBuilder_ == null) {
@@ -797,12 +612,12 @@ private static final long serialVersionUID = 0L;
       } else {
         parentFlowConfigBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+     * <code>.dex.FlowConfig parent_flow_config = 2;</code>
      */
     public Builder setParentFlowConfig(
         io.superdurable.gen.FlowConfig.Builder builderForValue) {
@@ -811,16 +626,16 @@ private static final long serialVersionUID = 0L;
       } else {
         parentFlowConfigBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+     * <code>.dex.FlowConfig parent_flow_config = 2;</code>
      */
     public Builder mergeParentFlowConfig(io.superdurable.gen.FlowConfig value) {
       if (parentFlowConfigBuilder_ == null) {
-        if (((bitField0_ & 0x00000004) != 0) &&
+        if (((bitField0_ & 0x00000002) != 0) &&
           parentFlowConfig_ != null &&
           parentFlowConfig_ != io.superdurable.gen.FlowConfig.getDefaultInstance()) {
           getParentFlowConfigBuilder().mergeFrom(value);
@@ -831,16 +646,16 @@ private static final long serialVersionUID = 0L;
         parentFlowConfigBuilder_.mergeFrom(value);
       }
       if (parentFlowConfig_ != null) {
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+     * <code>.dex.FlowConfig parent_flow_config = 2;</code>
      */
     public Builder clearParentFlowConfig() {
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000002);
       parentFlowConfig_ = null;
       if (parentFlowConfigBuilder_ != null) {
         parentFlowConfigBuilder_.dispose();
@@ -850,15 +665,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+     * <code>.dex.FlowConfig parent_flow_config = 2;</code>
      */
     public io.superdurable.gen.FlowConfig.Builder getParentFlowConfigBuilder() {
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return internalGetParentFlowConfigFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+     * <code>.dex.FlowConfig parent_flow_config = 2;</code>
      */
     public io.superdurable.gen.FlowConfigOrBuilder getParentFlowConfigOrBuilder() {
       if (parentFlowConfigBuilder_ != null) {
@@ -869,7 +684,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+     * <code>.dex.FlowConfig parent_flow_config = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 

@@ -26,32 +26,17 @@ public interface StartSubFlowActivityInputOrBuilder extends
   io.superdurable.gen.SubFlowConditionOrBuilder getConditionOrBuilder();
 
   /**
-   * <code>.dex.SubFlowParent parent = 2;</code>
-   * @return Whether the parent field is set.
-   */
-  boolean hasParent();
-  /**
-   * <code>.dex.SubFlowParent parent = 2;</code>
-   * @return The parent.
-   */
-  io.superdurable.gen.SubFlowParent getParent();
-  /**
-   * <code>.dex.SubFlowParent parent = 2;</code>
-   */
-  io.superdurable.gen.SubFlowParentOrBuilder getParentOrBuilder();
-
-  /**
-   * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+   * <code>.dex.FlowConfig parent_flow_config = 2;</code>
    * @return Whether the parentFlowConfig field is set.
    */
   boolean hasParentFlowConfig();
   /**
-   * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+   * <code>.dex.FlowConfig parent_flow_config = 2;</code>
    * @return The parentFlowConfig.
    */
   io.superdurable.gen.FlowConfig getParentFlowConfig();
   /**
-   * <code>.dex.FlowConfig parent_flow_config = 3;</code>
+   * <code>.dex.FlowConfig parent_flow_config = 2;</code>
    */
   io.superdurable.gen.FlowConfigOrBuilder getParentFlowConfigOrBuilder();
 }

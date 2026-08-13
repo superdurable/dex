@@ -154,6 +154,7 @@ func (r *Runtime) createServices() error {
 func (r *Runtime) Run(ctx context.Context) error {
 	if err := r.indexSynchronizer.Sync(ctx, map[string]dexpb.IndexType{
 		service.SearchAttributeDexWorkflowType: dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		service.SearchAttributeDexParentFlowID: dexpb.IndexType_INDEX_TYPE_KEYWORD,
 		service.SearchAttributeActiveStepTypes: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
 	}); err != nil {
 		r.shutdown()

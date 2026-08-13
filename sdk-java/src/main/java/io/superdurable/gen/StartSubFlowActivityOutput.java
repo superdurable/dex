@@ -28,8 +28,6 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private StartSubFlowActivityOutput() {
-    normalizedRequestId_ = "";
-    resolution_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -51,87 +49,30 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int NORMALIZED_REQUEST_ID_FIELD_NUMBER = 1;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object normalizedRequestId_ = "";
+  public static final int IMMEDIATE_FLOW_RESULT_FIELD_NUMBER = 1;
+  private io.superdurable.gen.FlowResult immediateFlowResult_;
   /**
-   * <code>string normalized_request_id = 1;</code>
-   * @return The normalizedRequestId.
+   * <code>.dex.FlowResult immediate_flow_result = 1;</code>
+   * @return Whether the immediateFlowResult field is set.
    */
   @java.lang.Override
-  public java.lang.String getNormalizedRequestId() {
-    java.lang.Object ref = normalizedRequestId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      normalizedRequestId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string normalized_request_id = 1;</code>
-   * @return The bytes for normalizedRequestId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getNormalizedRequestIdBytes() {
-    java.lang.Object ref = normalizedRequestId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      normalizedRequestId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int RESOLUTION_FIELD_NUMBER = 2;
-  private int resolution_ = 0;
-  /**
-   * <code>.dex.SubFlowStartResolution resolution = 2;</code>
-   * @return The enum numeric value on the wire for resolution.
-   */
-  @java.lang.Override public int getResolutionValue() {
-    return resolution_;
-  }
-  /**
-   * <code>.dex.SubFlowStartResolution resolution = 2;</code>
-   * @return The resolution.
-   */
-  @java.lang.Override public io.superdurable.gen.SubFlowStartResolution getResolution() {
-    io.superdurable.gen.SubFlowStartResolution result = io.superdurable.gen.SubFlowStartResolution.forNumber(resolution_);
-    return result == null ? io.superdurable.gen.SubFlowStartResolution.UNRECOGNIZED : result;
-  }
-
-  public static final int TERMINAL_RESULT_FIELD_NUMBER = 3;
-  private io.superdurable.gen.FlowResult terminalResult_;
-  /**
-   * <code>.dex.FlowResult terminal_result = 3;</code>
-   * @return Whether the terminalResult field is set.
-   */
-  @java.lang.Override
-  public boolean hasTerminalResult() {
+  public boolean hasImmediateFlowResult() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.FlowResult terminal_result = 3;</code>
-   * @return The terminalResult.
+   * <code>.dex.FlowResult immediate_flow_result = 1;</code>
+   * @return The immediateFlowResult.
    */
   @java.lang.Override
-  public io.superdurable.gen.FlowResult getTerminalResult() {
-    return terminalResult_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : terminalResult_;
+  public io.superdurable.gen.FlowResult getImmediateFlowResult() {
+    return immediateFlowResult_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : immediateFlowResult_;
   }
   /**
-   * <code>.dex.FlowResult terminal_result = 3;</code>
+   * <code>.dex.FlowResult immediate_flow_result = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.FlowResultOrBuilder getTerminalResultOrBuilder() {
-    return terminalResult_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : terminalResult_;
+  public io.superdurable.gen.FlowResultOrBuilder getImmediateFlowResultOrBuilder() {
+    return immediateFlowResult_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : immediateFlowResult_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -148,29 +89,16 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(normalizedRequestId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, normalizedRequestId_);
-    }
-    if (resolution_ != io.superdurable.gen.SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED.getNumber()) {
-      output.writeEnum(2, resolution_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(3, getTerminalResult());
+      output.writeMessage(1, getImmediateFlowResult());
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(normalizedRequestId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, normalizedRequestId_);
-    }
-    if (resolution_ != io.superdurable.gen.SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED.getNumber()) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeEnumSize(2, resolution_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(3, getTerminalResult());
+        .computeMessageSize(1, getImmediateFlowResult());
     }
     return size;
   }
@@ -196,13 +124,10 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.StartSubFlowActivityOutput other = (io.superdurable.gen.StartSubFlowActivityOutput) obj;
 
-    if (!getNormalizedRequestId()
-        .equals(other.getNormalizedRequestId())) return false;
-    if (resolution_ != other.resolution_) return false;
-    if (hasTerminalResult() != other.hasTerminalResult()) return false;
-    if (hasTerminalResult()) {
-      if (!getTerminalResult()
-          .equals(other.getTerminalResult())) return false;
+    if (hasImmediateFlowResult() != other.hasImmediateFlowResult()) return false;
+    if (hasImmediateFlowResult()) {
+      if (!getImmediateFlowResult()
+          .equals(other.getImmediateFlowResult())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -215,13 +140,9 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + NORMALIZED_REQUEST_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getNormalizedRequestId().hashCode();
-    hash = (37 * hash) + RESOLUTION_FIELD_NUMBER;
-    hash = (53 * hash) + resolution_;
-    if (hasTerminalResult()) {
-      hash = (37 * hash) + TERMINAL_RESULT_FIELD_NUMBER;
-      hash = (53 * hash) + getTerminalResult().hashCode();
+    if (hasImmediateFlowResult()) {
+      hash = (37 * hash) + IMMEDIATE_FLOW_RESULT_FIELD_NUMBER;
+      hash = (53 * hash) + getImmediateFlowResult().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -353,19 +274,17 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetTerminalResultFieldBuilder();
+        internalGetImmediateFlowResultFieldBuilder();
       }
     }
     @java.lang.Override
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      normalizedRequestId_ = "";
-      resolution_ = 0;
-      terminalResult_ = null;
-      if (terminalResultBuilder_ != null) {
-        terminalResultBuilder_.dispose();
-        terminalResultBuilder_ = null;
+      immediateFlowResult_ = null;
+      if (immediateFlowResultBuilder_ != null) {
+        immediateFlowResultBuilder_.dispose();
+        immediateFlowResultBuilder_ = null;
       }
       return this;
     }
@@ -400,17 +319,11 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartial0(io.superdurable.gen.StartSubFlowActivityOutput result) {
       int from_bitField0_ = bitField0_;
-      if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.normalizedRequestId_ = normalizedRequestId_;
-      }
-      if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.resolution_ = resolution_;
-      }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.terminalResult_ = terminalResultBuilder_ == null
-            ? terminalResult_
-            : terminalResultBuilder_.build();
+      if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.immediateFlowResult_ = immediateFlowResultBuilder_ == null
+            ? immediateFlowResult_
+            : immediateFlowResultBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       result.bitField0_ |= to_bitField0_;
@@ -428,16 +341,8 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.StartSubFlowActivityOutput other) {
       if (other == io.superdurable.gen.StartSubFlowActivityOutput.getDefaultInstance()) return this;
-      if (!other.getNormalizedRequestId().isEmpty()) {
-        normalizedRequestId_ = other.normalizedRequestId_;
-        bitField0_ |= 0x00000001;
-        onChanged();
-      }
-      if (other.resolution_ != 0) {
-        setResolutionValue(other.getResolutionValue());
-      }
-      if (other.hasTerminalResult()) {
-        mergeTerminalResult(other.getTerminalResult());
+      if (other.hasImmediateFlowResult()) {
+        mergeImmediateFlowResult(other.getImmediateFlowResult());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -466,22 +371,12 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              normalizedRequestId_ = input.readStringRequireUtf8();
+              input.readMessage(
+                  internalGetImmediateFlowResultFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 16: {
-              resolution_ = input.readEnum();
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 16
-            case 26: {
-              input.readMessage(
-                  internalGetTerminalResultFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -499,249 +394,125 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object normalizedRequestId_ = "";
-    /**
-     * <code>string normalized_request_id = 1;</code>
-     * @return The normalizedRequestId.
-     */
-    public java.lang.String getNormalizedRequestId() {
-      java.lang.Object ref = normalizedRequestId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        normalizedRequestId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string normalized_request_id = 1;</code>
-     * @return The bytes for normalizedRequestId.
-     */
-    public com.google.protobuf.ByteString
-        getNormalizedRequestIdBytes() {
-      java.lang.Object ref = normalizedRequestId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        normalizedRequestId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string normalized_request_id = 1;</code>
-     * @param value The normalizedRequestId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setNormalizedRequestId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      normalizedRequestId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string normalized_request_id = 1;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearNormalizedRequestId() {
-      normalizedRequestId_ = getDefaultInstance().getNormalizedRequestId();
-      bitField0_ = (bitField0_ & ~0x00000001);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string normalized_request_id = 1;</code>
-     * @param value The bytes for normalizedRequestId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setNormalizedRequestIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      normalizedRequestId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-
-    private int resolution_ = 0;
-    /**
-     * <code>.dex.SubFlowStartResolution resolution = 2;</code>
-     * @return The enum numeric value on the wire for resolution.
-     */
-    @java.lang.Override public int getResolutionValue() {
-      return resolution_;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution resolution = 2;</code>
-     * @param value The enum numeric value on the wire for resolution to set.
-     * @return This builder for chaining.
-     */
-    public Builder setResolutionValue(int value) {
-      resolution_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution resolution = 2;</code>
-     * @return The resolution.
-     */
-    @java.lang.Override
-    public io.superdurable.gen.SubFlowStartResolution getResolution() {
-      io.superdurable.gen.SubFlowStartResolution result = io.superdurable.gen.SubFlowStartResolution.forNumber(resolution_);
-      return result == null ? io.superdurable.gen.SubFlowStartResolution.UNRECOGNIZED : result;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution resolution = 2;</code>
-     * @param value The resolution to set.
-     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
-     * @return This builder for chaining.
-     */
-    public Builder setResolution(io.superdurable.gen.SubFlowStartResolution value) {
-      if (value == null) { throw new NullPointerException(); }
-      bitField0_ |= 0x00000002;
-      resolution_ = value.getNumber();
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.SubFlowStartResolution resolution = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearResolution() {
-      bitField0_ = (bitField0_ & ~0x00000002);
-      resolution_ = 0;
-      onChanged();
-      return this;
-    }
-
-    private io.superdurable.gen.FlowResult terminalResult_;
+    private io.superdurable.gen.FlowResult immediateFlowResult_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder> terminalResultBuilder_;
+        io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder> immediateFlowResultBuilder_;
     /**
-     * <code>.dex.FlowResult terminal_result = 3;</code>
-     * @return Whether the terminalResult field is set.
+     * <code>.dex.FlowResult immediate_flow_result = 1;</code>
+     * @return Whether the immediateFlowResult field is set.
      */
-    public boolean hasTerminalResult() {
-      return ((bitField0_ & 0x00000004) != 0);
+    public boolean hasImmediateFlowResult() {
+      return ((bitField0_ & 0x00000001) != 0);
     }
     /**
-     * <code>.dex.FlowResult terminal_result = 3;</code>
-     * @return The terminalResult.
+     * <code>.dex.FlowResult immediate_flow_result = 1;</code>
+     * @return The immediateFlowResult.
      */
-    public io.superdurable.gen.FlowResult getTerminalResult() {
-      if (terminalResultBuilder_ == null) {
-        return terminalResult_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : terminalResult_;
+    public io.superdurable.gen.FlowResult getImmediateFlowResult() {
+      if (immediateFlowResultBuilder_ == null) {
+        return immediateFlowResult_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : immediateFlowResult_;
       } else {
-        return terminalResultBuilder_.getMessage();
+        return immediateFlowResultBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.FlowResult terminal_result = 3;</code>
+     * <code>.dex.FlowResult immediate_flow_result = 1;</code>
      */
-    public Builder setTerminalResult(io.superdurable.gen.FlowResult value) {
-      if (terminalResultBuilder_ == null) {
+    public Builder setImmediateFlowResult(io.superdurable.gen.FlowResult value) {
+      if (immediateFlowResultBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        terminalResult_ = value;
+        immediateFlowResult_ = value;
       } else {
-        terminalResultBuilder_.setMessage(value);
+        immediateFlowResultBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowResult terminal_result = 3;</code>
+     * <code>.dex.FlowResult immediate_flow_result = 1;</code>
      */
-    public Builder setTerminalResult(
+    public Builder setImmediateFlowResult(
         io.superdurable.gen.FlowResult.Builder builderForValue) {
-      if (terminalResultBuilder_ == null) {
-        terminalResult_ = builderForValue.build();
+      if (immediateFlowResultBuilder_ == null) {
+        immediateFlowResult_ = builderForValue.build();
       } else {
-        terminalResultBuilder_.setMessage(builderForValue.build());
+        immediateFlowResultBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowResult terminal_result = 3;</code>
+     * <code>.dex.FlowResult immediate_flow_result = 1;</code>
      */
-    public Builder mergeTerminalResult(io.superdurable.gen.FlowResult value) {
-      if (terminalResultBuilder_ == null) {
-        if (((bitField0_ & 0x00000004) != 0) &&
-          terminalResult_ != null &&
-          terminalResult_ != io.superdurable.gen.FlowResult.getDefaultInstance()) {
-          getTerminalResultBuilder().mergeFrom(value);
+    public Builder mergeImmediateFlowResult(io.superdurable.gen.FlowResult value) {
+      if (immediateFlowResultBuilder_ == null) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          immediateFlowResult_ != null &&
+          immediateFlowResult_ != io.superdurable.gen.FlowResult.getDefaultInstance()) {
+          getImmediateFlowResultBuilder().mergeFrom(value);
         } else {
-          terminalResult_ = value;
+          immediateFlowResult_ = value;
         }
       } else {
-        terminalResultBuilder_.mergeFrom(value);
+        immediateFlowResultBuilder_.mergeFrom(value);
       }
-      if (terminalResult_ != null) {
-        bitField0_ |= 0x00000004;
+      if (immediateFlowResult_ != null) {
+        bitField0_ |= 0x00000001;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.FlowResult terminal_result = 3;</code>
+     * <code>.dex.FlowResult immediate_flow_result = 1;</code>
      */
-    public Builder clearTerminalResult() {
-      bitField0_ = (bitField0_ & ~0x00000004);
-      terminalResult_ = null;
-      if (terminalResultBuilder_ != null) {
-        terminalResultBuilder_.dispose();
-        terminalResultBuilder_ = null;
+    public Builder clearImmediateFlowResult() {
+      bitField0_ = (bitField0_ & ~0x00000001);
+      immediateFlowResult_ = null;
+      if (immediateFlowResultBuilder_ != null) {
+        immediateFlowResultBuilder_.dispose();
+        immediateFlowResultBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowResult terminal_result = 3;</code>
+     * <code>.dex.FlowResult immediate_flow_result = 1;</code>
      */
-    public io.superdurable.gen.FlowResult.Builder getTerminalResultBuilder() {
-      bitField0_ |= 0x00000004;
+    public io.superdurable.gen.FlowResult.Builder getImmediateFlowResultBuilder() {
+      bitField0_ |= 0x00000001;
       onChanged();
-      return internalGetTerminalResultFieldBuilder().getBuilder();
+      return internalGetImmediateFlowResultFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.FlowResult terminal_result = 3;</code>
+     * <code>.dex.FlowResult immediate_flow_result = 1;</code>
      */
-    public io.superdurable.gen.FlowResultOrBuilder getTerminalResultOrBuilder() {
-      if (terminalResultBuilder_ != null) {
-        return terminalResultBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.FlowResultOrBuilder getImmediateFlowResultOrBuilder() {
+      if (immediateFlowResultBuilder_ != null) {
+        return immediateFlowResultBuilder_.getMessageOrBuilder();
       } else {
-        return terminalResult_ == null ?
-            io.superdurable.gen.FlowResult.getDefaultInstance() : terminalResult_;
+        return immediateFlowResult_ == null ?
+            io.superdurable.gen.FlowResult.getDefaultInstance() : immediateFlowResult_;
       }
     }
     /**
-     * <code>.dex.FlowResult terminal_result = 3;</code>
+     * <code>.dex.FlowResult immediate_flow_result = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder> 
-        internalGetTerminalResultFieldBuilder() {
-      if (terminalResultBuilder_ == null) {
-        terminalResultBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+        internalGetImmediateFlowResultFieldBuilder() {
+      if (immediateFlowResultBuilder_ == null) {
+        immediateFlowResultBuilder_ = new com.google.protobuf.SingleFieldBuilder<
             io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder>(
-                getTerminalResult(),
+                getImmediateFlowResult(),
                 getParentForChildren(),
                 isClean());
-        terminalResult_ = null;
+        immediateFlowResult_ = null;
       }
-      return terminalResultBuilder_;
+      return immediateFlowResultBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StartSubFlowActivityOutput)

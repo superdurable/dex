@@ -6,13 +6,13 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf type {@code dex.SubFlowCompletionDeliveryResult}
+ * Protobuf type {@code dex.ReportSubFlowCompletionActivityOutput}
  */
 @com.google.protobuf.Generated
-public final class SubFlowCompletionDeliveryResult extends
+public final class ReportSubFlowCompletionActivityOutput extends
     com.google.protobuf.GeneratedMessage implements
-    // @@protoc_insertion_point(message_implements:dex.SubFlowCompletionDeliveryResult)
-    SubFlowCompletionDeliveryResultOrBuilder {
+    // @@protoc_insertion_point(message_implements:dex.ReportSubFlowCompletionActivityOutput)
+    ReportSubFlowCompletionActivityOutputOrBuilder {
 private static final long serialVersionUID = 0L;
   static {
     com.google.protobuf.RuntimeVersion.validateProtobufGencodeVersion(
@@ -21,32 +21,32 @@ private static final long serialVersionUID = 0L;
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "SubFlowCompletionDeliveryResult");
+      "ReportSubFlowCompletionActivityOutput");
   }
-  // Use SubFlowCompletionDeliveryResult.newBuilder() to construct.
-  private SubFlowCompletionDeliveryResult(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
+  // Use ReportSubFlowCompletionActivityOutput.newBuilder() to construct.
+  private ReportSubFlowCompletionActivityOutput(com.google.protobuf.GeneratedMessage.Builder<?> builder) {
     super(builder);
   }
-  private SubFlowCompletionDeliveryResult() {
+  private ReportSubFlowCompletionActivityOutput() {
     status_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.internal_static_dex_SubFlowCompletionDeliveryResult_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_ReportSubFlowCompletionActivityOutput_descriptor;
   }
 
   @java.lang.Override
   public com.google.protobuf.Descriptors.Descriptor getDescriptorForType() {
-    return io.superdurable.gen.DexProto.internal_static_dex_SubFlowCompletionDeliveryResult_descriptor;
+    return io.superdurable.gen.DexProto.internal_static_dex_ReportSubFlowCompletionActivityOutput_descriptor;
   }
 
   @java.lang.Override
   protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
       internalGetFieldAccessorTable() {
-    return io.superdurable.gen.DexProto.internal_static_dex_SubFlowCompletionDeliveryResult_fieldAccessorTable
+    return io.superdurable.gen.DexProto.internal_static_dex_ReportSubFlowCompletionActivityOutput_fieldAccessorTable
         .ensureFieldAccessorsInitialized(
-            io.superdurable.gen.SubFlowCompletionDeliveryResult.class, io.superdurable.gen.SubFlowCompletionDeliveryResult.Builder.class);
+            io.superdurable.gen.ReportSubFlowCompletionActivityOutput.class, io.superdurable.gen.ReportSubFlowCompletionActivityOutput.Builder.class);
   }
 
   public static final int STATUS_FIELD_NUMBER = 1;
@@ -111,10 +111,10 @@ private static final long serialVersionUID = 0L;
     if (obj == this) {
      return true;
     }
-    if (!(obj instanceof io.superdurable.gen.SubFlowCompletionDeliveryResult)) {
+    if (!(obj instanceof io.superdurable.gen.ReportSubFlowCompletionActivityOutput)) {
       return super.equals(obj);
     }
-    io.superdurable.gen.SubFlowCompletionDeliveryResult other = (io.superdurable.gen.SubFlowCompletionDeliveryResult) obj;
+    io.superdurable.gen.ReportSubFlowCompletionActivityOutput other = (io.superdurable.gen.ReportSubFlowCompletionActivityOutput) obj;
 
     if (status_ != other.status_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -135,44 +135,44 @@ private static final long serialVersionUID = 0L;
     return hash;
   }
 
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(
       java.nio.ByteBuffer data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(
       com.google.protobuf.ByteString data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(
       com.google.protobuf.ByteString data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(byte[] data)
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(byte[] data)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data);
   }
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(
       byte[] data,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws com.google.protobuf.InvalidProtocolBufferException {
     return PARSER.parseFrom(data, extensionRegistry);
   }
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(java.io.InputStream input)
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -180,26 +180,26 @@ private static final long serialVersionUID = 0L;
         .parseWithIOException(PARSER, input, extensionRegistry);
   }
 
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseDelimitedFrom(java.io.InputStream input)
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseDelimitedFrom(java.io.InputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input);
   }
 
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseDelimitedFrom(
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseDelimitedFrom(
       java.io.InputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
   }
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(
       com.google.protobuf.CodedInputStream input)
       throws java.io.IOException {
     return com.google.protobuf.GeneratedMessage
         .parseWithIOException(PARSER, input);
   }
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult parseFrom(
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput parseFrom(
       com.google.protobuf.CodedInputStream input,
       com.google.protobuf.ExtensionRegistryLite extensionRegistry)
       throws java.io.IOException {
@@ -212,7 +212,7 @@ private static final long serialVersionUID = 0L;
   public static Builder newBuilder() {
     return DEFAULT_INSTANCE.toBuilder();
   }
-  public static Builder newBuilder(io.superdurable.gen.SubFlowCompletionDeliveryResult prototype) {
+  public static Builder newBuilder(io.superdurable.gen.ReportSubFlowCompletionActivityOutput prototype) {
     return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
   }
   @java.lang.Override
@@ -228,26 +228,26 @@ private static final long serialVersionUID = 0L;
     return builder;
   }
   /**
-   * Protobuf type {@code dex.SubFlowCompletionDeliveryResult}
+   * Protobuf type {@code dex.ReportSubFlowCompletionActivityOutput}
    */
   public static final class Builder extends
       com.google.protobuf.GeneratedMessage.Builder<Builder> implements
-      // @@protoc_insertion_point(builder_implements:dex.SubFlowCompletionDeliveryResult)
-      io.superdurable.gen.SubFlowCompletionDeliveryResultOrBuilder {
+      // @@protoc_insertion_point(builder_implements:dex.ReportSubFlowCompletionActivityOutput)
+      io.superdurable.gen.ReportSubFlowCompletionActivityOutputOrBuilder {
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.superdurable.gen.DexProto.internal_static_dex_SubFlowCompletionDeliveryResult_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_ReportSubFlowCompletionActivityOutput_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessage.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.superdurable.gen.DexProto.internal_static_dex_SubFlowCompletionDeliveryResult_fieldAccessorTable
+      return io.superdurable.gen.DexProto.internal_static_dex_ReportSubFlowCompletionActivityOutput_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.superdurable.gen.SubFlowCompletionDeliveryResult.class, io.superdurable.gen.SubFlowCompletionDeliveryResult.Builder.class);
+              io.superdurable.gen.ReportSubFlowCompletionActivityOutput.class, io.superdurable.gen.ReportSubFlowCompletionActivityOutput.Builder.class);
     }
 
-    // Construct using io.superdurable.gen.SubFlowCompletionDeliveryResult.newBuilder()
+    // Construct using io.superdurable.gen.ReportSubFlowCompletionActivityOutput.newBuilder()
     private Builder() {
 
     }
@@ -268,17 +268,17 @@ private static final long serialVersionUID = 0L;
     @java.lang.Override
     public com.google.protobuf.Descriptors.Descriptor
         getDescriptorForType() {
-      return io.superdurable.gen.DexProto.internal_static_dex_SubFlowCompletionDeliveryResult_descriptor;
+      return io.superdurable.gen.DexProto.internal_static_dex_ReportSubFlowCompletionActivityOutput_descriptor;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.SubFlowCompletionDeliveryResult getDefaultInstanceForType() {
-      return io.superdurable.gen.SubFlowCompletionDeliveryResult.getDefaultInstance();
+    public io.superdurable.gen.ReportSubFlowCompletionActivityOutput getDefaultInstanceForType() {
+      return io.superdurable.gen.ReportSubFlowCompletionActivityOutput.getDefaultInstance();
     }
 
     @java.lang.Override
-    public io.superdurable.gen.SubFlowCompletionDeliveryResult build() {
-      io.superdurable.gen.SubFlowCompletionDeliveryResult result = buildPartial();
+    public io.superdurable.gen.ReportSubFlowCompletionActivityOutput build() {
+      io.superdurable.gen.ReportSubFlowCompletionActivityOutput result = buildPartial();
       if (!result.isInitialized()) {
         throw newUninitializedMessageException(result);
       }
@@ -286,14 +286,14 @@ private static final long serialVersionUID = 0L;
     }
 
     @java.lang.Override
-    public io.superdurable.gen.SubFlowCompletionDeliveryResult buildPartial() {
-      io.superdurable.gen.SubFlowCompletionDeliveryResult result = new io.superdurable.gen.SubFlowCompletionDeliveryResult(this);
+    public io.superdurable.gen.ReportSubFlowCompletionActivityOutput buildPartial() {
+      io.superdurable.gen.ReportSubFlowCompletionActivityOutput result = new io.superdurable.gen.ReportSubFlowCompletionActivityOutput(this);
       if (bitField0_ != 0) { buildPartial0(result); }
       onBuilt();
       return result;
     }
 
-    private void buildPartial0(io.superdurable.gen.SubFlowCompletionDeliveryResult result) {
+    private void buildPartial0(io.superdurable.gen.ReportSubFlowCompletionActivityOutput result) {
       int from_bitField0_ = bitField0_;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.status_ = status_;
@@ -302,16 +302,16 @@ private static final long serialVersionUID = 0L;
 
     @java.lang.Override
     public Builder mergeFrom(com.google.protobuf.Message other) {
-      if (other instanceof io.superdurable.gen.SubFlowCompletionDeliveryResult) {
-        return mergeFrom((io.superdurable.gen.SubFlowCompletionDeliveryResult)other);
+      if (other instanceof io.superdurable.gen.ReportSubFlowCompletionActivityOutput) {
+        return mergeFrom((io.superdurable.gen.ReportSubFlowCompletionActivityOutput)other);
       } else {
         super.mergeFrom(other);
         return this;
       }
     }
 
-    public Builder mergeFrom(io.superdurable.gen.SubFlowCompletionDeliveryResult other) {
-      if (other == io.superdurable.gen.SubFlowCompletionDeliveryResult.getDefaultInstance()) return this;
+    public Builder mergeFrom(io.superdurable.gen.ReportSubFlowCompletionActivityOutput other) {
+      if (other == io.superdurable.gen.ReportSubFlowCompletionActivityOutput.getDefaultInstance()) return this;
       if (other.status_ != 0) {
         setStatusValue(other.getStatusValue());
       }
@@ -415,23 +415,23 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    // @@protoc_insertion_point(builder_scope:dex.SubFlowCompletionDeliveryResult)
+    // @@protoc_insertion_point(builder_scope:dex.ReportSubFlowCompletionActivityOutput)
   }
 
-  // @@protoc_insertion_point(class_scope:dex.SubFlowCompletionDeliveryResult)
-  private static final io.superdurable.gen.SubFlowCompletionDeliveryResult DEFAULT_INSTANCE;
+  // @@protoc_insertion_point(class_scope:dex.ReportSubFlowCompletionActivityOutput)
+  private static final io.superdurable.gen.ReportSubFlowCompletionActivityOutput DEFAULT_INSTANCE;
   static {
-    DEFAULT_INSTANCE = new io.superdurable.gen.SubFlowCompletionDeliveryResult();
+    DEFAULT_INSTANCE = new io.superdurable.gen.ReportSubFlowCompletionActivityOutput();
   }
 
-  public static io.superdurable.gen.SubFlowCompletionDeliveryResult getDefaultInstance() {
+  public static io.superdurable.gen.ReportSubFlowCompletionActivityOutput getDefaultInstance() {
     return DEFAULT_INSTANCE;
   }
 
-  private static final com.google.protobuf.Parser<SubFlowCompletionDeliveryResult>
-      PARSER = new com.google.protobuf.AbstractParser<SubFlowCompletionDeliveryResult>() {
+  private static final com.google.protobuf.Parser<ReportSubFlowCompletionActivityOutput>
+      PARSER = new com.google.protobuf.AbstractParser<ReportSubFlowCompletionActivityOutput>() {
     @java.lang.Override
-    public SubFlowCompletionDeliveryResult parsePartialFrom(
+    public ReportSubFlowCompletionActivityOutput parsePartialFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
@@ -450,17 +450,17 @@ private static final long serialVersionUID = 0L;
     }
   };
 
-  public static com.google.protobuf.Parser<SubFlowCompletionDeliveryResult> parser() {
+  public static com.google.protobuf.Parser<ReportSubFlowCompletionActivityOutput> parser() {
     return PARSER;
   }
 
   @java.lang.Override
-  public com.google.protobuf.Parser<SubFlowCompletionDeliveryResult> getParserForType() {
+  public com.google.protobuf.Parser<ReportSubFlowCompletionActivityOutput> getParserForType() {
     return PARSER;
   }
 
   @java.lang.Override
-  public io.superdurable.gen.SubFlowCompletionDeliveryResult getDefaultInstanceForType() {
+  public io.superdurable.gen.ReportSubFlowCompletionActivityOutput getDefaultInstanceForType() {
     return DEFAULT_INSTANCE;
   }
 

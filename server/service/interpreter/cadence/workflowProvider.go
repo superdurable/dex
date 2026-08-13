@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"go.uber.org/cadence"
@@ -249,10 +250,29 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		CurrentRunID:             info.WorkflowExecution.RunID,
 		Attempt:                  info.Attempt + 1,
 	}
-	if info.CronSchedule != nil {
-		workflowInfo.CronSchedule = *info.CronSchedule
+	if info.RetryPolicy != nil {
+		workflowInfo.RetryMaximumAttempts = ptr.Any(info.RetryPolicy.GetMaximumAttempts())
 	}
 	return workflowInfo
+}
+
+func (w *workflowProvider) GetSearchAttributeKeyword(
+	ctx interfaces.UnifiedContext,
+	key string,
+) (string, error) {
+	wfCtx, ok := ctx.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to cadence workflow context")
+	}
+	field, ok := workflow.GetInfo(wfCtx).SearchAttributes.GetIndexedFields()[key]
+	if !ok {
+		return "", nil
+	}
+	var value string
+	if err := client.NewValue(field).Get(&value); err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func (w *workflowProvider) GetSearchAttributeKeywordArray(

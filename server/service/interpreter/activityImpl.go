@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/superdurable/dex/config"
@@ -490,10 +491,14 @@ func (a *Activities) StartSubFlow(
 	ctx context.Context, input *dexpb.StartSubFlowActivityInput,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	condition := input.GetCondition()
-	if condition == nil || condition.GetFlowId() == "" || condition.GetNormalizedRequestId() == "" {
+	if condition == nil || condition.GetParentFlowId() == "" || condition.GetRequestId() == "" {
 		return nil, fmt.Errorf("SubFlow condition requires server-normalized identity")
 	}
-	if err := blobstore.ValidateWorkflowId(condition.GetFlowId()); err != nil {
+	subFlowID, requestID, err := a.subFlowStartIdentity(ctx, condition)
+	if err != nil {
+		return nil, err
+	}
+	if err := blobstore.ValidateWorkflowId(subFlowID); err != nil {
 		return nil, err
 	}
 	options := condition.GetOptions()
@@ -521,8 +526,8 @@ func (a *Activities) StartSubFlow(
 	if err := blobstore.OffloadLargeValue(
 		ctx,
 		condition.GetStepInput(),
-		condition.GetFlowId(),
-		condition.GetNormalizedRequestId(),
+		subFlowID,
+		requestID,
 		a.cfg.BlobStore.EffectiveThresholdInBytes(),
 		a.blobStore,
 		a.cfg.BlobStore.EffectiveEnabled(),
@@ -532,8 +537,8 @@ func (a *Activities) StartSubFlow(
 	if err := blobstore.OffloadLargeAttributeWrites(
 		ctx,
 		options.GetAttributes(),
-		condition.GetFlowId(),
-		condition.GetNormalizedRequestId(),
+		subFlowID,
+		requestID,
 		a.cfg.BlobStore.EffectiveThresholdInBytes(),
 		a.blobStore,
 		a.cfg.BlobStore.EffectiveEnabled(),
@@ -541,32 +546,72 @@ func (a *Activities) StartSubFlow(
 		return nil, err
 	}
 
-	workflowOptions := buildSubFlowStartOptions(condition, flowConfig)
+	workflowOptions := buildSubFlowStartOptions(condition, flowConfig, subFlowID)
 	workflowInput := &dexpb.InterpreterWorkflowInput{
-		FlowType:       condition.GetFlowType(),
+		FlowType:       condition.GetSubFlowType(),
 		StartStepType:  condition.GetStartStepType(),
 		StepInput:      condition.GetStepInput(),
 		StepOptions:    condition.GetStepOptions(),
 		InitAttributes: options.GetAttributes(),
 		Config:         flowConfig,
-		SubFlowParent:  input.GetParent(),
 	}
-	return a.subFlowResolver.resolve(ctx, condition, workflowOptions, workflowInput)
+	return a.subFlowResolver.resolve(ctx, condition, subFlowID, workflowOptions, workflowInput)
+}
+
+func (a *Activities) subFlowStartIdentity(
+	ctx context.Context,
+	condition *dexpb.SubFlowCondition,
+) (string, string, error) {
+	activityInfo := a.activityProvider.GetActivityInfo(ctx)
+	parentExecution := activityInfo.WorkflowExecution
+	if condition.GetParentFlowId() != parentExecution.ID {
+		return "", "", fmt.Errorf("SubFlow parent Flow ID does not match the starting workflow")
+	}
+	requestID := condition.GetRequestId()
+	if !strings.HasPrefix(requestID, parentExecution.RunID) {
+		return "", "", fmt.Errorf("SubFlow request ID does not match the starting workflow run")
+	}
+	stepExecutionID := strings.TrimPrefix(requestID, parentExecution.RunID)
+	if stepExecutionID == "" {
+		return "", "", fmt.Errorf("SubFlow request ID does not contain a Step execution ID")
+	}
+	return service.SubFlowID(parentExecution.ID, stepExecutionID, condition.GetSubFlowIndex()), requestID, nil
 }
 
 func (a *Activities) ReportSubFlowCompletion(
 	ctx context.Context, input *dexpb.ReportSubFlowCompletionActivityInput,
-) (*dexpb.SubFlowCompletionDeliveryResult, error) {
+) (*dexpb.ReportSubFlowCompletionActivityOutput, error) {
+	request := input.GetRequest()
+	result := request.GetFlowResult()
+	activityInfo := a.activityProvider.GetActivityInfo(ctx)
+	if result == nil || result.GetFlowId() != activityInfo.WorkflowExecution.ID {
+		return nil, fmt.Errorf("SubFlow completion result does not match the reporting workflow")
+	}
+	description, describeErr := a.unifiedClient.DescribeWorkflowExecution(
+		ctx,
+		activityInfo.WorkflowExecution.ID,
+		activityInfo.WorkflowExecution.RunID,
+		map[string]dexpb.IndexType{
+			service.SearchAttributeDexParentFlowID: dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		},
+	)
+	if describeErr != nil {
+		return nil, fmt.Errorf("describe reporting SubFlow: %w", describeErr)
+	}
+	parentFlowID := description.IndexedAttributes[service.SearchAttributeDexParentFlowID].GetStringValue()
+	if parentFlowID == "" {
+		return nil, fmt.Errorf("reporting SubFlow is missing %s", service.SearchAttributeDexParentFlowID)
+	}
 	err := a.unifiedClient.SignalWorkflow(
-		ctx, input.GetParentFlowId(), "", service.SubFlowCompletionSignalChannelName, input.GetSignal(),
+		ctx, parentFlowID, "", service.SubFlowCompletionSignalChannelName, request,
 	)
 	if err == nil {
-		return &dexpb.SubFlowCompletionDeliveryResult{
+		return &dexpb.ReportSubFlowCompletionActivityOutput{
 			Status: dexpb.SubFlowCompletionDeliveryStatus_SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED,
 		}, nil
 	}
 	if a.unifiedClient.IsWorkflowClosedOrNotFoundError(err) {
-		return &dexpb.SubFlowCompletionDeliveryResult{
+		return &dexpb.ReportSubFlowCompletionActivityOutput{
 			Status: dexpb.SubFlowCompletionDeliveryStatus_SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND,
 		}, nil
 	}
@@ -617,11 +662,13 @@ func buildSubFlowConfig(parent, override *dexpb.FlowConfig) (*dexpb.FlowConfig, 
 }
 
 func buildSubFlowStartOptions(
-	condition *dexpb.SubFlowCondition, flowConfig *dexpb.FlowConfig,
+	condition *dexpb.SubFlowCondition,
+	flowConfig *dexpb.FlowConfig,
+	subFlowID string,
 ) uclient.StartWorkflowOptions {
 	options := condition.GetOptions()
 	workflowOptions := uclient.StartWorkflowOptions{
-		ID:                       condition.GetFlowId(),
+		ID:                       subFlowID,
 		TaskQueue:                service.TaskQueue,
 		WorkflowExecutionTimeout: time.Duration(options.GetFlowTimeoutSeconds()) * time.Second,
 		IdReusePolicy:            ptr.Any(subFlowIDReusePolicy(options.GetReusePolicy())),
@@ -629,10 +676,11 @@ func buildSubFlowStartOptions(
 		SearchAttributes:         index.ConvertAttributeWritesToSearchAttributeUpsertMap(options.GetAttributes()),
 		Memo: map[string]interface{}{
 			service.WorkerAddressMemoKey: &dexpb.EncodedObject{Payload: []byte(flowConfig.GetWorkerTarget().GetAddress())},
-			service.WorkflowRequestId:    &dexpb.EncodedObject{Payload: []byte(condition.GetNormalizedRequestId())},
+			service.WorkflowRequestId:    &dexpb.EncodedObject{Payload: []byte(condition.GetRequestId())},
 		},
 	}
-	workflowOptions.SearchAttributes[service.SearchAttributeDexWorkflowType] = condition.GetFlowType()
+	workflowOptions.SearchAttributes[service.SearchAttributeDexWorkflowType] = condition.GetSubFlowType()
+	workflowOptions.SearchAttributes[service.SearchAttributeDexParentFlowID] = condition.GetParentFlowId()
 	if options.GetFlowStartDelaySeconds() > 0 {
 		workflowOptions.WorkflowStartDelay = ptr.Any(time.Duration(options.GetFlowStartDelaySeconds()) * time.Second)
 	}
@@ -1127,13 +1175,13 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 		); err != nil {
 			return err
 		}
-		if subFlowCondition.GetFlowType() == "" || subFlowCondition.GetStartStepType() == "" {
+		if subFlowCondition.GetSubFlowType() == "" || subFlowCondition.GetStartStepType() == "" {
 			return fmt.Errorf("SubFlow condition at index %d requires Flow and starting Step types", i)
 		}
 		if subFlowCondition.GetSubFlowIndex() != int32(i) {
 			return fmt.Errorf("SubFlow condition at index %d has unstable index %d", i, subFlowCondition.GetSubFlowIndex())
 		}
-		if subFlowCondition.GetFlowId() != "" || subFlowCondition.GetNormalizedRequestId() != "" {
+		if subFlowCondition.GetParentFlowId() != "" || subFlowCondition.GetRequestId() != "" {
 			return fmt.Errorf("SubFlow condition at index %d sets server-owned identity", i)
 		}
 		if subFlowCondition.GetOptions().GetFlowTimeoutSeconds() < 0 ||
@@ -1179,10 +1227,10 @@ func normalizeSubFlowConditions(
 	if waiting == nil {
 		return
 	}
-	normalizedRequestID := parentRunID + stepExecutionID
-	for index, condition := range waiting.GetSubFlowConditions() {
-		condition.FlowId = fmt.Sprintf("SubFlow-%s-%s-%d", parentFlowID, stepExecutionID, index)
-		condition.NormalizedRequestId = normalizedRequestID
+	requestID := parentRunID + stepExecutionID
+	for _, condition := range waiting.GetSubFlowConditions() {
+		condition.ParentFlowId = parentFlowID
+		condition.RequestId = requestID
 	}
 }
 

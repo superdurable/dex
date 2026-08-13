@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface SubFlowCompletionDeliveryResultOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.SubFlowCompletionDeliveryResult)
+public interface ReportSubFlowCompletionActivityOutputOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.ReportSubFlowCompletionActivityOutput)
     com.google.protobuf.MessageOrBuilder {
 
   /**

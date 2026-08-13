@@ -141,9 +141,10 @@ describe('step graph', () => {
         stepType: 'Parent',
       }, {
         output: { waitForCondition: { subFlowConditions: [{
-          flowType: 'ChildFlow',
-          flowId: 'SubFlow-parent-Parent-1-0',
-          startResolution: 1,
+          subFlowType: 'ChildFlow',
+          parentFlowId: 'parent',
+          subFlowIndex: 0,
+          options: { reusePolicy: 1 },
         }] } },
       }),
       event(2, 'StepExecuteCompleted', {
@@ -166,7 +167,7 @@ describe('step graph', () => {
       runId: 'child-run',
       flowType: 'ChildFlow',
       subFlowStatus: 'COMPLETED',
-      reuseResolution: 'Started',
+      reusePolicy: 'Attach',
     });
     expect(graph.edges).toContainEqual({
       id: 'Parent-1->__subflow:Parent-1:0',
@@ -184,9 +185,10 @@ describe('step graph', () => {
       stepExecutionLocals: [],
       timers: [],
       waitingCondition: { subFlowConditions: [{
-        flowType: 'ChildFlow',
-        flowId: 'SubFlow-parent-Parent-1-0',
-        startResolution: 3,
+        subFlowType: 'ChildFlow',
+        parentFlowId: 'parent',
+        subFlowIndex: 0,
+        options: { reusePolicy: 2 },
       }] },
       completedConditions: { completedSubFlowResults: { 0: {
         flowId: 'SubFlow-parent-Parent-1-0',
@@ -199,7 +201,7 @@ describe('step graph', () => {
       status: 'Failed',
       runId: 'child-run',
       subFlowStatus: 'FAILED',
-      reuseResolution: 'Attached terminal',
+      reusePolicy: 'Restart if previous exits abnormally',
     });
   });
 });

@@ -12,7 +12,7 @@ import type {
   StepGraphEdge,
   StepGraphNode,
 } from './types';
-import { subFlowStartResolutionLabel, subFlowStatusName } from './semantic';
+import { subFlowReusePolicyLabel, subFlowStatusName } from './semantic';
 
 export const START_NODE_ID = '__start__';
 export const END_NODE_ID = '__end__';
@@ -188,27 +188,39 @@ function addSubFlowNodes(nodes: Map<string, StepGraphNode>, stepNode: StepGraphN
       : activeResults[String(index)] && typeof activeResults[String(index)] === 'object'
         ? activeResults[String(index)] as Record<string, unknown>
         : {};
-    const flowId = stringField(condition.flowId) || stringField(result.flowId);
+    const flowId = stringField(result.flowId) || generatedSubFlowID(condition, stepNode.id, index);
     if (!flowId) return;
     const status = subFlowStatusName(result.flowStatus ?? 1);
+    const options = condition.options && typeof condition.options === 'object'
+      ? condition.options as Record<string, unknown> : {};
     const id = `__subflow:${stepNode.id}:${index}`;
     nodes.set(id, {
       id,
-      label: stringField(condition.flowType) || 'SubFlow',
+      label: stringField(condition.subFlowType) || 'SubFlow',
       kind: 'subflow',
       status: ['FAILED', 'CANCELED', 'TIMEOUT', 'TERMINATED'].includes(status)
         ? 'Failed'
         : status === 'RUNNING' ? 'Waiting' : 'Completed',
       parentStepId: stepNode.id,
-      flowType: stringField(condition.flowType),
+      flowType: stringField(condition.subFlowType),
       flowId,
       runId: stringField(result.runId),
       subFlowStatus: status,
-      reuseResolution: subFlowStartResolutionLabel(
-        result.startResolution ?? condition.startResolution,
-      ),
+      reusePolicy: subFlowReusePolicyLabel(options.reusePolicy),
     });
   });
+}
+
+function generatedSubFlowID(
+  condition: Record<string, unknown>,
+  stepExecutionID: string,
+  fallbackIndex: number,
+): string {
+  const parentFlowID = stringField(condition.parentFlowId);
+  if (!parentFlowID || !stepExecutionID) return '';
+  const index = typeof condition.subFlowIndex === 'number'
+    ? condition.subFlowIndex : fallbackIndex;
+  return `SubFlow-${parentFlowID}-${stepExecutionID}-${index}`;
 }
 
 function hasCloseDecision(event: FlowHistoryEvent): boolean {

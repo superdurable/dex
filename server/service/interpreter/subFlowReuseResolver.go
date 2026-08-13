@@ -31,16 +31,17 @@ func newSubFlowReuseResolver(client uclient.UnifiedClient) *subFlowReuseResolver
 func (r *subFlowReuseResolver) resolve(
 	ctx context.Context,
 	condition *dexpb.SubFlowCondition,
+	subFlowID string,
 	workflowOptions uclient.StartWorkflowOptions,
 	workflowInput *dexpb.InterpreterWorkflowInput,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	for {
-		description, err := r.client.DescribeWorkflowExecution(ctx, condition.GetFlowId(), "", nil)
+		description, err := r.client.DescribeWorkflowExecution(ctx, subFlowID, "", nil)
 		if err != nil && !r.client.IsNotFoundError(err) {
-			return nil, fmt.Errorf("describe SubFlow %q: %w", condition.GetFlowId(), err)
+			return nil, fmt.Errorf("describe SubFlow %q: %w", subFlowID, err)
 		}
 		if err == nil {
-			output, resolveErr := r.resolveExisting(ctx, condition, description)
+			output, resolveErr := r.resolveExisting(ctx, condition, subFlowID, description)
 			if resolveErr != nil {
 				return nil, resolveErr
 			}
@@ -51,13 +52,10 @@ func (r *subFlowReuseResolver) resolve(
 
 		_, startErr := r.client.StartInterpreterWorkflow(ctx, workflowOptions, workflowInput)
 		if startErr == nil {
-			return &dexpb.StartSubFlowActivityOutput{
-				NormalizedRequestId: condition.GetNormalizedRequestId(),
-				Resolution:          dexpb.SubFlowStartResolution_SUB_FLOW_START_RESOLUTION_STARTED,
-			}, nil
+			return &dexpb.StartSubFlowActivityOutput{}, nil
 		}
 		if !r.client.IsWorkflowAlreadyStartedError(startErr) {
-			return nil, fmt.Errorf("start SubFlow %q: %w", condition.GetFlowId(), startErr)
+			return nil, fmt.Errorf("start SubFlow %q: %w", subFlowID, startErr)
 		}
 	}
 }
@@ -65,11 +63,12 @@ func (r *subFlowReuseResolver) resolve(
 func (r *subFlowReuseResolver) resolveExisting(
 	ctx context.Context,
 	condition *dexpb.SubFlowCondition,
+	subFlowID string,
 	description *uclient.DescribeWorkflowExecutionResponse,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	existingRequestID := memoString(description.Memos, service.WorkflowRequestId)
-	if existingRequestID == condition.GetNormalizedRequestId() {
-		return r.attachOrRead(ctx, condition, description, existingRequestID)
+	if existingRequestID == condition.GetRequestId() {
+		return r.attachOrRead(ctx, subFlowID, description)
 	}
 
 	policy := effectiveSubFlowReusePolicy(condition.GetOptions().GetReusePolicy())
@@ -77,43 +76,41 @@ func (r *subFlowReuseResolver) resolveExisting(
 		if policy == dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART {
 			return nil, nil
 		}
-		return runningSubFlowOutput(existingRequestID), nil
+		return &dexpb.StartSubFlowActivityOutput{}, nil
 	}
 	if policy == dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART ||
 		(policy == dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY &&
 			isAbnormalSubFlowStatus(description.Status)) {
 		return nil, nil
 	}
-	return r.readTerminal(ctx, condition, description, existingRequestID)
+	return r.readTerminal(ctx, subFlowID, description)
 }
 
 func (r *subFlowReuseResolver) attachOrRead(
 	ctx context.Context,
-	condition *dexpb.SubFlowCondition,
+	subFlowID string,
 	description *uclient.DescribeWorkflowExecutionResponse,
-	requestID string,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	if description.Status == dexpb.FlowStatus_FLOW_STATUS_RUNNING {
-		return runningSubFlowOutput(requestID), nil
+		return &dexpb.StartSubFlowActivityOutput{}, nil
 	}
-	return r.readTerminal(ctx, condition, description, requestID)
+	return r.readTerminal(ctx, subFlowID, description)
 }
 
 func (r *subFlowReuseResolver) readTerminal(
 	ctx context.Context,
-	condition *dexpb.SubFlowCondition,
+	subFlowID string,
 	description *uclient.DescribeWorkflowExecutionResponse,
-	requestID string,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	var workflowOutput dexpb.InterpreterWorkflowOutput
 	resolvedRunID, flowStatus, err := r.client.GetWorkflowResult(
-		ctx, &workflowOutput, condition.GetFlowId(), description.RunId,
+		ctx, &workflowOutput, subFlowID, description.RunId,
 	)
 	if r.client.IsNotFoundError(err) {
 		return nil, nil
 	}
 	result := &dexpb.FlowResult{
-		FlowId:     condition.GetFlowId(),
+		FlowId:     subFlowID,
 		RunId:      resolvedRunID,
 		FlowStatus: flowStatus,
 		Results:    workflowOutput.GetStepCompletionOutputs(),
@@ -127,23 +124,14 @@ func (r *subFlowReuseResolver) readTerminal(
 			result.ErrorType = errorType
 			result.ErrorMessage = errorResponse.GetDetail()
 		} else if flowStatus == dexpb.FlowStatus_FLOW_STATUS_UNSPECIFIED {
-			return nil, fmt.Errorf("read terminal SubFlow %q: %w", condition.GetFlowId(), err)
+			return nil, fmt.Errorf("read terminal SubFlow %q: %w", subFlowID, err)
 		} else {
 			result.ErrorMessage = err.Error()
 		}
 	}
 	return &dexpb.StartSubFlowActivityOutput{
-		NormalizedRequestId: requestID,
-		Resolution:          dexpb.SubFlowStartResolution_SUB_FLOW_START_RESOLUTION_ATTACHED_TERMINAL,
-		TerminalResult:      result,
+		ImmediateFlowResult: result,
 	}, nil
-}
-
-func runningSubFlowOutput(requestID string) *dexpb.StartSubFlowActivityOutput {
-	return &dexpb.StartSubFlowActivityOutput{
-		NormalizedRequestId: requestID,
-		Resolution:          dexpb.SubFlowStartResolution_SUB_FLOW_START_RESOLUTION_ATTACHED_RUNNING,
-	}
 }
 
 func memoString(memos map[string]*dexpb.Value, key string) string {

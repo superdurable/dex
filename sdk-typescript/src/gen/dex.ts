@@ -197,14 +197,6 @@ export enum UpdateErrorType {
   UNRECOGNIZED = -1,
 }
 
-export enum SubFlowStartResolution {
-  SUB_FLOW_START_RESOLUTION_UNSPECIFIED = 0,
-  SUB_FLOW_START_RESOLUTION_STARTED = 1,
-  SUB_FLOW_START_RESOLUTION_ATTACHED_RUNNING = 2,
-  SUB_FLOW_START_RESOLUTION_ATTACHED_TERMINAL = 3,
-  UNRECOGNIZED = -1,
-}
-
 export enum SubFlowCompletionDeliveryStatus {
   SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED = 0,
   SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED = 1,
@@ -439,7 +431,6 @@ export interface FlowResult {
   errorMessage: string;
   flowId: string;
   runId: string;
-  startResolution: SubFlowStartResolution;
 }
 
 export interface SearchFlowsRequest {
@@ -969,17 +960,16 @@ export interface SubFlowOptions {
 export interface SubFlowCondition {
   /** Optional unless waiting_condition_type is ANY_COMBINATION_COMPLETED. */
   conditionId: string;
-  flowType: string;
+  subFlowType: string;
   startStepType: string;
   stepInput: Value | undefined;
   stepOptions: StepOptions | undefined;
   options: SubFlowOptions | undefined;
   subFlowIndex: number;
   /** Server-generated during WaitFor normalization. */
-  flowId: string;
-  /** Server-normalized after start or attach. */
-  normalizedRequestId: string;
-  startResolution: SubFlowStartResolution;
+  parentFlowId: string;
+  /** Server-generated during WaitFor normalization. */
+  requestId: string;
 }
 
 export interface TimerCondition {
@@ -1123,15 +1113,6 @@ export interface InterpreterWorkflowInput {
   /** When true, ignore start_step_type / step_input / step_options / init_attributes. */
   isResumeFromContinueAsNew: boolean;
   continueAsNewInput: ContinueAsNewInput | undefined;
-  subFlowParent: SubFlowParent | undefined;
-}
-
-export interface SubFlowParent {
-  flowId: string;
-  stepExecutionId: string;
-  subFlowIndex: number;
-  normalizedRequestId: string;
-  retryPolicy: FlowRetryPolicy | undefined;
 }
 
 export interface InterpreterWorkflowOutput {
@@ -1224,29 +1205,22 @@ export interface SyncAttributeBatchActivityInput {
 
 export interface StartSubFlowActivityInput {
   condition: SubFlowCondition | undefined;
-  parent: SubFlowParent | undefined;
   parentFlowConfig: FlowConfig | undefined;
 }
 
 export interface StartSubFlowActivityOutput {
-  normalizedRequestId: string;
-  resolution: SubFlowStartResolution;
-  terminalResult: FlowResult | undefined;
+  immediateFlowResult: FlowResult | undefined;
 }
 
 export interface SubFlowCompletionSignalRequest {
-  stepExecutionId: string;
-  subFlowIndex: number;
-  normalizedRequestId: string;
-  result: FlowResult | undefined;
+  flowResult: FlowResult | undefined;
 }
 
 export interface ReportSubFlowCompletionActivityInput {
-  parentFlowId: string;
-  signal: SubFlowCompletionSignalRequest | undefined;
+  request: SubFlowCompletionSignalRequest | undefined;
 }
 
-export interface SubFlowCompletionDeliveryResult {
+export interface ReportSubFlowCompletionActivityOutput {
   status: SubFlowCompletionDeliveryStatus;
 }
 
@@ -3718,7 +3692,7 @@ export const StepCompletionOutput: MessageFns<StepCompletionOutput> = {
 };
 
 function createBaseFlowResult(): FlowResult {
-  return { flowStatus: 0, results: [], errorType: 0, errorMessage: "", flowId: "", runId: "", startResolution: 0 };
+  return { flowStatus: 0, results: [], errorType: 0, errorMessage: "", flowId: "", runId: "" };
 }
 
 export const FlowResult: MessageFns<FlowResult> = {
@@ -3740,9 +3714,6 @@ export const FlowResult: MessageFns<FlowResult> = {
     }
     if (message.runId !== "") {
       writer.uint32(50).string(message.runId);
-    }
-    if (message.startResolution !== 0) {
-      writer.uint32(56).int32(message.startResolution);
     }
     return writer;
   },
@@ -3802,14 +3773,6 @@ export const FlowResult: MessageFns<FlowResult> = {
           message.runId = reader.string();
           continue;
         }
-        case 7: {
-          if (tag !== 56) {
-            break;
-          }
-
-          message.startResolution = reader.int32() as any;
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3830,7 +3793,6 @@ export const FlowResult: MessageFns<FlowResult> = {
     message.errorMessage = object.errorMessage ?? "";
     message.flowId = object.flowId ?? "";
     message.runId = object.runId ?? "";
-    message.startResolution = object.startResolution ?? 0;
     return message;
   },
 };
@@ -10189,15 +10151,14 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
 function createBaseSubFlowCondition(): SubFlowCondition {
   return {
     conditionId: "",
-    flowType: "",
+    subFlowType: "",
     startStepType: "",
     stepInput: undefined,
     stepOptions: undefined,
     options: undefined,
     subFlowIndex: 0,
-    flowId: "",
-    normalizedRequestId: "",
-    startResolution: 0,
+    parentFlowId: "",
+    requestId: "",
   };
 }
 
@@ -10206,8 +10167,8 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
     if (message.conditionId !== "") {
       writer.uint32(10).string(message.conditionId);
     }
-    if (message.flowType !== "") {
-      writer.uint32(18).string(message.flowType);
+    if (message.subFlowType !== "") {
+      writer.uint32(18).string(message.subFlowType);
     }
     if (message.startStepType !== "") {
       writer.uint32(26).string(message.startStepType);
@@ -10224,14 +10185,11 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
     if (message.subFlowIndex !== 0) {
       writer.uint32(56).int32(message.subFlowIndex);
     }
-    if (message.flowId !== "") {
-      writer.uint32(66).string(message.flowId);
+    if (message.parentFlowId !== "") {
+      writer.uint32(66).string(message.parentFlowId);
     }
-    if (message.normalizedRequestId !== "") {
-      writer.uint32(74).string(message.normalizedRequestId);
-    }
-    if (message.startResolution !== 0) {
-      writer.uint32(80).int32(message.startResolution);
+    if (message.requestId !== "") {
+      writer.uint32(74).string(message.requestId);
     }
     return writer;
   },
@@ -10256,7 +10214,7 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
             break;
           }
 
-          message.flowType = reader.string();
+          message.subFlowType = reader.string();
           continue;
         }
         case 3: {
@@ -10304,7 +10262,7 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
             break;
           }
 
-          message.flowId = reader.string();
+          message.parentFlowId = reader.string();
           continue;
         }
         case 9: {
@@ -10312,15 +10270,7 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
             break;
           }
 
-          message.normalizedRequestId = reader.string();
-          continue;
-        }
-        case 10: {
-          if (tag !== 80) {
-            break;
-          }
-
-          message.startResolution = reader.int32() as any;
+          message.requestId = reader.string();
           continue;
         }
       }
@@ -10338,7 +10288,7 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
   fromPartial<I extends Exact<DeepPartial<SubFlowCondition>, I>>(object: I): SubFlowCondition {
     const message = createBaseSubFlowCondition();
     message.conditionId = object.conditionId ?? "";
-    message.flowType = object.flowType ?? "";
+    message.subFlowType = object.subFlowType ?? "";
     message.startStepType = object.startStepType ?? "";
     message.stepInput = (object.stepInput !== undefined && object.stepInput !== null)
       ? Value.fromPartial(object.stepInput)
@@ -10350,9 +10300,8 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
       ? SubFlowOptions.fromPartial(object.options)
       : undefined;
     message.subFlowIndex = object.subFlowIndex ?? 0;
-    message.flowId = object.flowId ?? "";
-    message.normalizedRequestId = object.normalizedRequestId ?? "";
-    message.startResolution = object.startResolution ?? 0;
+    message.parentFlowId = object.parentFlowId ?? "";
+    message.requestId = object.requestId ?? "";
     return message;
   },
 };
@@ -11973,7 +11922,6 @@ function createBaseInterpreterWorkflowInput(): InterpreterWorkflowInput {
     config: undefined,
     isResumeFromContinueAsNew: false,
     continueAsNewInput: undefined,
-    subFlowParent: undefined,
   };
 }
 
@@ -12002,9 +11950,6 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
     }
     if (message.continueAsNewInput !== undefined) {
       ContinueAsNewInput.encode(message.continueAsNewInput, writer.uint32(90).fork()).join();
-    }
-    if (message.subFlowParent !== undefined) {
-      SubFlowParent.encode(message.subFlowParent, writer.uint32(98).fork()).join();
     }
     return writer;
   },
@@ -12080,14 +12025,6 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
           message.continueAsNewInput = ContinueAsNewInput.decode(reader, reader.uint32());
           continue;
         }
-        case 12: {
-          if (tag !== 98) {
-            break;
-          }
-
-          message.subFlowParent = SubFlowParent.decode(reader, reader.uint32());
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -12117,105 +12054,6 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
     message.isResumeFromContinueAsNew = object.isResumeFromContinueAsNew ?? false;
     message.continueAsNewInput = (object.continueAsNewInput !== undefined && object.continueAsNewInput !== null)
       ? ContinueAsNewInput.fromPartial(object.continueAsNewInput)
-      : undefined;
-    message.subFlowParent = (object.subFlowParent !== undefined && object.subFlowParent !== null)
-      ? SubFlowParent.fromPartial(object.subFlowParent)
-      : undefined;
-    return message;
-  },
-};
-
-function createBaseSubFlowParent(): SubFlowParent {
-  return { flowId: "", stepExecutionId: "", subFlowIndex: 0, normalizedRequestId: "", retryPolicy: undefined };
-}
-
-export const SubFlowParent: MessageFns<SubFlowParent> = {
-  encode(message: SubFlowParent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.flowId !== "") {
-      writer.uint32(10).string(message.flowId);
-    }
-    if (message.stepExecutionId !== "") {
-      writer.uint32(18).string(message.stepExecutionId);
-    }
-    if (message.subFlowIndex !== 0) {
-      writer.uint32(24).int32(message.subFlowIndex);
-    }
-    if (message.normalizedRequestId !== "") {
-      writer.uint32(34).string(message.normalizedRequestId);
-    }
-    if (message.retryPolicy !== undefined) {
-      FlowRetryPolicy.encode(message.retryPolicy, writer.uint32(42).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): SubFlowParent {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseSubFlowParent();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.flowId = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.stepExecutionId = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.subFlowIndex = reader.int32();
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.normalizedRequestId = reader.string();
-          continue;
-        }
-        case 5: {
-          if (tag !== 42) {
-            break;
-          }
-
-          message.retryPolicy = FlowRetryPolicy.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  create<I extends Exact<DeepPartial<SubFlowParent>, I>>(base?: I): SubFlowParent {
-    return SubFlowParent.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<SubFlowParent>, I>>(object: I): SubFlowParent {
-    const message = createBaseSubFlowParent();
-    message.flowId = object.flowId ?? "";
-    message.stepExecutionId = object.stepExecutionId ?? "";
-    message.subFlowIndex = object.subFlowIndex ?? 0;
-    message.normalizedRequestId = object.normalizedRequestId ?? "";
-    message.retryPolicy = (object.retryPolicy !== undefined && object.retryPolicy !== null)
-      ? FlowRetryPolicy.fromPartial(object.retryPolicy)
       : undefined;
     return message;
   },
@@ -13253,7 +13091,7 @@ export const SyncAttributeBatchActivityInput: MessageFns<SyncAttributeBatchActiv
 };
 
 function createBaseStartSubFlowActivityInput(): StartSubFlowActivityInput {
-  return { condition: undefined, parent: undefined, parentFlowConfig: undefined };
+  return { condition: undefined, parentFlowConfig: undefined };
 }
 
 export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = {
@@ -13261,11 +13099,8 @@ export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = 
     if (message.condition !== undefined) {
       SubFlowCondition.encode(message.condition, writer.uint32(10).fork()).join();
     }
-    if (message.parent !== undefined) {
-      SubFlowParent.encode(message.parent, writer.uint32(18).fork()).join();
-    }
     if (message.parentFlowConfig !== undefined) {
-      FlowConfig.encode(message.parentFlowConfig, writer.uint32(26).fork()).join();
+      FlowConfig.encode(message.parentFlowConfig, writer.uint32(18).fork()).join();
     }
     return writer;
   },
@@ -13290,14 +13125,6 @@ export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = 
             break;
           }
 
-          message.parent = SubFlowParent.decode(reader, reader.uint32());
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
           message.parentFlowConfig = FlowConfig.decode(reader, reader.uint32());
           continue;
         }
@@ -13318,9 +13145,6 @@ export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = 
     message.condition = (object.condition !== undefined && object.condition !== null)
       ? SubFlowCondition.fromPartial(object.condition)
       : undefined;
-    message.parent = (object.parent !== undefined && object.parent !== null)
-      ? SubFlowParent.fromPartial(object.parent)
-      : undefined;
     message.parentFlowConfig = (object.parentFlowConfig !== undefined && object.parentFlowConfig !== null)
       ? FlowConfig.fromPartial(object.parentFlowConfig)
       : undefined;
@@ -13329,19 +13153,13 @@ export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = 
 };
 
 function createBaseStartSubFlowActivityOutput(): StartSubFlowActivityOutput {
-  return { normalizedRequestId: "", resolution: 0, terminalResult: undefined };
+  return { immediateFlowResult: undefined };
 }
 
 export const StartSubFlowActivityOutput: MessageFns<StartSubFlowActivityOutput> = {
   encode(message: StartSubFlowActivityOutput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.normalizedRequestId !== "") {
-      writer.uint32(10).string(message.normalizedRequestId);
-    }
-    if (message.resolution !== 0) {
-      writer.uint32(16).int32(message.resolution);
-    }
-    if (message.terminalResult !== undefined) {
-      FlowResult.encode(message.terminalResult, writer.uint32(26).fork()).join();
+    if (message.immediateFlowResult !== undefined) {
+      FlowResult.encode(message.immediateFlowResult, writer.uint32(10).fork()).join();
     }
     return writer;
   },
@@ -13358,23 +13176,7 @@ export const StartSubFlowActivityOutput: MessageFns<StartSubFlowActivityOutput> 
             break;
           }
 
-          message.normalizedRequestId = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.resolution = reader.int32() as any;
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.terminalResult = FlowResult.decode(reader, reader.uint32());
+          message.immediateFlowResult = FlowResult.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -13391,32 +13193,21 @@ export const StartSubFlowActivityOutput: MessageFns<StartSubFlowActivityOutput> 
   },
   fromPartial<I extends Exact<DeepPartial<StartSubFlowActivityOutput>, I>>(object: I): StartSubFlowActivityOutput {
     const message = createBaseStartSubFlowActivityOutput();
-    message.normalizedRequestId = object.normalizedRequestId ?? "";
-    message.resolution = object.resolution ?? 0;
-    message.terminalResult = (object.terminalResult !== undefined && object.terminalResult !== null)
-      ? FlowResult.fromPartial(object.terminalResult)
+    message.immediateFlowResult = (object.immediateFlowResult !== undefined && object.immediateFlowResult !== null)
+      ? FlowResult.fromPartial(object.immediateFlowResult)
       : undefined;
     return message;
   },
 };
 
 function createBaseSubFlowCompletionSignalRequest(): SubFlowCompletionSignalRequest {
-  return { stepExecutionId: "", subFlowIndex: 0, normalizedRequestId: "", result: undefined };
+  return { flowResult: undefined };
 }
 
 export const SubFlowCompletionSignalRequest: MessageFns<SubFlowCompletionSignalRequest> = {
   encode(message: SubFlowCompletionSignalRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.stepExecutionId !== "") {
-      writer.uint32(10).string(message.stepExecutionId);
-    }
-    if (message.subFlowIndex !== 0) {
-      writer.uint32(16).int32(message.subFlowIndex);
-    }
-    if (message.normalizedRequestId !== "") {
-      writer.uint32(26).string(message.normalizedRequestId);
-    }
-    if (message.result !== undefined) {
-      FlowResult.encode(message.result, writer.uint32(34).fork()).join();
+    if (message.flowResult !== undefined) {
+      FlowResult.encode(message.flowResult, writer.uint32(10).fork()).join();
     }
     return writer;
   },
@@ -13433,31 +13224,7 @@ export const SubFlowCompletionSignalRequest: MessageFns<SubFlowCompletionSignalR
             break;
           }
 
-          message.stepExecutionId = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.subFlowIndex = reader.int32();
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.normalizedRequestId = reader.string();
-          continue;
-        }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.result = FlowResult.decode(reader, reader.uint32());
+          message.flowResult = FlowResult.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -13476,27 +13243,21 @@ export const SubFlowCompletionSignalRequest: MessageFns<SubFlowCompletionSignalR
     object: I,
   ): SubFlowCompletionSignalRequest {
     const message = createBaseSubFlowCompletionSignalRequest();
-    message.stepExecutionId = object.stepExecutionId ?? "";
-    message.subFlowIndex = object.subFlowIndex ?? 0;
-    message.normalizedRequestId = object.normalizedRequestId ?? "";
-    message.result = (object.result !== undefined && object.result !== null)
-      ? FlowResult.fromPartial(object.result)
+    message.flowResult = (object.flowResult !== undefined && object.flowResult !== null)
+      ? FlowResult.fromPartial(object.flowResult)
       : undefined;
     return message;
   },
 };
 
 function createBaseReportSubFlowCompletionActivityInput(): ReportSubFlowCompletionActivityInput {
-  return { parentFlowId: "", signal: undefined };
+  return { request: undefined };
 }
 
 export const ReportSubFlowCompletionActivityInput: MessageFns<ReportSubFlowCompletionActivityInput> = {
   encode(message: ReportSubFlowCompletionActivityInput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.parentFlowId !== "") {
-      writer.uint32(10).string(message.parentFlowId);
-    }
-    if (message.signal !== undefined) {
-      SubFlowCompletionSignalRequest.encode(message.signal, writer.uint32(18).fork()).join();
+    if (message.request !== undefined) {
+      SubFlowCompletionSignalRequest.encode(message.request, writer.uint32(10).fork()).join();
     }
     return writer;
   },
@@ -13513,15 +13274,7 @@ export const ReportSubFlowCompletionActivityInput: MessageFns<ReportSubFlowCompl
             break;
           }
 
-          message.parentFlowId = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.signal = SubFlowCompletionSignalRequest.decode(reader, reader.uint32());
+          message.request = SubFlowCompletionSignalRequest.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -13542,30 +13295,29 @@ export const ReportSubFlowCompletionActivityInput: MessageFns<ReportSubFlowCompl
     object: I,
   ): ReportSubFlowCompletionActivityInput {
     const message = createBaseReportSubFlowCompletionActivityInput();
-    message.parentFlowId = object.parentFlowId ?? "";
-    message.signal = (object.signal !== undefined && object.signal !== null)
-      ? SubFlowCompletionSignalRequest.fromPartial(object.signal)
+    message.request = (object.request !== undefined && object.request !== null)
+      ? SubFlowCompletionSignalRequest.fromPartial(object.request)
       : undefined;
     return message;
   },
 };
 
-function createBaseSubFlowCompletionDeliveryResult(): SubFlowCompletionDeliveryResult {
+function createBaseReportSubFlowCompletionActivityOutput(): ReportSubFlowCompletionActivityOutput {
   return { status: 0 };
 }
 
-export const SubFlowCompletionDeliveryResult: MessageFns<SubFlowCompletionDeliveryResult> = {
-  encode(message: SubFlowCompletionDeliveryResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const ReportSubFlowCompletionActivityOutput: MessageFns<ReportSubFlowCompletionActivityOutput> = {
+  encode(message: ReportSubFlowCompletionActivityOutput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.status !== 0) {
       writer.uint32(8).int32(message.status);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): SubFlowCompletionDeliveryResult {
+  decode(input: BinaryReader | Uint8Array, length?: number): ReportSubFlowCompletionActivityOutput {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseSubFlowCompletionDeliveryResult();
+    const message = createBaseReportSubFlowCompletionActivityOutput();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -13586,13 +13338,15 @@ export const SubFlowCompletionDeliveryResult: MessageFns<SubFlowCompletionDelive
     return message;
   },
 
-  create<I extends Exact<DeepPartial<SubFlowCompletionDeliveryResult>, I>>(base?: I): SubFlowCompletionDeliveryResult {
-    return SubFlowCompletionDeliveryResult.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<ReportSubFlowCompletionActivityOutput>, I>>(
+    base?: I,
+  ): ReportSubFlowCompletionActivityOutput {
+    return ReportSubFlowCompletionActivityOutput.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<SubFlowCompletionDeliveryResult>, I>>(
+  fromPartial<I extends Exact<DeepPartial<ReportSubFlowCompletionActivityOutput>, I>>(
     object: I,
-  ): SubFlowCompletionDeliveryResult {
-    const message = createBaseSubFlowCompletionDeliveryResult();
+  ): ReportSubFlowCompletionActivityOutput {
+    const message = createBaseReportSubFlowCompletionActivityOutput();
     message.status = object.status ?? 0;
     return message;
   },

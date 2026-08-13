@@ -108,6 +108,20 @@ func doTestSubFlowCondition(t *testing.T, backendType service.BackendType) {
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, firstChild.GetFlowStatus())
 	require.Equal(t, startResponse.GetRunId()+subFlowParentStep+"-1", firstChild.GetRequestId())
+	childDescription, err := runtime.UnifiedClient.DescribeWorkflowExecution(
+		ctx,
+		childFlowID,
+		firstChild.GetFlowExecutionId().GetRunId(),
+		map[string]dexpb.IndexType{
+			service.SearchAttributeDexParentFlowID: dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		},
+	)
+	require.NoError(t, err)
+	require.Equal(
+		t,
+		parentFlowID,
+		childDescription.IndexedAttributes[service.SearchAttributeDexParentFlowID].GetStringValue(),
+	)
 
 	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
 		FlowId:    parentFlowID,
@@ -147,7 +161,7 @@ func (h *subFlowHandler) InvokeWaitForMethod(
 		WaitingCondition: &dexpb.WaitingCondition{
 			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			SubFlowConditions: []*dexpb.SubFlowCondition{{
-				FlowType:      subFlowChildType,
+				SubFlowType:   subFlowChildType,
 				StartStepType: subFlowChildStep,
 				StepInput:     request.GetStepInput(),
 				StepOptions:   &dexpb.StepOptions{SkipWaitFor: true},

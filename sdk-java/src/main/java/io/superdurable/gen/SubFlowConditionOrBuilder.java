@@ -31,16 +31,16 @@ public interface SubFlowConditionOrBuilder extends
       getConditionIdBytes();
 
   /**
-   * <code>string flow_type = 2;</code>
-   * @return The flowType.
+   * <code>string sub_flow_type = 2;</code>
+   * @return The subFlowType.
    */
-  java.lang.String getFlowType();
+  java.lang.String getSubFlowType();
   /**
-   * <code>string flow_type = 2;</code>
-   * @return The bytes for flowType.
+   * <code>string sub_flow_type = 2;</code>
+   * @return The bytes for subFlowType.
    */
   com.google.protobuf.ByteString
-      getFlowTypeBytes();
+      getSubFlowTypeBytes();
 
   /**
    * <code>string start_step_type = 3;</code>
@@ -110,49 +110,38 @@ public interface SubFlowConditionOrBuilder extends
    * Server-generated during WaitFor normalization.
    * </pre>
    *
-   * <code>string flow_id = 8;</code>
-   * @return The flowId.
+   * <code>string parent_flow_id = 8;</code>
+   * @return The parentFlowId.
    */
-  java.lang.String getFlowId();
+  java.lang.String getParentFlowId();
   /**
    * <pre>
    * Server-generated during WaitFor normalization.
    * </pre>
    *
-   * <code>string flow_id = 8;</code>
-   * @return The bytes for flowId.
+   * <code>string parent_flow_id = 8;</code>
+   * @return The bytes for parentFlowId.
    */
   com.google.protobuf.ByteString
-      getFlowIdBytes();
+      getParentFlowIdBytes();
 
   /**
    * <pre>
-   * Server-normalized after start or attach.
+   * Server-generated during WaitFor normalization.
    * </pre>
    *
-   * <code>string normalized_request_id = 9;</code>
-   * @return The normalizedRequestId.
+   * <code>string request_id = 9;</code>
+   * @return The requestId.
    */
-  java.lang.String getNormalizedRequestId();
+  java.lang.String getRequestId();
   /**
    * <pre>
-   * Server-normalized after start or attach.
+   * Server-generated during WaitFor normalization.
    * </pre>
    *
-   * <code>string normalized_request_id = 9;</code>
-   * @return The bytes for normalizedRequestId.
+   * <code>string request_id = 9;</code>
+   * @return The bytes for requestId.
    */
   com.google.protobuf.ByteString
-      getNormalizedRequestIdBytes();
-
-  /**
-   * <code>.dex.SubFlowStartResolution start_resolution = 10;</code>
-   * @return The enum numeric value on the wire for startResolution.
-   */
-  int getStartResolutionValue();
-  /**
-   * <code>.dex.SubFlowStartResolution start_resolution = 10;</code>
-   * @return The startResolution.
-   */
-  io.superdurable.gen.SubFlowStartResolution getStartResolution();
+      getRequestIdBytes();
 }

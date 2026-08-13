@@ -160,13 +160,6 @@ class UpdateErrorType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE: _ClassVar[UpdateErrorType]
     UPDATE_ERROR_TYPE_SERVER_INTERNAL: _ClassVar[UpdateErrorType]
 
-class SubFlowStartResolution(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
-    __slots__ = ()
-    SUB_FLOW_START_RESOLUTION_UNSPECIFIED: _ClassVar[SubFlowStartResolution]
-    SUB_FLOW_START_RESOLUTION_STARTED: _ClassVar[SubFlowStartResolution]
-    SUB_FLOW_START_RESOLUTION_ATTACHED_RUNNING: _ClassVar[SubFlowStartResolution]
-    SUB_FLOW_START_RESOLUTION_ATTACHED_TERMINAL: _ClassVar[SubFlowStartResolution]
-
 class SubFlowCompletionDeliveryStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED: _ClassVar[SubFlowCompletionDeliveryStatus]
@@ -262,10 +255,6 @@ UPDATE_ERROR_TYPE_FAILED_PRECONDITION: UpdateErrorType
 UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED: UpdateErrorType
 UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE: UpdateErrorType
 UPDATE_ERROR_TYPE_SERVER_INTERNAL: UpdateErrorType
-SUB_FLOW_START_RESOLUTION_UNSPECIFIED: SubFlowStartResolution
-SUB_FLOW_START_RESOLUTION_STARTED: SubFlowStartResolution
-SUB_FLOW_START_RESOLUTION_ATTACHED_RUNNING: SubFlowStartResolution
-SUB_FLOW_START_RESOLUTION_ATTACHED_TERMINAL: SubFlowStartResolution
 SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED: SubFlowCompletionDeliveryStatus
 SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED: SubFlowCompletionDeliveryStatus
 SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND: SubFlowCompletionDeliveryStatus
@@ -594,22 +583,20 @@ class StepCompletionOutput(_message.Message):
     def __init__(self, completed_step_type: _Optional[str] = ..., completed_step_execution_id: _Optional[str] = ..., completed_step_output: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class FlowResult(_message.Message):
-    __slots__ = ("flow_status", "results", "error_type", "error_message", "flow_id", "run_id", "start_resolution")
+    __slots__ = ("flow_status", "results", "error_type", "error_message", "flow_id", "run_id")
     FLOW_STATUS_FIELD_NUMBER: _ClassVar[int]
     RESULTS_FIELD_NUMBER: _ClassVar[int]
     ERROR_TYPE_FIELD_NUMBER: _ClassVar[int]
     ERROR_MESSAGE_FIELD_NUMBER: _ClassVar[int]
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
-    START_RESOLUTION_FIELD_NUMBER: _ClassVar[int]
     flow_status: FlowStatus
     results: _containers.RepeatedCompositeFieldContainer[StepCompletionOutput]
     error_type: FlowErrorType
     error_message: str
     flow_id: str
     run_id: str
-    start_resolution: SubFlowStartResolution
-    def __init__(self, flow_status: _Optional[_Union[FlowStatus, str]] = ..., results: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., error_type: _Optional[_Union[FlowErrorType, str]] = ..., error_message: _Optional[str] = ..., flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., start_resolution: _Optional[_Union[SubFlowStartResolution, str]] = ...) -> None: ...
+    def __init__(self, flow_status: _Optional[_Union[FlowStatus, str]] = ..., results: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., error_type: _Optional[_Union[FlowErrorType, str]] = ..., error_message: _Optional[str] = ..., flow_id: _Optional[str] = ..., run_id: _Optional[str] = ...) -> None: ...
 
 class SearchFlowsRequest(_message.Message):
     __slots__ = ("query", "page_size", "next_page_token")
@@ -1450,28 +1437,26 @@ class SubFlowOptions(_message.Message):
     def __init__(self, reuse_policy: _Optional[_Union[SubFlowReusePolicy, str]] = ..., flow_timeout_seconds: _Optional[int] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
 
 class SubFlowCondition(_message.Message):
-    __slots__ = ("condition_id", "flow_type", "start_step_type", "step_input", "step_options", "options", "sub_flow_index", "flow_id", "normalized_request_id", "start_resolution")
+    __slots__ = ("condition_id", "sub_flow_type", "start_step_type", "step_input", "step_options", "options", "sub_flow_index", "parent_flow_id", "request_id")
     CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
-    FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
+    SUB_FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     START_STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_INPUT_FIELD_NUMBER: _ClassVar[int]
     STEP_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     OPTIONS_FIELD_NUMBER: _ClassVar[int]
     SUB_FLOW_INDEX_FIELD_NUMBER: _ClassVar[int]
-    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    NORMALIZED_REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
-    START_RESOLUTION_FIELD_NUMBER: _ClassVar[int]
+    PARENT_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     condition_id: str
-    flow_type: str
+    sub_flow_type: str
     start_step_type: str
     step_input: Value
     step_options: StepOptions
     options: SubFlowOptions
     sub_flow_index: int
-    flow_id: str
-    normalized_request_id: str
-    start_resolution: SubFlowStartResolution
-    def __init__(self, condition_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., options: _Optional[_Union[SubFlowOptions, _Mapping]] = ..., sub_flow_index: _Optional[int] = ..., flow_id: _Optional[str] = ..., normalized_request_id: _Optional[str] = ..., start_resolution: _Optional[_Union[SubFlowStartResolution, str]] = ...) -> None: ...
+    parent_flow_id: str
+    request_id: str
+    def __init__(self, condition_id: _Optional[str] = ..., sub_flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., options: _Optional[_Union[SubFlowOptions, _Mapping]] = ..., sub_flow_index: _Optional[int] = ..., parent_flow_id: _Optional[str] = ..., request_id: _Optional[str] = ...) -> None: ...
 
 class TimerCondition(_message.Message):
     __slots__ = ("condition_id", "duration_seconds", "firing_unix_timestamp_seconds")
@@ -1670,7 +1655,7 @@ class ContinueAsNewInput(_message.Message):
     def __init__(self, previous_internal_run_id: _Optional[str] = ...) -> None: ...
 
 class InterpreterWorkflowInput(_message.Message):
-    __slots__ = ("flow_type", "start_step_type", "step_input", "step_options", "init_attributes", "config", "is_resume_from_continue_as_new", "continue_as_new_input", "sub_flow_parent")
+    __slots__ = ("flow_type", "start_step_type", "step_input", "step_options", "init_attributes", "config", "is_resume_from_continue_as_new", "continue_as_new_input")
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     START_STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_INPUT_FIELD_NUMBER: _ClassVar[int]
@@ -1679,7 +1664,6 @@ class InterpreterWorkflowInput(_message.Message):
     CONFIG_FIELD_NUMBER: _ClassVar[int]
     IS_RESUME_FROM_CONTINUE_AS_NEW_FIELD_NUMBER: _ClassVar[int]
     CONTINUE_AS_NEW_INPUT_FIELD_NUMBER: _ClassVar[int]
-    SUB_FLOW_PARENT_FIELD_NUMBER: _ClassVar[int]
     flow_type: str
     start_step_type: str
     step_input: Value
@@ -1688,22 +1672,7 @@ class InterpreterWorkflowInput(_message.Message):
     config: FlowConfig
     is_resume_from_continue_as_new: bool
     continue_as_new_input: ContinueAsNewInput
-    sub_flow_parent: SubFlowParent
-    def __init__(self, flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., init_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., config: _Optional[_Union[FlowConfig, _Mapping]] = ..., is_resume_from_continue_as_new: _Optional[bool] = ..., continue_as_new_input: _Optional[_Union[ContinueAsNewInput, _Mapping]] = ..., sub_flow_parent: _Optional[_Union[SubFlowParent, _Mapping]] = ...) -> None: ...
-
-class SubFlowParent(_message.Message):
-    __slots__ = ("flow_id", "step_execution_id", "sub_flow_index", "normalized_request_id", "retry_policy")
-    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
-    SUB_FLOW_INDEX_FIELD_NUMBER: _ClassVar[int]
-    NORMALIZED_REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
-    RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
-    flow_id: str
-    step_execution_id: str
-    sub_flow_index: int
-    normalized_request_id: str
-    retry_policy: FlowRetryPolicy
-    def __init__(self, flow_id: _Optional[str] = ..., step_execution_id: _Optional[str] = ..., sub_flow_index: _Optional[int] = ..., normalized_request_id: _Optional[str] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ...) -> None: ...
+    def __init__(self, flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., init_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., config: _Optional[_Union[FlowConfig, _Mapping]] = ..., is_resume_from_continue_as_new: _Optional[bool] = ..., continue_as_new_input: _Optional[_Union[ContinueAsNewInput, _Mapping]] = ...) -> None: ...
 
 class InterpreterWorkflowOutput(_message.Message):
     __slots__ = ("step_completion_outputs",)
@@ -1836,46 +1805,32 @@ class SyncAttributeBatchActivityInput(_message.Message):
     def __init__(self, flow_id: _Optional[str] = ..., config_name: _Optional[str] = ..., items: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
 
 class StartSubFlowActivityInput(_message.Message):
-    __slots__ = ("condition", "parent", "parent_flow_config")
+    __slots__ = ("condition", "parent_flow_config")
     CONDITION_FIELD_NUMBER: _ClassVar[int]
-    PARENT_FIELD_NUMBER: _ClassVar[int]
     PARENT_FLOW_CONFIG_FIELD_NUMBER: _ClassVar[int]
     condition: SubFlowCondition
-    parent: SubFlowParent
     parent_flow_config: FlowConfig
-    def __init__(self, condition: _Optional[_Union[SubFlowCondition, _Mapping]] = ..., parent: _Optional[_Union[SubFlowParent, _Mapping]] = ..., parent_flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
+    def __init__(self, condition: _Optional[_Union[SubFlowCondition, _Mapping]] = ..., parent_flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
 
 class StartSubFlowActivityOutput(_message.Message):
-    __slots__ = ("normalized_request_id", "resolution", "terminal_result")
-    NORMALIZED_REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
-    RESOLUTION_FIELD_NUMBER: _ClassVar[int]
-    TERMINAL_RESULT_FIELD_NUMBER: _ClassVar[int]
-    normalized_request_id: str
-    resolution: SubFlowStartResolution
-    terminal_result: FlowResult
-    def __init__(self, normalized_request_id: _Optional[str] = ..., resolution: _Optional[_Union[SubFlowStartResolution, str]] = ..., terminal_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
+    __slots__ = ("immediate_flow_result",)
+    IMMEDIATE_FLOW_RESULT_FIELD_NUMBER: _ClassVar[int]
+    immediate_flow_result: FlowResult
+    def __init__(self, immediate_flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
 
 class SubFlowCompletionSignalRequest(_message.Message):
-    __slots__ = ("step_execution_id", "sub_flow_index", "normalized_request_id", "result")
-    STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
-    SUB_FLOW_INDEX_FIELD_NUMBER: _ClassVar[int]
-    NORMALIZED_REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
-    RESULT_FIELD_NUMBER: _ClassVar[int]
-    step_execution_id: str
-    sub_flow_index: int
-    normalized_request_id: str
-    result: FlowResult
-    def __init__(self, step_execution_id: _Optional[str] = ..., sub_flow_index: _Optional[int] = ..., normalized_request_id: _Optional[str] = ..., result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
+    __slots__ = ("flow_result",)
+    FLOW_RESULT_FIELD_NUMBER: _ClassVar[int]
+    flow_result: FlowResult
+    def __init__(self, flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
 
 class ReportSubFlowCompletionActivityInput(_message.Message):
-    __slots__ = ("parent_flow_id", "signal")
-    PARENT_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    SIGNAL_FIELD_NUMBER: _ClassVar[int]
-    parent_flow_id: str
-    signal: SubFlowCompletionSignalRequest
-    def __init__(self, parent_flow_id: _Optional[str] = ..., signal: _Optional[_Union[SubFlowCompletionSignalRequest, _Mapping]] = ...) -> None: ...
+    __slots__ = ("request",)
+    REQUEST_FIELD_NUMBER: _ClassVar[int]
+    request: SubFlowCompletionSignalRequest
+    def __init__(self, request: _Optional[_Union[SubFlowCompletionSignalRequest, _Mapping]] = ...) -> None: ...
 
-class SubFlowCompletionDeliveryResult(_message.Message):
+class ReportSubFlowCompletionActivityOutput(_message.Message):
     __slots__ = ("status",)
     STATUS_FIELD_NUMBER: _ClassVar[int]
     status: SubFlowCompletionDeliveryStatus

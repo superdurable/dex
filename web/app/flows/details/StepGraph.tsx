@@ -212,7 +212,7 @@ function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
       <span><ConditionIcon type="subflow" />SubFlow · {flow.subFlowStatus}</span>
       <b>{flow.flowType ?? flow.label}</b>
       <code title={flow.flowId}>{flow.flowId}</code>
-      {flow.reuseResolution && <small>{flow.reuseResolution.replaceAll('_', ' ')}</small>}
+      {flow.reusePolicy && <small>{flow.reusePolicy}</small>}
     </Link>
   );
 }

@@ -91,15 +91,4 @@ public interface FlowResultOrBuilder extends
    */
   com.google.protobuf.ByteString
       getRunIdBytes();
-
-  /**
-   * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
-   * @return The enum numeric value on the wire for startResolution.
-   */
-  int getStartResolutionValue();
-  /**
-   * <code>.dex.SubFlowStartResolution start_resolution = 7;</code>
-   * @return The startResolution.
-   */
-  io.superdurable.gen.SubFlowStartResolution getStartResolution();
 }

@@ -28,8 +28,6 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private SubFlowCompletionSignalRequest() {
-    stepExecutionId_ = "";
-    normalizedRequestId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -51,119 +49,30 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int STEP_EXECUTION_ID_FIELD_NUMBER = 1;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object stepExecutionId_ = "";
+  public static final int FLOW_RESULT_FIELD_NUMBER = 1;
+  private io.superdurable.gen.FlowResult flowResult_;
   /**
-   * <code>string step_execution_id = 1;</code>
-   * @return The stepExecutionId.
+   * <code>.dex.FlowResult flow_result = 1;</code>
+   * @return Whether the flowResult field is set.
    */
   @java.lang.Override
-  public java.lang.String getStepExecutionId() {
-    java.lang.Object ref = stepExecutionId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      stepExecutionId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string step_execution_id = 1;</code>
-   * @return The bytes for stepExecutionId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getStepExecutionIdBytes() {
-    java.lang.Object ref = stepExecutionId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      stepExecutionId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int SUB_FLOW_INDEX_FIELD_NUMBER = 2;
-  private int subFlowIndex_ = 0;
-  /**
-   * <code>int32 sub_flow_index = 2;</code>
-   * @return The subFlowIndex.
-   */
-  @java.lang.Override
-  public int getSubFlowIndex() {
-    return subFlowIndex_;
-  }
-
-  public static final int NORMALIZED_REQUEST_ID_FIELD_NUMBER = 3;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object normalizedRequestId_ = "";
-  /**
-   * <code>string normalized_request_id = 3;</code>
-   * @return The normalizedRequestId.
-   */
-  @java.lang.Override
-  public java.lang.String getNormalizedRequestId() {
-    java.lang.Object ref = normalizedRequestId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      normalizedRequestId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string normalized_request_id = 3;</code>
-   * @return The bytes for normalizedRequestId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getNormalizedRequestIdBytes() {
-    java.lang.Object ref = normalizedRequestId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      normalizedRequestId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int RESULT_FIELD_NUMBER = 4;
-  private io.superdurable.gen.FlowResult result_;
-  /**
-   * <code>.dex.FlowResult result = 4;</code>
-   * @return Whether the result field is set.
-   */
-  @java.lang.Override
-  public boolean hasResult() {
+  public boolean hasFlowResult() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.FlowResult result = 4;</code>
-   * @return The result.
+   * <code>.dex.FlowResult flow_result = 1;</code>
+   * @return The flowResult.
    */
   @java.lang.Override
-  public io.superdurable.gen.FlowResult getResult() {
-    return result_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : result_;
+  public io.superdurable.gen.FlowResult getFlowResult() {
+    return flowResult_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : flowResult_;
   }
   /**
-   * <code>.dex.FlowResult result = 4;</code>
+   * <code>.dex.FlowResult flow_result = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.FlowResultOrBuilder getResultOrBuilder() {
-    return result_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : result_;
+  public io.superdurable.gen.FlowResultOrBuilder getFlowResultOrBuilder() {
+    return flowResult_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : flowResult_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -180,35 +89,16 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepExecutionId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, stepExecutionId_);
-    }
-    if (subFlowIndex_ != 0) {
-      output.writeInt32(2, subFlowIndex_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(normalizedRequestId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 3, normalizedRequestId_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(4, getResult());
+      output.writeMessage(1, getFlowResult());
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepExecutionId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, stepExecutionId_);
-    }
-    if (subFlowIndex_ != 0) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(2, subFlowIndex_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(normalizedRequestId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(3, normalizedRequestId_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(4, getResult());
+        .computeMessageSize(1, getFlowResult());
     }
     return size;
   }
@@ -234,16 +124,10 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.SubFlowCompletionSignalRequest other = (io.superdurable.gen.SubFlowCompletionSignalRequest) obj;
 
-    if (!getStepExecutionId()
-        .equals(other.getStepExecutionId())) return false;
-    if (getSubFlowIndex()
-        != other.getSubFlowIndex()) return false;
-    if (!getNormalizedRequestId()
-        .equals(other.getNormalizedRequestId())) return false;
-    if (hasResult() != other.hasResult()) return false;
-    if (hasResult()) {
-      if (!getResult()
-          .equals(other.getResult())) return false;
+    if (hasFlowResult() != other.hasFlowResult()) return false;
+    if (hasFlowResult()) {
+      if (!getFlowResult()
+          .equals(other.getFlowResult())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -256,15 +140,9 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + STEP_EXECUTION_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getStepExecutionId().hashCode();
-    hash = (37 * hash) + SUB_FLOW_INDEX_FIELD_NUMBER;
-    hash = (53 * hash) + getSubFlowIndex();
-    hash = (37 * hash) + NORMALIZED_REQUEST_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getNormalizedRequestId().hashCode();
-    if (hasResult()) {
-      hash = (37 * hash) + RESULT_FIELD_NUMBER;
-      hash = (53 * hash) + getResult().hashCode();
+    if (hasFlowResult()) {
+      hash = (37 * hash) + FLOW_RESULT_FIELD_NUMBER;
+      hash = (53 * hash) + getFlowResult().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -396,20 +274,17 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetResultFieldBuilder();
+        internalGetFlowResultFieldBuilder();
       }
     }
     @java.lang.Override
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      stepExecutionId_ = "";
-      subFlowIndex_ = 0;
-      normalizedRequestId_ = "";
-      result_ = null;
-      if (resultBuilder_ != null) {
-        resultBuilder_.dispose();
-        resultBuilder_ = null;
+      flowResult_ = null;
+      if (flowResultBuilder_ != null) {
+        flowResultBuilder_.dispose();
+        flowResultBuilder_ = null;
       }
       return this;
     }
@@ -444,20 +319,11 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartial0(io.superdurable.gen.SubFlowCompletionSignalRequest result) {
       int from_bitField0_ = bitField0_;
-      if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.stepExecutionId_ = stepExecutionId_;
-      }
-      if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.subFlowIndex_ = subFlowIndex_;
-      }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.normalizedRequestId_ = normalizedRequestId_;
-      }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000008) != 0)) {
-        result.result_ = resultBuilder_ == null
-            ? result_
-            : resultBuilder_.build();
+      if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.flowResult_ = flowResultBuilder_ == null
+            ? flowResult_
+            : flowResultBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       result.bitField0_ |= to_bitField0_;
@@ -475,21 +341,8 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.SubFlowCompletionSignalRequest other) {
       if (other == io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance()) return this;
-      if (!other.getStepExecutionId().isEmpty()) {
-        stepExecutionId_ = other.stepExecutionId_;
-        bitField0_ |= 0x00000001;
-        onChanged();
-      }
-      if (other.getSubFlowIndex() != 0) {
-        setSubFlowIndex(other.getSubFlowIndex());
-      }
-      if (!other.getNormalizedRequestId().isEmpty()) {
-        normalizedRequestId_ = other.normalizedRequestId_;
-        bitField0_ |= 0x00000004;
-        onChanged();
-      }
-      if (other.hasResult()) {
-        mergeResult(other.getResult());
+      if (other.hasFlowResult()) {
+        mergeFlowResult(other.getFlowResult());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -518,27 +371,12 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              stepExecutionId_ = input.readStringRequireUtf8();
+              input.readMessage(
+                  internalGetFlowResultFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 16: {
-              subFlowIndex_ = input.readInt32();
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 16
-            case 26: {
-              normalizedRequestId_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 26
-            case 34: {
-              input.readMessage(
-                  internalGetResultFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000008;
-              break;
-            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -556,301 +394,125 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object stepExecutionId_ = "";
-    /**
-     * <code>string step_execution_id = 1;</code>
-     * @return The stepExecutionId.
-     */
-    public java.lang.String getStepExecutionId() {
-      java.lang.Object ref = stepExecutionId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        stepExecutionId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string step_execution_id = 1;</code>
-     * @return The bytes for stepExecutionId.
-     */
-    public com.google.protobuf.ByteString
-        getStepExecutionIdBytes() {
-      java.lang.Object ref = stepExecutionId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        stepExecutionId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string step_execution_id = 1;</code>
-     * @param value The stepExecutionId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setStepExecutionId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      stepExecutionId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string step_execution_id = 1;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearStepExecutionId() {
-      stepExecutionId_ = getDefaultInstance().getStepExecutionId();
-      bitField0_ = (bitField0_ & ~0x00000001);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string step_execution_id = 1;</code>
-     * @param value The bytes for stepExecutionId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setStepExecutionIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      stepExecutionId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-
-    private int subFlowIndex_ ;
-    /**
-     * <code>int32 sub_flow_index = 2;</code>
-     * @return The subFlowIndex.
-     */
-    @java.lang.Override
-    public int getSubFlowIndex() {
-      return subFlowIndex_;
-    }
-    /**
-     * <code>int32 sub_flow_index = 2;</code>
-     * @param value The subFlowIndex to set.
-     * @return This builder for chaining.
-     */
-    public Builder setSubFlowIndex(int value) {
-
-      subFlowIndex_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>int32 sub_flow_index = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearSubFlowIndex() {
-      bitField0_ = (bitField0_ & ~0x00000002);
-      subFlowIndex_ = 0;
-      onChanged();
-      return this;
-    }
-
-    private java.lang.Object normalizedRequestId_ = "";
-    /**
-     * <code>string normalized_request_id = 3;</code>
-     * @return The normalizedRequestId.
-     */
-    public java.lang.String getNormalizedRequestId() {
-      java.lang.Object ref = normalizedRequestId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        normalizedRequestId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string normalized_request_id = 3;</code>
-     * @return The bytes for normalizedRequestId.
-     */
-    public com.google.protobuf.ByteString
-        getNormalizedRequestIdBytes() {
-      java.lang.Object ref = normalizedRequestId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        normalizedRequestId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string normalized_request_id = 3;</code>
-     * @param value The normalizedRequestId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setNormalizedRequestId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      normalizedRequestId_ = value;
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string normalized_request_id = 3;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearNormalizedRequestId() {
-      normalizedRequestId_ = getDefaultInstance().getNormalizedRequestId();
-      bitField0_ = (bitField0_ & ~0x00000004);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string normalized_request_id = 3;</code>
-     * @param value The bytes for normalizedRequestId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setNormalizedRequestIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      normalizedRequestId_ = value;
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-
-    private io.superdurable.gen.FlowResult result_;
+    private io.superdurable.gen.FlowResult flowResult_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder> resultBuilder_;
+        io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder> flowResultBuilder_;
     /**
-     * <code>.dex.FlowResult result = 4;</code>
-     * @return Whether the result field is set.
+     * <code>.dex.FlowResult flow_result = 1;</code>
+     * @return Whether the flowResult field is set.
      */
-    public boolean hasResult() {
-      return ((bitField0_ & 0x00000008) != 0);
+    public boolean hasFlowResult() {
+      return ((bitField0_ & 0x00000001) != 0);
     }
     /**
-     * <code>.dex.FlowResult result = 4;</code>
-     * @return The result.
+     * <code>.dex.FlowResult flow_result = 1;</code>
+     * @return The flowResult.
      */
-    public io.superdurable.gen.FlowResult getResult() {
-      if (resultBuilder_ == null) {
-        return result_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : result_;
+    public io.superdurable.gen.FlowResult getFlowResult() {
+      if (flowResultBuilder_ == null) {
+        return flowResult_ == null ? io.superdurable.gen.FlowResult.getDefaultInstance() : flowResult_;
       } else {
-        return resultBuilder_.getMessage();
+        return flowResultBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.FlowResult result = 4;</code>
+     * <code>.dex.FlowResult flow_result = 1;</code>
      */
-    public Builder setResult(io.superdurable.gen.FlowResult value) {
-      if (resultBuilder_ == null) {
+    public Builder setFlowResult(io.superdurable.gen.FlowResult value) {
+      if (flowResultBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        result_ = value;
+        flowResult_ = value;
       } else {
-        resultBuilder_.setMessage(value);
+        flowResultBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowResult result = 4;</code>
+     * <code>.dex.FlowResult flow_result = 1;</code>
      */
-    public Builder setResult(
+    public Builder setFlowResult(
         io.superdurable.gen.FlowResult.Builder builderForValue) {
-      if (resultBuilder_ == null) {
-        result_ = builderForValue.build();
+      if (flowResultBuilder_ == null) {
+        flowResult_ = builderForValue.build();
       } else {
-        resultBuilder_.setMessage(builderForValue.build());
+        flowResultBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowResult result = 4;</code>
+     * <code>.dex.FlowResult flow_result = 1;</code>
      */
-    public Builder mergeResult(io.superdurable.gen.FlowResult value) {
-      if (resultBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0) &&
-          result_ != null &&
-          result_ != io.superdurable.gen.FlowResult.getDefaultInstance()) {
-          getResultBuilder().mergeFrom(value);
+    public Builder mergeFlowResult(io.superdurable.gen.FlowResult value) {
+      if (flowResultBuilder_ == null) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          flowResult_ != null &&
+          flowResult_ != io.superdurable.gen.FlowResult.getDefaultInstance()) {
+          getFlowResultBuilder().mergeFrom(value);
         } else {
-          result_ = value;
+          flowResult_ = value;
         }
       } else {
-        resultBuilder_.mergeFrom(value);
+        flowResultBuilder_.mergeFrom(value);
       }
-      if (result_ != null) {
-        bitField0_ |= 0x00000008;
+      if (flowResult_ != null) {
+        bitField0_ |= 0x00000001;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.FlowResult result = 4;</code>
+     * <code>.dex.FlowResult flow_result = 1;</code>
      */
-    public Builder clearResult() {
-      bitField0_ = (bitField0_ & ~0x00000008);
-      result_ = null;
-      if (resultBuilder_ != null) {
-        resultBuilder_.dispose();
-        resultBuilder_ = null;
+    public Builder clearFlowResult() {
+      bitField0_ = (bitField0_ & ~0x00000001);
+      flowResult_ = null;
+      if (flowResultBuilder_ != null) {
+        flowResultBuilder_.dispose();
+        flowResultBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowResult result = 4;</code>
+     * <code>.dex.FlowResult flow_result = 1;</code>
      */
-    public io.superdurable.gen.FlowResult.Builder getResultBuilder() {
-      bitField0_ |= 0x00000008;
+    public io.superdurable.gen.FlowResult.Builder getFlowResultBuilder() {
+      bitField0_ |= 0x00000001;
       onChanged();
-      return internalGetResultFieldBuilder().getBuilder();
+      return internalGetFlowResultFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.FlowResult result = 4;</code>
+     * <code>.dex.FlowResult flow_result = 1;</code>
      */
-    public io.superdurable.gen.FlowResultOrBuilder getResultOrBuilder() {
-      if (resultBuilder_ != null) {
-        return resultBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.FlowResultOrBuilder getFlowResultOrBuilder() {
+      if (flowResultBuilder_ != null) {
+        return flowResultBuilder_.getMessageOrBuilder();
       } else {
-        return result_ == null ?
-            io.superdurable.gen.FlowResult.getDefaultInstance() : result_;
+        return flowResult_ == null ?
+            io.superdurable.gen.FlowResult.getDefaultInstance() : flowResult_;
       }
     }
     /**
-     * <code>.dex.FlowResult result = 4;</code>
+     * <code>.dex.FlowResult flow_result = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder> 
-        internalGetResultFieldBuilder() {
-      if (resultBuilder_ == null) {
-        resultBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+        internalGetFlowResultFieldBuilder() {
+      if (flowResultBuilder_ == null) {
+        flowResultBuilder_ = new com.google.protobuf.SingleFieldBuilder<
             io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder>(
-                getResult(),
+                getFlowResult(),
                 getParentForChildren(),
                 isClean());
-        result_ = null;
+        flowResult_ = null;
       }
-      return resultBuilder_;
+      return flowResultBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.SubFlowCompletionSignalRequest)

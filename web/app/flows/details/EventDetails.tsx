@@ -30,7 +30,6 @@ import {
   flowStatusLabel,
   grpcStatusLabel,
   subFlowReusePolicyLabel,
-  subFlowStartResolutionLabel,
   waitForFailurePolicyLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
@@ -322,9 +321,11 @@ function WaitingConditionView({ value }: { value: unknown }) {
 
 function WaitingConditionContent({
   value,
+  stepExecutionId = '',
   showEmpty = false,
 }: {
   value: unknown;
+  stepExecutionId?: string;
   showEmpty?: boolean;
 }) {
   const { timezone } = usePreferences();
@@ -371,7 +372,12 @@ function WaitingConditionContent({
       {subFlows.length > 0 && (
         <div className="semantic-records sub-flow-records">
           {subFlows.map((subFlow, index) => (
-            <SubFlowRecord value={subFlow} index={index} key={`${String(subFlow.flowId)}-${index}`} />
+            <SubFlowRecord
+              value={subFlow}
+              index={index}
+              stepExecutionId={stepExecutionId}
+              key={`${String(subFlow.parentFlowId)}-${index}`}
+            />
           ))}
         </div>
       )}
@@ -441,23 +447,31 @@ function ConditionResultsContent({ value, showEmpty = false }: { value: unknown;
   );
 }
 
-function SubFlowRecord({ value, index }: { value: Data; index: number }) {
+function SubFlowRecord({
+  value,
+  index,
+  stepExecutionId,
+}: {
+  value: Data;
+  index: number;
+  stepExecutionId: string;
+}) {
   const options = asData(value.options);
   const retry = asData(options.retryPolicy);
-  const flowId = typeof value.flowId === 'string' ? value.flowId : '';
+  const flowId = generatedSubFlowID(value, stepExecutionId, index);
   return (
     <a
       className="semantic-record sub-flow-record"
       href={flowId ? `/flows/${encodeURIComponent(flowId)}` : '#'}
       aria-label={`Open SubFlow ${flowId || index + 1}`}
     >
-      <strong><SubFlowIcon />{displayValue(value.flowType)}</strong>
+      <strong><SubFlowIcon />{displayValue(value.subFlowType)}</strong>
       <Fields values={[
-        ['Flow ID', value.flowId],
+        ['Flow ID', flowId],
+        ['Parent Flow ID', value.parentFlowId],
         ['Condition ID', value.conditionId],
         ['Index', value.subFlowIndex],
         ['Reuse policy', subFlowReusePolicyLabel(options.reusePolicy)],
-        ['Reuse resolution', subFlowStartResolutionLabel(value.startResolution)],
         ['Timeout', seconds(options.flowTimeoutSeconds)],
         ['Start delay', seconds(options.flowStartDelaySeconds)],
         ['Retry initial interval', seconds(retry.initialIntervalSeconds)],
@@ -478,6 +492,13 @@ function SubFlowRecord({ value, index }: { value: Data; index: number }) {
   );
 }
 
+function generatedSubFlowID(value: Data, stepExecutionId: string, fallbackIndex: number): string {
+  const parentFlowId = typeof value.parentFlowId === 'string' ? value.parentFlowId : '';
+  if (!parentFlowId || !stepExecutionId) return '';
+  const index = typeof value.subFlowIndex === 'number' ? value.subFlowIndex : fallbackIndex;
+  return `SubFlow-${parentFlowId}-${stepExecutionId}-${index}`;
+}
+
 function SubFlowResultRecord({ value, index }: { value: Data; index: number }) {
   const flowId = typeof value.flowId === 'string' ? value.flowId : '';
   const runId = typeof value.runId === 'string' ? value.runId : '';
@@ -496,7 +517,6 @@ function SubFlowResultRecord({ value, index }: { value: Data; index: number }) {
         ['Flow ID', value.flowId],
         ['Run ID', value.runId],
         ['Status', flowStatusLabel(value.flowStatus)],
-        ['Reuse resolution', subFlowStartResolutionLabel(value.startResolution)],
         ['Failure type', isPresent(value.errorType) ? flowErrorTypeLabel(value.errorType) : undefined],
         ['Failure', value.errorMessage],
       ]} />
@@ -723,7 +743,11 @@ function StepMethodDetails({
         {event.type === 'StepWaitForCompleted' ? (
           <div className="semantic-subsection">
             <h5>WaitFor condition</h5>
-            <WaitingConditionContent value={output.waitForCondition} showEmpty />
+            <WaitingConditionContent
+              value={output.waitForCondition}
+              stepExecutionId={typeof context.stepExecutionId === 'string' ? context.stepExecutionId : ''}
+              showEmpty
+            />
           </div>
         ) : !isWaitFor && hasData(asData(output.stepDecision)) ? (
           <div className="semantic-subsection">

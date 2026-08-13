@@ -226,6 +226,7 @@ func TestPlan_ANY_AllowsMissingConditionIds(t *testing.T) {
 
 	results := BuildConditionResults(
 		waitingCondition,
+		"step-1",
 		nil,
 		map[int][]*dexpb.Value{1: nil},
 	)
@@ -284,6 +285,7 @@ func TestBuildConditionResults(t *testing.T) {
 	values := []*dexpb.Value{{Kind: &dexpb.Value_StringValue{StringValue: "m1"}}}
 	results := BuildConditionResults(
 		waitingCondition,
+		"step-1",
 		map[int32]dexpb.InternalTimerStatus{
 			0: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
 		},

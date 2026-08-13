@@ -28,7 +28,6 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private ReportSubFlowCompletionActivityInput() {
-    parentFlowId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -50,69 +49,30 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int PARENT_FLOW_ID_FIELD_NUMBER = 1;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object parentFlowId_ = "";
+  public static final int REQUEST_FIELD_NUMBER = 1;
+  private io.superdurable.gen.SubFlowCompletionSignalRequest request_;
   /**
-   * <code>string parent_flow_id = 1;</code>
-   * @return The parentFlowId.
+   * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+   * @return Whether the request field is set.
    */
   @java.lang.Override
-  public java.lang.String getParentFlowId() {
-    java.lang.Object ref = parentFlowId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      parentFlowId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string parent_flow_id = 1;</code>
-   * @return The bytes for parentFlowId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getParentFlowIdBytes() {
-    java.lang.Object ref = parentFlowId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      parentFlowId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int SIGNAL_FIELD_NUMBER = 2;
-  private io.superdurable.gen.SubFlowCompletionSignalRequest signal_;
-  /**
-   * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
-   * @return Whether the signal field is set.
-   */
-  @java.lang.Override
-  public boolean hasSignal() {
+  public boolean hasRequest() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
-   * @return The signal.
+   * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+   * @return The request.
    */
   @java.lang.Override
-  public io.superdurable.gen.SubFlowCompletionSignalRequest getSignal() {
-    return signal_ == null ? io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance() : signal_;
+  public io.superdurable.gen.SubFlowCompletionSignalRequest getRequest() {
+    return request_ == null ? io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance() : request_;
   }
   /**
-   * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
+   * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder getSignalOrBuilder() {
-    return signal_ == null ? io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance() : signal_;
+  public io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder getRequestOrBuilder() {
+    return request_ == null ? io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance() : request_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -129,22 +89,16 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentFlowId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 1, parentFlowId_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(2, getSignal());
+      output.writeMessage(1, getRequest());
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentFlowId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, parentFlowId_);
-    }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(2, getSignal());
+        .computeMessageSize(1, getRequest());
     }
     return size;
   }
@@ -170,12 +124,10 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.ReportSubFlowCompletionActivityInput other = (io.superdurable.gen.ReportSubFlowCompletionActivityInput) obj;
 
-    if (!getParentFlowId()
-        .equals(other.getParentFlowId())) return false;
-    if (hasSignal() != other.hasSignal()) return false;
-    if (hasSignal()) {
-      if (!getSignal()
-          .equals(other.getSignal())) return false;
+    if (hasRequest() != other.hasRequest()) return false;
+    if (hasRequest()) {
+      if (!getRequest()
+          .equals(other.getRequest())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -188,11 +140,9 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    hash = (37 * hash) + PARENT_FLOW_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getParentFlowId().hashCode();
-    if (hasSignal()) {
-      hash = (37 * hash) + SIGNAL_FIELD_NUMBER;
-      hash = (53 * hash) + getSignal().hashCode();
+    if (hasRequest()) {
+      hash = (37 * hash) + REQUEST_FIELD_NUMBER;
+      hash = (53 * hash) + getRequest().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -324,18 +274,17 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetSignalFieldBuilder();
+        internalGetRequestFieldBuilder();
       }
     }
     @java.lang.Override
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      parentFlowId_ = "";
-      signal_ = null;
-      if (signalBuilder_ != null) {
-        signalBuilder_.dispose();
-        signalBuilder_ = null;
+      request_ = null;
+      if (requestBuilder_ != null) {
+        requestBuilder_.dispose();
+        requestBuilder_ = null;
       }
       return this;
     }
@@ -370,14 +319,11 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartial0(io.superdurable.gen.ReportSubFlowCompletionActivityInput result) {
       int from_bitField0_ = bitField0_;
-      if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.parentFlowId_ = parentFlowId_;
-      }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.signal_ = signalBuilder_ == null
-            ? signal_
-            : signalBuilder_.build();
+      if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.request_ = requestBuilder_ == null
+            ? request_
+            : requestBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       result.bitField0_ |= to_bitField0_;
@@ -395,13 +341,8 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.ReportSubFlowCompletionActivityInput other) {
       if (other == io.superdurable.gen.ReportSubFlowCompletionActivityInput.getDefaultInstance()) return this;
-      if (!other.getParentFlowId().isEmpty()) {
-        parentFlowId_ = other.parentFlowId_;
-        bitField0_ |= 0x00000001;
-        onChanged();
-      }
-      if (other.hasSignal()) {
-        mergeSignal(other.getSignal());
+      if (other.hasRequest()) {
+        mergeRequest(other.getRequest());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -430,17 +371,12 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              parentFlowId_ = input.readStringRequireUtf8();
+              input.readMessage(
+                  internalGetRequestFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 18: {
-              input.readMessage(
-                  internalGetSignalFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 18
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -458,197 +394,125 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private java.lang.Object parentFlowId_ = "";
-    /**
-     * <code>string parent_flow_id = 1;</code>
-     * @return The parentFlowId.
-     */
-    public java.lang.String getParentFlowId() {
-      java.lang.Object ref = parentFlowId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        parentFlowId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string parent_flow_id = 1;</code>
-     * @return The bytes for parentFlowId.
-     */
-    public com.google.protobuf.ByteString
-        getParentFlowIdBytes() {
-      java.lang.Object ref = parentFlowId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        parentFlowId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string parent_flow_id = 1;</code>
-     * @param value The parentFlowId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setParentFlowId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      parentFlowId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string parent_flow_id = 1;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearParentFlowId() {
-      parentFlowId_ = getDefaultInstance().getParentFlowId();
-      bitField0_ = (bitField0_ & ~0x00000001);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string parent_flow_id = 1;</code>
-     * @param value The bytes for parentFlowId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setParentFlowIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      parentFlowId_ = value;
-      bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-
-    private io.superdurable.gen.SubFlowCompletionSignalRequest signal_;
+    private io.superdurable.gen.SubFlowCompletionSignalRequest request_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.SubFlowCompletionSignalRequest, io.superdurable.gen.SubFlowCompletionSignalRequest.Builder, io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder> signalBuilder_;
+        io.superdurable.gen.SubFlowCompletionSignalRequest, io.superdurable.gen.SubFlowCompletionSignalRequest.Builder, io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder> requestBuilder_;
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
-     * @return Whether the signal field is set.
+     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * @return Whether the request field is set.
      */
-    public boolean hasSignal() {
-      return ((bitField0_ & 0x00000002) != 0);
+    public boolean hasRequest() {
+      return ((bitField0_ & 0x00000001) != 0);
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
-     * @return The signal.
+     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * @return The request.
      */
-    public io.superdurable.gen.SubFlowCompletionSignalRequest getSignal() {
-      if (signalBuilder_ == null) {
-        return signal_ == null ? io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance() : signal_;
+    public io.superdurable.gen.SubFlowCompletionSignalRequest getRequest() {
+      if (requestBuilder_ == null) {
+        return request_ == null ? io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance() : request_;
       } else {
-        return signalBuilder_.getMessage();
+        return requestBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
      */
-    public Builder setSignal(io.superdurable.gen.SubFlowCompletionSignalRequest value) {
-      if (signalBuilder_ == null) {
+    public Builder setRequest(io.superdurable.gen.SubFlowCompletionSignalRequest value) {
+      if (requestBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        signal_ = value;
+        request_ = value;
       } else {
-        signalBuilder_.setMessage(value);
+        requestBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
      */
-    public Builder setSignal(
+    public Builder setRequest(
         io.superdurable.gen.SubFlowCompletionSignalRequest.Builder builderForValue) {
-      if (signalBuilder_ == null) {
-        signal_ = builderForValue.build();
+      if (requestBuilder_ == null) {
+        request_ = builderForValue.build();
       } else {
-        signalBuilder_.setMessage(builderForValue.build());
+        requestBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
      */
-    public Builder mergeSignal(io.superdurable.gen.SubFlowCompletionSignalRequest value) {
-      if (signalBuilder_ == null) {
-        if (((bitField0_ & 0x00000002) != 0) &&
-          signal_ != null &&
-          signal_ != io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance()) {
-          getSignalBuilder().mergeFrom(value);
+    public Builder mergeRequest(io.superdurable.gen.SubFlowCompletionSignalRequest value) {
+      if (requestBuilder_ == null) {
+        if (((bitField0_ & 0x00000001) != 0) &&
+          request_ != null &&
+          request_ != io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance()) {
+          getRequestBuilder().mergeFrom(value);
         } else {
-          signal_ = value;
+          request_ = value;
         }
       } else {
-        signalBuilder_.mergeFrom(value);
+        requestBuilder_.mergeFrom(value);
       }
-      if (signal_ != null) {
-        bitField0_ |= 0x00000002;
+      if (request_ != null) {
+        bitField0_ |= 0x00000001;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
      */
-    public Builder clearSignal() {
-      bitField0_ = (bitField0_ & ~0x00000002);
-      signal_ = null;
-      if (signalBuilder_ != null) {
-        signalBuilder_.dispose();
-        signalBuilder_ = null;
+    public Builder clearRequest() {
+      bitField0_ = (bitField0_ & ~0x00000001);
+      request_ = null;
+      if (requestBuilder_ != null) {
+        requestBuilder_.dispose();
+        requestBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
      */
-    public io.superdurable.gen.SubFlowCompletionSignalRequest.Builder getSignalBuilder() {
-      bitField0_ |= 0x00000002;
+    public io.superdurable.gen.SubFlowCompletionSignalRequest.Builder getRequestBuilder() {
+      bitField0_ |= 0x00000001;
       onChanged();
-      return internalGetSignalFieldBuilder().getBuilder();
+      return internalGetRequestFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
      */
-    public io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder getSignalOrBuilder() {
-      if (signalBuilder_ != null) {
-        return signalBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder getRequestOrBuilder() {
+      if (requestBuilder_ != null) {
+        return requestBuilder_.getMessageOrBuilder();
       } else {
-        return signal_ == null ?
-            io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance() : signal_;
+        return request_ == null ?
+            io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance() : request_;
       }
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.SubFlowCompletionSignalRequest, io.superdurable.gen.SubFlowCompletionSignalRequest.Builder, io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder> 
-        internalGetSignalFieldBuilder() {
-      if (signalBuilder_ == null) {
-        signalBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+        internalGetRequestFieldBuilder() {
+      if (requestBuilder_ == null) {
+        requestBuilder_ = new com.google.protobuf.SingleFieldBuilder<
             io.superdurable.gen.SubFlowCompletionSignalRequest, io.superdurable.gen.SubFlowCompletionSignalRequest.Builder, io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder>(
-                getSignal(),
+                getRequest(),
                 getParentForChildren(),
                 isClean());
-        signal_ = null;
+        request_ = null;
       }
-      return signalBuilder_;
+      return requestBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.ReportSubFlowCompletionActivityInput)

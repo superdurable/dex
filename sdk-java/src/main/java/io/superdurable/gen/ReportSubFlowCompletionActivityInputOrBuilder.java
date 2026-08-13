@@ -11,29 +11,17 @@ public interface ReportSubFlowCompletionActivityInputOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>string parent_flow_id = 1;</code>
-   * @return The parentFlowId.
+   * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+   * @return Whether the request field is set.
    */
-  java.lang.String getParentFlowId();
+  boolean hasRequest();
   /**
-   * <code>string parent_flow_id = 1;</code>
-   * @return The bytes for parentFlowId.
+   * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+   * @return The request.
    */
-  com.google.protobuf.ByteString
-      getParentFlowIdBytes();
-
+  io.superdurable.gen.SubFlowCompletionSignalRequest getRequest();
   /**
-   * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
-   * @return Whether the signal field is set.
+   * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
    */
-  boolean hasSignal();
-  /**
-   * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
-   * @return The signal.
-   */
-  io.superdurable.gen.SubFlowCompletionSignalRequest getSignal();
-  /**
-   * <code>.dex.SubFlowCompletionSignalRequest signal = 2;</code>
-   */
-  io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder getSignalOrBuilder();
+  io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder getRequestOrBuilder();
 }

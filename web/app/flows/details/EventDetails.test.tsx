@@ -382,17 +382,15 @@ describe('selected step event details', () => {
     const markup = renderDetails(waitForEvent({
       waitingConditionType: 'WAITING_CONDITION_TYPE_ALL_COMPLETED',
       subFlowConditions: [{
-        flowType: 'ChildFlow',
-        flowId: 'SubFlow-parent-Parent-1-0',
+        subFlowType: 'ChildFlow',
+        parentFlowId: 'parent',
         subFlowIndex: 0,
-        startResolution: 2,
         options: { reusePolicy: 1 },
       }],
     }));
 
-    expect(markup).toContain('href="/flows/SubFlow-parent-Parent-1-0"');
-    expect(markup).toContain('aria-label="Open SubFlow SubFlow-parent-Parent-1-0"');
-    expect(markup).toContain('Attached running');
+    expect(markup).toContain('href="/flows/SubFlow-parent-charge-1-0"');
+    expect(markup).toContain('aria-label="Open SubFlow SubFlow-parent-charge-1-0"');
     expect(markup).toContain('Attach');
   });
 
@@ -403,7 +401,6 @@ describe('selected step event details', () => {
         flowId: 'SubFlow-parent-Parent-1-0',
         runId: 'child-run',
         flowStatus: 3,
-        startResolution: 1,
         errorType: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
         errorMessage: 'child failed',
         results: [{
@@ -415,8 +412,9 @@ describe('selected step event details', () => {
     };
     const wait = waitForEvent({
       subFlowConditions: [{
-        flowType: 'ChildFlow',
-        flowId: 'SubFlow-parent-Parent-1-0',
+        subFlowType: 'ChildFlow',
+        parentFlowId: 'parent',
+        subFlowIndex: 0,
         stepInput: { intValue: 7 },
         stepOptions: { skipWaitFor: true },
         options: {
@@ -440,7 +438,6 @@ describe('selected step event details', () => {
     expect(resultMarkup).toContain('href="/flows/SubFlow-parent-Parent-1-0/child-run"');
     expect(resultMarkup).toContain('Worker method failed');
     expect(resultMarkup).toContain('child failed');
-    expect(resultMarkup).toContain('Started');
     expect(resultMarkup).toContain('ChildStep-1');
     expect(resultMarkup).toContain('partial output');
   });

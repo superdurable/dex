@@ -102,20 +102,6 @@ export function subFlowReusePolicyLabel(value: unknown): string {
   });
 }
 
-export function subFlowStartResolutionLabel(value: unknown): string | undefined {
-  if (value == null || value === 0 || value === 'SUB_FLOW_START_RESOLUTION_UNSPECIFIED') {
-    return undefined;
-  }
-  return enumLabel(value, {
-    1: 'Started',
-    2: 'Attached running',
-    3: 'Attached terminal',
-    SUB_FLOW_START_RESOLUTION_STARTED: 'Started',
-    SUB_FLOW_START_RESOLUTION_ATTACHED_RUNNING: 'Attached running',
-    SUB_FLOW_START_RESOLUTION_ATTACHED_TERMINAL: 'Attached terminal',
-  });
-}
-
 export function flowErrorTypeLabel(value: unknown): string {
   return enumLabel(value, {
     0: 'Unspecified',

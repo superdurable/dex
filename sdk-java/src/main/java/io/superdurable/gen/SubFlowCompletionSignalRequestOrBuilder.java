@@ -11,47 +11,17 @@ public interface SubFlowCompletionSignalRequestOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>string step_execution_id = 1;</code>
-   * @return The stepExecutionId.
+   * <code>.dex.FlowResult flow_result = 1;</code>
+   * @return Whether the flowResult field is set.
    */
-  java.lang.String getStepExecutionId();
+  boolean hasFlowResult();
   /**
-   * <code>string step_execution_id = 1;</code>
-   * @return The bytes for stepExecutionId.
+   * <code>.dex.FlowResult flow_result = 1;</code>
+   * @return The flowResult.
    */
-  com.google.protobuf.ByteString
-      getStepExecutionIdBytes();
-
+  io.superdurable.gen.FlowResult getFlowResult();
   /**
-   * <code>int32 sub_flow_index = 2;</code>
-   * @return The subFlowIndex.
+   * <code>.dex.FlowResult flow_result = 1;</code>
    */
-  int getSubFlowIndex();
-
-  /**
-   * <code>string normalized_request_id = 3;</code>
-   * @return The normalizedRequestId.
-   */
-  java.lang.String getNormalizedRequestId();
-  /**
-   * <code>string normalized_request_id = 3;</code>
-   * @return The bytes for normalizedRequestId.
-   */
-  com.google.protobuf.ByteString
-      getNormalizedRequestIdBytes();
-
-  /**
-   * <code>.dex.FlowResult result = 4;</code>
-   * @return Whether the result field is set.
-   */
-  boolean hasResult();
-  /**
-   * <code>.dex.FlowResult result = 4;</code>
-   * @return The result.
-   */
-  io.superdurable.gen.FlowResult getResult();
-  /**
-   * <code>.dex.FlowResult result = 4;</code>
-   */
-  io.superdurable.gen.FlowResultOrBuilder getResultOrBuilder();
+  io.superdurable.gen.FlowResultOrBuilder getFlowResultOrBuilder();
 }

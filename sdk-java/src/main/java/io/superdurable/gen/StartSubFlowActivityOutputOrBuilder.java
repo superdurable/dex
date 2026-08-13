@@ -11,40 +11,17 @@ public interface StartSubFlowActivityOutputOrBuilder extends
     com.google.protobuf.MessageOrBuilder {
 
   /**
-   * <code>string normalized_request_id = 1;</code>
-   * @return The normalizedRequestId.
+   * <code>.dex.FlowResult immediate_flow_result = 1;</code>
+   * @return Whether the immediateFlowResult field is set.
    */
-  java.lang.String getNormalizedRequestId();
+  boolean hasImmediateFlowResult();
   /**
-   * <code>string normalized_request_id = 1;</code>
-   * @return The bytes for normalizedRequestId.
+   * <code>.dex.FlowResult immediate_flow_result = 1;</code>
+   * @return The immediateFlowResult.
    */
-  com.google.protobuf.ByteString
-      getNormalizedRequestIdBytes();
-
+  io.superdurable.gen.FlowResult getImmediateFlowResult();
   /**
-   * <code>.dex.SubFlowStartResolution resolution = 2;</code>
-   * @return The enum numeric value on the wire for resolution.
+   * <code>.dex.FlowResult immediate_flow_result = 1;</code>
    */
-  int getResolutionValue();
-  /**
-   * <code>.dex.SubFlowStartResolution resolution = 2;</code>
-   * @return The resolution.
-   */
-  io.superdurable.gen.SubFlowStartResolution getResolution();
-
-  /**
-   * <code>.dex.FlowResult terminal_result = 3;</code>
-   * @return Whether the terminalResult field is set.
-   */
-  boolean hasTerminalResult();
-  /**
-   * <code>.dex.FlowResult terminal_result = 3;</code>
-   * @return The terminalResult.
-   */
-  io.superdurable.gen.FlowResult getTerminalResult();
-  /**
-   * <code>.dex.FlowResult terminal_result = 3;</code>
-   */
-  io.superdurable.gen.FlowResultOrBuilder getTerminalResultOrBuilder();
+  io.superdurable.gen.FlowResultOrBuilder getImmediateFlowResultOrBuilder();
 }

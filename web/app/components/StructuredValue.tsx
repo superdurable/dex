@@ -153,13 +153,13 @@ function WaitingConditionStructured({ value }: { value: unknown }) {
         </div>
       ))}
       {subFlows.map((subFlow, index) => (
-        <div className="semantic-record sub-flow-record" key={`${String(subFlow.flowId)}-${index}`}>
-          <strong>{displayValue(subFlow.flowType)}</strong>
+        <div className="semantic-record sub-flow-record" key={`${String(subFlow.parentFlowId)}-${index}`}>
+          <strong>{displayValue(subFlow.subFlowType)}</strong>
           <Fields values={[
-            ['Flow ID', subFlow.flowId],
+            ['Parent Flow ID', subFlow.parentFlowId],
             ['Condition ID', subFlow.conditionId],
             ['Index', subFlow.subFlowIndex],
-            ['Resolution', subFlow.startResolution],
+            ['Reuse policy', asData(subFlow.options).reusePolicy],
           ]} />
         </div>
       ))}

@@ -31,7 +31,6 @@ import {
   FlowErrorType as ProtoFlowErrorType,
   type FlowResult as ProtoFlowResult,
   FlowStatus,
-  SubFlowStartResolution,
   Value,
   type FlowServiceServer,
   type InvokeRPCRequest,
@@ -137,8 +136,6 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
         errorMessage: call.request.flowId === "failed" ? "failed by test" : "",
         flowId: call.request.flowId,
         runId: "run-1",
-        startResolution:
-          SubFlowStartResolution.SUB_FLOW_START_RESOLUTION_UNSPECIFIED,
       });
     },
     loadBlobs(call, callback: sendUnaryData<LoadBlobsResponse>) {

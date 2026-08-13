@@ -8,20 +8,31 @@
 
 package interpreter
 
-import "github.com/superdurable/dex/gen/dexpb"
+import (
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+)
 
 type subFlowTracker struct {
-	waits map[string]*subFlowWait
+	waits    map[string]*subFlowWait
+	byFlowID map[string]*trackedSubFlow
 }
 
 type subFlowWait struct {
 	condition *dexpb.WaitingCondition
 	completed map[int32]*dexpb.FlowResult
-	pending   map[int32][]*dexpb.SubFlowCompletionSignalRequest
+}
+
+type trackedSubFlow struct {
+	wait  *subFlowWait
+	index int32
 }
 
 func newSubFlowTracker(resumeInfos []*dexpb.StepExecutionResumeInfo) *subFlowTracker {
-	tracker := &subFlowTracker{waits: map[string]*subFlowWait{}}
+	tracker := &subFlowTracker{
+		waits:    map[string]*subFlowWait{},
+		byFlowID: map[string]*trackedSubFlow{},
+	}
 	for _, resumeInfo := range resumeInfos {
 		if resumeInfo == nil || len(resumeInfo.GetWaitingCondition().GetSubFlowConditions()) == 0 {
 			continue
@@ -47,10 +58,16 @@ func (t *subFlowTracker) register(
 	if completed == nil {
 		panic("SubFlow completed result map is nil")
 	}
-	t.waits[stepExecutionID] = &subFlowWait{
+	wait := &subFlowWait{
 		condition: condition,
 		completed: completed,
-		pending:   map[int32][]*dexpb.SubFlowCompletionSignalRequest{},
+	}
+	t.waits[stepExecutionID] = wait
+	for index, subFlowCondition := range condition.GetSubFlowConditions() {
+		flowID := service.SubFlowID(
+			subFlowCondition.GetParentFlowId(), stepExecutionID, int32(index),
+		)
+		t.byFlowID[flowID] = &trackedSubFlow{wait: wait, index: int32(index)}
 	}
 }
 
@@ -61,50 +78,27 @@ func (t *subFlowTracker) applyStartResult(
 	if wait == nil || result == nil {
 		return
 	}
-	condition := subFlowConditionAt(wait.condition, index)
-	if condition == nil {
+	if index < 0 || int(index) >= len(wait.condition.GetSubFlowConditions()) {
 		return
 	}
-	condition.NormalizedRequestId = result.GetNormalizedRequestId()
-	condition.StartResolution = result.GetResolution()
-	if result.GetTerminalResult() != nil {
-		wait.completed[index] = result.GetTerminalResult()
+	if result.GetImmediateFlowResult() != nil {
+		if _, exists := wait.completed[index]; !exists {
+			wait.completed[index] = result.GetImmediateFlowResult()
+		}
 	}
-	for _, signal := range wait.pending[index] {
-		t.applyCompletion(wait, signal)
-	}
-	delete(wait.pending, index)
 }
 
 func (t *subFlowTracker) handleCompletion(signal *dexpb.SubFlowCompletionSignalRequest) {
-	if signal == nil || signal.GetResult() == nil {
+	result := signal.GetFlowResult()
+	if result == nil {
 		return
 	}
-	wait := t.waits[signal.GetStepExecutionId()]
-	if wait == nil {
+	tracked := t.byFlowID[result.GetFlowId()]
+	if tracked == nil {
 		return
 	}
-	condition := subFlowConditionAt(wait.condition, signal.GetSubFlowIndex())
-	if condition == nil || condition.GetFlowId() != signal.GetResult().GetFlowId() {
-		return
-	}
-	if condition.GetNormalizedRequestId() != signal.GetNormalizedRequestId() {
-		wait.pending[signal.GetSubFlowIndex()] = append(wait.pending[signal.GetSubFlowIndex()], signal)
-		return
-	}
-	t.applyCompletion(wait, signal)
-}
-
-func (t *subFlowTracker) applyCompletion(
-	wait *subFlowWait, signal *dexpb.SubFlowCompletionSignalRequest,
-) {
-	condition := subFlowConditionAt(wait.condition, signal.GetSubFlowIndex())
-	if condition == nil || condition.GetNormalizedRequestId() != signal.GetNormalizedRequestId() ||
-		condition.GetFlowId() != signal.GetResult().GetFlowId() {
-		return
-	}
-	if _, exists := wait.completed[signal.GetSubFlowIndex()]; !exists {
-		wait.completed[signal.GetSubFlowIndex()] = signal.GetResult()
+	if _, exists := tracked.wait.completed[tracked.index]; !exists {
+		tracked.wait.completed[tracked.index] = result
 	}
 }
 
@@ -117,12 +111,14 @@ func (t *subFlowTracker) completed(stepExecutionID string) map[int32]*dexpb.Flow
 }
 
 func (t *subFlowTracker) unregister(stepExecutionID string) {
-	delete(t.waits, stepExecutionID)
-}
-
-func subFlowConditionAt(condition *dexpb.WaitingCondition, index int32) *dexpb.SubFlowCondition {
-	if condition == nil || index < 0 || int(index) >= len(condition.GetSubFlowConditions()) {
-		return nil
+	wait := t.waits[stepExecutionID]
+	if wait == nil {
+		return
 	}
-	return condition.GetSubFlowConditions()[index]
+	for index, condition := range wait.condition.GetSubFlowConditions() {
+		delete(t.byFlowID, service.SubFlowID(
+			condition.GetParentFlowId(), stepExecutionID, int32(index),
+		))
+	}
+	delete(t.waits, stepExecutionID)
 }
