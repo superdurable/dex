@@ -59,7 +59,14 @@ Declare `@rpc` / RPC methods on the Flow; invoke via client `InvokeRPC`.
 
 ## How Dex implements it
 
-The server routes InvokeRPC to the Worker, applies Attribute locks if requested, and commits Attribute/channel side effects with the RPC result.
+On Temporal, the server runs InvokeRPC as one synchronous Workflow Update,
+applies Attribute locks when requested, and commits Attribute/channel/Step
+effects with the result. Once terminal finalization begins, the Update validator
+rejects new RPCs. Large input and output values are stored in the configured
+Blob Store and hydrated when displayed or returned through an SDK.
+
+Cadence has no synchronous Update. It retains the query, Worker call, and
+optional signal implementation for non-locking RPCs.
 
 ## Traditional workarounds
 

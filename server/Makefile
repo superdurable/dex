@@ -241,7 +241,7 @@ unitTests:
 # Requires SQL dependencies and covers both workflow backends in dedicated CI.
 attributeStoreIntegTests: prepareIntegrationCoverage
 	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./service/common/attributestore -run '^TestMySQLAndPostgresAttributeStoreIntegration$$' -timeout 5m $(integrationCoverageArgs)
-	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./integ -run '^TestAttributeSync' -timeout 10m $(integrationCoverageArgs)
+	@GOWORK=off go test $(integrationCoverageFlags) -v -tags=attributestore_integration ./integ -run '^TestAttributeSync' -timeout 10m -temporalHostPort=$(temporalHostPort) $(integrationCoverageArgs)
 
 blobStoreIntegTests: prepareIntegrationCoverage
 	@GOWORK=off go test $(integrationCoverageFlags) -v ./service/common/blobstore -run '^(TestBlobStoreIntegration|TestLocalBlobStore|TestS3AttributeBlobCache)' -timeout 5m $(integrationCoverageArgs)

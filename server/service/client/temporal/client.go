@@ -26,6 +26,7 @@ import (
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/index"
 	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/common/utils"
 	"github.com/superdurable/dex/service/interpreter/temporal"
 	"go.temporal.io/api/common/v1"
@@ -46,7 +47,7 @@ type temporalClient struct {
 	namespace                      string
 	dataConverter                  converter.DataConverter
 	memoEncryption                 bool // this is a workaround for https://github.com/temporalio/sdk-go/issues/1045
-	queryWorkflowFailedRetryPolicy config.QueryWorkflowFailedRetryPolicy
+	queryWorkflowFailedRetryPolicy *config.RetryPolicy
 	it                             *temporal.InterpreterWorker
 }
 
@@ -56,14 +57,14 @@ type localActivityMarkerData struct {
 }
 
 func NewTemporalClient(
-	tClient client.Client, namespace string, dataConverter converter.DataConverter, memoEncryption bool, retryPolicy *config.QueryWorkflowFailedRetryPolicy,
+	tClient client.Client, namespace string, dataConverter converter.DataConverter, memoEncryption bool, retryPolicy *config.RetryPolicy,
 ) uclient.UnifiedClient {
 	return &temporalClient{
 		tClient:                        tClient,
 		namespace:                      namespace,
 		dataConverter:                  dataConverter,
 		memoEncryption:                 memoEncryption,
-		queryWorkflowFailedRetryPolicy: config.QueryWorkflowFailedRetryPolicyWithDefaults(retryPolicy),
+		queryWorkflowFailedRetryPolicy: retryPolicy,
 	}
 }
 
@@ -175,6 +176,10 @@ func (t *temporalClient) IsNotFoundError(err error) bool {
 	var notFound *serviceerror.NotFound
 	ok := errors.As(err, &notFound)
 	return ok
+}
+
+func (t *temporalClient) IsUnknownUpdateError(err error, updateName string) bool {
+	return strings.HasPrefix(err.Error(), fmt.Sprintf("unknown update %s. KnownUpdates=", updateName))
 }
 
 func (t *temporalClient) isQueryFailedError(err error) bool {
@@ -406,23 +411,23 @@ func (t *temporalClient) QueryWorkflow(
 	var qres converter.EncodedValue
 	var err error
 
-	attempt := 1
+	retryBackoff := retry.NewQueryWorkflowBackoff(t.queryWorkflowFailedRetryPolicy)
 	// Only QueryFailed error causes retry; all other errors make the loop to finish immediately
-	for attempt <= t.queryWorkflowFailedRetryPolicy.MaximumAttempts {
+	for {
 		qres, err = t.tClient.QueryWorkflow(ctx, workflowID, runID, queryType, args...)
 		if err == nil {
 			break
-		} else {
-			if t.isQueryFailedError(err) {
-				time.Sleep(time.Duration(t.queryWorkflowFailedRetryPolicy.InitialIntervalSeconds) * time.Second)
-				attempt++
-				continue
-			}
+		}
+		if !t.isQueryFailedError(err) {
 			return err
 		}
-	}
-	if err != nil {
-		return err
+		shouldRetry, retryErr := retryBackoff.WaitForNextAttempt(ctx)
+		if retryErr != nil {
+			return retryErr
+		}
+		if !shouldRetry {
+			return err
+		}
 	}
 	return qres.Get(valuePtr)
 }
@@ -581,6 +586,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 	builder := historybuilder.NewBuilder(workflowID, runID)
 	scheduledTypes := map[int64]string{}
 	localFallbackCounts := map[string]int{}
+	acceptedRpcUpdates := map[int64]*dexpb.InvokeRPCRequest{}
 	for iterator.HasNext() {
 		event, err := iterator.Next()
 		if err != nil {
@@ -590,6 +596,7 @@ func (t *temporalClient) buildTemporalHistoryEvents(
 			builder,
 			scheduledTypes,
 			localFallbackCounts,
+			acceptedRpcUpdates,
 			event,
 		); err != nil {
 			return nil, err
@@ -630,6 +637,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 	builder *historybuilder.Builder,
 	scheduledTypes map[int64]string,
 	localFallbackCounts map[string]int,
+	acceptedRpcUpdates map[int64]*dexpb.InvokeRPCRequest,
 	event *history.HistoryEvent,
 ) error {
 	eventTime := event.GetEventTime().AsTime()
@@ -719,6 +727,34 @@ func (t *temporalClient) addTemporalHistoryEvent(
 			return err
 		}
 		builder.RecordSignal(event.GetEventId(), eventTime, &request)
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED:
+		attributes := event.GetWorkflowExecutionUpdateAcceptedEventAttributes()
+		acceptedRequest := attributes.GetAcceptedRequest()
+		if acceptedRequest.GetInput().GetName() != service.InvokeRpcUpdateType {
+			return nil
+		}
+		var request dexpb.InvokeRPCRequest
+		if err := t.dataConverter.FromPayloads(
+			acceptedRequest.GetInput().GetArgs(),
+			&request,
+		); err != nil {
+			return err
+		}
+		acceptedRpcUpdates[event.GetEventId()] = &request
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED:
+		attributes := event.GetWorkflowExecutionUpdateCompletedEventAttributes()
+		request := acceptedRpcUpdates[attributes.GetAcceptedEventId()]
+		if request == nil || attributes.GetOutcome().GetSuccess() == nil {
+			return nil
+		}
+		var result dexpb.InvokeRpcUpdateResult
+		if err := t.dataConverter.FromPayloads(
+			attributes.GetOutcome().GetSuccess(),
+			&result,
+		); err != nil {
+			return err
+		}
+		builder.RecordInvokeRpcUpdate(event.GetEventId(), eventTime, request, &result)
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
 		var output dexpb.InterpreterWorkflowOutput
 		attributes := event.GetWorkflowExecutionCompletedEventAttributes()

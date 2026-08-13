@@ -4048,7 +4048,7 @@
           },
           "input": {
             "header": {},
-            "name": "ExecuteOptimisticLockingRpcUpdate",
+            "name": "InvokeRpc",
             "args": {
               "payloads": [
                 {
@@ -4568,7 +4568,7 @@
           },
           "input": {
             "header": {},
-            "name": "ExecuteOptimisticLockingRpcUpdate",
+            "name": "InvokeRpc",
             "args": {
               "payloads": [
                 {
@@ -5088,7 +5088,7 @@
           },
           "input": {
             "header": {},
-            "name": "ExecuteOptimisticLockingRpcUpdate",
+            "name": "InvokeRpc",
             "args": {
               "payloads": [
                 {
@@ -5608,7 +5608,7 @@
           },
           "input": {
             "header": {},
-            "name": "ExecuteOptimisticLockingRpcUpdate",
+            "name": "InvokeRpc",
             "args": {
               "payloads": [
                 {
@@ -6128,7 +6128,7 @@
           },
           "input": {
             "header": {},
-            "name": "ExecuteOptimisticLockingRpcUpdate",
+            "name": "InvokeRpc",
             "args": {
               "payloads": [
                 {
@@ -6648,7 +6648,7 @@
           },
           "input": {
             "header": {},
-            "name": "ExecuteOptimisticLockingRpcUpdate",
+            "name": "InvokeRpc",
             "args": {
               "payloads": [
                 {
@@ -7168,7 +7168,7 @@
           },
           "input": {
             "header": {},
-            "name": "ExecuteOptimisticLockingRpcUpdate",
+            "name": "InvokeRpc",
             "args": {
               "payloads": [
                 {
@@ -7688,7 +7688,7 @@
           },
           "input": {
             "header": {},
-            "name": "ExecuteOptimisticLockingRpcUpdate",
+            "name": "InvokeRpc",
             "args": {
               "payloads": [
                 {

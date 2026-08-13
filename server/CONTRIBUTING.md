@@ -57,17 +57,27 @@ explicitly. Indexed Attributes still use the backend-native mapper.
 Interpreter workflows and activities use constructor injection. Do not add mutable
 package-global environments or registries.
 
-`WaitForStepCompletion`, `WaitForAttribute`, and locking RPCs are Temporal-only
-synchronous updates. Non-locking RPCs remain available on both backends.
+`WaitForStepCompletion` and `WaitForAttribute` are Temporal-only synchronous
+updates. Every Temporal InvokeRPC is an `InvokeRpc` synchronous update. Cadence
+supports non-locking InvokeRPC through query, WorkerService, and optional signal.
 
-Their protobuf requests require a client-generated `request_id`. The server passes
-it to Temporal as the Update ID, so one logical call must reuse the same ID across
-retries and keep the operation and input unchanged. Temporal deduplicates only
+Their protobuf requests require a client-generated `request_id`. For Temporal
+InvokeRPC and waits, the server passes it as the Update ID, so one logical call
+must reuse the same ID across retries and keep the operation and input unchanged. Temporal deduplicates only
 within one namespace, workflow ID, and run ID; Continue-as-New starts a new
 deduplication scope. SDK support remains deferred during the server rewrite.
 
 Memo is reserved for worker-target and request-id metadata. Never store attributes
 in Memo.
+
+Server-only retry settings use `config.RetryPolicy` from `config/config.go`.
+Intervals and total duration use Go duration strings such as `100ms`, `1s`, and
+`1h`. Do not use the second-based protobuf `RetryPolicy` for server config; that
+type remains part of the public Step API and persisted history schema. Zero-valued
+fields inherit the owning setting's defaults. Query retries default to five fixed
+100ms attempts. InvokeRPC current-run retries default to 100ms exponential
+backoff, capped at one second and five seconds total. Attribute Store and
+internal Activity retries also start at 100ms.
 
 # How to run server or integration tests
 

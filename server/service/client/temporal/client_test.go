@@ -12,11 +12,13 @@ package temporal
 
 import (
 	"errors"
-	"github.com/golang/mock/gomock"
-	"github.com/superdurable/dex/config"
-	"github.com/stretchr/testify/assert"
-	"go.temporal.io/api/serviceerror"
 	"testing"
+	"time"
+
+	"github.com/golang/mock/gomock"
+	"github.com/stretchr/testify/assert"
+	"github.com/superdurable/dex/config"
+	"go.temporal.io/api/serviceerror"
 )
 
 func TestAlreadyStartedErrorForWorkflow(t *testing.T) {
@@ -24,9 +26,9 @@ func TestAlreadyStartedErrorForWorkflow(t *testing.T) {
 	mockRealTemporalClient := NewMockClient(ctrl)
 	mockDataConverter := NewMockDataConverter(ctrl)
 
-	client := NewTemporalClient(mockRealTemporalClient, "test-ns", mockDataConverter, false, &config.QueryWorkflowFailedRetryPolicy{
-		InitialIntervalSeconds: 0,
-		MaximumAttempts:        0,
+	client := NewTemporalClient(mockRealTemporalClient, "test-ns", mockDataConverter, false, &config.RetryPolicy{
+		InitialInterval: time.Second,
+		MaximumAttempts: 5,
 	})
 
 	err := &serviceerror.WorkflowExecutionAlreadyStarted{}
@@ -38,9 +40,9 @@ func TestAlreadyStartedErrorForCronWorkflow(t *testing.T) {
 	mockRealTemporalClient := NewMockClient(ctrl)
 	mockDataConverter := NewMockDataConverter(ctrl)
 
-	client := NewTemporalClient(mockRealTemporalClient, "test-ns", mockDataConverter, false, &config.QueryWorkflowFailedRetryPolicy{
-		InitialIntervalSeconds: 0,
-		MaximumAttempts:        0,
+	client := NewTemporalClient(mockRealTemporalClient, "test-ns", mockDataConverter, false, &config.RetryPolicy{
+		InitialInterval: time.Second,
+		MaximumAttempts: 5,
 	})
 
 	err := errors.New("schedule with this ID is already registered")

@@ -186,25 +186,6 @@ func (i *Interpreter) StartEngineFlow(
 	)
 	attributeSynchronizer.Start()
 
-	updateErr := NewWorkflowUpdater(
-		&i.sharedConfig.Api,
-		i.activities,
-		ctx,
-		provider,
-		persistenceManager,
-		stepRequestQueue,
-		continueAsNewer,
-		continueAsNewCounter,
-		channelStore,
-		signalReceiver,
-		stepExecutionCounter,
-		flowConfiger,
-		basicInfo,
-	)
-	if updateErr != nil {
-		return nil, updateErr
-	}
-
 	// we need these global varirables because sub threads(goroutine) need to report error back
 	// to main goroutine to return.
 	// Note that different errors could overwrite each other.
@@ -221,6 +202,26 @@ func (i *Interpreter) StartEngineFlow(
 		signalReceiver,
 		&forceCompleteWf,
 	)
+	updateErr := NewWorkflowUpdater(
+		&i.sharedConfig.Api,
+		i.activities,
+		ctx,
+		provider,
+		persistenceManager,
+		stepRequestQueue,
+		continueAsNewer,
+		continueAsNewCounter,
+		channelStore,
+		signalReceiver,
+		terminalCoordinator,
+		stepExecutionCounter,
+		flowConfiger,
+		basicInfo,
+	)
+	if updateErr != nil {
+		return nil, updateErr
+	}
+
 	defer func() {
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
 		if provider.IsReplaying(ctx) {
@@ -669,6 +670,9 @@ func (i *Interpreter) processStepExecution(
 	}
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: retry.ActivityRetryPolicyFromProto(
+			step.GetStepOptions().GetWaitForRetryPolicy(),
+		),
 	}
 	if globalVersioner.UsesDeterministicStepActivityIDs() {
 		activityOptions.ActivityID = service.WaitForStepActivityID(stepExeId)
@@ -718,7 +722,6 @@ func (i *Interpreter) processStepExecution(
 			if waitForMethodTimeout > 0 {
 				activityOptions.StartToCloseTimeout = time.Duration(waitForMethodTimeout) * time.Second
 			}
-			activityOptions.RetryPolicy = options.GetWaitForRetryPolicy()
 		}
 
 		ctx = provider.WithActivityOptions(ctx, activityOptions)
@@ -1013,6 +1016,9 @@ func (i *Interpreter) invokeExecuteMethod(
 	var err error
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
+		RetryPolicy: retry.ActivityRetryPolicyFromProto(
+			step.GetStepOptions().GetExecuteRetryPolicy(),
+		),
 	}
 	if globalVersioner.UsesDeterministicStepActivityIDs() {
 		activityOptions.ActivityID = service.ExecuteStepActivityID(stepExeId)
@@ -1022,7 +1028,6 @@ func (i *Interpreter) invokeExecuteMethod(
 		if executeMethodTimeout > 0 {
 			activityOptions.StartToCloseTimeout = time.Duration(executeMethodTimeout) * time.Second
 		}
-		activityOptions.RetryPolicy = step.GetStepOptions().GetExecuteRetryPolicy()
 	}
 
 	ctx = provider.WithActivityOptions(ctx, activityOptions)
@@ -1086,7 +1091,7 @@ func (i *Interpreter) invokeExecuteMethod(
 func stepMethodOptions(options interfaces.ActivityOptions) *dexpb.StepMethodOptions {
 	return &dexpb.StepMethodOptions{
 		TimeoutSeconds: int32(options.StartToCloseTimeout / time.Second),
-		RetryPolicy:    retry.ActivityRetryPolicyWithDefaults(options.RetryPolicy),
+		RetryPolicy:    retry.ActivityRetryPolicyToProto(options.RetryPolicy),
 	}
 }
 
@@ -1109,7 +1114,7 @@ func (i *Interpreter) BlobStoreCleanup(
 ) (int, error) {
 	activityCtx := provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		RetryPolicy:         &dexpb.RetryPolicy{MaximumAttempts: 10},
+		RetryPolicy:         &config.RetryPolicy{MaximumAttempts: 10},
 	})
 	var output dexpb.CleanupBlobStoreActivityOutput
 	if err := provider.ExecuteActivity(

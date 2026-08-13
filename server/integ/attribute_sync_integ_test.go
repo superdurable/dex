@@ -56,6 +56,95 @@ func TestAttributeSyncRetryExhaustionCadence(t *testing.T) {
 	doTestAttributeSyncRetryExhaustion(t, service.BackendTypeCadence)
 }
 
+func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	postgresDSN := os.Getenv("DEX_ATTRIBUTE_STORE_POSTGRES_DSN")
+	if postgresDSN == "" {
+		postgresDSN = "postgres://dex:dex@127.0.0.1:55432/dex?sslmode=disable"
+	}
+	database, err := sql.Open("pgx", postgresDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	tableName := "flow_attributes_rpc_graceful_" + strings.ReplaceAll(newRequestID(), "-", "")
+	_, err = database.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT)`,
+		tableName,
+	))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
+		require.NoError(t, dropErr)
+	})
+	lockTransaction, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	lockReleased := false
+	t.Cleanup(func() {
+		if !lockReleased {
+			require.NoError(t, lockTransaction.Rollback())
+		}
+	})
+	_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
+	require.NoError(t, err)
+
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType: service.BackendTypeTemporal,
+		AttributeStore: config.AttributeStoreConfig{
+			Stores: map[string]config.AttributeStoreConfigEntry{
+				"reporting": {
+					Type:      config.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + tableName,
+				},
+			},
+		},
+	})
+	handler := newFinalizingRPCHandler(true)
+	workerTarget := startWorker(t, handler)
+	flowID := terminalRPCFlowType + "-graceful-" + newRequestID()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           terminalRPCFlowType,
+		FlowTimeoutSeconds: 30,
+		StartStepType:      terminalRPCFinishStep,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				syncedStringAttribute("message", "graceful-finalization"),
+			},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				AttributeSyncConfigName: ptr.Any("reporting"),
+				WorkerTarget:            workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+	select {
+	case <-handler.finishExecuted:
+	case <-ctx.Done():
+		require.FailNow(t, "graceful step did not start", ctx.Err())
+	}
+	acceptedResponse, err := runtime.FlowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+		RequestId: newRequestID(), FlowId: flowID, RpcName: terminalRPCAccepted,
+	})
+	require.NoError(t, err)
+	require.Equal(t, terminalRPCAcceptedOutput, acceptedResponse.GetOutput().GetStringValue())
+	close(handler.releaseFinish)
+	assertRPCRejectedDuringFinalization(t, ctx, runtime.FlowClient, flowID, handler)
+	require.NoError(t, lockTransaction.Commit())
+	lockReleased = true
+	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
+	assertAcceptedRPCResultInHistory(
+		t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
+	)
+}
+
 func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -199,11 +288,11 @@ func doTestAttributeSyncRetryExhaustion(t *testing.T, backendType service.Backen
 			},
 			SyncBatchSize:      1,
 			SyncAttemptTimeout: time.Second,
-			SyncRetryPolicy: &dexpb.RetryPolicy{
-				InitialIntervalSeconds: 1,
-				MaximumIntervalSeconds: 1,
-				BackoffCoefficient:     1,
-				TotalDurationSeconds:   1,
+			SyncRetryPolicy: &config.RetryPolicy{
+				InitialInterval:    time.Second,
+				MaximumInterval:    time.Second,
+				BackoffCoefficient: 1,
+				TotalDuration:      time.Second,
 			},
 		},
 	})

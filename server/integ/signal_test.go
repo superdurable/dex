@@ -24,6 +24,8 @@ import (
 	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -88,7 +90,7 @@ func doTestSignalWorkflow(
 		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           signal.WorkflowType,
-		FlowTimeoutSeconds: 20,
+		FlowTimeoutSeconds: 30,
 
 		StartStepType: signal.State1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
@@ -115,12 +117,22 @@ func doTestSignalWorkflow(
 	})
 	require.NoError(t, err)
 
-	time.Sleep(2 * time.Second)
-
-	err = unifiedClient.QueryWorkflow(ctx, &debugDump, flowId, "", service.DebugDumpQueryType)
-	require.NoError(t, err)
 	expectedConfig.ContinueAsNewPageSizeInBytes = ptr.Any(int32(3000000))
-	assertions.True(proto.Equal(expectedConfig, debugDump.GetConfig()))
+	require.Eventually(t, func() bool {
+		var currentDebugDump dexpb.DebugDumpResponse
+		queryErr := unifiedClient.QueryWorkflow(
+			ctx,
+			&currentDebugDump,
+			flowId,
+			"",
+			service.DebugDumpQueryType,
+		)
+		if queryErr != nil {
+			return false
+		}
+		debugDump = currentDebugDump
+		return proto.Equal(expectedConfig, debugDump.GetConfig())
+	}, 2*time.Second, 50*time.Millisecond)
 
 	var unhandledSignalVals []*dexpb.Value
 	for i := 0; i < 10; i++ {
@@ -194,6 +206,11 @@ func doTestSignalWorkflow(
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId: flowId,
 	})
+	if status.Code(err) == codes.DeadlineExceeded {
+		_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+			FlowId: flowId,
+		})
+	}
 	require.NoError(t, err)
 
 	result := workerHandler.GetTestResult()

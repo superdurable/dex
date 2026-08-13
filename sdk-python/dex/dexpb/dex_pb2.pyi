@@ -1844,10 +1844,18 @@ class DebugDumpResponse(_message.Message):
     def __init__(self, config: _Optional[_Union[FlowConfig, _Mapping]] = ..., snapshot: _Optional[_Union[ContinueAsNewDump, _Mapping]] = ..., firing_timers_unix_timestamps: _Optional[_Iterable[int]] = ..., active_step_executions: _Optional[_Iterable[_Union[ActiveStepExecutionState, _Mapping]]] = ...) -> None: ...
 
 class InvokeRpcUpdateResult(_message.Message):
-    __slots__ = ("response",)
+    __slots__ = ("response", "step_decision", "upsert_attributes", "record_events", "publish_to_channel")
     RESPONSE_FIELD_NUMBER: _ClassVar[int]
+    STEP_DECISION_FIELD_NUMBER: _ClassVar[int]
+    UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
+    RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
+    PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     response: InvokeRPCResponse
-    def __init__(self, response: _Optional[_Union[InvokeRPCResponse, _Mapping]] = ...) -> None: ...
+    step_decision: StepDecision
+    upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
+    record_events: _containers.RepeatedCompositeFieldContainer[KV]
+    publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
+    def __init__(self, response: _Optional[_Union[InvokeRPCResponse, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
 
 class StepExecutionNumbers(_message.Message):
     __slots__ = ("numbers",)

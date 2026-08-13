@@ -33,11 +33,11 @@ attributeStore:
   syncBatchSize: 25
   syncAttemptTimeout: 45s
   syncRetryPolicy:
-    initialIntervalSeconds: 2
-    maximumIntervalSeconds: 20
+    initialInterval: 250ms
+    maximumInterval: 20s
     backoffCoefficient: 1.5
     maximumAttempts: 4
-    totalDurationSeconds: 90
+    totalDuration: 1m30s
 `)
 	cfg, err := NewConfig(path)
 	require.NoError(t, err)
@@ -47,11 +47,11 @@ attributeStore:
 	require.Equal(t, 25, cfg.AttributeStore.EffectiveSyncBatchSize())
 	require.Equal(t, 45*time.Second, cfg.AttributeStore.EffectiveSyncAttemptTimeout())
 	policy := cfg.AttributeStore.EffectiveSyncRetryPolicy()
-	require.Equal(t, int32(2), policy.GetInitialIntervalSeconds())
-	require.Equal(t, int32(20), policy.GetMaximumIntervalSeconds())
-	require.Equal(t, float32(1.5), policy.GetBackoffCoefficient())
-	require.Equal(t, int32(4), policy.GetMaximumAttempts())
-	require.Equal(t, int32(90), policy.GetTotalDurationSeconds())
+	require.Equal(t, 250*time.Millisecond, policy.InitialInterval)
+	require.Equal(t, 20*time.Second, policy.MaximumInterval)
+	require.Equal(t, 1.5, policy.BackoffCoefficient)
+	require.Equal(t, int32(4), policy.MaximumAttempts)
+	require.Equal(t, 90*time.Second, policy.TotalDuration)
 	require.NoError(t, cfg.AttributeStore.Validate())
 }
 
@@ -61,6 +61,7 @@ func TestBlobStoreDefaults(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, cfg.BlobStore.EffectiveEnabled())
 	require.Equal(t, 1024, cfg.BlobStore.EffectiveThresholdInBytes())
+	require.Equal(t, 100*time.Millisecond, cfg.AttributeStore.EffectiveSyncRetryPolicy().InitialInterval)
 }
 
 func TestExternalStorageConfigKeyIsRejected(t *testing.T) {

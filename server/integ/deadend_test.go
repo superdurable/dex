@@ -106,9 +106,8 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
-		FlowId:            flowId,
-		RpcName:           deadend.RPCWriteData,
-		LockAttributeKeys: []string{"any key"},
+		FlowId:  flowId,
+		RpcName: deadend.RPCWriteData,
 	})
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 	require.Equal(t, "request ID is required", grpcErrorResponse(t, err).GetDetail())
@@ -128,10 +127,9 @@ func doTestSynchronousUpdateRequestID(t *testing.T) {
 
 	requestId := uuid.NewString()
 	request := &dexpb.InvokeRPCRequest{
-		FlowId:            flowId,
-		RpcName:           deadend.RPCWriteData,
-		LockAttributeKeys: []string{"any key"},
-		RequestId:         requestId,
+		FlowId:    flowId,
+		RpcName:   deadend.RPCWriteData,
+		RequestId: requestId,
 	}
 	var waitGroup sync.WaitGroup
 	waitGroup.Add(2)

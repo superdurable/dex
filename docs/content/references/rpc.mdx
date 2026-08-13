@@ -7,3 +7,12 @@ title: RPC
 Flow RPCs let external callers read/write durable state and optionally publish channels or move execution (via Worker-side RPC handlers).
 
 RPCs run through the server to the Worker (`InvokeRPC` → Worker `InvokeWorkerRPC`). They are not Step executions; they do not upsert Step locals.
+
+Temporal executes every RPC as one synchronous `InvokeRpc` Workflow Update. The
+Update validator rejects new RPCs after terminal finalization begins. Cadence,
+which has no synchronous Update, uses a query and an optional result signal for
+non-locking RPCs; Attribute locks are unavailable there.
+
+Temporal history always contains successful RPC input and output. Values above
+the Blob Store threshold are stored as references and hydrated by Dex clients,
+Dex Web, and dexcli.

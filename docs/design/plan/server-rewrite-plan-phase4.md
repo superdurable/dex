@@ -461,15 +461,15 @@ compile only after S5 migrates updater/query/CAN files.
 
 ### InvokeRPC update
 
-- Full attributes; no LoadingPolicy. Empty `lock_attribute_keys` keeps the existing
-  non-locking signal+query path on both backends.
+- Full attributes; no LoadingPolicy. Temporal uses one synchronous `InvokeRpc`
+  Update for empty and non-empty `lock_attribute_keys`.
 - The API owns a WorkerService connection pool built from
   `InterpreterActivityConfig`. The non-locking path queries `PrepareRpc`, invokes
   WorkerService directly, signals mutations as one `ExecuteRpcSignalRequest`, and
-  closes the pool during API shutdown.
+  closes the pool during API shutdown. This path is Cadence-only.
 - A non-empty key list requires Temporal synchronous updates. Cadence returns
   `codes.Unimplemented` at the API before query/signal/worker calls.
-- Validator: reject empty keys, normalize duplicates, sort keys, and read the lock
+- Validator: accept empty keys, normalize duplicates, sort keys, and read the lock
   table only. It cannot mutate/yield. Any contended key returns
   `RPC_ACQUIRE_LOCK_FAILURE`/`Aborted`.
 - Handler: increment CAN inflight, call `LoadAttributes` to await, lock, and load,
@@ -487,14 +487,14 @@ compile only after S5 migrates updater/query/CAN files.
 - Validate that every returned `upsert_attributes` key belongs to the normalized
   `lock_attribute_keys` set. An out-of-set write is an invalid worker response and
   applies none of the result. This prevents two disjoint locking RPCs from
-  cross-writing each other's keys while both hold locks. If a terminal request becomes
-  visible while the activity is running, discard all returned side effects, release,
-  and return `FailedPrecondition`.
+  cross-writing each other's keys while both hold locks. An accepted Update commits
+  its complete result even if finalization starts while the Worker activity runs.
+  The validator rejects new Updates after finalization starts.
 - Compute one workflow-side RPC budget from positive `timeout_seconds` capped by
   `Api.EffectiveMaxWaitSeconds()`; zero uses the cap. Use it for the activity
   start-to-close/retry envelope so an accepted update remains bounded after caller
-  cancellation. Locking RPC finishes before CAN and, unlike long-poll waits, is not
-  reissued across runs.
+  cancellation. RPC finishes before CAN and, unlike long-poll waits, is not reissued
+  across runs.
 
 ### Wait update lifecycle and CAN preemption
 

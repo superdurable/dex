@@ -24,11 +24,11 @@ attributeStore:
   syncBatchSize: 100
   syncAttemptTimeout: 30s
   syncRetryPolicy:
-    initialIntervalSeconds: 1
-    maximumIntervalSeconds: 30
+    initialInterval: 100ms
+    maximumInterval: 30s
     backoffCoefficient: 2
     maximumAttempts: 0
-    totalDurationSeconds: 3600
+    totalDuration: 1h
 ```
 
 The Server connects, pings, and describes every configured table during startup.
@@ -80,10 +80,11 @@ backfill.
 
 Filtered writes, missing targets, and retry exhaustion emit error logs.
 
-CancelFlow and FailFlow are cooperative and may wait for active Steps, locking
-RPCs, and multiple one-hour batch budgets. Cancel returns a native canceled error,
-so Temporal and Cadence retain the Canceled execution state. SetAttributes and
-non-locking RPC result signals accepted during cleanup are drained for their
+CancelFlow and FailFlow are cooperative and may wait for active Steps, accepted
+Temporal RPC Updates, and multiple one-hour batch budgets. Cancel returns a native
+canceled error, so Temporal and Cadence retain the Canceled execution state.
+Temporal rejects new RPC Updates after terminal finalization begins. Cadence
+SetAttributes and RPC result signals accepted during cleanup are drained for their
 Attribute writes; terminal processing does not start their next Steps. Terminate
 and engine timeouts are hard stops and may leave the external table behind
 workflow state.

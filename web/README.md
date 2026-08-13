@@ -75,6 +75,8 @@ Methods interrupted by a forced close remain visible as Pending Timeline events
 with their last persisted Scheduled or Started phase.
 Timeline and Step graph share structured event details for flow, step method, RPC,
 and channel events. A Raw JSON tab preserves the complete server payload.
+Successful Temporal RPC Updates appear as the same RPC events as Cadence result
+signals. Blob-backed RPC input and output hydrate through the existing selected-event loader.
 External attribute writes appear as Attributes updated events, with a
 SetAttributes type label and the changed values in the event details.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.

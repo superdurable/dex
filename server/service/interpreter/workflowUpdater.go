@@ -37,6 +37,7 @@ type WorkflowUpdater struct {
 	continueAsNewCounter *cont.ContinueAsNewCounter
 	channelStore         *ChannelStore
 	signalReceiver       *SignalReceiver
+	terminalCoordinator  *TerminalCoordinator
 	stepRequestQueue     *StepRequestQueue
 	stepExecutionCounter *StepExecutionCounter
 	flowConfiger         *interpreterconfig.FlowConfiger
@@ -54,6 +55,7 @@ func NewWorkflowUpdater(
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	channelStore *ChannelStore,
 	signalReceiver *SignalReceiver,
+	terminalCoordinator *TerminalCoordinator,
 	stepExecutionCounter *StepExecutionCounter,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	basicInfo service.BasicInfo,
@@ -62,7 +64,8 @@ func NewWorkflowUpdater(
 		persistenceManager == nil || stepRequestQueue == nil ||
 		continueAsNewer == nil ||
 		continueAsNewCounter == nil || channelStore == nil ||
-		signalReceiver == nil || stepExecutionCounter == nil || flowConfiger == nil {
+		signalReceiver == nil || terminalCoordinator == nil ||
+		stepExecutionCounter == nil || flowConfiger == nil {
 		panic("WorkflowUpdater requires non-nil dependencies")
 	}
 	updater := &WorkflowUpdater{
@@ -75,6 +78,7 @@ func NewWorkflowUpdater(
 		continueAsNewCounter: continueAsNewCounter,
 		channelStore:         channelStore,
 		signalReceiver:       signalReceiver,
+		terminalCoordinator:  terminalCoordinator,
 		stepRequestQueue:     stepRequestQueue,
 		stepExecutionCounter: stepExecutionCounter,
 		flowConfiger:         flowConfiger,
@@ -126,6 +130,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 ) (output *dexpb.InvokeRpcUpdateResult, err error) {
 	u.continueAsNewer.IncreaseInflightOperation()
 	defer u.continueAsNewer.DecreaseInflightOperation()
+	u.signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
 
 	info := u.provider.GetWorkflowInfo(ctx)
 	rpcExecutionStartTime := u.provider.Now(ctx).UnixMilli()
@@ -167,7 +172,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 	activityOptions := interfaces.ActivityOptions{
 		StartToCloseTimeout:                 budget,
 		LocalActivityScheduleToCloseTimeout: budget,
-		RetryPolicy: &dexpb.RetryPolicy{
+		RetryPolicy: &config.RetryPolicy{
 			MaximumAttempts: maxWorkerRpcActivityAttempts,
 		},
 	}
@@ -196,12 +201,14 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
-	if !u.signalReceiver.IsStopFlowRequested() {
-		u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
-	}
+	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 	u.continueAsNewCounter.IncSyncUpdateReceived()
 	return &dexpb.InvokeRpcUpdateResult{
-		Response: &dexpb.InvokeRPCResponse{Output: response.GetOutput()},
+		Response:         &dexpb.InvokeRPCResponse{Output: response.GetOutput()},
+		StepDecision:     response.GetStepDecision(),
+		UpsertAttributes: response.GetUpsertAttributes(),
+		RecordEvents:     response.GetRecordEvents(),
+		PublishToChannel: response.GetPublishToChannel(),
 	}, nil
 }
 
@@ -229,12 +236,6 @@ func (u *WorkflowUpdater) validateWorkerRpc(
 		return u.provider.NewUpdateError(
 			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
 			err.Error(),
-		)
-	}
-	if len(keys) == 0 {
-		return u.provider.NewUpdateError(
-			dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_INVALID_ARGUMENT,
-			"locking RPC requires attribute keys",
 		)
 	}
 	if !u.persistenceManager.CanLockKeys(keys) {
@@ -398,7 +399,7 @@ func (u *WorkflowUpdater) validateWaitForAttribute(
 }
 
 func (u *WorkflowUpdater) rejectTerminalUpdate() error {
-	if !u.signalReceiver.IsStopFlowRequested() {
+	if !u.terminalCoordinator.HasStartedFinalizing() {
 		return nil
 	}
 	return u.provider.NewUpdateError(

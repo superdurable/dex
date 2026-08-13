@@ -14,6 +14,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -64,7 +65,7 @@ type ActivityOptions struct {
 	StartToCloseTimeout                 time.Duration
 	LocalActivityScheduleToCloseTimeout time.Duration
 	HeartbeatTimeout                    time.Duration
-	RetryPolicy                         *dexpb.RetryPolicy
+	RetryPolicy                         *config.RetryPolicy
 }
 
 type UnifiedContext interface {

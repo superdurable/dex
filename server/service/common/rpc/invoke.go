@@ -34,11 +34,16 @@ func InvokeWorkerRpc(
 	blobStoreCfg *config.BlobStoreConfig,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
 
+	workerInput := req.GetInput()
 	if !blobStoreCfg.EffectiveLazyLoading() {
 		if err := blobstore.HydrateKVs(ctx, rpcPrep.GetAttributes(), blobStore); err != nil {
 			return nil, err
 		}
-		if err := blobstore.HydrateValue(ctx, req.GetInput(), blobStore); err != nil {
+		if workerInput != nil {
+			// Preserve the request's blob reference because eager hydration replaces Value.Kind in place.
+			workerInput = &dexpb.Value{Kind: workerInput.GetKind()}
+		}
+		if err := blobstore.HydrateValue(ctx, workerInput, blobStore); err != nil {
 			return nil, err
 		}
 	}
@@ -74,7 +79,7 @@ func InvokeWorkerRpc(
 		},
 		FlowType:     rpcPrep.GetFlowType(),
 		RpcName:      req.GetRpcName(),
-		Input:        req.GetInput(),
+		Input:        workerInput,
 		Attributes:   rpcPrep.GetAttributes(),
 		ChannelInfos: channelInfos,
 	}
