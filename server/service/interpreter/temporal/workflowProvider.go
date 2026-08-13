@@ -331,6 +331,9 @@ func (w *workflowProvider) ExecuteActivity(
 		return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 	case dexpb.StepDurability_STEP_DURABILITY_ASYNC:
 		options, optionsFound := interfaces.ActivityOptionsFromContext(ctx)
+		if !optionsFound {
+			panic("activity options required for ASYNC durability")
+		}
 		localCtx := workflow.WithLocalActivityOptions(wfCtx, temporalLocalActivityOptions(options))
 		firstAttemptTime := workflow.Now(wfCtx)
 		retryContext, isStepMethodActivity := interfaces.InitializeStepActivityRetryContext(
@@ -345,23 +348,18 @@ func (w *workflowProvider) ExecuteActivity(
 		if !isStepMethodActivity {
 			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 		}
-		if !optionsFound {
+		applicationError, localError, isApplicationFailure := temporalLocalStepActivityError(err)
+		if !isApplicationFailure {
 			return err
 		}
-		previousAttempts, attemptMetadataFound, attemptErr := temporalLocalActivityAttempt(err)
-		if attemptErr != nil {
-			return attemptErr
-		}
-		if !attemptMetadataFound {
-			return err
-		}
+		previousAttempts := localError.GetFailure().GetAttempt()
 		remainingPolicy, canFallback := retry.RemainingActivityRetryPolicy(
 			options.RetryPolicy,
 			previousAttempts,
 			workflow.Now(wfCtx).Sub(firstAttemptTime),
 		)
 		if !canFallback {
-			return err
+			return temporalFinalFlowError(applicationError, localError.GetErrorResponse())
 		}
 		regularInput = interfaces.StepActivityInputForFallback(regularInput, retryContext, previousAttempts)
 		options.RetryPolicy = remainingPolicy
@@ -407,19 +405,34 @@ func temporalLocalActivityOptions(options interfaces.ActivityOptions) workflow.L
 	}
 }
 
-func temporalLocalActivityAttempt(err error) (int32, bool, error) {
+func temporalLocalStepActivityError(
+	err error,
+) (*temporal.ApplicationError, *dexpb.InternalLocalStepActivityError, bool) {
 	var applicationError *temporal.ApplicationError
-	if !errors.As(err, &applicationError) || !applicationError.HasDetails() {
-		return 0, false, nil
+	if !errors.As(err, &applicationError) {
+		return nil, nil, false
 	}
-	_, localFailure, detailErr := decodeTemporalStepErrorDetails(applicationError)
+	if !applicationError.HasDetails() {
+		panic("Temporal local Step failure details required")
+	}
+	localError, detailErr := decodeTemporalApplicationErrorDetail[dexpb.InternalLocalStepActivityError](applicationError)
 	if detailErr != nil {
-		return 0, false, fmt.Errorf("decode Temporal local Step failure details: %w", detailErr)
+		panic(fmt.Sprintf("decode Temporal local Step failure details: %v", detailErr))
 	}
-	if localFailure.GetAttempt() <= 0 {
-		return 0, false, nil
+	if localError.GetErrorResponse() == nil || localError.GetFailure() == nil {
+		panic("Temporal local Step failure details are incomplete")
 	}
-	return localFailure.GetAttempt(), true, nil
+	if localError.GetFailure().GetAttempt() <= 0 {
+		panic("Temporal local Step failure attempt required")
+	}
+	return applicationError, localError, true
+}
+
+func temporalFinalFlowError(
+	applicationError *temporal.ApplicationError,
+	errorResponse *dexpb.ErrorResponse,
+) error {
+	return temporal.NewApplicationError("", applicationError.Type(), errorResponse)
 }
 
 func decodeTemporalStepErrorDetails(

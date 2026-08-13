@@ -51,10 +51,18 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.Equal(t, "worker type", workerError.GetErrorType())
 	require.Equal(t, "worker stack", workerError.GetStackTrace())
 	require.Equal(t, int32(11), workerError.GetRetryAfterSeconds())
-	attempt, hasAttempt, err := cadenceLocalActivityAttempt(localWorkerFailure)
-	require.NoError(t, err)
-	require.True(t, hasAttempt)
-	require.Equal(t, int32(2), attempt)
+	customError, localError, isApplicationFailure := cadenceLocalStepActivityError(localWorkerFailure)
+	require.True(t, isApplicationFailure)
+	require.Equal(t, int32(2), localError.GetFailure().GetAttempt())
+
+	finalFailure := cadenceFinalFlowError(customError, localError.GetErrorResponse())
+	var finalCustomError *cadence.CustomError
+	require.ErrorAs(t, finalFailure, &finalCustomError)
+	var finalResponse *dexpb.ErrorResponse
+	require.NoError(t, finalCustomError.Details(&finalResponse))
+	require.Equal(t, original, finalResponse)
+	var leakedLocalError *dexpb.InternalLocalStepActivityError
+	require.Error(t, finalCustomError.Details(&leakedLocalError))
 
 	timeoutFailure := workflow.NewTimeoutError(shared.TimeoutTypeStartToClose)
 	timeoutError, err := provider.MapToWorkerError(timeoutFailure)

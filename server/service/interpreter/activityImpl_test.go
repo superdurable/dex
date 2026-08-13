@@ -519,7 +519,7 @@ func newChannelCondition(
 	}
 }
 
-func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
+func TestComposeStepWorkerErrorUsesInternalForNonGRPCError(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	inputError := errors.New("dial failed")
 	activityError := errors.New("activity error")
@@ -539,7 +539,7 @@ func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		composeActivityError(provider, service.BackendTypeTemporal, inputError, nil),
+		composeStepWorkerError(provider, service.BackendTypeTemporal, inputError, nil),
 		activityError,
 	)
 	require.Equal(t, "dial failed", errorResponse.GetDetail())
@@ -550,7 +550,7 @@ func TestComposeActivityErrorUsesInternalForNonGRPCError(t *testing.T) {
 	)
 }
 
-func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
+func TestComposeStepWorkerErrorPreservesWorkerDetails(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	grpcStatus, err := status.New(codes.Internal, "worker failure").WithDetails(
 		&dexpb.WorkerErrorResponse{
@@ -579,7 +579,7 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		composeActivityError(provider, service.BackendTypeTemporal, grpcStatus.Err(), nil),
+		composeStepWorkerError(provider, service.BackendTypeTemporal, grpcStatus.Err(), nil),
 		activityError,
 	)
 	require.Empty(t, errorResponse.GetDetail())
@@ -595,7 +595,7 @@ func TestComposeActivityErrorPreservesWorkerDetails(t *testing.T) {
 	require.Equal(t, int32(17), errorResponse.GetOriginalWorkerRetryAfterSeconds())
 }
 
-func TestComposeActivityErrorRejectsRetryAfterOnCadence(t *testing.T) {
+func TestComposeStepWorkerErrorRejectsRetryAfterOnCadence(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	grpcStatus, err := status.New(codes.Internal, "worker failure").WithDetails(
 		&dexpb.WorkerErrorResponse{RetryAfterSeconds: 17},
@@ -619,7 +619,7 @@ func TestComposeActivityErrorRejectsRetryAfterOnCadence(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		composeActivityError(provider, service.BackendTypeCadence, grpcStatus.Err(), nil),
+		composeStepWorkerError(provider, service.BackendTypeCadence, grpcStatus.Err(), nil),
 		activityError,
 	)
 	require.Equal(
@@ -634,7 +634,7 @@ func TestComposeActivityErrorRejectsRetryAfterOnCadence(t *testing.T) {
 	)
 }
 
-func TestComposeActivityErrorFallsBackWhenMessageEmpty(t *testing.T) {
+func TestComposeStepWorkerErrorFallsBackWhenMessageEmpty(t *testing.T) {
 	provider := interfaces.NewMockActivityProvider(gomock.NewController(t))
 	inputError := status.Error(codes.Canceled, "")
 	activityError := errors.New("activity error")
@@ -654,7 +654,7 @@ func TestComposeActivityErrorFallsBackWhenMessageEmpty(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		composeActivityError(provider, service.BackendTypeTemporal, inputError, nil),
+		composeStepWorkerError(provider, service.BackendTypeTemporal, inputError, nil),
 		activityError,
 	)
 	require.Equal(t, inputError.Error(), errorResponse.GetDetail())

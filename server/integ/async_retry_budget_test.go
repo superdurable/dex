@@ -228,6 +228,7 @@ func testAsyncAttemptBudgetExhausted(t *testing.T, backendType service.BackendTy
 	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
+	require.Contains(t, result.GetErrorMessage(), "retry budget test failure")
 	require.Len(t, handler.attempts(), 1)
 
 	events, _ := getAllWebHistoryEvents(t, ctx, runtime.FlowClient, flowID, runID)
@@ -302,6 +303,7 @@ func testAsyncExecuteAttemptBudgetExhausted(t *testing.T, backendType service.Ba
 	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
+	require.Contains(t, result.GetErrorMessage(), "execute retry budget test failure")
 
 	executeAttempts := handler.recordedExecuteAttempts()
 	require.Len(t, executeAttempts, 1)
