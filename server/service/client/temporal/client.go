@@ -160,10 +160,6 @@ func (t *temporalClient) IsWorkflowAlreadyStartedError(err error) bool {
 	return realtemporal.IsWorkflowExecutionAlreadyStartedError(err)
 }
 
-func (t *temporalClient) IsWorkflowAlreadyCompletedError(error) bool {
-	return false
-}
-
 func (t *temporalClient) GetRunIdFromWorkflowAlreadyStartedError(err error) (string, bool) {
 	var workflowExecutionAlreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
 	ok := errors.As(err, &workflowExecutionAlreadyStarted)

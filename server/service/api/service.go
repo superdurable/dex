@@ -993,10 +993,9 @@ func (s *serviceImpl) InvokeRPC(
 			}
 			return response, nil
 		}
-		workflowCompletedError := s.client.IsWorkflowAlreadyCompletedError(err)
 		updateTransitionError := useSynchronousUpdate && s.isInvokeRPCUpdateTransitionError(err)
 		if req.GetRunId() != "" ||
-			(!s.client.IsNotFoundError(err) && !workflowCompletedError && !updateTransitionError) {
+			(!s.client.IsNotFoundError(err) && !updateTransitionError) {
 			return nil, s.handleInvokeRPCError(err)
 		}
 		description, describeErr := s.client.DescribeWorkflowExecution(

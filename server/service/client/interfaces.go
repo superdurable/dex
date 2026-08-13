@@ -68,7 +68,6 @@ type errorHandler interface {
 	// Returns false if err is not a flow application error. resp must be non-nil; filled on success.
 	GetIfFlowError(err error, resp *dexpb.ErrorResponse) (dexpb.FlowErrorType, bool)
 	IsWorkflowAlreadyStartedError(error) bool
-	IsWorkflowAlreadyCompletedError(error) bool
 	GetRunIdFromWorkflowAlreadyStartedError(error) (string, bool)
 	IsNotFoundError(error) bool
 	IsUnknownUpdateError(error, string) bool
