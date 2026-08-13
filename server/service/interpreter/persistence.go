@@ -92,10 +92,18 @@ func (am *PersistenceManager) LoadAttributes(
 	}); err != nil {
 		return nil, err
 	}
-	for _, key := range keysToLock {
-		am.lockedKeys[key] = true
-	}
+	am.lockKeys(keysToLock)
 	return am.GetAllAttributes(), nil
+}
+
+func (am *PersistenceManager) TryLoadAttributes(
+	keysToLock []string,
+) ([]*dexpb.KV, bool) {
+	if !am.CanLockKeys(keysToLock) {
+		return nil, false
+	}
+	am.lockKeys(keysToLock)
+	return am.GetAllAttributes(), true
 }
 
 func (am *PersistenceManager) GetAllAttributes() []*dexpb.KV {
@@ -143,6 +151,12 @@ func (am *PersistenceManager) CanLockKeys(keys []string) bool {
 		}
 	}
 	return true
+}
+
+func (am *PersistenceManager) lockKeys(keys []string) {
+	for _, key := range keys {
+		am.lockedKeys[key] = true
+	}
 }
 
 func (am *PersistenceManager) UnlockKeys(keys []string) {
