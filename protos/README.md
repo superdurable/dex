@@ -102,13 +102,14 @@ path. A failed WaitFor method passes it directly to Execute in the same run.
 A failed Execute method stores it in the server-owned
 `StepMovement.recovery_error_internal_only`, so the configured recovery Step
 retains the error while queued and across continue-as-new. Worker-provided
-movements cannot set this internal field. If no `WorkerErrorResponse` exists,
-the interpreter synthesizes one from the backend application or timeout type.
+movements cannot set this internal field. `RecoveryErrorInfo` retains only the
+failure detail and type; Worker stack traces and retry delays are not recovery
+inputs. If no `WorkerErrorResponse` exists, the interpreter synthesizes the
+recovery information from the backend application or timeout type.
 
 `WorkerErrorResponse.retry_after_seconds` requests the next retry interval.
-The value is copied through
-`ErrorResponse.original_worker_retry_after_seconds`. Temporal applies it to
-the next Activity retry. Cadence rejects a nonzero value with an
+Temporal applies it directly to the Activity failure's next-retry delay without
+persisting it in `ErrorResponse`. Cadence rejects a nonzero value with an
 `INVALID_USER_FLOW_CODE` validation error from the Step method Activity.
 
 `ErrorResponse.detail` and `original_worker_error_detail` are mutually exclusive.
@@ -122,11 +123,12 @@ reason or timeout type. `details` is present only when the failure carries a
 decodable `ErrorResponse`, so backend timeouts normally expose only
 `backend_error`.
 
-`LocalActivityInput` stores marker lineage only. `InternalLocalActivityInput`
-is the local-only runtime argument. `InternalStepActivityRetryContext` and
-`InternalLocalStepActivityFailure` carry fallback bookkeeping.
-`InternalLocalStepActivityError` groups the local error response and fallback
-metadata into one backend error detail.
+`LocalActivityMetadata` stores marker lineage only.
+`InternalLocalActivityInput` is the local-only runtime argument.
+`InternalLocalStepActivityFailure` carries the local attempt count, first
+attempt time, and original method options as a second failure detail after the
+standard `ErrorResponse`. A fallback regular activity carries only its prior
+attempt count and first-attempt time in `Context`.
 `InternalAsyncStepInputSnapshot` is the run-scoped request and method-options
 record; none of these internal types is returned by `FlowService`.
 

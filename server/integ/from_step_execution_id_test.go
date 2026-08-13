@@ -297,11 +297,11 @@ func recordTemporalLocalLineage(
 	case strings.Contains(marker.ActivityType, "InvokeWaitForMethod"):
 		var output dexpb.InvokeWaitForMethodActivityOutput
 		require.NoError(t, dataConverter.FromPayloads(resultPayload, &output))
-		recordLocalActivityInput(t, lineage, output.GetResponse().GetLocalActivityInput())
+		recordLocalActivityMetadata(t, lineage, output.GetResponse().GetLocalActivityMetadata())
 	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
 		var output dexpb.InvokeExecuteMethodActivityOutput
 		require.NoError(t, dataConverter.FromPayloads(resultPayload, &output))
-		recordLocalActivityInput(t, lineage, output.GetResponse().GetLocalActivityInput())
+		recordLocalActivityMetadata(t, lineage, output.GetResponse().GetLocalActivityMetadata())
 	}
 }
 
@@ -393,7 +393,7 @@ func recordCadenceLocalLineage(
 			marker.ActivityType,
 			[]byte(marker.ResultJSON),
 		)
-		recordLocalActivityInput(t, lineage, output.GetResponse().GetLocalActivityInput())
+		recordLocalActivityMetadata(t, lineage, output.GetResponse().GetLocalActivityMetadata())
 	case strings.Contains(marker.ActivityType, "InvokeExecuteMethod"):
 		var output dexpb.InvokeExecuteMethodActivityOutput
 		require.NoError(
@@ -403,22 +403,22 @@ func recordCadenceLocalLineage(
 			marker.ActivityType,
 			[]byte(marker.ResultJSON),
 		)
-		recordLocalActivityInput(t, lineage, output.GetResponse().GetLocalActivityInput())
+		recordLocalActivityMetadata(t, lineage, output.GetResponse().GetLocalActivityMetadata())
 	}
 }
 
-func recordLocalActivityInput(
+func recordLocalActivityMetadata(
 	t *testing.T,
 	lineage map[string]string,
-	input *dexpb.LocalActivityInput,
+	metadata *dexpb.LocalActivityMetadata,
 ) {
 	t.Helper()
-	require.NotNil(t, input)
+	require.NotNil(t, metadata)
 	recordStepLineage(
 		t,
 		lineage,
-		input.GetCurrentStepExecutionId(),
-		input.GetFromStepExecutionId(),
+		metadata.GetCurrentStepExecutionId(),
+		metadata.GetFromStepExecutionId(),
 	)
 }
 

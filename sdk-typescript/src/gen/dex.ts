@@ -253,10 +253,10 @@ export interface Context {
   /** Step execution that scheduled this execution, or a reserved source. */
   fromStepExecutionId: string;
   /** Previous Step method failure supplied only to its configured recovery method. */
-  recoveryError: WorkerErrorResponse | undefined;
+  recoveryError: RecoveryErrorInfo | undefined;
 }
 
-export interface LocalActivityInput {
+export interface LocalActivityMetadata {
   currentStepExecutionId: string;
   fromStepExecutionId: string;
 }
@@ -803,7 +803,6 @@ export interface ErrorResponse {
   originalWorkerErrorType: string;
   originalWorkerErrorStatus: number;
   originalWorkerErrorStackTrace: string;
-  originalWorkerRetryAfterSeconds: number;
 }
 
 export interface WorkerErrorResponse {
@@ -827,7 +826,7 @@ export interface InvokeWaitForMethodRequest {
 
 export interface InvokeWaitForMethodResponse {
   /** Server-populated lineage input for local activity history. */
-  localActivityInput: LocalActivityInput | undefined;
+  localActivityMetadata: LocalActivityMetadata | undefined;
   upsertAttributes: AttributeWrite[];
   waitingCondition: WaitingCondition | undefined;
   upsertStepExeLocals: KV[];
@@ -848,7 +847,7 @@ export interface InvokeExecuteMethodRequest {
 
 export interface InvokeExecuteMethodResponse {
   /** Server-populated lineage input for local activity history. */
-  localActivityInput: LocalActivityInput | undefined;
+  localActivityMetadata: LocalActivityMetadata | undefined;
   stepDecision: StepDecision | undefined;
   upsertAttributes: AttributeWrite[];
   recordEvents: KV[];
@@ -898,7 +897,7 @@ export interface StepMovement {
   /** Server-owned scheduling source; workers must leave this empty. */
   fromStepExecutionIdInternalOnly: string;
   /** Server-owned error passed only to an Execute failure recovery Step. */
-  recoveryErrorInternalOnly: WorkerErrorResponse | undefined;
+  recoveryErrorInternalOnly: RecoveryErrorInfo | undefined;
 }
 
 export interface ConditionCombination {
@@ -1063,7 +1062,6 @@ export interface BlobStoreCleanupWorkflowOutput {
 export interface InvokeWaitForMethodActivityInput {
   workerTarget: WorkerTarget | undefined;
   request: InvokeWaitForMethodRequest | undefined;
-  retryContext: InternalStepActivityRetryContext | undefined;
 }
 
 export interface InvokeWaitForMethodActivityOutput {
@@ -1077,26 +1075,18 @@ export interface InvokeExecuteMethodActivityInput {
     | undefined;
   /** Requires a DeadEnd close decision without next steps. */
   isTransientStep: boolean;
-  retryContext: InternalStepActivityRetryContext | undefined;
 }
 
-export interface InternalStepActivityRetryContext {
-  previousAttempts: number;
-  firstAttemptTimestamp: bigint;
-  originalMethodOptions: StepMethodOptions | undefined;
+export interface RecoveryErrorInfo {
+  detail: string;
+  errorType: string;
 }
 
 export interface InternalLocalStepActivityFailure {
-  localActivityInput: LocalActivityInput | undefined;
-  stepType: string;
-  isTransientStep: boolean;
-  retryContext: InternalStepActivityRetryContext | undefined;
+  localActivityMetadata: LocalActivityMetadata | undefined;
+  firstAttemptTimestamp: bigint;
+  methodOptions: StepMethodOptions | undefined;
   attempt: number;
-}
-
-export interface InternalLocalStepActivityError {
-  errorResponse: ErrorResponse | undefined;
-  failure: InternalLocalStepActivityFailure | undefined;
 }
 
 export interface InvokeExecuteMethodActivityOutput {
@@ -1771,7 +1761,7 @@ export const Context: MessageFns<Context> = {
       writer.uint32(58).string(message.fromStepExecutionId);
     }
     if (message.recoveryError !== undefined) {
-      WorkerErrorResponse.encode(message.recoveryError, writer.uint32(66).fork()).join();
+      RecoveryErrorInfo.encode(message.recoveryError, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -1844,7 +1834,7 @@ export const Context: MessageFns<Context> = {
             break;
           }
 
-          message.recoveryError = WorkerErrorResponse.decode(reader, reader.uint32());
+          message.recoveryError = RecoveryErrorInfo.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -1874,18 +1864,18 @@ export const Context: MessageFns<Context> = {
     message.attempt = object.attempt ?? 0;
     message.fromStepExecutionId = object.fromStepExecutionId ?? "";
     message.recoveryError = (object.recoveryError !== undefined && object.recoveryError !== null)
-      ? WorkerErrorResponse.fromPartial(object.recoveryError)
+      ? RecoveryErrorInfo.fromPartial(object.recoveryError)
       : undefined;
     return message;
   },
 };
 
-function createBaseLocalActivityInput(): LocalActivityInput {
+function createBaseLocalActivityMetadata(): LocalActivityMetadata {
   return { currentStepExecutionId: "", fromStepExecutionId: "" };
 }
 
-export const LocalActivityInput: MessageFns<LocalActivityInput> = {
-  encode(message: LocalActivityInput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const LocalActivityMetadata: MessageFns<LocalActivityMetadata> = {
+  encode(message: LocalActivityMetadata, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.currentStepExecutionId !== "") {
       writer.uint32(10).string(message.currentStepExecutionId);
     }
@@ -1895,10 +1885,10 @@ export const LocalActivityInput: MessageFns<LocalActivityInput> = {
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): LocalActivityInput {
+  decode(input: BinaryReader | Uint8Array, length?: number): LocalActivityMetadata {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseLocalActivityInput();
+    const message = createBaseLocalActivityMetadata();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -1927,11 +1917,11 @@ export const LocalActivityInput: MessageFns<LocalActivityInput> = {
     return message;
   },
 
-  create<I extends Exact<DeepPartial<LocalActivityInput>, I>>(base?: I): LocalActivityInput {
-    return LocalActivityInput.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<LocalActivityMetadata>, I>>(base?: I): LocalActivityMetadata {
+    return LocalActivityMetadata.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<LocalActivityInput>, I>>(object: I): LocalActivityInput {
-    const message = createBaseLocalActivityInput();
+  fromPartial<I extends Exact<DeepPartial<LocalActivityMetadata>, I>>(object: I): LocalActivityMetadata {
+    const message = createBaseLocalActivityMetadata();
     message.currentStepExecutionId = object.currentStepExecutionId ?? "";
     message.fromStepExecutionId = object.fromStepExecutionId ?? "";
     return message;
@@ -8332,7 +8322,6 @@ function createBaseErrorResponse(): ErrorResponse {
     originalWorkerErrorType: "",
     originalWorkerErrorStatus: 0,
     originalWorkerErrorStackTrace: "",
-    originalWorkerRetryAfterSeconds: 0,
   };
 }
 
@@ -8355,9 +8344,6 @@ export const ErrorResponse: MessageFns<ErrorResponse> = {
     }
     if (message.originalWorkerErrorStackTrace !== "") {
       writer.uint32(50).string(message.originalWorkerErrorStackTrace);
-    }
-    if (message.originalWorkerRetryAfterSeconds !== 0) {
-      writer.uint32(56).int32(message.originalWorkerRetryAfterSeconds);
     }
     return writer;
   },
@@ -8417,14 +8403,6 @@ export const ErrorResponse: MessageFns<ErrorResponse> = {
           message.originalWorkerErrorStackTrace = reader.string();
           continue;
         }
-        case 7: {
-          if (tag !== 56) {
-            break;
-          }
-
-          message.originalWorkerRetryAfterSeconds = reader.int32();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -8445,7 +8423,6 @@ export const ErrorResponse: MessageFns<ErrorResponse> = {
     message.originalWorkerErrorType = object.originalWorkerErrorType ?? "";
     message.originalWorkerErrorStatus = object.originalWorkerErrorStatus ?? 0;
     message.originalWorkerErrorStackTrace = object.originalWorkerErrorStackTrace ?? "";
-    message.originalWorkerRetryAfterSeconds = object.originalWorkerRetryAfterSeconds ?? 0;
     return message;
   },
 };
@@ -8678,7 +8655,7 @@ export const InvokeWaitForMethodRequest: MessageFns<InvokeWaitForMethodRequest> 
 
 function createBaseInvokeWaitForMethodResponse(): InvokeWaitForMethodResponse {
   return {
-    localActivityInput: undefined,
+    localActivityMetadata: undefined,
     upsertAttributes: [],
     waitingCondition: undefined,
     upsertStepExeLocals: [],
@@ -8690,8 +8667,8 @@ function createBaseInvokeWaitForMethodResponse(): InvokeWaitForMethodResponse {
 
 export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse> = {
   encode(message: InvokeWaitForMethodResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.localActivityInput !== undefined) {
-      LocalActivityInput.encode(message.localActivityInput, writer.uint32(10).fork()).join();
+    if (message.localActivityMetadata !== undefined) {
+      LocalActivityMetadata.encode(message.localActivityMetadata, writer.uint32(10).fork()).join();
     }
     for (const v of message.upsertAttributes) {
       AttributeWrite.encode(v!, writer.uint32(18).fork()).join();
@@ -8726,7 +8703,7 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
             break;
           }
 
-          message.localActivityInput = LocalActivityInput.decode(reader, reader.uint32());
+          message.localActivityMetadata = LocalActivityMetadata.decode(reader, reader.uint32());
           continue;
         }
         case 2: {
@@ -8791,9 +8768,10 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
   },
   fromPartial<I extends Exact<DeepPartial<InvokeWaitForMethodResponse>, I>>(object: I): InvokeWaitForMethodResponse {
     const message = createBaseInvokeWaitForMethodResponse();
-    message.localActivityInput = (object.localActivityInput !== undefined && object.localActivityInput !== null)
-      ? LocalActivityInput.fromPartial(object.localActivityInput)
-      : undefined;
+    message.localActivityMetadata =
+      (object.localActivityMetadata !== undefined && object.localActivityMetadata !== null)
+        ? LocalActivityMetadata.fromPartial(object.localActivityMetadata)
+        : undefined;
     message.upsertAttributes = object.upsertAttributes?.map((e) => AttributeWrite.fromPartial(e)) || [];
     message.waitingCondition = (object.waitingCondition !== undefined && object.waitingCondition !== null)
       ? WaitingCondition.fromPartial(object.waitingCondition)
@@ -8943,7 +8921,7 @@ export const InvokeExecuteMethodRequest: MessageFns<InvokeExecuteMethodRequest> 
 
 function createBaseInvokeExecuteMethodResponse(): InvokeExecuteMethodResponse {
   return {
-    localActivityInput: undefined,
+    localActivityMetadata: undefined,
     stepDecision: undefined,
     upsertAttributes: [],
     recordEvents: [],
@@ -8954,8 +8932,8 @@ function createBaseInvokeExecuteMethodResponse(): InvokeExecuteMethodResponse {
 
 export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse> = {
   encode(message: InvokeExecuteMethodResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.localActivityInput !== undefined) {
-      LocalActivityInput.encode(message.localActivityInput, writer.uint32(10).fork()).join();
+    if (message.localActivityMetadata !== undefined) {
+      LocalActivityMetadata.encode(message.localActivityMetadata, writer.uint32(10).fork()).join();
     }
     if (message.stepDecision !== undefined) {
       StepDecision.encode(message.stepDecision, writer.uint32(18).fork()).join();
@@ -8987,7 +8965,7 @@ export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse
             break;
           }
 
-          message.localActivityInput = LocalActivityInput.decode(reader, reader.uint32());
+          message.localActivityMetadata = LocalActivityMetadata.decode(reader, reader.uint32());
           continue;
         }
         case 2: {
@@ -9044,9 +9022,10 @@ export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse
   },
   fromPartial<I extends Exact<DeepPartial<InvokeExecuteMethodResponse>, I>>(object: I): InvokeExecuteMethodResponse {
     const message = createBaseInvokeExecuteMethodResponse();
-    message.localActivityInput = (object.localActivityInput !== undefined && object.localActivityInput !== null)
-      ? LocalActivityInput.fromPartial(object.localActivityInput)
-      : undefined;
+    message.localActivityMetadata =
+      (object.localActivityMetadata !== undefined && object.localActivityMetadata !== null)
+        ? LocalActivityMetadata.fromPartial(object.localActivityMetadata)
+        : undefined;
     message.stepDecision = (object.stepDecision !== undefined && object.stepDecision !== null)
       ? StepDecision.fromPartial(object.stepDecision)
       : undefined;
@@ -9496,7 +9475,7 @@ export const StepMovement: MessageFns<StepMovement> = {
       writer.uint32(34).string(message.fromStepExecutionIdInternalOnly);
     }
     if (message.recoveryErrorInternalOnly !== undefined) {
-      WorkerErrorResponse.encode(message.recoveryErrorInternalOnly, writer.uint32(42).fork()).join();
+      RecoveryErrorInfo.encode(message.recoveryErrorInternalOnly, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -9545,7 +9524,7 @@ export const StepMovement: MessageFns<StepMovement> = {
             break;
           }
 
-          message.recoveryErrorInternalOnly = WorkerErrorResponse.decode(reader, reader.uint32());
+          message.recoveryErrorInternalOnly = RecoveryErrorInfo.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -9572,7 +9551,7 @@ export const StepMovement: MessageFns<StepMovement> = {
     message.fromStepExecutionIdInternalOnly = object.fromStepExecutionIdInternalOnly ?? "";
     message.recoveryErrorInternalOnly =
       (object.recoveryErrorInternalOnly !== undefined && object.recoveryErrorInternalOnly !== null)
-        ? WorkerErrorResponse.fromPartial(object.recoveryErrorInternalOnly)
+        ? RecoveryErrorInfo.fromPartial(object.recoveryErrorInternalOnly)
         : undefined;
     return message;
   },
@@ -11491,7 +11470,7 @@ export const BlobStoreCleanupWorkflowOutput: MessageFns<BlobStoreCleanupWorkflow
 };
 
 function createBaseInvokeWaitForMethodActivityInput(): InvokeWaitForMethodActivityInput {
-  return { workerTarget: undefined, request: undefined, retryContext: undefined };
+  return { workerTarget: undefined, request: undefined };
 }
 
 export const InvokeWaitForMethodActivityInput: MessageFns<InvokeWaitForMethodActivityInput> = {
@@ -11501,9 +11480,6 @@ export const InvokeWaitForMethodActivityInput: MessageFns<InvokeWaitForMethodAct
     }
     if (message.request !== undefined) {
       InvokeWaitForMethodRequest.encode(message.request, writer.uint32(18).fork()).join();
-    }
-    if (message.retryContext !== undefined) {
-      InternalStepActivityRetryContext.encode(message.retryContext, writer.uint32(26).fork()).join();
     }
     return writer;
   },
@@ -11531,14 +11507,6 @@ export const InvokeWaitForMethodActivityInput: MessageFns<InvokeWaitForMethodAct
           message.request = InvokeWaitForMethodRequest.decode(reader, reader.uint32());
           continue;
         }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.retryContext = InternalStepActivityRetryContext.decode(reader, reader.uint32());
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -11562,9 +11530,6 @@ export const InvokeWaitForMethodActivityInput: MessageFns<InvokeWaitForMethodAct
       : undefined;
     message.request = (object.request !== undefined && object.request !== null)
       ? InvokeWaitForMethodRequest.fromPartial(object.request)
-      : undefined;
-    message.retryContext = (object.retryContext !== undefined && object.retryContext !== null)
-      ? InternalStepActivityRetryContext.fromPartial(object.retryContext)
       : undefined;
     return message;
   },
@@ -11623,7 +11588,7 @@ export const InvokeWaitForMethodActivityOutput: MessageFns<InvokeWaitForMethodAc
 };
 
 function createBaseInvokeExecuteMethodActivityInput(): InvokeExecuteMethodActivityInput {
-  return { workerTarget: undefined, request: undefined, isTransientStep: false, retryContext: undefined };
+  return { workerTarget: undefined, request: undefined, isTransientStep: false };
 }
 
 export const InvokeExecuteMethodActivityInput: MessageFns<InvokeExecuteMethodActivityInput> = {
@@ -11636,9 +11601,6 @@ export const InvokeExecuteMethodActivityInput: MessageFns<InvokeExecuteMethodAct
     }
     if (message.isTransientStep !== false) {
       writer.uint32(24).bool(message.isTransientStep);
-    }
-    if (message.retryContext !== undefined) {
-      InternalStepActivityRetryContext.encode(message.retryContext, writer.uint32(34).fork()).join();
     }
     return writer;
   },
@@ -11674,14 +11636,6 @@ export const InvokeExecuteMethodActivityInput: MessageFns<InvokeExecuteMethodAct
           message.isTransientStep = reader.bool();
           continue;
         }
-        case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.retryContext = InternalStepActivityRetryContext.decode(reader, reader.uint32());
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -11707,63 +11661,46 @@ export const InvokeExecuteMethodActivityInput: MessageFns<InvokeExecuteMethodAct
       ? InvokeExecuteMethodRequest.fromPartial(object.request)
       : undefined;
     message.isTransientStep = object.isTransientStep ?? false;
-    message.retryContext = (object.retryContext !== undefined && object.retryContext !== null)
-      ? InternalStepActivityRetryContext.fromPartial(object.retryContext)
-      : undefined;
     return message;
   },
 };
 
-function createBaseInternalStepActivityRetryContext(): InternalStepActivityRetryContext {
-  return { previousAttempts: 0, firstAttemptTimestamp: 0n, originalMethodOptions: undefined };
+function createBaseRecoveryErrorInfo(): RecoveryErrorInfo {
+  return { detail: "", errorType: "" };
 }
 
-export const InternalStepActivityRetryContext: MessageFns<InternalStepActivityRetryContext> = {
-  encode(message: InternalStepActivityRetryContext, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.previousAttempts !== 0) {
-      writer.uint32(8).int32(message.previousAttempts);
+export const RecoveryErrorInfo: MessageFns<RecoveryErrorInfo> = {
+  encode(message: RecoveryErrorInfo, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.detail !== "") {
+      writer.uint32(10).string(message.detail);
     }
-    if (message.firstAttemptTimestamp !== 0n) {
-      if (BigInt.asIntN(64, message.firstAttemptTimestamp) !== message.firstAttemptTimestamp) {
-        throw new globalThis.Error("value provided for field message.firstAttemptTimestamp of type int64 too large");
-      }
-      writer.uint32(16).int64(message.firstAttemptTimestamp);
-    }
-    if (message.originalMethodOptions !== undefined) {
-      StepMethodOptions.encode(message.originalMethodOptions, writer.uint32(26).fork()).join();
+    if (message.errorType !== "") {
+      writer.uint32(18).string(message.errorType);
     }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): InternalStepActivityRetryContext {
+  decode(input: BinaryReader | Uint8Array, length?: number): RecoveryErrorInfo {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseInternalStepActivityRetryContext();
+    const message = createBaseRecoveryErrorInfo();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
         case 1: {
-          if (tag !== 8) {
+          if (tag !== 10) {
             break;
           }
 
-          message.previousAttempts = reader.int32();
+          message.detail = reader.string();
           continue;
         }
         case 2: {
-          if (tag !== 16) {
+          if (tag !== 18) {
             break;
           }
 
-          message.firstAttemptTimestamp = reader.int64() as bigint;
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.originalMethodOptions = StepMethodOptions.decode(reader, reader.uint32());
+          message.errorType = reader.string();
           continue;
         }
       }
@@ -11775,48 +11712,37 @@ export const InternalStepActivityRetryContext: MessageFns<InternalStepActivityRe
     return message;
   },
 
-  create<I extends Exact<DeepPartial<InternalStepActivityRetryContext>, I>>(
-    base?: I,
-  ): InternalStepActivityRetryContext {
-    return InternalStepActivityRetryContext.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<RecoveryErrorInfo>, I>>(base?: I): RecoveryErrorInfo {
+    return RecoveryErrorInfo.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<InternalStepActivityRetryContext>, I>>(
-    object: I,
-  ): InternalStepActivityRetryContext {
-    const message = createBaseInternalStepActivityRetryContext();
-    message.previousAttempts = object.previousAttempts ?? 0;
-    message.firstAttemptTimestamp =
-      (object.firstAttemptTimestamp !== undefined && object.firstAttemptTimestamp !== null)
-        ? BigInt(object.firstAttemptTimestamp)
-        : 0n;
-    message.originalMethodOptions =
-      (object.originalMethodOptions !== undefined && object.originalMethodOptions !== null)
-        ? StepMethodOptions.fromPartial(object.originalMethodOptions)
-        : undefined;
+  fromPartial<I extends Exact<DeepPartial<RecoveryErrorInfo>, I>>(object: I): RecoveryErrorInfo {
+    const message = createBaseRecoveryErrorInfo();
+    message.detail = object.detail ?? "";
+    message.errorType = object.errorType ?? "";
     return message;
   },
 };
 
 function createBaseInternalLocalStepActivityFailure(): InternalLocalStepActivityFailure {
-  return { localActivityInput: undefined, stepType: "", isTransientStep: false, retryContext: undefined, attempt: 0 };
+  return { localActivityMetadata: undefined, firstAttemptTimestamp: 0n, methodOptions: undefined, attempt: 0 };
 }
 
 export const InternalLocalStepActivityFailure: MessageFns<InternalLocalStepActivityFailure> = {
   encode(message: InternalLocalStepActivityFailure, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.localActivityInput !== undefined) {
-      LocalActivityInput.encode(message.localActivityInput, writer.uint32(10).fork()).join();
+    if (message.localActivityMetadata !== undefined) {
+      LocalActivityMetadata.encode(message.localActivityMetadata, writer.uint32(10).fork()).join();
     }
-    if (message.stepType !== "") {
-      writer.uint32(18).string(message.stepType);
+    if (message.firstAttemptTimestamp !== 0n) {
+      if (BigInt.asIntN(64, message.firstAttemptTimestamp) !== message.firstAttemptTimestamp) {
+        throw new globalThis.Error("value provided for field message.firstAttemptTimestamp of type int64 too large");
+      }
+      writer.uint32(16).int64(message.firstAttemptTimestamp);
     }
-    if (message.isTransientStep !== false) {
-      writer.uint32(24).bool(message.isTransientStep);
-    }
-    if (message.retryContext !== undefined) {
-      InternalStepActivityRetryContext.encode(message.retryContext, writer.uint32(34).fork()).join();
+    if (message.methodOptions !== undefined) {
+      StepMethodOptions.encode(message.methodOptions, writer.uint32(26).fork()).join();
     }
     if (message.attempt !== 0) {
-      writer.uint32(40).int32(message.attempt);
+      writer.uint32(32).int32(message.attempt);
     }
     return writer;
   },
@@ -11833,35 +11759,27 @@ export const InternalLocalStepActivityFailure: MessageFns<InternalLocalStepActiv
             break;
           }
 
-          message.localActivityInput = LocalActivityInput.decode(reader, reader.uint32());
+          message.localActivityMetadata = LocalActivityMetadata.decode(reader, reader.uint32());
           continue;
         }
         case 2: {
-          if (tag !== 18) {
+          if (tag !== 16) {
             break;
           }
 
-          message.stepType = reader.string();
+          message.firstAttemptTimestamp = reader.int64() as bigint;
           continue;
         }
         case 3: {
-          if (tag !== 24) {
+          if (tag !== 26) {
             break;
           }
 
-          message.isTransientStep = reader.bool();
+          message.methodOptions = StepMethodOptions.decode(reader, reader.uint32());
           continue;
         }
         case 4: {
-          if (tag !== 34) {
-            break;
-          }
-
-          message.retryContext = InternalStepActivityRetryContext.decode(reader, reader.uint32());
-          continue;
-        }
-        case 5: {
-          if (tag !== 40) {
+          if (tag !== 32) {
             break;
           }
 
@@ -11886,79 +11804,18 @@ export const InternalLocalStepActivityFailure: MessageFns<InternalLocalStepActiv
     object: I,
   ): InternalLocalStepActivityFailure {
     const message = createBaseInternalLocalStepActivityFailure();
-    message.localActivityInput = (object.localActivityInput !== undefined && object.localActivityInput !== null)
-      ? LocalActivityInput.fromPartial(object.localActivityInput)
-      : undefined;
-    message.stepType = object.stepType ?? "";
-    message.isTransientStep = object.isTransientStep ?? false;
-    message.retryContext = (object.retryContext !== undefined && object.retryContext !== null)
-      ? InternalStepActivityRetryContext.fromPartial(object.retryContext)
+    message.localActivityMetadata =
+      (object.localActivityMetadata !== undefined && object.localActivityMetadata !== null)
+        ? LocalActivityMetadata.fromPartial(object.localActivityMetadata)
+        : undefined;
+    message.firstAttemptTimestamp =
+      (object.firstAttemptTimestamp !== undefined && object.firstAttemptTimestamp !== null)
+        ? BigInt(object.firstAttemptTimestamp)
+        : 0n;
+    message.methodOptions = (object.methodOptions !== undefined && object.methodOptions !== null)
+      ? StepMethodOptions.fromPartial(object.methodOptions)
       : undefined;
     message.attempt = object.attempt ?? 0;
-    return message;
-  },
-};
-
-function createBaseInternalLocalStepActivityError(): InternalLocalStepActivityError {
-  return { errorResponse: undefined, failure: undefined };
-}
-
-export const InternalLocalStepActivityError: MessageFns<InternalLocalStepActivityError> = {
-  encode(message: InternalLocalStepActivityError, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.errorResponse !== undefined) {
-      ErrorResponse.encode(message.errorResponse, writer.uint32(10).fork()).join();
-    }
-    if (message.failure !== undefined) {
-      InternalLocalStepActivityFailure.encode(message.failure, writer.uint32(18).fork()).join();
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): InternalLocalStepActivityError {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseInternalLocalStepActivityError();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.errorResponse = ErrorResponse.decode(reader, reader.uint32());
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.failure = InternalLocalStepActivityFailure.decode(reader, reader.uint32());
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  create<I extends Exact<DeepPartial<InternalLocalStepActivityError>, I>>(base?: I): InternalLocalStepActivityError {
-    return InternalLocalStepActivityError.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<InternalLocalStepActivityError>, I>>(
-    object: I,
-  ): InternalLocalStepActivityError {
-    const message = createBaseInternalLocalStepActivityError();
-    message.errorResponse = (object.errorResponse !== undefined && object.errorResponse !== null)
-      ? ErrorResponse.fromPartial(object.errorResponse)
-      : undefined;
-    message.failure = (object.failure !== undefined && object.failure !== null)
-      ? InternalLocalStepActivityFailure.fromPartial(object.failure)
-      : undefined;
     return message;
   },
 };

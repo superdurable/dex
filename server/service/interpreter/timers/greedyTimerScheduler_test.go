@@ -40,7 +40,7 @@ func (p *fakeWorkflowProvider) IsApplicationError(error) bool {
 	return false
 }
 
-func (p *fakeWorkflowProvider) MapToWorkerError(error) (*dexpb.WorkerErrorResponse, error) {
+func (p *fakeWorkflowProvider) MapToRecoveryError(error) (*dexpb.RecoveryErrorInfo, error) {
 	return nil, nil
 }
 

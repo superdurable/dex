@@ -90,11 +90,9 @@ func TestTemporalRecoveryErrorRoundTrip(t *testing.T) {
 	input := &dexpb.InvokeExecuteMethodActivityInput{
 		Request: &dexpb.InvokeExecuteMethodRequest{
 			Context: &dexpb.Context{
-				RecoveryError: &dexpb.WorkerErrorResponse{
-					Detail:            "failure",
-					ErrorType:         "Failure",
-					StackTrace:        "stack",
-					RetryAfterSeconds: 3,
+				RecoveryError: &dexpb.RecoveryErrorInfo{
+					Detail:    "failure",
+					ErrorType: "Failure",
 				},
 			},
 		},

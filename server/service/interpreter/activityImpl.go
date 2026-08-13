@@ -100,19 +100,19 @@ func (a *Activities) InvokeWaitForMethod(
 	logger.Info("InvokeWaitForMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
-	req := input.GetRequest()
-	if req.Context == nil {
-		req.Context = &dexpb.Context{}
-	}
+	req := waitForMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
-		input.GetRetryContext(),
+		req.GetContext(),
 		activityInfo.ScheduledTime,
 		activityInfo.Attempt,
 	)
 	activityAttempt.ApplyToWorkerContext(req.GetContext())
 	var localActivityFailure *dexpb.InternalLocalStepActivityFailure
 	if activityInfo.IsLocalActivity {
-		localActivityFailure = activityAttempt.LocalFailureDetails(req.GetContext(), req.GetStepType(), false)
+		localActivityFailure = activityAttempt.LocalFailureDetails(
+			req.GetContext(),
+			localInput.GetMethodOptions(),
+		)
 	}
 
 	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
@@ -182,9 +182,9 @@ func (a *Activities) InvokeWaitForMethod(
 			return nil, composeStepInternalError(provider, err, localActivityFailure)
 		}
 	}
-	resp.LocalActivityInput = nil
+	resp.LocalActivityMetadata = nil
 	if activityInfo.IsLocalActivity {
-		resp.LocalActivityInput = composeLocalActivityInput(req.GetContext())
+		resp.LocalActivityMetadata = composeLocalActivityMetadata(req.GetContext())
 	}
 	if err := a.offloadWorkerAttributeWrites(
 		ctx,
@@ -220,12 +220,9 @@ func (a *Activities) InvokeExecuteMethod(
 	logger.Info("InvokeExecuteMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
-	req := input.GetRequest()
-	if req.Context == nil {
-		req.Context = &dexpb.Context{}
-	}
+	req := executeMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
-		input.GetRetryContext(),
+		req.GetContext(),
 		activityInfo.ScheduledTime,
 		activityInfo.Attempt,
 	)
@@ -234,8 +231,7 @@ func (a *Activities) InvokeExecuteMethod(
 	if activityInfo.IsLocalActivity {
 		localActivityFailure = activityAttempt.LocalFailureDetails(
 			req.GetContext(),
-			req.GetStepType(),
-			input.GetIsTransientStep(),
+			localInput.GetMethodOptions(),
 		)
 	}
 
@@ -293,9 +289,9 @@ func (a *Activities) InvokeExecuteMethod(
 		resp.GetStepDecision(),
 		req.GetContext().GetStepExecutionId(),
 	)
-	resp.LocalActivityInput = nil
+	resp.LocalActivityMetadata = nil
 	if activityInfo.IsLocalActivity {
-		resp.LocalActivityInput = composeLocalActivityInput(req.GetContext())
+		resp.LocalActivityMetadata = composeLocalActivityMetadata(req.GetContext())
 	}
 	if err := a.reuseOrOffloadDecisionInputs(
 		ctx,
@@ -328,6 +324,54 @@ func (a *Activities) InvokeExecuteMethod(
 
 	a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptSucc)
 	return &dexpb.InvokeExecuteMethodActivityOutput{Response: resp}, nil
+}
+
+func waitForMethodRequestForAttempt(
+	request *dexpb.InvokeWaitForMethodRequest,
+) *dexpb.InvokeWaitForMethodRequest {
+	if request == nil {
+		panic("InvokeWaitForMethod request required")
+	}
+	return &dexpb.InvokeWaitForMethodRequest{
+		Context:    workerContextForAttempt(request.GetContext()),
+		FlowType:   request.GetFlowType(),
+		StepType:   request.GetStepType(),
+		StepInput:  request.GetStepInput(),
+		Attributes: request.GetAttributes(),
+	}
+}
+
+func executeMethodRequestForAttempt(
+	request *dexpb.InvokeExecuteMethodRequest,
+) *dexpb.InvokeExecuteMethodRequest {
+	if request == nil {
+		panic("InvokeExecuteMethod request required")
+	}
+	return &dexpb.InvokeExecuteMethodRequest{
+		Context:          workerContextForAttempt(request.GetContext()),
+		FlowType:         request.GetFlowType(),
+		StepType:         request.GetStepType(),
+		StepInput:        request.GetStepInput(),
+		Attributes:       request.GetAttributes(),
+		StepExeLocals:    request.GetStepExeLocals(),
+		ConditionResults: request.GetConditionResults(),
+	}
+}
+
+func workerContextForAttempt(workerContext *dexpb.Context) *dexpb.Context {
+	if workerContext == nil {
+		return &dexpb.Context{}
+	}
+	return &dexpb.Context{
+		FlowId:                workerContext.GetFlowId(),
+		RunId:                 workerContext.GetRunId(),
+		FlowStartedTimestamp:  workerContext.GetFlowStartedTimestamp(),
+		StepExecutionId:       workerContext.GetStepExecutionId(),
+		FirstAttemptTimestamp: workerContext.GetFirstAttemptTimestamp(),
+		Attempt:               workerContext.GetAttempt(),
+		FromStepExecutionId:   workerContext.GetFromStepExecutionId(),
+		RecoveryError:         workerContext.GetRecoveryError(),
+	}
 }
 
 func (a *Activities) persistStepEventInput(
@@ -964,8 +1008,8 @@ func validateWaitingConditionCombinations(
 	return nil
 }
 
-func composeLocalActivityInput(ctx *dexpb.Context) *dexpb.LocalActivityInput {
-	return &dexpb.LocalActivityInput{
+func composeLocalActivityMetadata(ctx *dexpb.Context) *dexpb.LocalActivityMetadata {
+	return &dexpb.LocalActivityMetadata{
 		CurrentStepExecutionId: ctx.GetStepExecutionId(),
 		FromStepExecutionId:    ctx.GetFromStepExecutionId(),
 	}
@@ -1016,7 +1060,6 @@ func composeStepWorkerError(
 		SubStatus:                 dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		OriginalWorkerErrorStatus: int32(grpcStatus.Code()),
 	}
-	workerErrorFound := false
 	for _, statusDetail := range grpcStatus.Details() {
 		workerError, ok := statusDetail.(*dexpb.WorkerErrorResponse)
 		if !ok {
@@ -1033,34 +1076,52 @@ func composeStepWorkerError(
 					dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
 					invalidResponse,
 					localActivityFailure,
+					0,
 				)
 			}
 			return provider.NewFlowError(
 				dexpb.FlowErrorType_FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE,
 				invalidResponse,
+				0,
 			)
 		}
-		workerErrorFound = true
 		errorResponse.OriginalWorkerErrorDetail = workerError.GetDetail()
 		if errorResponse.GetOriginalWorkerErrorDetail() == "" {
 			errorResponse.OriginalWorkerErrorDetail = detail
 		}
 		errorResponse.OriginalWorkerErrorType = workerError.GetErrorType()
 		errorResponse.OriginalWorkerErrorStackTrace = workerError.GetStackTrace()
-		errorResponse.OriginalWorkerRetryAfterSeconds = workerError.GetRetryAfterSeconds()
+		retryAfterSeconds := workerError.GetRetryAfterSeconds()
+		if localActivityFailure != nil {
+			return newLocalActivityError(
+				provider,
+				dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+				errorResponse,
+				localActivityFailure,
+				retryAfterSeconds,
+			)
+		}
+		return provider.NewFlowError(
+			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+			errorResponse,
+			retryAfterSeconds,
+		)
 	}
-	if !workerErrorFound {
-		errorResponse.Detail = detail
-	}
+	errorResponse.Detail = detail
 	if localActivityFailure != nil {
 		return newLocalActivityError(
 			provider,
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
 			errorResponse,
 			localActivityFailure,
+			0,
 		)
 	}
-	return provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL, errorResponse)
+	return provider.NewFlowError(
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL,
+		errorResponse,
+		0,
+	)
 }
 
 func composeInternalActivityError(
@@ -1070,6 +1131,7 @@ func composeInternalActivityError(
 	return provider.NewFlowError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 		internalActivityErrorResponse(err),
+		0,
 	)
 }
 
@@ -1085,9 +1147,10 @@ func composeStepInternalError(
 			dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
 			response,
 			localActivityFailure,
+			0,
 		)
 	}
-	return provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL, response)
+	return provider.NewFlowError(dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL, response, 0)
 }
 
 func internalActivityErrorResponse(err error) *dexpb.ErrorResponse {
@@ -1102,11 +1165,9 @@ func newLocalActivityError(
 	errorType dexpb.FlowErrorType,
 	response *dexpb.ErrorResponse,
 	failure *dexpb.InternalLocalStepActivityFailure,
+	retryAfterSeconds int32,
 ) error {
-	return provider.NewLocalActivityError(errorType, &dexpb.InternalLocalStepActivityError{
-		ErrorResponse: response,
-		Failure:       failure,
-	})
+	return provider.NewLocalActivityError(errorType, response, failure, retryAfterSeconds)
 }
 
 func (a *Activities) logLocalActivityWarn(

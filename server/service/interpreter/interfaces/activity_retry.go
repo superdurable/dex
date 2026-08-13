@@ -8,57 +8,103 @@
 
 package interfaces
 
-import (
-	"time"
+import "github.com/superdurable/dex/gen/dexpb"
 
-	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service/common/retry"
-)
-
-func InitializeStepActivityRetryContext(
-	input interface{},
-	options ActivityOptions,
-	firstAttemptTime time.Time,
-) (*dexpb.InternalStepActivityRetryContext, bool) {
-	retryContext := &dexpb.InternalStepActivityRetryContext{
-		FirstAttemptTimestamp: firstAttemptTime.Unix(),
-		OriginalMethodOptions: &dexpb.StepMethodOptions{
-			TimeoutSeconds: int32(options.StartToCloseTimeout / time.Second),
-			RetryPolicy:    retry.ActivityRetryPolicyToProto(options.RetryPolicy),
-		},
-	}
-	switch activityInput := input.(type) {
+func IsStepActivityInput(input interface{}) bool {
+	switch input.(type) {
 	case *dexpb.InvokeWaitForMethodActivityInput:
-		activityInput.RetryContext = retryContext
+		return true
 	case *dexpb.InvokeExecuteMethodActivityInput:
-		activityInput.RetryContext = retryContext
+		return true
 	default:
-		return nil, false
+		return false
 	}
-	return retryContext, true
 }
 
-func StepActivityInputForFallback(
+func StepActivityInputWithAttemptContext(
 	input interface{},
-	retryContext *dexpb.InternalStepActivityRetryContext,
 	previousAttempts int32,
+	firstAttemptTimestamp int64,
 ) interface{} {
-	retryContext.PreviousAttempts = previousAttempts
 	switch activityInput := input.(type) {
 	case *dexpb.InvokeWaitForMethodActivityInput:
-		return &dexpb.InvokeWaitForMethodActivityInput{
-			WorkerTarget: activityInput.GetWorkerTarget(),
-			Request:      activityInput.GetRequest(),
-			RetryContext: retryContext,
-		}
+		return waitForActivityInputWithAttemptContext(
+			activityInput,
+			previousAttempts,
+			firstAttemptTimestamp,
+		)
 	case *dexpb.InvokeExecuteMethodActivityInput:
-		return &dexpb.InvokeExecuteMethodActivityInput{
-			WorkerTarget:    activityInput.GetWorkerTarget(),
-			Request:         activityInput.GetRequest(),
-			IsTransientStep: activityInput.GetIsTransientStep(),
-			RetryContext:    retryContext,
-		}
+		return executeActivityInputWithAttemptContext(
+			activityInput,
+			previousAttempts,
+			firstAttemptTimestamp,
+		)
 	default:
 		panic("step activity input required")
+	}
+}
+
+func waitForActivityInputWithAttemptContext(
+	input *dexpb.InvokeWaitForMethodActivityInput,
+	previousAttempts int32,
+	firstAttemptTimestamp int64,
+) *dexpb.InvokeWaitForMethodActivityInput {
+	request := input.GetRequest()
+	if request == nil {
+		panic("step activity request required")
+	}
+	return &dexpb.InvokeWaitForMethodActivityInput{
+		WorkerTarget: input.GetWorkerTarget(),
+		Request: &dexpb.InvokeWaitForMethodRequest{
+			Context:    stepActivityContextForFallback(request.GetContext(), previousAttempts, firstAttemptTimestamp),
+			FlowType:   request.GetFlowType(),
+			StepType:   request.GetStepType(),
+			StepInput:  request.GetStepInput(),
+			Attributes: request.GetAttributes(),
+		},
+	}
+}
+
+func executeActivityInputWithAttemptContext(
+	input *dexpb.InvokeExecuteMethodActivityInput,
+	previousAttempts int32,
+	firstAttemptTimestamp int64,
+) *dexpb.InvokeExecuteMethodActivityInput {
+	request := input.GetRequest()
+	if request == nil {
+		panic("step activity request required")
+	}
+	return &dexpb.InvokeExecuteMethodActivityInput{
+		WorkerTarget:    input.GetWorkerTarget(),
+		IsTransientStep: input.GetIsTransientStep(),
+		Request: &dexpb.InvokeExecuteMethodRequest{
+			Context:          stepActivityContextForFallback(request.GetContext(), previousAttempts, firstAttemptTimestamp),
+			FlowType:         request.GetFlowType(),
+			StepType:         request.GetStepType(),
+			StepInput:        request.GetStepInput(),
+			Attributes:       request.GetAttributes(),
+			StepExeLocals:    request.GetStepExeLocals(),
+			ConditionResults: request.GetConditionResults(),
+		},
+	}
+}
+
+func stepActivityContextForFallback(
+	workerContext *dexpb.Context,
+	previousAttempts int32,
+	firstAttemptTimestamp int64,
+) *dexpb.Context {
+	if workerContext == nil {
+		panic("step activity Context required")
+	}
+	return &dexpb.Context{
+		FlowId:                workerContext.GetFlowId(),
+		RunId:                 workerContext.GetRunId(),
+		FlowStartedTimestamp:  workerContext.GetFlowStartedTimestamp(),
+		StepExecutionId:       workerContext.GetStepExecutionId(),
+		FirstAttemptTimestamp: firstAttemptTimestamp,
+		Attempt:               previousAttempts,
+		FromStepExecutionId:   workerContext.GetFromStepExecutionId(),
+		RecoveryError:         workerContext.GetRecoveryError(),
 	}
 }

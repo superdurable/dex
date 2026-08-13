@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface LocalActivityInputOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.LocalActivityInput)
+public interface LocalActivityMetadataOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.LocalActivityMetadata)
     com.google.protobuf.MessageOrBuilder {
 
   /**

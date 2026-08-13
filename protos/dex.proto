@@ -177,10 +177,10 @@ message Context {
   // Step execution that scheduled this execution, or a reserved source.
   string from_step_execution_id = 7;
   // Previous Step method failure supplied only to its configured recovery method.
-  WorkerErrorResponse recovery_error = 8;
+  RecoveryErrorInfo recovery_error = 8;
 }
 
-message LocalActivityInput {
+message LocalActivityMetadata {
   string current_step_execution_id = 1;
   string from_step_execution_id = 2;
 }
@@ -785,7 +785,8 @@ message HealthInfo {
 }
 
 message ErrorResponse {
-  reserved 8;
+  reserved 7, 8;
+  reserved "original_worker_retry_after_seconds";
 
   string detail = 1;
   ErrorSubStatus sub_status = 2;
@@ -793,7 +794,6 @@ message ErrorResponse {
   string original_worker_error_type = 4;
   int32 original_worker_error_status = 5;
   string original_worker_error_stack_trace = 6;
-  int32 original_worker_retry_after_seconds = 7;
 }
 
 enum ErrorSubStatus {
@@ -826,7 +826,7 @@ message InvokeWaitForMethodRequest {
 
 message InvokeWaitForMethodResponse {
   // Server-populated lineage input for local activity history.
-  LocalActivityInput local_activity_input = 1;
+  LocalActivityMetadata local_activity_metadata = 1;
   repeated AttributeWrite upsert_attributes = 2;
   WaitingCondition waiting_condition = 3;
   repeated KV upsert_step_exe_locals = 4;
@@ -847,7 +847,7 @@ message InvokeExecuteMethodRequest {
 
 message InvokeExecuteMethodResponse {
   // Server-populated lineage input for local activity history.
-  LocalActivityInput local_activity_input = 1;
+  LocalActivityMetadata local_activity_metadata = 1;
   StepDecision step_decision = 2;
   repeated AttributeWrite upsert_attributes = 3;
   repeated KV record_events = 4;
@@ -899,7 +899,7 @@ message StepMovement {
   // Server-owned scheduling source; workers must leave this empty.
   string from_step_execution_id_internal_only = 4;
   // Server-owned error passed only to an Execute failure recovery Step.
-  WorkerErrorResponse recovery_error_internal_only = 5;
+  RecoveryErrorInfo recovery_error_internal_only = 5;
 }
 
 enum WaitingConditionType {
@@ -1070,9 +1070,11 @@ message BlobStoreCleanupWorkflowOutput {
 }
 
 message InvokeWaitForMethodActivityInput {
+  reserved 3;
+  reserved "retry_context";
+
   WorkerTarget worker_target = 1;
   InvokeWaitForMethodRequest request = 2;
-  InternalStepActivityRetryContext retry_context = 3;
 }
 
 message InvokeWaitForMethodActivityOutput {
@@ -1080,30 +1082,25 @@ message InvokeWaitForMethodActivityOutput {
 }
 
 message InvokeExecuteMethodActivityInput {
+  reserved 4;
+  reserved "retry_context";
+
   WorkerTarget worker_target = 1;
   InvokeExecuteMethodRequest request = 2;
   // Requires a DeadEnd close decision without next steps.
   bool is_transient_step = 3;
-  InternalStepActivityRetryContext retry_context = 4;
 }
 
-message InternalStepActivityRetryContext {
-  int32 previous_attempts = 1;
-  int64 first_attempt_timestamp = 2;
-  StepMethodOptions original_method_options = 3;
+message RecoveryErrorInfo {
+  string detail = 1;
+  string error_type = 2;
 }
 
 message InternalLocalStepActivityFailure {
-  LocalActivityInput local_activity_input = 1;
-  string step_type = 2;
-  bool is_transient_step = 3;
-  InternalStepActivityRetryContext retry_context = 4;
-  int32 attempt = 5;
-}
-
-message InternalLocalStepActivityError {
-  ErrorResponse error_response = 1;
-  InternalLocalStepActivityFailure failure = 2;
+  LocalActivityMetadata local_activity_metadata = 1;
+  int64 first_attempt_timestamp = 2;
+  StepMethodOptions method_options = 3;
+  int32 attempt = 4;
 }
 
 message InvokeExecuteMethodActivityOutput {

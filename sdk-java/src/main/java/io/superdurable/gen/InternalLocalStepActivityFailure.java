@@ -28,7 +28,6 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private InternalLocalStepActivityFailure() {
-    stepType_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -50,112 +49,73 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int LOCAL_ACTIVITY_INPUT_FIELD_NUMBER = 1;
-  private io.superdurable.gen.LocalActivityInput localActivityInput_;
+  public static final int LOCAL_ACTIVITY_METADATA_FIELD_NUMBER = 1;
+  private io.superdurable.gen.LocalActivityMetadata localActivityMetadata_;
   /**
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-   * @return Whether the localActivityInput field is set.
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+   * @return Whether the localActivityMetadata field is set.
    */
   @java.lang.Override
-  public boolean hasLocalActivityInput() {
+  public boolean hasLocalActivityMetadata() {
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-   * @return The localActivityInput.
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+   * @return The localActivityMetadata.
    */
   @java.lang.Override
-  public io.superdurable.gen.LocalActivityInput getLocalActivityInput() {
-    return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
+  public io.superdurable.gen.LocalActivityMetadata getLocalActivityMetadata() {
+    return localActivityMetadata_ == null ? io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
   }
   /**
-   * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+   * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder() {
-    return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
-  }
-
-  public static final int STEP_TYPE_FIELD_NUMBER = 2;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object stepType_ = "";
-  /**
-   * <code>string step_type = 2;</code>
-   * @return The stepType.
-   */
-  @java.lang.Override
-  public java.lang.String getStepType() {
-    java.lang.Object ref = stepType_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      stepType_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string step_type = 2;</code>
-   * @return The bytes for stepType.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getStepTypeBytes() {
-    java.lang.Object ref = stepType_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      stepType_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
+  public io.superdurable.gen.LocalActivityMetadataOrBuilder getLocalActivityMetadataOrBuilder() {
+    return localActivityMetadata_ == null ? io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
   }
 
-  public static final int IS_TRANSIENT_STEP_FIELD_NUMBER = 3;
-  private boolean isTransientStep_ = false;
+  public static final int FIRST_ATTEMPT_TIMESTAMP_FIELD_NUMBER = 2;
+  private long firstAttemptTimestamp_ = 0L;
   /**
-   * <code>bool is_transient_step = 3;</code>
-   * @return The isTransientStep.
+   * <code>int64 first_attempt_timestamp = 2;</code>
+   * @return The firstAttemptTimestamp.
    */
   @java.lang.Override
-  public boolean getIsTransientStep() {
-    return isTransientStep_;
+  public long getFirstAttemptTimestamp() {
+    return firstAttemptTimestamp_;
   }
 
-  public static final int RETRY_CONTEXT_FIELD_NUMBER = 4;
-  private io.superdurable.gen.InternalStepActivityRetryContext retryContext_;
+  public static final int METHOD_OPTIONS_FIELD_NUMBER = 3;
+  private io.superdurable.gen.StepMethodOptions methodOptions_;
   /**
-   * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
-   * @return Whether the retryContext field is set.
+   * <code>.dex.StepMethodOptions method_options = 3;</code>
+   * @return Whether the methodOptions field is set.
    */
   @java.lang.Override
-  public boolean hasRetryContext() {
+  public boolean hasMethodOptions() {
     return ((bitField0_ & 0x00000002) != 0);
   }
   /**
-   * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
-   * @return The retryContext.
+   * <code>.dex.StepMethodOptions method_options = 3;</code>
+   * @return The methodOptions.
    */
   @java.lang.Override
-  public io.superdurable.gen.InternalStepActivityRetryContext getRetryContext() {
-    return retryContext_ == null ? io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance() : retryContext_;
+  public io.superdurable.gen.StepMethodOptions getMethodOptions() {
+    return methodOptions_ == null ? io.superdurable.gen.StepMethodOptions.getDefaultInstance() : methodOptions_;
   }
   /**
-   * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
+   * <code>.dex.StepMethodOptions method_options = 3;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.InternalStepActivityRetryContextOrBuilder getRetryContextOrBuilder() {
-    return retryContext_ == null ? io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance() : retryContext_;
+  public io.superdurable.gen.StepMethodOptionsOrBuilder getMethodOptionsOrBuilder() {
+    return methodOptions_ == null ? io.superdurable.gen.StepMethodOptions.getDefaultInstance() : methodOptions_;
   }
 
-  public static final int ATTEMPT_FIELD_NUMBER = 5;
+  public static final int ATTEMPT_FIELD_NUMBER = 4;
   private int attempt_ = 0;
   /**
-   * <code>int32 attempt = 5;</code>
+   * <code>int32 attempt = 4;</code>
    * @return The attempt.
    */
   @java.lang.Override
@@ -178,19 +138,16 @@ private static final long serialVersionUID = 0L;
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(1, getLocalActivityInput());
+      output.writeMessage(1, getLocalActivityMetadata());
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepType_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, stepType_);
-    }
-    if (isTransientStep_ != false) {
-      output.writeBool(3, isTransientStep_);
+    if (firstAttemptTimestamp_ != 0L) {
+      output.writeInt64(2, firstAttemptTimestamp_);
     }
     if (((bitField0_ & 0x00000002) != 0)) {
-      output.writeMessage(4, getRetryContext());
+      output.writeMessage(3, getMethodOptions());
     }
     if (attempt_ != 0) {
-      output.writeInt32(5, attempt_);
+      output.writeInt32(4, attempt_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -198,22 +155,19 @@ private static final long serialVersionUID = 0L;
     int size = 0;
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(1, getLocalActivityInput());
+        .computeMessageSize(1, getLocalActivityMetadata());
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepType_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, stepType_);
-    }
-    if (isTransientStep_ != false) {
+    if (firstAttemptTimestamp_ != 0L) {
       size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(3, isTransientStep_);
+        .computeInt64Size(2, firstAttemptTimestamp_);
     }
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(4, getRetryContext());
+        .computeMessageSize(3, getMethodOptions());
     }
     if (attempt_ != 0) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(5, attempt_);
+        .computeInt32Size(4, attempt_);
     }
     return size;
   }
@@ -239,19 +193,17 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.InternalLocalStepActivityFailure other = (io.superdurable.gen.InternalLocalStepActivityFailure) obj;
 
-    if (hasLocalActivityInput() != other.hasLocalActivityInput()) return false;
-    if (hasLocalActivityInput()) {
-      if (!getLocalActivityInput()
-          .equals(other.getLocalActivityInput())) return false;
+    if (hasLocalActivityMetadata() != other.hasLocalActivityMetadata()) return false;
+    if (hasLocalActivityMetadata()) {
+      if (!getLocalActivityMetadata()
+          .equals(other.getLocalActivityMetadata())) return false;
     }
-    if (!getStepType()
-        .equals(other.getStepType())) return false;
-    if (getIsTransientStep()
-        != other.getIsTransientStep()) return false;
-    if (hasRetryContext() != other.hasRetryContext()) return false;
-    if (hasRetryContext()) {
-      if (!getRetryContext()
-          .equals(other.getRetryContext())) return false;
+    if (getFirstAttemptTimestamp()
+        != other.getFirstAttemptTimestamp()) return false;
+    if (hasMethodOptions() != other.hasMethodOptions()) return false;
+    if (hasMethodOptions()) {
+      if (!getMethodOptions()
+          .equals(other.getMethodOptions())) return false;
     }
     if (getAttempt()
         != other.getAttempt()) return false;
@@ -266,18 +218,16 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
-    if (hasLocalActivityInput()) {
-      hash = (37 * hash) + LOCAL_ACTIVITY_INPUT_FIELD_NUMBER;
-      hash = (53 * hash) + getLocalActivityInput().hashCode();
+    if (hasLocalActivityMetadata()) {
+      hash = (37 * hash) + LOCAL_ACTIVITY_METADATA_FIELD_NUMBER;
+      hash = (53 * hash) + getLocalActivityMetadata().hashCode();
     }
-    hash = (37 * hash) + STEP_TYPE_FIELD_NUMBER;
-    hash = (53 * hash) + getStepType().hashCode();
-    hash = (37 * hash) + IS_TRANSIENT_STEP_FIELD_NUMBER;
-    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-        getIsTransientStep());
-    if (hasRetryContext()) {
-      hash = (37 * hash) + RETRY_CONTEXT_FIELD_NUMBER;
-      hash = (53 * hash) + getRetryContext().hashCode();
+    hash = (37 * hash) + FIRST_ATTEMPT_TIMESTAMP_FIELD_NUMBER;
+    hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+        getFirstAttemptTimestamp());
+    if (hasMethodOptions()) {
+      hash = (37 * hash) + METHOD_OPTIONS_FIELD_NUMBER;
+      hash = (53 * hash) + getMethodOptions().hashCode();
     }
     hash = (37 * hash) + ATTEMPT_FIELD_NUMBER;
     hash = (53 * hash) + getAttempt();
@@ -411,25 +361,24 @@ private static final long serialVersionUID = 0L;
     private void maybeForceBuilderInitialization() {
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
-        internalGetLocalActivityInputFieldBuilder();
-        internalGetRetryContextFieldBuilder();
+        internalGetLocalActivityMetadataFieldBuilder();
+        internalGetMethodOptionsFieldBuilder();
       }
     }
     @java.lang.Override
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
-      localActivityInput_ = null;
-      if (localActivityInputBuilder_ != null) {
-        localActivityInputBuilder_.dispose();
-        localActivityInputBuilder_ = null;
+      localActivityMetadata_ = null;
+      if (localActivityMetadataBuilder_ != null) {
+        localActivityMetadataBuilder_.dispose();
+        localActivityMetadataBuilder_ = null;
       }
-      stepType_ = "";
-      isTransientStep_ = false;
-      retryContext_ = null;
-      if (retryContextBuilder_ != null) {
-        retryContextBuilder_.dispose();
-        retryContextBuilder_ = null;
+      firstAttemptTimestamp_ = 0L;
+      methodOptions_ = null;
+      if (methodOptionsBuilder_ != null) {
+        methodOptionsBuilder_.dispose();
+        methodOptionsBuilder_ = null;
       }
       attempt_ = 0;
       return this;
@@ -467,24 +416,21 @@ private static final long serialVersionUID = 0L;
       int from_bitField0_ = bitField0_;
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
-        result.localActivityInput_ = localActivityInputBuilder_ == null
-            ? localActivityInput_
-            : localActivityInputBuilder_.build();
+        result.localActivityMetadata_ = localActivityMetadataBuilder_ == null
+            ? localActivityMetadata_
+            : localActivityMetadataBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.stepType_ = stepType_;
+        result.firstAttemptTimestamp_ = firstAttemptTimestamp_;
       }
       if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.isTransientStep_ = isTransientStep_;
-      }
-      if (((from_bitField0_ & 0x00000008) != 0)) {
-        result.retryContext_ = retryContextBuilder_ == null
-            ? retryContext_
-            : retryContextBuilder_.build();
+        result.methodOptions_ = methodOptionsBuilder_ == null
+            ? methodOptions_
+            : methodOptionsBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
+      if (((from_bitField0_ & 0x00000008) != 0)) {
         result.attempt_ = attempt_;
       }
       result.bitField0_ |= to_bitField0_;
@@ -502,19 +448,14 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.InternalLocalStepActivityFailure other) {
       if (other == io.superdurable.gen.InternalLocalStepActivityFailure.getDefaultInstance()) return this;
-      if (other.hasLocalActivityInput()) {
-        mergeLocalActivityInput(other.getLocalActivityInput());
+      if (other.hasLocalActivityMetadata()) {
+        mergeLocalActivityMetadata(other.getLocalActivityMetadata());
       }
-      if (!other.getStepType().isEmpty()) {
-        stepType_ = other.stepType_;
-        bitField0_ |= 0x00000002;
-        onChanged();
+      if (other.getFirstAttemptTimestamp() != 0L) {
+        setFirstAttemptTimestamp(other.getFirstAttemptTimestamp());
       }
-      if (other.getIsTransientStep() != false) {
-        setIsTransientStep(other.getIsTransientStep());
-      }
-      if (other.hasRetryContext()) {
-        mergeRetryContext(other.getRetryContext());
+      if (other.hasMethodOptions()) {
+        mergeMethodOptions(other.getMethodOptions());
       }
       if (other.getAttempt() != 0) {
         setAttempt(other.getAttempt());
@@ -547,33 +488,28 @@ private static final long serialVersionUID = 0L;
               break;
             case 10: {
               input.readMessage(
-                  internalGetLocalActivityInputFieldBuilder().getBuilder(),
+                  internalGetLocalActivityMetadataFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 18: {
-              stepType_ = input.readStringRequireUtf8();
+            case 16: {
+              firstAttemptTimestamp_ = input.readInt64();
               bitField0_ |= 0x00000002;
               break;
-            } // case 18
-            case 24: {
-              isTransientStep_ = input.readBool();
+            } // case 16
+            case 26: {
+              input.readMessage(
+                  internalGetMethodOptionsFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000004;
               break;
-            } // case 24
-            case 34: {
-              input.readMessage(
-                  internalGetRetryContextFieldBuilder().getBuilder(),
-                  extensionRegistry);
+            } // case 26
+            case 32: {
+              attempt_ = input.readInt32();
               bitField0_ |= 0x00000008;
               break;
-            } // case 34
-            case 40: {
-              attempt_ = input.readInt32();
-              bitField0_ |= 0x00000010;
-              break;
-            } // case 40
+            } // case 32
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -591,355 +527,283 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
-    private io.superdurable.gen.LocalActivityInput localActivityInput_;
+    private io.superdurable.gen.LocalActivityMetadata localActivityMetadata_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder> localActivityInputBuilder_;
+        io.superdurable.gen.LocalActivityMetadata, io.superdurable.gen.LocalActivityMetadata.Builder, io.superdurable.gen.LocalActivityMetadataOrBuilder> localActivityMetadataBuilder_;
     /**
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-     * @return Whether the localActivityInput field is set.
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+     * @return Whether the localActivityMetadata field is set.
      */
-    public boolean hasLocalActivityInput() {
+    public boolean hasLocalActivityMetadata() {
       return ((bitField0_ & 0x00000001) != 0);
     }
     /**
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
-     * @return The localActivityInput.
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
+     * @return The localActivityMetadata.
      */
-    public io.superdurable.gen.LocalActivityInput getLocalActivityInput() {
-      if (localActivityInputBuilder_ == null) {
-        return localActivityInput_ == null ? io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
+    public io.superdurable.gen.LocalActivityMetadata getLocalActivityMetadata() {
+      if (localActivityMetadataBuilder_ == null) {
+        return localActivityMetadata_ == null ? io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
       } else {
-        return localActivityInputBuilder_.getMessage();
+        return localActivityMetadataBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public Builder setLocalActivityInput(io.superdurable.gen.LocalActivityInput value) {
-      if (localActivityInputBuilder_ == null) {
+    public Builder setLocalActivityMetadata(io.superdurable.gen.LocalActivityMetadata value) {
+      if (localActivityMetadataBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
         }
-        localActivityInput_ = value;
+        localActivityMetadata_ = value;
       } else {
-        localActivityInputBuilder_.setMessage(value);
+        localActivityMetadataBuilder_.setMessage(value);
       }
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public Builder setLocalActivityInput(
-        io.superdurable.gen.LocalActivityInput.Builder builderForValue) {
-      if (localActivityInputBuilder_ == null) {
-        localActivityInput_ = builderForValue.build();
+    public Builder setLocalActivityMetadata(
+        io.superdurable.gen.LocalActivityMetadata.Builder builderForValue) {
+      if (localActivityMetadataBuilder_ == null) {
+        localActivityMetadata_ = builderForValue.build();
       } else {
-        localActivityInputBuilder_.setMessage(builderForValue.build());
+        localActivityMetadataBuilder_.setMessage(builderForValue.build());
       }
       bitField0_ |= 0x00000001;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public Builder mergeLocalActivityInput(io.superdurable.gen.LocalActivityInput value) {
-      if (localActivityInputBuilder_ == null) {
+    public Builder mergeLocalActivityMetadata(io.superdurable.gen.LocalActivityMetadata value) {
+      if (localActivityMetadataBuilder_ == null) {
         if (((bitField0_ & 0x00000001) != 0) &&
-          localActivityInput_ != null &&
-          localActivityInput_ != io.superdurable.gen.LocalActivityInput.getDefaultInstance()) {
-          getLocalActivityInputBuilder().mergeFrom(value);
+          localActivityMetadata_ != null &&
+          localActivityMetadata_ != io.superdurable.gen.LocalActivityMetadata.getDefaultInstance()) {
+          getLocalActivityMetadataBuilder().mergeFrom(value);
         } else {
-          localActivityInput_ = value;
+          localActivityMetadata_ = value;
         }
       } else {
-        localActivityInputBuilder_.mergeFrom(value);
+        localActivityMetadataBuilder_.mergeFrom(value);
       }
-      if (localActivityInput_ != null) {
+      if (localActivityMetadata_ != null) {
         bitField0_ |= 0x00000001;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public Builder clearLocalActivityInput() {
+    public Builder clearLocalActivityMetadata() {
       bitField0_ = (bitField0_ & ~0x00000001);
-      localActivityInput_ = null;
-      if (localActivityInputBuilder_ != null) {
-        localActivityInputBuilder_.dispose();
-        localActivityInputBuilder_ = null;
+      localActivityMetadata_ = null;
+      if (localActivityMetadataBuilder_ != null) {
+        localActivityMetadataBuilder_.dispose();
+        localActivityMetadataBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public io.superdurable.gen.LocalActivityInput.Builder getLocalActivityInputBuilder() {
+    public io.superdurable.gen.LocalActivityMetadata.Builder getLocalActivityMetadataBuilder() {
       bitField0_ |= 0x00000001;
       onChanged();
-      return internalGetLocalActivityInputFieldBuilder().getBuilder();
+      return internalGetLocalActivityMetadataFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
-    public io.superdurable.gen.LocalActivityInputOrBuilder getLocalActivityInputOrBuilder() {
-      if (localActivityInputBuilder_ != null) {
-        return localActivityInputBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.LocalActivityMetadataOrBuilder getLocalActivityMetadataOrBuilder() {
+      if (localActivityMetadataBuilder_ != null) {
+        return localActivityMetadataBuilder_.getMessageOrBuilder();
       } else {
-        return localActivityInput_ == null ?
-            io.superdurable.gen.LocalActivityInput.getDefaultInstance() : localActivityInput_;
+        return localActivityMetadata_ == null ?
+            io.superdurable.gen.LocalActivityMetadata.getDefaultInstance() : localActivityMetadata_;
       }
     }
     /**
-     * <code>.dex.LocalActivityInput local_activity_input = 1;</code>
+     * <code>.dex.LocalActivityMetadata local_activity_metadata = 1;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder> 
-        internalGetLocalActivityInputFieldBuilder() {
-      if (localActivityInputBuilder_ == null) {
-        localActivityInputBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.LocalActivityInput, io.superdurable.gen.LocalActivityInput.Builder, io.superdurable.gen.LocalActivityInputOrBuilder>(
-                getLocalActivityInput(),
+        io.superdurable.gen.LocalActivityMetadata, io.superdurable.gen.LocalActivityMetadata.Builder, io.superdurable.gen.LocalActivityMetadataOrBuilder> 
+        internalGetLocalActivityMetadataFieldBuilder() {
+      if (localActivityMetadataBuilder_ == null) {
+        localActivityMetadataBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.LocalActivityMetadata, io.superdurable.gen.LocalActivityMetadata.Builder, io.superdurable.gen.LocalActivityMetadataOrBuilder>(
+                getLocalActivityMetadata(),
                 getParentForChildren(),
                 isClean());
-        localActivityInput_ = null;
+        localActivityMetadata_ = null;
       }
-      return localActivityInputBuilder_;
+      return localActivityMetadataBuilder_;
     }
 
-    private java.lang.Object stepType_ = "";
+    private long firstAttemptTimestamp_ ;
     /**
-     * <code>string step_type = 2;</code>
-     * @return The stepType.
-     */
-    public java.lang.String getStepType() {
-      java.lang.Object ref = stepType_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        stepType_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string step_type = 2;</code>
-     * @return The bytes for stepType.
-     */
-    public com.google.protobuf.ByteString
-        getStepTypeBytes() {
-      java.lang.Object ref = stepType_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        stepType_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string step_type = 2;</code>
-     * @param value The stepType to set.
-     * @return This builder for chaining.
-     */
-    public Builder setStepType(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      stepType_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string step_type = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearStepType() {
-      stepType_ = getDefaultInstance().getStepType();
-      bitField0_ = (bitField0_ & ~0x00000002);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string step_type = 2;</code>
-     * @param value The bytes for stepType to set.
-     * @return This builder for chaining.
-     */
-    public Builder setStepTypeBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      stepType_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-
-    private boolean isTransientStep_ ;
-    /**
-     * <code>bool is_transient_step = 3;</code>
-     * @return The isTransientStep.
+     * <code>int64 first_attempt_timestamp = 2;</code>
+     * @return The firstAttemptTimestamp.
      */
     @java.lang.Override
-    public boolean getIsTransientStep() {
-      return isTransientStep_;
+    public long getFirstAttemptTimestamp() {
+      return firstAttemptTimestamp_;
     }
     /**
-     * <code>bool is_transient_step = 3;</code>
-     * @param value The isTransientStep to set.
+     * <code>int64 first_attempt_timestamp = 2;</code>
+     * @param value The firstAttemptTimestamp to set.
      * @return This builder for chaining.
      */
-    public Builder setIsTransientStep(boolean value) {
+    public Builder setFirstAttemptTimestamp(long value) {
 
-      isTransientStep_ = value;
+      firstAttemptTimestamp_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>int64 first_attempt_timestamp = 2;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFirstAttemptTimestamp() {
+      bitField0_ = (bitField0_ & ~0x00000002);
+      firstAttemptTimestamp_ = 0L;
+      onChanged();
+      return this;
+    }
+
+    private io.superdurable.gen.StepMethodOptions methodOptions_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.StepMethodOptions, io.superdurable.gen.StepMethodOptions.Builder, io.superdurable.gen.StepMethodOptionsOrBuilder> methodOptionsBuilder_;
+    /**
+     * <code>.dex.StepMethodOptions method_options = 3;</code>
+     * @return Whether the methodOptions field is set.
+     */
+    public boolean hasMethodOptions() {
+      return ((bitField0_ & 0x00000004) != 0);
+    }
+    /**
+     * <code>.dex.StepMethodOptions method_options = 3;</code>
+     * @return The methodOptions.
+     */
+    public io.superdurable.gen.StepMethodOptions getMethodOptions() {
+      if (methodOptionsBuilder_ == null) {
+        return methodOptions_ == null ? io.superdurable.gen.StepMethodOptions.getDefaultInstance() : methodOptions_;
+      } else {
+        return methodOptionsBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.dex.StepMethodOptions method_options = 3;</code>
+     */
+    public Builder setMethodOptions(io.superdurable.gen.StepMethodOptions value) {
+      if (methodOptionsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        methodOptions_ = value;
+      } else {
+        methodOptionsBuilder_.setMessage(value);
+      }
       bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
-     * <code>bool is_transient_step = 3;</code>
-     * @return This builder for chaining.
+     * <code>.dex.StepMethodOptions method_options = 3;</code>
      */
-    public Builder clearIsTransientStep() {
-      bitField0_ = (bitField0_ & ~0x00000004);
-      isTransientStep_ = false;
-      onChanged();
-      return this;
-    }
-
-    private io.superdurable.gen.InternalStepActivityRetryContext retryContext_;
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InternalStepActivityRetryContext, io.superdurable.gen.InternalStepActivityRetryContext.Builder, io.superdurable.gen.InternalStepActivityRetryContextOrBuilder> retryContextBuilder_;
-    /**
-     * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
-     * @return Whether the retryContext field is set.
-     */
-    public boolean hasRetryContext() {
-      return ((bitField0_ & 0x00000008) != 0);
-    }
-    /**
-     * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
-     * @return The retryContext.
-     */
-    public io.superdurable.gen.InternalStepActivityRetryContext getRetryContext() {
-      if (retryContextBuilder_ == null) {
-        return retryContext_ == null ? io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance() : retryContext_;
+    public Builder setMethodOptions(
+        io.superdurable.gen.StepMethodOptions.Builder builderForValue) {
+      if (methodOptionsBuilder_ == null) {
+        methodOptions_ = builderForValue.build();
       } else {
-        return retryContextBuilder_.getMessage();
+        methodOptionsBuilder_.setMessage(builderForValue.build());
       }
-    }
-    /**
-     * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
-     */
-    public Builder setRetryContext(io.superdurable.gen.InternalStepActivityRetryContext value) {
-      if (retryContextBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        retryContext_ = value;
-      } else {
-        retryContextBuilder_.setMessage(value);
-      }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
+     * <code>.dex.StepMethodOptions method_options = 3;</code>
      */
-    public Builder setRetryContext(
-        io.superdurable.gen.InternalStepActivityRetryContext.Builder builderForValue) {
-      if (retryContextBuilder_ == null) {
-        retryContext_ = builderForValue.build();
-      } else {
-        retryContextBuilder_.setMessage(builderForValue.build());
-      }
-      bitField0_ |= 0x00000008;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
-     */
-    public Builder mergeRetryContext(io.superdurable.gen.InternalStepActivityRetryContext value) {
-      if (retryContextBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0) &&
-          retryContext_ != null &&
-          retryContext_ != io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance()) {
-          getRetryContextBuilder().mergeFrom(value);
+    public Builder mergeMethodOptions(io.superdurable.gen.StepMethodOptions value) {
+      if (methodOptionsBuilder_ == null) {
+        if (((bitField0_ & 0x00000004) != 0) &&
+          methodOptions_ != null &&
+          methodOptions_ != io.superdurable.gen.StepMethodOptions.getDefaultInstance()) {
+          getMethodOptionsBuilder().mergeFrom(value);
         } else {
-          retryContext_ = value;
+          methodOptions_ = value;
         }
       } else {
-        retryContextBuilder_.mergeFrom(value);
+        methodOptionsBuilder_.mergeFrom(value);
       }
-      if (retryContext_ != null) {
-        bitField0_ |= 0x00000008;
+      if (methodOptions_ != null) {
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
+     * <code>.dex.StepMethodOptions method_options = 3;</code>
      */
-    public Builder clearRetryContext() {
-      bitField0_ = (bitField0_ & ~0x00000008);
-      retryContext_ = null;
-      if (retryContextBuilder_ != null) {
-        retryContextBuilder_.dispose();
-        retryContextBuilder_ = null;
+    public Builder clearMethodOptions() {
+      bitField0_ = (bitField0_ & ~0x00000004);
+      methodOptions_ = null;
+      if (methodOptionsBuilder_ != null) {
+        methodOptionsBuilder_.dispose();
+        methodOptionsBuilder_ = null;
       }
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
+     * <code>.dex.StepMethodOptions method_options = 3;</code>
      */
-    public io.superdurable.gen.InternalStepActivityRetryContext.Builder getRetryContextBuilder() {
-      bitField0_ |= 0x00000008;
+    public io.superdurable.gen.StepMethodOptions.Builder getMethodOptionsBuilder() {
+      bitField0_ |= 0x00000004;
       onChanged();
-      return internalGetRetryContextFieldBuilder().getBuilder();
+      return internalGetMethodOptionsFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
+     * <code>.dex.StepMethodOptions method_options = 3;</code>
      */
-    public io.superdurable.gen.InternalStepActivityRetryContextOrBuilder getRetryContextOrBuilder() {
-      if (retryContextBuilder_ != null) {
-        return retryContextBuilder_.getMessageOrBuilder();
+    public io.superdurable.gen.StepMethodOptionsOrBuilder getMethodOptionsOrBuilder() {
+      if (methodOptionsBuilder_ != null) {
+        return methodOptionsBuilder_.getMessageOrBuilder();
       } else {
-        return retryContext_ == null ?
-            io.superdurable.gen.InternalStepActivityRetryContext.getDefaultInstance() : retryContext_;
+        return methodOptions_ == null ?
+            io.superdurable.gen.StepMethodOptions.getDefaultInstance() : methodOptions_;
       }
     }
     /**
-     * <code>.dex.InternalStepActivityRetryContext retry_context = 4;</code>
+     * <code>.dex.StepMethodOptions method_options = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.InternalStepActivityRetryContext, io.superdurable.gen.InternalStepActivityRetryContext.Builder, io.superdurable.gen.InternalStepActivityRetryContextOrBuilder> 
-        internalGetRetryContextFieldBuilder() {
-      if (retryContextBuilder_ == null) {
-        retryContextBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.InternalStepActivityRetryContext, io.superdurable.gen.InternalStepActivityRetryContext.Builder, io.superdurable.gen.InternalStepActivityRetryContextOrBuilder>(
-                getRetryContext(),
+        io.superdurable.gen.StepMethodOptions, io.superdurable.gen.StepMethodOptions.Builder, io.superdurable.gen.StepMethodOptionsOrBuilder> 
+        internalGetMethodOptionsFieldBuilder() {
+      if (methodOptionsBuilder_ == null) {
+        methodOptionsBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.StepMethodOptions, io.superdurable.gen.StepMethodOptions.Builder, io.superdurable.gen.StepMethodOptionsOrBuilder>(
+                getMethodOptions(),
                 getParentForChildren(),
                 isClean());
-        retryContext_ = null;
+        methodOptions_ = null;
       }
-      return retryContextBuilder_;
+      return methodOptionsBuilder_;
     }
 
     private int attempt_ ;
     /**
-     * <code>int32 attempt = 5;</code>
+     * <code>int32 attempt = 4;</code>
      * @return The attempt.
      */
     @java.lang.Override
@@ -947,23 +811,23 @@ private static final long serialVersionUID = 0L;
       return attempt_;
     }
     /**
-     * <code>int32 attempt = 5;</code>
+     * <code>int32 attempt = 4;</code>
      * @param value The attempt to set.
      * @return This builder for chaining.
      */
     public Builder setAttempt(int value) {
 
       attempt_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
     /**
-     * <code>int32 attempt = 5;</code>
+     * <code>int32 attempt = 4;</code>
      * @return This builder for chaining.
      */
     public Builder clearAttempt() {
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       attempt_ = 0;
       onChanged();
       return this;

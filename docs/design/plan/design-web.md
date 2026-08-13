@@ -443,14 +443,23 @@ message InternalAsyncStepInputSnapshot {
     InvokeExecuteMethodRequest execute_request = 3;
   }
 }
+
+message InternalLocalStepActivityFailure {
+  LocalActivityMetadata local_activity_metadata = 1;
+  int64 first_attempt_timestamp = 2;
+  StepMethodOptions method_options = 3;
+  int32 attempt = 4;
+}
 ```
 
 - `InternalLocalActivityInput` 是 workflow provider 只给 local activity 的第二个参数，
   用于携带当前 run start time 和无法从 local marker 恢复的 method options；
 - `InternalAsyncStepInputSnapshot` 是成功 local activity 写入 external storage 的 protobuf，
   保存准确发送给 worker 的 request 和 method options；
-- `InvokeWaitForMethodActivityInput` 和 `InvokeExecuteMethodActivityInput` 保持不变，避免
-  增大 regular Activity history；
+- local failure 的第一个 detail 是标准 `ErrorResponse`，第二个 detail 是精简的
+  `InternalLocalStepActivityFailure`；
+- fallback regular activity 只在 request `Context` 中保存累计 attempt 和首次 attempt 时间，
+  不重复保存 method options；
 - SYNC regular activity 同一个第二参数位置传 `nil`，可以产生极小 null payload；
 - ASYNC local activity 传 `InternalLocalActivityInput`，fallback regular activity 传 `nil`。
 
@@ -700,7 +709,7 @@ Phase 2 使用 `server/integ/`：
 - SYNC scheduled input 和 ASYNC snapshot 都映射为完全相同的 `input/output/context` shape。
 - regular Activity input proto 保持不变；第二个 activity argument 为 null 时 Temporal/Cadence 都能解码。
 - ASYNC local success 保存 `InternalAsyncStepInputSnapshot`；marker 中不增加完整 request。
-- method options：SYNC 从 scheduled metadata 转换，ASYNC 从 `InternalLocalActivityInput` 保存并恢复。
+- method options：SYNC 从 scheduled metadata 转换；ASYNC success 从 snapshot 恢复，fallback 从 local failure metadata 恢复。
 - channel values、多个 timers、ANY/ALL results 从保存的 worker request 精确恢复。
 - local failure fallback 使用 regular Activity history request，且不暴露 local failure。
 - sync 和 async regular retry 只返回最近一次 failure；local failure 在 fallback 期间不暴露。

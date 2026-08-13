@@ -76,7 +76,7 @@ public interface Context {
      *
      * @return the recovery error, or {@code null} for a normal Step or RPC invocation
      */
-    WorkerError getRecoveryError();
+    RecoveryErrorInfo getRecoveryError();
 
     /**
      * Returns when the first attempt of the current method began.

@@ -793,7 +793,7 @@ successful response contains:
 - recorded events; and
 - published channel messages.
 
-The Worker never sets `local_activity_input`; that field is server-owned.
+The Worker never sets `local_activity_metadata`; that field is server-owned.
 
 Transient movement remains internal. `Wait` reserves an unexported optional
 movement used only by SDK-owned machinery. If present, the mapper requires a
@@ -816,7 +816,7 @@ options, and worker-owned lineage fields.
 Conditional close channels are resolved through the registered flow before
 mapping. All other close decisions remain mutually exclusive with next steps.
 The response contains the decision plus buffered attributes, events, and
-channel messages. The Worker leaves `local_activity_input` empty and does not
+channel messages. The Worker leaves `local_activity_metadata` empty and does not
 emit Execute local writes.
 
 ### RPC response

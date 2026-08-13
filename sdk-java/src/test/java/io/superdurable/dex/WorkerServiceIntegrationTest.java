@@ -272,11 +272,9 @@ final class WorkerServiceIntegrationTest {
                 new Registry(Collections.<Flow<?>>singletonList(new BridgeFlow()))
                         .getFlow("BridgeFlow"),
                 io.superdurable.gen.Context.newBuilder()
-                        .setRecoveryError(WorkerErrorResponse.newBuilder()
-                                .setDetail("worker detail")
-                                .setErrorType("worker type")
-                                .setStackTrace("worker stack")
-                                .setRetryAfterSeconds(9))
+                        .setRecoveryError(io.superdurable.gen.RecoveryErrorInfo.newBuilder()
+								.setDetail("worker detail")
+								.setErrorType("worker type"))
                         .build(),
                 new ValueMapper(new ObjectMapper()),
                 Collections.<KV>emptyList(),
@@ -284,11 +282,9 @@ final class WorkerServiceIntegrationTest {
                 null,
                 Collections.<String, ChannelInfo>emptyMap());
 
-        final WorkerError recoveryError = context.getRecoveryError();
-        assertEquals("worker detail", recoveryError.getDetail());
-        assertEquals("worker type", recoveryError.getErrorType());
-        assertEquals("worker stack", recoveryError.getStackTrace());
-        assertEquals(Duration.ofSeconds(9), recoveryError.getRetryAfter());
+		final RecoveryErrorInfo recoveryError = context.getRecoveryError();
+		assertEquals("worker detail", recoveryError.getDetail());
+		assertEquals("worker type", recoveryError.getErrorType());
     }
 
     @Test

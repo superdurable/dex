@@ -32,15 +32,18 @@ func (a *activityProvider) GetLogger(ctx context.Context) interfaces.UnifiedLogg
 func (a *activityProvider) NewFlowError(
 	errType dexpb.FlowErrorType,
 	errorResponse *dexpb.ErrorResponse,
+	_ int32,
 ) error {
 	return cadence.NewCustomError(errType.String(), errorResponse)
 }
 
 func (a *activityProvider) NewLocalActivityError(
 	errType dexpb.FlowErrorType,
-	localError *dexpb.InternalLocalStepActivityError,
+	errorResponse *dexpb.ErrorResponse,
+	failure *dexpb.InternalLocalStepActivityFailure,
+	_ int32,
 ) error {
-	return cadence.NewCustomError(errType.String(), localError)
+	return cadence.NewCustomError(errType.String(), errorResponse, failure)
 }
 
 func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.ActivityInfo {

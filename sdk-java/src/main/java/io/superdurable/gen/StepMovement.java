@@ -190,13 +190,13 @@ private static final long serialVersionUID = 0L;
   }
 
   public static final int RECOVERY_ERROR_INTERNAL_ONLY_FIELD_NUMBER = 5;
-  private io.superdurable.gen.WorkerErrorResponse recoveryErrorInternalOnly_;
+  private io.superdurable.gen.RecoveryErrorInfo recoveryErrorInternalOnly_;
   /**
    * <pre>
    * Server-owned error passed only to an Execute failure recovery Step.
    * </pre>
    *
-   * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+   * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
    * @return Whether the recoveryErrorInternalOnly field is set.
    */
   @java.lang.Override
@@ -208,23 +208,23 @@ private static final long serialVersionUID = 0L;
    * Server-owned error passed only to an Execute failure recovery Step.
    * </pre>
    *
-   * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+   * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
    * @return The recoveryErrorInternalOnly.
    */
   @java.lang.Override
-  public io.superdurable.gen.WorkerErrorResponse getRecoveryErrorInternalOnly() {
-    return recoveryErrorInternalOnly_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryErrorInternalOnly_;
+  public io.superdurable.gen.RecoveryErrorInfo getRecoveryErrorInternalOnly() {
+    return recoveryErrorInternalOnly_ == null ? io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance() : recoveryErrorInternalOnly_;
   }
   /**
    * <pre>
    * Server-owned error passed only to an Execute failure recovery Step.
    * </pre>
    *
-   * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+   * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorInternalOnlyOrBuilder() {
-    return recoveryErrorInternalOnly_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryErrorInternalOnly_;
+  public io.superdurable.gen.RecoveryErrorInfoOrBuilder getRecoveryErrorInternalOnlyOrBuilder() {
+    return recoveryErrorInternalOnly_ == null ? io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance() : recoveryErrorInternalOnly_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -1076,15 +1076,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private io.superdurable.gen.WorkerErrorResponse recoveryErrorInternalOnly_;
+    private io.superdurable.gen.RecoveryErrorInfo recoveryErrorInternalOnly_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder> recoveryErrorInternalOnlyBuilder_;
+        io.superdurable.gen.RecoveryErrorInfo, io.superdurable.gen.RecoveryErrorInfo.Builder, io.superdurable.gen.RecoveryErrorInfoOrBuilder> recoveryErrorInternalOnlyBuilder_;
     /**
      * <pre>
      * Server-owned error passed only to an Execute failure recovery Step.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
      * @return Whether the recoveryErrorInternalOnly field is set.
      */
     public boolean hasRecoveryErrorInternalOnly() {
@@ -1095,12 +1095,12 @@ private static final long serialVersionUID = 0L;
      * Server-owned error passed only to an Execute failure recovery Step.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
      * @return The recoveryErrorInternalOnly.
      */
-    public io.superdurable.gen.WorkerErrorResponse getRecoveryErrorInternalOnly() {
+    public io.superdurable.gen.RecoveryErrorInfo getRecoveryErrorInternalOnly() {
       if (recoveryErrorInternalOnlyBuilder_ == null) {
-        return recoveryErrorInternalOnly_ == null ? io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryErrorInternalOnly_;
+        return recoveryErrorInternalOnly_ == null ? io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance() : recoveryErrorInternalOnly_;
       } else {
         return recoveryErrorInternalOnlyBuilder_.getMessage();
       }
@@ -1110,9 +1110,9 @@ private static final long serialVersionUID = 0L;
      * Server-owned error passed only to an Execute failure recovery Step.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
      */
-    public Builder setRecoveryErrorInternalOnly(io.superdurable.gen.WorkerErrorResponse value) {
+    public Builder setRecoveryErrorInternalOnly(io.superdurable.gen.RecoveryErrorInfo value) {
       if (recoveryErrorInternalOnlyBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -1130,10 +1130,10 @@ private static final long serialVersionUID = 0L;
      * Server-owned error passed only to an Execute failure recovery Step.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
      */
     public Builder setRecoveryErrorInternalOnly(
-        io.superdurable.gen.WorkerErrorResponse.Builder builderForValue) {
+        io.superdurable.gen.RecoveryErrorInfo.Builder builderForValue) {
       if (recoveryErrorInternalOnlyBuilder_ == null) {
         recoveryErrorInternalOnly_ = builderForValue.build();
       } else {
@@ -1148,13 +1148,13 @@ private static final long serialVersionUID = 0L;
      * Server-owned error passed only to an Execute failure recovery Step.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
      */
-    public Builder mergeRecoveryErrorInternalOnly(io.superdurable.gen.WorkerErrorResponse value) {
+    public Builder mergeRecoveryErrorInternalOnly(io.superdurable.gen.RecoveryErrorInfo value) {
       if (recoveryErrorInternalOnlyBuilder_ == null) {
         if (((bitField0_ & 0x00000010) != 0) &&
           recoveryErrorInternalOnly_ != null &&
-          recoveryErrorInternalOnly_ != io.superdurable.gen.WorkerErrorResponse.getDefaultInstance()) {
+          recoveryErrorInternalOnly_ != io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance()) {
           getRecoveryErrorInternalOnlyBuilder().mergeFrom(value);
         } else {
           recoveryErrorInternalOnly_ = value;
@@ -1173,7 +1173,7 @@ private static final long serialVersionUID = 0L;
      * Server-owned error passed only to an Execute failure recovery Step.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
      */
     public Builder clearRecoveryErrorInternalOnly() {
       bitField0_ = (bitField0_ & ~0x00000010);
@@ -1190,9 +1190,9 @@ private static final long serialVersionUID = 0L;
      * Server-owned error passed only to an Execute failure recovery Step.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
      */
-    public io.superdurable.gen.WorkerErrorResponse.Builder getRecoveryErrorInternalOnlyBuilder() {
+    public io.superdurable.gen.RecoveryErrorInfo.Builder getRecoveryErrorInternalOnlyBuilder() {
       bitField0_ |= 0x00000010;
       onChanged();
       return internalGetRecoveryErrorInternalOnlyFieldBuilder().getBuilder();
@@ -1202,14 +1202,14 @@ private static final long serialVersionUID = 0L;
      * Server-owned error passed only to an Execute failure recovery Step.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
      */
-    public io.superdurable.gen.WorkerErrorResponseOrBuilder getRecoveryErrorInternalOnlyOrBuilder() {
+    public io.superdurable.gen.RecoveryErrorInfoOrBuilder getRecoveryErrorInternalOnlyOrBuilder() {
       if (recoveryErrorInternalOnlyBuilder_ != null) {
         return recoveryErrorInternalOnlyBuilder_.getMessageOrBuilder();
       } else {
         return recoveryErrorInternalOnly_ == null ?
-            io.superdurable.gen.WorkerErrorResponse.getDefaultInstance() : recoveryErrorInternalOnly_;
+            io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance() : recoveryErrorInternalOnly_;
       }
     }
     /**
@@ -1217,14 +1217,14 @@ private static final long serialVersionUID = 0L;
      * Server-owned error passed only to an Execute failure recovery Step.
      * </pre>
      *
-     * <code>.dex.WorkerErrorResponse recovery_error_internal_only = 5;</code>
+     * <code>.dex.RecoveryErrorInfo recovery_error_internal_only = 5;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder> 
+        io.superdurable.gen.RecoveryErrorInfo, io.superdurable.gen.RecoveryErrorInfo.Builder, io.superdurable.gen.RecoveryErrorInfoOrBuilder> 
         internalGetRecoveryErrorInternalOnlyFieldBuilder() {
       if (recoveryErrorInternalOnlyBuilder_ == null) {
         recoveryErrorInternalOnlyBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.WorkerErrorResponse, io.superdurable.gen.WorkerErrorResponse.Builder, io.superdurable.gen.WorkerErrorResponseOrBuilder>(
+            io.superdurable.gen.RecoveryErrorInfo, io.superdurable.gen.RecoveryErrorInfo.Builder, io.superdurable.gen.RecoveryErrorInfoOrBuilder>(
                 getRecoveryErrorInternalOnly(),
                 getParentForChildren(),
                 isClean());

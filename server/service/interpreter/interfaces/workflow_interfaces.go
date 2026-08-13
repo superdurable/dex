@@ -21,10 +21,16 @@ import (
 
 type ActivityProvider interface {
 	GetLogger(ctx context.Context) UnifiedLogger
-	NewFlowError(errType dexpb.FlowErrorType, errorResponse *dexpb.ErrorResponse) error
+	NewFlowError(
+		errType dexpb.FlowErrorType,
+		errorResponse *dexpb.ErrorResponse,
+		retryAfterSeconds int32,
+	) error
 	NewLocalActivityError(
 		errType dexpb.FlowErrorType,
-		localError *dexpb.InternalLocalStepActivityError,
+		errorResponse *dexpb.ErrorResponse,
+		failure *dexpb.InternalLocalStepActivityFailure,
+		retryAfterSeconds int32,
 	) error
 	GetActivityInfo(ctx context.Context) ActivityInfo
 	RecordHeartbeat(ctx context.Context, details ...interface{})
@@ -119,7 +125,7 @@ type WorkflowProvider interface {
 	NewCanceledError(reason string) error
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool
-	MapToWorkerError(err error) (*dexpb.WorkerErrorResponse, error)
+	MapToRecoveryError(err error) (*dexpb.RecoveryErrorInfo, error)
 	IsContinueAsNewError(err error) bool
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)

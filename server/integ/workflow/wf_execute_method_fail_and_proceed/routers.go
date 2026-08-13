@@ -107,12 +107,10 @@ func (h *handler) InvokeExecuteMethod(
 	panic("should not get here")
 }
 
-func validateTimeoutRecoveryError(recoveryError *dexpb.WorkerErrorResponse) {
+func validateTimeoutRecoveryError(recoveryError *dexpb.RecoveryErrorInfo) {
 	normalizedType := strings.ReplaceAll(strings.ToUpper(recoveryError.GetErrorType()), "_", "")
 	if recoveryError.GetDetail() == "" ||
-		!strings.Contains(normalizedType, "STARTTOCLOSE") ||
-		recoveryError.GetStackTrace() != "" ||
-		recoveryError.GetRetryAfterSeconds() != 0 {
+		!strings.Contains(normalizedType, "STARTTOCLOSE") {
 		panic(fmt.Sprintf("execute timeout recovery error is not correct: %v", recoveryError))
 	}
 }
@@ -131,11 +129,9 @@ func workerFailure() error {
 	return workerStatus.Err()
 }
 
-func validateRecoveryError(recoveryError *dexpb.WorkerErrorResponse) {
+func validateRecoveryError(recoveryError *dexpb.RecoveryErrorInfo) {
 	if recoveryError.GetDetail() != errorDetail ||
-		recoveryError.GetErrorType() != errorType ||
-		recoveryError.GetStackTrace() != errorStack ||
-		recoveryError.GetRetryAfterSeconds() != 0 {
+		recoveryError.GetErrorType() != errorType {
 		panic(fmt.Sprintf("execute recovery error is not correct: %v", recoveryError))
 	}
 }

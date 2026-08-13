@@ -88,7 +88,7 @@ func (srq *StepRequestQueue) AddSingleStepStartRequest(
 	input *dexpb.Value,
 	options *dexpb.StepOptions,
 	source string,
-	recoveryError *dexpb.WorkerErrorResponse,
+	recoveryError *dexpb.RecoveryErrorInfo,
 ) {
 	srq.queue = append(srq.queue, NewStepStartRequest(&dexpb.StepMovement{
 		StepType:                        stepType,

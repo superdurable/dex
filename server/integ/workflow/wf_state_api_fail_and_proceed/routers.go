@@ -112,11 +112,7 @@ func (h *handler) InvokeExecuteMethod(
 	} else if conditionResults == nil || !conditionResults.GetWaitForFailed() {
 		panic("wait_for_failed should be true")
 	} else {
-		expectedRetryAfter := int32(0)
-		if request.GetStepInput().GetStringValue() == RetryFailureInput {
-			expectedRetryAfter = retryAfter
-		}
-		validateRecoveryError(request.GetContext().GetRecoveryError(), expectedRetryAfter)
+		validateRecoveryError(request.GetContext().GetRecoveryError())
 	}
 
 	return &dexpb.InvokeExecuteMethodResponse{
@@ -150,11 +146,9 @@ func workerFailure(retryAfterSeconds int32) error {
 	return workerStatus.Err()
 }
 
-func validateRecoveryError(recoveryError *dexpb.WorkerErrorResponse, retryAfterSeconds int32) {
+func validateRecoveryError(recoveryError *dexpb.RecoveryErrorInfo) {
 	if recoveryError.GetDetail() != errorDetail ||
-		recoveryError.GetErrorType() != errorType ||
-		recoveryError.GetStackTrace() != errorStack ||
-		recoveryError.GetRetryAfterSeconds() != retryAfterSeconds {
+		recoveryError.GetErrorType() != errorType {
 		panic(fmt.Sprintf("waitFor recovery error is not correct: %v", recoveryError))
 	}
 }

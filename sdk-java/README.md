@@ -117,7 +117,7 @@ configured recovery Step, including when that Step starts after
 continue-as-new:
 
 ```java
-WorkerError error = context.getRecoveryError();
+RecoveryErrorInfo error = context.getRecoveryError();
 if (error != null) {
     logger.warn("Recovering from " + error.getErrorType() + ": " + error.getDetail());
 }
@@ -133,6 +133,8 @@ throw RetryAfterException.after(Duration.ofSeconds(30), currentFailure);
 The delay must be a positive whole number of seconds in the signed 32-bit
 range. Retry limits and method timeouts remain unchanged. Cadence rejects a
 dynamic retry interval with an `INVALID_USER_FLOW_CODE` validation error.
+Recovery exposes only the final failure type and detail; stack traces remain in
+failure history, and retry delays are scheduling metadata.
 
 `Flow<StartInput>.getSteps()` returns `StepList<StartInput>`. Start with
 `StepList.startStep(step)` and append heterogeneous Steps with `otherSteps(...)`.
