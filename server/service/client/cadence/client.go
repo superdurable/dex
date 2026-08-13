@@ -81,8 +81,11 @@ func (t *cadenceClient) GetRunIdFromWorkflowAlreadyStartedError(err error) (stri
 
 func (t *cadenceClient) IsNotFoundError(err error) bool {
 	var entityNotExistsError *shared.EntityNotExistsError
-	ok := errors.As(err, &entityNotExistsError)
-	return ok
+	if errors.As(err, &entityNotExistsError) {
+		return true
+	}
+	var workflowExecutionAlreadyCompletedError *shared.WorkflowExecutionAlreadyCompletedError
+	return errors.As(err, &workflowExecutionAlreadyCompletedError)
 }
 
 func (t *cadenceClient) IsUnknownUpdateError(error, string) bool {
