@@ -14,7 +14,7 @@ import (
 	"fmt"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service/interpreter/channel"
+	"github.com/superdurable/dex/service/interpreter/condition"
 )
 
 // ChannelStore holds FIFO messages by channel.
@@ -45,8 +45,8 @@ func (i *ChannelStore) ProcessPublishing(messages []*dexpb.ChannelMessage) {
 }
 
 // Availability returns an isolated count snapshot.
-func (i *ChannelStore) Availability() channel.ChannelAvailability {
-	availability := make(channel.ChannelAvailability, len(i.channelMessages))
+func (i *ChannelStore) Availability() condition.ChannelAvailability {
+	availability := make(condition.ChannelAvailability, len(i.channelMessages))
 	for name, values := range i.channelMessages {
 		availability[name] = int32(len(values))
 	}
@@ -77,7 +77,7 @@ func (i *ChannelStore) GetAllReceived() map[string]*dexpb.ChannelValues {
 }
 
 // CommitMatch consumes a plan and returns the consumed messages.
-func (i *ChannelStore) CommitMatch(plan *channel.MatchPlan) map[int][]*dexpb.Value {
+func (i *ChannelStore) CommitMatch(plan *condition.MatchPlan) map[int][]*dexpb.Value {
 	consumed := make(map[int][]*dexpb.Value, len(plan.Consumes))
 	for _, consumption := range plan.Consumes {
 		values := i.channelMessages[consumption.ChannelName]
