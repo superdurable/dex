@@ -60,7 +60,8 @@ with the stop request, so callers should treat an already-closed Flow as a succe
 Dex reserves `:` in application-created Flow IDs so `StartFlow` cannot occupy the
 `SubFlow:` namespace. Operations targeting an existing SubFlow, including RPCs and stops, accept
 its generated ID. Clients with direct Temporal or Cadence access must also leave this namespace to
-Dex.
+Dex. Step types cannot contain `/`, `$`, or `:` because their Step execution IDs are embedded in
+generated SubFlow IDs and readable blob paths.
 
 Every SubFlow execution also has the keyword Search Attribute `DexParentFlowID`. Query it to list
 all SubFlows for one parent. Together with the generated SubFlow Flow ID, it identifies the source

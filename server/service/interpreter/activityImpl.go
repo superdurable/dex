@@ -963,15 +963,27 @@ func validateStepDecision(decision *dexpb.StepDecision) error {
 		if movement == nil || movement.GetStepType() == "" {
 			return fmt.Errorf("next step at index %d is invalid", index)
 		}
+		if err := service.ValidateStepType(movement.GetStepType()); err != nil {
+			return fmt.Errorf("next step at index %d: %w", index, err)
+		}
+		if err := service.ValidateStepOptions(movement.GetStepOptions()); err != nil {
+			return fmt.Errorf("next step at index %d: %w", index, err)
+		}
 	}
 	for index, stepType := range decision.GetCancelStepTypes() {
 		if stepType == "" {
 			return fmt.Errorf("cancel step type at index %d is invalid", index)
 		}
+		if err := service.ValidateStepType(stepType); err != nil {
+			return fmt.Errorf("cancel step type at index %d: %w", index, err)
+		}
 	}
 	for index, stepType := range decision.GetCancelSiblingStepTypes() {
 		if stepType == "" {
 			return fmt.Errorf("cancel sibling step type at index %d is invalid", index)
+		}
+		if err := service.ValidateStepType(stepType); err != nil {
+			return fmt.Errorf("cancel sibling step type at index %d: %w", index, err)
 		}
 	}
 	if closeDecision := decision.GetCloseDecision(); closeDecision != nil {
@@ -1119,6 +1131,12 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 		}
 		if subFlowCondition.GetSubFlowType() == "" || subFlowCondition.GetStartStepType() == "" {
 			return fmt.Errorf("SubFlow condition at index %d requires Flow and starting Step types", i)
+		}
+		if err := service.ValidateStepType(subFlowCondition.GetStartStepType()); err != nil {
+			return fmt.Errorf("SubFlow condition at index %d: %w", i, err)
+		}
+		if err := service.ValidateStepOptions(subFlowCondition.GetStepOptions()); err != nil {
+			return fmt.Errorf("SubFlow condition at index %d: %w", i, err)
 		}
 		if subFlowCondition.GetSubFlowIndex() != int32(i) {
 			return fmt.Errorf("SubFlow condition at index %d has unstable index %d", i, subFlowCondition.GetSubFlowIndex())

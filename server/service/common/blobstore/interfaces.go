@@ -18,33 +18,10 @@ import (
 	"time"
 )
 
-// flowIDReservedCharacters are rejected only when an application creates a Flow through StartFlow.
-//
-// "/" separates object-key path segments. Reserving it keeps every Flow's blobs in one directory
-// and preserves local and remote blob listing and cleanup boundaries.
-//
-// "$" separates the UTC date prefix from the Flow ID in `<yyyymmdd>$<flowID>/<blobID>`.
-// Reserving it keeps date-scoped listing and cleanup prefixes unambiguous.
-//
-// ":" identifies server-generated Flow namespaces such as `SubFlow:`. Reserving it prevents an
-// application from pre-creating an internal Flow ID and interfering with SubFlow reuse resolution.
-// Server-generated Flows bypass ValidateFlowID.
-var flowIDReservedCharacters = []string{"/", "$", ":"}
-
 const (
 	StepEventInputMethodWaitFor = "wait_for"
 	StepEventInputMethodExecute = "execute"
 )
-
-// ValidateFlowID rejects characters reserved for Dex identities and blob paths.
-func ValidateFlowID(flowID string) error {
-	for _, reservedCharacter := range flowIDReservedCharacters {
-		if strings.Contains(flowID, reservedCharacter) {
-			return fmt.Errorf("flow ID contains reserved character %q", reservedCharacter)
-		}
-	}
-	return nil
-}
 
 func MustExtractWorkflowId(workflowPath string) string {
 	workflowId, err := ExtractWorkflowId(workflowPath)
