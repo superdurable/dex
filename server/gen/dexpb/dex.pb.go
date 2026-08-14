@@ -10229,8 +10229,7 @@ type ExecuteRpcSignalRequest struct {
 	StepDecision      *StepDecision          `protobuf:"bytes,4,opt,name=step_decision,json=stepDecision,proto3" json:"step_decision,omitempty"`
 	RecordEvents      []*KV                  `protobuf:"bytes,5,rep,name=record_events,json=recordEvents,proto3" json:"record_events,omitempty"`
 	PublishToChannel  []*ChannelMessage      `protobuf:"bytes,6,rep,name=publish_to_channel,json=publishToChannel,proto3" json:"publish_to_channel,omitempty"`
-	RpcName           string                 `protobuf:"bytes,7,opt,name=rpc_name,json=rpcName,proto3" json:"rpc_name,omitempty"`
-	IsSetAttributeApi bool                   `protobuf:"varint,8,opt,name=is_set_attribute_api,json=isSetAttributeApi,proto3" json:"is_set_attribute_api,omitempty"`
+	IsSetAttributeApi bool                   `protobuf:"varint,7,opt,name=is_set_attribute_api,json=isSetAttributeApi,proto3" json:"is_set_attribute_api,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -10305,13 +10304,6 @@ func (x *ExecuteRpcSignalRequest) GetPublishToChannel() []*ChannelMessage {
 		return x.PublishToChannel
 	}
 	return nil
-}
-
-func (x *ExecuteRpcSignalRequest) GetRpcName() string {
-	if x != nil {
-		return x.RpcName
-	}
-	return ""
 }
 
 func (x *ExecuteRpcSignalRequest) GetIsSetAttributeApi() bool {
@@ -11789,7 +11781,7 @@ const file_dex_proto_rawDesc = "" +
 	"\x0eparent_flow_id\x18\x01 \x01(\tR\fparentFlowId\x12=\n" +
 	"\arequest\x18\x02 \x01(\v2#.dex.SubFlowCompletionSignalRequestR\arequest\"e\n" +
 	"%ReportSubFlowCompletionActivityOutput\x12<\n" +
-	"\x06status\x18\x01 \x01(\x0e2$.dex.SubFlowCompletionDeliveryStatusR\x06status\"\xa4\x03\n" +
+	"\x06status\x18\x01 \x01(\x0e2$.dex.SubFlowCompletionDeliveryStatusR\x06status\"\x89\x03\n" +
 	"\x17ExecuteRpcSignalRequest\x12'\n" +
 	"\trpc_input\x18\x01 \x01(\v2\n" +
 	".dex.ValueR\brpcInput\x12)\n" +
@@ -11799,9 +11791,8 @@ const file_dex_proto_rawDesc = "" +
 	"\x11upsert_attributes\x18\x03 \x03(\v2\x13.dex.AttributeWriteR\x10upsertAttributes\x126\n" +
 	"\rstep_decision\x18\x04 \x01(\v2\x11.dex.StepDecisionR\fstepDecision\x12,\n" +
 	"\rrecord_events\x18\x05 \x03(\v2\a.dex.KVR\frecordEvents\x12A\n" +
-	"\x12publish_to_channel\x18\x06 \x03(\v2\x13.dex.ChannelMessageR\x10publishToChannel\x12\x19\n" +
-	"\brpc_name\x18\a \x01(\tR\arpcName\x12/\n" +
-	"\x14is_set_attribute_api\x18\b \x01(\bR\x11isSetAttributeApi\"\xa6\x01\n" +
+	"\x12publish_to_channel\x18\x06 \x03(\v2\x13.dex.ChannelMessageR\x10publishToChannel\x12/\n" +
+	"\x14is_set_attribute_api\x18\a \x01(\bR\x11isSetAttributeApi\"\xa6\x01\n" +
 	"\x16SkipTimerSignalRequest\x12*\n" +
 	"\x11step_execution_id\x18\x01 \x01(\tR\x0fstepExecutionId\x12,\n" +
 	"\x12timer_condition_id\x18\x02 \x01(\tR\x10timerConditionId\x122\n" +

@@ -31,7 +31,6 @@ private static final long serialVersionUID = 0L;
     upsertAttributes_ = java.util.Collections.emptyList();
     recordEvents_ = java.util.Collections.emptyList();
     publishToChannel_ = java.util.Collections.emptyList();
-    rpcName_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -254,49 +253,10 @@ private static final long serialVersionUID = 0L;
     return publishToChannel_.get(index);
   }
 
-  public static final int RPC_NAME_FIELD_NUMBER = 7;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object rpcName_ = "";
-  /**
-   * <code>string rpc_name = 7;</code>
-   * @return The rpcName.
-   */
-  @java.lang.Override
-  public java.lang.String getRpcName() {
-    java.lang.Object ref = rpcName_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      rpcName_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string rpc_name = 7;</code>
-   * @return The bytes for rpcName.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getRpcNameBytes() {
-    java.lang.Object ref = rpcName_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      rpcName_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int IS_SET_ATTRIBUTE_API_FIELD_NUMBER = 8;
+  public static final int IS_SET_ATTRIBUTE_API_FIELD_NUMBER = 7;
   private boolean isSetAttributeApi_ = false;
   /**
-   * <code>bool is_set_attribute_api = 8;</code>
+   * <code>bool is_set_attribute_api = 7;</code>
    * @return The isSetAttributeApi.
    */
   @java.lang.Override
@@ -336,11 +296,8 @@ private static final long serialVersionUID = 0L;
     for (int i = 0; i < publishToChannel_.size(); i++) {
       output.writeMessage(6, publishToChannel_.get(i));
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(rpcName_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 7, rpcName_);
-    }
     if (isSetAttributeApi_ != false) {
-      output.writeBool(8, isSetAttributeApi_);
+      output.writeBool(7, isSetAttributeApi_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -385,12 +342,9 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(rpcName_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(7, rpcName_);
-    }
     if (isSetAttributeApi_ != false) {
       size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(8, isSetAttributeApi_);
+        .computeBoolSize(7, isSetAttributeApi_);
     }
     return size;
   }
@@ -437,8 +391,6 @@ private static final long serialVersionUID = 0L;
         .equals(other.getRecordEventsList())) return false;
     if (!getPublishToChannelList()
         .equals(other.getPublishToChannelList())) return false;
-    if (!getRpcName()
-        .equals(other.getRpcName())) return false;
     if (getIsSetAttributeApi()
         != other.getIsSetAttributeApi()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
@@ -476,8 +428,6 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + PUBLISH_TO_CHANNEL_FIELD_NUMBER;
       hash = (53 * hash) + getPublishToChannelList().hashCode();
     }
-    hash = (37 * hash) + RPC_NAME_FIELD_NUMBER;
-    hash = (53 * hash) + getRpcName().hashCode();
     hash = (37 * hash) + IS_SET_ATTRIBUTE_API_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
         getIsSetAttributeApi());
@@ -659,7 +609,6 @@ private static final long serialVersionUID = 0L;
         publishToChannelBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000020);
-      rpcName_ = "";
       isSetAttributeApi_ = false;
       return this;
     }
@@ -745,9 +694,6 @@ private static final long serialVersionUID = 0L;
         to_bitField0_ |= 0x00000004;
       }
       if (((from_bitField0_ & 0x00000040) != 0)) {
-        result.rpcName_ = rpcName_;
-      }
-      if (((from_bitField0_ & 0x00000080) != 0)) {
         result.isSetAttributeApi_ = isSetAttributeApi_;
       }
       result.bitField0_ |= to_bitField0_;
@@ -852,11 +798,6 @@ private static final long serialVersionUID = 0L;
           }
         }
       }
-      if (!other.getRpcName().isEmpty()) {
-        rpcName_ = other.rpcName_;
-        bitField0_ |= 0x00000040;
-        onChanged();
-      }
       if (other.getIsSetAttributeApi() != false) {
         setIsSetAttributeApi(other.getIsSetAttributeApi());
       }
@@ -946,16 +887,11 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 50
-            case 58: {
-              rpcName_ = input.readStringRequireUtf8();
+            case 56: {
+              isSetAttributeApi_ = input.readBool();
               bitField0_ |= 0x00000040;
               break;
-            } // case 58
-            case 64: {
-              isSetAttributeApi_ = input.readBool();
-              bitField0_ |= 0x00000080;
-              break;
-            } // case 64
+            } // case 56
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2056,81 +1992,9 @@ private static final long serialVersionUID = 0L;
       return publishToChannelBuilder_;
     }
 
-    private java.lang.Object rpcName_ = "";
-    /**
-     * <code>string rpc_name = 7;</code>
-     * @return The rpcName.
-     */
-    public java.lang.String getRpcName() {
-      java.lang.Object ref = rpcName_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        rpcName_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string rpc_name = 7;</code>
-     * @return The bytes for rpcName.
-     */
-    public com.google.protobuf.ByteString
-        getRpcNameBytes() {
-      java.lang.Object ref = rpcName_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        rpcName_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string rpc_name = 7;</code>
-     * @param value The rpcName to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRpcName(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      rpcName_ = value;
-      bitField0_ |= 0x00000040;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string rpc_name = 7;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearRpcName() {
-      rpcName_ = getDefaultInstance().getRpcName();
-      bitField0_ = (bitField0_ & ~0x00000040);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string rpc_name = 7;</code>
-     * @param value The bytes for rpcName to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRpcNameBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      rpcName_ = value;
-      bitField0_ |= 0x00000040;
-      onChanged();
-      return this;
-    }
-
     private boolean isSetAttributeApi_ ;
     /**
-     * <code>bool is_set_attribute_api = 8;</code>
+     * <code>bool is_set_attribute_api = 7;</code>
      * @return The isSetAttributeApi.
      */
     @java.lang.Override
@@ -2138,23 +2002,23 @@ private static final long serialVersionUID = 0L;
       return isSetAttributeApi_;
     }
     /**
-     * <code>bool is_set_attribute_api = 8;</code>
+     * <code>bool is_set_attribute_api = 7;</code>
      * @param value The isSetAttributeApi to set.
      * @return This builder for chaining.
      */
     public Builder setIsSetAttributeApi(boolean value) {
 
       isSetAttributeApi_ = value;
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
     /**
-     * <code>bool is_set_attribute_api = 8;</code>
+     * <code>bool is_set_attribute_api = 7;</code>
      * @return This builder for chaining.
      */
     public Builder clearIsSetAttributeApi() {
-      bitField0_ = (bitField0_ & ~0x00000080);
+      bitField0_ = (bitField0_ & ~0x00000040);
       isSetAttributeApi_ = false;
       onChanged();
       return this;

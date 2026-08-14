@@ -23,5 +23,5 @@ Flow-wide and sibling selectors; queued and active executions; local and
 regular activities; heartbeat-driven handler cancellation;
 fire-and-continue behavior; late-result suppression;
 continue-as-new; Step and RPC producers; signal and synchronous-update RPC
-delivery; same-RPC sibling lineage; snapshot exclusion of RPC next Steps;
+delivery; RPC sibling-selector rejection; snapshot exclusion of RPC next Steps;
 and clean active state.

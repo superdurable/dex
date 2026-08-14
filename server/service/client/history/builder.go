@@ -441,13 +441,9 @@ func (b *Builder) RecordSignal(
 		))
 		return
 	}
-	rpcNameFromMovement := rpcNameFromDecision(request.GetStepDecision())
-	if !request.GetIsSetAttributeApi() && rpcNameFromMovement == "" && request.GetRpcInput() == nil && request.GetRpcOutput() == nil {
+	rpcName := rpcNameFromDecision(request.GetStepDecision())
+	if !request.GetIsSetAttributeApi() && rpcName == "" && request.GetRpcInput() == nil && request.GetRpcOutput() == nil {
 		return
-	}
-	rpcName := request.GetRpcName()
-	if rpcName == "" {
-		rpcName = rpcNameFromMovement
 	}
 	b.events = append(b.events, newEvent(
 		eventID,

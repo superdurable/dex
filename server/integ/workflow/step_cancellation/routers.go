@@ -44,7 +44,7 @@ const (
 	RpcB                = "cancelRpcB"
 	RpcSpawn            = "spawn"
 	RpcCancel           = "cancel"
-	RpcSibling          = "RpcSibling"
+	RpcRejectSibling    = "reject-sibling"
 	RpcGlobal           = "RpcGlobal"
 	RpcFinal            = "RpcFinal"
 )
@@ -65,13 +65,20 @@ func (h *Handler) InvokeWorkerRPC(
 	_ context.Context,
 	request *dexpb.InvokeWorkerRPCRequest,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
+	if request.GetInput().GetStringValue() == RpcRejectSibling {
+		return &dexpb.InvokeWorkerRPCResponse{
+			Output: request.GetInput(),
+			StepDecision: &dexpb.StepDecision{
+				CancelSiblingStepTypes: []string{RpcGlobal},
+			},
+		}, nil
+	}
 	if request.GetRpcName() == RpcA && request.GetInput().GetStringValue() == RpcCancel {
 		return &dexpb.InvokeWorkerRPCResponse{
 			Output: request.GetInput(),
 			StepDecision: &dexpb.StepDecision{
-				NextSteps:              []*dexpb.StepMovement{movement(RpcFinal, nil)},
-				CancelStepTypes:        []string{RpcGlobal, RpcFinal},
-				CancelSiblingStepTypes: []string{RpcSibling},
+				NextSteps:       []*dexpb.StepMovement{movement(RpcFinal, nil)},
+				CancelStepTypes: []string{RpcGlobal, RpcFinal},
 			},
 		}, nil
 	}
@@ -80,7 +87,6 @@ func (h *Handler) InvokeWorkerRPC(
 		return &dexpb.InvokeWorkerRPCResponse{
 			Output: request.GetInput(),
 			StepDecision: &dexpb.StepDecision{NextSteps: []*dexpb.StepMovement{
-				movement(RpcSibling, nil),
 				movement(RpcGlobal, nil),
 			}},
 		}, nil
@@ -102,7 +108,7 @@ func (h *Handler) InvokeWaitForMethod(
 		return timerWait(3 * time.Second), nil
 	case GlobalWait:
 		return channelWait(), nil
-	case RpcSibling, RpcGlobal:
+	case RpcGlobal:
 		return channelWait(), nil
 	case RpcFinal:
 		return timerWait(3 * time.Second), nil

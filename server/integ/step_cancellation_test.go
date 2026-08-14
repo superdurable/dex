@@ -255,7 +255,7 @@ func testRpcStepCancellation(
 			FlowId: flowID,
 			RunId:  start.GetRunId(),
 		})
-		if stateErr != nil || len(state.GetActiveStepExecutions()) != 4 {
+		if stateErr != nil || len(state.GetActiveStepExecutions()) != 2 {
 			return false
 		}
 		for _, execution := range state.GetActiveStepExecutions() {
@@ -265,6 +265,12 @@ func testRpcStepCancellation(
 		}
 		return true
 	}, 10*time.Second, 50*time.Millisecond)
+	_, err = runtime.FlowClient.InvokeRPC(ctx, cancellationRpcRequest(
+		flowID,
+		step_cancellation.RpcA,
+		step_cancellation.RpcRejectSibling,
+	))
+	require.ErrorContains(t, err, "canceling sibling step executions in RPC is not supported")
 
 	response := invokeCancellationRpc(
 		t,
@@ -286,7 +292,6 @@ func testRpcStepCancellation(
 			active = append(active, execution.GetStepExecutionId())
 		}
 		assert.ElementsMatch(collect, []string{
-			step_cancellation.RpcSibling + "-2",
 			step_cancellation.RpcFinal + "-1",
 		}, active)
 	}, 2*time.Second, 50*time.Millisecond)
@@ -307,16 +312,24 @@ func invokeCancellationRpc(
 	input string,
 ) *dexpb.InvokeRPCResponse {
 	t.Helper()
-	response, err := flowClient.InvokeRPC(ctx, &dexpb.InvokeRPCRequest{
+	response, err := flowClient.InvokeRPC(ctx, cancellationRpcRequest(flowID, rpcName, input))
+	require.NoError(t, err)
+	return response
+}
+
+func cancellationRpcRequest(
+	flowID string,
+	rpcName string,
+	input string,
+) *dexpb.InvokeRPCRequest {
+	return &dexpb.InvokeRPCRequest{
 		RequestId: newRequestID(),
 		FlowId:    flowID,
 		RpcName:   rpcName,
 		Input: &dexpb.Value{Kind: &dexpb.Value_StringValue{
 			StringValue: input,
 		}},
-	})
-	require.NoError(t, err)
-	return response
+	}
 }
 
 func assertNoWaitHistory(

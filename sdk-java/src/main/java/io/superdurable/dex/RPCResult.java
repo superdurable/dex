@@ -14,13 +14,12 @@
 
 package io.superdurable.dex;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * Carries a typed RPC output, optional next-Step movements, and cancellation selectors.
+ * Carries a typed RPC output, optional next-Step movements, and Step type cancellation.
  *
  * <p>Return this value from a function-style {@link RPC} method. The output is encoded according to
  * the RPC method's declared generic return type, while movements let an RPC start or advance Flow
@@ -30,8 +29,7 @@ import java.util.List;
  * @RPC
  * public RPCResult<OrderStatus> approve(Context context, Approval input) {
  *     return RPCResult.of(OrderStatus.APPROVED, StepMovement.of(shipOrder, input.order))
- *             .withCancelingSiblingSteps(quoteCarrier)
- *             .withCancelingSteps(approvalTimeout);
+ *             .withCancelingSteps(quoteCarrier, approvalTimeout);
  * }
  * }</pre>
  *
@@ -41,17 +39,14 @@ public final class RPCResult<O> {
     private final O output;
     private final List<StepMovement<?>> nextSteps;
     private final List<Step<?>> cancelingSteps;
-    private final List<Step<?>> cancelingSiblingSteps;
 
     private RPCResult(
             final O output,
             final List<StepMovement<?>> nextSteps,
-            final List<Step<?>> cancelingSteps,
-            final List<Step<?>> cancelingSiblingSteps) {
+            final List<Step<?>> cancelingSteps) {
         this.output = output;
         this.nextSteps = Collections.unmodifiableList(nextSteps);
         this.cancelingSteps = CancellationSteps.immutable(cancelingSteps);
-        this.cancelingSiblingSteps = CancellationSteps.immutable(cancelingSiblingSteps);
     }
 
     /**
@@ -65,7 +60,6 @@ public final class RPCResult<O> {
         return new RPCResult<O>(
                 output,
                 Collections.<StepMovement<?>>emptyList(),
-                Collections.<Step<?>>emptyList(),
                 Collections.<Step<?>>emptyList());
     }
 
@@ -83,7 +77,6 @@ public final class RPCResult<O> {
         return new RPCResult<O>(
                 output,
                 Arrays.<StepMovement<?>>asList(nextSteps.clone()),
-                Collections.<Step<?>>emptyList(),
                 Collections.<Step<?>>emptyList());
     }
 
@@ -95,45 +88,19 @@ public final class RPCResult<O> {
      * were canceled, or do not exist are ignored. Cancellation is cooperative, and Dex continues
      * with this result's next Steps without waiting for selected handlers to return.
      *
-     * <p>Repeated calls take the union of their arguments. A Flow-wide selection supersedes a
-     * sibling-only selection for the same registered Step. Each argument must be the exact Step
+     * <p>Repeated calls take the union of their arguments. Each argument must be the exact Step
      * instance registered with the current Flow; a {@code null} or external Step causes an invalid
-     * RPC result.
+     * RPC result. RPC results cannot select sibling executions because separate invocations do not
+     * share an invocation-scoped Step execution lineage.
      *
      * @param steps registered Steps whose queued or active executions should be canceled
      * @return a new RPC result containing the combined cancellation selection
      */
     public RPCResult<O> withCancelingSteps(final Step<?>... steps) {
-        final List<Step<?>> global = CancellationSteps.add(cancelingSteps, steps);
-        final List<Step<?>> siblings = new ArrayList<Step<?>>(cancelingSiblingSteps);
-        CancellationSteps.remove(siblings, global);
-        return copy(global, siblings);
-    }
-
-    /**
-     * Cancels selected executions previously scheduled by the same RPC name.
-     *
-     * <p>RPC-scheduled Steps use {@code __rpc/&lt;rpcName&gt;} as their scheduling source. This method
-     * selects only executions of the requested Step types whose source belongs to the RPC returning
-     * this result. Dex applies the snapshot, no-op, validation, and cooperative behavior described
-     * by {@link #withCancelingSteps(Step[])}.
-     *
-     * <p>Repeated calls take the union of their arguments, while a Flow-wide selection for a Step
-     * type supersedes its sibling-only selection.
-     *
-     * @param steps registered Steps whose same-RPC executions should be canceled
-     * @return a new RPC result containing the combined sibling cancellation selection
-     */
-    public RPCResult<O> withCancelingSiblingSteps(final Step<?>... steps) {
-        final List<Step<?>> siblings = CancellationSteps.add(cancelingSiblingSteps, steps);
-        CancellationSteps.remove(siblings, cancelingSteps);
-        return copy(cancelingSteps, siblings);
-    }
-
-    private RPCResult<O> copy(
-            final List<Step<?>> global,
-            final List<Step<?>> siblings) {
-        return new RPCResult<O>(output, nextSteps, global, siblings);
+        return new RPCResult<O>(
+                output,
+                nextSteps,
+                CancellationSteps.add(cancelingSteps, steps));
     }
 
     O getOutput() {
@@ -146,9 +113,5 @@ public final class RPCResult<O> {
 
     List<Step<?>> getCancelingSteps() {
         return cancelingSteps;
-    }
-
-    List<Step<?>> getCancelingSiblingSteps() {
-        return cancelingSiblingSteps;
     }
 }

@@ -31,7 +31,8 @@ selects only targets with the same `Context.getFromStepExecutionId()` as the
 winner. Sibling selection is useful when several independent fan-outs reuse the
 same Step classes.
 
-An RPC can cancel executions with the same fluent methods on `RPCResult`:
+An RPC can cancel all executions of selected Step types with
+`RPCResult.withCancelingSteps(...)`:
 
 ```java
 @RPC(name = "acceptQuote")
@@ -39,13 +40,13 @@ public RPCResult<QuoteStatus> acceptQuote(Context context, Quote quote) {
     return RPCResult.of(
                     QuoteStatus.ACCEPTED,
                     StepMovement.of(recordQuote, quote))
-            .withCancelingSiblingSteps(carrierA, carrierB)
-            .withCancelingSteps(globalQuoteTimeout);
+            .withCancelingSteps(carrierA, carrierB, globalQuoteTimeout);
 }
 ```
 
-For an RPC result, sibling means the target was scheduled by an invocation of
-the same RPC name. Dex represents that lineage with `__rpc/<rpcName>`.
+`RPCResult` does not support sibling selection. Separate invocations of the
+same RPC name do not share an invocation-scoped Step execution lineage, so
+treating their Steps as siblings could cancel unrelated work.
 
 Long-running regular Steps should use a heartbeat timeout and cooperate with
 cancellation:
@@ -95,9 +96,9 @@ Dex cancels those two existing executions. It then creates the new
 `recordQuote` execution requested by `goTo(...)`, so the new execution is not
 canceled by the same decision.
 
-An `RPCResult` follows the same snapshot rule, but there is no returning Step
-execution to exclude. Next Steps created by the RPC result are also created
-after cancellation has been resolved.
+An `RPCResult` follows the same snapshot rule for its global selector, but there
+is no returning Step execution to exclude. Next Steps created by the RPC result
+are also created after cancellation has been resolved.
 
 A target that is absent, completed, or already canceled is a successful no-op.
 Selectors do not cancel descendant Steps or future executions of a selected

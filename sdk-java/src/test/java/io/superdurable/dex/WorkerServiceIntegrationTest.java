@@ -406,14 +406,11 @@ final class WorkerServiceIntegrationTest {
             assertEquals(
                     Collections.singletonList("BridgeOtherStep"),
                     rpcCancellation.getStepDecision().getCancelStepTypesList());
-            assertEquals(
-                    Collections.singletonList("BridgeStep"),
-                    rpcCancellation.getStepDecision().getCancelSiblingStepTypesList());
+            assertTrue(rpcCancellation.getStepDecision().getCancelSiblingStepTypesList().isEmpty());
             assertEquals(
                     "BridgeStep",
                     rpcCancellation.getStepDecision().getNextSteps(0).getStepType());
             assertTrue(flow.baseRpcResult.get().getCancelingSteps().isEmpty());
-            assertTrue(flow.baseRpcResult.get().getCancelingSiblingSteps().isEmpty());
 
             final InvokeExecuteMethodResponse heartbeat = running.client.invokeExecuteMethod(
                     executeRequest(concrete("heartbeat")));
@@ -788,10 +785,8 @@ final class WorkerServiceIntegrationTest {
                     input,
                     StepMovement.of(start, "next"));
             baseRpcResult.set(base);
-            return base.withCancelingSiblingSteps(other, start, other)
-                    .withCancelingSteps(other, other)
-                    .withCancelingSteps()
-                    .withCancelingSiblingSteps();
+            return base.withCancelingSteps(other, other)
+                    .withCancelingSteps();
         }
 
         @Override

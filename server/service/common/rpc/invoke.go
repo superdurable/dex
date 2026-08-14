@@ -187,10 +187,8 @@ func validateWorkerRpcResponse(resp *dexpb.InvokeWorkerRPCResponse) error {
 			return fmt.Errorf("cancel step type at index %d is invalid", index)
 		}
 	}
-	for index, stepType := range decision.GetCancelSiblingStepTypes() {
-		if stepType == "" {
-			return fmt.Errorf("cancel sibling step type at index %d is invalid", index)
-		}
+	if len(decision.GetCancelSiblingStepTypes()) > 0 {
+		return fmt.Errorf("canceling sibling step executions in RPC is not supported")
 	}
 	return nil
 }

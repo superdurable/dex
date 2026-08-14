@@ -1075,14 +1075,12 @@ func (s *serviceImpl) doInvokeRPC(
 		len(workerResponse.GetPublishToChannel()) > 0 ||
 		len(decision.GetNextSteps()) > 0 ||
 		len(decision.GetCancelStepTypes()) > 0 ||
-		len(decision.GetCancelSiblingStepTypes()) > 0 ||
 		decision.GetCloseDecision() != nil {
 		signalRequest := &dexpb.ExecuteRpcSignalRequest{
 			UpsertAttributes: workerResponse.GetUpsertAttributes(),
 			StepDecision:     workerResponse.GetStepDecision(),
 			RecordEvents:     workerResponse.GetRecordEvents(),
 			PublishToChannel: workerResponse.GetPublishToChannel(),
-			RpcName:          req.GetRpcName(),
 		}
 		if s.apiCfg.IncludeRPCInputOutputIntoHistory {
 			signalRequest.RpcInput = req.GetInput()

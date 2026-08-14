@@ -70,7 +70,18 @@ func (r *stepExecutionRegistry) CancelSelected(
 	decision *dexpb.StepDecision,
 	fromStepExecutionID string,
 ) error {
-	selector := newStepCancellationSelector(decision, fromStepExecutionID)
+	return r.cancelSelected(newStepCancellationSelector(
+		decision.GetCancelStepTypes(),
+		decision.GetCancelSiblingStepTypes(),
+		fromStepExecutionID,
+	))
+}
+
+func (r *stepExecutionRegistry) CancelStepTypes(stepTypes []string) error {
+	return r.cancelSelected(newStepCancellationSelector(stepTypes, nil, ""))
+}
+
+func (r *stepExecutionRegistry) cancelSelected(selector *stepCancellationSelector) error {
 	if selector.isEmpty() {
 		return nil
 	}
@@ -178,18 +189,19 @@ func (r *stepExecutionRegistry) cancelActive(
 }
 
 func newStepCancellationSelector(
-	decision *dexpb.StepDecision,
+	cancelStepTypes []string,
+	cancelSiblingStepTypes []string,
 	fromStepExecutionID string,
 ) *stepCancellationSelector {
-	globalStepTypes := make(map[string]bool, len(decision.GetCancelStepTypes()))
-	for _, stepType := range decision.GetCancelStepTypes() {
+	globalStepTypes := make(map[string]bool, len(cancelStepTypes))
+	for _, stepType := range cancelStepTypes {
 		globalStepTypes[stepType] = true
 	}
 	siblingStepTypes := make(
 		map[string]bool,
-		len(decision.GetCancelSiblingStepTypes()),
+		len(cancelSiblingStepTypes),
 	)
-	for _, stepType := range decision.GetCancelSiblingStepTypes() {
+	for _, stepType := range cancelSiblingStepTypes {
 		if !globalStepTypes[stepType] {
 			siblingStepTypes[stepType] = true
 		}

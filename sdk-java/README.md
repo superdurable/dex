@@ -137,8 +137,8 @@ public StepDecision execute(Context context, Work input) {
 }
 ```
 
-An RPC can apply the same selectors while returning its output and scheduling
-next Steps atomically:
+An RPC can apply a Flow-wide Step type selector while returning its output and
+scheduling next Steps atomically:
 
 ```java
 @RPC(name = "acceptQuote")
@@ -146,15 +146,14 @@ public RPCResult<QuoteStatus> acceptQuote(Context context, Quote quote) {
     return RPCResult.of(
                     QuoteStatus.ACCEPTED,
                     StepMovement.of(recordQuote, quote))
-            .withCancelingSiblingSteps(carrierA, carrierB)
-            .withCancelingSteps(globalQuoteTimeout);
+            .withCancelingSteps(carrierA, carrierB, globalQuoteTimeout);
 }
 ```
 
-For `RPCResult`, sibling executions are Steps previously scheduled by an
-invocation of the same RPC name. Their scheduling source is
-`__rpc/<rpcName>`. Attribute and Channel writes from the RPC commit before the
-cancellation snapshot, while next Steps in the same result remain outside it.
+`RPCResult` does not support sibling selection because separate invocations of
+the same RPC name do not share an invocation-scoped Step execution lineage.
+Attribute and Channel writes from the RPC commit before the cancellation
+snapshot, while next Steps in the same result remain outside it.
 
 The heartbeat setting applies to regular wait-for and execute activities. A
 local activity ignores it, but an ASYNC fallback to a regular activity uses it.

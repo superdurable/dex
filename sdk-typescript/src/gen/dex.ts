@@ -1240,7 +1240,6 @@ export interface ExecuteRpcSignalRequest {
   stepDecision: StepDecision | undefined;
   recordEvents: KV[];
   publishToChannel: ChannelMessage[];
-  rpcName: string;
   isSetAttributeApi: boolean;
 }
 
@@ -13494,7 +13493,6 @@ function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
     stepDecision: undefined,
     recordEvents: [],
     publishToChannel: [],
-    rpcName: "",
     isSetAttributeApi: false,
   };
 }
@@ -13519,11 +13517,8 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
     for (const v of message.publishToChannel) {
       ChannelMessage.encode(v!, writer.uint32(50).fork()).join();
     }
-    if (message.rpcName !== "") {
-      writer.uint32(58).string(message.rpcName);
-    }
     if (message.isSetAttributeApi !== false) {
-      writer.uint32(64).bool(message.isSetAttributeApi);
+      writer.uint32(56).bool(message.isSetAttributeApi);
     }
     return writer;
   },
@@ -13584,15 +13579,7 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
           continue;
         }
         case 7: {
-          if (tag !== 58) {
-            break;
-          }
-
-          message.rpcName = reader.string();
-          continue;
-        }
-        case 8: {
-          if (tag !== 64) {
+          if (tag !== 56) {
             break;
           }
 
@@ -13625,7 +13612,6 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
       : undefined;
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
-    message.rpcName = object.rpcName ?? "";
     message.isSetAttributeApi = object.isSetAttributeApi ?? false;
     return message;
   },

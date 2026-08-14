@@ -40,14 +40,14 @@ accepts no input.
 
 `StepDecision.cancel_step_types` selects all queued or active executions of the
 exact Step types in the current Flow. `cancel_sibling_step_types` additionally
-requires the target and producer to have the same scheduling source. A Step
-producer uses its `from_step_execution_id`; an RPC producer uses the reserved
-`__rpc/<rpcName>` source, so sibling selection matches Steps scheduled by
-invocations of that same RPC name. Selectors are resolved from one snapshot
-after the producer's successful side effects commit and before its next
-movements are enqueued. Missing, completed, and previously canceled executions
-are no-ops. Selection does not recurse into descendants or match future
-executions.
+requires the target and producer Step execution to have the same
+`from_step_execution_id`. Step handlers may return both selectors. RPC responses
+may return `cancel_step_types`, but the server rejects
+`cancel_sibling_step_types` because an RPC invocation has no Step execution
+lineage. Selectors are resolved from one snapshot after the producer's
+successful side effects commit and before its next movements are enqueued.
+Missing, completed, and previously canceled executions are no-ops. Selection
+does not recurse into descendants or match future executions.
 
 A queued movement receives its normal Step execution ID before being marked
 complete. Dex invokes each active target's workflow cancellation handler;

@@ -148,12 +148,9 @@ final class WorkerDispatcher {
                     io.superdurable.gen.StepDecision.newBuilder()
                             .addAllNextSteps(mapMovements(flow, result.getNextSteps()))
                             .addAllCancelStepTypes(mapCancellationSteps(
-                                    flow, source, result.getCancelingSteps()))
-                            .addAllCancelSiblingStepTypes(mapCancellationSteps(
-                                    flow, source, result.getCancelingSiblingSteps()));
+                                    flow, source, result.getCancelingSteps()));
             if (decision.getNextStepsCount() > 0
-                    || decision.getCancelStepTypesCount() > 0
-                    || decision.getCancelSiblingStepTypesCount() > 0) {
+                    || decision.getCancelStepTypesCount() > 0) {
                 response.setStepDecision(decision);
             }
         } else {
