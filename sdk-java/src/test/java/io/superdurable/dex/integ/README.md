@@ -20,6 +20,7 @@ persistence, reset, signals, timers, recovery, and failure behavior.
 | `RpcWithMemoTest` | typed RPC persistence without the removed memo API |
 | `SignalTest` | typed publish, channel combinations, timer skipping, and closed-flow errors |
 | `SkipWaitUntilTest` | execute-only and mixed wait styles |
+| `StepCancellationTest` | global/sibling snapshots, local cancellation, regular activity heartbeats, and discarded late results |
 | `StateOptionsOverrideTest` | per-movement StepOptions overrides |
 | `StateOptionsTest` | attribute visibility and parallel WaitFor/Execute locks |
 | `StateRecoveryTest` | execute-failure recovery with and without WaitFor |

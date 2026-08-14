@@ -1,0 +1,166 @@
+/*
+ * Portions of this file are derived from indeedeng/iwf-java-sdk.
+ * Those portions are licensed under the Apache License, Version 2.0.
+ * See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+ *
+ * Modifications Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Modifications are licensed under the Super Durable Source License 1.0.
+ * Third-Party Materials remain under the Apache License, Version 2.0.
+ * See LICENSE and LEGACY_NOTICES.md.
+ */
+
+package io.superdurable.dex.integ;
+
+import io.superdurable.dex.FlowResult;
+import io.superdurable.dex.StepExecutionId;
+import io.superdurable.dex.testing.DexDevTestEnvironment;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+@Tag("dex-dev")
+public final class StepCancellationTest {
+    private static final Duration START_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration CANCELLATION_TIMEOUT = Duration.ofSeconds(8);
+    private static final Duration FLOW_TIMEOUT = Duration.ofSeconds(30);
+
+    @TempDir
+    Path cacheDirectory;
+
+    @Test
+    void testHeartbeatCancelsRegularExecuteAndInterruptsHandler() throws Exception {
+        assertCooperativeCancellation(
+                StepCancellationWorkflow.Scenario.HEARTBEAT_EXECUTE,
+                CANCELLATION_TIMEOUT);
+    }
+
+    @Test
+    void testHeartbeatCancelsRegularWaitForAndInterruptsHandler() throws Exception {
+        assertCooperativeCancellation(
+                StepCancellationWorkflow.Scenario.HEARTBEAT_WAIT_FOR,
+                CANCELLATION_TIMEOUT);
+    }
+
+    @Test
+    void testLocalActivityCancellationInterruptsWithoutFallback() throws Exception {
+        final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
+                StepCancellationWorkflow.Scenario.LOCAL_EXECUTE);
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                workflow)) {
+            final String flowId = start(environment, workflow, "cancel-local");
+            assertTrue(workflow.awaitBlockingHandlerStarted(START_TIMEOUT));
+            environment.client().waitForStepCompletion(
+                    flowId,
+                    StepExecutionId.of(workflow.canceledStepType()),
+                    CANCELLATION_TIMEOUT);
+            assertTrue(workflow.awaitCancellation(CANCELLATION_TIMEOUT));
+            assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.LOCAL_EXECUTE);
+            assertTrue(workflow.wasHandlerInterrupted());
+            assertTrue(workflow.didContextReportCancellation());
+            assertEquals(1, workflow.blockingExecuteInvocations());
+            assertFalse(workflow.wasRecoveryRun());
+            assertNull(environment.client().getAttribute(flowId, workflow.lateWrite));
+        }
+    }
+
+    @Test
+    void testCancellationWithoutHeartbeatContinuesBeforeLateHandlerReturn() throws Exception {
+        final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
+                StepCancellationWorkflow.Scenario.NO_HEARTBEAT);
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                workflow)) {
+            final String flowId = start(environment, workflow, "cancel-no-heartbeat");
+            assertTrue(workflow.awaitBlockingHandlerStarted(START_TIMEOUT));
+            environment.client().waitForStepCompletion(
+                    flowId,
+                    StepExecutionId.of(workflow.canceledStepType()),
+                    CANCELLATION_TIMEOUT);
+            assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.NO_HEARTBEAT);
+            assertFalse(workflow.hasLateHandlerReturned());
+            assertFalse(workflow.wasHandlerInterrupted());
+            assertTrue(workflow.awaitLateHandlerReturn(CANCELLATION_TIMEOUT));
+            assertEquals(1, workflow.blockingExecuteInvocations());
+            assertFalse(workflow.wasRecoveryRun());
+            assertNull(environment.client().getAttribute(flowId, workflow.lateWrite));
+        }
+    }
+
+    @Test
+    void testGlobalSelectorCancelsMatchingExecutionsFromBothParents() throws Exception {
+        final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
+                StepCancellationWorkflow.Scenario.GLOBAL_SELECTOR);
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                workflow)) {
+            final String flowId = start(environment, workflow, "cancel-global");
+            assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.GLOBAL_SELECTOR);
+            assertFalse(workflow.wasFirstSelectorExecuted());
+            assertFalse(workflow.wasSecondSelectorExecuted());
+        }
+    }
+
+    @Test
+    void testSiblingSelectorKeepsMatchingExecutionFromOtherParent() throws Exception {
+        final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
+                StepCancellationWorkflow.Scenario.SIBLING_SELECTOR);
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                workflow)) {
+            final String flowId = start(environment, workflow, "cancel-sibling");
+            assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.SIBLING_SELECTOR);
+            assertFalse(workflow.wasFirstSelectorExecuted());
+            assertTrue(workflow.wasSecondSelectorExecuted());
+        }
+    }
+
+    private void assertCooperativeCancellation(
+            final StepCancellationWorkflow.Scenario scenario,
+            final Duration cancellationTimeout) throws Exception {
+        final StepCancellationWorkflow workflow = new StepCancellationWorkflow(scenario);
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                workflow)) {
+            final String flowId = start(environment, workflow, "cancel-heartbeat");
+            assertTrue(workflow.awaitBlockingHandlerStarted(START_TIMEOUT));
+            environment.client().waitForStepCompletion(
+                    flowId,
+                    StepExecutionId.of(workflow.canceledStepType()),
+                    cancellationTimeout);
+            assertTrue(workflow.awaitCancellation(cancellationTimeout));
+            assertCompleted(environment, flowId, scenario);
+            assertTrue(workflow.wasHandlerInterrupted());
+            assertTrue(workflow.didContextReportCancellation());
+            assertFalse(workflow.wasRecoveryRun());
+            assertNull(environment.client().getAttribute(flowId, workflow.lateWrite));
+        }
+    }
+
+    private static String start(
+            final DexDevTestEnvironment environment,
+            final StepCancellationWorkflow workflow,
+            final String prefix) {
+        final String flowId = prefix + "-" + UUID.randomUUID();
+        environment.client().startFlow(workflow, flowId, null);
+        return flowId;
+    }
+
+    private static void assertCompleted(
+            final DexDevTestEnvironment environment,
+            final String flowId,
+            final StepCancellationWorkflow.Scenario scenario) {
+        final FlowResult result = environment.client().waitForFlow(flowId, FLOW_TIMEOUT);
+        assertEquals(scenario.name(), result.getSingleOutput(String.class));
+    }
+}
