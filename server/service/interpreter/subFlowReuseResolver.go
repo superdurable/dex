@@ -131,7 +131,7 @@ func (r *SubFlowReuseResolver) readTerminal(
 	description *uclient.DescribeWorkflowExecutionResponse,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	var workflowOutput dexpb.InterpreterWorkflowOutput
-	_, flowStatus, err := r.client.GetWorkflowResult(
+	flowStatus, err := r.client.GetWorkflowResult(
 		ctx, &workflowOutput, subFlowID, description.RunId,
 	)
 	if r.client.IsNotFoundError(err) {

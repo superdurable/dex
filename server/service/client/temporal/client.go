@@ -1239,10 +1239,9 @@ func mapToDexWorkflowStatus(status enums.WorkflowExecutionStatus) (dexpb.FlowSta
 
 func (t *temporalClient) GetWorkflowResult(
 	ctx context.Context, valuePtr interface{}, workflowID string, runID string,
-) (resolvedRunID string, status dexpb.FlowStatus, err error) {
+) (status dexpb.FlowStatus, err error) {
 	workflowRun := t.tClient.GetWorkflow(ctx, workflowID, runID)
 	err = workflowRun.Get(ctx, valuePtr)
-	resolvedRunID = workflowRun.GetRunID()
 	switch {
 	case err == nil:
 		status = dexpb.FlowStatus_FLOW_STATUS_COMPLETED

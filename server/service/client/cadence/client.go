@@ -1120,21 +1120,9 @@ func mapToDexWorkflowStatus(status *shared.WorkflowExecutionCloseStatus) (dexpb.
 
 func (t *cadenceClient) GetWorkflowResult(
 	ctx context.Context, valuePtr interface{}, workflowID string, runID string,
-) (resolvedRunID string, status dexpb.FlowStatus, err error) {
-	resolvedRunID = runID
-	if resolvedRunID == "" {
-		description, describeErr := t.cClient.DescribeWorkflowExecution(ctx, workflowID, "")
-		if describeErr != nil {
-			err = describeErr
-			return
-		}
-		resolvedRunID = description.GetWorkflowExecutionInfo().GetExecution().GetRunId()
-	}
-	workflowRun := t.cClient.GetWorkflow(ctx, workflowID, resolvedRunID)
+) (status dexpb.FlowStatus, err error) {
+	workflowRun := t.cClient.GetWorkflow(ctx, workflowID, runID)
 	err = workflowRun.Get(ctx, valuePtr)
-	if workflowRun.GetRunID() != "" {
-		resolvedRunID = workflowRun.GetRunID()
-	}
 	switch {
 	case err == nil:
 		status = dexpb.FlowStatus_FLOW_STATUS_COMPLETED

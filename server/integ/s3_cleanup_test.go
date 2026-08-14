@@ -146,7 +146,7 @@ func doTestWorkflowWithS3Cleanup(t *testing.T, backendType service.BackendType) 
 		storeId,
 	)
 	require.NoError(t, err)
-	_, _, err = unifiedClient.GetWorkflowResult(ctx, nil, cleanupWorkflowId, "")
+	_, err = unifiedClient.GetWorkflowResult(ctx, nil, cleanupWorkflowId, "")
 	require.NoError(t, err)
 
 	for i, flowId := range flowIds {

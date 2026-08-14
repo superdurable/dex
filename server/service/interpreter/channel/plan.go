@@ -33,7 +33,7 @@ func Plan(
 	waitingCondition *dexpb.WaitingConditionState,
 	availability ChannelAvailability,
 	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
-	completedSubFlowConditions ...map[int32]*dexpb.FlowResult,
+	completedSubFlowConditions map[int32]*dexpb.FlowResult,
 ) (*MatchPlan, bool) {
 	timers := waitingCondition.GetTimerConditions()
 	channels := waitingCondition.GetChannelConditions()
@@ -56,12 +56,8 @@ func Plan(
 		}
 	}
 	completedSubFlows := map[int]bool{}
-	if len(completedSubFlowConditions) > 0 {
-		for idx, result := range completedSubFlowConditions[0] {
-			if result != nil && isTerminalFlowStatus(result.GetFlowStatus()) {
-				completedSubFlows[int(idx)] = true
-			}
-		}
+	for idx := range completedSubFlowConditions {
+		completedSubFlows[int(idx)] = true
 	}
 
 	for _, matchCandidate := range buildTriggerCandidates(waitingCondition) {
@@ -283,7 +279,7 @@ func BuildConditionResults(
 	waitingCondition *dexpb.WaitingConditionState,
 	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
 	consumedByChannelConditionIndex map[int][]*dexpb.Value,
-	completedSubFlowConditions ...map[int32]*dexpb.FlowResult,
+	completedSubFlowConditions map[int32]*dexpb.FlowResult,
 ) *dexpb.ConditionResults {
 	results := &dexpb.ConditionResults{}
 	for timerIndex, timerCondition := range waitingCondition.GetTimerConditions() {
@@ -308,12 +304,8 @@ func BuildConditionResults(
 		}
 		results.ChannelResults = append(results.ChannelResults, channelResult)
 	}
-	completedSubFlows := map[int32]*dexpb.FlowResult{}
-	if len(completedSubFlowConditions) > 0 {
-		completedSubFlows = completedSubFlowConditions[0]
-	}
 	for subFlowIndex := range waitingCondition.GetSubFlowConditions() {
-		result := completedSubFlows[int32(subFlowIndex)]
+		result := completedSubFlowConditions[int32(subFlowIndex)]
 		if result == nil {
 			result = &dexpb.FlowResult{
 				FlowStatus: dexpb.FlowStatus_FLOW_STATUS_RUNNING,
@@ -322,12 +314,6 @@ func BuildConditionResults(
 		results.SubFlowResults = append(results.SubFlowResults, result)
 	}
 	return results
-}
-
-func isTerminalFlowStatus(status dexpb.FlowStatus) bool {
-	return status != dexpb.FlowStatus_FLOW_STATUS_RUNNING &&
-		status != dexpb.FlowStatus_FLOW_STATUS_CONTINUED_AS_NEW &&
-		status != dexpb.FlowStatus_FLOW_STATUS_UNSPECIFIED
 }
 
 // sortInts sorts triggerCandidate indexes deterministically.

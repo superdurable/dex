@@ -687,7 +687,7 @@ func (s *serviceImpl) WaitForFlow(
 	)
 	defer cancel()
 	var output dexpb.InterpreterWorkflowOutput
-	_, flowStatus, getErr := s.client.GetWorkflowResult(
+	flowStatus, getErr := s.client.GetWorkflowResult(
 		getCtx,
 		&output,
 		req.GetFlowId(),
