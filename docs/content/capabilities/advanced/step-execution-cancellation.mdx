@@ -48,8 +48,10 @@ public RPCResult<QuoteStatus> acceptQuote(Context context, Quote quote) {
 same RPC name do not share an invocation-scoped Step execution lineage, so
 treating their Steps as siblings could cancel unrelated work.
 
-Long-running regular Steps should use a heartbeat timeout and cooperate with
-cancellation:
+Long-running regular Steps should use a heartbeat timeout so cancellation
+reaches the Java Worker promptly. Dex then cancels the handler task with
+`Future.cancel(true)`, which interrupts the handler thread. Blocking handlers
+should return when interrupted:
 
 ```java
 private final StepOptions options = StepOptions.newBuilder()
@@ -58,17 +60,20 @@ private final StepOptions options = StepOptions.newBuilder()
 
 @Override
 public StepDecision execute(Context context, Job job) {
-    while (!context.isCancellationRequested()) {
-        try {
+    try {
+        while (hasNextBatch(job)) {
             processBatch(job);
-        } catch (InterruptedException canceled) {
-            Thread.currentThread().interrupt();
-            break;
         }
+    } catch (InterruptedException canceled) {
+        Thread.currentThread().interrupt();
     }
     return StepDecision.deadEnd();
 }
 ```
+
+CPU-bound or batch-oriented handlers may additionally check
+`Context.isCancellationRequested()` at natural work boundaries. They do not
+need to poll continuously.
 
 ## Snapshot and completion semantics
 
@@ -111,12 +116,11 @@ publish output, write Flow state, or schedule recovery Steps. Responses arriving
 after cancellation are ignored. Attribute and Channel side effects committed by
 an earlier wait-for call remain committed.
 
-Cancellation is cooperative at the application boundary. It cannot roll back
-an external API call or database transaction that application code already
-committed. Java handlers receive thread interruption and can inspect
-`Context.isCancellationRequested()`. Heartbeats make cancellation reach a
-regular activity promptly; without them the Flow still proceeds, but a handler
-may run until its natural return or timeout.
+Thread interruption and `Context.isCancellationRequested()` cannot make an
+external API call or database transaction atomic. Use timeouts, idempotency, or
+compensation where required. Heartbeats make cancellation reach a regular
+activity promptly; without them the Flow still proceeds, but a handler may run
+until its natural return or timeout.
 
 Dex calls the backend SDK heartbeat API once per second while the regular Step
 activity is active. Temporal and Cadence throttle the actual requests sent to the service;

@@ -85,8 +85,9 @@ public final class RPCResult<O> {
      *
      * <p>Dex resolves the selection after this RPC's Attribute and Channel writes commit and before
      * this result's next-Step movements are enqueued. Existing executions that already finished,
-     * were canceled, or do not exist are ignored. Cancellation is cooperative, and Dex continues
-     * with this result's next Steps without waiting for selected handlers to return.
+     * were canceled, or do not exist are ignored. Dex interrupts a selected Java handler when
+     * cancellation reaches its Worker and continues with this result's next Steps without waiting
+     * for that handler to return.
      *
      * <p>Repeated calls take the union of their arguments. Each argument must be the exact Step
      * instance registered with the current Flow; a {@code null} or external Step causes an invalid

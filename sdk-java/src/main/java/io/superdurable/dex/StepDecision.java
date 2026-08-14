@@ -221,8 +221,9 @@ public final class StepDecision {
      *
      * <p>Dex resolves the selection as a snapshot after the current execution succeeds. Existing
      * executions that already finished, were canceled, or do not exist are ignored. Newly scheduled
-     * movements in this decision are not part of the snapshot. Cancellation is cooperative and Dex
-     * continues with this decision without waiting for selected handlers to return.
+     * movements in this decision are not part of the snapshot. Dex interrupts a selected Java
+     * handler when cancellation reaches its Worker and continues with this decision without waiting
+     * for that handler to return.
      *
      * <p>Repeated calls take the union of their arguments. A Flow-wide selection supersedes a
      * sibling-only selection for the same registered Step. Each argument must be the exact Step
@@ -243,7 +244,7 @@ public final class StepDecision {
      * Cancels selected sibling Step executions that share the current execution's scheduling source.
      *
      * <p>A sibling has the same {@link Context#getFromStepExecutionId()} as the execution returning
-     * this decision. Dex applies the same snapshot, no-op, and cooperative cancellation semantics as
+     * this decision. Dex applies the same snapshot, no-op, and handler interruption semantics as
      * {@link #withCancelingSteps(Step[])}. Repeated calls take the union of their arguments, while a
      * Flow-wide selection for a Step type supersedes its sibling-only selection.
      *

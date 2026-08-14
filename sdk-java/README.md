@@ -109,9 +109,10 @@ next or close action; it does not wait for selected Java handlers to return.
 Their late decisions, Attribute and Channel writes, outputs, retry paths, and configured
 failure-proceed Steps are discarded.
 
-Cancellation cannot roll back external business side effects. For a
-long-running regular Step, configure a heartbeat timeout and cooperate with
-thread interruption and `Context.isCancellationRequested()`:
+For a long-running regular Step, configure a heartbeat timeout so cancellation
+reaches the Java Worker promptly. Dex then cancels the handler task with
+`Future.cancel(true)`, which interrupts the handler thread. Blocking handlers
+should return when interrupted:
 
 ```java
 private final StepOptions options = StepOptions.newBuilder()
@@ -125,17 +126,22 @@ public StepOptions getStepOptions() {
 
 @Override
 public StepDecision execute(Context context, Work input) {
-    while (!context.isCancellationRequested()) {
-        try {
+    try {
+        while (hasNextBatch(input)) {
             processNextBatch(input);
-        } catch (InterruptedException canceled) {
-            Thread.currentThread().interrupt();
-            break;
         }
+    } catch (InterruptedException canceled) {
+        Thread.currentThread().interrupt();
     }
     return StepDecision.deadEnd();
 }
 ```
+
+CPU-bound or batch-oriented handlers may also check
+`Context.isCancellationRequested()` at natural work boundaries. Continuous
+polling is not required. Neither thread interruption nor the cancellation flag
+makes an external API call or database transaction atomic. Use timeouts,
+idempotency, or compensation for side effects that require cancellation safety.
 
 An RPC can apply a Flow-wide Step type selector while returning its output and
 scheduling next Steps atomically:

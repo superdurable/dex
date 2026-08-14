@@ -169,8 +169,9 @@ public final class StepOptions {
          * the worker promptly. Local activities ignore this setting; an asynchronous local activity
          * that falls back to a regular activity uses it. {@code null} and {@link Duration#ZERO}
          * disable heartbeats. Positive values must be whole seconds within the signed int32 range.
-         * Long-running handlers should also poll {@link Context#isCancellationRequested()} and stop
-         * before producing non-cancelable external side effects.
+         * Once cancellation reaches the Java Worker, Dex interrupts the handler thread. CPU-bound or
+         * batch-oriented handlers may additionally check {@link Context#isCancellationRequested()}
+         * at natural work boundaries.
          *
          * @param value the regular activity heartbeat timeout, or {@code null} to disable it
          * @return this builder
