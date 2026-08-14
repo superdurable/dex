@@ -190,7 +190,7 @@ final class InvocationContext implements Context {
         if (index < 0 || index >= conditionResults.getSubFlowResultsCount()) {
             throw new IllegalArgumentException("SubFlow condition index is out of range: " + index);
         }
-        return "SubFlow-" + metadata.getFlowId() + "-" + metadata.getStepExecutionId() + "-" + index;
+        return "SubFlow:" + metadata.getFlowId() + "-" + metadata.getStepExecutionId() + "-" + index;
     }
 
     @Override

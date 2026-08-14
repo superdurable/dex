@@ -18,21 +18,10 @@ import (
 	"time"
 )
 
-var reservedCharacters = []string{"/", "$"}
-
 const (
 	StepEventInputMethodWaitFor = "wait_for"
 	StepEventInputMethodExecute = "execute"
 )
-
-func ValidateWorkflowId(fowId string) error {
-	for _, reservedCharacter := range reservedCharacters {
-		if strings.Contains(fowId, reservedCharacter) {
-			return fmt.Errorf("fowId contains reserved character: %s", reservedCharacter)
-		}
-	}
-	return nil
-}
 
 func MustExtractWorkflowId(workflowPath string) string {
 	workflowId, err := ExtractWorkflowId(workflowPath)

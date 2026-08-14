@@ -36,6 +36,7 @@ import {
 import { formatDate, type TimezonePreference } from '@/lib/format';
 import { formatElapsedDuration } from '@/lib/timeline';
 import { findSourceStepOptions } from '@/lib/stepOptions';
+import { generatedSubFlowID } from '@/lib/subflows';
 import { usePreferences } from '@/app/providers';
 
 type Data = Record<string, unknown>;
@@ -523,11 +524,6 @@ function SubFlowRecord({
       )}
     </a>
   );
-}
-
-function generatedSubFlowID(parentFlowId: string, stepExecutionId: string, index: number): string {
-  if (!parentFlowId || !stepExecutionId) return '';
-  return `SubFlow-${parentFlowId}-${stepExecutionId}-${index}`;
 }
 
 function SubFlowResultRecord({

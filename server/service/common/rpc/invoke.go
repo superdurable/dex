@@ -182,9 +182,23 @@ func validateWorkerRpcResponse(resp *dexpb.InvokeWorkerRPCResponse) error {
 	if decision.GetCloseDecision() != nil {
 		return fmt.Errorf("closing flow in RPC is not supported yet")
 	}
+	for index, movement := range decision.GetNextSteps() {
+		if movement == nil || movement.GetStepType() == "" {
+			return fmt.Errorf("next step at index %d is invalid", index)
+		}
+		if err := service.ValidateStepType(movement.GetStepType()); err != nil {
+			return fmt.Errorf("next step at index %d: %w", index, err)
+		}
+		if err := service.ValidateStepOptions(movement.GetStepOptions()); err != nil {
+			return fmt.Errorf("next step at index %d: %w", index, err)
+		}
+	}
 	for index, stepType := range decision.GetCancelStepTypes() {
 		if stepType == "" {
 			return fmt.Errorf("cancel step type at index %d is invalid", index)
+		}
+		if err := service.ValidateStepType(stepType); err != nil {
+			return fmt.Errorf("cancel step type at index %d: %w", index, err)
 		}
 	}
 	if len(decision.GetCancelSiblingStepTypes()) > 0 {

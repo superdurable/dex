@@ -112,7 +112,7 @@ public final class BasicTest {
                     .getSingleOutput(String.class);
             final String[] parts = output.split("\\|", -1);
             assertEquals(2, parts.length);
-            assertEquals("SubFlow-" + flowId + "-ParentStep-1-0", parts[0]);
+            assertEquals("SubFlow:" + flowId + "-ParentStep-1-0", parts[0]);
             assertEquals("6", parts[1]);
         }
     }
@@ -150,7 +150,7 @@ public final class BasicTest {
                     .getSingleOutput(String.class);
             final String[] result = output.split("\\|", -1);
             assertEquals(4, result.length);
-            assertEquals("SubFlow-" + flowId + "-ParentStep-1-0", result[0]);
+            assertEquals("SubFlow:" + flowId + "-ParentStep-1-0", result[0]);
             assertEquals("RUNNING", result[1]);
             assertEquals("false", result[2]);
             assertEquals("true", result[3]);
@@ -181,7 +181,7 @@ public final class BasicTest {
                 SUB_FLOW_ABNORMAL_PARENT_WORKFLOW,
                 ABNORMAL_EXIT_WORKFLOW)) {
             final String flowId = flowId("sub-flow-abnormal");
-            final String childFlowId = "SubFlow-" + flowId + "-ParentStep-1-0";
+            final String childFlowId = "SubFlow:" + flowId + "-ParentStep-1-0";
             environment.client().startFlow(SUB_FLOW_ABNORMAL_PARENT_WORKFLOW, flowId, 1);
             final String[] first = environment.client()
                     .waitForFlow(flowId, Duration.ofSeconds(30))
@@ -213,8 +213,8 @@ public final class BasicTest {
                 WORKFLOW,
                 new TimerWorkflow())) {
             final String flowId = flowId("sub-flow-can");
-            final String completedChildId = "SubFlow-" + flowId + "-ParentStep-1-0";
-            final String delayedChildId = "SubFlow-" + flowId + "-ParentStep-1-1";
+            final String completedChildId = "SubFlow:" + flowId + "-ParentStep-1-0";
+            final String delayedChildId = "SubFlow:" + flowId + "-ParentStep-1-1";
             final String firstParentRunId = environment.client().startFlow(
                     SUB_FLOW_CAN_PARENT_WORKFLOW,
                     flowId,
@@ -504,7 +504,7 @@ public final class BasicTest {
                 parent,
                 new TimerWorkflow())) {
             final String flowId = flowId("sub-flow-reuse");
-            final String childFlowId = "SubFlow-" + flowId + "-ParentStep-1-0";
+            final String childFlowId = "SubFlow:" + flowId + "-ParentStep-1-0";
             environment.client().startFlow(parent, flowId, 300);
             final String firstChildRunId = awaitFlowRun(
                     environment.client(), childFlowId, null);
@@ -565,7 +565,7 @@ public final class BasicTest {
             final String output) {
         final String[] fields = encoded.split("\\|", -1);
         assertEquals(3, fields.length);
-        assertEquals("SubFlow-" + parentFlowId + "-ParentStep-1-" + index, fields[0]);
+        assertEquals("SubFlow:" + parentFlowId + "-ParentStep-1-" + index, fields[0]);
         assertEquals(status, fields[1]);
         assertEquals(output, fields[2]);
     }

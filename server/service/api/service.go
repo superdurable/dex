@@ -125,7 +125,13 @@ func (s *serviceImpl) StartFlow(
 	searchAttributes := index.ConvertAttributeWritesToSearchAttributeUpsertMap(attributes)
 	searchAttributes[service.SearchAttributeDexWorkflowType] = req.GetFlowType()
 
-	if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
+	if err := service.ValidateFlowID(req.GetFlowId()); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
+	if err := service.ValidateStepType(req.GetStartStepType()); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
+	if err := service.ValidateStepOptions(req.GetStepOptions()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
 	if err := blobstore.OffloadLargeValue(
@@ -963,9 +969,6 @@ func (s *serviceImpl) InvokeRPC(
 		return nil, status.Errorf(codes.Unimplemented, "locking RPC requires Temporal synchronous update")
 	}
 	useSynchronousUpdate := s.shouldInvokeRPCWithSynchronousUpdate(req)
-	if err := blobstore.ValidateWorkflowId(req.GetFlowId()); err != nil {
-		return nil, makeInvalidRequestError(err.Error())
-	}
 	if err := blobstore.OffloadLargeValue(
 		ctx,
 		req.GetInput(),

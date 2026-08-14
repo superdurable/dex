@@ -101,7 +101,8 @@ public final class SubFlow {
     /**
      * Returns the generated Flow ID for the first SubFlow condition in this Step invocation.
      *
-     * <p>The ID is available for running and terminal results. It can be passed to
+     * <p>The ID starts with {@code SubFlow:} and is available for running and terminal results.
+     * It can be passed to
      * {@link Client#stopFlow(String)} when another condition wins a {@link Wait#anyOf}.
      *
      * @param context the current execute invocation context

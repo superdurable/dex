@@ -99,8 +99,37 @@ func doTestSubFlowCondition(
 	defer cancel()
 
 	parentFlowID := subFlowParentType + "-" + uuid.NewString()
-	childFlowID := "SubFlow-" + parentFlowID + "-" + subFlowParentStep + "-1-0"
+	childFlowID := "SubFlow:" + parentFlowID + "-" + subFlowParentStep + "-1-0"
 	input := stringValue(subFlowInput)
+	for _, reservedCharacter := range []string{"/", "$", ":"} {
+		_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+			RequestId:          newRequestID(),
+			FlowId:             parentFlowID,
+			FlowType:           subFlowParentType,
+			FlowTimeoutSeconds: 30,
+			StartStepType:      subFlowParentStep + reservedCharacter + "Invalid",
+			StepInput:          input,
+			FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
+		})
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+		require.ErrorContains(
+			t,
+			err,
+			fmt.Sprintf("step type contains reserved character %q", reservedCharacter),
+		)
+	}
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             childFlowID,
+		FlowType:           subFlowChildType,
+		FlowTimeoutSeconds: 30,
+		StartStepType:      subFlowChildStep,
+		StepInput:          input,
+		FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(t, err, `flow ID contains reserved character ":"`)
+
 	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             parentFlowID,

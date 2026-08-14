@@ -384,8 +384,8 @@ describe('selected step event details', () => {
       }],
     }));
 
-    expect(markup).toContain('href="/flows/SubFlow-parent-charge-1-0"');
-    expect(markup).toContain('aria-label="Open SubFlow SubFlow-parent-charge-1-0"');
+    expect(markup).toContain('href="/flows/SubFlow%3Aparent-charge-1-0"');
+    expect(markup).toContain('aria-label="Open SubFlow SubFlow:parent-charge-1-0"');
     expect(markup).toContain('Attach');
   });
 
@@ -425,7 +425,7 @@ describe('selected step event details', () => {
     expect(waitMarkup).toContain('continueAsNewThreshold');
 
     const resultMarkup = renderDetails(event, [wait, event]);
-    expect(resultMarkup).toContain('href="/flows/SubFlow-parent-charge-1-0"');
+    expect(resultMarkup).toContain('href="/flows/SubFlow%3Aparent-charge-1-0"');
     expect(resultMarkup).toContain('Worker method failed');
     expect(resultMarkup).toContain('child failed');
     expect(resultMarkup).toContain('ChildStep-1');
@@ -525,7 +525,7 @@ describe('flow start event details', () => {
 
     const markup = renderDetails(event);
 
-    expect(markup).toContain('href="/flows/SubFlow-parent-charge-1-0"');
-    expect(markup).toContain('SubFlow-parent-charge-1-0');
+    expect(markup).toContain('href="/flows/SubFlow%3Aparent-charge-1-0"');
+    expect(markup).toContain('SubFlow:parent-charge-1-0');
   });
 });

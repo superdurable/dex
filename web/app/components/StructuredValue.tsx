@@ -19,6 +19,7 @@ import {
   durabilityLabel,
   waitingConditionTypeLabel,
 } from '@/lib/semantic';
+import { generatedSubFlowID } from '@/lib/subflows';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import { usePreferences } from '@/app/providers';
 
@@ -176,14 +177,6 @@ function WaitingConditionStructured({
       ))}
     </div>
   );
-}
-
-function generatedSubFlowID(
-  parentFlowId: string,
-  stepExecutionId: string,
-  index: number,
-): string {
-  return `SubFlow-${parentFlowId}-${stepExecutionId}-${index}`;
 }
 
 function KeyValueListStructured({ value }: { value: unknown }) {
