@@ -28,15 +28,15 @@ func timerCond(id string) *dexpb.TimerCondition {
 	return &dexpb.TimerCondition{ConditionId: id, DurationSeconds: 1}
 }
 
-func wcAny(channels ...*dexpb.ChannelCondition) *dexpb.WaitingCondition {
-	return &dexpb.WaitingCondition{
+func wcAny(channels ...*dexpb.ChannelCondition) *dexpb.WaitingConditionState {
+	return &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 		ChannelConditions:    channels,
 	}
 }
 
-func wcAll(channels ...*dexpb.ChannelCondition) *dexpb.WaitingCondition {
-	return &dexpb.WaitingCondition{
+func wcAll(channels ...*dexpb.ChannelCondition) *dexpb.WaitingConditionState {
+	return &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		ChannelConditions:    channels,
 	}
@@ -149,7 +149,7 @@ func TestPlan_ANY_FirstFeasibleInDeclarationOrder(t *testing.T) {
 }
 
 func TestPlan_ANY_TimerCandidate(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1")},
 		ChannelConditions:    []*dexpb.ChannelCondition{chCond("c1", "ch", ptr.Any(int32(5)), ptr.Any(int32(5)))},
@@ -174,7 +174,7 @@ func TestPlan_ANY_TimerCandidate(t *testing.T) {
 }
 
 func TestPlan_ALL_RequiresTimerCompletion(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1")},
 		ChannelConditions:    []*dexpb.ChannelCondition{chCond("c1", "ch", nil, nil)},
@@ -196,7 +196,7 @@ func TestPlan_ALL_RequiresTimerCompletion(t *testing.T) {
 }
 
 func TestPlan_ALL_AllowsMissingConditionIds(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		TimerConditions:      []*dexpb.TimerCondition{timerCond("")},
 		ChannelConditions: []*dexpb.ChannelCondition{
@@ -243,7 +243,7 @@ func TestPlan_ANY_AllowsMissingConditionIds(t *testing.T) {
 
 func TestPlan_AnyCombination(t *testing.T) {
 	// Two combinations; first is infeasible (needs 5 on chA), second feasible.
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
 		ChannelConditions: []*dexpb.ChannelCondition{
 			chCond("a", "chA", ptr.Any(int32(5)), ptr.Any(int32(5))),
@@ -264,7 +264,7 @@ func TestPlan_AnyCombination(t *testing.T) {
 }
 
 func TestPlan_EmptyWaitingConditionMatches(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 	}
 	plan, ok := Plan(waitingCondition, ChannelAvailability{}, nil)
@@ -273,7 +273,7 @@ func TestPlan_EmptyWaitingConditionMatches(t *testing.T) {
 }
 
 func TestBuildConditionResults(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1")},
 		ChannelConditions: []*dexpb.ChannelCondition{

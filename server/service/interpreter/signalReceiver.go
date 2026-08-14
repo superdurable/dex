@@ -25,7 +25,7 @@ type SignalReceiver struct {
 	channelStore       *ChannelStore
 	stepRequestQueue   *StepRequestQueue
 	persistenceManager *PersistenceManager
-	subFlowTracker     *subFlowTracker
+	subFlowTracker     *SubFlowTracker
 	stopFlowRequested  bool
 	stopFlowErr        error
 }
@@ -39,7 +39,7 @@ func NewSignalReceiver(
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	flowConfiger *config.FlowConfiger,
-	subFlowTracker *subFlowTracker,
+	subFlowTracker *SubFlowTracker,
 ) *SignalReceiver {
 	sr := &SignalReceiver{
 		provider:           provider,
@@ -126,7 +126,7 @@ func NewSignalReceiver(
 				return
 			}
 			continueAsNewCounter.IncSignalsReceived()
-			subFlowTracker.handleCompletion(&val)
+			subFlowTracker.HandleCompletion(&val)
 		}
 	})
 
@@ -277,7 +277,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	for {
 		val := dexpb.SubFlowCompletionSignalRequest{}
 		if ch.ReceiveAsync(&val) {
-			sr.subFlowTracker.handleCompletion(&val)
+			sr.subFlowTracker.HandleCompletion(&val)
 		} else {
 			break
 		}

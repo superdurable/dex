@@ -13,13 +13,14 @@ import (
 	"github.com/superdurable/dex/service"
 )
 
-type subFlowTracker struct {
-	waits    map[string]*subFlowWait
-	byFlowID map[string]*trackedSubFlow
+type SubFlowTracker struct {
+	parentFlowID string
+	waits        map[string]*subFlowWait
+	byFlowID     map[string]*trackedSubFlow
 }
 
 type subFlowWait struct {
-	condition *dexpb.WaitingCondition
+	condition *dexpb.WaitingConditionState
 	completed map[int32]*dexpb.FlowResult
 }
 
@@ -28,10 +29,17 @@ type trackedSubFlow struct {
 	index int32
 }
 
-func newSubFlowTracker(resumeInfos []*dexpb.StepExecutionResumeInfo) *subFlowTracker {
-	tracker := &subFlowTracker{
-		waits:    map[string]*subFlowWait{},
-		byFlowID: map[string]*trackedSubFlow{},
+func NewSubFlowTracker(
+	parentFlowID string,
+	resumeInfos []*dexpb.StepExecutionResumeInfo,
+) *SubFlowTracker {
+	if parentFlowID == "" {
+		panic("SubFlow tracker requires a parent Flow ID")
+	}
+	tracker := &SubFlowTracker{
+		parentFlowID: parentFlowID,
+		waits:        map[string]*subFlowWait{},
+		byFlowID:     map[string]*trackedSubFlow{},
 	}
 	for _, resumeInfo := range resumeInfos {
 		if resumeInfo == nil || len(resumeInfo.GetWaitingCondition().GetSubFlowConditions()) == 0 {
@@ -45,14 +53,14 @@ func newSubFlowTracker(resumeInfos []*dexpb.StepExecutionResumeInfo) *subFlowTra
 			}
 			resumeInfo.CompletedConditions.CompletedSubFlowResults = completed
 		}
-		tracker.register(resumeInfo.GetStepExecutionId(), resumeInfo.GetWaitingCondition(), completed)
+		tracker.Register(resumeInfo.GetStepExecutionId(), resumeInfo.GetWaitingCondition(), completed)
 	}
 	return tracker
 }
 
-func (t *subFlowTracker) register(
+func (t *SubFlowTracker) Register(
 	stepExecutionID string,
-	condition *dexpb.WaitingCondition,
+	condition *dexpb.WaitingConditionState,
 	completed map[int32]*dexpb.FlowResult,
 ) {
 	if completed == nil {
@@ -63,15 +71,15 @@ func (t *subFlowTracker) register(
 		completed: completed,
 	}
 	t.waits[stepExecutionID] = wait
-	for index, subFlowCondition := range condition.GetSubFlowConditions() {
+	for index := range condition.GetSubFlowConditions() {
 		flowID := service.SubFlowID(
-			subFlowCondition.GetParentFlowId(), stepExecutionID, int32(index),
+			t.parentFlowID, stepExecutionID, int32(index),
 		)
 		t.byFlowID[flowID] = &trackedSubFlow{wait: wait, index: int32(index)}
 	}
 }
 
-func (t *subFlowTracker) applyStartResult(
+func (t *SubFlowTracker) ApplyStartResult(
 	stepExecutionID string, index int32, result *dexpb.StartSubFlowActivityOutput,
 ) {
 	wait := t.waits[stepExecutionID]
@@ -88,7 +96,7 @@ func (t *subFlowTracker) applyStartResult(
 	}
 }
 
-func (t *subFlowTracker) handleCompletion(signal *dexpb.SubFlowCompletionSignalRequest) {
+func (t *SubFlowTracker) HandleCompletion(signal *dexpb.SubFlowCompletionSignalRequest) {
 	result := signal.GetFlowResult()
 	if result == nil {
 		return
@@ -102,7 +110,7 @@ func (t *subFlowTracker) handleCompletion(signal *dexpb.SubFlowCompletionSignalR
 	}
 }
 
-func (t *subFlowTracker) completed(stepExecutionID string) map[int32]*dexpb.FlowResult {
+func (t *SubFlowTracker) Completed(stepExecutionID string) map[int32]*dexpb.FlowResult {
 	wait := t.waits[stepExecutionID]
 	if wait == nil {
 		return nil
@@ -110,14 +118,14 @@ func (t *subFlowTracker) completed(stepExecutionID string) map[int32]*dexpb.Flow
 	return wait.completed
 }
 
-func (t *subFlowTracker) unregister(stepExecutionID string) {
+func (t *SubFlowTracker) Unregister(stepExecutionID string) {
 	wait := t.waits[stepExecutionID]
 	if wait == nil {
 		return
 	}
-	for index, condition := range wait.condition.GetSubFlowConditions() {
+	for index := range wait.condition.GetSubFlowConditions() {
 		delete(t.byFlowID, service.SubFlowID(
-			condition.GetParentFlowId(), stepExecutionID, int32(index),
+			t.parentFlowID, stepExecutionID, int32(index),
 		))
 	}
 	delete(t.waits, stepExecutionID)

@@ -73,19 +73,19 @@ public interface ActiveStepExecutionStateOrBuilder extends
   io.superdurable.gen.StepMovementOrBuilder getMovementOrBuilder();
 
   /**
-   * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+   * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
    * @return Whether the waitingCondition field is set.
    */
   boolean hasWaitingCondition();
   /**
-   * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+   * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
    * @return The waitingCondition.
    */
-  io.superdurable.gen.WaitingCondition getWaitingCondition();
+  io.superdurable.gen.WaitingConditionState getWaitingCondition();
   /**
-   * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+   * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
    */
-  io.superdurable.gen.WaitingConditionOrBuilder getWaitingConditionOrBuilder();
+  io.superdurable.gen.WaitingConditionStateOrBuilder getWaitingConditionOrBuilder();
 
   /**
    * <code>.dex.StepExecutionCompletedConditions completed_conditions = 7;</code>

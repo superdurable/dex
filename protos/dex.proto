@@ -655,7 +655,7 @@ message ActiveStepExecutionState {
   string step_type = 3;
   ActiveStepPhase phase = 4;
   StepMovement movement = 5;
-  WaitingCondition waiting_condition = 6;
+  WaitingConditionState waiting_condition = 6;
   StepExecutionCompletedConditions completed_conditions = 7;
   repeated KV step_execution_locals = 8;
   repeated TimerInfo timers = 9;
@@ -931,6 +931,14 @@ message WaitingCondition {
   repeated SubFlowCondition sub_flow_conditions = 5;
 }
 
+message WaitingConditionState {
+  WaitingConditionType waiting_condition_type = 1;
+  repeated TimerCondition timer_conditions = 2;
+  repeated ChannelCondition channel_conditions = 3;
+  repeated ConditionCombination condition_combinations = 4;
+  repeated SubFlowConditionState sub_flow_conditions = 5;
+}
+
 enum SubFlowReusePolicy {
   SUB_FLOW_REUSE_POLICY_UNSPECIFIED = 0;
   SUB_FLOW_REUSE_POLICY_ATTACH = 1;
@@ -960,6 +968,10 @@ message SubFlowCondition {
   string parent_flow_id = 8;
   // Server-generated during WaitFor normalization.
   string request_id = 9;
+}
+
+message SubFlowConditionState {
+  string condition_id = 1;
 }
 
 message TimerCondition {
@@ -1036,7 +1048,7 @@ message StepExecutionResumeInfo {
   string step_execution_id = 1;
   StepMovement step = 2;
   StepExecutionCompletedConditions completed_conditions = 3;
-  WaitingCondition waiting_condition = 4;
+  WaitingConditionState waiting_condition = 4;
   repeated KV step_exe_locals = 5;
 }
 

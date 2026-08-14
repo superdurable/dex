@@ -1021,12 +1021,12 @@ class ActiveStepExecutionState(_message.Message):
     step_type: str
     phase: ActiveStepPhase
     movement: StepMovement
-    waiting_condition: WaitingCondition
+    waiting_condition: WaitingConditionState
     completed_conditions: StepExecutionCompletedConditions
     step_execution_locals: _containers.RepeatedCompositeFieldContainer[KV]
     timers: _containers.RepeatedCompositeFieldContainer[TimerInfo]
     last_failure_info: StepMethodFailure
-    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., phase: _Optional[_Union[ActiveStepPhase, str]] = ..., movement: _Optional[_Union[StepMovement, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., timers: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ...) -> None: ...
+    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., phase: _Optional[_Union[ActiveStepPhase, str]] = ..., movement: _Optional[_Union[StepMovement, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingConditionState, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., timers: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ...) -> None: ...
 
 class GetFlowStateRequest(_message.Message):
     __slots__ = ("flow_id", "run_id")
@@ -1416,6 +1416,20 @@ class WaitingCondition(_message.Message):
     sub_flow_conditions: _containers.RepeatedCompositeFieldContainer[SubFlowCondition]
     def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowCondition, _Mapping]]] = ...) -> None: ...
 
+class WaitingConditionState(_message.Message):
+    __slots__ = ("waiting_condition_type", "timer_conditions", "channel_conditions", "condition_combinations", "sub_flow_conditions")
+    WAITING_CONDITION_TYPE_FIELD_NUMBER: _ClassVar[int]
+    TIMER_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
+    CONDITION_COMBINATIONS_FIELD_NUMBER: _ClassVar[int]
+    SUB_FLOW_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
+    waiting_condition_type: WaitingConditionType
+    timer_conditions: _containers.RepeatedCompositeFieldContainer[TimerCondition]
+    channel_conditions: _containers.RepeatedCompositeFieldContainer[ChannelCondition]
+    condition_combinations: _containers.RepeatedCompositeFieldContainer[ConditionCombination]
+    sub_flow_conditions: _containers.RepeatedCompositeFieldContainer[SubFlowConditionState]
+    def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowConditionState, _Mapping]]] = ...) -> None: ...
+
 class SubFlowOptions(_message.Message):
     __slots__ = ("reuse_policy", "flow_timeout_seconds", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override")
     REUSE_POLICY_FIELD_NUMBER: _ClassVar[int]
@@ -1453,6 +1467,12 @@ class SubFlowCondition(_message.Message):
     parent_flow_id: str
     request_id: str
     def __init__(self, condition_id: _Optional[str] = ..., sub_flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., options: _Optional[_Union[SubFlowOptions, _Mapping]] = ..., sub_flow_index: _Optional[int] = ..., parent_flow_id: _Optional[str] = ..., request_id: _Optional[str] = ...) -> None: ...
+
+class SubFlowConditionState(_message.Message):
+    __slots__ = ("condition_id",)
+    CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
+    condition_id: str
+    def __init__(self, condition_id: _Optional[str] = ...) -> None: ...
 
 class TimerCondition(_message.Message):
     __slots__ = ("condition_id", "duration_seconds", "firing_unix_timestamp_seconds")
@@ -1570,9 +1590,9 @@ class StepExecutionResumeInfo(_message.Message):
     step_execution_id: str
     step: StepMovement
     completed_conditions: StepExecutionCompletedConditions
-    waiting_condition: WaitingCondition
+    waiting_condition: WaitingConditionState
     step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
-    def __init__(self, step_execution_id: _Optional[str] = ..., step: _Optional[_Union[StepMovement, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
+    def __init__(self, step_execution_id: _Optional[str] = ..., step: _Optional[_Union[StepMovement, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingConditionState, _Mapping]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
 
 class StepExecutionCounterInfo(_message.Message):
     __slots__ = ("step_type_started_count", "step_type_currently_executing_count", "total_currently_executing_count", "step_active_execution_nums")

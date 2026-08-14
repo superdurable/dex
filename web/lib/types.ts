@@ -115,7 +115,6 @@ export interface StepGraphNode {
   transient?: boolean;
   parentStepId?: string;
   flowId?: string;
-  flowType?: string;
   subFlowStatus?: string;
   reusePolicy?: string;
 }

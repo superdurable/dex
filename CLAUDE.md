@@ -24,6 +24,10 @@ module map.
 
 ## Maintainability
 
+- Within `server/service/interpreter/`, export every component type. Helper and
+  value types that are not components may remain unexported.
+- Export constructors and methods called by another interpreter component,
+  even when both components share the `interpreter` package.
 - Lift stateful closures into struct methods when they capture 3+ values, mutate
   outer state, have multiple call sites, or outlive one statement.
 - One-shot callbacks, tiny pure transforms, and IIFEs are acceptable.

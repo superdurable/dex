@@ -306,11 +306,13 @@ Boolean variables and constants, and methods returning booleans, must use names
 that clearly signal boolean semantics, such as `isXxx`, `hasXxx`, `canXxx`,
 `shouldXxx`, or `supportsXxx`. Follow each language's capitalization conventions.
 
-### Interpreter Cross-Component Methods
+### Interpreter Components
 
-Within `server/service/interpreter/`, methods called by another component must
-be exported, even when both components share the `interpreter` package.
-Component-internal methods remain unexported.
+Within `server/service/interpreter/`, every component type must be exported.
+Helper and value types that are not components may remain unexported.
+Constructors and methods called by another component must also be exported,
+even when both components share the `interpreter` package. Component-internal
+methods remain unexported.
 
 ## Go SDK Conventions (`sdk-go/`)
 

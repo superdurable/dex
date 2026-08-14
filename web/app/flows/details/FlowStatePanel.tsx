@@ -37,9 +37,11 @@ function containSidebarWheel(event: WheelEvent) {
 export function FlowStatePanel({
   selectedEvent,
   history,
+  parentFlowId,
 }: {
   selectedEvent: FlowHistoryEvent | null;
   history: FlowHistoryEvent[];
+  parentFlowId: string;
 }) {
   const sidebar = useRef<HTMLDivElement>(null);
 
@@ -63,7 +65,11 @@ export function FlowStatePanel({
             </div>
           </header>
           <section className="sidebar-section selected-event-body">
-            <EventDetails event={selectedEvent} history={history} />
+            <EventDetails
+              event={selectedEvent}
+              history={history}
+              parentFlowId={parentFlowId}
+            />
           </section>
         </>
       ) : (

@@ -141,9 +141,6 @@ describe('step graph', () => {
         stepType: 'Parent',
       }, {
         output: { waitForCondition: { subFlowConditions: [{
-          subFlowType: 'ChildFlow',
-          parentFlowId: 'parent',
-          subFlowIndex: 0,
           options: { reusePolicy: 1 },
         }] } },
       }),
@@ -156,13 +153,12 @@ describe('step graph', () => {
           flowStatus: 2,
         }] } },
       }),
-    ]);
+    ], [], 'parent');
 
     const subFlow = graph.nodes.find((node) => node.kind === 'subflow');
     expect(subFlow).toMatchObject({
       parentStepId: 'Parent-1',
       flowId: 'SubFlow-parent-Parent-1-0',
-      flowType: 'ChildFlow',
       subFlowStatus: 'COMPLETED',
       reusePolicy: 'Attach',
     });
@@ -182,20 +178,17 @@ describe('step graph', () => {
       stepExecutionLocals: [],
       timers: [],
       waitingCondition: { subFlowConditions: [{
-        subFlowType: 'ChildFlow',
-        parentFlowId: 'parent',
-        subFlowIndex: 0,
-        options: { reusePolicy: 2 },
+        conditionId: 'child',
       }] },
       completedConditions: { completedSubFlowResults: { 0: {
         flowStatus: 3,
       } } },
-    }]);
+    }], 'parent');
 
     expect(graph.nodes.find((node) => node.kind === 'subflow')).toMatchObject({
       status: 'Failed',
       subFlowStatus: 'FAILED',
-      reusePolicy: 'Restart if previous exits abnormally',
+      flowId: 'SubFlow-parent-Parent-1-0',
     });
   });
 });

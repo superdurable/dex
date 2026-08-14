@@ -59,7 +59,7 @@ func (i *Interpreter) StartEngineFlow(
 		FlowType:            input.GetFlowType(),
 		RunStartedTimestamp: runStartedTimestamp,
 	}
-	parentFlowID, parentFlowErr := provider.GetSearchAttributeKeyword(
+	subFlowParentFlowID, parentFlowErr := provider.GetSearchAttributeKeyword(
 		ctx, service.SearchAttributeDexParentFlowID,
 	)
 	if parentFlowErr != nil {
@@ -182,7 +182,10 @@ func (i *Interpreter) StartEngineFlow(
 			attributeSynchronizer,
 		)
 	}
-	subFlowTracker := newSubFlowTracker(resumeInfos)
+	subFlowTracker := NewSubFlowTracker(
+		provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
+		resumeInfos,
+	)
 	signalReceiver = NewSignalReceiver(
 		ctx,
 		provider,
@@ -234,7 +237,7 @@ func (i *Interpreter) StartEngineFlow(
 
 	defer func() {
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
-		if shouldReportSubFlowCompletion(provider, ctx, parentFlowID, retErr) {
+		if shouldReportSubFlowCompletion(provider, ctx, subFlowParentFlowID, retErr) {
 			if reportErr := i.reportSubFlowCompletion(
 				ctx, provider, outputCollector.GetAll(), retErr,
 			); reportErr != nil {
@@ -675,7 +678,7 @@ func (i *Interpreter) processStepExecution(
 	flowConfiger *interpreterconfig.FlowConfiger,
 	globalVersioner *GlobalVersioner,
 	signalReceiver *SignalReceiver,
-	subFlowTracker *subFlowTracker,
+	subFlowTracker *SubFlowTracker,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
 	step := stepRequest.GetStepMovement()
@@ -699,7 +702,8 @@ func (i *Interpreter) processStepExecution(
 
 	var waitForMethErr error
 	var stepExeLocals []*dexpb.KV
-	var waitingCondition *dexpb.WaitingCondition
+	var declaredWaitingCondition *dexpb.WaitingCondition
+	var waitingCondition *dexpb.WaitingConditionState
 	var transientStep *dexpb.StepMovement
 	//This variable tells all (timer) condition threads to stop waiting and exit, even if their specific condition has not been completed.
 	waitingConditionDoneOrCanceled := false
@@ -736,7 +740,7 @@ func (i *Interpreter) processStepExecution(
 			resumeRequest.GetCompletedConditions().GetCompletedTimerConditions() != nil {
 			completedTimerConditions = resumeRequest.GetCompletedConditions().GetCompletedTimerConditions()
 		}
-		if tracked := subFlowTracker.completed(stepExeId); tracked != nil {
+		if tracked := subFlowTracker.Completed(stepExeId); tracked != nil {
 			completedSubFlowResults = tracked
 		}
 	} else {
@@ -788,7 +792,7 @@ func (i *Interpreter) processStepExecution(
 		}
 
 		if waitForMethErr == nil {
-			waitingCondition = activityOutput.Response.GetWaitingCondition()
+			declaredWaitingCondition = activityOutput.Response.GetWaitingCondition()
 			if err := persistenceManager.ApplyAttributeWrites(
 				ctx,
 				activityOutput.Response.GetUpsertAttributes(),
@@ -796,7 +800,6 @@ func (i *Interpreter) processStepExecution(
 				return nil, service.StepExecutionStatusInternalError, err
 			}
 			channelStore.ProcessPublishing(activityOutput.Response.GetPublishToChannel())
-			waitingCondition = activityOutput.Response.GetWaitingCondition()
 			stepExeLocals = activityOutput.Response.GetUpsertStepExeLocals()
 			transientStep = activityOutput.Response.GetTransientStepMovement()
 		}
@@ -818,31 +821,32 @@ func (i *Interpreter) processStepExecution(
 			return nil, transientStatus, transientErr
 		}
 	}
-	if !isResumeFromContinueAsNew && waitingCondition != nil {
-		waitingCondition = timers.FixTimerConditionFromActivityOutput(
+	if !isResumeFromContinueAsNew && declaredWaitingCondition != nil {
+		declaredWaitingCondition = timers.FixTimerConditionFromActivityOutput(
 			provider.Now(ctx),
-			waitingCondition,
+			declaredWaitingCondition,
 		)
+		waitingCondition = newWaitingConditionState(declaredWaitingCondition)
 	}
 	if waitingCondition == nil {
-		waitingCondition = &dexpb.WaitingCondition{}
+		waitingCondition = &dexpb.WaitingConditionState{}
 	}
 	if len(waitingCondition.GetSubFlowConditions()) > 0 {
 		if !isResumeFromContinueAsNew {
-			subFlowTracker.register(stepExeId, waitingCondition, completedSubFlowResults)
-			starter := newSubFlowStarter(
+			subFlowTracker.Register(stepExeId, waitingCondition, completedSubFlowResults)
+			starter := NewSubFlowStarter(
 				provider,
 				i.activities,
 				subFlowTracker,
 				stepExeId,
 				flowConfiger.Get(),
-				waitingCondition,
+				declaredWaitingCondition,
 			)
-			if err := starter.startAll(ctx); err != nil {
+			if err := starter.StartAll(ctx); err != nil {
 				return nil, service.StepExecutionStatusInternalError, err
 			}
-		} else if subFlowTracker.completed(stepExeId) == nil {
-			subFlowTracker.register(stepExeId, waitingCondition, completedSubFlowResults)
+		} else if subFlowTracker.Completed(stepExeId) == nil {
+			subFlowTracker.Register(stepExeId, waitingCondition, completedSubFlowResults)
 		}
 	}
 
@@ -954,7 +958,7 @@ func (i *Interpreter) processStepExecution(
 		consumed,
 		completedSubFlowResults,
 	)
-	subFlowTracker.unregister(stepExeId)
+	subFlowTracker.Unregister(stepExeId)
 	if waitForMethErr != nil {
 		conditionResults.WaitForFailed = true
 		recoveryError, mappingErr := provider.MapToRecoveryError(waitForMethErr)

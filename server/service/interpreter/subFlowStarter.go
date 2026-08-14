@@ -16,10 +16,10 @@ import (
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
-type subFlowStarter struct {
+type SubFlowStarter struct {
 	provider         interfaces.WorkflowProvider
 	activities       *Activities
-	tracker          *subFlowTracker
+	tracker          *SubFlowTracker
 	stepExecutionID  string
 	parentFlowConfig *dexpb.FlowConfig
 	condition        *dexpb.WaitingCondition
@@ -27,15 +27,15 @@ type subFlowStarter struct {
 	err              error
 }
 
-func newSubFlowStarter(
+func NewSubFlowStarter(
 	provider interfaces.WorkflowProvider,
 	activities *Activities,
-	tracker *subFlowTracker,
+	tracker *SubFlowTracker,
 	stepExecutionID string,
 	parentFlowConfig *dexpb.FlowConfig,
 	condition *dexpb.WaitingCondition,
-) *subFlowStarter {
-	return &subFlowStarter{
+) *SubFlowStarter {
+	return &SubFlowStarter{
 		provider:         provider,
 		activities:       activities,
 		tracker:          tracker,
@@ -46,7 +46,7 @@ func newSubFlowStarter(
 	}
 }
 
-func (s *subFlowStarter) startAll(ctx interfaces.UnifiedContext) error {
+func (s *SubFlowStarter) StartAll(ctx interfaces.UnifiedContext) error {
 	ctx = s.provider.WithActivityOptions(ctx, interfaces.ActivityOptions{
 		StartToCloseTimeout:                 30 * time.Second,
 		LocalActivityScheduleToCloseTimeout: 2 * time.Minute,
@@ -61,7 +61,7 @@ func (s *subFlowStarter) startAll(ctx interfaces.UnifiedContext) error {
 	return s.err
 }
 
-func (s *subFlowStarter) startOne(ctx interfaces.UnifiedContext) {
+func (s *SubFlowStarter) startOne(ctx interfaces.UnifiedContext) {
 	index, ok := s.provider.GetContextValue(ctx, "subFlowIndex").(int)
 	if !ok {
 		panic("cannot read SubFlow index from workflow context")
@@ -81,12 +81,12 @@ func (s *subFlowStarter) startOne(ctx interfaces.UnifiedContext) {
 		s.err = err
 	}
 	if err == nil {
-		s.tracker.applyStartResult(s.stepExecutionID, int32(index), &output)
+		s.tracker.ApplyStartResult(s.stepExecutionID, int32(index), &output)
 	}
 	s.done[index] = true
 }
 
-func (s *subFlowStarter) allDone() bool {
+func (s *SubFlowStarter) allDone() bool {
 	for _, done := range s.done {
 		if !done {
 			return false

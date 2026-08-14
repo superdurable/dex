@@ -45,6 +45,7 @@ function previousRunID(events: FlowHistoryEvent[]): string {
 export function buildStepGraph(
   events: FlowHistoryEvent[],
   activeSteps: ActiveStepExecution[] = [],
+  parentFlowID = '',
 ): { nodes: StepGraphNode[]; edges: StepGraphEdge[] } {
   const nodes = new Map<string, StepGraphNode>();
   const closingStepExecutionIDs = new Set<string>();
@@ -104,7 +105,7 @@ export function buildStepGraph(
 
   for (const stepNode of [...nodes.values()]) {
     if (stepNode.kind !== 'step') continue;
-    addSubFlowNodes(nodes, stepNode);
+    addSubFlowNodes(nodes, stepNode, parentFlowID);
   }
 
   const closed = events.findLast((event) => event.type === 'FlowClosed');
@@ -159,7 +160,11 @@ export function buildStepGraph(
   return { nodes: [...nodes.values()], edges };
 }
 
-function addSubFlowNodes(nodes: Map<string, StepGraphNode>, stepNode: StepGraphNode): void {
+function addSubFlowNodes(
+  nodes: Map<string, StepGraphNode>,
+  stepNode: StepGraphNode,
+  parentFlowID: string,
+): void {
   const waitOutput = stepNode.waitFor?.payload.output;
   const output = waitOutput && typeof waitOutput === 'object'
     ? waitOutput as Record<string, unknown> : {};
@@ -188,7 +193,7 @@ function addSubFlowNodes(nodes: Map<string, StepGraphNode>, stepNode: StepGraphN
       : activeResults[String(index)] && typeof activeResults[String(index)] === 'object'
         ? activeResults[String(index)] as Record<string, unknown>
         : {};
-    const flowId = generatedSubFlowID(condition, stepNode.id, index);
+    const flowId = generatedSubFlowID(parentFlowID, stepNode.id, index);
     if (!flowId) return;
     const status = subFlowStatusName(result.flowStatus ?? 1);
     const options = condition.options && typeof condition.options === 'object'
@@ -196,13 +201,12 @@ function addSubFlowNodes(nodes: Map<string, StepGraphNode>, stepNode: StepGraphN
     const id = `__subflow:${stepNode.id}:${index}`;
     nodes.set(id, {
       id,
-      label: stringField(condition.subFlowType) || 'SubFlow',
+      label: flowId,
       kind: 'subflow',
       status: ['FAILED', 'CANCELED', 'TIMEOUT', 'TERMINATED'].includes(status)
         ? 'Failed'
         : status === 'RUNNING' ? 'Waiting' : 'Completed',
       parentStepId: stepNode.id,
-      flowType: stringField(condition.subFlowType),
       flowId,
       subFlowStatus: status,
       reusePolicy: subFlowReusePolicyLabel(options.reusePolicy),
@@ -211,14 +215,11 @@ function addSubFlowNodes(nodes: Map<string, StepGraphNode>, stepNode: StepGraphN
 }
 
 function generatedSubFlowID(
-  condition: Record<string, unknown>,
+  parentFlowID: string,
   stepExecutionID: string,
-  fallbackIndex: number,
+  index: number,
 ): string {
-  const parentFlowID = stringField(condition.parentFlowId);
   if (!parentFlowID || !stepExecutionID) return '';
-  const index = typeof condition.subFlowIndex === 'number'
-    ? condition.subFlowIndex : fallbackIndex;
   return `SubFlow-${parentFlowID}-${stepExecutionID}-${index}`;
 }
 

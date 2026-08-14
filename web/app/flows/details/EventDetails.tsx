@@ -311,20 +311,34 @@ function bytes(value: unknown): string | undefined {
   return isPresent(value) ? `${String(value)} bytes` : undefined;
 }
 
-function WaitingConditionView({ value }: { value: unknown }) {
+function WaitingConditionView({
+  value,
+  parentFlowId,
+  stepExecutionId,
+}: {
+  value: unknown;
+  parentFlowId: string;
+  stepExecutionId: string;
+}) {
   return (
     <DetailSection title="WaitFor condition">
-      <WaitingConditionContent value={value} />
+      <WaitingConditionContent
+        value={value}
+        parentFlowId={parentFlowId}
+        stepExecutionId={stepExecutionId}
+      />
     </DetailSection>
   );
 }
 
 function WaitingConditionContent({
   value,
+  parentFlowId = '',
   stepExecutionId = '',
   showEmpty = false,
 }: {
   value: unknown;
+  parentFlowId?: string;
   stepExecutionId?: string;
   showEmpty?: boolean;
 }) {
@@ -375,8 +389,9 @@ function WaitingConditionContent({
             <SubFlowRecord
               value={subFlow}
               index={index}
+              parentFlowId={parentFlowId}
               stepExecutionId={stepExecutionId}
-              key={`${String(subFlow.parentFlowId)}-${index}`}
+              key={`${parentFlowId}-${stepExecutionId}-${index}`}
             />
           ))}
         </div>
@@ -409,11 +424,13 @@ function unixTime(value: unknown, timezone: TimezonePreference): string | undefi
 function ConditionResultsContent({
   value,
   subFlowConditions = [],
+  parentFlowId = '',
   stepExecutionId = '',
   showEmpty = false,
 }: {
   value: unknown;
   subFlowConditions?: Data[];
+  parentFlowId?: string;
   stepExecutionId?: string;
   showEmpty?: boolean;
 }) {
@@ -453,6 +470,7 @@ function ConditionResultsContent({
           <SubFlowResultRecord
             value={subFlow}
             condition={subFlowConditions[index]}
+            parentFlowId={parentFlowId}
             stepExecutionId={stepExecutionId}
             index={index}
             key={index}
@@ -466,27 +484,26 @@ function ConditionResultsContent({
 function SubFlowRecord({
   value,
   index,
+  parentFlowId,
   stepExecutionId,
 }: {
   value: Data;
   index: number;
+  parentFlowId: string;
   stepExecutionId: string;
 }) {
   const options = asData(value.options);
   const retry = asData(options.retryPolicy);
-  const flowId = generatedSubFlowID(value, stepExecutionId, index);
+  const flowId = generatedSubFlowID(parentFlowId, stepExecutionId, index);
   return (
     <a
       className="semantic-record sub-flow-record"
       href={flowId ? `/flows/${encodeURIComponent(flowId)}` : '#'}
       aria-label={`Open SubFlow ${flowId || index + 1}`}
     >
-      <strong><SubFlowIcon />{displayValue(value.subFlowType)}</strong>
+      <strong><SubFlowIcon /><code>{flowId}</code></strong>
       <Fields values={[
-        ['Flow ID', flowId],
-        ['Parent Flow ID', value.parentFlowId],
         ['Condition ID', value.conditionId],
-        ['Index', value.subFlowIndex],
         ['Reuse policy', subFlowReusePolicyLabel(options.reusePolicy)],
         ['Timeout', seconds(options.flowTimeoutSeconds)],
         ['Start delay', seconds(options.flowStartDelaySeconds)],
@@ -508,34 +525,34 @@ function SubFlowRecord({
   );
 }
 
-function generatedSubFlowID(value: Data, stepExecutionId: string, fallbackIndex: number): string {
-  const parentFlowId = typeof value.parentFlowId === 'string' ? value.parentFlowId : '';
+function generatedSubFlowID(parentFlowId: string, stepExecutionId: string, index: number): string {
   if (!parentFlowId || !stepExecutionId) return '';
-  const index = typeof value.subFlowIndex === 'number' ? value.subFlowIndex : fallbackIndex;
   return `SubFlow-${parentFlowId}-${stepExecutionId}-${index}`;
 }
 
 function SubFlowResultRecord({
   value,
   condition = {},
+  parentFlowId,
   stepExecutionId,
   index,
 }: {
   value: Data;
   condition?: Data;
+  parentFlowId: string;
   stepExecutionId: string;
   index: number;
 }) {
-  const flowId = generatedSubFlowID(condition, stepExecutionId, index);
+  const flowId = generatedSubFlowID(parentFlowId, stepExecutionId, index);
   return (
     <a
       className="semantic-record sub-flow-record"
       href={flowId ? `/flows/${encodeURIComponent(flowId)}` : '#'}
       aria-label={`Open SubFlow result ${flowId || index + 1}`}
     >
-      <strong><SubFlowIcon />SubFlow {index + 1}</strong>
+      <strong><SubFlowIcon /><code>{flowId}</code></strong>
       <Fields values={[
-        ['Flow ID', flowId],
+        ['Condition ID', condition.conditionId],
         ['Status', flowStatusLabel(value.flowStatus)],
         ['Failure type', isPresent(value.errorType) ? flowErrorTypeLabel(value.errorType) : undefined],
         ['Failure', value.errorMessage],
@@ -703,9 +720,11 @@ function StepMethodOptionsView({
 function StepMethodDetails({
   event,
   history,
+  parentFlowId,
 }: {
   event: FlowHistoryEvent;
   history: FlowHistoryEvent[];
+  parentFlowId: string;
 }) {
   const { timezone } = usePreferences();
   const payload = event.payload;
@@ -747,6 +766,7 @@ function StepMethodDetails({
                 <ConditionResultsContent
                   value={input.conditionResults}
                   subFlowConditions={subFlowConditions}
+                  parentFlowId={parentFlowId}
                   stepExecutionId={stepExecutionId}
                   showEmpty
                 />
@@ -772,6 +792,7 @@ function StepMethodDetails({
             <h5>WaitFor condition</h5>
             <WaitingConditionContent
               value={output.waitForCondition}
+              parentFlowId={parentFlowId}
               stepExecutionId={typeof context.stepExecutionId === 'string' ? context.stepExecutionId : ''}
               showEmpty
             />
@@ -866,7 +887,15 @@ function InitialStartDetails({ payload, showHeading = true }: { payload: Data; s
   );
 }
 
-function ContinuedStartDetails({ payload, showHeading = true }: { payload: Data; showHeading?: boolean }) {
+function ContinuedStartDetails({
+  payload,
+  parentFlowId,
+  showHeading = true,
+}: {
+  payload: Data;
+  parentFlowId: string;
+  showHeading?: boolean;
+}) {
   const continued = asData(payload.continuedStart);
   const resumes = asDataArray(continued.stepsToResume);
   const pendingChannels = asData(continued.pendingChannelMessages);
@@ -888,7 +917,11 @@ function ContinuedStartDetails({ payload, showHeading = true }: { payload: Data;
               <div className="semantic-record" key={`${String(resume.stepExecutionId)}-${index}`}>
                 <Fields values={[['Execution ID', resume.stepExecutionId]]} />
                 <StepMovements values={[resume.step]} />
-                <WaitingConditionView value={resume.waitingCondition} />
+                <WaitingConditionView
+                  value={resume.waitingCondition}
+                  parentFlowId={parentFlowId}
+                  stepExecutionId={String(resume.stepExecutionId ?? '')}
+                />
                 <KeyValues values={resume.stepExeLocals} />
               </div>
             ))}
@@ -976,18 +1009,24 @@ function SetAttributesDetails({ payload }: { payload: Data }) {
 export function SemanticEventDetails({
   event,
   history = [event],
+  parentFlowId = '',
   showStartHeading = true,
 }: {
   event: FlowHistoryEvent;
   history?: FlowHistoryEvent[];
+  parentFlowId?: string;
   showStartHeading?: boolean;
 }) {
   if (event.type.startsWith('StepWaitFor') || event.type.startsWith('StepExecute')) {
-    return <StepMethodDetails event={event} history={history} />;
+    return <StepMethodDetails event={event} history={history} parentFlowId={parentFlowId} />;
   }
   if (event.type === 'FlowStartedOrContinued') {
     return hasData(asData(event.payload.continuedStart))
-      ? <ContinuedStartDetails payload={event.payload} showHeading={showStartHeading} />
+      ? <ContinuedStartDetails
+          payload={event.payload}
+          parentFlowId={parentFlowId}
+          showHeading={showStartHeading}
+        />
       : <InitialStartDetails payload={event.payload} showHeading={showStartHeading} />;
   }
   if (event.type === 'FlowClosed') return <FlowClosedDetails payload={event.payload} />;
@@ -1003,9 +1042,11 @@ export function SemanticEventDetails({
 export function EventDetails({
   event,
   history,
+  parentFlowId,
 }: {
   event: FlowHistoryEvent;
   history: FlowHistoryEvent[];
+  parentFlowId: string;
 }) {
   const [view, setView] = useState<'details' | 'raw'>('details');
   return (
@@ -1016,7 +1057,7 @@ export function EventDetails({
           <button aria-selected={view === 'raw'} className={view === 'raw' ? 'active' : ''} role="tab" type="button" onClick={() => setView('raw')}>Raw JSON</button>
         </div>
         {view === 'details'
-          ? <div className="semantic-event"><SemanticEventDetails event={event} history={history} /></div>
+          ? <div className="semantic-event"><SemanticEventDetails event={event} history={history} parentFlowId={parentFlowId} /></div>
           : <pre className="raw-event-json">{JSON.stringify(event.payload, storedValueJSONReplacer, 2)}</pre>}
       </div>
     </div>

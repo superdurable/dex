@@ -92,10 +92,11 @@ intentionally server-owned.
 
 ## Continue-as-new and lifecycle
 
-Across continue-as-new, Dex carries only the canonical waiting condition, request ID,
-received terminal results, and existing Step resume state. This preserves partial `allOf` results
-without restarting already-started SubFlows. Runtime channels, start flags, pending status, and
-execution identity copies are not persisted separately.
+Across continue-as-new, Dex replaces the SDK declaration with a durable waiting-condition state.
+Each SubFlow entry retains only its Condition ID; list position remains its stable index. SubFlow
+starting Step input, Step options, SubFlow options, request ID, parent Flow ID, and Flow type are not
+copied into the snapshot. Received terminal results remain beside the state so partial `allOf` results
+survive without restarting already-started SubFlows.
 
 Parent completion, failure, cancellation, reset, or restart does not automatically cancel a
 SubFlow. A SubFlow reports terminal completion to the current parent execution by parent Flow ID.

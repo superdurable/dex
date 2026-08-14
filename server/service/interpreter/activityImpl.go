@@ -48,7 +48,7 @@ type Activities struct {
 	attributeStore   *attributestore.Manager
 	eventHandler     event.HandleEventFunc
 	cfg              *config.Config
-	subFlowResolver  *subFlowReuseResolver
+	subFlowResolver  *SubFlowReuseResolver
 }
 
 func NewActivities(
@@ -77,7 +77,7 @@ func NewActivities(
 		attributeStore:   attributeStore,
 		eventHandler:     eventHandler,
 		cfg:              cfg,
-		subFlowResolver:  newSubFlowReuseResolver(unifiedClient),
+		subFlowResolver:  NewSubFlowReuseResolver(unifiedClient),
 	}
 }
 
@@ -555,7 +555,7 @@ func (a *Activities) StartSubFlow(
 		InitAttributes: options.GetAttributes(),
 		Config:         flowConfig,
 	}
-	return a.subFlowResolver.resolve(ctx, condition, subFlowID, workflowOptions, workflowInput)
+	return a.subFlowResolver.Resolve(ctx, condition, subFlowID, workflowOptions, workflowInput)
 }
 
 func (a *Activities) subFlowStartIdentity(

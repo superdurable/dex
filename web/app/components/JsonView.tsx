@@ -22,6 +22,8 @@ export function JsonView({
   persistKey,
   forceOpen,
   collapseNonce = 0,
+  parentFlowId = '',
+  stepExecutionId = '',
 }: {
   value: unknown;
   label?: string;
@@ -29,6 +31,8 @@ export function JsonView({
   persistKey?: string;
   forceOpen?: boolean;
   collapseNonce?: number;
+  parentFlowId?: string;
+  stepExecutionId?: string;
 }) {
   const storageKey = persistKey ?? label;
   const [open, setOpen] = useState(() => openByKey.get(storageKey) ?? initiallyOpen);
@@ -96,7 +100,11 @@ export function JsonView({
             </button>
           </div>
           {view === 'details'
-            ? <StructuredValue value={value} />
+            ? <StructuredValue
+                value={value}
+                parentFlowId={parentFlowId}
+                stepExecutionId={stepExecutionId}
+              />
             : (
               <pre className="json-view-raw">
                 {JSON.stringify(value, storedValueJSONReplacer, 2)}

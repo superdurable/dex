@@ -17,18 +17,18 @@ import (
 	uclient "github.com/superdurable/dex/service/client"
 )
 
-type subFlowReuseResolver struct {
+type SubFlowReuseResolver struct {
 	client uclient.UnifiedClient
 }
 
-func newSubFlowReuseResolver(client uclient.UnifiedClient) *subFlowReuseResolver {
+func NewSubFlowReuseResolver(client uclient.UnifiedClient) *SubFlowReuseResolver {
 	if client == nil {
-		panic("subFlowReuseResolver requires a client")
+		panic("SubFlowReuseResolver requires a client")
 	}
-	return &subFlowReuseResolver{client: client}
+	return &SubFlowReuseResolver{client: client}
 }
 
-func (r *subFlowReuseResolver) resolve(
+func (r *SubFlowReuseResolver) Resolve(
 	ctx context.Context,
 	condition *dexpb.SubFlowCondition,
 	subFlowID string,
@@ -60,7 +60,7 @@ func (r *subFlowReuseResolver) resolve(
 	}
 }
 
-func (r *subFlowReuseResolver) resolveExisting(
+func (r *SubFlowReuseResolver) resolveExisting(
 	ctx context.Context,
 	condition *dexpb.SubFlowCondition,
 	subFlowID string,
@@ -86,7 +86,7 @@ func (r *subFlowReuseResolver) resolveExisting(
 	return r.readTerminal(ctx, subFlowID, description)
 }
 
-func (r *subFlowReuseResolver) attachOrRead(
+func (r *SubFlowReuseResolver) attachOrRead(
 	ctx context.Context,
 	subFlowID string,
 	description *uclient.DescribeWorkflowExecutionResponse,
@@ -97,7 +97,7 @@ func (r *subFlowReuseResolver) attachOrRead(
 	return r.readTerminal(ctx, subFlowID, description)
 }
 
-func (r *subFlowReuseResolver) readTerminal(
+func (r *SubFlowReuseResolver) readTerminal(
 	ctx context.Context,
 	subFlowID string,
 	description *uclient.DescribeWorkflowExecutionResponse,

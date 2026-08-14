@@ -77,8 +77,9 @@ scheduled it. Selecting the first event reveals that source link; selecting a
 WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
 SubFlow conditions appear as linked leaf nodes and compact WaitFor cards. Running
-and terminal nodes link by their generated Flow ID. Cards and nodes show the
-configured reuse policy.
+and terminal nodes display and link by their generated Flow ID. Original WaitFor
+events retain the configured reuse policy; continue-as-new state retains only
+the Condition ID and stable list position.
 Methods interrupted by a forced close remain visible as Pending Timeline events
 with their last persisted Scheduled or Started phase.
 Timeline and Step graph share structured event details for flow, step method, RPC,

@@ -207,7 +207,6 @@ function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
       aria-label={`Open SubFlow ${flow.flowId ?? ''}`}
     >
       <span><ConditionIcon type="subflow" />SubFlow · {flow.subFlowStatus}</span>
-      <b>{flow.flowType ?? flow.label}</b>
       <code title={flow.flowId}>{flow.flowId}</code>
       {flow.reusePolicy && <small>{flow.reusePolicy}</small>}
     </Link>
@@ -228,8 +227,8 @@ export function StepGraph({
   onSelectEvent: (event: FlowHistoryEvent | null) => void;
 }) {
   const graph = useMemo(
-    () => buildStepGraph(events, state?.activeStepExecutions ?? []),
-    [events, state],
+    () => buildStepGraph(events, state?.activeStepExecutions ?? [], flowId),
+    [events, flowId, state],
   );
   const edges = useMemo<Edge[]>(() => graph.edges.map((edge) => ({
     ...edge,

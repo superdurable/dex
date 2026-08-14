@@ -23,6 +23,10 @@ Leave generated code unchanged and keep tightly coupled subsystem clusters intac
 
 ## Pointers and Naming
 
+- Within `server/service/interpreter/`, export every component type. Helper and
+  value types that are not components may remain unexported.
+- Export constructors and methods called by another interpreter component,
+  even when both components share the `interpreter` package.
 - Use `ptr.Any(value)` for pointer literals. Import
   `github.com/superdurable/dex/service/common/ptr`.
 - Give numeric literals explicit types, such as `ptr.Any(int64(0))`.

@@ -689,7 +689,7 @@ export interface ActiveStepExecutionState {
   stepType: string;
   phase: ActiveStepPhase;
   movement: StepMovement | undefined;
-  waitingCondition: WaitingCondition | undefined;
+  waitingCondition: WaitingConditionState | undefined;
   completedConditions: StepExecutionCompletedConditions | undefined;
   stepExecutionLocals: KV[];
   timers: TimerInfo[];
@@ -946,6 +946,14 @@ export interface WaitingCondition {
   subFlowConditions: SubFlowCondition[];
 }
 
+export interface WaitingConditionState {
+  waitingConditionType: WaitingConditionType;
+  timerConditions: TimerCondition[];
+  channelConditions: ChannelCondition[];
+  conditionCombinations: ConditionCombination[];
+  subFlowConditions: SubFlowConditionState[];
+}
+
 export interface SubFlowOptions {
   reusePolicy: SubFlowReusePolicy;
   flowTimeoutSeconds: number;
@@ -968,6 +976,10 @@ export interface SubFlowCondition {
   parentFlowId: string;
   /** Server-generated during WaitFor normalization. */
   requestId: string;
+}
+
+export interface SubFlowConditionState {
+  conditionId: string;
 }
 
 export interface TimerCondition {
@@ -1046,7 +1058,7 @@ export interface StepExecutionResumeInfo {
   stepExecutionId: string;
   step: StepMovement | undefined;
   completedConditions: StepExecutionCompletedConditions | undefined;
-  waitingCondition: WaitingCondition | undefined;
+  waitingCondition: WaitingConditionState | undefined;
   stepExeLocals: KV[];
 }
 
@@ -7004,7 +7016,7 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
       StepMovement.encode(message.movement, writer.uint32(42).fork()).join();
     }
     if (message.waitingCondition !== undefined) {
-      WaitingCondition.encode(message.waitingCondition, writer.uint32(50).fork()).join();
+      WaitingConditionState.encode(message.waitingCondition, writer.uint32(50).fork()).join();
     }
     if (message.completedConditions !== undefined) {
       StepExecutionCompletedConditions.encode(message.completedConditions, writer.uint32(58).fork()).join();
@@ -7073,7 +7085,7 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
             break;
           }
 
-          message.waitingCondition = WaitingCondition.decode(reader, reader.uint32());
+          message.waitingCondition = WaitingConditionState.decode(reader, reader.uint32());
           continue;
         }
         case 7: {
@@ -7130,7 +7142,7 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
       ? StepMovement.fromPartial(object.movement)
       : undefined;
     message.waitingCondition = (object.waitingCondition !== undefined && object.waitingCondition !== null)
-      ? WaitingCondition.fromPartial(object.waitingCondition)
+      ? WaitingConditionState.fromPartial(object.waitingCondition)
       : undefined;
     message.completedConditions = (object.completedConditions !== undefined && object.completedConditions !== null)
       ? StepExecutionCompletedConditions.fromPartial(object.completedConditions)
@@ -10006,6 +10018,106 @@ export const WaitingCondition: MessageFns<WaitingCondition> = {
   },
 };
 
+function createBaseWaitingConditionState(): WaitingConditionState {
+  return {
+    waitingConditionType: 0,
+    timerConditions: [],
+    channelConditions: [],
+    conditionCombinations: [],
+    subFlowConditions: [],
+  };
+}
+
+export const WaitingConditionState: MessageFns<WaitingConditionState> = {
+  encode(message: WaitingConditionState, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.waitingConditionType !== 0) {
+      writer.uint32(8).int32(message.waitingConditionType);
+    }
+    for (const v of message.timerConditions) {
+      TimerCondition.encode(v!, writer.uint32(18).fork()).join();
+    }
+    for (const v of message.channelConditions) {
+      ChannelCondition.encode(v!, writer.uint32(26).fork()).join();
+    }
+    for (const v of message.conditionCombinations) {
+      ConditionCombination.encode(v!, writer.uint32(34).fork()).join();
+    }
+    for (const v of message.subFlowConditions) {
+      SubFlowConditionState.encode(v!, writer.uint32(42).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): WaitingConditionState {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseWaitingConditionState();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.waitingConditionType = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.timerConditions.push(TimerCondition.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.channelConditions.push(ChannelCondition.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.conditionCombinations.push(ConditionCombination.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.subFlowConditions.push(SubFlowConditionState.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<WaitingConditionState>, I>>(base?: I): WaitingConditionState {
+    return WaitingConditionState.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<WaitingConditionState>, I>>(object: I): WaitingConditionState {
+    const message = createBaseWaitingConditionState();
+    message.waitingConditionType = object.waitingConditionType ?? 0;
+    message.timerConditions = object.timerConditions?.map((e) => TimerCondition.fromPartial(e)) || [];
+    message.channelConditions = object.channelConditions?.map((e) => ChannelCondition.fromPartial(e)) || [];
+    message.conditionCombinations = object.conditionCombinations?.map((e) => ConditionCombination.fromPartial(e)) || [];
+    message.subFlowConditions = object.subFlowConditions?.map((e) => SubFlowConditionState.fromPartial(e)) || [];
+    return message;
+  },
+};
+
 function createBaseSubFlowOptions(): SubFlowOptions {
   return {
     reusePolicy: 0,
@@ -10277,6 +10389,52 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
     message.subFlowIndex = object.subFlowIndex ?? 0;
     message.parentFlowId = object.parentFlowId ?? "";
     message.requestId = object.requestId ?? "";
+    return message;
+  },
+};
+
+function createBaseSubFlowConditionState(): SubFlowConditionState {
+  return { conditionId: "" };
+}
+
+export const SubFlowConditionState: MessageFns<SubFlowConditionState> = {
+  encode(message: SubFlowConditionState, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.conditionId !== "") {
+      writer.uint32(10).string(message.conditionId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SubFlowConditionState {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSubFlowConditionState();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.conditionId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SubFlowConditionState>, I>>(base?: I): SubFlowConditionState {
+    return SubFlowConditionState.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SubFlowConditionState>, I>>(object: I): SubFlowConditionState {
+    const message = createBaseSubFlowConditionState();
+    message.conditionId = object.conditionId ?? "";
     return message;
   },
 };
@@ -11136,7 +11294,7 @@ export const StepExecutionResumeInfo: MessageFns<StepExecutionResumeInfo> = {
       StepExecutionCompletedConditions.encode(message.completedConditions, writer.uint32(26).fork()).join();
     }
     if (message.waitingCondition !== undefined) {
-      WaitingCondition.encode(message.waitingCondition, writer.uint32(34).fork()).join();
+      WaitingConditionState.encode(message.waitingCondition, writer.uint32(34).fork()).join();
     }
     for (const v of message.stepExeLocals) {
       KV.encode(v!, writer.uint32(42).fork()).join();
@@ -11180,7 +11338,7 @@ export const StepExecutionResumeInfo: MessageFns<StepExecutionResumeInfo> = {
             break;
           }
 
-          message.waitingCondition = WaitingCondition.decode(reader, reader.uint32());
+          message.waitingCondition = WaitingConditionState.decode(reader, reader.uint32());
           continue;
         }
         case 5: {
@@ -11213,7 +11371,7 @@ export const StepExecutionResumeInfo: MessageFns<StepExecutionResumeInfo> = {
       ? StepExecutionCompletedConditions.fromPartial(object.completedConditions)
       : undefined;
     message.waitingCondition = (object.waitingCondition !== undefined && object.waitingCondition !== null)
-      ? WaitingCondition.fromPartial(object.waitingCondition)
+      ? WaitingConditionState.fromPartial(object.waitingCondition)
       : undefined;
     message.stepExeLocals = object.stepExeLocals?.map((e) => KV.fromPartial(e)) || [];
     return message;

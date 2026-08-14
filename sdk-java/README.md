@@ -181,7 +181,9 @@ durable condition. Read it during `execute` with
 `SubFlow.getConditionResults(context, index)`. `allOf` results are terminal;
 an unfinished `anyOf` loser is a `RUNNING` snapshot. Obtain its deterministic
 Flow ID with `SubFlow.getFlowId(context, index)` before passing it to
-`Client.stopFlow`. SubFlows continue when their parent closes.
+`Client.stopFlow`. Continue-as-new retains only each SubFlow Condition ID and
+stable list position, not its starting input or options. SubFlows continue when
+their parent closes.
 
 `client.waitForAttributeEqual(...)` overloads cover singleton Attributes and
 AttributeMap instances in the current run. Only String,

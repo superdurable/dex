@@ -59,7 +59,7 @@ function renderDetails(
 ): string {
   return renderToStaticMarkup(
     <PreferencesProvider>
-      <SemanticEventDetails event={event} history={history} />
+      <SemanticEventDetails event={event} history={history} parentFlowId="parent" />
     </PreferencesProvider>,
   );
 }
@@ -382,9 +382,6 @@ describe('selected step event details', () => {
     const markup = renderDetails(waitForEvent({
       waitingConditionType: 'WAITING_CONDITION_TYPE_ALL_COMPLETED',
       subFlowConditions: [{
-        subFlowType: 'ChildFlow',
-        parentFlowId: 'parent',
-        subFlowIndex: 0,
         options: { reusePolicy: 1 },
       }],
     }));
@@ -410,9 +407,6 @@ describe('selected step event details', () => {
     };
     const wait = waitForEvent({
       subFlowConditions: [{
-        subFlowType: 'ChildFlow',
-        parentFlowId: 'parent',
-        subFlowIndex: 0,
         stepInput: { intValue: 7 },
         stepOptions: { skipWaitFor: true },
         options: {
@@ -512,5 +506,28 @@ describe('flow start event details', () => {
 
     expect(markup).toContain('Flow timeout');
     expect(markup).toContain('1m');
+  });
+
+  it('links a minimal continued SubFlow state by generated Flow ID', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-08-05T23:44:29Z',
+      type: 'FlowStartedOrContinued',
+      payload: {
+        continuedStart: {
+          stepsToResume: [{
+            stepExecutionId: 'charge-1',
+            waitingCondition: {
+              subFlowConditions: [{ conditionId: 'child' }],
+            },
+          }],
+        },
+      },
+    };
+
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('href="/flows/SubFlow-parent-charge-1-0"');
+    expect(markup).toContain('SubFlow-parent-charge-1-0');
   });
 });

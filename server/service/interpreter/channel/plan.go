@@ -30,7 +30,7 @@ type MatchPlan struct {
 
 // Plan evaluates a validated condition against channel and timer snapshots.
 func Plan(
-	waitingCondition *dexpb.WaitingCondition,
+	waitingCondition *dexpb.WaitingConditionState,
 	availability ChannelAvailability,
 	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
 	completedSubFlowConditions ...map[int32]*dexpb.FlowResult,
@@ -96,7 +96,7 @@ type triggerCandidate struct {
 }
 
 func buildTriggerCandidates(
-	waitingCondition *dexpb.WaitingCondition,
+	waitingCondition *dexpb.WaitingConditionState,
 ) []triggerCandidate {
 	timers := waitingCondition.GetTimerConditions()
 	channels := waitingCondition.GetChannelConditions()
@@ -280,7 +280,7 @@ func normalizeChannel(condition *dexpb.ChannelCondition) normalizedChannelCondit
 
 // BuildConditionResults reports timer, channel, and SubFlow states.
 func BuildConditionResults(
-	waitingCondition *dexpb.WaitingCondition,
+	waitingCondition *dexpb.WaitingConditionState,
 	completedTimerConditions map[int32]dexpb.InternalTimerStatus,
 	consumedByChannelConditionIndex map[int][]*dexpb.Value,
 	completedSubFlowConditions ...map[int32]*dexpb.FlowResult,

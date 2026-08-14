@@ -53,19 +53,19 @@ public interface StepExecutionResumeInfoOrBuilder extends
   io.superdurable.gen.StepExecutionCompletedConditionsOrBuilder getCompletedConditionsOrBuilder();
 
   /**
-   * <code>.dex.WaitingCondition waiting_condition = 4;</code>
+   * <code>.dex.WaitingConditionState waiting_condition = 4;</code>
    * @return Whether the waitingCondition field is set.
    */
   boolean hasWaitingCondition();
   /**
-   * <code>.dex.WaitingCondition waiting_condition = 4;</code>
+   * <code>.dex.WaitingConditionState waiting_condition = 4;</code>
    * @return The waitingCondition.
    */
-  io.superdurable.gen.WaitingCondition getWaitingCondition();
+  io.superdurable.gen.WaitingConditionState getWaitingCondition();
   /**
-   * <code>.dex.WaitingCondition waiting_condition = 4;</code>
+   * <code>.dex.WaitingConditionState waiting_condition = 4;</code>
    */
-  io.superdurable.gen.WaitingConditionOrBuilder getWaitingConditionOrBuilder();
+  io.superdurable.gen.WaitingConditionStateOrBuilder getWaitingConditionOrBuilder();
 
   /**
    * <code>repeated .dex.KV step_exe_locals = 5;</code>

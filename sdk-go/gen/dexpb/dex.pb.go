@@ -5495,7 +5495,7 @@ type ActiveStepExecutionState struct {
 	StepType            string                            `protobuf:"bytes,3,opt,name=step_type,json=stepType,proto3" json:"step_type,omitempty"`
 	Phase               ActiveStepPhase                   `protobuf:"varint,4,opt,name=phase,proto3,enum=dex.ActiveStepPhase" json:"phase,omitempty"`
 	Movement            *StepMovement                     `protobuf:"bytes,5,opt,name=movement,proto3" json:"movement,omitempty"`
-	WaitingCondition    *WaitingCondition                 `protobuf:"bytes,6,opt,name=waiting_condition,json=waitingCondition,proto3" json:"waiting_condition,omitempty"`
+	WaitingCondition    *WaitingConditionState            `protobuf:"bytes,6,opt,name=waiting_condition,json=waitingCondition,proto3" json:"waiting_condition,omitempty"`
 	CompletedConditions *StepExecutionCompletedConditions `protobuf:"bytes,7,opt,name=completed_conditions,json=completedConditions,proto3" json:"completed_conditions,omitempty"`
 	StepExecutionLocals []*KV                             `protobuf:"bytes,8,rep,name=step_execution_locals,json=stepExecutionLocals,proto3" json:"step_execution_locals,omitempty"`
 	Timers              []*TimerInfo                      `protobuf:"bytes,9,rep,name=timers,proto3" json:"timers,omitempty"`
@@ -5569,7 +5569,7 @@ func (x *ActiveStepExecutionState) GetMovement() *StepMovement {
 	return nil
 }
 
-func (x *ActiveStepExecutionState) GetWaitingCondition() *WaitingCondition {
+func (x *ActiveStepExecutionState) GetWaitingCondition() *WaitingConditionState {
 	if x != nil {
 		return x.WaitingCondition
 	}
@@ -7805,6 +7805,82 @@ func (x *WaitingCondition) GetSubFlowConditions() []*SubFlowCondition {
 	return nil
 }
 
+type WaitingConditionState struct {
+	state                 protoimpl.MessageState   `protogen:"open.v1"`
+	WaitingConditionType  WaitingConditionType     `protobuf:"varint,1,opt,name=waiting_condition_type,json=waitingConditionType,proto3,enum=dex.WaitingConditionType" json:"waiting_condition_type,omitempty"`
+	TimerConditions       []*TimerCondition        `protobuf:"bytes,2,rep,name=timer_conditions,json=timerConditions,proto3" json:"timer_conditions,omitempty"`
+	ChannelConditions     []*ChannelCondition      `protobuf:"bytes,3,rep,name=channel_conditions,json=channelConditions,proto3" json:"channel_conditions,omitempty"`
+	ConditionCombinations []*ConditionCombination  `protobuf:"bytes,4,rep,name=condition_combinations,json=conditionCombinations,proto3" json:"condition_combinations,omitempty"`
+	SubFlowConditions     []*SubFlowConditionState `protobuf:"bytes,5,rep,name=sub_flow_conditions,json=subFlowConditions,proto3" json:"sub_flow_conditions,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *WaitingConditionState) Reset() {
+	*x = WaitingConditionState{}
+	mi := &file_dex_proto_msgTypes[94]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitingConditionState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitingConditionState) ProtoMessage() {}
+
+func (x *WaitingConditionState) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[94]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitingConditionState.ProtoReflect.Descriptor instead.
+func (*WaitingConditionState) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{94}
+}
+
+func (x *WaitingConditionState) GetWaitingConditionType() WaitingConditionType {
+	if x != nil {
+		return x.WaitingConditionType
+	}
+	return WaitingConditionType_WAITING_CONDITION_TYPE_UNSPECIFIED
+}
+
+func (x *WaitingConditionState) GetTimerConditions() []*TimerCondition {
+	if x != nil {
+		return x.TimerConditions
+	}
+	return nil
+}
+
+func (x *WaitingConditionState) GetChannelConditions() []*ChannelCondition {
+	if x != nil {
+		return x.ChannelConditions
+	}
+	return nil
+}
+
+func (x *WaitingConditionState) GetConditionCombinations() []*ConditionCombination {
+	if x != nil {
+		return x.ConditionCombinations
+	}
+	return nil
+}
+
+func (x *WaitingConditionState) GetSubFlowConditions() []*SubFlowConditionState {
+	if x != nil {
+		return x.SubFlowConditions
+	}
+	return nil
+}
+
 type SubFlowOptions struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	ReusePolicy           SubFlowReusePolicy     `protobuf:"varint,1,opt,name=reuse_policy,json=reusePolicy,proto3,enum=dex.SubFlowReusePolicy" json:"reuse_policy,omitempty"`
@@ -7819,7 +7895,7 @@ type SubFlowOptions struct {
 
 func (x *SubFlowOptions) Reset() {
 	*x = SubFlowOptions{}
-	mi := &file_dex_proto_msgTypes[94]
+	mi := &file_dex_proto_msgTypes[95]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7831,7 +7907,7 @@ func (x *SubFlowOptions) String() string {
 func (*SubFlowOptions) ProtoMessage() {}
 
 func (x *SubFlowOptions) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[94]
+	mi := &file_dex_proto_msgTypes[95]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7844,7 +7920,7 @@ func (x *SubFlowOptions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubFlowOptions.ProtoReflect.Descriptor instead.
 func (*SubFlowOptions) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{94}
+	return file_dex_proto_rawDescGZIP(), []int{95}
 }
 
 func (x *SubFlowOptions) GetReusePolicy() SubFlowReusePolicy {
@@ -7909,7 +7985,7 @@ type SubFlowCondition struct {
 
 func (x *SubFlowCondition) Reset() {
 	*x = SubFlowCondition{}
-	mi := &file_dex_proto_msgTypes[95]
+	mi := &file_dex_proto_msgTypes[96]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -7921,7 +7997,7 @@ func (x *SubFlowCondition) String() string {
 func (*SubFlowCondition) ProtoMessage() {}
 
 func (x *SubFlowCondition) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[95]
+	mi := &file_dex_proto_msgTypes[96]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -7934,7 +8010,7 @@ func (x *SubFlowCondition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubFlowCondition.ProtoReflect.Descriptor instead.
 func (*SubFlowCondition) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{95}
+	return file_dex_proto_rawDescGZIP(), []int{96}
 }
 
 func (x *SubFlowCondition) GetConditionId() string {
@@ -8000,6 +8076,50 @@ func (x *SubFlowCondition) GetRequestId() string {
 	return ""
 }
 
+type SubFlowConditionState struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ConditionId   string                 `protobuf:"bytes,1,opt,name=condition_id,json=conditionId,proto3" json:"condition_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SubFlowConditionState) Reset() {
+	*x = SubFlowConditionState{}
+	mi := &file_dex_proto_msgTypes[97]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SubFlowConditionState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SubFlowConditionState) ProtoMessage() {}
+
+func (x *SubFlowConditionState) ProtoReflect() protoreflect.Message {
+	mi := &file_dex_proto_msgTypes[97]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SubFlowConditionState.ProtoReflect.Descriptor instead.
+func (*SubFlowConditionState) Descriptor() ([]byte, []int) {
+	return file_dex_proto_rawDescGZIP(), []int{97}
+}
+
+func (x *SubFlowConditionState) GetConditionId() string {
+	if x != nil {
+		return x.ConditionId
+	}
+	return ""
+}
+
 type TimerCondition struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional unless waiting_condition_type is ANY_COMBINATION_COMPLETED.
@@ -8014,7 +8134,7 @@ type TimerCondition struct {
 
 func (x *TimerCondition) Reset() {
 	*x = TimerCondition{}
-	mi := &file_dex_proto_msgTypes[96]
+	mi := &file_dex_proto_msgTypes[98]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8026,7 +8146,7 @@ func (x *TimerCondition) String() string {
 func (*TimerCondition) ProtoMessage() {}
 
 func (x *TimerCondition) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[96]
+	mi := &file_dex_proto_msgTypes[98]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8039,7 +8159,7 @@ func (x *TimerCondition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimerCondition.ProtoReflect.Descriptor instead.
 func (*TimerCondition) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{96}
+	return file_dex_proto_rawDescGZIP(), []int{98}
 }
 
 func (x *TimerCondition) GetConditionId() string {
@@ -8077,7 +8197,7 @@ type ChannelCondition struct {
 
 func (x *ChannelCondition) Reset() {
 	*x = ChannelCondition{}
-	mi := &file_dex_proto_msgTypes[97]
+	mi := &file_dex_proto_msgTypes[99]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8089,7 +8209,7 @@ func (x *ChannelCondition) String() string {
 func (*ChannelCondition) ProtoMessage() {}
 
 func (x *ChannelCondition) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[97]
+	mi := &file_dex_proto_msgTypes[99]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8102,7 +8222,7 @@ func (x *ChannelCondition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelCondition.ProtoReflect.Descriptor instead.
 func (*ChannelCondition) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{97}
+	return file_dex_proto_rawDescGZIP(), []int{99}
 }
 
 func (x *ChannelCondition) GetConditionId() string {
@@ -8145,7 +8265,7 @@ type ConditionResults struct {
 
 func (x *ConditionResults) Reset() {
 	*x = ConditionResults{}
-	mi := &file_dex_proto_msgTypes[98]
+	mi := &file_dex_proto_msgTypes[100]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8157,7 +8277,7 @@ func (x *ConditionResults) String() string {
 func (*ConditionResults) ProtoMessage() {}
 
 func (x *ConditionResults) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[98]
+	mi := &file_dex_proto_msgTypes[100]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8170,7 +8290,7 @@ func (x *ConditionResults) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConditionResults.ProtoReflect.Descriptor instead.
 func (*ConditionResults) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{98}
+	return file_dex_proto_rawDescGZIP(), []int{100}
 }
 
 func (x *ConditionResults) GetChannelResults() []*ChannelResult {
@@ -8211,7 +8331,7 @@ type TimerResult struct {
 
 func (x *TimerResult) Reset() {
 	*x = TimerResult{}
-	mi := &file_dex_proto_msgTypes[99]
+	mi := &file_dex_proto_msgTypes[101]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8223,7 +8343,7 @@ func (x *TimerResult) String() string {
 func (*TimerResult) ProtoMessage() {}
 
 func (x *TimerResult) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[99]
+	mi := &file_dex_proto_msgTypes[101]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8236,7 +8356,7 @@ func (x *TimerResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimerResult.ProtoReflect.Descriptor instead.
 func (*TimerResult) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{99}
+	return file_dex_proto_rawDescGZIP(), []int{101}
 }
 
 func (x *TimerResult) GetConditionId() string {
@@ -8265,7 +8385,7 @@ type ChannelResult struct {
 
 func (x *ChannelResult) Reset() {
 	*x = ChannelResult{}
-	mi := &file_dex_proto_msgTypes[100]
+	mi := &file_dex_proto_msgTypes[102]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8277,7 +8397,7 @@ func (x *ChannelResult) String() string {
 func (*ChannelResult) ProtoMessage() {}
 
 func (x *ChannelResult) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[100]
+	mi := &file_dex_proto_msgTypes[102]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8290,7 +8410,7 @@ func (x *ChannelResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelResult.ProtoReflect.Descriptor instead.
 func (*ChannelResult) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{100}
+	return file_dex_proto_rawDescGZIP(), []int{102}
 }
 
 func (x *ChannelResult) GetConditionId() string {
@@ -8333,7 +8453,7 @@ type ContinueAsNewDumpRequest struct {
 
 func (x *ContinueAsNewDumpRequest) Reset() {
 	*x = ContinueAsNewDumpRequest{}
-	mi := &file_dex_proto_msgTypes[101]
+	mi := &file_dex_proto_msgTypes[103]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8345,7 +8465,7 @@ func (x *ContinueAsNewDumpRequest) String() string {
 func (*ContinueAsNewDumpRequest) ProtoMessage() {}
 
 func (x *ContinueAsNewDumpRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[101]
+	mi := &file_dex_proto_msgTypes[103]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8358,7 +8478,7 @@ func (x *ContinueAsNewDumpRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContinueAsNewDumpRequest.ProtoReflect.Descriptor instead.
 func (*ContinueAsNewDumpRequest) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{101}
+	return file_dex_proto_rawDescGZIP(), []int{103}
 }
 
 func (x *ContinueAsNewDumpRequest) GetFlowId() string {
@@ -8403,7 +8523,7 @@ type ContinueAsNewDumpResponse struct {
 
 func (x *ContinueAsNewDumpResponse) Reset() {
 	*x = ContinueAsNewDumpResponse{}
-	mi := &file_dex_proto_msgTypes[102]
+	mi := &file_dex_proto_msgTypes[104]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8415,7 +8535,7 @@ func (x *ContinueAsNewDumpResponse) String() string {
 func (*ContinueAsNewDumpResponse) ProtoMessage() {}
 
 func (x *ContinueAsNewDumpResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[102]
+	mi := &file_dex_proto_msgTypes[104]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8428,7 +8548,7 @@ func (x *ContinueAsNewDumpResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContinueAsNewDumpResponse.ProtoReflect.Descriptor instead.
 func (*ContinueAsNewDumpResponse) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{102}
+	return file_dex_proto_rawDescGZIP(), []int{104}
 }
 
 func (x *ContinueAsNewDumpResponse) GetPageContent() []byte {
@@ -8468,7 +8588,7 @@ type ChannelValues struct {
 
 func (x *ChannelValues) Reset() {
 	*x = ChannelValues{}
-	mi := &file_dex_proto_msgTypes[103]
+	mi := &file_dex_proto_msgTypes[105]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8480,7 +8600,7 @@ func (x *ChannelValues) String() string {
 func (*ChannelValues) ProtoMessage() {}
 
 func (x *ChannelValues) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[103]
+	mi := &file_dex_proto_msgTypes[105]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8493,7 +8613,7 @@ func (x *ChannelValues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ChannelValues.ProtoReflect.Descriptor instead.
 func (*ChannelValues) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{103}
+	return file_dex_proto_rawDescGZIP(), []int{105}
 }
 
 func (x *ChannelValues) GetValues() []*Value {
@@ -8513,7 +8633,7 @@ type StepExecutionCompletedConditions struct {
 
 func (x *StepExecutionCompletedConditions) Reset() {
 	*x = StepExecutionCompletedConditions{}
-	mi := &file_dex_proto_msgTypes[104]
+	mi := &file_dex_proto_msgTypes[106]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8525,7 +8645,7 @@ func (x *StepExecutionCompletedConditions) String() string {
 func (*StepExecutionCompletedConditions) ProtoMessage() {}
 
 func (x *StepExecutionCompletedConditions) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[104]
+	mi := &file_dex_proto_msgTypes[106]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8538,7 +8658,7 @@ func (x *StepExecutionCompletedConditions) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepExecutionCompletedConditions.ProtoReflect.Descriptor instead.
 func (*StepExecutionCompletedConditions) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{104}
+	return file_dex_proto_rawDescGZIP(), []int{106}
 }
 
 func (x *StepExecutionCompletedConditions) GetCompletedTimerConditions() map[int32]InternalTimerStatus {
@@ -8560,7 +8680,7 @@ type StepExecutionResumeInfo struct {
 	StepExecutionId     string                            `protobuf:"bytes,1,opt,name=step_execution_id,json=stepExecutionId,proto3" json:"step_execution_id,omitempty"`
 	Step                *StepMovement                     `protobuf:"bytes,2,opt,name=step,proto3" json:"step,omitempty"`
 	CompletedConditions *StepExecutionCompletedConditions `protobuf:"bytes,3,opt,name=completed_conditions,json=completedConditions,proto3" json:"completed_conditions,omitempty"`
-	WaitingCondition    *WaitingCondition                 `protobuf:"bytes,4,opt,name=waiting_condition,json=waitingCondition,proto3" json:"waiting_condition,omitempty"`
+	WaitingCondition    *WaitingConditionState            `protobuf:"bytes,4,opt,name=waiting_condition,json=waitingCondition,proto3" json:"waiting_condition,omitempty"`
 	StepExeLocals       []*KV                             `protobuf:"bytes,5,rep,name=step_exe_locals,json=stepExeLocals,proto3" json:"step_exe_locals,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -8568,7 +8688,7 @@ type StepExecutionResumeInfo struct {
 
 func (x *StepExecutionResumeInfo) Reset() {
 	*x = StepExecutionResumeInfo{}
-	mi := &file_dex_proto_msgTypes[105]
+	mi := &file_dex_proto_msgTypes[107]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8580,7 +8700,7 @@ func (x *StepExecutionResumeInfo) String() string {
 func (*StepExecutionResumeInfo) ProtoMessage() {}
 
 func (x *StepExecutionResumeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[105]
+	mi := &file_dex_proto_msgTypes[107]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8593,7 +8713,7 @@ func (x *StepExecutionResumeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepExecutionResumeInfo.ProtoReflect.Descriptor instead.
 func (*StepExecutionResumeInfo) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{105}
+	return file_dex_proto_rawDescGZIP(), []int{107}
 }
 
 func (x *StepExecutionResumeInfo) GetStepExecutionId() string {
@@ -8617,7 +8737,7 @@ func (x *StepExecutionResumeInfo) GetCompletedConditions() *StepExecutionComplet
 	return nil
 }
 
-func (x *StepExecutionResumeInfo) GetWaitingCondition() *WaitingCondition {
+func (x *StepExecutionResumeInfo) GetWaitingCondition() *WaitingConditionState {
 	if x != nil {
 		return x.WaitingCondition
 	}
@@ -8643,7 +8763,7 @@ type StepExecutionCounterInfo struct {
 
 func (x *StepExecutionCounterInfo) Reset() {
 	*x = StepExecutionCounterInfo{}
-	mi := &file_dex_proto_msgTypes[106]
+	mi := &file_dex_proto_msgTypes[108]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8655,7 +8775,7 @@ func (x *StepExecutionCounterInfo) String() string {
 func (*StepExecutionCounterInfo) ProtoMessage() {}
 
 func (x *StepExecutionCounterInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[106]
+	mi := &file_dex_proto_msgTypes[108]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8668,7 +8788,7 @@ func (x *StepExecutionCounterInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepExecutionCounterInfo.ProtoReflect.Descriptor instead.
 func (*StepExecutionCounterInfo) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{106}
+	return file_dex_proto_rawDescGZIP(), []int{108}
 }
 
 func (x *StepExecutionCounterInfo) GetStepTypeStartedCount() map[string]int32 {
@@ -8710,7 +8830,7 @@ type StaleSkipTimer struct {
 
 func (x *StaleSkipTimer) Reset() {
 	*x = StaleSkipTimer{}
-	mi := &file_dex_proto_msgTypes[107]
+	mi := &file_dex_proto_msgTypes[109]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8722,7 +8842,7 @@ func (x *StaleSkipTimer) String() string {
 func (*StaleSkipTimer) ProtoMessage() {}
 
 func (x *StaleSkipTimer) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[107]
+	mi := &file_dex_proto_msgTypes[109]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8735,7 +8855,7 @@ func (x *StaleSkipTimer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StaleSkipTimer.ProtoReflect.Descriptor instead.
 func (*StaleSkipTimer) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{107}
+	return file_dex_proto_rawDescGZIP(), []int{109}
 }
 
 func (x *StaleSkipTimer) GetStepExecutionId() string {
@@ -8776,7 +8896,7 @@ type ContinueAsNewDump struct {
 
 func (x *ContinueAsNewDump) Reset() {
 	*x = ContinueAsNewDump{}
-	mi := &file_dex_proto_msgTypes[108]
+	mi := &file_dex_proto_msgTypes[110]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8788,7 +8908,7 @@ func (x *ContinueAsNewDump) String() string {
 func (*ContinueAsNewDump) ProtoMessage() {}
 
 func (x *ContinueAsNewDump) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[108]
+	mi := &file_dex_proto_msgTypes[110]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8801,7 +8921,7 @@ func (x *ContinueAsNewDump) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContinueAsNewDump.ProtoReflect.Descriptor instead.
 func (*ContinueAsNewDump) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{108}
+	return file_dex_proto_rawDescGZIP(), []int{110}
 }
 
 func (x *ContinueAsNewDump) GetStepsToStartFromBeginning() []*StepMovement {
@@ -8869,7 +8989,7 @@ type ContinueAsNewInput struct {
 
 func (x *ContinueAsNewInput) Reset() {
 	*x = ContinueAsNewInput{}
-	mi := &file_dex_proto_msgTypes[109]
+	mi := &file_dex_proto_msgTypes[111]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8881,7 +9001,7 @@ func (x *ContinueAsNewInput) String() string {
 func (*ContinueAsNewInput) ProtoMessage() {}
 
 func (x *ContinueAsNewInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[109]
+	mi := &file_dex_proto_msgTypes[111]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8894,7 +9014,7 @@ func (x *ContinueAsNewInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContinueAsNewInput.ProtoReflect.Descriptor instead.
 func (*ContinueAsNewInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{109}
+	return file_dex_proto_rawDescGZIP(), []int{111}
 }
 
 func (x *ContinueAsNewInput) GetPreviousInternalRunId() string {
@@ -8921,7 +9041,7 @@ type InterpreterWorkflowInput struct {
 
 func (x *InterpreterWorkflowInput) Reset() {
 	*x = InterpreterWorkflowInput{}
-	mi := &file_dex_proto_msgTypes[110]
+	mi := &file_dex_proto_msgTypes[112]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -8933,7 +9053,7 @@ func (x *InterpreterWorkflowInput) String() string {
 func (*InterpreterWorkflowInput) ProtoMessage() {}
 
 func (x *InterpreterWorkflowInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[110]
+	mi := &file_dex_proto_msgTypes[112]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -8946,7 +9066,7 @@ func (x *InterpreterWorkflowInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterpreterWorkflowInput.ProtoReflect.Descriptor instead.
 func (*InterpreterWorkflowInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{110}
+	return file_dex_proto_rawDescGZIP(), []int{112}
 }
 
 func (x *InterpreterWorkflowInput) GetFlowType() string {
@@ -9014,7 +9134,7 @@ type InterpreterWorkflowOutput struct {
 
 func (x *InterpreterWorkflowOutput) Reset() {
 	*x = InterpreterWorkflowOutput{}
-	mi := &file_dex_proto_msgTypes[111]
+	mi := &file_dex_proto_msgTypes[113]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9026,7 +9146,7 @@ func (x *InterpreterWorkflowOutput) String() string {
 func (*InterpreterWorkflowOutput) ProtoMessage() {}
 
 func (x *InterpreterWorkflowOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[111]
+	mi := &file_dex_proto_msgTypes[113]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9039,7 +9159,7 @@ func (x *InterpreterWorkflowOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InterpreterWorkflowOutput.ProtoReflect.Descriptor instead.
 func (*InterpreterWorkflowOutput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{111}
+	return file_dex_proto_rawDescGZIP(), []int{113}
 }
 
 func (x *InterpreterWorkflowOutput) GetStepCompletionOutputs() []*StepCompletionOutput {
@@ -9058,7 +9178,7 @@ type BlobStoreCleanupWorkflowInput struct {
 
 func (x *BlobStoreCleanupWorkflowInput) Reset() {
 	*x = BlobStoreCleanupWorkflowInput{}
-	mi := &file_dex_proto_msgTypes[112]
+	mi := &file_dex_proto_msgTypes[114]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9070,7 +9190,7 @@ func (x *BlobStoreCleanupWorkflowInput) String() string {
 func (*BlobStoreCleanupWorkflowInput) ProtoMessage() {}
 
 func (x *BlobStoreCleanupWorkflowInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[112]
+	mi := &file_dex_proto_msgTypes[114]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9083,7 +9203,7 @@ func (x *BlobStoreCleanupWorkflowInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobStoreCleanupWorkflowInput.ProtoReflect.Descriptor instead.
 func (*BlobStoreCleanupWorkflowInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{112}
+	return file_dex_proto_rawDescGZIP(), []int{114}
 }
 
 func (x *BlobStoreCleanupWorkflowInput) GetStoreId() string {
@@ -9102,7 +9222,7 @@ type BlobStoreCleanupWorkflowOutput struct {
 
 func (x *BlobStoreCleanupWorkflowOutput) Reset() {
 	*x = BlobStoreCleanupWorkflowOutput{}
-	mi := &file_dex_proto_msgTypes[113]
+	mi := &file_dex_proto_msgTypes[115]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9114,7 +9234,7 @@ func (x *BlobStoreCleanupWorkflowOutput) String() string {
 func (*BlobStoreCleanupWorkflowOutput) ProtoMessage() {}
 
 func (x *BlobStoreCleanupWorkflowOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[113]
+	mi := &file_dex_proto_msgTypes[115]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9127,7 +9247,7 @@ func (x *BlobStoreCleanupWorkflowOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BlobStoreCleanupWorkflowOutput.ProtoReflect.Descriptor instead.
 func (*BlobStoreCleanupWorkflowOutput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{113}
+	return file_dex_proto_rawDescGZIP(), []int{115}
 }
 
 func (x *BlobStoreCleanupWorkflowOutput) GetTotalDeleted() int32 {
@@ -9147,7 +9267,7 @@ type InvokeWaitForMethodActivityInput struct {
 
 func (x *InvokeWaitForMethodActivityInput) Reset() {
 	*x = InvokeWaitForMethodActivityInput{}
-	mi := &file_dex_proto_msgTypes[114]
+	mi := &file_dex_proto_msgTypes[116]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9159,7 +9279,7 @@ func (x *InvokeWaitForMethodActivityInput) String() string {
 func (*InvokeWaitForMethodActivityInput) ProtoMessage() {}
 
 func (x *InvokeWaitForMethodActivityInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[114]
+	mi := &file_dex_proto_msgTypes[116]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9172,7 +9292,7 @@ func (x *InvokeWaitForMethodActivityInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvokeWaitForMethodActivityInput.ProtoReflect.Descriptor instead.
 func (*InvokeWaitForMethodActivityInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{114}
+	return file_dex_proto_rawDescGZIP(), []int{116}
 }
 
 func (x *InvokeWaitForMethodActivityInput) GetWorkerTarget() *WorkerTarget {
@@ -9198,7 +9318,7 @@ type InvokeWaitForMethodActivityOutput struct {
 
 func (x *InvokeWaitForMethodActivityOutput) Reset() {
 	*x = InvokeWaitForMethodActivityOutput{}
-	mi := &file_dex_proto_msgTypes[115]
+	mi := &file_dex_proto_msgTypes[117]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9210,7 +9330,7 @@ func (x *InvokeWaitForMethodActivityOutput) String() string {
 func (*InvokeWaitForMethodActivityOutput) ProtoMessage() {}
 
 func (x *InvokeWaitForMethodActivityOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[115]
+	mi := &file_dex_proto_msgTypes[117]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9223,7 +9343,7 @@ func (x *InvokeWaitForMethodActivityOutput) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use InvokeWaitForMethodActivityOutput.ProtoReflect.Descriptor instead.
 func (*InvokeWaitForMethodActivityOutput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{115}
+	return file_dex_proto_rawDescGZIP(), []int{117}
 }
 
 func (x *InvokeWaitForMethodActivityOutput) GetResponse() *InvokeWaitForMethodResponse {
@@ -9245,7 +9365,7 @@ type InvokeExecuteMethodActivityInput struct {
 
 func (x *InvokeExecuteMethodActivityInput) Reset() {
 	*x = InvokeExecuteMethodActivityInput{}
-	mi := &file_dex_proto_msgTypes[116]
+	mi := &file_dex_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9257,7 +9377,7 @@ func (x *InvokeExecuteMethodActivityInput) String() string {
 func (*InvokeExecuteMethodActivityInput) ProtoMessage() {}
 
 func (x *InvokeExecuteMethodActivityInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[116]
+	mi := &file_dex_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9270,7 +9390,7 @@ func (x *InvokeExecuteMethodActivityInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvokeExecuteMethodActivityInput.ProtoReflect.Descriptor instead.
 func (*InvokeExecuteMethodActivityInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{116}
+	return file_dex_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *InvokeExecuteMethodActivityInput) GetWorkerTarget() *WorkerTarget {
@@ -9304,7 +9424,7 @@ type RecoveryErrorInfo struct {
 
 func (x *RecoveryErrorInfo) Reset() {
 	*x = RecoveryErrorInfo{}
-	mi := &file_dex_proto_msgTypes[117]
+	mi := &file_dex_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9316,7 +9436,7 @@ func (x *RecoveryErrorInfo) String() string {
 func (*RecoveryErrorInfo) ProtoMessage() {}
 
 func (x *RecoveryErrorInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[117]
+	mi := &file_dex_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9329,7 +9449,7 @@ func (x *RecoveryErrorInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecoveryErrorInfo.ProtoReflect.Descriptor instead.
 func (*RecoveryErrorInfo) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{117}
+	return file_dex_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *RecoveryErrorInfo) GetDetail() string {
@@ -9359,7 +9479,7 @@ type InternalLocalStepActivityFailure struct {
 
 func (x *InternalLocalStepActivityFailure) Reset() {
 	*x = InternalLocalStepActivityFailure{}
-	mi := &file_dex_proto_msgTypes[118]
+	mi := &file_dex_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9371,7 +9491,7 @@ func (x *InternalLocalStepActivityFailure) String() string {
 func (*InternalLocalStepActivityFailure) ProtoMessage() {}
 
 func (x *InternalLocalStepActivityFailure) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[118]
+	mi := &file_dex_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9384,7 +9504,7 @@ func (x *InternalLocalStepActivityFailure) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InternalLocalStepActivityFailure.ProtoReflect.Descriptor instead.
 func (*InternalLocalStepActivityFailure) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{118}
+	return file_dex_proto_rawDescGZIP(), []int{120}
 }
 
 func (x *InternalLocalStepActivityFailure) GetLocalActivityMetadata() *LocalActivityMetadata {
@@ -9431,7 +9551,7 @@ type InvokeExecuteMethodActivityOutput struct {
 
 func (x *InvokeExecuteMethodActivityOutput) Reset() {
 	*x = InvokeExecuteMethodActivityOutput{}
-	mi := &file_dex_proto_msgTypes[119]
+	mi := &file_dex_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9443,7 +9563,7 @@ func (x *InvokeExecuteMethodActivityOutput) String() string {
 func (*InvokeExecuteMethodActivityOutput) ProtoMessage() {}
 
 func (x *InvokeExecuteMethodActivityOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[119]
+	mi := &file_dex_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9456,7 +9576,7 @@ func (x *InvokeExecuteMethodActivityOutput) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use InvokeExecuteMethodActivityOutput.ProtoReflect.Descriptor instead.
 func (*InvokeExecuteMethodActivityOutput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{119}
+	return file_dex_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *InvokeExecuteMethodActivityOutput) GetResponse() *InvokeExecuteMethodResponse {
@@ -9475,7 +9595,7 @@ type DumpFlowForContinueAsNewActivityInput struct {
 
 func (x *DumpFlowForContinueAsNewActivityInput) Reset() {
 	*x = DumpFlowForContinueAsNewActivityInput{}
-	mi := &file_dex_proto_msgTypes[120]
+	mi := &file_dex_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9487,7 +9607,7 @@ func (x *DumpFlowForContinueAsNewActivityInput) String() string {
 func (*DumpFlowForContinueAsNewActivityInput) ProtoMessage() {}
 
 func (x *DumpFlowForContinueAsNewActivityInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[120]
+	mi := &file_dex_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9500,7 +9620,7 @@ func (x *DumpFlowForContinueAsNewActivityInput) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use DumpFlowForContinueAsNewActivityInput.ProtoReflect.Descriptor instead.
 func (*DumpFlowForContinueAsNewActivityInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{120}
+	return file_dex_proto_rawDescGZIP(), []int{122}
 }
 
 func (x *DumpFlowForContinueAsNewActivityInput) GetRequest() *ContinueAsNewDumpRequest {
@@ -9519,7 +9639,7 @@ type DumpFlowForContinueAsNewActivityOutput struct {
 
 func (x *DumpFlowForContinueAsNewActivityOutput) Reset() {
 	*x = DumpFlowForContinueAsNewActivityOutput{}
-	mi := &file_dex_proto_msgTypes[121]
+	mi := &file_dex_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9531,7 +9651,7 @@ func (x *DumpFlowForContinueAsNewActivityOutput) String() string {
 func (*DumpFlowForContinueAsNewActivityOutput) ProtoMessage() {}
 
 func (x *DumpFlowForContinueAsNewActivityOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[121]
+	mi := &file_dex_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9544,7 +9664,7 @@ func (x *DumpFlowForContinueAsNewActivityOutput) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use DumpFlowForContinueAsNewActivityOutput.ProtoReflect.Descriptor instead.
 func (*DumpFlowForContinueAsNewActivityOutput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{121}
+	return file_dex_proto_rawDescGZIP(), []int{123}
 }
 
 func (x *DumpFlowForContinueAsNewActivityOutput) GetResponse() *ContinueAsNewDumpResponse {
@@ -9564,7 +9684,7 @@ type InvokeWorkerRPCActivityInput struct {
 
 func (x *InvokeWorkerRPCActivityInput) Reset() {
 	*x = InvokeWorkerRPCActivityInput{}
-	mi := &file_dex_proto_msgTypes[122]
+	mi := &file_dex_proto_msgTypes[124]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9576,7 +9696,7 @@ func (x *InvokeWorkerRPCActivityInput) String() string {
 func (*InvokeWorkerRPCActivityInput) ProtoMessage() {}
 
 func (x *InvokeWorkerRPCActivityInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[122]
+	mi := &file_dex_proto_msgTypes[124]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9589,7 +9709,7 @@ func (x *InvokeWorkerRPCActivityInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvokeWorkerRPCActivityInput.ProtoReflect.Descriptor instead.
 func (*InvokeWorkerRPCActivityInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{122}
+	return file_dex_proto_rawDescGZIP(), []int{124}
 }
 
 func (x *InvokeWorkerRPCActivityInput) GetRpcPrep() *PrepareRpcQueryResponse {
@@ -9617,7 +9737,7 @@ type InvokeWorkerRPCActivityOutput struct {
 
 func (x *InvokeWorkerRPCActivityOutput) Reset() {
 	*x = InvokeWorkerRPCActivityOutput{}
-	mi := &file_dex_proto_msgTypes[123]
+	mi := &file_dex_proto_msgTypes[125]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9629,7 +9749,7 @@ func (x *InvokeWorkerRPCActivityOutput) String() string {
 func (*InvokeWorkerRPCActivityOutput) ProtoMessage() {}
 
 func (x *InvokeWorkerRPCActivityOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[123]
+	mi := &file_dex_proto_msgTypes[125]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9642,7 +9762,7 @@ func (x *InvokeWorkerRPCActivityOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvokeWorkerRPCActivityOutput.ProtoReflect.Descriptor instead.
 func (*InvokeWorkerRPCActivityOutput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{123}
+	return file_dex_proto_rawDescGZIP(), []int{125}
 }
 
 func (x *InvokeWorkerRPCActivityOutput) GetResponse() *InvokeWorkerRPCResponse {
@@ -9668,7 +9788,7 @@ type CleanupBlobStoreActivityInput struct {
 
 func (x *CleanupBlobStoreActivityInput) Reset() {
 	*x = CleanupBlobStoreActivityInput{}
-	mi := &file_dex_proto_msgTypes[124]
+	mi := &file_dex_proto_msgTypes[126]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9680,7 +9800,7 @@ func (x *CleanupBlobStoreActivityInput) String() string {
 func (*CleanupBlobStoreActivityInput) ProtoMessage() {}
 
 func (x *CleanupBlobStoreActivityInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[124]
+	mi := &file_dex_proto_msgTypes[126]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9693,7 +9813,7 @@ func (x *CleanupBlobStoreActivityInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupBlobStoreActivityInput.ProtoReflect.Descriptor instead.
 func (*CleanupBlobStoreActivityInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{124}
+	return file_dex_proto_rawDescGZIP(), []int{126}
 }
 
 func (x *CleanupBlobStoreActivityInput) GetStoreId() string {
@@ -9712,7 +9832,7 @@ type CleanupBlobStoreActivityOutput struct {
 
 func (x *CleanupBlobStoreActivityOutput) Reset() {
 	*x = CleanupBlobStoreActivityOutput{}
-	mi := &file_dex_proto_msgTypes[125]
+	mi := &file_dex_proto_msgTypes[127]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9724,7 +9844,7 @@ func (x *CleanupBlobStoreActivityOutput) String() string {
 func (*CleanupBlobStoreActivityOutput) ProtoMessage() {}
 
 func (x *CleanupBlobStoreActivityOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[125]
+	mi := &file_dex_proto_msgTypes[127]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9737,7 +9857,7 @@ func (x *CleanupBlobStoreActivityOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CleanupBlobStoreActivityOutput.ProtoReflect.Descriptor instead.
 func (*CleanupBlobStoreActivityOutput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{125}
+	return file_dex_proto_rawDescGZIP(), []int{127}
 }
 
 func (x *CleanupBlobStoreActivityOutput) GetTotalDeleted() int32 {
@@ -9758,7 +9878,7 @@ type AttributeSyncItem struct {
 
 func (x *AttributeSyncItem) Reset() {
 	*x = AttributeSyncItem{}
-	mi := &file_dex_proto_msgTypes[126]
+	mi := &file_dex_proto_msgTypes[128]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9770,7 +9890,7 @@ func (x *AttributeSyncItem) String() string {
 func (*AttributeSyncItem) ProtoMessage() {}
 
 func (x *AttributeSyncItem) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[126]
+	mi := &file_dex_proto_msgTypes[128]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9783,7 +9903,7 @@ func (x *AttributeSyncItem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AttributeSyncItem.ProtoReflect.Descriptor instead.
 func (*AttributeSyncItem) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{126}
+	return file_dex_proto_rawDescGZIP(), []int{128}
 }
 
 func (x *AttributeSyncItem) GetConfigName() string {
@@ -9818,7 +9938,7 @@ type SyncAttributeBatchActivityInput struct {
 
 func (x *SyncAttributeBatchActivityInput) Reset() {
 	*x = SyncAttributeBatchActivityInput{}
-	mi := &file_dex_proto_msgTypes[127]
+	mi := &file_dex_proto_msgTypes[129]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9830,7 +9950,7 @@ func (x *SyncAttributeBatchActivityInput) String() string {
 func (*SyncAttributeBatchActivityInput) ProtoMessage() {}
 
 func (x *SyncAttributeBatchActivityInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[127]
+	mi := &file_dex_proto_msgTypes[129]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9843,7 +9963,7 @@ func (x *SyncAttributeBatchActivityInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncAttributeBatchActivityInput.ProtoReflect.Descriptor instead.
 func (*SyncAttributeBatchActivityInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{127}
+	return file_dex_proto_rawDescGZIP(), []int{129}
 }
 
 func (x *SyncAttributeBatchActivityInput) GetFlowId() string {
@@ -9877,7 +9997,7 @@ type StartSubFlowActivityInput struct {
 
 func (x *StartSubFlowActivityInput) Reset() {
 	*x = StartSubFlowActivityInput{}
-	mi := &file_dex_proto_msgTypes[128]
+	mi := &file_dex_proto_msgTypes[130]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9889,7 +10009,7 @@ func (x *StartSubFlowActivityInput) String() string {
 func (*StartSubFlowActivityInput) ProtoMessage() {}
 
 func (x *StartSubFlowActivityInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[128]
+	mi := &file_dex_proto_msgTypes[130]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9902,7 +10022,7 @@ func (x *StartSubFlowActivityInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartSubFlowActivityInput.ProtoReflect.Descriptor instead.
 func (*StartSubFlowActivityInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{128}
+	return file_dex_proto_rawDescGZIP(), []int{130}
 }
 
 func (x *StartSubFlowActivityInput) GetCondition() *SubFlowCondition {
@@ -9928,7 +10048,7 @@ type StartSubFlowActivityOutput struct {
 
 func (x *StartSubFlowActivityOutput) Reset() {
 	*x = StartSubFlowActivityOutput{}
-	mi := &file_dex_proto_msgTypes[129]
+	mi := &file_dex_proto_msgTypes[131]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9940,7 +10060,7 @@ func (x *StartSubFlowActivityOutput) String() string {
 func (*StartSubFlowActivityOutput) ProtoMessage() {}
 
 func (x *StartSubFlowActivityOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[129]
+	mi := &file_dex_proto_msgTypes[131]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9953,7 +10073,7 @@ func (x *StartSubFlowActivityOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartSubFlowActivityOutput.ProtoReflect.Descriptor instead.
 func (*StartSubFlowActivityOutput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{129}
+	return file_dex_proto_rawDescGZIP(), []int{131}
 }
 
 func (x *StartSubFlowActivityOutput) GetImmediateFlowResult() *FlowResult {
@@ -9973,7 +10093,7 @@ type SubFlowCompletionSignalRequest struct {
 
 func (x *SubFlowCompletionSignalRequest) Reset() {
 	*x = SubFlowCompletionSignalRequest{}
-	mi := &file_dex_proto_msgTypes[130]
+	mi := &file_dex_proto_msgTypes[132]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9985,7 +10105,7 @@ func (x *SubFlowCompletionSignalRequest) String() string {
 func (*SubFlowCompletionSignalRequest) ProtoMessage() {}
 
 func (x *SubFlowCompletionSignalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[130]
+	mi := &file_dex_proto_msgTypes[132]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9998,7 +10118,7 @@ func (x *SubFlowCompletionSignalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubFlowCompletionSignalRequest.ProtoReflect.Descriptor instead.
 func (*SubFlowCompletionSignalRequest) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{130}
+	return file_dex_proto_rawDescGZIP(), []int{132}
 }
 
 func (x *SubFlowCompletionSignalRequest) GetSubFlowId() string {
@@ -10024,7 +10144,7 @@ type ReportSubFlowCompletionActivityInput struct {
 
 func (x *ReportSubFlowCompletionActivityInput) Reset() {
 	*x = ReportSubFlowCompletionActivityInput{}
-	mi := &file_dex_proto_msgTypes[131]
+	mi := &file_dex_proto_msgTypes[133]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10036,7 +10156,7 @@ func (x *ReportSubFlowCompletionActivityInput) String() string {
 func (*ReportSubFlowCompletionActivityInput) ProtoMessage() {}
 
 func (x *ReportSubFlowCompletionActivityInput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[131]
+	mi := &file_dex_proto_msgTypes[133]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10049,7 +10169,7 @@ func (x *ReportSubFlowCompletionActivityInput) ProtoReflect() protoreflect.Messa
 
 // Deprecated: Use ReportSubFlowCompletionActivityInput.ProtoReflect.Descriptor instead.
 func (*ReportSubFlowCompletionActivityInput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{131}
+	return file_dex_proto_rawDescGZIP(), []int{133}
 }
 
 func (x *ReportSubFlowCompletionActivityInput) GetRequest() *SubFlowCompletionSignalRequest {
@@ -10068,7 +10188,7 @@ type ReportSubFlowCompletionActivityOutput struct {
 
 func (x *ReportSubFlowCompletionActivityOutput) Reset() {
 	*x = ReportSubFlowCompletionActivityOutput{}
-	mi := &file_dex_proto_msgTypes[132]
+	mi := &file_dex_proto_msgTypes[134]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10080,7 +10200,7 @@ func (x *ReportSubFlowCompletionActivityOutput) String() string {
 func (*ReportSubFlowCompletionActivityOutput) ProtoMessage() {}
 
 func (x *ReportSubFlowCompletionActivityOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[132]
+	mi := &file_dex_proto_msgTypes[134]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10093,7 +10213,7 @@ func (x *ReportSubFlowCompletionActivityOutput) ProtoReflect() protoreflect.Mess
 
 // Deprecated: Use ReportSubFlowCompletionActivityOutput.ProtoReflect.Descriptor instead.
 func (*ReportSubFlowCompletionActivityOutput) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{132}
+	return file_dex_proto_rawDescGZIP(), []int{134}
 }
 
 func (x *ReportSubFlowCompletionActivityOutput) GetStatus() SubFlowCompletionDeliveryStatus {
@@ -10118,7 +10238,7 @@ type ExecuteRpcSignalRequest struct {
 
 func (x *ExecuteRpcSignalRequest) Reset() {
 	*x = ExecuteRpcSignalRequest{}
-	mi := &file_dex_proto_msgTypes[133]
+	mi := &file_dex_proto_msgTypes[135]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10130,7 +10250,7 @@ func (x *ExecuteRpcSignalRequest) String() string {
 func (*ExecuteRpcSignalRequest) ProtoMessage() {}
 
 func (x *ExecuteRpcSignalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[133]
+	mi := &file_dex_proto_msgTypes[135]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10143,7 +10263,7 @@ func (x *ExecuteRpcSignalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteRpcSignalRequest.ProtoReflect.Descriptor instead.
 func (*ExecuteRpcSignalRequest) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{133}
+	return file_dex_proto_rawDescGZIP(), []int{135}
 }
 
 func (x *ExecuteRpcSignalRequest) GetRpcInput() *Value {
@@ -10206,7 +10326,7 @@ type SkipTimerSignalRequest struct {
 
 func (x *SkipTimerSignalRequest) Reset() {
 	*x = SkipTimerSignalRequest{}
-	mi := &file_dex_proto_msgTypes[134]
+	mi := &file_dex_proto_msgTypes[136]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10218,7 +10338,7 @@ func (x *SkipTimerSignalRequest) String() string {
 func (*SkipTimerSignalRequest) ProtoMessage() {}
 
 func (x *SkipTimerSignalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[134]
+	mi := &file_dex_proto_msgTypes[136]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10231,7 +10351,7 @@ func (x *SkipTimerSignalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SkipTimerSignalRequest.ProtoReflect.Descriptor instead.
 func (*SkipTimerSignalRequest) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{134}
+	return file_dex_proto_rawDescGZIP(), []int{136}
 }
 
 func (x *SkipTimerSignalRequest) GetStepExecutionId() string {
@@ -10265,7 +10385,7 @@ type StopFlowSignalRequest struct {
 
 func (x *StopFlowSignalRequest) Reset() {
 	*x = StopFlowSignalRequest{}
-	mi := &file_dex_proto_msgTypes[135]
+	mi := &file_dex_proto_msgTypes[137]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10277,7 +10397,7 @@ func (x *StopFlowSignalRequest) String() string {
 func (*StopFlowSignalRequest) ProtoMessage() {}
 
 func (x *StopFlowSignalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[135]
+	mi := &file_dex_proto_msgTypes[137]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10290,7 +10410,7 @@ func (x *StopFlowSignalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopFlowSignalRequest.ProtoReflect.Descriptor instead.
 func (*StopFlowSignalRequest) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{135}
+	return file_dex_proto_rawDescGZIP(), []int{137}
 }
 
 func (x *StopFlowSignalRequest) GetStopType() StopType {
@@ -10317,7 +10437,7 @@ type GetAttributesQueryRequest struct {
 
 func (x *GetAttributesQueryRequest) Reset() {
 	*x = GetAttributesQueryRequest{}
-	mi := &file_dex_proto_msgTypes[136]
+	mi := &file_dex_proto_msgTypes[138]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10329,7 +10449,7 @@ func (x *GetAttributesQueryRequest) String() string {
 func (*GetAttributesQueryRequest) ProtoMessage() {}
 
 func (x *GetAttributesQueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[136]
+	mi := &file_dex_proto_msgTypes[138]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10342,7 +10462,7 @@ func (x *GetAttributesQueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAttributesQueryRequest.ProtoReflect.Descriptor instead.
 func (*GetAttributesQueryRequest) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{136}
+	return file_dex_proto_rawDescGZIP(), []int{138}
 }
 
 func (x *GetAttributesQueryRequest) GetKeys() []string {
@@ -10368,7 +10488,7 @@ type GetAttributesQueryResponse struct {
 
 func (x *GetAttributesQueryResponse) Reset() {
 	*x = GetAttributesQueryResponse{}
-	mi := &file_dex_proto_msgTypes[137]
+	mi := &file_dex_proto_msgTypes[139]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10380,7 +10500,7 @@ func (x *GetAttributesQueryResponse) String() string {
 func (*GetAttributesQueryResponse) ProtoMessage() {}
 
 func (x *GetAttributesQueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[137]
+	mi := &file_dex_proto_msgTypes[139]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10393,7 +10513,7 @@ func (x *GetAttributesQueryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAttributesQueryResponse.ProtoReflect.Descriptor instead.
 func (*GetAttributesQueryResponse) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{137}
+	return file_dex_proto_rawDescGZIP(), []int{139}
 }
 
 func (x *GetAttributesQueryResponse) GetAttributes() []*KV {
@@ -10412,7 +10532,7 @@ type PrepareRpcQueryRequest struct {
 
 func (x *PrepareRpcQueryRequest) Reset() {
 	*x = PrepareRpcQueryRequest{}
-	mi := &file_dex_proto_msgTypes[138]
+	mi := &file_dex_proto_msgTypes[140]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10424,7 +10544,7 @@ func (x *PrepareRpcQueryRequest) String() string {
 func (*PrepareRpcQueryRequest) ProtoMessage() {}
 
 func (x *PrepareRpcQueryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[138]
+	mi := &file_dex_proto_msgTypes[140]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10437,7 +10557,7 @@ func (x *PrepareRpcQueryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareRpcQueryRequest.ProtoReflect.Descriptor instead.
 func (*PrepareRpcQueryRequest) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{138}
+	return file_dex_proto_rawDescGZIP(), []int{140}
 }
 
 func (x *PrepareRpcQueryRequest) GetLockAttributeKeys() []string {
@@ -10461,7 +10581,7 @@ type PrepareRpcQueryResponse struct {
 
 func (x *PrepareRpcQueryResponse) Reset() {
 	*x = PrepareRpcQueryResponse{}
-	mi := &file_dex_proto_msgTypes[139]
+	mi := &file_dex_proto_msgTypes[141]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10473,7 +10593,7 @@ func (x *PrepareRpcQueryResponse) String() string {
 func (*PrepareRpcQueryResponse) ProtoMessage() {}
 
 func (x *PrepareRpcQueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[139]
+	mi := &file_dex_proto_msgTypes[141]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10486,7 +10606,7 @@ func (x *PrepareRpcQueryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrepareRpcQueryResponse.ProtoReflect.Descriptor instead.
 func (*PrepareRpcQueryResponse) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{139}
+	return file_dex_proto_rawDescGZIP(), []int{141}
 }
 
 func (x *PrepareRpcQueryResponse) GetAttributes() []*KV {
@@ -10543,7 +10663,7 @@ type TimerInfo struct {
 
 func (x *TimerInfo) Reset() {
 	*x = TimerInfo{}
-	mi := &file_dex_proto_msgTypes[140]
+	mi := &file_dex_proto_msgTypes[142]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10555,7 +10675,7 @@ func (x *TimerInfo) String() string {
 func (*TimerInfo) ProtoMessage() {}
 
 func (x *TimerInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[140]
+	mi := &file_dex_proto_msgTypes[142]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10568,7 +10688,7 @@ func (x *TimerInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimerInfo.ProtoReflect.Descriptor instead.
 func (*TimerInfo) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{140}
+	return file_dex_proto_rawDescGZIP(), []int{142}
 }
 
 func (x *TimerInfo) GetConditionId() string {
@@ -10601,7 +10721,7 @@ type TimerInfoList struct {
 
 func (x *TimerInfoList) Reset() {
 	*x = TimerInfoList{}
-	mi := &file_dex_proto_msgTypes[141]
+	mi := &file_dex_proto_msgTypes[143]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10613,7 +10733,7 @@ func (x *TimerInfoList) String() string {
 func (*TimerInfoList) ProtoMessage() {}
 
 func (x *TimerInfoList) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[141]
+	mi := &file_dex_proto_msgTypes[143]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10626,7 +10746,7 @@ func (x *TimerInfoList) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimerInfoList.ProtoReflect.Descriptor instead.
 func (*TimerInfoList) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{141}
+	return file_dex_proto_rawDescGZIP(), []int{143}
 }
 
 func (x *TimerInfoList) GetTimers() []*TimerInfo {
@@ -10646,7 +10766,7 @@ type GetCurrentTimerInfosQueryResponse struct {
 
 func (x *GetCurrentTimerInfosQueryResponse) Reset() {
 	*x = GetCurrentTimerInfosQueryResponse{}
-	mi := &file_dex_proto_msgTypes[142]
+	mi := &file_dex_proto_msgTypes[144]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10658,7 +10778,7 @@ func (x *GetCurrentTimerInfosQueryResponse) String() string {
 func (*GetCurrentTimerInfosQueryResponse) ProtoMessage() {}
 
 func (x *GetCurrentTimerInfosQueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[142]
+	mi := &file_dex_proto_msgTypes[144]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10671,7 +10791,7 @@ func (x *GetCurrentTimerInfosQueryResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use GetCurrentTimerInfosQueryResponse.ProtoReflect.Descriptor instead.
 func (*GetCurrentTimerInfosQueryResponse) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{142}
+	return file_dex_proto_rawDescGZIP(), []int{144}
 }
 
 func (x *GetCurrentTimerInfosQueryResponse) GetStepExecutionCurrentTimerInfos() map[string]*TimerInfoList {
@@ -10690,7 +10810,7 @@ type GetScheduledGreedyTimerTimesQueryResponse struct {
 
 func (x *GetScheduledGreedyTimerTimesQueryResponse) Reset() {
 	*x = GetScheduledGreedyTimerTimesQueryResponse{}
-	mi := &file_dex_proto_msgTypes[143]
+	mi := &file_dex_proto_msgTypes[145]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10702,7 +10822,7 @@ func (x *GetScheduledGreedyTimerTimesQueryResponse) String() string {
 func (*GetScheduledGreedyTimerTimesQueryResponse) ProtoMessage() {}
 
 func (x *GetScheduledGreedyTimerTimesQueryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[143]
+	mi := &file_dex_proto_msgTypes[145]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10715,7 +10835,7 @@ func (x *GetScheduledGreedyTimerTimesQueryResponse) ProtoReflect() protoreflect.
 
 // Deprecated: Use GetScheduledGreedyTimerTimesQueryResponse.ProtoReflect.Descriptor instead.
 func (*GetScheduledGreedyTimerTimesQueryResponse) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{143}
+	return file_dex_proto_rawDescGZIP(), []int{145}
 }
 
 func (x *GetScheduledGreedyTimerTimesQueryResponse) GetPendingScheduled() []*TimerInfo {
@@ -10737,7 +10857,7 @@ type DebugDumpResponse struct {
 
 func (x *DebugDumpResponse) Reset() {
 	*x = DebugDumpResponse{}
-	mi := &file_dex_proto_msgTypes[144]
+	mi := &file_dex_proto_msgTypes[146]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10749,7 +10869,7 @@ func (x *DebugDumpResponse) String() string {
 func (*DebugDumpResponse) ProtoMessage() {}
 
 func (x *DebugDumpResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[144]
+	mi := &file_dex_proto_msgTypes[146]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10762,7 +10882,7 @@ func (x *DebugDumpResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DebugDumpResponse.ProtoReflect.Descriptor instead.
 func (*DebugDumpResponse) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{144}
+	return file_dex_proto_rawDescGZIP(), []int{146}
 }
 
 func (x *DebugDumpResponse) GetConfig() *FlowConfig {
@@ -10803,7 +10923,7 @@ type InvokeRpcUpdateResult struct {
 
 func (x *InvokeRpcUpdateResult) Reset() {
 	*x = InvokeRpcUpdateResult{}
-	mi := &file_dex_proto_msgTypes[145]
+	mi := &file_dex_proto_msgTypes[147]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10815,7 +10935,7 @@ func (x *InvokeRpcUpdateResult) String() string {
 func (*InvokeRpcUpdateResult) ProtoMessage() {}
 
 func (x *InvokeRpcUpdateResult) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[145]
+	mi := &file_dex_proto_msgTypes[147]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10828,7 +10948,7 @@ func (x *InvokeRpcUpdateResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InvokeRpcUpdateResult.ProtoReflect.Descriptor instead.
 func (*InvokeRpcUpdateResult) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{145}
+	return file_dex_proto_rawDescGZIP(), []int{147}
 }
 
 func (x *InvokeRpcUpdateResult) GetResponse() *InvokeRPCResponse {
@@ -10847,7 +10967,7 @@ type StepExecutionNumbers struct {
 
 func (x *StepExecutionNumbers) Reset() {
 	*x = StepExecutionNumbers{}
-	mi := &file_dex_proto_msgTypes[146]
+	mi := &file_dex_proto_msgTypes[148]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10859,7 +10979,7 @@ func (x *StepExecutionNumbers) String() string {
 func (*StepExecutionNumbers) ProtoMessage() {}
 
 func (x *StepExecutionNumbers) ProtoReflect() protoreflect.Message {
-	mi := &file_dex_proto_msgTypes[146]
+	mi := &file_dex_proto_msgTypes[148]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10872,7 +10992,7 @@ func (x *StepExecutionNumbers) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepExecutionNumbers.ProtoReflect.Descriptor instead.
 func (*StepExecutionNumbers) Descriptor() ([]byte, []int) {
-	return file_dex_proto_rawDescGZIP(), []int{146}
+	return file_dex_proto_rawDescGZIP(), []int{148}
 }
 
 func (x *StepExecutionNumbers) GetNumbers() []int32 {
@@ -11259,14 +11379,14 @@ const file_dex_proto_rawDesc = "" +
 	"\x0fevent_available\x18\x01 \x01(\bR\x0eeventAvailable\x12=\n" +
 	"\x1bavailable_internal_event_id\x18\x02 \x01(\x03R\x18availableInternalEventId\x120\n" +
 	"\vflow_status\x18\x03 \x01(\x0e2\x0f.dex.FlowStatusR\n" +
-	"flowStatus\"\xba\x04\n" +
+	"flowStatus\"\xbf\x04\n" +
 	"\x18ActiveStepExecutionState\x12*\n" +
 	"\x11step_execution_id\x18\x01 \x01(\tR\x0fstepExecutionId\x123\n" +
 	"\x16from_step_execution_id\x18\x02 \x01(\tR\x13fromStepExecutionId\x12\x1b\n" +
 	"\tstep_type\x18\x03 \x01(\tR\bstepType\x12*\n" +
 	"\x05phase\x18\x04 \x01(\x0e2\x14.dex.ActiveStepPhaseR\x05phase\x12-\n" +
-	"\bmovement\x18\x05 \x01(\v2\x11.dex.StepMovementR\bmovement\x12B\n" +
-	"\x11waiting_condition\x18\x06 \x01(\v2\x15.dex.WaitingConditionR\x10waitingCondition\x12X\n" +
+	"\bmovement\x18\x05 \x01(\v2\x11.dex.StepMovementR\bmovement\x12G\n" +
+	"\x11waiting_condition\x18\x06 \x01(\v2\x1a.dex.WaitingConditionStateR\x10waitingCondition\x12X\n" +
 	"\x14completed_conditions\x18\a \x01(\v2%.dex.StepExecutionCompletedConditionsR\x13completedConditions\x12;\n" +
 	"\x15step_execution_locals\x18\b \x03(\v2\a.dex.KVR\x13stepExecutionLocals\x12&\n" +
 	"\x06timers\x18\t \x03(\v2\x0e.dex.TimerInfoR\x06timers\x12B\n" +
@@ -11469,7 +11589,13 @@ const file_dex_proto_rawDesc = "" +
 	"\x10timer_conditions\x18\x02 \x03(\v2\x13.dex.TimerConditionR\x0ftimerConditions\x12D\n" +
 	"\x12channel_conditions\x18\x03 \x03(\v2\x15.dex.ChannelConditionR\x11channelConditions\x12P\n" +
 	"\x16condition_combinations\x18\x04 \x03(\v2\x19.dex.ConditionCombinationR\x15conditionCombinations\x12E\n" +
-	"\x13sub_flow_conditions\x18\x05 \x03(\v2\x15.dex.SubFlowConditionR\x11subFlowConditions\"\xe8\x02\n" +
+	"\x13sub_flow_conditions\x18\x05 \x03(\v2\x15.dex.SubFlowConditionR\x11subFlowConditions\"\x8c\x03\n" +
+	"\x15WaitingConditionState\x12O\n" +
+	"\x16waiting_condition_type\x18\x01 \x01(\x0e2\x19.dex.WaitingConditionTypeR\x14waitingConditionType\x12>\n" +
+	"\x10timer_conditions\x18\x02 \x03(\v2\x13.dex.TimerConditionR\x0ftimerConditions\x12D\n" +
+	"\x12channel_conditions\x18\x03 \x03(\v2\x15.dex.ChannelConditionR\x11channelConditions\x12P\n" +
+	"\x16condition_combinations\x18\x04 \x03(\v2\x19.dex.ConditionCombinationR\x15conditionCombinations\x12J\n" +
+	"\x13sub_flow_conditions\x18\x05 \x03(\v2\x1a.dex.SubFlowConditionStateR\x11subFlowConditions\"\xe8\x02\n" +
 	"\x0eSubFlowOptions\x12:\n" +
 	"\freuse_policy\x18\x01 \x01(\x0e2\x17.dex.SubFlowReusePolicyR\vreusePolicy\x120\n" +
 	"\x14flow_timeout_seconds\x18\x02 \x01(\x05R\x12flowTimeoutSeconds\x127\n" +
@@ -11491,7 +11617,9 @@ const file_dex_proto_rawDesc = "" +
 	"\x0esub_flow_index\x18\a \x01(\x05R\fsubFlowIndex\x12$\n" +
 	"\x0eparent_flow_id\x18\b \x01(\tR\fparentFlowId\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\t \x01(\tR\trequestId\"\xa1\x01\n" +
+	"request_id\x18\t \x01(\tR\trequestId\":\n" +
+	"\x15SubFlowConditionState\x12!\n" +
+	"\fcondition_id\x18\x01 \x01(\tR\vconditionId\"\xa1\x01\n" +
 	"\x0eTimerCondition\x12!\n" +
 	"\fcondition_id\x18\x01 \x01(\tR\vconditionId\x12)\n" +
 	"\x10duration_seconds\x18\x02 \x01(\x03R\x0fdurationSeconds\x12A\n" +
@@ -11540,12 +11668,12 @@ const file_dex_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x0e2\x18.dex.InternalTimerStatusR\x05value:\x028\x01\x1a[\n" +
 	"\x1cCompletedSubFlowResultsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x05R\x03key\x12%\n" +
-	"\x05value\x18\x02 \x01(\v2\x0f.dex.FlowResultR\x05value:\x028\x01\"\xbb\x02\n" +
+	"\x05value\x18\x02 \x01(\v2\x0f.dex.FlowResultR\x05value:\x028\x01\"\xc0\x02\n" +
 	"\x17StepExecutionResumeInfo\x12*\n" +
 	"\x11step_execution_id\x18\x01 \x01(\tR\x0fstepExecutionId\x12%\n" +
 	"\x04step\x18\x02 \x01(\v2\x11.dex.StepMovementR\x04step\x12X\n" +
-	"\x14completed_conditions\x18\x03 \x01(\v2%.dex.StepExecutionCompletedConditionsR\x13completedConditions\x12B\n" +
-	"\x11waiting_condition\x18\x04 \x01(\v2\x15.dex.WaitingConditionR\x10waitingCondition\x12/\n" +
+	"\x14completed_conditions\x18\x03 \x01(\v2%.dex.StepExecutionCompletedConditionsR\x13completedConditions\x12G\n" +
+	"\x11waiting_condition\x18\x04 \x01(\v2\x1a.dex.WaitingConditionStateR\x10waitingCondition\x12/\n" +
 	"\x0fstep_exe_locals\x18\x05 \x03(\v2\a.dex.KVR\rstepExeLocals\"\xe1\x05\n" +
 	"\x18StepExecutionCounterInfo\x12n\n" +
 	"\x17step_type_started_count\x18\x01 \x03(\v27.dex.StepExecutionCounterInfo.StepTypeStartedCountEntryR\x14stepTypeStartedCount\x12\x90\x01\n" +
@@ -11877,7 +12005,7 @@ func file_dex_proto_rawDescGZIP() []byte {
 }
 
 var file_dex_proto_enumTypes = make([]protoimpl.EnumInfo, 20)
-var file_dex_proto_msgTypes = make([]protoimpl.MessageInfo, 160)
+var file_dex_proto_msgTypes = make([]protoimpl.MessageInfo, 162)
 var file_dex_proto_goTypes = []any{
 	(IndexType)(0),                                    // 0: dex.IndexType
 	(WaitForMethodFailurePolicy)(0),                   // 1: dex.WaitForMethodFailurePolicy
@@ -11993,86 +12121,88 @@ var file_dex_proto_goTypes = []any{
 	(*StepMovement)(nil),                              // 111: dex.StepMovement
 	(*ConditionCombination)(nil),                      // 112: dex.ConditionCombination
 	(*WaitingCondition)(nil),                          // 113: dex.WaitingCondition
-	(*SubFlowOptions)(nil),                            // 114: dex.SubFlowOptions
-	(*SubFlowCondition)(nil),                          // 115: dex.SubFlowCondition
-	(*TimerCondition)(nil),                            // 116: dex.TimerCondition
-	(*ChannelCondition)(nil),                          // 117: dex.ChannelCondition
-	(*ConditionResults)(nil),                          // 118: dex.ConditionResults
-	(*TimerResult)(nil),                               // 119: dex.TimerResult
-	(*ChannelResult)(nil),                             // 120: dex.ChannelResult
-	(*ContinueAsNewDumpRequest)(nil),                  // 121: dex.ContinueAsNewDumpRequest
-	(*ContinueAsNewDumpResponse)(nil),                 // 122: dex.ContinueAsNewDumpResponse
-	(*ChannelValues)(nil),                             // 123: dex.ChannelValues
-	(*StepExecutionCompletedConditions)(nil),          // 124: dex.StepExecutionCompletedConditions
-	(*StepExecutionResumeInfo)(nil),                   // 125: dex.StepExecutionResumeInfo
-	(*StepExecutionCounterInfo)(nil),                  // 126: dex.StepExecutionCounterInfo
-	(*StaleSkipTimer)(nil),                            // 127: dex.StaleSkipTimer
-	(*ContinueAsNewDump)(nil),                         // 128: dex.ContinueAsNewDump
-	(*ContinueAsNewInput)(nil),                        // 129: dex.ContinueAsNewInput
-	(*InterpreterWorkflowInput)(nil),                  // 130: dex.InterpreterWorkflowInput
-	(*InterpreterWorkflowOutput)(nil),                 // 131: dex.InterpreterWorkflowOutput
-	(*BlobStoreCleanupWorkflowInput)(nil),             // 132: dex.BlobStoreCleanupWorkflowInput
-	(*BlobStoreCleanupWorkflowOutput)(nil),            // 133: dex.BlobStoreCleanupWorkflowOutput
-	(*InvokeWaitForMethodActivityInput)(nil),          // 134: dex.InvokeWaitForMethodActivityInput
-	(*InvokeWaitForMethodActivityOutput)(nil),         // 135: dex.InvokeWaitForMethodActivityOutput
-	(*InvokeExecuteMethodActivityInput)(nil),          // 136: dex.InvokeExecuteMethodActivityInput
-	(*RecoveryErrorInfo)(nil),                         // 137: dex.RecoveryErrorInfo
-	(*InternalLocalStepActivityFailure)(nil),          // 138: dex.InternalLocalStepActivityFailure
-	(*InvokeExecuteMethodActivityOutput)(nil),         // 139: dex.InvokeExecuteMethodActivityOutput
-	(*DumpFlowForContinueAsNewActivityInput)(nil),     // 140: dex.DumpFlowForContinueAsNewActivityInput
-	(*DumpFlowForContinueAsNewActivityOutput)(nil),    // 141: dex.DumpFlowForContinueAsNewActivityOutput
-	(*InvokeWorkerRPCActivityInput)(nil),              // 142: dex.InvokeWorkerRPCActivityInput
-	(*InvokeWorkerRPCActivityOutput)(nil),             // 143: dex.InvokeWorkerRPCActivityOutput
-	(*CleanupBlobStoreActivityInput)(nil),             // 144: dex.CleanupBlobStoreActivityInput
-	(*CleanupBlobStoreActivityOutput)(nil),            // 145: dex.CleanupBlobStoreActivityOutput
-	(*AttributeSyncItem)(nil),                         // 146: dex.AttributeSyncItem
-	(*SyncAttributeBatchActivityInput)(nil),           // 147: dex.SyncAttributeBatchActivityInput
-	(*StartSubFlowActivityInput)(nil),                 // 148: dex.StartSubFlowActivityInput
-	(*StartSubFlowActivityOutput)(nil),                // 149: dex.StartSubFlowActivityOutput
-	(*SubFlowCompletionSignalRequest)(nil),            // 150: dex.SubFlowCompletionSignalRequest
-	(*ReportSubFlowCompletionActivityInput)(nil),      // 151: dex.ReportSubFlowCompletionActivityInput
-	(*ReportSubFlowCompletionActivityOutput)(nil),     // 152: dex.ReportSubFlowCompletionActivityOutput
-	(*ExecuteRpcSignalRequest)(nil),                   // 153: dex.ExecuteRpcSignalRequest
-	(*SkipTimerSignalRequest)(nil),                    // 154: dex.SkipTimerSignalRequest
-	(*StopFlowSignalRequest)(nil),                     // 155: dex.StopFlowSignalRequest
-	(*GetAttributesQueryRequest)(nil),                 // 156: dex.GetAttributesQueryRequest
-	(*GetAttributesQueryResponse)(nil),                // 157: dex.GetAttributesQueryResponse
-	(*PrepareRpcQueryRequest)(nil),                    // 158: dex.PrepareRpcQueryRequest
-	(*PrepareRpcQueryResponse)(nil),                   // 159: dex.PrepareRpcQueryResponse
-	(*TimerInfo)(nil),                                 // 160: dex.TimerInfo
-	(*TimerInfoList)(nil),                             // 161: dex.TimerInfoList
-	(*GetCurrentTimerInfosQueryResponse)(nil),         // 162: dex.GetCurrentTimerInfosQueryResponse
-	(*GetScheduledGreedyTimerTimesQueryResponse)(nil), // 163: dex.GetScheduledGreedyTimerTimesQueryResponse
-	(*DebugDumpResponse)(nil),                         // 164: dex.DebugDumpResponse
-	(*InvokeRpcUpdateResult)(nil),                     // 165: dex.InvokeRpcUpdateResult
-	(*StepExecutionNumbers)(nil),                      // 166: dex.StepExecutionNumbers
-	nil,                                               // 167: dex.LoadBlobsResponse.ValuesEntry
-	nil,                                               // 168: dex.SyncAttributeIndexRequest.AttributeIndexesEntry
-	nil,                                               // 169: dex.FlowContinuedStart.PendingChannelMessagesEntry
-	nil,                                               // 170: dex.GetFlowStateResponse.PendingChannelMessagesEntry
-	nil,                                               // 171: dex.InvokeWorkerRPCRequest.ChannelInfosEntry
-	nil,                                               // 172: dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry
-	nil,                                               // 173: dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry
-	nil,                                               // 174: dex.StepExecutionCounterInfo.StepTypeStartedCountEntry
-	nil,                                               // 175: dex.StepExecutionCounterInfo.StepTypeCurrentlyExecutingCountEntry
-	nil,                                               // 176: dex.StepExecutionCounterInfo.StepActiveExecutionNumsEntry
-	nil,                                               // 177: dex.ContinueAsNewDump.ChannelReceivedEntry
-	nil,                                               // 178: dex.PrepareRpcQueryResponse.ChannelInfosEntry
-	nil,                                               // 179: dex.GetCurrentTimerInfosQueryResponse.StepExecutionCurrentTimerInfosEntry
-	(structpb.NullValue)(0),                           // 180: google.protobuf.NullValue
-	(*timestamppb.Timestamp)(nil),                     // 181: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),                       // 182: google.protobuf.Duration
-	(*emptypb.Empty)(nil),                             // 183: google.protobuf.Empty
+	(*WaitingConditionState)(nil),                     // 114: dex.WaitingConditionState
+	(*SubFlowOptions)(nil),                            // 115: dex.SubFlowOptions
+	(*SubFlowCondition)(nil),                          // 116: dex.SubFlowCondition
+	(*SubFlowConditionState)(nil),                     // 117: dex.SubFlowConditionState
+	(*TimerCondition)(nil),                            // 118: dex.TimerCondition
+	(*ChannelCondition)(nil),                          // 119: dex.ChannelCondition
+	(*ConditionResults)(nil),                          // 120: dex.ConditionResults
+	(*TimerResult)(nil),                               // 121: dex.TimerResult
+	(*ChannelResult)(nil),                             // 122: dex.ChannelResult
+	(*ContinueAsNewDumpRequest)(nil),                  // 123: dex.ContinueAsNewDumpRequest
+	(*ContinueAsNewDumpResponse)(nil),                 // 124: dex.ContinueAsNewDumpResponse
+	(*ChannelValues)(nil),                             // 125: dex.ChannelValues
+	(*StepExecutionCompletedConditions)(nil),          // 126: dex.StepExecutionCompletedConditions
+	(*StepExecutionResumeInfo)(nil),                   // 127: dex.StepExecutionResumeInfo
+	(*StepExecutionCounterInfo)(nil),                  // 128: dex.StepExecutionCounterInfo
+	(*StaleSkipTimer)(nil),                            // 129: dex.StaleSkipTimer
+	(*ContinueAsNewDump)(nil),                         // 130: dex.ContinueAsNewDump
+	(*ContinueAsNewInput)(nil),                        // 131: dex.ContinueAsNewInput
+	(*InterpreterWorkflowInput)(nil),                  // 132: dex.InterpreterWorkflowInput
+	(*InterpreterWorkflowOutput)(nil),                 // 133: dex.InterpreterWorkflowOutput
+	(*BlobStoreCleanupWorkflowInput)(nil),             // 134: dex.BlobStoreCleanupWorkflowInput
+	(*BlobStoreCleanupWorkflowOutput)(nil),            // 135: dex.BlobStoreCleanupWorkflowOutput
+	(*InvokeWaitForMethodActivityInput)(nil),          // 136: dex.InvokeWaitForMethodActivityInput
+	(*InvokeWaitForMethodActivityOutput)(nil),         // 137: dex.InvokeWaitForMethodActivityOutput
+	(*InvokeExecuteMethodActivityInput)(nil),          // 138: dex.InvokeExecuteMethodActivityInput
+	(*RecoveryErrorInfo)(nil),                         // 139: dex.RecoveryErrorInfo
+	(*InternalLocalStepActivityFailure)(nil),          // 140: dex.InternalLocalStepActivityFailure
+	(*InvokeExecuteMethodActivityOutput)(nil),         // 141: dex.InvokeExecuteMethodActivityOutput
+	(*DumpFlowForContinueAsNewActivityInput)(nil),     // 142: dex.DumpFlowForContinueAsNewActivityInput
+	(*DumpFlowForContinueAsNewActivityOutput)(nil),    // 143: dex.DumpFlowForContinueAsNewActivityOutput
+	(*InvokeWorkerRPCActivityInput)(nil),              // 144: dex.InvokeWorkerRPCActivityInput
+	(*InvokeWorkerRPCActivityOutput)(nil),             // 145: dex.InvokeWorkerRPCActivityOutput
+	(*CleanupBlobStoreActivityInput)(nil),             // 146: dex.CleanupBlobStoreActivityInput
+	(*CleanupBlobStoreActivityOutput)(nil),            // 147: dex.CleanupBlobStoreActivityOutput
+	(*AttributeSyncItem)(nil),                         // 148: dex.AttributeSyncItem
+	(*SyncAttributeBatchActivityInput)(nil),           // 149: dex.SyncAttributeBatchActivityInput
+	(*StartSubFlowActivityInput)(nil),                 // 150: dex.StartSubFlowActivityInput
+	(*StartSubFlowActivityOutput)(nil),                // 151: dex.StartSubFlowActivityOutput
+	(*SubFlowCompletionSignalRequest)(nil),            // 152: dex.SubFlowCompletionSignalRequest
+	(*ReportSubFlowCompletionActivityInput)(nil),      // 153: dex.ReportSubFlowCompletionActivityInput
+	(*ReportSubFlowCompletionActivityOutput)(nil),     // 154: dex.ReportSubFlowCompletionActivityOutput
+	(*ExecuteRpcSignalRequest)(nil),                   // 155: dex.ExecuteRpcSignalRequest
+	(*SkipTimerSignalRequest)(nil),                    // 156: dex.SkipTimerSignalRequest
+	(*StopFlowSignalRequest)(nil),                     // 157: dex.StopFlowSignalRequest
+	(*GetAttributesQueryRequest)(nil),                 // 158: dex.GetAttributesQueryRequest
+	(*GetAttributesQueryResponse)(nil),                // 159: dex.GetAttributesQueryResponse
+	(*PrepareRpcQueryRequest)(nil),                    // 160: dex.PrepareRpcQueryRequest
+	(*PrepareRpcQueryResponse)(nil),                   // 161: dex.PrepareRpcQueryResponse
+	(*TimerInfo)(nil),                                 // 162: dex.TimerInfo
+	(*TimerInfoList)(nil),                             // 163: dex.TimerInfoList
+	(*GetCurrentTimerInfosQueryResponse)(nil),         // 164: dex.GetCurrentTimerInfosQueryResponse
+	(*GetScheduledGreedyTimerTimesQueryResponse)(nil), // 165: dex.GetScheduledGreedyTimerTimesQueryResponse
+	(*DebugDumpResponse)(nil),                         // 166: dex.DebugDumpResponse
+	(*InvokeRpcUpdateResult)(nil),                     // 167: dex.InvokeRpcUpdateResult
+	(*StepExecutionNumbers)(nil),                      // 168: dex.StepExecutionNumbers
+	nil,                                               // 169: dex.LoadBlobsResponse.ValuesEntry
+	nil,                                               // 170: dex.SyncAttributeIndexRequest.AttributeIndexesEntry
+	nil,                                               // 171: dex.FlowContinuedStart.PendingChannelMessagesEntry
+	nil,                                               // 172: dex.GetFlowStateResponse.PendingChannelMessagesEntry
+	nil,                                               // 173: dex.InvokeWorkerRPCRequest.ChannelInfosEntry
+	nil,                                               // 174: dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry
+	nil,                                               // 175: dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry
+	nil,                                               // 176: dex.StepExecutionCounterInfo.StepTypeStartedCountEntry
+	nil,                                               // 177: dex.StepExecutionCounterInfo.StepTypeCurrentlyExecutingCountEntry
+	nil,                                               // 178: dex.StepExecutionCounterInfo.StepActiveExecutionNumsEntry
+	nil,                                               // 179: dex.ContinueAsNewDump.ChannelReceivedEntry
+	nil,                                               // 180: dex.PrepareRpcQueryResponse.ChannelInfosEntry
+	nil,                                               // 181: dex.GetCurrentTimerInfosQueryResponse.StepExecutionCurrentTimerInfosEntry
+	(structpb.NullValue)(0),                           // 182: google.protobuf.NullValue
+	(*timestamppb.Timestamp)(nil),                     // 183: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),                       // 184: google.protobuf.Duration
+	(*emptypb.Empty)(nil),                             // 185: google.protobuf.Empty
 }
 var file_dex_proto_depIdxs = []int32{
 	21,  // 0: dex.Value.obj_value:type_name -> dex.EncodedObject
-	180, // 1: dex.Value.null_value:type_name -> google.protobuf.NullValue
+	182, // 1: dex.Value.null_value:type_name -> google.protobuf.NullValue
 	20,  // 2: dex.AttributeWrite.value:type_name -> dex.Value
 	25,  // 3: dex.AttributeWrite.index_config:type_name -> dex.IndexConfig
 	23,  // 4: dex.AttributeWrite.sync_config:type_name -> dex.AttributeSyncConfig
 	20,  // 5: dex.KV.value:type_name -> dex.Value
 	0,   // 6: dex.IndexConfig.type:type_name -> dex.IndexType
-	137, // 7: dex.Context.recovery_error:type_name -> dex.RecoveryErrorInfo
+	139, // 7: dex.Context.recovery_error:type_name -> dex.RecoveryErrorInfo
 	28,  // 8: dex.StepOptions.wait_for_retry_policy:type_name -> dex.RetryPolicy
 	28,  // 9: dex.StepOptions.execute_retry_policy:type_name -> dex.RetryPolicy
 	1,   // 10: dex.StepOptions.wait_for_failure_policy:type_name -> dex.WaitForMethodFailurePolicy
@@ -12097,7 +12227,7 @@ var file_dex_proto_depIdxs = []int32{
 	24,  // 29: dex.GetAttributesResponse.attributes:type_name -> dex.KV
 	22,  // 30: dex.SetAttributesRequest.attributes:type_name -> dex.AttributeWrite
 	20,  // 31: dex.LoadBlobsRequest.values:type_name -> dex.Value
-	167, // 32: dex.LoadBlobsResponse.values:type_name -> dex.LoadBlobsResponse.ValuesEntry
+	169, // 32: dex.LoadBlobsResponse.values:type_name -> dex.LoadBlobsResponse.ValuesEntry
 	20,  // 33: dex.StepCompletionOutput.completed_step_output:type_name -> dex.Value
 	7,   // 34: dex.FlowResult.flow_status:type_name -> dex.FlowStatus
 	46,  // 35: dex.FlowResult.results:type_name -> dex.StepCompletionOutput
@@ -12105,19 +12235,19 @@ var file_dex_proto_depIdxs = []int32{
 	50,  // 37: dex.SearchFlowsResponse.flow_runs:type_name -> dex.SearchFlowsResponseEntry
 	24,  // 38: dex.SearchFlowsResponseEntry.indexed_attributes:type_name -> dex.KV
 	7,   // 39: dex.SearchFlowsResponseEntry.flow_status:type_name -> dex.FlowStatus
-	181, // 40: dex.SearchFlowsResponseEntry.start_time:type_name -> google.protobuf.Timestamp
-	181, // 41: dex.SearchFlowsResponseEntry.close_time:type_name -> google.protobuf.Timestamp
-	168, // 42: dex.SyncAttributeIndexRequest.attribute_indexes:type_name -> dex.SyncAttributeIndexRequest.AttributeIndexesEntry
+	183, // 40: dex.SearchFlowsResponseEntry.start_time:type_name -> google.protobuf.Timestamp
+	183, // 41: dex.SearchFlowsResponseEntry.close_time:type_name -> google.protobuf.Timestamp
+	170, // 42: dex.SyncAttributeIndexRequest.attribute_indexes:type_name -> dex.SyncAttributeIndexRequest.AttributeIndexesEntry
 	53,  // 43: dex.GetFlowSummaryResponse.flow_execution_id:type_name -> dex.FlowExecutionID
 	7,   // 44: dex.GetFlowSummaryResponse.flow_status:type_name -> dex.FlowStatus
-	181, // 45: dex.GetFlowSummaryResponse.start_time:type_name -> google.protobuf.Timestamp
-	181, // 46: dex.GetFlowSummaryResponse.close_time:type_name -> google.protobuf.Timestamp
+	183, // 45: dex.GetFlowSummaryResponse.start_time:type_name -> google.protobuf.Timestamp
+	183, // 46: dex.GetFlowSummaryResponse.close_time:type_name -> google.protobuf.Timestamp
 	67,  // 47: dex.InternalAsyncStepInputSnapshot.method_options:type_name -> dex.StepMethodOptions
 	103, // 48: dex.InternalAsyncStepInputSnapshot.wait_for_request:type_name -> dex.InvokeWaitForMethodRequest
 	105, // 49: dex.InternalAsyncStepInputSnapshot.execute_request:type_name -> dex.InvokeExecuteMethodRequest
 	67,  // 50: dex.InternalLocalActivityInput.method_options:type_name -> dex.StepMethodOptions
 	60,  // 51: dex.GetHistoryEventsResponse.events:type_name -> dex.FlowHistoryEvent
-	181, // 52: dex.FlowHistoryEvent.event_time:type_name -> google.protobuf.Timestamp
+	183, // 52: dex.FlowHistoryEvent.event_time:type_name -> google.protobuf.Timestamp
 	61,  // 53: dex.FlowHistoryEvent.flow_started_or_continued:type_name -> dex.FlowStartedOrContinuedHistoryEvent
 	64,  // 54: dex.FlowHistoryEvent.flow_closed:type_name -> dex.FlowClosedHistoryEvent
 	73,  // 55: dex.FlowHistoryEvent.step_wait_for_completed:type_name -> dex.StepWaitForCompletedEvent
@@ -12130,15 +12260,15 @@ var file_dex_proto_depIdxs = []int32{
 	65,  // 62: dex.FlowHistoryEvent.step_execute_pending:type_name -> dex.StepMethodPendingEvent
 	53,  // 63: dex.FlowStartedOrContinuedHistoryEvent.flow_execution_id:type_name -> dex.FlowExecutionID
 	33,  // 64: dex.FlowStartedOrContinuedHistoryEvent.flow_config:type_name -> dex.FlowConfig
-	182, // 65: dex.FlowStartedOrContinuedHistoryEvent.flow_timeout:type_name -> google.protobuf.Duration
+	184, // 65: dex.FlowStartedOrContinuedHistoryEvent.flow_timeout:type_name -> google.protobuf.Duration
 	62,  // 66: dex.FlowStartedOrContinuedHistoryEvent.initial_start:type_name -> dex.FlowInitialStart
 	63,  // 67: dex.FlowStartedOrContinuedHistoryEvent.continued_start:type_name -> dex.FlowContinuedStart
 	20,  // 68: dex.FlowInitialStart.step_input:type_name -> dex.Value
 	30,  // 69: dex.FlowInitialStart.step_options:type_name -> dex.StepOptions
 	24,  // 70: dex.FlowInitialStart.initial_attributes:type_name -> dex.KV
 	111, // 71: dex.FlowContinuedStart.steps_to_start:type_name -> dex.StepMovement
-	125, // 72: dex.FlowContinuedStart.steps_to_resume:type_name -> dex.StepExecutionResumeInfo
-	169, // 73: dex.FlowContinuedStart.pending_channel_messages:type_name -> dex.FlowContinuedStart.PendingChannelMessagesEntry
+	127, // 72: dex.FlowContinuedStart.steps_to_resume:type_name -> dex.StepExecutionResumeInfo
+	171, // 73: dex.FlowContinuedStart.pending_channel_messages:type_name -> dex.FlowContinuedStart.PendingChannelMessagesEntry
 	24,  // 74: dex.FlowContinuedStart.attributes:type_name -> dex.KV
 	46,  // 75: dex.FlowContinuedStart.completed_steps:type_name -> dex.StepCompletionOutput
 	7,   // 76: dex.FlowClosedHistoryEvent.flow_status:type_name -> dex.FlowStatus
@@ -12150,12 +12280,12 @@ var file_dex_proto_depIdxs = []int32{
 	97,  // 82: dex.StepMethodFailure.details:type_name -> dex.ServiceErrorResponse
 	28,  // 83: dex.StepMethodOptions.retry_policy:type_name -> dex.RetryPolicy
 	20,  // 84: dex.StepMethodEventInput.step_input:type_name -> dex.Value
-	118, // 85: dex.StepMethodEventInput.condition_results:type_name -> dex.ConditionResults
+	120, // 85: dex.StepMethodEventInput.condition_results:type_name -> dex.ConditionResults
 	24,  // 86: dex.StepMethodEventInput.attributes:type_name -> dex.KV
 	24,  // 87: dex.StepMethodEventInput.step_execution_locals:type_name -> dex.KV
 	5,   // 88: dex.StepMethodEventContext.durability:type_name -> dex.StepDurability
-	181, // 89: dex.StepMethodEventContext.started_time:type_name -> google.protobuf.Timestamp
-	182, // 90: dex.StepMethodEventContext.duration:type_name -> google.protobuf.Duration
+	183, // 89: dex.StepMethodEventContext.started_time:type_name -> google.protobuf.Timestamp
+	184, // 90: dex.StepMethodEventContext.duration:type_name -> google.protobuf.Duration
 	67,  // 91: dex.StepMethodEventContext.method_options:type_name -> dex.StepMethodOptions
 	66,  // 92: dex.StepMethodEventContext.last_failure_info:type_name -> dex.StepMethodFailure
 	113, // 93: dex.StepWaitForCompletedOutput.wait_for_condition:type_name -> dex.WaitingCondition
@@ -12192,16 +12322,16 @@ var file_dex_proto_depIdxs = []int32{
 	7,   // 124: dex.WaitForHistoryEventResponse.flow_status:type_name -> dex.FlowStatus
 	10,  // 125: dex.ActiveStepExecutionState.phase:type_name -> dex.ActiveStepPhase
 	111, // 126: dex.ActiveStepExecutionState.movement:type_name -> dex.StepMovement
-	113, // 127: dex.ActiveStepExecutionState.waiting_condition:type_name -> dex.WaitingCondition
-	124, // 128: dex.ActiveStepExecutionState.completed_conditions:type_name -> dex.StepExecutionCompletedConditions
+	114, // 127: dex.ActiveStepExecutionState.waiting_condition:type_name -> dex.WaitingConditionState
+	126, // 128: dex.ActiveStepExecutionState.completed_conditions:type_name -> dex.StepExecutionCompletedConditions
 	24,  // 129: dex.ActiveStepExecutionState.step_execution_locals:type_name -> dex.KV
-	160, // 130: dex.ActiveStepExecutionState.timers:type_name -> dex.TimerInfo
+	162, // 130: dex.ActiveStepExecutionState.timers:type_name -> dex.TimerInfo
 	66,  // 131: dex.ActiveStepExecutionState.last_failure_info:type_name -> dex.StepMethodFailure
 	33,  // 132: dex.GetFlowStateResponse.flow_config:type_name -> dex.FlowConfig
 	24,  // 133: dex.GetFlowStateResponse.attributes:type_name -> dex.KV
 	81,  // 134: dex.GetFlowStateResponse.active_step_executions:type_name -> dex.ActiveStepExecutionState
 	111, // 135: dex.GetFlowStateResponse.queued_steps:type_name -> dex.StepMovement
-	170, // 136: dex.GetFlowStateResponse.pending_channel_messages:type_name -> dex.GetFlowStateResponse.PendingChannelMessagesEntry
+	172, // 136: dex.GetFlowStateResponse.pending_channel_messages:type_name -> dex.GetFlowStateResponse.PendingChannelMessagesEntry
 	46,  // 137: dex.GetFlowStateResponse.completed_steps:type_name -> dex.StepCompletionOutput
 	11,  // 138: dex.ResetFlowRequest.reset_type:type_name -> dex.FlowResetType
 	20,  // 139: dex.InvokeRPCRequest.input:type_name -> dex.Value
@@ -12227,7 +12357,7 @@ var file_dex_proto_depIdxs = []int32{
 	20,  // 159: dex.InvokeExecuteMethodRequest.step_input:type_name -> dex.Value
 	24,  // 160: dex.InvokeExecuteMethodRequest.attributes:type_name -> dex.KV
 	24,  // 161: dex.InvokeExecuteMethodRequest.step_exe_locals:type_name -> dex.KV
-	118, // 162: dex.InvokeExecuteMethodRequest.condition_results:type_name -> dex.ConditionResults
+	120, // 162: dex.InvokeExecuteMethodRequest.condition_results:type_name -> dex.ConditionResults
 	27,  // 163: dex.InvokeExecuteMethodResponse.local_activity_metadata:type_name -> dex.LocalActivityMetadata
 	109, // 164: dex.InvokeExecuteMethodResponse.step_decision:type_name -> dex.StepDecision
 	22,  // 165: dex.InvokeExecuteMethodResponse.upsert_attributes:type_name -> dex.AttributeWrite
@@ -12237,7 +12367,7 @@ var file_dex_proto_depIdxs = []int32{
 	26,  // 169: dex.InvokeWorkerRPCRequest.context:type_name -> dex.Context
 	20,  // 170: dex.InvokeWorkerRPCRequest.input:type_name -> dex.Value
 	24,  // 171: dex.InvokeWorkerRPCRequest.attributes:type_name -> dex.KV
-	171, // 172: dex.InvokeWorkerRPCRequest.channel_infos:type_name -> dex.InvokeWorkerRPCRequest.ChannelInfosEntry
+	173, // 172: dex.InvokeWorkerRPCRequest.channel_infos:type_name -> dex.InvokeWorkerRPCRequest.ChannelInfosEntry
 	20,  // 173: dex.InvokeWorkerRPCResponse.output:type_name -> dex.Value
 	109, // 174: dex.InvokeWorkerRPCResponse.step_decision:type_name -> dex.StepDecision
 	22,  // 175: dex.InvokeWorkerRPCResponse.upsert_attributes:type_name -> dex.AttributeWrite
@@ -12249,156 +12379,161 @@ var file_dex_proto_depIdxs = []int32{
 	20,  // 181: dex.CloseDecision.close_input:type_name -> dex.Value
 	20,  // 182: dex.StepMovement.step_input:type_name -> dex.Value
 	30,  // 183: dex.StepMovement.step_options:type_name -> dex.StepOptions
-	137, // 184: dex.StepMovement.recovery_error_internal_only:type_name -> dex.RecoveryErrorInfo
+	139, // 184: dex.StepMovement.recovery_error_internal_only:type_name -> dex.RecoveryErrorInfo
 	14,  // 185: dex.WaitingCondition.waiting_condition_type:type_name -> dex.WaitingConditionType
-	116, // 186: dex.WaitingCondition.timer_conditions:type_name -> dex.TimerCondition
-	117, // 187: dex.WaitingCondition.channel_conditions:type_name -> dex.ChannelCondition
+	118, // 186: dex.WaitingCondition.timer_conditions:type_name -> dex.TimerCondition
+	119, // 187: dex.WaitingCondition.channel_conditions:type_name -> dex.ChannelCondition
 	112, // 188: dex.WaitingCondition.condition_combinations:type_name -> dex.ConditionCombination
-	115, // 189: dex.WaitingCondition.sub_flow_conditions:type_name -> dex.SubFlowCondition
-	15,  // 190: dex.SubFlowOptions.reuse_policy:type_name -> dex.SubFlowReusePolicy
-	29,  // 191: dex.SubFlowOptions.retry_policy:type_name -> dex.FlowRetryPolicy
-	22,  // 192: dex.SubFlowOptions.attributes:type_name -> dex.AttributeWrite
-	33,  // 193: dex.SubFlowOptions.flow_config_override:type_name -> dex.FlowConfig
-	20,  // 194: dex.SubFlowCondition.step_input:type_name -> dex.Value
-	30,  // 195: dex.SubFlowCondition.step_options:type_name -> dex.StepOptions
-	114, // 196: dex.SubFlowCondition.options:type_name -> dex.SubFlowOptions
-	120, // 197: dex.ConditionResults.channel_results:type_name -> dex.ChannelResult
-	119, // 198: dex.ConditionResults.timer_results:type_name -> dex.TimerResult
-	47,  // 199: dex.ConditionResults.sub_flow_results:type_name -> dex.FlowResult
-	16,  // 200: dex.TimerResult.condition_status:type_name -> dex.ConditionStatus
-	16,  // 201: dex.ChannelResult.condition_status:type_name -> dex.ConditionStatus
-	20,  // 202: dex.ChannelResult.values:type_name -> dex.Value
-	20,  // 203: dex.ChannelValues.values:type_name -> dex.Value
-	172, // 204: dex.StepExecutionCompletedConditions.completed_timer_conditions:type_name -> dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry
-	173, // 205: dex.StepExecutionCompletedConditions.completed_sub_flow_results:type_name -> dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry
-	111, // 206: dex.StepExecutionResumeInfo.step:type_name -> dex.StepMovement
-	124, // 207: dex.StepExecutionResumeInfo.completed_conditions:type_name -> dex.StepExecutionCompletedConditions
-	113, // 208: dex.StepExecutionResumeInfo.waiting_condition:type_name -> dex.WaitingCondition
-	24,  // 209: dex.StepExecutionResumeInfo.step_exe_locals:type_name -> dex.KV
-	174, // 210: dex.StepExecutionCounterInfo.step_type_started_count:type_name -> dex.StepExecutionCounterInfo.StepTypeStartedCountEntry
-	175, // 211: dex.StepExecutionCounterInfo.step_type_currently_executing_count:type_name -> dex.StepExecutionCounterInfo.StepTypeCurrentlyExecutingCountEntry
-	176, // 212: dex.StepExecutionCounterInfo.step_active_execution_nums:type_name -> dex.StepExecutionCounterInfo.StepActiveExecutionNumsEntry
-	111, // 213: dex.ContinueAsNewDump.steps_to_start_from_beginning:type_name -> dex.StepMovement
-	125, // 214: dex.ContinueAsNewDump.step_executions_to_resume:type_name -> dex.StepExecutionResumeInfo
-	177, // 215: dex.ContinueAsNewDump.channel_received:type_name -> dex.ContinueAsNewDump.ChannelReceivedEntry
-	126, // 216: dex.ContinueAsNewDump.counter_info:type_name -> dex.StepExecutionCounterInfo
-	46,  // 217: dex.ContinueAsNewDump.step_outputs:type_name -> dex.StepCompletionOutput
-	127, // 218: dex.ContinueAsNewDump.stale_skip_timers:type_name -> dex.StaleSkipTimer
-	24,  // 219: dex.ContinueAsNewDump.attributes:type_name -> dex.KV
-	146, // 220: dex.ContinueAsNewDump.pending_attribute_sync_items:type_name -> dex.AttributeSyncItem
-	20,  // 221: dex.InterpreterWorkflowInput.step_input:type_name -> dex.Value
-	30,  // 222: dex.InterpreterWorkflowInput.step_options:type_name -> dex.StepOptions
-	22,  // 223: dex.InterpreterWorkflowInput.init_attributes:type_name -> dex.AttributeWrite
-	33,  // 224: dex.InterpreterWorkflowInput.config:type_name -> dex.FlowConfig
-	129, // 225: dex.InterpreterWorkflowInput.continue_as_new_input:type_name -> dex.ContinueAsNewInput
-	46,  // 226: dex.InterpreterWorkflowOutput.step_completion_outputs:type_name -> dex.StepCompletionOutput
-	34,  // 227: dex.InvokeWaitForMethodActivityInput.worker_target:type_name -> dex.WorkerTarget
-	103, // 228: dex.InvokeWaitForMethodActivityInput.request:type_name -> dex.InvokeWaitForMethodRequest
-	104, // 229: dex.InvokeWaitForMethodActivityOutput.response:type_name -> dex.InvokeWaitForMethodResponse
-	34,  // 230: dex.InvokeExecuteMethodActivityInput.worker_target:type_name -> dex.WorkerTarget
-	105, // 231: dex.InvokeExecuteMethodActivityInput.request:type_name -> dex.InvokeExecuteMethodRequest
-	27,  // 232: dex.InternalLocalStepActivityFailure.local_activity_metadata:type_name -> dex.LocalActivityMetadata
-	67,  // 233: dex.InternalLocalStepActivityFailure.method_options:type_name -> dex.StepMethodOptions
-	99,  // 234: dex.InternalLocalStepActivityFailure.activity_error:type_name -> dex.InternalActivityError
-	106, // 235: dex.InvokeExecuteMethodActivityOutput.response:type_name -> dex.InvokeExecuteMethodResponse
-	121, // 236: dex.DumpFlowForContinueAsNewActivityInput.request:type_name -> dex.ContinueAsNewDumpRequest
-	122, // 237: dex.DumpFlowForContinueAsNewActivityOutput.response:type_name -> dex.ContinueAsNewDumpResponse
-	159, // 238: dex.InvokeWorkerRPCActivityInput.rpc_prep:type_name -> dex.PrepareRpcQueryResponse
-	86,  // 239: dex.InvokeWorkerRPCActivityInput.request:type_name -> dex.InvokeRPCRequest
-	108, // 240: dex.InvokeWorkerRPCActivityOutput.response:type_name -> dex.InvokeWorkerRPCResponse
-	20,  // 241: dex.AttributeSyncItem.value:type_name -> dex.Value
-	146, // 242: dex.SyncAttributeBatchActivityInput.items:type_name -> dex.AttributeSyncItem
-	115, // 243: dex.StartSubFlowActivityInput.condition:type_name -> dex.SubFlowCondition
-	33,  // 244: dex.StartSubFlowActivityInput.parent_flow_config:type_name -> dex.FlowConfig
-	47,  // 245: dex.StartSubFlowActivityOutput.immediate_flow_result:type_name -> dex.FlowResult
-	47,  // 246: dex.SubFlowCompletionSignalRequest.flow_result:type_name -> dex.FlowResult
-	150, // 247: dex.ReportSubFlowCompletionActivityInput.request:type_name -> dex.SubFlowCompletionSignalRequest
-	19,  // 248: dex.ReportSubFlowCompletionActivityOutput.status:type_name -> dex.SubFlowCompletionDeliveryStatus
-	20,  // 249: dex.ExecuteRpcSignalRequest.rpc_input:type_name -> dex.Value
-	20,  // 250: dex.ExecuteRpcSignalRequest.rpc_output:type_name -> dex.Value
-	22,  // 251: dex.ExecuteRpcSignalRequest.upsert_attributes:type_name -> dex.AttributeWrite
-	109, // 252: dex.ExecuteRpcSignalRequest.step_decision:type_name -> dex.StepDecision
-	24,  // 253: dex.ExecuteRpcSignalRequest.record_events:type_name -> dex.KV
-	38,  // 254: dex.ExecuteRpcSignalRequest.publish_to_channel:type_name -> dex.ChannelMessage
-	6,   // 255: dex.StopFlowSignalRequest.stop_type:type_name -> dex.StopType
-	24,  // 256: dex.GetAttributesQueryResponse.attributes:type_name -> dex.KV
-	24,  // 257: dex.PrepareRpcQueryResponse.attributes:type_name -> dex.KV
-	34,  // 258: dex.PrepareRpcQueryResponse.worker_target:type_name -> dex.WorkerTarget
-	178, // 259: dex.PrepareRpcQueryResponse.channel_infos:type_name -> dex.PrepareRpcQueryResponse.ChannelInfosEntry
-	17,  // 260: dex.TimerInfo.status:type_name -> dex.InternalTimerStatus
-	160, // 261: dex.TimerInfoList.timers:type_name -> dex.TimerInfo
-	179, // 262: dex.GetCurrentTimerInfosQueryResponse.step_execution_current_timer_infos:type_name -> dex.GetCurrentTimerInfosQueryResponse.StepExecutionCurrentTimerInfosEntry
-	160, // 263: dex.GetScheduledGreedyTimerTimesQueryResponse.pending_scheduled:type_name -> dex.TimerInfo
-	33,  // 264: dex.DebugDumpResponse.config:type_name -> dex.FlowConfig
-	128, // 265: dex.DebugDumpResponse.snapshot:type_name -> dex.ContinueAsNewDump
-	81,  // 266: dex.DebugDumpResponse.active_step_executions:type_name -> dex.ActiveStepExecutionState
-	87,  // 267: dex.InvokeRpcUpdateResult.response:type_name -> dex.InvokeRPCResponse
-	20,  // 268: dex.LoadBlobsResponse.ValuesEntry.value:type_name -> dex.Value
-	0,   // 269: dex.SyncAttributeIndexRequest.AttributeIndexesEntry.value:type_name -> dex.IndexType
-	123, // 270: dex.FlowContinuedStart.PendingChannelMessagesEntry.value:type_name -> dex.ChannelValues
-	123, // 271: dex.GetFlowStateResponse.PendingChannelMessagesEntry.value:type_name -> dex.ChannelValues
-	102, // 272: dex.InvokeWorkerRPCRequest.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
-	17,  // 273: dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry.value:type_name -> dex.InternalTimerStatus
-	47,  // 274: dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry.value:type_name -> dex.FlowResult
-	166, // 275: dex.StepExecutionCounterInfo.StepActiveExecutionNumsEntry.value:type_name -> dex.StepExecutionNumbers
-	123, // 276: dex.ContinueAsNewDump.ChannelReceivedEntry.value:type_name -> dex.ChannelValues
-	102, // 277: dex.PrepareRpcQueryResponse.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
-	161, // 278: dex.GetCurrentTimerInfosQueryResponse.StepExecutionCurrentTimerInfosEntry.value:type_name -> dex.TimerInfoList
-	35,  // 279: dex.FlowService.StartFlow:input_type -> dex.StartFlowRequest
-	37,  // 280: dex.FlowService.PublishToChannel:input_type -> dex.PublishToChannelRequest
-	39,  // 281: dex.FlowService.StopFlow:input_type -> dex.StopFlowRequest
-	40,  // 282: dex.FlowService.GetAttributes:input_type -> dex.GetAttributesRequest
-	42,  // 283: dex.FlowService.SetAttributes:input_type -> dex.SetAttributesRequest
-	43,  // 284: dex.FlowService.LoadBlobs:input_type -> dex.LoadBlobsRequest
-	45,  // 285: dex.FlowService.WaitForFlow:input_type -> dex.WaitForFlowRequest
-	48,  // 286: dex.FlowService.SearchFlows:input_type -> dex.SearchFlowsRequest
-	51,  // 287: dex.FlowService.SyncAttributeIndexes:input_type -> dex.SyncAttributeIndexRequest
-	54,  // 288: dex.FlowService.GetFlowSummary:input_type -> dex.GetFlowSummaryRequest
-	58,  // 289: dex.FlowService.GetHistoryEvents:input_type -> dex.GetHistoryEventsRequest
-	79,  // 290: dex.FlowService.WaitForHistoryEvent:input_type -> dex.WaitForHistoryEventRequest
-	82,  // 291: dex.FlowService.GetFlowState:input_type -> dex.GetFlowStateRequest
-	84,  // 292: dex.FlowService.ResetFlow:input_type -> dex.ResetFlowRequest
-	86,  // 293: dex.FlowService.InvokeRPC:input_type -> dex.InvokeRPCRequest
-	88,  // 294: dex.FlowService.SkipTimer:input_type -> dex.SkipTimerRequest
-	89,  // 295: dex.FlowService.UpdateFlowConfig:input_type -> dex.UpdateFlowConfigRequest
-	90,  // 296: dex.FlowService.WaitForStepCompletion:input_type -> dex.WaitForStepCompletionRequest
-	92,  // 297: dex.FlowService.WaitForAttribute:input_type -> dex.WaitForAttributeRequest
-	95,  // 298: dex.FlowService.TriggerContinueAsNew:input_type -> dex.TriggerContinueAsNewRequest
-	183, // 299: dex.FlowService.HealthCheck:input_type -> google.protobuf.Empty
-	103, // 300: dex.WorkerService.InvokeWaitForMethod:input_type -> dex.InvokeWaitForMethodRequest
-	105, // 301: dex.WorkerService.InvokeExecuteMethod:input_type -> dex.InvokeExecuteMethodRequest
-	107, // 302: dex.WorkerService.InvokeWorkerRPC:input_type -> dex.InvokeWorkerRPCRequest
-	121, // 303: dex.InternalService.DumpFlowForContinueAsNew:input_type -> dex.ContinueAsNewDumpRequest
-	36,  // 304: dex.FlowService.StartFlow:output_type -> dex.StartFlowResponse
-	183, // 305: dex.FlowService.PublishToChannel:output_type -> google.protobuf.Empty
-	183, // 306: dex.FlowService.StopFlow:output_type -> google.protobuf.Empty
-	41,  // 307: dex.FlowService.GetAttributes:output_type -> dex.GetAttributesResponse
-	183, // 308: dex.FlowService.SetAttributes:output_type -> google.protobuf.Empty
-	44,  // 309: dex.FlowService.LoadBlobs:output_type -> dex.LoadBlobsResponse
-	47,  // 310: dex.FlowService.WaitForFlow:output_type -> dex.FlowResult
-	49,  // 311: dex.FlowService.SearchFlows:output_type -> dex.SearchFlowsResponse
-	52,  // 312: dex.FlowService.SyncAttributeIndexes:output_type -> dex.SyncAttributeIndexResponse
-	55,  // 313: dex.FlowService.GetFlowSummary:output_type -> dex.GetFlowSummaryResponse
-	59,  // 314: dex.FlowService.GetHistoryEvents:output_type -> dex.GetHistoryEventsResponse
-	80,  // 315: dex.FlowService.WaitForHistoryEvent:output_type -> dex.WaitForHistoryEventResponse
-	83,  // 316: dex.FlowService.GetFlowState:output_type -> dex.GetFlowStateResponse
-	85,  // 317: dex.FlowService.ResetFlow:output_type -> dex.ResetFlowResponse
-	87,  // 318: dex.FlowService.InvokeRPC:output_type -> dex.InvokeRPCResponse
-	183, // 319: dex.FlowService.SkipTimer:output_type -> google.protobuf.Empty
-	183, // 320: dex.FlowService.UpdateFlowConfig:output_type -> google.protobuf.Empty
-	91,  // 321: dex.FlowService.WaitForStepCompletion:output_type -> dex.WaitForStepCompletionResponse
-	183, // 322: dex.FlowService.WaitForAttribute:output_type -> google.protobuf.Empty
-	183, // 323: dex.FlowService.TriggerContinueAsNew:output_type -> google.protobuf.Empty
-	96,  // 324: dex.FlowService.HealthCheck:output_type -> dex.HealthInfo
-	104, // 325: dex.WorkerService.InvokeWaitForMethod:output_type -> dex.InvokeWaitForMethodResponse
-	106, // 326: dex.WorkerService.InvokeExecuteMethod:output_type -> dex.InvokeExecuteMethodResponse
-	108, // 327: dex.WorkerService.InvokeWorkerRPC:output_type -> dex.InvokeWorkerRPCResponse
-	122, // 328: dex.InternalService.DumpFlowForContinueAsNew:output_type -> dex.ContinueAsNewDumpResponse
-	304, // [304:329] is the sub-list for method output_type
-	279, // [279:304] is the sub-list for method input_type
-	279, // [279:279] is the sub-list for extension type_name
-	279, // [279:279] is the sub-list for extension extendee
-	0,   // [0:279] is the sub-list for field type_name
+	116, // 189: dex.WaitingCondition.sub_flow_conditions:type_name -> dex.SubFlowCondition
+	14,  // 190: dex.WaitingConditionState.waiting_condition_type:type_name -> dex.WaitingConditionType
+	118, // 191: dex.WaitingConditionState.timer_conditions:type_name -> dex.TimerCondition
+	119, // 192: dex.WaitingConditionState.channel_conditions:type_name -> dex.ChannelCondition
+	112, // 193: dex.WaitingConditionState.condition_combinations:type_name -> dex.ConditionCombination
+	117, // 194: dex.WaitingConditionState.sub_flow_conditions:type_name -> dex.SubFlowConditionState
+	15,  // 195: dex.SubFlowOptions.reuse_policy:type_name -> dex.SubFlowReusePolicy
+	29,  // 196: dex.SubFlowOptions.retry_policy:type_name -> dex.FlowRetryPolicy
+	22,  // 197: dex.SubFlowOptions.attributes:type_name -> dex.AttributeWrite
+	33,  // 198: dex.SubFlowOptions.flow_config_override:type_name -> dex.FlowConfig
+	20,  // 199: dex.SubFlowCondition.step_input:type_name -> dex.Value
+	30,  // 200: dex.SubFlowCondition.step_options:type_name -> dex.StepOptions
+	115, // 201: dex.SubFlowCondition.options:type_name -> dex.SubFlowOptions
+	122, // 202: dex.ConditionResults.channel_results:type_name -> dex.ChannelResult
+	121, // 203: dex.ConditionResults.timer_results:type_name -> dex.TimerResult
+	47,  // 204: dex.ConditionResults.sub_flow_results:type_name -> dex.FlowResult
+	16,  // 205: dex.TimerResult.condition_status:type_name -> dex.ConditionStatus
+	16,  // 206: dex.ChannelResult.condition_status:type_name -> dex.ConditionStatus
+	20,  // 207: dex.ChannelResult.values:type_name -> dex.Value
+	20,  // 208: dex.ChannelValues.values:type_name -> dex.Value
+	174, // 209: dex.StepExecutionCompletedConditions.completed_timer_conditions:type_name -> dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry
+	175, // 210: dex.StepExecutionCompletedConditions.completed_sub_flow_results:type_name -> dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry
+	111, // 211: dex.StepExecutionResumeInfo.step:type_name -> dex.StepMovement
+	126, // 212: dex.StepExecutionResumeInfo.completed_conditions:type_name -> dex.StepExecutionCompletedConditions
+	114, // 213: dex.StepExecutionResumeInfo.waiting_condition:type_name -> dex.WaitingConditionState
+	24,  // 214: dex.StepExecutionResumeInfo.step_exe_locals:type_name -> dex.KV
+	176, // 215: dex.StepExecutionCounterInfo.step_type_started_count:type_name -> dex.StepExecutionCounterInfo.StepTypeStartedCountEntry
+	177, // 216: dex.StepExecutionCounterInfo.step_type_currently_executing_count:type_name -> dex.StepExecutionCounterInfo.StepTypeCurrentlyExecutingCountEntry
+	178, // 217: dex.StepExecutionCounterInfo.step_active_execution_nums:type_name -> dex.StepExecutionCounterInfo.StepActiveExecutionNumsEntry
+	111, // 218: dex.ContinueAsNewDump.steps_to_start_from_beginning:type_name -> dex.StepMovement
+	127, // 219: dex.ContinueAsNewDump.step_executions_to_resume:type_name -> dex.StepExecutionResumeInfo
+	179, // 220: dex.ContinueAsNewDump.channel_received:type_name -> dex.ContinueAsNewDump.ChannelReceivedEntry
+	128, // 221: dex.ContinueAsNewDump.counter_info:type_name -> dex.StepExecutionCounterInfo
+	46,  // 222: dex.ContinueAsNewDump.step_outputs:type_name -> dex.StepCompletionOutput
+	129, // 223: dex.ContinueAsNewDump.stale_skip_timers:type_name -> dex.StaleSkipTimer
+	24,  // 224: dex.ContinueAsNewDump.attributes:type_name -> dex.KV
+	148, // 225: dex.ContinueAsNewDump.pending_attribute_sync_items:type_name -> dex.AttributeSyncItem
+	20,  // 226: dex.InterpreterWorkflowInput.step_input:type_name -> dex.Value
+	30,  // 227: dex.InterpreterWorkflowInput.step_options:type_name -> dex.StepOptions
+	22,  // 228: dex.InterpreterWorkflowInput.init_attributes:type_name -> dex.AttributeWrite
+	33,  // 229: dex.InterpreterWorkflowInput.config:type_name -> dex.FlowConfig
+	131, // 230: dex.InterpreterWorkflowInput.continue_as_new_input:type_name -> dex.ContinueAsNewInput
+	46,  // 231: dex.InterpreterWorkflowOutput.step_completion_outputs:type_name -> dex.StepCompletionOutput
+	34,  // 232: dex.InvokeWaitForMethodActivityInput.worker_target:type_name -> dex.WorkerTarget
+	103, // 233: dex.InvokeWaitForMethodActivityInput.request:type_name -> dex.InvokeWaitForMethodRequest
+	104, // 234: dex.InvokeWaitForMethodActivityOutput.response:type_name -> dex.InvokeWaitForMethodResponse
+	34,  // 235: dex.InvokeExecuteMethodActivityInput.worker_target:type_name -> dex.WorkerTarget
+	105, // 236: dex.InvokeExecuteMethodActivityInput.request:type_name -> dex.InvokeExecuteMethodRequest
+	27,  // 237: dex.InternalLocalStepActivityFailure.local_activity_metadata:type_name -> dex.LocalActivityMetadata
+	67,  // 238: dex.InternalLocalStepActivityFailure.method_options:type_name -> dex.StepMethodOptions
+	99,  // 239: dex.InternalLocalStepActivityFailure.activity_error:type_name -> dex.InternalActivityError
+	106, // 240: dex.InvokeExecuteMethodActivityOutput.response:type_name -> dex.InvokeExecuteMethodResponse
+	123, // 241: dex.DumpFlowForContinueAsNewActivityInput.request:type_name -> dex.ContinueAsNewDumpRequest
+	124, // 242: dex.DumpFlowForContinueAsNewActivityOutput.response:type_name -> dex.ContinueAsNewDumpResponse
+	161, // 243: dex.InvokeWorkerRPCActivityInput.rpc_prep:type_name -> dex.PrepareRpcQueryResponse
+	86,  // 244: dex.InvokeWorkerRPCActivityInput.request:type_name -> dex.InvokeRPCRequest
+	108, // 245: dex.InvokeWorkerRPCActivityOutput.response:type_name -> dex.InvokeWorkerRPCResponse
+	20,  // 246: dex.AttributeSyncItem.value:type_name -> dex.Value
+	148, // 247: dex.SyncAttributeBatchActivityInput.items:type_name -> dex.AttributeSyncItem
+	116, // 248: dex.StartSubFlowActivityInput.condition:type_name -> dex.SubFlowCondition
+	33,  // 249: dex.StartSubFlowActivityInput.parent_flow_config:type_name -> dex.FlowConfig
+	47,  // 250: dex.StartSubFlowActivityOutput.immediate_flow_result:type_name -> dex.FlowResult
+	47,  // 251: dex.SubFlowCompletionSignalRequest.flow_result:type_name -> dex.FlowResult
+	152, // 252: dex.ReportSubFlowCompletionActivityInput.request:type_name -> dex.SubFlowCompletionSignalRequest
+	19,  // 253: dex.ReportSubFlowCompletionActivityOutput.status:type_name -> dex.SubFlowCompletionDeliveryStatus
+	20,  // 254: dex.ExecuteRpcSignalRequest.rpc_input:type_name -> dex.Value
+	20,  // 255: dex.ExecuteRpcSignalRequest.rpc_output:type_name -> dex.Value
+	22,  // 256: dex.ExecuteRpcSignalRequest.upsert_attributes:type_name -> dex.AttributeWrite
+	109, // 257: dex.ExecuteRpcSignalRequest.step_decision:type_name -> dex.StepDecision
+	24,  // 258: dex.ExecuteRpcSignalRequest.record_events:type_name -> dex.KV
+	38,  // 259: dex.ExecuteRpcSignalRequest.publish_to_channel:type_name -> dex.ChannelMessage
+	6,   // 260: dex.StopFlowSignalRequest.stop_type:type_name -> dex.StopType
+	24,  // 261: dex.GetAttributesQueryResponse.attributes:type_name -> dex.KV
+	24,  // 262: dex.PrepareRpcQueryResponse.attributes:type_name -> dex.KV
+	34,  // 263: dex.PrepareRpcQueryResponse.worker_target:type_name -> dex.WorkerTarget
+	180, // 264: dex.PrepareRpcQueryResponse.channel_infos:type_name -> dex.PrepareRpcQueryResponse.ChannelInfosEntry
+	17,  // 265: dex.TimerInfo.status:type_name -> dex.InternalTimerStatus
+	162, // 266: dex.TimerInfoList.timers:type_name -> dex.TimerInfo
+	181, // 267: dex.GetCurrentTimerInfosQueryResponse.step_execution_current_timer_infos:type_name -> dex.GetCurrentTimerInfosQueryResponse.StepExecutionCurrentTimerInfosEntry
+	162, // 268: dex.GetScheduledGreedyTimerTimesQueryResponse.pending_scheduled:type_name -> dex.TimerInfo
+	33,  // 269: dex.DebugDumpResponse.config:type_name -> dex.FlowConfig
+	130, // 270: dex.DebugDumpResponse.snapshot:type_name -> dex.ContinueAsNewDump
+	81,  // 271: dex.DebugDumpResponse.active_step_executions:type_name -> dex.ActiveStepExecutionState
+	87,  // 272: dex.InvokeRpcUpdateResult.response:type_name -> dex.InvokeRPCResponse
+	20,  // 273: dex.LoadBlobsResponse.ValuesEntry.value:type_name -> dex.Value
+	0,   // 274: dex.SyncAttributeIndexRequest.AttributeIndexesEntry.value:type_name -> dex.IndexType
+	125, // 275: dex.FlowContinuedStart.PendingChannelMessagesEntry.value:type_name -> dex.ChannelValues
+	125, // 276: dex.GetFlowStateResponse.PendingChannelMessagesEntry.value:type_name -> dex.ChannelValues
+	102, // 277: dex.InvokeWorkerRPCRequest.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
+	17,  // 278: dex.StepExecutionCompletedConditions.CompletedTimerConditionsEntry.value:type_name -> dex.InternalTimerStatus
+	47,  // 279: dex.StepExecutionCompletedConditions.CompletedSubFlowResultsEntry.value:type_name -> dex.FlowResult
+	168, // 280: dex.StepExecutionCounterInfo.StepActiveExecutionNumsEntry.value:type_name -> dex.StepExecutionNumbers
+	125, // 281: dex.ContinueAsNewDump.ChannelReceivedEntry.value:type_name -> dex.ChannelValues
+	102, // 282: dex.PrepareRpcQueryResponse.ChannelInfosEntry.value:type_name -> dex.ChannelInfo
+	163, // 283: dex.GetCurrentTimerInfosQueryResponse.StepExecutionCurrentTimerInfosEntry.value:type_name -> dex.TimerInfoList
+	35,  // 284: dex.FlowService.StartFlow:input_type -> dex.StartFlowRequest
+	37,  // 285: dex.FlowService.PublishToChannel:input_type -> dex.PublishToChannelRequest
+	39,  // 286: dex.FlowService.StopFlow:input_type -> dex.StopFlowRequest
+	40,  // 287: dex.FlowService.GetAttributes:input_type -> dex.GetAttributesRequest
+	42,  // 288: dex.FlowService.SetAttributes:input_type -> dex.SetAttributesRequest
+	43,  // 289: dex.FlowService.LoadBlobs:input_type -> dex.LoadBlobsRequest
+	45,  // 290: dex.FlowService.WaitForFlow:input_type -> dex.WaitForFlowRequest
+	48,  // 291: dex.FlowService.SearchFlows:input_type -> dex.SearchFlowsRequest
+	51,  // 292: dex.FlowService.SyncAttributeIndexes:input_type -> dex.SyncAttributeIndexRequest
+	54,  // 293: dex.FlowService.GetFlowSummary:input_type -> dex.GetFlowSummaryRequest
+	58,  // 294: dex.FlowService.GetHistoryEvents:input_type -> dex.GetHistoryEventsRequest
+	79,  // 295: dex.FlowService.WaitForHistoryEvent:input_type -> dex.WaitForHistoryEventRequest
+	82,  // 296: dex.FlowService.GetFlowState:input_type -> dex.GetFlowStateRequest
+	84,  // 297: dex.FlowService.ResetFlow:input_type -> dex.ResetFlowRequest
+	86,  // 298: dex.FlowService.InvokeRPC:input_type -> dex.InvokeRPCRequest
+	88,  // 299: dex.FlowService.SkipTimer:input_type -> dex.SkipTimerRequest
+	89,  // 300: dex.FlowService.UpdateFlowConfig:input_type -> dex.UpdateFlowConfigRequest
+	90,  // 301: dex.FlowService.WaitForStepCompletion:input_type -> dex.WaitForStepCompletionRequest
+	92,  // 302: dex.FlowService.WaitForAttribute:input_type -> dex.WaitForAttributeRequest
+	95,  // 303: dex.FlowService.TriggerContinueAsNew:input_type -> dex.TriggerContinueAsNewRequest
+	185, // 304: dex.FlowService.HealthCheck:input_type -> google.protobuf.Empty
+	103, // 305: dex.WorkerService.InvokeWaitForMethod:input_type -> dex.InvokeWaitForMethodRequest
+	105, // 306: dex.WorkerService.InvokeExecuteMethod:input_type -> dex.InvokeExecuteMethodRequest
+	107, // 307: dex.WorkerService.InvokeWorkerRPC:input_type -> dex.InvokeWorkerRPCRequest
+	123, // 308: dex.InternalService.DumpFlowForContinueAsNew:input_type -> dex.ContinueAsNewDumpRequest
+	36,  // 309: dex.FlowService.StartFlow:output_type -> dex.StartFlowResponse
+	185, // 310: dex.FlowService.PublishToChannel:output_type -> google.protobuf.Empty
+	185, // 311: dex.FlowService.StopFlow:output_type -> google.protobuf.Empty
+	41,  // 312: dex.FlowService.GetAttributes:output_type -> dex.GetAttributesResponse
+	185, // 313: dex.FlowService.SetAttributes:output_type -> google.protobuf.Empty
+	44,  // 314: dex.FlowService.LoadBlobs:output_type -> dex.LoadBlobsResponse
+	47,  // 315: dex.FlowService.WaitForFlow:output_type -> dex.FlowResult
+	49,  // 316: dex.FlowService.SearchFlows:output_type -> dex.SearchFlowsResponse
+	52,  // 317: dex.FlowService.SyncAttributeIndexes:output_type -> dex.SyncAttributeIndexResponse
+	55,  // 318: dex.FlowService.GetFlowSummary:output_type -> dex.GetFlowSummaryResponse
+	59,  // 319: dex.FlowService.GetHistoryEvents:output_type -> dex.GetHistoryEventsResponse
+	80,  // 320: dex.FlowService.WaitForHistoryEvent:output_type -> dex.WaitForHistoryEventResponse
+	83,  // 321: dex.FlowService.GetFlowState:output_type -> dex.GetFlowStateResponse
+	85,  // 322: dex.FlowService.ResetFlow:output_type -> dex.ResetFlowResponse
+	87,  // 323: dex.FlowService.InvokeRPC:output_type -> dex.InvokeRPCResponse
+	185, // 324: dex.FlowService.SkipTimer:output_type -> google.protobuf.Empty
+	185, // 325: dex.FlowService.UpdateFlowConfig:output_type -> google.protobuf.Empty
+	91,  // 326: dex.FlowService.WaitForStepCompletion:output_type -> dex.WaitForStepCompletionResponse
+	185, // 327: dex.FlowService.WaitForAttribute:output_type -> google.protobuf.Empty
+	185, // 328: dex.FlowService.TriggerContinueAsNew:output_type -> google.protobuf.Empty
+	96,  // 329: dex.FlowService.HealthCheck:output_type -> dex.HealthInfo
+	104, // 330: dex.WorkerService.InvokeWaitForMethod:output_type -> dex.InvokeWaitForMethodResponse
+	106, // 331: dex.WorkerService.InvokeExecuteMethod:output_type -> dex.InvokeExecuteMethodResponse
+	108, // 332: dex.WorkerService.InvokeWorkerRPC:output_type -> dex.InvokeWorkerRPCResponse
+	124, // 333: dex.InternalService.DumpFlowForContinueAsNew:output_type -> dex.ContinueAsNewDumpResponse
+	309, // [309:334] is the sub-list for method output_type
+	284, // [284:309] is the sub-list for method input_type
+	284, // [284:284] is the sub-list for extension type_name
+	284, // [284:284] is the sub-list for extension extendee
+	0,   // [0:284] is the sub-list for field type_name
 }
 
 func init() { file_dex_proto_init() }
@@ -12446,14 +12581,14 @@ func file_dex_proto_init() {
 		(*InternalFlowError_ServerDetail)(nil),
 		(*InternalFlowError_ActivityError)(nil),
 	}
-	file_dex_proto_msgTypes[97].OneofWrappers = []any{}
+	file_dex_proto_msgTypes[99].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_dex_proto_rawDesc), len(file_dex_proto_rawDesc)),
 			NumEnums:      20,
-			NumMessages:   160,
+			NumMessages:   162,
 			NumExtensions: 0,
 			NumServices:   3,
 		},
