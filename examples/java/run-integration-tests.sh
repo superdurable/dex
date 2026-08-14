@@ -84,5 +84,4 @@ fi
 
 cd "$script_dir"
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  ./gradlew --include-build "$repo_root/sdk-java" \
-    integrationTest --info --no-daemon
+  ./gradlew test --tests 'io.superdurable.dex.integ.*' --info --no-daemon
