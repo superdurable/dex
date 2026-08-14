@@ -24,7 +24,7 @@ type SignalReceiver struct {
 	flowConfiger          *config.FlowConfiger
 	channelStore          *ChannelStore
 	stepRequestQueue      *StepRequestQueue
-	stepExecutionRegistry *stepExecutionRegistry
+	stepExecutionRegistry *StepExecutionRegistry
 	persistenceManager    *PersistenceManager
 	subFlowTracker        *SubFlowTracker
 	stopFlowRequested     bool
@@ -36,7 +36,7 @@ func NewSignalReceiver(
 	provider interfaces.WorkflowProvider,
 	channelStore *ChannelStore,
 	stepRequestQueue *StepRequestQueue,
-	stepExecutionRegistry *stepExecutionRegistry,
+	stepExecutionRegistry *StepExecutionRegistry,
 	persistenceManager *PersistenceManager,
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewCounter *cont.ContinueAsNewCounter,

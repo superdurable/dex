@@ -15,7 +15,7 @@ import (
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
-type stepExecutionRegistry struct {
+type StepExecutionRegistry struct {
 	provider             interfaces.WorkflowProvider
 	stepRequestQueue     *StepRequestQueue
 	stepExecutionCounter *StepExecutionCounter
@@ -39,7 +39,7 @@ type stepCancellationSelector struct {
 	fromStepExecutionID string
 }
 
-func newStepExecutionRegistry(
+func NewStepExecutionRegistry(
 	provider interfaces.WorkflowProvider,
 	stepRequestQueue *StepRequestQueue,
 	stepExecutionCounter *StepExecutionCounter,
@@ -47,13 +47,13 @@ func newStepExecutionRegistry(
 	timerProcessor interfaces.TimerProcessor,
 	persistenceManager *PersistenceManager,
 	subFlowTracker *SubFlowTracker,
-) *stepExecutionRegistry {
+) *StepExecutionRegistry {
 	if provider == nil || stepRequestQueue == nil || stepExecutionCounter == nil ||
 		continueAsNewer == nil || timerProcessor == nil || persistenceManager == nil ||
 		subFlowTracker == nil {
 		panic("step execution registry requires non-nil dependencies")
 	}
-	return &stepExecutionRegistry{
+	return &StepExecutionRegistry{
 		provider:             provider,
 		stepRequestQueue:     stepRequestQueue,
 		stepExecutionCounter: stepExecutionCounter,
@@ -66,7 +66,7 @@ func newStepExecutionRegistry(
 	}
 }
 
-func (r *stepExecutionRegistry) CancelSelected(
+func (r *StepExecutionRegistry) CancelSelected(
 	decision *dexpb.StepDecision,
 	fromStepExecutionID string,
 ) error {
@@ -77,11 +77,11 @@ func (r *stepExecutionRegistry) CancelSelected(
 	))
 }
 
-func (r *stepExecutionRegistry) CancelStepTypes(stepTypes []string) error {
+func (r *StepExecutionRegistry) CancelStepTypes(stepTypes []string) error {
 	return r.cancelSelected(newStepCancellationSelector(stepTypes, nil, ""))
 }
 
-func (r *stepExecutionRegistry) cancelSelected(selector *stepCancellationSelector) error {
+func (r *StepExecutionRegistry) cancelSelected(selector *stepCancellationSelector) error {
 	if selector.isEmpty() {
 		return nil
 	}
@@ -114,7 +114,7 @@ func (r *stepExecutionRegistry) cancelSelected(selector *stepCancellationSelecto
 	return cancelErr
 }
 
-func (r *stepExecutionRegistry) Start(
+func (r *StepExecutionRegistry) Start(
 	ctx interfaces.UnifiedContext,
 	request StepRequest,
 ) (interfaces.UnifiedContext, string) {
@@ -134,23 +134,23 @@ func (r *stepExecutionRegistry) Start(
 	return executionCtx, stepExecutionID
 }
 
-func (r *stepExecutionRegistry) Unregister(stepExecutionID string) {
+func (r *StepExecutionRegistry) Unregister(stepExecutionID string) {
 	delete(r.activeExecutions, stepExecutionID)
 	delete(r.canceledExecutionIDs, stepExecutionID)
 }
 
-func (r *stepExecutionRegistry) TrackLockedKeys(stepExecutionID string, keys []string) {
+func (r *StepExecutionRegistry) TrackLockedKeys(stepExecutionID string, keys []string) {
 	if execution := r.activeExecutions[stepExecutionID]; execution != nil {
 		execution.lockedKeys = keys
 	}
 }
 
-func (r *stepExecutionRegistry) IsCanceled(stepExecutionID string) bool {
+func (r *StepExecutionRegistry) IsCanceled(stepExecutionID string) bool {
 	_, isCanceled := r.canceledExecutionIDs[stepExecutionID]
 	return isCanceled
 }
 
-func (r *stepExecutionRegistry) cancelQueued(
+func (r *StepExecutionRegistry) cancelQueued(
 	request StepRequest,
 ) error {
 	movement := request.GetStepMovement()
@@ -171,7 +171,7 @@ func (r *stepExecutionRegistry) cancelQueued(
 	return nil
 }
 
-func (r *stepExecutionRegistry) cancelActive(
+func (r *StepExecutionRegistry) cancelActive(
 	stepExecutionID string,
 	execution *registeredStepExecution,
 ) error {

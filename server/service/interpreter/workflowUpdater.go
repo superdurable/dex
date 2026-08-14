@@ -40,7 +40,7 @@ type WorkflowUpdater struct {
 	terminalCoordinator   *TerminalCoordinator
 	stepRequestQueue      *StepRequestQueue
 	stepExecutionCounter  *StepExecutionCounter
-	stepExecutionRegistry *stepExecutionRegistry
+	stepExecutionRegistry *StepExecutionRegistry
 	flowConfiger          *interpreterconfig.FlowConfiger
 	basicInfo             service.BasicInfo
 }
@@ -58,7 +58,7 @@ func NewWorkflowUpdater(
 	signalReceiver *SignalReceiver,
 	terminalCoordinator *TerminalCoordinator,
 	stepExecutionCounter *StepExecutionCounter,
-	stepExecutionRegistry *stepExecutionRegistry,
+	stepExecutionRegistry *StepExecutionRegistry,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	basicInfo service.BasicInfo,
 ) error {

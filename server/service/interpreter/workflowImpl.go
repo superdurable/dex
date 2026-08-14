@@ -186,7 +186,7 @@ func (i *Interpreter) StartEngineFlow(
 		provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
 		resumeInfos,
 	)
-	stepExecutionRegistry := newStepExecutionRegistry(
+	stepExecutionRegistry := NewStepExecutionRegistry(
 		provider,
 		stepRequestQueue,
 		stepExecutionCounter,
@@ -729,7 +729,7 @@ func (i *Interpreter) processStepExecution(
 	globalVersioner *GlobalVersioner,
 	signalReceiver *SignalReceiver,
 	subFlowTracker *SubFlowTracker,
-	stepExecutionRegistry *stepExecutionRegistry,
+	stepExecutionRegistry *StepExecutionRegistry,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
 	step := stepRequest.GetStepMovement()
@@ -1108,7 +1108,7 @@ func (i *Interpreter) invokeExecuteMethod(
 	flowConfiger *interpreterconfig.FlowConfiger,
 	stepExeLocals []*dexpb.KV,
 	globalVersioner *GlobalVersioner,
-	stepExecutionRegistry *stepExecutionRegistry,
+	stepExecutionRegistry *StepExecutionRegistry,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	var err error
 	activityOptions := interfaces.ActivityOptions{
