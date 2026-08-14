@@ -363,7 +363,7 @@ func (i *Interpreter) StartEngineFlow(
 					"stepRequest",
 					stepReqForLoopingOnly,
 				)
-				stepCtx, stepExecutionID := stepExecutionRegistry.Start(
+				stepCtx, stepExecutionID := stepExecutionRegistry.Register(
 					stepCtx,
 					stepReqForLoopingOnly,
 				)

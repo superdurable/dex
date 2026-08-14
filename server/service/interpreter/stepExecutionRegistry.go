@@ -66,6 +66,31 @@ func NewStepExecutionRegistry(
 	}
 }
 
+func (r *StepExecutionRegistry) Register(
+	ctx interfaces.UnifiedContext,
+	request StepRequest,
+) (interfaces.UnifiedContext, string) {
+	movement := request.GetStepMovement()
+	stepExecutionID := ""
+	if request.IsResumeRequest() {
+		stepExecutionID = request.GetStepResumeRequest().GetStepExecutionId()
+	} else {
+		stepExecutionID = r.stepExecutionCounter.CreateNextExecutionId(movement.GetStepType())
+	}
+	executionCtx, cancel := r.provider.WithCancel(ctx)
+	r.activeExecutions[stepExecutionID] = &registeredStepExecution{
+		movement: movement,
+		cancel:   cancel,
+	}
+	r.continueAsNewer.TrackActiveStep(stepExecutionID, movement)
+	return executionCtx, stepExecutionID
+}
+
+func (r *StepExecutionRegistry) Unregister(stepExecutionID string) {
+	delete(r.activeExecutions, stepExecutionID)
+	delete(r.canceledExecutionIDs, stepExecutionID)
+}
+
 func (r *StepExecutionRegistry) CancelSelected(
 	decision *dexpb.StepDecision,
 	fromStepExecutionID string,
@@ -112,31 +137,6 @@ func (r *StepExecutionRegistry) cancelSelected(selector *stepCancellationSelecto
 		)
 	}
 	return cancelErr
-}
-
-func (r *StepExecutionRegistry) Start(
-	ctx interfaces.UnifiedContext,
-	request StepRequest,
-) (interfaces.UnifiedContext, string) {
-	movement := request.GetStepMovement()
-	stepExecutionID := ""
-	if request.IsResumeRequest() {
-		stepExecutionID = request.GetStepResumeRequest().GetStepExecutionId()
-	} else {
-		stepExecutionID = r.stepExecutionCounter.CreateNextExecutionId(movement.GetStepType())
-	}
-	executionCtx, cancel := r.provider.WithCancel(ctx)
-	r.activeExecutions[stepExecutionID] = &registeredStepExecution{
-		movement: movement,
-		cancel:   cancel,
-	}
-	r.continueAsNewer.TrackActiveStep(stepExecutionID, movement)
-	return executionCtx, stepExecutionID
-}
-
-func (r *StepExecutionRegistry) Unregister(stepExecutionID string) {
-	delete(r.activeExecutions, stepExecutionID)
-	delete(r.canceledExecutionIDs, stepExecutionID)
 }
 
 func (r *StepExecutionRegistry) TrackLockedKeys(stepExecutionID string, keys []string) {
