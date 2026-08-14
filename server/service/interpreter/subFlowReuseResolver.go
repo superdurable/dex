@@ -83,6 +83,7 @@ func (r *SubFlowReuseResolver) resolveExisting(
 			dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING,
 		)
 	default:
+		// RESTART_IF_PREVIOUS_EXITS_ABNORMALLY
 		if description.Status == dexpb.FlowStatus_FLOW_STATUS_RUNNING {
 			return &dexpb.StartSubFlowActivityOutput{}, nil
 		}
@@ -135,7 +136,7 @@ func (r *SubFlowReuseResolver) readTerminal(
 		ctx, &workflowOutput, subFlowID, description.RunId,
 	)
 	if r.client.IsNotFoundError(err) {
-		return nil, nil
+		return nil, fmt.Errorf("read terminal SubFlow %q: %w", subFlowID, err)
 	}
 	result := &dexpb.FlowResult{
 		FlowStatus: flowStatus,
