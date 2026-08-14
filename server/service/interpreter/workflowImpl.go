@@ -702,7 +702,7 @@ func (i *Interpreter) processStepExecution(
 
 	var waitForMethErr error
 	var stepExeLocals []*dexpb.KV
-	var declaredWaitingCondition *dexpb.WaitingCondition
+	var returnedWaitingCondition *dexpb.WaitingCondition
 	var waitingCondition *dexpb.WaitingConditionState
 	var transientStep *dexpb.StepMovement
 	//This variable tells all (timer) condition threads to stop waiting and exit, even if their specific condition has not been completed.
@@ -792,7 +792,7 @@ func (i *Interpreter) processStepExecution(
 		}
 
 		if waitForMethErr == nil {
-			declaredWaitingCondition = activityOutput.Response.GetWaitingCondition()
+			returnedWaitingCondition = activityOutput.Response.GetWaitingCondition()
 			if err := persistenceManager.ApplyAttributeWrites(
 				ctx,
 				activityOutput.Response.GetUpsertAttributes(),
@@ -821,15 +821,10 @@ func (i *Interpreter) processStepExecution(
 			return nil, transientStatus, transientErr
 		}
 	}
-	if !isResumeFromContinueAsNew && declaredWaitingCondition != nil {
-		declaredWaitingCondition = timers.FixTimerConditionFromActivityOutput(
-			provider.Now(ctx),
-			declaredWaitingCondition,
+	if !isResumeFromContinueAsNew {
+		waitingCondition = convertToWaitingConditionState(
+			ctx, provider, returnedWaitingCondition,
 		)
-		waitingCondition = newWaitingConditionState(declaredWaitingCondition)
-	}
-	if waitingCondition == nil {
-		waitingCondition = &dexpb.WaitingConditionState{}
 	}
 	if len(waitingCondition.GetSubFlowConditions()) > 0 {
 		if !isResumeFromContinueAsNew {
@@ -840,7 +835,7 @@ func (i *Interpreter) processStepExecution(
 				subFlowTracker,
 				stepExeId,
 				flowConfiger.Get(),
-				declaredWaitingCondition,
+				returnedWaitingCondition,
 			)
 			if err := starter.StartAll(ctx); err != nil {
 				return nil, service.StepExecutionStatusInternalError, err

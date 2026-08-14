@@ -8,19 +8,35 @@
 
 package interpreter
 
-import "github.com/superdurable/dex/gen/dexpb"
+import (
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service/interpreter/interfaces"
+	"github.com/superdurable/dex/service/interpreter/timers"
+)
 
-func newWaitingConditionState(condition *dexpb.WaitingCondition) *dexpb.WaitingConditionState {
+func convertToWaitingConditionState(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	returnedWaitingCondition *dexpb.WaitingCondition,
+) *dexpb.WaitingConditionState {
+	if returnedWaitingCondition == nil {
+		return &dexpb.WaitingConditionState{}
+	}
+	returnedWaitingCondition = timers.FixTimerConditionFromActivityOutput(
+		provider.Now(ctx), returnedWaitingCondition,
+	)
 	state := &dexpb.WaitingConditionState{
-		WaitingConditionType:  condition.GetWaitingConditionType(),
-		TimerConditions:       condition.GetTimerConditions(),
-		ChannelConditions:     condition.GetChannelConditions(),
-		ConditionCombinations: condition.GetConditionCombinations(),
+		WaitingConditionType:  returnedWaitingCondition.GetWaitingConditionType(),
+		TimerConditions:       returnedWaitingCondition.GetTimerConditions(),
+		ChannelConditions:     returnedWaitingCondition.GetChannelConditions(),
+		ConditionCombinations: returnedWaitingCondition.GetConditionCombinations(),
 		SubFlowConditions: make(
-			[]*dexpb.SubFlowConditionState, 0, len(condition.GetSubFlowConditions()),
+			[]*dexpb.SubFlowConditionState,
+			0,
+			len(returnedWaitingCondition.GetSubFlowConditions()),
 		),
 	}
-	for _, subFlowCondition := range condition.GetSubFlowConditions() {
+	for _, subFlowCondition := range returnedWaitingCondition.GetSubFlowConditions() {
 		state.SubFlowConditions = append(
 			state.SubFlowConditions,
 			&dexpb.SubFlowConditionState{ConditionId: subFlowCondition.GetConditionId()},
