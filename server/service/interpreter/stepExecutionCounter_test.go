@@ -11,6 +11,7 @@
 package interpreter
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -42,13 +43,13 @@ func (p *stepExecutionCounterWorkflowProvider) GetSearchAttributeKeywordArray(
 }
 
 func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
+	ctx := interfaces.NewUnifiedContext(context.Background())
 	provider := &stepExecutionCounterWorkflowProvider{}
 	configer := config.NewFlowConfiger(&dexpb.FlowConfig{})
 	counter := NewStepExecutionCounter(
-		nil,
 		provider,
 		configer,
-		cont.NewContinueAsCounter(configer, nil, provider),
+		cont.NewContinueAsCounter(configer),
 	)
 	waitStep := &dexpb.StepMovement{StepType: "wait"}
 	skipStep := &dexpb.StepMovement{
@@ -56,7 +57,7 @@ func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
 		StepOptions: &dexpb.StepOptions{SkipWaitFor: true},
 	}
 
-	require.NoError(t, counter.MarkStepTypeActiveIfNotYet([]StepRequest{
+	require.NoError(t, counter.MarkStepTypeActiveIfNotYet(ctx, []StepRequest{
 		NewStepStartRequest(waitStep),
 		NewStepStartRequest(skipStep),
 	}))
@@ -68,15 +69,16 @@ func TestStepExecutionCounterTracksWaitForSteps(t *testing.T) {
 	require.False(t, counter.IsStepExecutionCompleted("wait", 1))
 	require.False(t, counter.IsStepExecutionCompleted("wait", 2))
 
-	require.NoError(t, counter.MarkStepExecutionCompleted(skipStep, "skip-1", nil))
+	require.NoError(t, counter.MarkStepExecutionCompleted(ctx, skipStep, "skip-1", nil))
 	require.Len(t, provider.upserts, 1)
-	require.NoError(t, counter.MarkStepExecutionCompleted(waitStep, "wait-1", nil))
+	require.NoError(t, counter.MarkStepExecutionCompleted(ctx, waitStep, "wait-1", nil))
 	require.True(t, counter.IsStepExecutionCompleted("wait", 1))
 	require.Equal(t, int32(0), counter.GetTotalCurrentlyExecutingCount())
 	require.Empty(t, provider.upserts[1][service.SearchAttributeActiveStepTypes])
 }
 
 func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {
+	ctx := interfaces.NewUnifiedContext(context.Background())
 	provider := &stepExecutionCounterWorkflowProvider{
 		s2WorkflowProvider: s2WorkflowProvider{
 			upsertErr: errors.New("backend unavailable"),
@@ -86,13 +88,12 @@ func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {
 		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
 	})
 	counter := NewStepExecutionCounter(
-		nil,
 		provider,
 		configer,
-		cont.NewContinueAsCounter(configer, nil, provider),
+		cont.NewContinueAsCounter(configer),
 	)
 
-	err := counter.MarkStepTypeActiveIfNotYet([]StepRequest{
+	err := counter.MarkStepTypeActiveIfNotYet(ctx, []StepRequest{
 		NewStepStartRequest(&dexpb.StepMovement{StepType: "step"}),
 	})
 	require.ErrorContains(t, err, "backend unavailable")
@@ -101,44 +102,45 @@ func TestStepExecutionCounterBackendFailureRetainsUpdatedCounts(t *testing.T) {
 }
 
 func TestStepExecutionCounterCompletionBackendFailureIsInternal(t *testing.T) {
+	ctx := interfaces.NewUnifiedContext(context.Background())
 	provider := &stepExecutionCounterWorkflowProvider{}
 	configer := config.NewFlowConfiger(&dexpb.FlowConfig{
 		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
 	})
 	counter := NewStepExecutionCounter(
-		nil,
 		provider,
 		configer,
-		cont.NewContinueAsCounter(configer, nil, provider),
+		cont.NewContinueAsCounter(configer),
 	)
 	step := &dexpb.StepMovement{StepType: "step"}
-	require.NoError(t, counter.MarkStepTypeActiveIfNotYet([]StepRequest{
+	require.NoError(t, counter.MarkStepTypeActiveIfNotYet(ctx, []StepRequest{
 		NewStepStartRequest(step),
 	}))
 	stepExecutionID := counter.CreateNextExecutionId(step.GetStepType())
 	provider.upsertErr = errors.New("backend unavailable")
 
-	err := counter.MarkStepExecutionCompleted(step, stepExecutionID, nil)
+	err := counter.MarkStepExecutionCompleted(ctx, step, stepExecutionID, nil)
 	require.ErrorContains(t, err, "backend unavailable")
 }
 
 func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
+	ctx := interfaces.NewUnifiedContext(context.Background())
 	disabledProvider := &stepExecutionCounterWorkflowProvider{}
 	disabledConfiger := config.NewFlowConfiger(&dexpb.FlowConfig{
 		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED),
 	})
 	disabledCounter := NewStepExecutionCounter(
-		nil,
 		disabledProvider,
 		disabledConfiger,
-		cont.NewContinueAsCounter(disabledConfiger, nil, disabledProvider),
+		cont.NewContinueAsCounter(disabledConfiger),
 	)
 	disabledStep := &dexpb.StepMovement{StepType: "disabled"}
-	require.NoError(t, disabledCounter.MarkStepTypeActiveIfNotYet([]StepRequest{
+	require.NoError(t, disabledCounter.MarkStepTypeActiveIfNotYet(ctx, []StepRequest{
 		NewStepStartRequest(disabledStep),
 	}))
 	disabledStepExecutionId := disabledCounter.CreateNextExecutionId("disabled")
 	require.NoError(t, disabledCounter.MarkStepExecutionCompleted(
+		ctx,
 		disabledStep,
 		disabledStepExecutionId,
 		nil,
@@ -150,14 +152,13 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
 	})
 	sharedCounter := NewStepExecutionCounter(
-		nil,
 		sharedProvider,
 		sharedConfiger,
-		cont.NewContinueAsCounter(sharedConfiger, nil, sharedProvider),
+		cont.NewContinueAsCounter(sharedConfiger),
 	)
 	first := &dexpb.StepMovement{StepType: "shared"}
 	second := &dexpb.StepMovement{StepType: "shared"}
-	require.NoError(t, sharedCounter.MarkStepTypeActiveIfNotYet([]StepRequest{
+	require.NoError(t, sharedCounter.MarkStepTypeActiveIfNotYet(ctx, []StepRequest{
 		NewStepStartRequest(first),
 		NewStepStartRequest(second),
 	}))
@@ -165,12 +166,14 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 	secondStepExecutionId := sharedCounter.CreateNextExecutionId("shared")
 	require.Len(t, sharedProvider.upserts, 1)
 	require.NoError(t, sharedCounter.MarkStepExecutionCompleted(
+		ctx,
 		first,
 		firstStepExecutionId,
 		nil,
 	))
 	require.Len(t, sharedProvider.upserts, 1)
 	require.NoError(t, sharedCounter.MarkStepExecutionCompleted(
+		ctx,
 		second,
 		secondStepExecutionId,
 		nil,
@@ -179,6 +182,7 @@ func TestStepExecutionCounterDisabledModeAndSharedType(t *testing.T) {
 }
 
 func TestRebuildStepExecutionCounterRetainsProtoMaps(t *testing.T) {
+	ctx := interfaces.NewUnifiedContext(context.Background())
 	provider := &stepExecutionCounterWorkflowProvider{}
 	configer := config.NewFlowConfiger(&dexpb.FlowConfig{
 		ActiveStepSearchMode: ptr.Any(dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL),
@@ -192,10 +196,9 @@ func TestRebuildStepExecutionCounterRetainsProtoMaps(t *testing.T) {
 		},
 	}
 	counter := RebuildStepExecutionCounter(
-		nil,
 		provider,
 		configer,
-		cont.NewContinueAsCounter(configer, nil, provider),
+		cont.NewContinueAsCounter(configer),
 		info,
 	)
 
@@ -203,16 +206,18 @@ func TestRebuildStepExecutionCounterRetainsProtoMaps(t *testing.T) {
 	require.Equal(t, int32(4), counter.Dump().StepTypeStartedCount["owned"])
 	require.True(t, counter.IsStepExecutionCompleted("step", 1))
 	require.False(t, counter.IsStepExecutionCompleted("step", 2))
-	require.NoError(t, counter.MarkStepTypeActiveIfNotYet([]StepRequest{
+	require.NoError(t, counter.MarkStepTypeActiveIfNotYet(ctx, []StepRequest{
 		NewStepStartRequest(&dexpb.StepMovement{StepType: "step"}),
 	}))
 	require.Equal(t, "step-3", counter.CreateNextExecutionId("step"))
 	require.NoError(t, counter.MarkStepExecutionCompleted(
+		ctx,
 		&dexpb.StepMovement{StepType: "step"},
 		"step-2",
 		nil,
 	))
 	require.NoError(t, counter.MarkStepExecutionCompleted(
+		ctx,
 		&dexpb.StepMovement{StepType: "step"},
 		"step-3",
 		nil,

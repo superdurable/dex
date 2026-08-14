@@ -12,7 +12,6 @@ import "github.com/superdurable/dex/service/interpreter/interfaces"
 
 type TerminalCoordinator struct {
 	provider          interfaces.WorkflowProvider
-	ctx               interfaces.UnifiedContext
 	continueAsNewer   *ContinueAsNewer
 	attributeSyncer   *AttributeSynchronizer
 	signalReceiver    *SignalReceiver
@@ -22,18 +21,16 @@ type TerminalCoordinator struct {
 
 func NewTerminalCoordinator(
 	provider interfaces.WorkflowProvider,
-	ctx interfaces.UnifiedContext,
 	continueAsNewer *ContinueAsNewer,
 	attributeSyncer *AttributeSynchronizer,
 	signalReceiver *SignalReceiver,
 	forceComplete *bool,
 ) *TerminalCoordinator {
-	if provider == nil || ctx == nil || continueAsNewer == nil || attributeSyncer == nil || signalReceiver == nil || forceComplete == nil {
+	if provider == nil || continueAsNewer == nil || attributeSyncer == nil || signalReceiver == nil || forceComplete == nil {
 		panic("TerminalCoordinator requires non-nil dependencies")
 	}
 	return &TerminalCoordinator{
 		provider:        provider,
-		ctx:             ctx,
 		continueAsNewer: continueAsNewer,
 		attributeSyncer: attributeSyncer,
 		signalReceiver:  signalReceiver,
@@ -41,22 +38,25 @@ func NewTerminalCoordinator(
 	}
 }
 
-func (c *TerminalCoordinator) CoordinateAndFinalizeError(retErr error) error {
+func (c *TerminalCoordinator) CoordinateAndFinalizeError(
+	ctx interfaces.UnifiedContext,
+	retErr error,
+) error {
 	if c.provider.IsContinueAsNewError(retErr) {
 		return retErr
 	}
 	c.startedFinalizing = true
-	if err := c.provider.Await(c.ctx, func() bool {
+	if err := c.provider.Await(ctx, func() bool {
 		return *c.forceComplete ||
 			(c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0)
 	}); err != nil {
 		return err
 	}
 	for {
-		if err := c.attributeSyncer.FlushAndClose(c.ctx); err != nil {
+		if err := c.attributeSyncer.FlushAndClose(ctx); err != nil {
 			return err
 		}
-		c.signalReceiver.DrainAllReceivedButUnprocessedSignals(c.ctx)
+		c.signalReceiver.DrainAllReceivedButUnprocessedSignals(ctx)
 		if stopBySignal, stopErr := c.signalReceiver.GetIfStopFlowRequested(); stopBySignal {
 			retErr = stopErr
 		}

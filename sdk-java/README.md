@@ -76,6 +76,100 @@ activities share maximum attempts, total duration, and 1-based attempt numbers.
 Fallback starts immediately; later regular retries continue the backoff
 sequence at the cumulative attempt.
 
+### Canceling Step executions
+
+A successful Step can cancel queued or active executions by registered Step
+type while still choosing its normal next or close action:
+
+```java
+private final QuoteCarrierA carrierA = new QuoteCarrierA();
+private final QuoteCarrierB carrierB = new QuoteCarrierB();
+private final RecordQuote recordQuote = new RecordQuote();
+
+@Override
+public StepDecision execute(Context context, Quote quote) {
+    return StepDecision.goTo(recordQuote, quote)
+            .withCancelingSiblingSteps(carrierA, carrierB);
+}
+```
+
+`withCancelingSteps(...)` selects every queued or active execution of each Step
+type in the current Flow. `withCancelingSiblingSteps(...)` selects only
+executions whose `Context.getFromStepExecutionId()` is the same as the current
+execution's source. Both methods are immutable: repeated calls form a union,
+duplicate registered Steps are removed, and a Flow-wide selector supersedes a
+sibling selector for the same Step type. Passing an unregistered or null Step
+causes an invalid Step result.
+
+Dex resolves selectors from a snapshot after the current execution succeeds.
+Executions already completed, already canceled, or absent are no-ops. Next
+Steps created by the same decision are outside that snapshot. Dex cancels the
+selected executions in workflow state and immediately applies the decision's
+next or close action; it does not wait for selected Java handlers to return.
+Their late decisions, Attribute and Channel writes, outputs, retry paths, and configured
+failure-proceed Steps are discarded.
+
+For a long-running regular Step, configure a heartbeat timeout so cancellation
+reaches the Java Worker promptly. Dex then cancels the handler task with
+`Future.cancel(true)`, which interrupts the handler thread. Blocking handlers
+should return when interrupted:
+
+```java
+private final StepOptions options = StepOptions.newBuilder()
+        .heartbeatTimeout(Duration.ofSeconds(10))
+        .build();
+
+@Override
+public StepOptions getStepOptions() {
+    return options;
+}
+
+@Override
+public StepDecision execute(Context context, Work input) {
+    try {
+        while (hasNextBatch(input)) {
+            processNextBatch(input);
+        }
+    } catch (InterruptedException canceled) {
+        Thread.currentThread().interrupt();
+    }
+    return StepDecision.deadEnd();
+}
+```
+
+CPU-bound or batch-oriented handlers may also check
+`Context.isCancellationRequested()` at natural work boundaries. Continuous
+polling is not required. Neither thread interruption nor the cancellation flag
+makes an external API call or database transaction atomic. Use timeouts,
+idempotency, or compensation for side effects that require cancellation safety.
+
+An RPC can apply a Flow-wide Step type selector while returning its output and
+scheduling next Steps atomically:
+
+```java
+@RPC(name = "acceptQuote")
+public RPCResult<QuoteStatus> acceptQuote(Context context, Quote quote) {
+    return RPCResult.of(
+                    QuoteStatus.ACCEPTED,
+                    StepMovement.of(recordQuote, quote))
+            .withCancelingSteps(carrierA, carrierB, globalQuoteTimeout);
+}
+```
+
+`RPCResult` does not support sibling selection because separate invocations of
+the same RPC name do not share an invocation-scoped Step execution lineage.
+Attribute and Channel writes from the RPC commit before the cancellation
+snapshot, while next Steps in the same result remain outside it.
+
+The heartbeat setting applies to regular wait-for and execute activities. A
+local activity ignores it, but an ASYNC fallback to a regular activity uses it.
+`null` and `Duration.ZERO` disable heartbeats; positive values must be whole
+seconds in the signed int32 range. Dex calls the backend SDK heartbeat API once
+per second while the regular Step activity is active; the SDK throttles network heartbeat
+requests. Without a heartbeat, the Flow still cancels logically and proceeds,
+but the Java handler may run until its RPC or activity timeout and its response
+is ignored.
+
 `ClientOptions` and `WorkerOptions` contain a default Jackson `ObjectMapper` and
 accept a configured mapper when needed. Java does not expose a public Codec API.
 Workers use a builder so optional transport settings remain readable:

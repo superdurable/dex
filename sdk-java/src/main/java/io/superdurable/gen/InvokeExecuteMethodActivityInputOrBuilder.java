@@ -39,14 +39,4 @@ public interface InvokeExecuteMethodActivityInputOrBuilder extends
    * <code>.dex.InvokeExecuteMethodRequest request = 2;</code>
    */
   io.superdurable.gen.InvokeExecuteMethodRequestOrBuilder getRequestOrBuilder();
-
-  /**
-   * <pre>
-   * Requires a DeadEnd close decision without next steps.
-   * </pre>
-   *
-   * <code>bool is_transient_step = 3;</code>
-   * @return The isTransientStep.
-   */
-  boolean getIsTransientStep();
 }

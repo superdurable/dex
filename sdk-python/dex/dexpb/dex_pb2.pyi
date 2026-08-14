@@ -378,7 +378,7 @@ class FlowRetryPolicy(_message.Message):
     def __init__(self, initial_interval_seconds: _Optional[int] = ..., backoff_coefficient: _Optional[float] = ..., maximum_interval_seconds: _Optional[int] = ..., maximum_attempts: _Optional[int] = ...) -> None: ...
 
 class StepOptions(_message.Message):
-    __slots__ = ("wait_for_timeout_seconds", "execute_timeout_seconds", "wait_for_retry_policy", "execute_retry_policy", "wait_for_failure_policy", "execute_failure_policy", "execute_failure_proceed_step_type", "execute_failure_proceed_step_options", "skip_wait_for", "wait_for_durability_override", "execute_durability_override", "wait_for_lock_attribute_keys", "execute_lock_attribute_keys")
+    __slots__ = ("wait_for_timeout_seconds", "execute_timeout_seconds", "wait_for_retry_policy", "execute_retry_policy", "wait_for_failure_policy", "execute_failure_policy", "execute_failure_proceed_step_type", "execute_failure_proceed_step_options", "skip_wait_for", "wait_for_durability_override", "execute_durability_override", "wait_for_lock_attribute_keys", "execute_lock_attribute_keys", "heartbeat_timeout_seconds")
     WAIT_FOR_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     EXECUTE_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     WAIT_FOR_RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
@@ -392,6 +392,7 @@ class StepOptions(_message.Message):
     EXECUTE_DURABILITY_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
     WAIT_FOR_LOCK_ATTRIBUTE_KEYS_FIELD_NUMBER: _ClassVar[int]
     EXECUTE_LOCK_ATTRIBUTE_KEYS_FIELD_NUMBER: _ClassVar[int]
+    HEARTBEAT_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     wait_for_timeout_seconds: int
     execute_timeout_seconds: int
     wait_for_retry_policy: RetryPolicy
@@ -405,7 +406,8 @@ class StepOptions(_message.Message):
     execute_durability_override: StepDurability
     wait_for_lock_attribute_keys: _containers.RepeatedScalarFieldContainer[str]
     execute_lock_attribute_keys: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, wait_for_timeout_seconds: _Optional[int] = ..., execute_timeout_seconds: _Optional[int] = ..., wait_for_retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., execute_retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., wait_for_failure_policy: _Optional[_Union[WaitForMethodFailurePolicy, str]] = ..., execute_failure_policy: _Optional[_Union[ExecuteMethodFailurePolicy, str]] = ..., execute_failure_proceed_step_type: _Optional[str] = ..., execute_failure_proceed_step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., skip_wait_for: _Optional[bool] = ..., wait_for_durability_override: _Optional[_Union[StepDurability, str]] = ..., execute_durability_override: _Optional[_Union[StepDurability, str]] = ..., wait_for_lock_attribute_keys: _Optional[_Iterable[str]] = ..., execute_lock_attribute_keys: _Optional[_Iterable[str]] = ...) -> None: ...
+    heartbeat_timeout_seconds: int
+    def __init__(self, wait_for_timeout_seconds: _Optional[int] = ..., execute_timeout_seconds: _Optional[int] = ..., wait_for_retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., execute_retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., wait_for_failure_policy: _Optional[_Union[WaitForMethodFailurePolicy, str]] = ..., execute_failure_policy: _Optional[_Union[ExecuteMethodFailurePolicy, str]] = ..., execute_failure_proceed_step_type: _Optional[str] = ..., execute_failure_proceed_step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., skip_wait_for: _Optional[bool] = ..., wait_for_durability_override: _Optional[_Union[StepDurability, str]] = ..., execute_durability_override: _Optional[_Union[StepDurability, str]] = ..., wait_for_lock_attribute_keys: _Optional[_Iterable[str]] = ..., execute_lock_attribute_keys: _Optional[_Iterable[str]] = ..., heartbeat_timeout_seconds: _Optional[int] = ...) -> None: ...
 
 class FlowAlreadyStartedOptions(_message.Message):
     __slots__ = ("ignore_already_started_error",)
@@ -837,12 +839,14 @@ class StepMethodFailure(_message.Message):
     def __init__(self, backend_error: _Optional[str] = ..., details: _Optional[_Union[ServiceErrorResponse, _Mapping]] = ..., attempt: _Optional[int] = ...) -> None: ...
 
 class StepMethodOptions(_message.Message):
-    __slots__ = ("timeout_seconds", "retry_policy")
+    __slots__ = ("timeout_seconds", "retry_policy", "heartbeat_timeout_seconds")
     TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
+    HEARTBEAT_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     timeout_seconds: int
     retry_policy: RetryPolicy
-    def __init__(self, timeout_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ...) -> None: ...
+    heartbeat_timeout_seconds: int
+    def __init__(self, timeout_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[RetryPolicy, _Mapping]] = ..., heartbeat_timeout_seconds: _Optional[int] = ...) -> None: ...
 
 class StepMethodEventInput(_message.Message):
     __slots__ = ("unavailable", "step_input", "condition_results", "attributes", "step_execution_locals")
@@ -859,7 +863,7 @@ class StepMethodEventInput(_message.Message):
     def __init__(self, unavailable: _Optional[bool] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., condition_results: _Optional[_Union[ConditionResults, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
 
 class StepMethodEventContext(_message.Message):
-    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "durability", "final_attempt", "started_time", "duration", "method_options", "is_transient_step", "last_failure_info")
+    __slots__ = ("step_execution_id", "from_step_execution_id", "step_type", "durability", "final_attempt", "started_time", "duration", "method_options", "last_failure_info")
     STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -868,7 +872,6 @@ class StepMethodEventContext(_message.Message):
     STARTED_TIME_FIELD_NUMBER: _ClassVar[int]
     DURATION_FIELD_NUMBER: _ClassVar[int]
     METHOD_OPTIONS_FIELD_NUMBER: _ClassVar[int]
-    IS_TRANSIENT_STEP_FIELD_NUMBER: _ClassVar[int]
     LAST_FAILURE_INFO_FIELD_NUMBER: _ClassVar[int]
     step_execution_id: str
     from_step_execution_id: str
@@ -878,25 +881,22 @@ class StepMethodEventContext(_message.Message):
     started_time: _timestamp_pb2.Timestamp
     duration: _duration_pb2.Duration
     method_options: StepMethodOptions
-    is_transient_step: bool
     last_failure_info: StepMethodFailure
-    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., durability: _Optional[_Union[StepDurability, str]] = ..., final_attempt: _Optional[int] = ..., started_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., duration: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., is_transient_step: _Optional[bool] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ...) -> None: ...
+    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., durability: _Optional[_Union[StepDurability, str]] = ..., final_attempt: _Optional[int] = ..., started_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., duration: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., method_options: _Optional[_Union[StepMethodOptions, _Mapping]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ...) -> None: ...
 
 class StepWaitForCompletedOutput(_message.Message):
-    __slots__ = ("wait_for_condition", "upsert_attributes", "publish_to_channel", "record_events", "upsert_step_execution_locals", "transient_step_movement")
+    __slots__ = ("wait_for_condition", "upsert_attributes", "publish_to_channel", "record_events", "upsert_step_execution_locals")
     WAIT_FOR_CONDITION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     UPSERT_STEP_EXECUTION_LOCALS_FIELD_NUMBER: _ClassVar[int]
-    TRANSIENT_STEP_MOVEMENT_FIELD_NUMBER: _ClassVar[int]
     wait_for_condition: WaitingCondition
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     upsert_step_execution_locals: _containers.RepeatedCompositeFieldContainer[KV]
-    transient_step_movement: StepMovement
-    def __init__(self, wait_for_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., transient_step_movement: _Optional[_Union[StepMovement, _Mapping]] = ...) -> None: ...
+    def __init__(self, wait_for_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
 
 class StepExecuteCompletedOutput(_message.Message):
     __slots__ = ("step_decision", "upsert_attributes", "publish_to_channel", "record_events", "upsert_step_execution_locals")
@@ -1276,22 +1276,20 @@ class InvokeWaitForMethodRequest(_message.Message):
     def __init__(self, context: _Optional[_Union[Context, _Mapping]] = ..., flow_type: _Optional[str] = ..., step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
 
 class InvokeWaitForMethodResponse(_message.Message):
-    __slots__ = ("local_activity_metadata", "upsert_attributes", "waiting_condition", "upsert_step_exe_locals", "record_events", "publish_to_channel", "transient_step_movement")
+    __slots__ = ("local_activity_metadata", "upsert_attributes", "waiting_condition", "upsert_step_exe_locals", "record_events", "publish_to_channel")
     LOCAL_ACTIVITY_METADATA_FIELD_NUMBER: _ClassVar[int]
     UPSERT_ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     WAITING_CONDITION_FIELD_NUMBER: _ClassVar[int]
     UPSERT_STEP_EXE_LOCALS_FIELD_NUMBER: _ClassVar[int]
     RECORD_EVENTS_FIELD_NUMBER: _ClassVar[int]
     PUBLISH_TO_CHANNEL_FIELD_NUMBER: _ClassVar[int]
-    TRANSIENT_STEP_MOVEMENT_FIELD_NUMBER: _ClassVar[int]
     local_activity_metadata: LocalActivityMetadata
     upsert_attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     waiting_condition: WaitingCondition
     upsert_step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
     record_events: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
-    transient_step_movement: StepMovement
-    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ..., transient_step_movement: _Optional[_Union[StepMovement, _Mapping]] = ...) -> None: ...
+    def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
 
 class InvokeExecuteMethodRequest(_message.Message):
     __slots__ = ("context", "flow_type", "step_type", "step_input", "attributes", "step_exe_locals", "condition_results")
@@ -1365,12 +1363,16 @@ class InvokeWorkerRPCResponse(_message.Message):
     def __init__(self, output: _Optional[_Union[Value, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
 
 class StepDecision(_message.Message):
-    __slots__ = ("next_steps", "close_decision")
+    __slots__ = ("next_steps", "close_decision", "cancel_step_types", "cancel_sibling_step_types")
     NEXT_STEPS_FIELD_NUMBER: _ClassVar[int]
     CLOSE_DECISION_FIELD_NUMBER: _ClassVar[int]
+    CANCEL_STEP_TYPES_FIELD_NUMBER: _ClassVar[int]
+    CANCEL_SIBLING_STEP_TYPES_FIELD_NUMBER: _ClassVar[int]
     next_steps: _containers.RepeatedCompositeFieldContainer[StepMovement]
     close_decision: CloseDecision
-    def __init__(self, next_steps: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., close_decision: _Optional[_Union[CloseDecision, _Mapping]] = ...) -> None: ...
+    cancel_step_types: _containers.RepeatedScalarFieldContainer[str]
+    cancel_sibling_step_types: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, next_steps: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., close_decision: _Optional[_Union[CloseDecision, _Mapping]] = ..., cancel_step_types: _Optional[_Iterable[str]] = ..., cancel_sibling_step_types: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class CloseDecision(_message.Message):
     __slots__ = ("close_decision_type", "conditional_channel_names", "close_input")
@@ -1719,14 +1721,12 @@ class InvokeWaitForMethodActivityOutput(_message.Message):
     def __init__(self, response: _Optional[_Union[InvokeWaitForMethodResponse, _Mapping]] = ...) -> None: ...
 
 class InvokeExecuteMethodActivityInput(_message.Message):
-    __slots__ = ("worker_target", "request", "is_transient_step")
+    __slots__ = ("worker_target", "request")
     WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
     REQUEST_FIELD_NUMBER: _ClassVar[int]
-    IS_TRANSIENT_STEP_FIELD_NUMBER: _ClassVar[int]
     worker_target: WorkerTarget
     request: InvokeExecuteMethodRequest
-    is_transient_step: bool
-    def __init__(self, worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., request: _Optional[_Union[InvokeExecuteMethodRequest, _Mapping]] = ..., is_transient_step: _Optional[bool] = ...) -> None: ...
+    def __init__(self, worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., request: _Optional[_Union[InvokeExecuteMethodRequest, _Mapping]] = ...) -> None: ...
 
 class RecoveryErrorInfo(_message.Message):
     __slots__ = ("detail", "error_type")

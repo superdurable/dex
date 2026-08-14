@@ -305,6 +305,7 @@ export interface StepOptions {
   executeDurabilityOverride: StepDurability;
   waitForLockAttributeKeys: string[];
   executeLockAttributeKeys: string[];
+  heartbeatTimeoutSeconds: number;
 }
 
 export interface FlowAlreadyStartedOptions {
@@ -584,6 +585,7 @@ export interface StepMethodFailure {
 export interface StepMethodOptions {
   timeoutSeconds: number;
   retryPolicy: RetryPolicy | undefined;
+  heartbeatTimeoutSeconds: number;
 }
 
 export interface StepMethodEventInput {
@@ -603,7 +605,6 @@ export interface StepMethodEventContext {
   startedTime: Date | undefined;
   duration: Duration | undefined;
   methodOptions: StepMethodOptions | undefined;
-  isTransientStep?: boolean | undefined;
   lastFailureInfo: StepMethodFailure | undefined;
 }
 
@@ -613,7 +614,6 @@ export interface StepWaitForCompletedOutput {
   publishToChannel: ChannelMessage[];
   recordEvents: KV[];
   upsertStepExecutionLocals: KV[];
-  transientStepMovement: StepMovement | undefined;
 }
 
 export interface StepExecuteCompletedOutput {
@@ -866,7 +866,6 @@ export interface InvokeWaitForMethodResponse {
   upsertStepExeLocals: KV[];
   recordEvents: KV[];
   publishToChannel: ChannelMessage[];
-  transientStepMovement: StepMovement | undefined;
 }
 
 export interface InvokeExecuteMethodRequest {
@@ -914,6 +913,8 @@ export interface InvokeWorkerRPCResponse {
 export interface StepDecision {
   nextSteps: StepMovement[];
   closeDecision: CloseDecision | undefined;
+  cancelStepTypes: string[];
+  cancelSiblingStepTypes: string[];
 }
 
 export interface CloseDecision {
@@ -1144,11 +1145,7 @@ export interface InvokeWaitForMethodActivityOutput {
 
 export interface InvokeExecuteMethodActivityInput {
   workerTarget: WorkerTarget | undefined;
-  request:
-    | InvokeExecuteMethodRequest
-    | undefined;
-  /** Requires a DeadEnd close decision without next steps. */
-  isTransientStep: boolean;
+  request: InvokeExecuteMethodRequest | undefined;
 }
 
 export interface RecoveryErrorInfo {
@@ -2227,6 +2224,7 @@ function createBaseStepOptions(): StepOptions {
     executeDurabilityOverride: 0,
     waitForLockAttributeKeys: [],
     executeLockAttributeKeys: [],
+    heartbeatTimeoutSeconds: 0,
   };
 }
 
@@ -2270,6 +2268,9 @@ export const StepOptions: MessageFns<StepOptions> = {
     }
     for (const v of message.executeLockAttributeKeys) {
       writer.uint32(106).string(v!);
+    }
+    if (message.heartbeatTimeoutSeconds !== 0) {
+      writer.uint32(112).int32(message.heartbeatTimeoutSeconds);
     }
     return writer;
   },
@@ -2385,6 +2386,14 @@ export const StepOptions: MessageFns<StepOptions> = {
           message.executeLockAttributeKeys.push(reader.string());
           continue;
         }
+        case 14: {
+          if (tag !== 112) {
+            break;
+          }
+
+          message.heartbeatTimeoutSeconds = reader.int32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2419,6 +2428,7 @@ export const StepOptions: MessageFns<StepOptions> = {
     message.executeDurabilityOverride = object.executeDurabilityOverride ?? 0;
     message.waitForLockAttributeKeys = object.waitForLockAttributeKeys?.map((e) => e) || [];
     message.executeLockAttributeKeys = object.executeLockAttributeKeys?.map((e) => e) || [];
+    message.heartbeatTimeoutSeconds = object.heartbeatTimeoutSeconds ?? 0;
     return message;
   },
 };
@@ -5738,7 +5748,7 @@ export const StepMethodFailure: MessageFns<StepMethodFailure> = {
 };
 
 function createBaseStepMethodOptions(): StepMethodOptions {
-  return { timeoutSeconds: 0, retryPolicy: undefined };
+  return { timeoutSeconds: 0, retryPolicy: undefined, heartbeatTimeoutSeconds: 0 };
 }
 
 export const StepMethodOptions: MessageFns<StepMethodOptions> = {
@@ -5748,6 +5758,9 @@ export const StepMethodOptions: MessageFns<StepMethodOptions> = {
     }
     if (message.retryPolicy !== undefined) {
       RetryPolicy.encode(message.retryPolicy, writer.uint32(18).fork()).join();
+    }
+    if (message.heartbeatTimeoutSeconds !== 0) {
+      writer.uint32(24).int32(message.heartbeatTimeoutSeconds);
     }
     return writer;
   },
@@ -5775,6 +5788,14 @@ export const StepMethodOptions: MessageFns<StepMethodOptions> = {
           message.retryPolicy = RetryPolicy.decode(reader, reader.uint32());
           continue;
         }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.heartbeatTimeoutSeconds = reader.int32();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5793,6 +5814,7 @@ export const StepMethodOptions: MessageFns<StepMethodOptions> = {
     message.retryPolicy = (object.retryPolicy !== undefined && object.retryPolicy !== null)
       ? RetryPolicy.fromPartial(object.retryPolicy)
       : undefined;
+    message.heartbeatTimeoutSeconds = object.heartbeatTimeoutSeconds ?? 0;
     return message;
   },
 };
@@ -5911,7 +5933,6 @@ function createBaseStepMethodEventContext(): StepMethodEventContext {
     startedTime: undefined,
     duration: undefined,
     methodOptions: undefined,
-    isTransientStep: undefined,
     lastFailureInfo: undefined,
   };
 }
@@ -5942,11 +5963,8 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
     if (message.methodOptions !== undefined) {
       StepMethodOptions.encode(message.methodOptions, writer.uint32(66).fork()).join();
     }
-    if (message.isTransientStep !== undefined) {
-      writer.uint32(72).bool(message.isTransientStep);
-    }
     if (message.lastFailureInfo !== undefined) {
-      StepMethodFailure.encode(message.lastFailureInfo, writer.uint32(82).fork()).join();
+      StepMethodFailure.encode(message.lastFailureInfo, writer.uint32(74).fork()).join();
     }
     return writer;
   },
@@ -6023,15 +6041,7 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
           continue;
         }
         case 9: {
-          if (tag !== 72) {
-            break;
-          }
-
-          message.isTransientStep = reader.bool();
-          continue;
-        }
-        case 10: {
-          if (tag !== 82) {
+          if (tag !== 74) {
             break;
           }
 
@@ -6064,7 +6074,6 @@ export const StepMethodEventContext: MessageFns<StepMethodEventContext> = {
     message.methodOptions = (object.methodOptions !== undefined && object.methodOptions !== null)
       ? StepMethodOptions.fromPartial(object.methodOptions)
       : undefined;
-    message.isTransientStep = object.isTransientStep ?? undefined;
     message.lastFailureInfo = (object.lastFailureInfo !== undefined && object.lastFailureInfo !== null)
       ? StepMethodFailure.fromPartial(object.lastFailureInfo)
       : undefined;
@@ -6079,7 +6088,6 @@ function createBaseStepWaitForCompletedOutput(): StepWaitForCompletedOutput {
     publishToChannel: [],
     recordEvents: [],
     upsertStepExecutionLocals: [],
-    transientStepMovement: undefined,
   };
 }
 
@@ -6099,9 +6107,6 @@ export const StepWaitForCompletedOutput: MessageFns<StepWaitForCompletedOutput> 
     }
     for (const v of message.upsertStepExecutionLocals) {
       KV.encode(v!, writer.uint32(42).fork()).join();
-    }
-    if (message.transientStepMovement !== undefined) {
-      StepMovement.encode(message.transientStepMovement, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -6153,14 +6158,6 @@ export const StepWaitForCompletedOutput: MessageFns<StepWaitForCompletedOutput> 
           message.upsertStepExecutionLocals.push(KV.decode(reader, reader.uint32()));
           continue;
         }
-        case 6: {
-          if (tag !== 50) {
-            break;
-          }
-
-          message.transientStepMovement = StepMovement.decode(reader, reader.uint32());
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -6182,10 +6179,6 @@ export const StepWaitForCompletedOutput: MessageFns<StepWaitForCompletedOutput> 
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.upsertStepExecutionLocals = object.upsertStepExecutionLocals?.map((e) => KV.fromPartial(e)) || [];
-    message.transientStepMovement =
-      (object.transientStepMovement !== undefined && object.transientStepMovement !== null)
-        ? StepMovement.fromPartial(object.transientStepMovement)
-        : undefined;
     return message;
   },
 };
@@ -8977,7 +8970,6 @@ function createBaseInvokeWaitForMethodResponse(): InvokeWaitForMethodResponse {
     upsertStepExeLocals: [],
     recordEvents: [],
     publishToChannel: [],
-    transientStepMovement: undefined,
   };
 }
 
@@ -9000,9 +8992,6 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
     }
     for (const v of message.publishToChannel) {
       ChannelMessage.encode(v!, writer.uint32(50).fork()).join();
-    }
-    if (message.transientStepMovement !== undefined) {
-      StepMovement.encode(message.transientStepMovement, writer.uint32(58).fork()).join();
     }
     return writer;
   },
@@ -9062,14 +9051,6 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
           message.publishToChannel.push(ChannelMessage.decode(reader, reader.uint32()));
           continue;
         }
-        case 7: {
-          if (tag !== 58) {
-            break;
-          }
-
-          message.transientStepMovement = StepMovement.decode(reader, reader.uint32());
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -9095,10 +9076,6 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
     message.upsertStepExeLocals = object.upsertStepExeLocals?.map((e) => KV.fromPartial(e)) || [];
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
-    message.transientStepMovement =
-      (object.transientStepMovement !== undefined && object.transientStepMovement !== null)
-        ? StepMovement.fromPartial(object.transientStepMovement)
-        : undefined;
     return message;
   },
 };
@@ -9635,7 +9612,7 @@ export const InvokeWorkerRPCResponse: MessageFns<InvokeWorkerRPCResponse> = {
 };
 
 function createBaseStepDecision(): StepDecision {
-  return { nextSteps: [], closeDecision: undefined };
+  return { nextSteps: [], closeDecision: undefined, cancelStepTypes: [], cancelSiblingStepTypes: [] };
 }
 
 export const StepDecision: MessageFns<StepDecision> = {
@@ -9645,6 +9622,12 @@ export const StepDecision: MessageFns<StepDecision> = {
     }
     if (message.closeDecision !== undefined) {
       CloseDecision.encode(message.closeDecision, writer.uint32(18).fork()).join();
+    }
+    for (const v of message.cancelStepTypes) {
+      writer.uint32(26).string(v!);
+    }
+    for (const v of message.cancelSiblingStepTypes) {
+      writer.uint32(34).string(v!);
     }
     return writer;
   },
@@ -9672,6 +9655,22 @@ export const StepDecision: MessageFns<StepDecision> = {
           message.closeDecision = CloseDecision.decode(reader, reader.uint32());
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.cancelStepTypes.push(reader.string());
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.cancelSiblingStepTypes.push(reader.string());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -9690,6 +9689,8 @@ export const StepDecision: MessageFns<StepDecision> = {
     message.closeDecision = (object.closeDecision !== undefined && object.closeDecision !== null)
       ? CloseDecision.fromPartial(object.closeDecision)
       : undefined;
+    message.cancelStepTypes = object.cancelStepTypes?.map((e) => e) || [];
+    message.cancelSiblingStepTypes = object.cancelSiblingStepTypes?.map((e) => e) || [];
     return message;
   },
 };
@@ -12428,7 +12429,7 @@ export const InvokeWaitForMethodActivityOutput: MessageFns<InvokeWaitForMethodAc
 };
 
 function createBaseInvokeExecuteMethodActivityInput(): InvokeExecuteMethodActivityInput {
-  return { workerTarget: undefined, request: undefined, isTransientStep: false };
+  return { workerTarget: undefined, request: undefined };
 }
 
 export const InvokeExecuteMethodActivityInput: MessageFns<InvokeExecuteMethodActivityInput> = {
@@ -12438,9 +12439,6 @@ export const InvokeExecuteMethodActivityInput: MessageFns<InvokeExecuteMethodAct
     }
     if (message.request !== undefined) {
       InvokeExecuteMethodRequest.encode(message.request, writer.uint32(18).fork()).join();
-    }
-    if (message.isTransientStep !== false) {
-      writer.uint32(24).bool(message.isTransientStep);
     }
     return writer;
   },
@@ -12468,14 +12466,6 @@ export const InvokeExecuteMethodActivityInput: MessageFns<InvokeExecuteMethodAct
           message.request = InvokeExecuteMethodRequest.decode(reader, reader.uint32());
           continue;
         }
-        case 3: {
-          if (tag !== 24) {
-            break;
-          }
-
-          message.isTransientStep = reader.bool();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -12500,7 +12490,6 @@ export const InvokeExecuteMethodActivityInput: MessageFns<InvokeExecuteMethodAct
     message.request = (object.request !== undefined && object.request !== null)
       ? InvokeExecuteMethodRequest.fromPartial(object.request)
       : undefined;
-    message.isTransientStep = object.isTransientStep ?? false;
     return message;
   },
 };
@@ -13529,7 +13518,7 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
       ChannelMessage.encode(v!, writer.uint32(50).fork()).join();
     }
     if (message.isSetAttributeApi !== false) {
-      writer.uint32(64).bool(message.isSetAttributeApi);
+      writer.uint32(56).bool(message.isSetAttributeApi);
     }
     return writer;
   },
@@ -13589,8 +13578,8 @@ export const ExecuteRpcSignalRequest: MessageFns<ExecuteRpcSignalRequest> = {
           message.publishToChannel.push(ChannelMessage.decode(reader, reader.uint32()));
           continue;
         }
-        case 8: {
-          if (tag !== 64) {
+        case 7: {
+          if (tag !== 56) {
             break;
           }
 

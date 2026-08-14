@@ -120,19 +120,4 @@ public interface StepWaitForCompletedOutputOrBuilder extends
    */
   io.superdurable.gen.KVOrBuilder getUpsertStepExecutionLocalsOrBuilder(
       int index);
-
-  /**
-   * <code>.dex.StepMovement transient_step_movement = 6;</code>
-   * @return Whether the transientStepMovement field is set.
-   */
-  boolean hasTransientStepMovement();
-  /**
-   * <code>.dex.StepMovement transient_step_movement = 6;</code>
-   * @return The transientStepMovement.
-   */
-  io.superdurable.gen.StepMovement getTransientStepMovement();
-  /**
-   * <code>.dex.StepMovement transient_step_movement = 6;</code>
-   */
-  io.superdurable.gen.StepMovementOrBuilder getTransientStepMovementOrBuilder();
 }

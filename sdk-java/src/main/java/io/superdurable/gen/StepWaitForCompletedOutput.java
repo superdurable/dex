@@ -243,32 +243,6 @@ private static final long serialVersionUID = 0L;
     return upsertStepExecutionLocals_.get(index);
   }
 
-  public static final int TRANSIENT_STEP_MOVEMENT_FIELD_NUMBER = 6;
-  private io.superdurable.gen.StepMovement transientStepMovement_;
-  /**
-   * <code>.dex.StepMovement transient_step_movement = 6;</code>
-   * @return Whether the transientStepMovement field is set.
-   */
-  @java.lang.Override
-  public boolean hasTransientStepMovement() {
-    return ((bitField0_ & 0x00000002) != 0);
-  }
-  /**
-   * <code>.dex.StepMovement transient_step_movement = 6;</code>
-   * @return The transientStepMovement.
-   */
-  @java.lang.Override
-  public io.superdurable.gen.StepMovement getTransientStepMovement() {
-    return transientStepMovement_ == null ? io.superdurable.gen.StepMovement.getDefaultInstance() : transientStepMovement_;
-  }
-  /**
-   * <code>.dex.StepMovement transient_step_movement = 6;</code>
-   */
-  @java.lang.Override
-  public io.superdurable.gen.StepMovementOrBuilder getTransientStepMovementOrBuilder() {
-    return transientStepMovement_ == null ? io.superdurable.gen.StepMovement.getDefaultInstance() : transientStepMovement_;
-  }
-
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -297,9 +271,6 @@ private static final long serialVersionUID = 0L;
     }
     for (int i = 0; i < upsertStepExecutionLocals_.size(); i++) {
       output.writeMessage(5, upsertStepExecutionLocals_.get(i));
-    }
-    if (((bitField0_ & 0x00000002) != 0)) {
-      output.writeMessage(6, getTransientStepMovement());
     }
     getUnknownFields().writeTo(output);
   }
@@ -345,10 +316,6 @@ private static final long serialVersionUID = 0L;
           }
           size += 1 * count;
         }
-    if (((bitField0_ & 0x00000002) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(6, getTransientStepMovement());
-    }
     return size;
   }
   @java.lang.Override
@@ -386,11 +353,6 @@ private static final long serialVersionUID = 0L;
         .equals(other.getRecordEventsList())) return false;
     if (!getUpsertStepExecutionLocalsList()
         .equals(other.getUpsertStepExecutionLocalsList())) return false;
-    if (hasTransientStepMovement() != other.hasTransientStepMovement()) return false;
-    if (hasTransientStepMovement()) {
-      if (!getTransientStepMovement()
-          .equals(other.getTransientStepMovement())) return false;
-    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -421,10 +383,6 @@ private static final long serialVersionUID = 0L;
     if (getUpsertStepExecutionLocalsCount() > 0) {
       hash = (37 * hash) + UPSERT_STEP_EXECUTION_LOCALS_FIELD_NUMBER;
       hash = (53 * hash) + getUpsertStepExecutionLocalsList().hashCode();
-    }
-    if (hasTransientStepMovement()) {
-      hash = (37 * hash) + TRANSIENT_STEP_MOVEMENT_FIELD_NUMBER;
-      hash = (53 * hash) + getTransientStepMovement().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -561,7 +519,6 @@ private static final long serialVersionUID = 0L;
         internalGetPublishToChannelFieldBuilder();
         internalGetRecordEventsFieldBuilder();
         internalGetUpsertStepExecutionLocalsFieldBuilder();
-        internalGetTransientStepMovementFieldBuilder();
       }
     }
     @java.lang.Override
@@ -601,11 +558,6 @@ private static final long serialVersionUID = 0L;
         upsertStepExecutionLocalsBuilder_.clear();
       }
       bitField0_ = (bitField0_ & ~0x00000010);
-      transientStepMovement_ = null;
-      if (transientStepMovementBuilder_ != null) {
-        transientStepMovementBuilder_.dispose();
-        transientStepMovementBuilder_ = null;
-      }
       return this;
     }
 
@@ -685,12 +637,6 @@ private static final long serialVersionUID = 0L;
             ? waitForCondition_
             : waitForConditionBuilder_.build();
         to_bitField0_ |= 0x00000001;
-      }
-      if (((from_bitField0_ & 0x00000020) != 0)) {
-        result.transientStepMovement_ = transientStepMovementBuilder_ == null
-            ? transientStepMovement_
-            : transientStepMovementBuilder_.build();
-        to_bitField0_ |= 0x00000002;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -814,9 +760,6 @@ private static final long serialVersionUID = 0L;
           }
         }
       }
-      if (other.hasTransientStepMovement()) {
-        mergeTransientStepMovement(other.getTransientStepMovement());
-      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -902,13 +845,6 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 42
-            case 50: {
-              input.readMessage(
-                  internalGetTransientStepMovementFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000020;
-              break;
-            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2005,127 +1941,6 @@ private static final long serialVersionUID = 0L;
         upsertStepExecutionLocals_ = null;
       }
       return upsertStepExecutionLocalsBuilder_;
-    }
-
-    private io.superdurable.gen.StepMovement transientStepMovement_;
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder> transientStepMovementBuilder_;
-    /**
-     * <code>.dex.StepMovement transient_step_movement = 6;</code>
-     * @return Whether the transientStepMovement field is set.
-     */
-    public boolean hasTransientStepMovement() {
-      return ((bitField0_ & 0x00000020) != 0);
-    }
-    /**
-     * <code>.dex.StepMovement transient_step_movement = 6;</code>
-     * @return The transientStepMovement.
-     */
-    public io.superdurable.gen.StepMovement getTransientStepMovement() {
-      if (transientStepMovementBuilder_ == null) {
-        return transientStepMovement_ == null ? io.superdurable.gen.StepMovement.getDefaultInstance() : transientStepMovement_;
-      } else {
-        return transientStepMovementBuilder_.getMessage();
-      }
-    }
-    /**
-     * <code>.dex.StepMovement transient_step_movement = 6;</code>
-     */
-    public Builder setTransientStepMovement(io.superdurable.gen.StepMovement value) {
-      if (transientStepMovementBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        transientStepMovement_ = value;
-      } else {
-        transientStepMovementBuilder_.setMessage(value);
-      }
-      bitField0_ |= 0x00000020;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.StepMovement transient_step_movement = 6;</code>
-     */
-    public Builder setTransientStepMovement(
-        io.superdurable.gen.StepMovement.Builder builderForValue) {
-      if (transientStepMovementBuilder_ == null) {
-        transientStepMovement_ = builderForValue.build();
-      } else {
-        transientStepMovementBuilder_.setMessage(builderForValue.build());
-      }
-      bitField0_ |= 0x00000020;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.StepMovement transient_step_movement = 6;</code>
-     */
-    public Builder mergeTransientStepMovement(io.superdurable.gen.StepMovement value) {
-      if (transientStepMovementBuilder_ == null) {
-        if (((bitField0_ & 0x00000020) != 0) &&
-          transientStepMovement_ != null &&
-          transientStepMovement_ != io.superdurable.gen.StepMovement.getDefaultInstance()) {
-          getTransientStepMovementBuilder().mergeFrom(value);
-        } else {
-          transientStepMovement_ = value;
-        }
-      } else {
-        transientStepMovementBuilder_.mergeFrom(value);
-      }
-      if (transientStepMovement_ != null) {
-        bitField0_ |= 0x00000020;
-        onChanged();
-      }
-      return this;
-    }
-    /**
-     * <code>.dex.StepMovement transient_step_movement = 6;</code>
-     */
-    public Builder clearTransientStepMovement() {
-      bitField0_ = (bitField0_ & ~0x00000020);
-      transientStepMovement_ = null;
-      if (transientStepMovementBuilder_ != null) {
-        transientStepMovementBuilder_.dispose();
-        transientStepMovementBuilder_ = null;
-      }
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>.dex.StepMovement transient_step_movement = 6;</code>
-     */
-    public io.superdurable.gen.StepMovement.Builder getTransientStepMovementBuilder() {
-      bitField0_ |= 0x00000020;
-      onChanged();
-      return internalGetTransientStepMovementFieldBuilder().getBuilder();
-    }
-    /**
-     * <code>.dex.StepMovement transient_step_movement = 6;</code>
-     */
-    public io.superdurable.gen.StepMovementOrBuilder getTransientStepMovementOrBuilder() {
-      if (transientStepMovementBuilder_ != null) {
-        return transientStepMovementBuilder_.getMessageOrBuilder();
-      } else {
-        return transientStepMovement_ == null ?
-            io.superdurable.gen.StepMovement.getDefaultInstance() : transientStepMovement_;
-      }
-    }
-    /**
-     * <code>.dex.StepMovement transient_step_movement = 6;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder> 
-        internalGetTransientStepMovementFieldBuilder() {
-      if (transientStepMovementBuilder_ == null) {
-        transientStepMovementBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.StepMovement, io.superdurable.gen.StepMovement.Builder, io.superdurable.gen.StepMovementOrBuilder>(
-                getTransientStepMovement(),
-                getParentForChildren(),
-                isClean());
-        transientStepMovement_ = null;
-      }
-      return transientStepMovementBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StepWaitForCompletedOutput)

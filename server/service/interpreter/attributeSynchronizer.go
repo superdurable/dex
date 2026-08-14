@@ -25,7 +25,6 @@ type AttributeSynchronizer struct {
 	cfg                  *config.AttributeStoreConfig
 	activities           *Activities
 	provider             interfaces.WorkflowProvider
-	ctx                  interfaces.UnifiedContext
 	continueAsNewCounter *cont.ContinueAsNewCounter
 	flowID               string
 	pending              []*dexpb.AttributeSyncItem
@@ -48,15 +47,14 @@ func NewAttributeSynchronizer(
 		cfg:                  cfg,
 		activities:           activities,
 		provider:             provider,
-		ctx:                  ctx,
 		continueAsNewCounter: continueAsNewCounter,
 		flowID:               provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
 		pending:              pending,
 	}
 }
 
-func (s *AttributeSynchronizer) Start() {
-	s.provider.GoNamed(s.ctx, "attribute-store-synchronizer", s.run)
+func (s *AttributeSynchronizer) Start(ctx interfaces.UnifiedContext) {
+	s.provider.GoNamed(ctx, "attribute-store-synchronizer", s.run)
 }
 
 func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
@@ -100,6 +98,7 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 }
 
 func (s *AttributeSynchronizer) AppendingToPendings(
+	ctx interfaces.UnifiedContext,
 	writes []*dexpb.AttributeWrite,
 	configName string,
 ) {
@@ -108,7 +107,7 @@ func (s *AttributeSynchronizer) AppendingToPendings(
 			continue
 		}
 		if configName == "" {
-			s.provider.GetLogger(s.ctx).Error(
+			s.provider.GetLogger(ctx).Error(
 				"Attribute sync is enabled without an Attribute Store target",
 				"attributeName", write.GetKey(),
 			)
@@ -137,7 +136,7 @@ func (s *AttributeSynchronizer) FlushAndClose(ctx interfaces.UnifiedContext) err
 	if !s.terminalFlushing {
 		s.terminalFlushing = true
 		if s.continueAsNewCounter.IsThresholdMet() {
-			s.Start()
+			s.Start(ctx)
 		}
 	}
 	return s.provider.Await(ctx, func() bool { return len(s.pending) == 0 })

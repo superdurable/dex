@@ -953,39 +953,6 @@ func TestWorkerStopDrainsAndForceCancels(t *testing.T) {
 	})
 }
 
-func TestWorkerTransientMovementMapping(t *testing.T) {
-	registered, err := NewRegistry([]Flow{workerFlow})
-	require.NoError(t, err)
-	flow, found := registered.lookupFlow(GetFinalFlowType(workerFlow))
-	require.True(t, found)
-
-	wait := withTransientMovement(
-		SkipWaitImmediately(),
-		MovementOf(workerTestFinish, workerTestInput{}),
-	)
-	_, transient, err := mapRegisteredWait(flow, wait)
-	require.NoError(t, err)
-	require.True(t, transient.StepOptions.SkipWaitFor)
-
-	wait = withTransientMovement(
-		SkipWaitImmediately(),
-		MovementOf(workerTestWait, workerTestInput{}),
-	)
-	_, _, err = mapRegisteredWait(flow, wait)
-	require.ErrorContains(t, err, "execute-only")
-
-	wait = withTransientMovement(
-		SkipWaitImmediately(),
-		MovementOf(
-			workerTestFinish,
-			workerTestInput{},
-			WithStepOptions(&StepOptions{WaitForFailure: ProceedOnWaitForFailure}),
-		),
-	)
-	_, _, err = mapRegisteredWait(flow, wait)
-	require.ErrorContains(t, err, "cannot proceed on failure")
-}
-
 func TestWorkerRegisteredDecisionMapping(t *testing.T) {
 	registered, err := NewRegistry([]Flow{workerFlow})
 	require.NoError(t, err)

@@ -127,6 +127,12 @@ final class InvocationContext implements Context {
     }
 
     @Override
+    public boolean isCancellationRequested() {
+        return io.grpc.Context.current().isCancelled()
+                || Thread.currentThread().isInterrupted();
+    }
+
+    @Override
     public boolean hasTimerFired() {
         if (conditionResults == null) {
             return false;

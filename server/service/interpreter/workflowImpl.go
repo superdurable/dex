@@ -95,7 +95,7 @@ func (i *Interpreter) StartEngineFlow(
 			previous.GetStepsToStartFromBeginning(),
 			previous.GetStepExecutionsToResume(),
 		)
-		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
+		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger)
 		attributeSynchronizer = NewAttributeSynchronizer(
 			&i.sharedConfig.AttributeStore,
 			i.activities,
@@ -117,7 +117,6 @@ func (i *Interpreter) StartEngineFlow(
 			previous.GetStaleSkipTimers(),
 		)
 		stepExecutionCounter = RebuildStepExecutionCounter(
-			ctx,
 			provider,
 			flowConfiger,
 			continueAsNewCounter,
@@ -138,7 +137,7 @@ func (i *Interpreter) StartEngineFlow(
 	} else {
 		channelStore = NewChannelStore()
 		stepRequestQueue = NewStepRequestQueue()
-		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
+		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger)
 		attributeSynchronizer = NewAttributeSynchronizer(
 			&i.sharedConfig.AttributeStore,
 			i.activities,
@@ -154,6 +153,7 @@ func (i *Interpreter) StartEngineFlow(
 			flowConfiger,
 		)
 		attributeSynchronizer.AppendingToPendings(
+			ctx,
 			input.GetInitAttributes(),
 			flowConfiger.Get().GetAttributeSyncConfigName(),
 		)
@@ -164,7 +164,6 @@ func (i *Interpreter) StartEngineFlow(
 			nil,
 		)
 		stepExecutionCounter = NewStepExecutionCounter(
-			ctx,
 			provider,
 			flowConfiger,
 			continueAsNewCounter,
@@ -186,18 +185,27 @@ func (i *Interpreter) StartEngineFlow(
 		provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
 		resumeInfos,
 	)
+	stepExecutionRegistry := NewStepExecutionRegistry(
+		provider,
+		stepRequestQueue,
+		stepExecutionCounter,
+		continueAsNewer,
+		timerProcessor,
+		subFlowTracker,
+	)
 	signalReceiver = NewSignalReceiver(
 		ctx,
 		provider,
 		channelStore,
 		stepRequestQueue,
+		stepExecutionRegistry,
 		persistenceManager,
 		timerProcessor,
 		continueAsNewCounter,
 		flowConfiger,
 		subFlowTracker,
 	)
-	attributeSynchronizer.Start()
+	attributeSynchronizer.Start(ctx)
 
 	// we need these global varirables because sub threads(goroutine) need to report error back
 	// to main goroutine to return.
@@ -209,7 +217,6 @@ func (i *Interpreter) StartEngineFlow(
 
 	terminalCoordinator := NewTerminalCoordinator(
 		provider,
-		ctx,
 		continueAsNewer,
 		attributeSynchronizer,
 		signalReceiver,
@@ -228,6 +235,7 @@ func (i *Interpreter) StartEngineFlow(
 		signalReceiver,
 		terminalCoordinator,
 		stepExecutionCounter,
+		stepExecutionRegistry,
 		flowConfiger,
 		basicInfo,
 	)
@@ -236,7 +244,7 @@ func (i *Interpreter) StartEngineFlow(
 	}
 
 	defer func() {
-		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
+		retErr = terminalCoordinator.CoordinateAndFinalizeError(ctx, retErr)
 		if shouldReportSubFlowCompletion(provider, ctx, subFlowParentFlowID, retErr) {
 			if reportErr := i.reportSubFlowCompletion(
 				ctx, provider, subFlowParentFlowID, outputCollector.GetAll(), retErr,
@@ -338,6 +346,7 @@ func (i *Interpreter) StartEngineFlow(
 			if !continueAsNewCounter.IsThresholdMet() {
 				stepsToExecute = stepRequestQueue.TakeAll()
 				if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
+					ctx,
 					stepsToExecute,
 				); err != nil {
 					return nil, err
@@ -347,7 +356,20 @@ func (i *Interpreter) StartEngineFlow(
 			for _, stepReqForLoopingOnly := range stepsToExecute {
 				// execute in another thread for parallelism
 				// step must be passed via parameter https://stackoverflow.com/questions/67263092
-				stepCtx := provider.ExtendContextWithValue(ctx, "stepRequest", stepReqForLoopingOnly)
+				stepCtx := provider.ExtendContextWithValue(
+					ctx,
+					"stepRequest",
+					stepReqForLoopingOnly,
+				)
+				stepCtx, stepExecutionID := stepExecutionRegistry.Register(
+					stepCtx,
+					stepReqForLoopingOnly,
+				)
+				stepCtx = provider.ExtendContextWithValue(
+					stepCtx,
+					"stepExecutionID",
+					stepExecutionID,
+				)
 				attributeSynchronizer.ProducerStarted()
 				provider.GoNamed(stepCtx, "step-execution-thread:"+stepReqForLoopingOnly.GetStepType(), func(ctx interfaces.UnifiedContext) {
 					defer attributeSynchronizer.ProducerFinished()
@@ -364,14 +386,17 @@ func (i *Interpreter) StartEngineFlow(
 					}
 
 					step := stepRequest.GetStepMovement()
-					var stepExeId string
-					if stepRequest.IsResumeRequest() {
-						stepExeId = stepRequest.GetStepResumeRequest().
-							GetStepExecutionId()
-					} else {
-						stepExeId = stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
+					stepExeId, ok := provider.GetContextValue(
+						ctx,
+						"stepExecutionID",
+					).(string)
+					if !ok {
+						errToFailWf = provider.NewFlowError(
+							dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,
+							"cannot read step execution ID from workflow context",
+						)
+						return
 					}
-					continueAsNewer.TrackActiveStep(stepExeId, step)
 
 					decision, stepExecutionStatus, stepExeErr := i.processStepExecution(ctx, provider,
 						basicInfo,
@@ -388,6 +413,10 @@ func (i *Interpreter) StartEngineFlow(
 						signalReceiver,
 						subFlowTracker,
 					)
+					if stepExecutionRegistry.IsCanceled(stepExeId) {
+						stepExecutionRegistry.Unregister(stepExeId)
+						return
+					}
 					if stepExecutionStatus == service.StepExecutionStatusInternalError {
 						errToFailWf = stepExeErr
 						return
@@ -400,6 +429,24 @@ func (i *Interpreter) StartEngineFlow(
 					}
 					if stepExecutionStatus == service.StepExecutionStatusCompleted {
 						// NOTE: decision is only available on this CompletedStepExecutionStatus
+						stepExecutionRegistry.Unregister(stepExeId)
+						if cancelErr := stepExecutionRegistry.CancelByStepTypesAndSiblingStepTypes(
+							ctx,
+							decision,
+							step.GetFromStepExecutionIdInternalOnly(),
+						); cancelErr != nil {
+							errToFailWf = cancelErr
+							continueAsNewer.RemoveActiveStep(stepExeId)
+							if markErr := stepExecutionCounter.MarkStepExecutionCompleted(
+								ctx,
+								step,
+								stepExeId,
+								nil,
+							); markErr != nil {
+								errToFailWf = markErr
+							}
+							return
+						}
 						canGoNext, gracefulComplete, forceComplete, forceFail, output, checkErr := checkClosingWorkflow(
 							ctx,
 							provider,
@@ -438,6 +485,7 @@ func (i *Interpreter) StartEngineFlow(
 						// finally, mark step completed and may also update system search attribute
 						continueAsNewer.RemoveActiveStep(stepExeId)
 						if err := stepExecutionCounter.MarkStepExecutionCompleted(
+							ctx,
 							step,
 							stepExeId,
 							decision.GetNextSteps(),
@@ -453,6 +501,7 @@ func (i *Interpreter) StartEngineFlow(
 							)
 							return
 						}
+						stepExecutionRegistry.Unregister(stepExeId)
 						options := step.GetStepOptions()
 						stepRequestQueue.AddSingleStepStartRequest(
 							options.GetExecuteFailureProceedStepType(),
@@ -464,6 +513,7 @@ func (i *Interpreter) StartEngineFlow(
 						// finally, mark state completed and may also update activeStepType search attribute
 						continueAsNewer.RemoveActiveStep(stepExeId)
 						err := stepExecutionCounter.MarkStepExecutionCompleted(
+							ctx,
 							step,
 							stepExeId,
 							decision.GetNextSteps(),
@@ -695,6 +745,7 @@ func (i *Interpreter) processStepExecution(
 		RetryPolicy: retry.ActivityRetryPolicyFromProto(
 			step.GetStepOptions().GetWaitForRetryPolicy(),
 		),
+		HeartbeatTimeout: time.Duration(step.GetStepOptions().GetHeartbeatTimeoutSeconds()) * time.Second,
 	}
 	if globalVersioner.UsesDeterministicStepActivityIDs() {
 		activityOptions.ActivityID = service.WaitForStepActivityID(stepExeId)
@@ -726,7 +777,6 @@ func (i *Interpreter) processStepExecution(
 			continueAsNewer,
 			flowConfiger,
 			stepExeLocals,
-			false,
 			globalVersioner,
 		)
 	}
@@ -787,6 +837,10 @@ func (i *Interpreter) processStepExecution(
 		)
 		persistenceManager.UnlockKeys(lockAttributeKeys)
 
+		if err := ctx.Err(); err != nil {
+			return nil, service.StepExecutionStatusInternalError, err
+		}
+
 		if waitForMethErr != nil && !shouldProceedOnWaitForMethodError(step) {
 			return nil, service.StepExecutionStatusFailedNoProceed, waitForMethErr
 		}
@@ -803,24 +857,6 @@ func (i *Interpreter) processStepExecution(
 			channelStore.ProcessPublishing(activityOutput.Response.GetPublishToChannel())
 			stepExeLocals = activityOutput.Response.GetUpsertStepExeLocals()
 
-			transientStep := activityOutput.Response.GetTransientStepMovement()
-			if transientStep != nil {
-				transientStatus, transientErr := i.processTransientStepExecution(
-					ctx,
-					provider,
-					basicInfo,
-					transientStep,
-					persistenceManager,
-					channelStore,
-					continueAsNewer,
-					stepExecutionCounter,
-					flowConfiger,
-					globalVersioner,
-				)
-				if transientStatus != service.StepExecutionStatusCompleted {
-					return nil, transientStatus, transientErr
-				}
-			}
 		}
 
 		waitingCondition = convertToWaitingConditionState(
@@ -909,26 +945,32 @@ func (i *Interpreter) processStepExecution(
 	var conditionMet bool
 
 	// Wait for condition met, stop signal, or continue-as-new threshold
-	_ = provider.Await(ctx, func() bool {
+	if err := provider.Await(ctx, func() bool {
 		matchPlan, conditionMet = channel.Plan(
 			waitingCondition,
 			channelStore.Availability(),
 			completedTimerConditions,
 			completedSubFlowResults,
 		)
-		return conditionMet || signalReceiver.IsStopFlowRequested() || continueAsNewCounter.IsThresholdMet()
-	})
+		return conditionMet || signalReceiver.IsStopFlowRequested() ||
+			continueAsNewCounter.IsThresholdMet()
+	}); err != nil {
+		waitingConditionDoneOrCanceled = true
+		return nil, service.StepExecutionStatusInternalError, err
+	}
 
 	waitingConditionDoneOrCanceled = true
 
-	_ = provider.Await(ctx, func() bool {
+	if err := provider.Await(ctx, func() bool {
 		for _, isCompleted := range waitForThreads {
 			if !isCompleted {
 				return false
 			}
 		}
 		return true
-	})
+	}); err != nil {
+		return nil, service.StepExecutionStatusInternalError, err
+	}
 
 	if signalReceiver.IsStopFlowRequested() || !conditionMet {
 		// this means stop was requested or continueAsNewCounter.IsThresholdMet == true
@@ -960,7 +1002,6 @@ func (i *Interpreter) processStepExecution(
 		}
 		executionContext.RecoveryError = recoveryError
 	}
-
 	return i.invokeExecuteMethod(
 		ctx,
 		provider,
@@ -974,7 +1015,6 @@ func (i *Interpreter) processStepExecution(
 		continueAsNewer,
 		flowConfiger,
 		stepExeLocals,
-		false,
 		globalVersioner,
 	)
 }
@@ -1044,66 +1084,6 @@ func (i *Interpreter) reportSubFlowCompletion(
 	)
 }
 
-func (i *Interpreter) processTransientStepExecution(
-	ctx interfaces.UnifiedContext,
-	provider interfaces.WorkflowProvider,
-	basicInfo service.BasicInfo,
-	step *dexpb.StepMovement,
-	persistenceManager *PersistenceManager,
-	channelStore *ChannelStore,
-	continueAsNewer *ContinueAsNewer,
-	stepExecutionCounter *StepExecutionCounter,
-	flowConfiger *interpreterconfig.FlowConfiger,
-	globalVersioner *GlobalVersioner,
-) (service.StepExecutionStatus, error) {
-	stepRequest := NewStepStartRequest(step)
-	if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
-		[]StepRequest{stepRequest},
-	); err != nil {
-		return service.StepExecutionStatusInternalError, err
-	}
-
-	stepExecutionId := stepExecutionCounter.CreateNextExecutionId(step.GetStepType())
-	continueAsNewer.TrackActiveStep(stepExecutionId, step)
-	info := provider.GetWorkflowInfo(ctx)
-	executionContext := &dexpb.Context{
-		FlowId:               info.WorkflowExecution.ID,
-		RunId:                info.FirstRunID,
-		FlowStartedTimestamp: info.WorkflowStartTime.Unix(),
-		StepExecutionId:      stepExecutionId,
-		FromStepExecutionId:  step.GetFromStepExecutionIdInternalOnly(),
-		RecoveryError:        step.GetRecoveryErrorInternalOnly(),
-	}
-	decision, status, err := i.invokeExecuteMethod(
-		ctx,
-		provider,
-		basicInfo,
-		step,
-		stepExecutionId,
-		persistenceManager,
-		channelStore,
-		executionContext,
-		nil,
-		continueAsNewer,
-		flowConfiger,
-		nil,
-		true,
-		globalVersioner,
-	)
-	if status != service.StepExecutionStatusCompleted {
-		return status, err
-	}
-	continueAsNewer.RemoveActiveStep(stepExecutionId)
-	if err := stepExecutionCounter.MarkStepExecutionCompleted(
-		step,
-		stepExecutionId,
-		decision.GetNextSteps(),
-	); err != nil {
-		return service.StepExecutionStatusInternalError, err
-	}
-	return service.StepExecutionStatusCompleted, nil
-}
-
 func (i *Interpreter) invokeExecuteMethod(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
@@ -1117,7 +1097,6 @@ func (i *Interpreter) invokeExecuteMethod(
 	continueAsNewer *ContinueAsNewer,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	stepExeLocals []*dexpb.KV,
-	isTransientStep bool,
 	globalVersioner *GlobalVersioner,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	var err error
@@ -1126,6 +1105,7 @@ func (i *Interpreter) invokeExecuteMethod(
 		RetryPolicy: retry.ActivityRetryPolicyFromProto(
 			step.GetStepOptions().GetExecuteRetryPolicy(),
 		),
+		HeartbeatTimeout: time.Duration(step.GetStepOptions().GetHeartbeatTimeoutSeconds()) * time.Second,
 	}
 	if globalVersioner.UsesDeterministicStepActivityIDs() {
 		activityOptions.ActivityID = service.ExecuteStepActivityID(stepExeId)
@@ -1150,8 +1130,7 @@ func (i *Interpreter) invokeExecuteMethod(
 
 	continueAsNewer.RemoveStepExecutionToResume(stepExeId)
 	activityInput := &dexpb.InvokeExecuteMethodActivityInput{
-		WorkerTarget:    flowConfiger.GetWorkerTarget(),
-		IsTransientStep: isTransientStep,
+		WorkerTarget: flowConfiger.GetWorkerTarget(),
 		Request: &dexpb.InvokeExecuteMethodRequest{
 			Context:          executionContext,
 			FlowType:         basicInfo.FlowType,
@@ -1177,6 +1156,9 @@ func (i *Interpreter) invokeExecuteMethod(
 	// always unlock regardless of step success/failure
 	persistenceManager.UnlockKeys(lockAttributeKeys)
 
+	if err := ctx.Err(); err != nil {
+		return nil, service.StepExecutionStatusInternalError, err
+	}
 	if exeMethErr != nil {
 		if shouldProceedOnExecuteMethodError(step) {
 			return nil, service.StepExecutionStatusFailedAndProceed, exeMethErr
@@ -1197,8 +1179,9 @@ func (i *Interpreter) invokeExecuteMethod(
 
 func stepMethodOptions(options interfaces.ActivityOptions) *dexpb.StepMethodOptions {
 	return &dexpb.StepMethodOptions{
-		TimeoutSeconds: int32(options.StartToCloseTimeout / time.Second),
-		RetryPolicy:    retry.ActivityRetryPolicyToProto(options.RetryPolicy),
+		TimeoutSeconds:          int32(options.StartToCloseTimeout / time.Second),
+		RetryPolicy:             retry.ActivityRetryPolicyToProto(options.RetryPolicy),
+		HeartbeatTimeoutSeconds: int32(options.HeartbeatTimeout / time.Second),
 	}
 }
 

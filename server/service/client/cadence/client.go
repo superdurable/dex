@@ -43,6 +43,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const cadenceCanceledLocalActivityReason = "cadenceInternal:Canceled"
+
 type cadenceClient struct {
 	domain                         string
 	cClient                        client.Client
@@ -563,6 +565,7 @@ func (t *cadenceClient) buildCadenceHistoryEvents(
 	)
 	builder := historybuilder.NewBuilder(workflowID, runID)
 	scheduledTypes := map[int64]string{}
+	scheduledEventIDsByActivityID := map[string]int64{}
 	localFallbackCounts := map[string]int{}
 	for iterator.HasNext() {
 		event, err := iterator.Next()
@@ -572,6 +575,7 @@ func (t *cadenceClient) buildCadenceHistoryEvents(
 		if err := t.addCadenceHistoryEvent(
 			builder,
 			scheduledTypes,
+			scheduledEventIDsByActivityID,
 			localFallbackCounts,
 			event,
 		); err != nil {
@@ -612,6 +616,7 @@ func (t *cadenceClient) WaitForWorkflowHistoryEvent(
 func (t *cadenceClient) addCadenceHistoryEvent(
 	builder *historybuilder.Builder,
 	scheduledTypes map[int64]string,
+	scheduledEventIDsByActivityID map[string]int64,
 	localFallbackCounts map[string]int,
 	event *shared.HistoryEvent,
 ) error {
@@ -633,6 +638,8 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 		}
 		builder.RecordStart(event.GetEventId(), eventTime, &input, flowTimeout)
 	case shared.EventTypeActivityTaskScheduled:
+		attributes := event.GetActivityTaskScheduledEventAttributes()
+		scheduledEventIDsByActivityID[attributes.GetActivityId()] = event.GetEventId()
 		return t.recordCadenceScheduledActivity(
 			builder,
 			scheduledTypes,
@@ -691,6 +698,20 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 				BackendError: attributes.GetTimeoutType().String(),
 			},
 		)
+	case shared.EventTypeActivityTaskCancelRequested:
+		attributes := event.GetActivityTaskCancelRequestedEventAttributes()
+		scheduledEventID, ok := scheduledEventIDsByActivityID[attributes.GetActivityId()]
+		if !ok {
+			return fmt.Errorf("canceled activity %q is missing its schedule event", attributes.GetActivityId())
+		}
+		if isStepActivity(scheduledTypes[scheduledEventID]) {
+			builder.RecordActivityCanceled(scheduledEventID)
+		}
+	case shared.EventTypeActivityTaskCanceled:
+		attributes := event.GetActivityTaskCanceledEventAttributes()
+		if isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
+			builder.RecordActivityCanceled(attributes.GetScheduledEventId())
+		}
 	case shared.EventTypeMarkerRecorded:
 		return t.recordCadenceLocalActivity(builder, localFallbackCounts, event)
 	case shared.EventTypeWorkflowExecutionSignaled:
@@ -802,7 +823,8 @@ func cadenceStepMethodOptions(
 	attributes *shared.ActivityTaskScheduledEventAttributes,
 ) *dexpb.StepMethodOptions {
 	options := &dexpb.StepMethodOptions{
-		TimeoutSeconds: attributes.GetStartToCloseTimeoutSeconds(),
+		TimeoutSeconds:          attributes.GetStartToCloseTimeoutSeconds(),
+		HeartbeatTimeoutSeconds: attributes.GetHeartbeatTimeoutSeconds(),
 	}
 	policy := attributes.GetRetryPolicy()
 	if policy == nil {
@@ -878,6 +900,9 @@ func (t *cadenceClient) recordCadenceLocalActivity(
 		return err
 	}
 	if marker.ResultJSON == "" {
+		if marker.ErrReason == cadenceCanceledLocalActivityReason {
+			return nil
+		}
 		localFallbackCounts[activityMethod(marker.ActivityType)]++
 		if marker.ErrReason == "" {
 			return nil

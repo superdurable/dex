@@ -253,10 +253,10 @@ private static final long serialVersionUID = 0L;
     return publishToChannel_.get(index);
   }
 
-  public static final int IS_SET_ATTRIBUTE_API_FIELD_NUMBER = 8;
+  public static final int IS_SET_ATTRIBUTE_API_FIELD_NUMBER = 7;
   private boolean isSetAttributeApi_ = false;
   /**
-   * <code>bool is_set_attribute_api = 8;</code>
+   * <code>bool is_set_attribute_api = 7;</code>
    * @return The isSetAttributeApi.
    */
   @java.lang.Override
@@ -297,7 +297,7 @@ private static final long serialVersionUID = 0L;
       output.writeMessage(6, publishToChannel_.get(i));
     }
     if (isSetAttributeApi_ != false) {
-      output.writeBool(8, isSetAttributeApi_);
+      output.writeBool(7, isSetAttributeApi_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -344,7 +344,7 @@ private static final long serialVersionUID = 0L;
         }
     if (isSetAttributeApi_ != false) {
       size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(8, isSetAttributeApi_);
+        .computeBoolSize(7, isSetAttributeApi_);
     }
     return size;
   }
@@ -887,11 +887,11 @@ private static final long serialVersionUID = 0L;
               }
               break;
             } // case 50
-            case 64: {
+            case 56: {
               isSetAttributeApi_ = input.readBool();
               bitField0_ |= 0x00000040;
               break;
-            } // case 64
+            } // case 56
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1994,7 +1994,7 @@ private static final long serialVersionUID = 0L;
 
     private boolean isSetAttributeApi_ ;
     /**
-     * <code>bool is_set_attribute_api = 8;</code>
+     * <code>bool is_set_attribute_api = 7;</code>
      * @return The isSetAttributeApi.
      */
     @java.lang.Override
@@ -2002,7 +2002,7 @@ private static final long serialVersionUID = 0L;
       return isSetAttributeApi_;
     }
     /**
-     * <code>bool is_set_attribute_api = 8;</code>
+     * <code>bool is_set_attribute_api = 7;</code>
      * @param value The isSetAttributeApi to set.
      * @return This builder for chaining.
      */
@@ -2014,7 +2014,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>bool is_set_attribute_api = 8;</code>
+     * <code>bool is_set_attribute_api = 7;</code>
      * @return This builder for chaining.
      */
     public Builder clearIsSetAttributeApi() {

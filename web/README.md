@@ -72,8 +72,8 @@ steps, channels, completed outputs, stop, and reset. Timeline and Step graph kee
 Selected event in the sidebar.
 Continued runs link to their previous run from Timeline and Step graph.
 Timeline connects each Step execution's first method event to the Flow start,
-Flow continued, RPC, Step decision, transient movement, or recovery event that
-scheduled it. Selecting the first event reveals that source link; selecting a
+Flow continued, RPC, Step decision, or recovery event that scheduled it.
+Selecting the first event reveals that source link; selecting a
 WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
 SubFlow conditions appear as linked leaf nodes and compact WaitFor cards. Running

@@ -184,6 +184,7 @@ func temporalRecoveryError(
 	}
 	return &dexpb.RecoveryErrorInfo{Detail: detail, ErrorType: backendType}
 }
+
 func (w *workflowProvider) IsCanceledError(err error) bool {
 	return temporal.IsCanceledError(err)
 }
@@ -199,6 +200,17 @@ func (w *workflowProvider) NewDisconnectedContext(ctx interfaces.UnifiedContext)
 	}
 	disconnected, _ := workflow.NewDisconnectedContext(wfCtx)
 	return interfaces.NewUnifiedContext(disconnected)
+}
+
+func (w *workflowProvider) WithCancel(
+	parent interfaces.UnifiedContext,
+) (interfaces.UnifiedContext, func()) {
+	wfCtx, ok := parent.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to temporal workflow context")
+	}
+	cancelCtx, cancel := workflow.WithCancel(wfCtx)
+	return interfaces.NewUnifiedContext(cancelCtx), cancel
 }
 
 func (w *workflowProvider) NewInterpreterContinueAsNewError(
@@ -437,6 +449,12 @@ func (w *workflowProvider) ExecuteActivity(
 		err = workflow.ExecuteLocalActivity(localCtx, activity, localArgs...).Get(localCtx, valuePtr)
 		if err == nil {
 			return nil
+		}
+		if wfCtx.Err() != nil {
+			return wfCtx.Err()
+		}
+		if temporal.IsCanceledError(err) {
+			return err
 		}
 		if !isStepMethodActivity {
 			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)

@@ -109,28 +109,17 @@ public interface StepMethodEventContextOrBuilder extends
   io.superdurable.gen.StepMethodOptionsOrBuilder getMethodOptionsOrBuilder();
 
   /**
-   * <code>optional bool is_transient_step = 9;</code>
-   * @return Whether the isTransientStep field is set.
-   */
-  boolean hasIsTransientStep();
-  /**
-   * <code>optional bool is_transient_step = 9;</code>
-   * @return The isTransientStep.
-   */
-  boolean getIsTransientStep();
-
-  /**
-   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
    * @return Whether the lastFailureInfo field is set.
    */
   boolean hasLastFailureInfo();
   /**
-   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
    * @return The lastFailureInfo.
    */
   io.superdurable.gen.StepMethodFailure getLastFailureInfo();
   /**
-   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
    */
   io.superdurable.gen.StepMethodFailureOrBuilder getLastFailureInfoOrBuilder();
 }

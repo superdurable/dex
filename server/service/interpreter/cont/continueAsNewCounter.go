@@ -12,7 +12,6 @@ package cont
 
 import (
 	"github.com/superdurable/dex/service/interpreter/config"
-	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
 type ContinueAsNewCounter struct {
@@ -22,20 +21,12 @@ type ContinueAsNewCounter struct {
 	triggeredByAPI     bool
 
 	configer *config.FlowConfiger
-	rootCtx  interfaces.UnifiedContext
-	provider interfaces.WorkflowProvider
 }
 
 func NewContinueAsCounter(
 	configer *config.FlowConfiger,
-	rootCtx interfaces.UnifiedContext,
-	provider interfaces.WorkflowProvider,
 ) *ContinueAsNewCounter {
-	return &ContinueAsNewCounter{
-		configer: configer,
-		rootCtx:  rootCtx,
-		provider: provider,
-	}
+	return &ContinueAsNewCounter{configer: configer}
 }
 
 func (c *ContinueAsNewCounter) IncExecutedStepExecution(skipWaitFor bool) {

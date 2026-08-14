@@ -112,7 +112,6 @@ export interface StepGraphNode {
   pendingWaitFor?: FlowHistoryEvent;
   pendingExecute?: FlowHistoryEvent;
   active?: ActiveStepExecution;
-  transient?: boolean;
   parentStepId?: string;
   flowId?: string;
   subFlowStatus?: string;

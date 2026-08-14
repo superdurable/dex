@@ -277,37 +277,18 @@ private static final long serialVersionUID = 0L;
     return methodOptions_ == null ? io.superdurable.gen.StepMethodOptions.getDefaultInstance() : methodOptions_;
   }
 
-  public static final int IS_TRANSIENT_STEP_FIELD_NUMBER = 9;
-  private boolean isTransientStep_ = false;
-  /**
-   * <code>optional bool is_transient_step = 9;</code>
-   * @return Whether the isTransientStep field is set.
-   */
-  @java.lang.Override
-  public boolean hasIsTransientStep() {
-    return ((bitField0_ & 0x00000008) != 0);
-  }
-  /**
-   * <code>optional bool is_transient_step = 9;</code>
-   * @return The isTransientStep.
-   */
-  @java.lang.Override
-  public boolean getIsTransientStep() {
-    return isTransientStep_;
-  }
-
-  public static final int LAST_FAILURE_INFO_FIELD_NUMBER = 10;
+  public static final int LAST_FAILURE_INFO_FIELD_NUMBER = 9;
   private io.superdurable.gen.StepMethodFailure lastFailureInfo_;
   /**
-   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
    * @return Whether the lastFailureInfo field is set.
    */
   @java.lang.Override
   public boolean hasLastFailureInfo() {
-    return ((bitField0_ & 0x00000010) != 0);
+    return ((bitField0_ & 0x00000008) != 0);
   }
   /**
-   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
    * @return The lastFailureInfo.
    */
   @java.lang.Override
@@ -315,7 +296,7 @@ private static final long serialVersionUID = 0L;
     return lastFailureInfo_ == null ? io.superdurable.gen.StepMethodFailure.getDefaultInstance() : lastFailureInfo_;
   }
   /**
-   * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+   * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.StepMethodFailureOrBuilder getLastFailureInfoOrBuilder() {
@@ -361,10 +342,7 @@ private static final long serialVersionUID = 0L;
       output.writeMessage(8, getMethodOptions());
     }
     if (((bitField0_ & 0x00000008) != 0)) {
-      output.writeBool(9, isTransientStep_);
-    }
-    if (((bitField0_ & 0x00000010) != 0)) {
-      output.writeMessage(10, getLastFailureInfo());
+      output.writeMessage(9, getLastFailureInfo());
     }
     getUnknownFields().writeTo(output);
   }
@@ -401,11 +379,7 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000008) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(9, isTransientStep_);
-    }
-    if (((bitField0_ & 0x00000010) != 0)) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(10, getLastFailureInfo());
+        .computeMessageSize(9, getLastFailureInfo());
     }
     return size;
   }
@@ -455,11 +429,6 @@ private static final long serialVersionUID = 0L;
       if (!getMethodOptions()
           .equals(other.getMethodOptions())) return false;
     }
-    if (hasIsTransientStep() != other.hasIsTransientStep()) return false;
-    if (hasIsTransientStep()) {
-      if (getIsTransientStep()
-          != other.getIsTransientStep()) return false;
-    }
     if (hasLastFailureInfo() != other.hasLastFailureInfo()) return false;
     if (hasLastFailureInfo()) {
       if (!getLastFailureInfo()
@@ -497,11 +466,6 @@ private static final long serialVersionUID = 0L;
     if (hasMethodOptions()) {
       hash = (37 * hash) + METHOD_OPTIONS_FIELD_NUMBER;
       hash = (53 * hash) + getMethodOptions().hashCode();
-    }
-    if (hasIsTransientStep()) {
-      hash = (37 * hash) + IS_TRANSIENT_STEP_FIELD_NUMBER;
-      hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-          getIsTransientStep());
     }
     if (hasLastFailureInfo()) {
       hash = (37 * hash) + LAST_FAILURE_INFO_FIELD_NUMBER;
@@ -667,7 +631,6 @@ private static final long serialVersionUID = 0L;
         methodOptionsBuilder_.dispose();
         methodOptionsBuilder_ = null;
       }
-      isTransientStep_ = false;
       lastFailureInfo_ = null;
       if (lastFailureInfoBuilder_ != null) {
         lastFailureInfoBuilder_.dispose();
@@ -741,14 +704,10 @@ private static final long serialVersionUID = 0L;
         to_bitField0_ |= 0x00000004;
       }
       if (((from_bitField0_ & 0x00000100) != 0)) {
-        result.isTransientStep_ = isTransientStep_;
-        to_bitField0_ |= 0x00000008;
-      }
-      if (((from_bitField0_ & 0x00000200) != 0)) {
         result.lastFailureInfo_ = lastFailureInfoBuilder_ == null
             ? lastFailureInfo_
             : lastFailureInfoBuilder_.build();
-        to_bitField0_ |= 0x00000010;
+        to_bitField0_ |= 0x00000008;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -794,9 +753,6 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasMethodOptions()) {
         mergeMethodOptions(other.getMethodOptions());
-      }
-      if (other.hasIsTransientStep()) {
-        setIsTransientStep(other.getIsTransientStep());
       }
       if (other.hasLastFailureInfo()) {
         mergeLastFailureInfo(other.getLastFailureInfo());
@@ -873,18 +829,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000080;
               break;
             } // case 66
-            case 72: {
-              isTransientStep_ = input.readBool();
-              bitField0_ |= 0x00000100;
-              break;
-            } // case 72
-            case 82: {
+            case 74: {
               input.readMessage(
                   internalGetLastFailureInfoFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000200;
+              bitField0_ |= 0x00000100;
               break;
-            } // case 82
+            } // case 74
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1565,58 +1516,18 @@ private static final long serialVersionUID = 0L;
       return methodOptionsBuilder_;
     }
 
-    private boolean isTransientStep_ ;
-    /**
-     * <code>optional bool is_transient_step = 9;</code>
-     * @return Whether the isTransientStep field is set.
-     */
-    @java.lang.Override
-    public boolean hasIsTransientStep() {
-      return ((bitField0_ & 0x00000100) != 0);
-    }
-    /**
-     * <code>optional bool is_transient_step = 9;</code>
-     * @return The isTransientStep.
-     */
-    @java.lang.Override
-    public boolean getIsTransientStep() {
-      return isTransientStep_;
-    }
-    /**
-     * <code>optional bool is_transient_step = 9;</code>
-     * @param value The isTransientStep to set.
-     * @return This builder for chaining.
-     */
-    public Builder setIsTransientStep(boolean value) {
-
-      isTransientStep_ = value;
-      bitField0_ |= 0x00000100;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>optional bool is_transient_step = 9;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearIsTransientStep() {
-      bitField0_ = (bitField0_ & ~0x00000100);
-      isTransientStep_ = false;
-      onChanged();
-      return this;
-    }
-
     private io.superdurable.gen.StepMethodFailure lastFailureInfo_;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder> lastFailureInfoBuilder_;
     /**
-     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
      * @return Whether the lastFailureInfo field is set.
      */
     public boolean hasLastFailureInfo() {
-      return ((bitField0_ & 0x00000200) != 0);
+      return ((bitField0_ & 0x00000100) != 0);
     }
     /**
-     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
      * @return The lastFailureInfo.
      */
     public io.superdurable.gen.StepMethodFailure getLastFailureInfo() {
@@ -1627,7 +1538,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
      */
     public Builder setLastFailureInfo(io.superdurable.gen.StepMethodFailure value) {
       if (lastFailureInfoBuilder_ == null) {
@@ -1638,12 +1549,12 @@ private static final long serialVersionUID = 0L;
       } else {
         lastFailureInfoBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000200;
+      bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
      */
     public Builder setLastFailureInfo(
         io.superdurable.gen.StepMethodFailure.Builder builderForValue) {
@@ -1652,16 +1563,16 @@ private static final long serialVersionUID = 0L;
       } else {
         lastFailureInfoBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000200;
+      bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
      */
     public Builder mergeLastFailureInfo(io.superdurable.gen.StepMethodFailure value) {
       if (lastFailureInfoBuilder_ == null) {
-        if (((bitField0_ & 0x00000200) != 0) &&
+        if (((bitField0_ & 0x00000100) != 0) &&
           lastFailureInfo_ != null &&
           lastFailureInfo_ != io.superdurable.gen.StepMethodFailure.getDefaultInstance()) {
           getLastFailureInfoBuilder().mergeFrom(value);
@@ -1672,16 +1583,16 @@ private static final long serialVersionUID = 0L;
         lastFailureInfoBuilder_.mergeFrom(value);
       }
       if (lastFailureInfo_ != null) {
-        bitField0_ |= 0x00000200;
+        bitField0_ |= 0x00000100;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
      */
     public Builder clearLastFailureInfo() {
-      bitField0_ = (bitField0_ & ~0x00000200);
+      bitField0_ = (bitField0_ & ~0x00000100);
       lastFailureInfo_ = null;
       if (lastFailureInfoBuilder_ != null) {
         lastFailureInfoBuilder_.dispose();
@@ -1691,15 +1602,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
      */
     public io.superdurable.gen.StepMethodFailure.Builder getLastFailureInfoBuilder() {
-      bitField0_ |= 0x00000200;
+      bitField0_ |= 0x00000100;
       onChanged();
       return internalGetLastFailureInfoFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
      */
     public io.superdurable.gen.StepMethodFailureOrBuilder getLastFailureInfoOrBuilder() {
       if (lastFailureInfoBuilder_ != null) {
@@ -1710,7 +1621,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.StepMethodFailure last_failure_info = 10;</code>
+     * <code>.dex.StepMethodFailure last_failure_info = 9;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.StepMethodFailure, io.superdurable.gen.StepMethodFailure.Builder, io.superdurable.gen.StepMethodFailureOrBuilder> 

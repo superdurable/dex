@@ -11,6 +11,7 @@
 package interpreter
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -330,131 +331,6 @@ func decisionWithClose(closeType dexpb.CloseDecisionType) *dexpb.StepDecision {
 	}
 }
 
-func TestValidateTransientStepMovement(t *testing.T) {
-	valid := func() *dexpb.StepMovement {
-		return &dexpb.StepMovement{
-			StepType:    "transient",
-			StepOptions: &dexpb.StepOptions{SkipWaitFor: true},
-		}
-	}
-	testCases := []struct {
-		name          string
-		movement      *dexpb.StepMovement
-		errorContains string
-	}{
-		{"empty_step_type", &dexpb.StepMovement{}, "step type is empty"},
-		{"does_not_skip_wait_for", &dexpb.StepMovement{StepType: "transient"}, "must skip WaitFor"},
-		{
-			"wait_for_proceed",
-			&dexpb.StepMovement{
-				StepType: "transient",
-				StepOptions: &dexpb.StepOptions{
-					SkipWaitFor:          true,
-					WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
-				},
-			},
-			"cannot proceed on WaitFor failure",
-		},
-		{
-			"execute_proceed",
-			&dexpb.StepMovement{
-				StepType: "transient",
-				StepOptions: &dexpb.StepOptions{
-					SkipWaitFor:          true,
-					ExecuteFailurePolicy: dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
-				},
-			},
-			"cannot proceed on Execute failure",
-		},
-		{
-			"execute_failure_step",
-			&dexpb.StepMovement{
-				StepType: "transient",
-				StepOptions: &dexpb.StepOptions{
-					SkipWaitFor:                   true,
-					ExecuteFailureProceedStepType: "fallback",
-				},
-			},
-			"cannot configure an Execute failure step",
-		},
-		{
-			"execute_failure_step_options",
-			&dexpb.StepMovement{
-				StepType: "transient",
-				StepOptions: &dexpb.StepOptions{
-					SkipWaitFor:                      true,
-					ExecuteFailureProceedStepOptions: &dexpb.StepOptions{},
-				},
-			},
-			"cannot configure Execute failure step options",
-		},
-	}
-
-	require.NoError(t, validateTransientStepMovement(nil))
-	require.NoError(t, validateTransientStepMovement(valid()))
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			err := validateTransientStepMovement(testCase.movement)
-			require.ErrorContains(t, err, testCase.errorContains)
-		})
-	}
-}
-
-func TestValidateTransientDeadEndDecision(t *testing.T) {
-	valid := decisionWithClose(dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END)
-	testCases := []struct {
-		name     string
-		decision *dexpb.StepDecision
-	}{
-		{"nil", nil},
-		{"empty", &dexpb.StepDecision{}},
-		{
-			"non_dead_end",
-			&dexpb.StepDecision{NextSteps: []*dexpb.StepMovement{{StepType: "next"}}},
-		},
-		{
-			"multiple",
-			&dexpb.StepDecision{
-				NextSteps:     []*dexpb.StepMovement{{StepType: "next"}},
-				CloseDecision: valid.GetCloseDecision(),
-			},
-		},
-		{
-			"conditional",
-			decisionWithClose(
-				dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON_CHANNELS_EMPTY,
-			),
-		},
-	}
-
-	require.NoError(t, validateTransientDeadEndDecision(valid))
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			require.Error(t, validateTransientDeadEndDecision(testCase.decision))
-		})
-	}
-}
-
-func TestValidateExecuteResponseRejectsTransientBeforeProcessingWrites(t *testing.T) {
-	response := &dexpb.InvokeExecuteMethodResponse{
-		StepDecision: &dexpb.StepDecision{
-			NextSteps: []*dexpb.StepMovement{{StepType: "not-dead-end"}},
-		},
-		UpsertAttributes: []*dexpb.AttributeWrite{
-			{Key: "attribute", Value: stringValue("value")},
-		},
-		PublishToChannel: []*dexpb.ChannelMessage{
-			{ChannelName: "channel", Value: stringValue("value")},
-		},
-	}
-
-	require.ErrorContains(
-		t,
-		validateExecuteResponse(response, true),
-		"requires a DeadEnd close decision",
-	)
-}
-
 func createConditions() ([]*dexpb.TimerCondition, []*dexpb.ChannelCondition) {
 	timers := []*dexpb.TimerCondition{
 		{ConditionId: "timer-cmd1", DurationSeconds: 86400 * 365},
@@ -541,7 +417,7 @@ func TestNewWorkerActivityFailureUsesInternalForNonGRPCError(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerActivityFailure(provider, service.BackendTypeTemporal, inputError, nil),
+		newWorkerActivityFailure(context.Background(), provider, service.BackendTypeTemporal, inputError, nil),
 		expectedError,
 	)
 	require.Equal(t, "dial failed", internalActivityError.GetServerDetail())
@@ -580,7 +456,7 @@ func TestNewWorkerActivityFailurePreservesWorkerDetails(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerActivityFailure(provider, service.BackendTypeTemporal, grpcStatus.Err(), nil),
+		newWorkerActivityFailure(context.Background(), provider, service.BackendTypeTemporal, grpcStatus.Err(), nil),
 		expectedError,
 	)
 	require.Empty(t, internalActivityError.GetServerDetail())
@@ -617,7 +493,7 @@ func TestNewWorkerActivityFailureRejectsRetryAfterOnCadence(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerActivityFailure(provider, service.BackendTypeCadence, grpcStatus.Err(), nil),
+		newWorkerActivityFailure(context.Background(), provider, service.BackendTypeCadence, grpcStatus.Err(), nil),
 		expectedError,
 	)
 	require.Equal(
@@ -649,7 +525,7 @@ func TestNewWorkerActivityFailureFallsBackWhenMessageEmpty(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerActivityFailure(provider, service.BackendTypeTemporal, inputError, nil),
+		newWorkerActivityFailure(context.Background(), provider, service.BackendTypeTemporal, inputError, nil),
 		expectedError,
 	)
 	require.Equal(t, inputError.Error(), internalActivityError.GetServerDetail())
@@ -676,6 +552,10 @@ func TestNewServerActivityFailureKeepsGRPCErrorInternal(t *testing.T) {
 			return expectedError
 		})
 
-	require.ErrorIs(t, newServerActivityFailure(provider, inputError, nil), expectedError)
+	require.ErrorIs(
+		t,
+		newServerActivityFailure(context.Background(), provider, inputError, nil),
+		expectedError,
+	)
 	require.Contains(t, internalActivityError.GetServerDetail(), "internal service unavailable")
 }

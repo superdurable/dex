@@ -40,6 +40,7 @@ type ActivityInfo struct {
 	ActivityID        string
 	Attempt           int32 // Attempt starts from 1, and increased by 1 for every retry if retry policy is specified.
 	IsLocalActivity   bool  // Whether the activity is at local activity
+	HeartbeatTimeout  time.Duration
 	WorkflowExecution WorkflowExecution
 }
 
@@ -77,6 +78,7 @@ type ActivityOptions struct {
 
 type UnifiedContext interface {
 	GetContext() interface{}
+	Err() error
 }
 
 type contextHolder struct {
@@ -86,6 +88,14 @@ type contextHolder struct {
 
 func (c *contextHolder) GetContext() interface{} {
 	return c.ctx
+}
+
+func (c *contextHolder) Err() error {
+	ctx, ok := c.ctx.(interface{ Err() error })
+	if !ok {
+		panic("unified context does not expose Err")
+	}
+	return ctx.Err()
 }
 
 func NewUnifiedContext(ctx interface{}) UnifiedContext {
@@ -132,6 +142,7 @@ type WorkflowProvider interface {
 	IsCanceledError(err error) bool
 	IsContinueAsNewError(err error) bool
 	NewDisconnectedContext(ctx UnifiedContext) UnifiedContext
+	WithCancel(parent UnifiedContext) (UnifiedContext, func())
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
 	GetSearchAttributeKeyword(ctx UnifiedContext, key string) (string, error)
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)

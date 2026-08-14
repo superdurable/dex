@@ -28,6 +28,11 @@ module map.
   value types that are not components may remain unexported.
 - Export constructors and methods called by another interpreter component,
   even when both components share the `interpreter` package.
+- Interpreter components may use `UnifiedContext` during construction but must
+  not retain it. Pass the operation-scoped context explicitly to methods.
+- Handle every interpreter `Await` error immediately. After a successful
+  `Await`, write synchronously without a redundant context check; otherwise
+  check the context before mutating state.
 - Lift stateful closures into struct methods when they capture 3+ values, mutate
   outer state, have multiple call sites, or outlive one statement.
 - One-shot callbacks, tiny pure transforms, and IIFEs are acceptable.

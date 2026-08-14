@@ -226,6 +226,7 @@ message StepOptions {
   StepDurability execute_durability_override = 11;
   repeated string wait_for_lock_attribute_keys = 12;
   repeated string execute_lock_attribute_keys = 13;
+  int32 heartbeat_timeout_seconds = 14;
 }
 
 enum IdReusePolicy {
@@ -546,6 +547,7 @@ message StepMethodFailure {
 message StepMethodOptions {
   int32 timeout_seconds = 1;
   RetryPolicy retry_policy = 2;
+  int32 heartbeat_timeout_seconds = 3;
 }
 
 message StepMethodEventInput {
@@ -565,8 +567,7 @@ message StepMethodEventContext {
   google.protobuf.Timestamp started_time = 6;
   google.protobuf.Duration duration = 7;
   StepMethodOptions method_options = 8;
-  optional bool is_transient_step = 9;
-  StepMethodFailure last_failure_info = 10;
+  StepMethodFailure last_failure_info = 9;
 }
 
 message StepWaitForCompletedOutput {
@@ -575,7 +576,6 @@ message StepWaitForCompletedOutput {
   repeated ChannelMessage publish_to_channel = 3;
   repeated KV record_events = 4;
   repeated KV upsert_step_execution_locals = 5;
-  StepMovement transient_step_movement = 6;
 }
 
 message StepExecuteCompletedOutput {
@@ -842,7 +842,6 @@ message InvokeWaitForMethodResponse {
   repeated KV upsert_step_exe_locals = 4;
   repeated KV record_events = 5;
   repeated ChannelMessage publish_to_channel = 6;
-  StepMovement transient_step_movement = 7;
 }
 
 message InvokeExecuteMethodRequest {
@@ -885,6 +884,8 @@ message InvokeWorkerRPCResponse {
 message StepDecision {
   repeated StepMovement next_steps = 1;
   CloseDecision close_decision = 2;
+  repeated string cancel_step_types = 3;
+  repeated string cancel_sibling_step_types = 4;
 }
 
 enum CloseDecisionType {
@@ -1133,8 +1134,6 @@ message InvokeWaitForMethodActivityOutput {
 message InvokeExecuteMethodActivityInput {
   WorkerTarget worker_target = 1;
   InvokeExecuteMethodRequest request = 2;
-  // Requires a DeadEnd close decision without next steps.
-  bool is_transient_step = 3;
 }
 
 message RecoveryErrorInfo {
@@ -1231,7 +1230,7 @@ message ExecuteRpcSignalRequest {
   StepDecision step_decision = 4;
   repeated KV record_events = 5;
   repeated ChannelMessage publish_to_channel = 6;
-  bool is_set_attribute_api = 8;
+  bool is_set_attribute_api = 7;
 }
 
 message SkipTimerSignalRequest {

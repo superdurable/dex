@@ -34,6 +34,7 @@ const sidebars: SidebarsConfig = {
             'capabilities/advanced/channels',
             'capabilities/advanced/subflows',
             'capabilities/advanced/fan-out-fan-in',
+            'capabilities/advanced/step-execution-cancellation',
             'capabilities/advanced/error-handling-saga',
             'capabilities/advanced/multi-threading',
             'capabilities/advanced/locking',

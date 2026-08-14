@@ -42,6 +42,7 @@ import java.util.Objects;
 public final class StepOptions {
     private final Duration waitForMethodTimeout;
     private final Duration executeMethodTimeout;
+    private final Duration heartbeatTimeout;
     private final RetryPolicy waitForRetry;
     private final RetryPolicy executeRetry;
     private final WaitForFailurePolicy waitForFailure;
@@ -54,6 +55,7 @@ public final class StepOptions {
     private StepOptions(final Builder builder) {
         this.waitForMethodTimeout = builder.waitForMethodTimeout;
         this.executeMethodTimeout = builder.executeMethodTimeout;
+        this.heartbeatTimeout = builder.heartbeatTimeout;
         this.waitForRetry = builder.waitForRetry;
         this.executeRetry = builder.executeRetry;
         this.waitForFailure = builder.waitForFailure;
@@ -79,6 +81,10 @@ public final class StepOptions {
 
     Duration getExecuteMethodTimeout() {
         return executeMethodTimeout;
+    }
+
+    Duration getHeartbeatTimeout() {
+        return heartbeatTimeout;
     }
 
     RetryPolicy getWaitForRetry() {
@@ -121,6 +127,7 @@ public final class StepOptions {
     public static final class Builder {
         private Duration waitForMethodTimeout;
         private Duration executeMethodTimeout;
+        private Duration heartbeatTimeout;
         private RetryPolicy waitForRetry;
         private RetryPolicy executeRetry;
         private WaitForFailurePolicy waitForFailure = WaitForFailurePolicy.FAIL_FLOW;
@@ -152,6 +159,25 @@ public final class StepOptions {
          */
         public Builder executeMethodTimeout(final Duration value) {
             this.executeMethodTimeout = value;
+            return this;
+        }
+
+        /**
+         * Sets the heartbeat timeout for regular wait-for and execute activities.
+         *
+         * <p>Dex automatically heartbeats while the Java handler is running so cancellation reaches
+         * the worker promptly. Local activities ignore this setting; an asynchronous local activity
+         * that falls back to a regular activity uses it. {@code null} and {@link Duration#ZERO}
+         * disable heartbeats. Positive values must be whole seconds within the signed int32 range.
+         * Once cancellation reaches the Java Worker, Dex interrupts the handler thread. CPU-bound or
+         * batch-oriented handlers may additionally check {@link Context#isCancellationRequested()}
+         * at natural work boundaries.
+         *
+         * @param value the regular activity heartbeat timeout, or {@code null} to disable it
+         * @return this builder
+         */
+        public Builder heartbeatTimeout(final Duration value) {
+            heartbeatTimeout = value;
             return this;
         }
 

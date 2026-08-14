@@ -143,9 +143,15 @@ final class WorkerDispatcher {
         if (returned instanceof RPCResult) {
             final RPCResult<?> result = (RPCResult<?>) returned;
             response.setOutput(values.encode(result.getOutput()));
-            if (!result.getNextSteps().isEmpty()) {
-                response.setStepDecision(io.superdurable.gen.StepDecision.newBuilder()
-                        .addAllNextSteps(mapMovements(flow, result.getNextSteps())));
+            final String source = "Flow " + flow.getName() + " RPC " + rpc.getName();
+            final io.superdurable.gen.StepDecision.Builder decision =
+                    io.superdurable.gen.StepDecision.newBuilder()
+                            .addAllNextSteps(mapMovements(flow, result.getNextSteps()))
+                            .addAllCancelStepTypes(mapCancellationSteps(
+                                    flow, source, result.getCancelingSteps()));
+            if (decision.getNextStepsCount() > 0
+                    || decision.getCancelStepTypesCount() > 0) {
+                response.setStepDecision(decision);
             }
         } else {
             response.setOutput(values.encode(null));
@@ -294,7 +300,32 @@ final class WorkerDispatcher {
                 throw new InvalidStepResultException(
                         source + " returned an unsupported StepDecision kind");
         }
+        mapped.addAllCancelStepTypes(mapCancellationSteps(
+                flow, source, decision.getCancelingSteps()));
+        mapped.addAllCancelSiblingStepTypes(mapCancellationSteps(
+                flow, source, decision.getCancelingSiblingSteps()));
         return mapped.build();
+    }
+
+    private List<String> mapCancellationSteps(
+            final Registry.RegisteredFlow flow,
+            final String source,
+            final List<Step<?>> steps) {
+        final List<String> mapped = new ArrayList<String>(steps.size());
+        for (Step<?> cancellationStep : steps) {
+            if (cancellationStep == null) {
+                throw new InvalidStepResultException(
+                        source + " cancellation Step is required");
+            }
+            final Registry.RegisteredStep registered =
+                    flow.getSteps().get(cancellationStep.getStepType());
+            if (registered == null || registered.getStep() != cancellationStep) {
+                throw new InvalidStepResultException(
+                        source + " cancellation Step does not belong to Flow");
+            }
+            mapped.add(registered.getName());
+        }
+        return mapped;
     }
 
     private CloseDecision close(
@@ -360,6 +391,11 @@ final class WorkerDispatcher {
         }
         if (options.getExecuteMethodTimeout() != null) {
             mapped.setExecuteTimeoutSeconds(seconds32(options.getExecuteMethodTimeout()));
+        }
+        if (options.getHeartbeatTimeout() != null
+                && !options.getHeartbeatTimeout().isZero()) {
+            mapped.setHeartbeatTimeoutSeconds(
+                    positiveSeconds32(options.getHeartbeatTimeout()));
         }
         if (options.getWaitForRetry() != null) {
             mapped.setWaitForRetryPolicy(mapRetry(options.getWaitForRetry()));
@@ -443,6 +479,14 @@ final class WorkerDispatcher {
                     "Duration must be non-negative whole seconds within int32");
         }
         return (int) duration.getSeconds();
+    }
+
+    private static int positiveSeconds32(final Duration duration) {
+        final int seconds = seconds32(duration);
+        if (seconds == 0) {
+            throw new IllegalArgumentException("Duration must be positive");
+        }
+        return seconds;
     }
 
     private final class ConditionMapper {

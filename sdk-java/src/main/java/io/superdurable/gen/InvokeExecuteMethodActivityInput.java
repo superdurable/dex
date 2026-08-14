@@ -101,21 +101,6 @@ private static final long serialVersionUID = 0L;
     return request_ == null ? io.superdurable.gen.InvokeExecuteMethodRequest.getDefaultInstance() : request_;
   }
 
-  public static final int IS_TRANSIENT_STEP_FIELD_NUMBER = 3;
-  private boolean isTransientStep_ = false;
-  /**
-   * <pre>
-   * Requires a DeadEnd close decision without next steps.
-   * </pre>
-   *
-   * <code>bool is_transient_step = 3;</code>
-   * @return The isTransientStep.
-   */
-  @java.lang.Override
-  public boolean getIsTransientStep() {
-    return isTransientStep_;
-  }
-
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -136,9 +121,6 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(2, getRequest());
     }
-    if (isTransientStep_ != false) {
-      output.writeBool(3, isTransientStep_);
-    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -150,10 +132,6 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getRequest());
-    }
-    if (isTransientStep_ != false) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(3, isTransientStep_);
     }
     return size;
   }
@@ -189,8 +167,6 @@ private static final long serialVersionUID = 0L;
       if (!getRequest()
           .equals(other.getRequest())) return false;
     }
-    if (getIsTransientStep()
-        != other.getIsTransientStep()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -210,9 +186,6 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + REQUEST_FIELD_NUMBER;
       hash = (53 * hash) + getRequest().hashCode();
     }
-    hash = (37 * hash) + IS_TRANSIENT_STEP_FIELD_NUMBER;
-    hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-        getIsTransientStep());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -361,7 +334,6 @@ private static final long serialVersionUID = 0L;
         requestBuilder_.dispose();
         requestBuilder_ = null;
       }
-      isTransientStep_ = false;
       return this;
     }
 
@@ -408,9 +380,6 @@ private static final long serialVersionUID = 0L;
             : requestBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.isTransientStep_ = isTransientStep_;
-      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -431,9 +400,6 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasRequest()) {
         mergeRequest(other.getRequest());
-      }
-      if (other.getIsTransientStep() != false) {
-        setIsTransientStep(other.getIsTransientStep());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -475,11 +441,6 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
-            case 24: {
-              isTransientStep_ = input.readBool();
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 24
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -737,50 +698,6 @@ private static final long serialVersionUID = 0L;
         request_ = null;
       }
       return requestBuilder_;
-    }
-
-    private boolean isTransientStep_ ;
-    /**
-     * <pre>
-     * Requires a DeadEnd close decision without next steps.
-     * </pre>
-     *
-     * <code>bool is_transient_step = 3;</code>
-     * @return The isTransientStep.
-     */
-    @java.lang.Override
-    public boolean getIsTransientStep() {
-      return isTransientStep_;
-    }
-    /**
-     * <pre>
-     * Requires a DeadEnd close decision without next steps.
-     * </pre>
-     *
-     * <code>bool is_transient_step = 3;</code>
-     * @param value The isTransientStep to set.
-     * @return This builder for chaining.
-     */
-    public Builder setIsTransientStep(boolean value) {
-
-      isTransientStep_ = value;
-      bitField0_ |= 0x00000004;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Requires a DeadEnd close decision without next steps.
-     * </pre>
-     *
-     * <code>bool is_transient_step = 3;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearIsTransientStep() {
-      bitField0_ = (bitField0_ & ~0x00000004);
-      isTransientStep_ = false;
-      onChanged();
-      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.InvokeExecuteMethodActivityInput)

@@ -81,7 +81,6 @@ export function buildStepGraph(
       execute,
       pendingWaitFor: event.type === 'StepWaitForPending' ? event : existing?.pendingWaitFor,
       pendingExecute: event.type === 'StepExecutePending' ? event : existing?.pendingExecute,
-      transient: info.isTransientStep === true,
     });
   }
 
@@ -99,7 +98,6 @@ export function buildStepGraph(
       pendingWaitFor: existing?.pendingWaitFor,
       pendingExecute: existing?.pendingExecute,
       active,
-      transient: existing?.transient,
     });
   }
 

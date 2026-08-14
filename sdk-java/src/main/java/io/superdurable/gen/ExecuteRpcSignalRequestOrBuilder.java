@@ -128,7 +128,7 @@ public interface ExecuteRpcSignalRequestOrBuilder extends
       int index);
 
   /**
-   * <code>bool is_set_attribute_api = 8;</code>
+   * <code>bool is_set_attribute_api = 7;</code>
    * @return The isSetAttributeApi.
    */
   boolean getIsSetAttributeApi();

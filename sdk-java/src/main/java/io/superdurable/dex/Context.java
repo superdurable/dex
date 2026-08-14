@@ -93,6 +93,19 @@ public interface Context {
     int getAttempt();
 
     /**
+     * Reports whether Dex requested cancellation of the current Step execution.
+     *
+     * <p>When cancellation reaches the Java Worker, Dex cancels the handler task and interrupts its
+     * thread. Blocking handlers should return when they receive {@link InterruptedException}.
+     * CPU-bound or batch-oriented handlers may check this method at natural work boundaries; they
+     * do not need to poll continuously. Neither thread interruption nor this method makes external
+     * side effects atomic. Use timeouts, idempotency, or compensation when required.
+     *
+     * @return {@code true} after cancellation is requested or the handler thread is interrupted
+     */
+    boolean isCancellationRequested();
+
+    /**
      * Reports whether any timer condition in the current wait has fired.
      *
      * @return {@code true} when at least one timer fired

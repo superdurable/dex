@@ -120,6 +120,9 @@ func (am *PersistenceManager) ApplyAttributeWrites(
 	ctx interfaces.UnifiedContext,
 	writes []*dexpb.AttributeWrite,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if len(writes) == 0 {
 		return nil
 	}
@@ -139,7 +142,11 @@ func (am *PersistenceManager) ApplyAttributeWrites(
 		}
 		am.attributes[write.GetKey()] = write.GetValue()
 	}
-	am.synchronizer.AppendingToPendings(writes, am.flowConfiger.Get().GetAttributeSyncConfigName())
+	am.synchronizer.AppendingToPendings(
+		ctx,
+		writes,
+		am.flowConfiger.Get().GetAttributeSyncConfigName(),
+	)
 
 	return nil
 }

@@ -25,7 +25,6 @@ import (
 )
 
 type StepExecutionCounter struct {
-	ctx                  interfaces.UnifiedContext
 	provider             interfaces.WorkflowProvider
 	configer             *config.FlowConfiger
 	continueAsNewCounter *cont.ContinueAsNewCounter
@@ -43,13 +42,11 @@ type StepExecutionCounter struct {
 }
 
 func NewStepExecutionCounter(
-	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	configer *config.FlowConfiger,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 ) *StepExecutionCounter {
 	return &StepExecutionCounter{
-		ctx:                     ctx,
 		provider:                provider,
 		configer:                configer,
 		continueAsNewCounter:    continueAsNewCounter,
@@ -60,7 +57,6 @@ func NewStepExecutionCounter(
 }
 
 func RebuildStepExecutionCounter(
-	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
 	configer *config.FlowConfiger,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
@@ -75,7 +71,6 @@ func RebuildStepExecutionCounter(
 		stepTypeActiveCounts = map[string]int32{}
 	}
 	return &StepExecutionCounter{
-		ctx:                   ctx,
 		provider:              provider,
 		configer:              configer,
 		continueAsNewCounter:  continueAsNewCounter,
@@ -130,9 +125,24 @@ func (e *StepExecutionCounter) CreateNextExecutionId(stepType string) string {
 	return formatStepExecutionId(stepType, executionNumber)
 }
 
+// MarkQueuedStepExecutionCanceled reserves an execution number for a movement canceled before
+// Start assigns its ID. The number is omitted from stepActiveExecutionNums, so
+// WaitForStepCompletion observes it as completed and later executions cannot reuse it.
+func (e *StepExecutionCounter) MarkQueuedStepExecutionCanceled(
+	step *dexpb.StepMovement,
+) {
+	stepType := step.GetStepType()
+	e.stepTypeStartedCounts[stepType]++
+	e.continueAsNewCounter.IncExecutedStepExecution(step.GetStepOptions().GetSkipWaitFor())
+}
+
 func (e *StepExecutionCounter) MarkStepTypeActiveIfNotYet(
+	ctx interfaces.UnifiedContext,
 	requests []StepRequest,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	needsUpdateSA := false
 	numOfNew := int32(0)
 	for _, request := range requests {
@@ -150,17 +160,21 @@ func (e *StepExecutionCounter) MarkStepTypeActiveIfNotYet(
 	e.totalActiveCount += numOfNew
 
 	if needsUpdateSA {
-		return e.refreshActiveStepTypeSearchAttribute()
+		return e.refreshActiveStepTypeSearchAttribute(ctx)
 	}
 
 	return nil
 }
 
 func (e *StepExecutionCounter) MarkStepExecutionCompleted(
+	ctx interfaces.UnifiedContext,
 	currentStep *dexpb.StepMovement,
 	stepExecutionId string,
 	nextSteps []*dexpb.StepMovement,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	e.totalActiveCount--
 	e.removeStepActiveExecutionNum(
 		currentStep.GetStepType(),
@@ -183,7 +197,7 @@ func (e *StepExecutionCounter) MarkStepExecutionCompleted(
 	if shouldSkipRefresh {
 		return nil
 	}
-	return e.refreshActiveStepTypeSearchAttribute()
+	return e.refreshActiveStepTypeSearchAttribute(ctx)
 }
 
 func (e *StepExecutionCounter) removeStepActiveExecutionNum(
@@ -274,14 +288,16 @@ func (e *StepExecutionCounter) GetTotalCurrentlyExecutingCount() int32 {
 	return e.totalActiveCount
 }
 
-func (e *StepExecutionCounter) refreshActiveStepTypeSearchAttribute() error {
+func (e *StepExecutionCounter) refreshActiveStepTypeSearchAttribute(
+	ctx interfaces.UnifiedContext,
+) error {
 	// Optimization: don't upsert SAs if currentSAsValues == stepTypeActiveCounts keys
 	currentSAsValues, err := e.provider.GetSearchAttributeKeywordArray(
-		e.ctx,
+		ctx,
 		service.SearchAttributeActiveStepTypes,
 	)
 	if err != nil {
-		e.provider.GetLogger(e.ctx).Error("error for GetSearchAttributes", err)
+		e.provider.GetLogger(ctx).Error("error for GetSearchAttributes", err)
 		return err
 	}
 
@@ -293,7 +309,7 @@ func (e *StepExecutionCounter) refreshActiveStepTypeSearchAttribute() error {
 		return nil
 	}
 
-	return e.provider.UpsertSearchAttributes(e.ctx, map[string]interface{}{
+	return e.provider.UpsertSearchAttributes(ctx, map[string]interface{}{
 		service.SearchAttributeActiveStepTypes: activeStepTypes,
 	})
 }

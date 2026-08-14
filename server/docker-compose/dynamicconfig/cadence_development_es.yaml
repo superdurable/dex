@@ -34,8 +34,10 @@ frontend.validSearchAttributes:
     CustomDomain: 1
     CustomDoubleField: 3
     CustomIntField: 2
+    CustomKeywordArrayField: 1
     CustomKeywordField: 1
     CustomTextField: 0
+    DexParentFlowID: 1
     DomainID: 1
     ExecutionStatus: 2
     ExecutionTime: 2

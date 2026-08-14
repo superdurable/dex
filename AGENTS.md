@@ -314,6 +314,11 @@ Constructors and methods called by another component must also be exported,
 even when both components share the `interpreter` package. Component-internal
 methods remain unexported.
 
+Components may use `UnifiedContext` during construction but must not retain it.
+Pass the operation-scoped context explicitly to methods. Handle every `Await`
+error immediately. After a successful `Await`, write synchronously without a
+redundant context check; otherwise check the context before mutating state.
+
 ## Go SDK Conventions (`sdk-go/`)
 
 Prefer explicit domain naming, thin public APIs, apply-style options, and

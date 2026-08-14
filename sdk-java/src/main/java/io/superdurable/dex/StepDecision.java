@@ -14,6 +14,7 @@
 
 package io.superdurable.dex;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -29,7 +30,8 @@ import java.util.List;
  * if (order.cancelled) {
  *     return StepDecision.forceComplete("cancelled");
  * }
- * return StepDecision.goTo(chargeOrder, order);
+ * return StepDecision.goTo(chargeOrder, order)
+ *         .withCancelingSiblingSteps(reserveInventory, quoteShipping);
  * }</pre>
  */
 public final class StepDecision {
@@ -49,6 +51,8 @@ public final class StepDecision {
     private final String reason;
     private final List<Object> emptyChannels;
     private final StepMovement<?> fallback;
+    private final List<Step<?>> cancelingSteps;
+    private final List<Step<?>> cancelingSiblingSteps;
 
     private StepDecision(
             final Kind kind,
@@ -57,7 +61,9 @@ public final class StepDecision {
             final Object output,
             final String reason,
             final List<Object> emptyChannels,
-            final StepMovement<?> fallback) {
+            final StepMovement<?> fallback,
+            final List<Step<?>> cancelingSteps,
+            final List<Step<?>> cancelingSiblingSteps) {
         this.kind = kind;
         this.movements = Collections.unmodifiableList(movements);
         this.hasOutput = hasOutput;
@@ -65,6 +71,8 @@ public final class StepDecision {
         this.reason = reason;
         this.emptyChannels = Collections.unmodifiableList(emptyChannels);
         this.fallback = fallback;
+        this.cancelingSteps = CancellationSteps.immutable(cancelingSteps);
+        this.cancelingSiblingSteps = CancellationSteps.immutable(cancelingSiblingSteps);
     }
 
     /**
@@ -93,7 +101,9 @@ public final class StepDecision {
                 null,
                 null,
                 Collections.<Object>emptyList(),
-                null);
+                null,
+                Collections.<Step<?>>emptyList(),
+                Collections.<Step<?>>emptyList());
     }
 
     /**
@@ -165,7 +175,9 @@ public final class StepDecision {
                 output,
                 null,
                 Arrays.<Object>asList(channels.clone()),
-                fallback);
+                fallback,
+                Collections.<Step<?>>emptyList(),
+                Collections.<Step<?>>emptyList());
     }
 
     /**
@@ -199,7 +211,65 @@ public final class StepDecision {
                 output,
                 reason,
                 Collections.<Object>emptyList(),
-                null);
+                null,
+                Collections.<Step<?>>emptyList(),
+                Collections.<Step<?>>emptyList());
+    }
+
+    /**
+     * Cancels queued or active executions of the selected Step types in the current Flow.
+     *
+     * <p>Dex resolves the selection as a snapshot after the current execution succeeds. Existing
+     * executions that already finished, were canceled, or do not exist are ignored. Newly scheduled
+     * movements in this decision are not part of the snapshot. Dex interrupts a selected Java
+     * handler when cancellation reaches its Worker and continues with this decision without waiting
+     * for that handler to return.
+     *
+     * <p>Repeated calls take the union of their arguments. A Flow-wide selection supersedes a
+     * sibling-only selection for the same registered Step. Each argument must be the exact Step
+     * instance registered with the current Flow; a {@code null} or external Step causes an invalid
+     * Step result.
+     *
+     * @param steps registered Steps whose queued or active executions should be canceled
+     * @return a new decision containing the combined cancellation selection
+     */
+    public StepDecision withCancelingSteps(final Step<?>... steps) {
+        final List<Step<?>> global = CancellationSteps.add(cancelingSteps, steps);
+        final List<Step<?>> siblings = new ArrayList<Step<?>>(cancelingSiblingSteps);
+        CancellationSteps.remove(siblings, global);
+        return copy(global, siblings);
+    }
+
+    /**
+     * Cancels selected sibling Step executions that share the current execution's scheduling source.
+     *
+     * <p>A sibling has the same {@link Context#getFromStepExecutionId()} as the execution returning
+     * this decision. Dex applies the same snapshot, no-op, and handler interruption semantics as
+     * {@link #withCancelingSteps(Step[])}. Repeated calls take the union of their arguments, while a
+     * Flow-wide selection for a Step type supersedes its sibling-only selection.
+     *
+     * @param steps registered Steps whose matching sibling executions should be canceled
+     * @return a new decision containing the combined sibling cancellation selection
+     */
+    public StepDecision withCancelingSiblingSteps(final Step<?>... steps) {
+        final List<Step<?>> siblings = CancellationSteps.add(cancelingSiblingSteps, steps);
+        CancellationSteps.remove(siblings, cancelingSteps);
+        return copy(cancelingSteps, siblings);
+    }
+
+    private StepDecision copy(
+            final List<Step<?>> global,
+            final List<Step<?>> siblings) {
+        return new StepDecision(
+                kind,
+                movements,
+                hasOutput,
+                output,
+                reason,
+                emptyChannels,
+                fallback,
+                global,
+                siblings);
     }
 
     Kind getKind() {
@@ -228,5 +298,13 @@ public final class StepDecision {
 
     StepMovement<?> getFallback() {
         return fallback;
+    }
+
+    List<Step<?>> getCancelingSteps() {
+        return cancelingSteps;
+    }
+
+    List<Step<?>> getCancelingSiblingSteps() {
+        return cancelingSiblingSteps;
     }
 }

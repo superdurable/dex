@@ -1,0 +1,146 @@
+---
+title: Step execution cancellation
+---
+
+# Step execution cancellation
+
+## Why you need it
+
+Parallel work often has a winner: the first acceptable quote, the fastest
+replica, or the first branch that reaches quorum. Once the result is durable,
+the remaining work should stop consuming capacity and must not produce a late
+decision that changes the Flow.
+
+## Java example
+
+Return the winner's normal next action and select losing Step types in the same
+immutable decision:
+
+```java
+@Override
+public StepDecision execute(Context context, Quote quote) {
+    return StepDecision.goTo(recordQuote, quote)
+            .withCancelingSiblingSteps(carrierA, carrierB)
+            .withCancelingSteps(globalQuoteTimeout);
+}
+```
+
+`withCancelingSteps(...)` selects all queued or active executions of the exact
+registered Step types in the current Flow. `withCancelingSiblingSteps(...)`
+selects only targets with the same `Context.getFromStepExecutionId()` as the
+winner. Sibling selection is useful when several independent fan-outs reuse the
+same Step classes.
+
+An RPC can cancel all executions of selected Step types with
+`RPCResult.withCancelingSteps(...)`:
+
+```java
+@RPC(name = "acceptQuote")
+public RPCResult<QuoteStatus> acceptQuote(Context context, Quote quote) {
+    return RPCResult.of(
+                    QuoteStatus.ACCEPTED,
+                    StepMovement.of(recordQuote, quote))
+            .withCancelingSteps(carrierA, carrierB, globalQuoteTimeout);
+}
+```
+
+`RPCResult` does not support sibling selection. Separate invocations of the
+same RPC name do not share an invocation-scoped Step execution lineage, so
+treating their Steps as siblings could cancel unrelated work.
+
+Long-running regular Steps should use a heartbeat timeout so cancellation
+reaches the Java Worker promptly. Dex then cancels the handler task with
+`Future.cancel(true)`, which interrupts the handler thread. Blocking handlers
+should return when interrupted:
+
+```java
+private final StepOptions options = StepOptions.newBuilder()
+        .heartbeatTimeout(Duration.ofSeconds(10))
+        .build();
+
+@Override
+public StepDecision execute(Context context, Job job) {
+    try {
+        while (hasNextBatch(job)) {
+            processBatch(job);
+        }
+    } catch (InterruptedException canceled) {
+        Thread.currentThread().interrupt();
+    }
+    return StepDecision.deadEnd();
+}
+```
+
+CPU-bound or batch-oriented handlers may additionally check
+`Context.isCancellationRequested()` at natural work boundaries. They do not
+need to poll continuously.
+
+## Snapshot and completion semantics
+
+When Dex applies a `StepDecision`, it processes cancellation in this order:
+
+1. Finish the Step execution that returned the decision and commit its
+   successful Attribute and Channel writes. That execution cannot cancel
+   itself.
+2. Take one snapshot of all other Step executions that are currently queued or
+   active.
+3. Resolve both the global and sibling selectors against that same snapshot.
+4. Cancel the matched executions.
+5. Apply the decision's next or close action. Any Next Steps are created now,
+   after cancellation has been resolved.
+
+For example, suppose an existing `carrierA` execution is active and an existing
+`recordQuote` execution is queued when the winner returns:
+
+```java
+return StepDecision.goTo(recordQuote, quote)
+        .withCancelingSteps(carrierA, recordQuote);
+```
+
+Dex cancels those two existing executions. It then creates the new
+`recordQuote` execution requested by `goTo(...)`, so the new execution is not
+canceled by the same decision.
+
+An `RPCResult` follows the same snapshot rule for its global selector, but there
+is no returning Step execution to exclude. Next Steps created by the RPC result
+are also created after cancellation has been resolved.
+
+A target that is absent, completed, or already canceled is a successful no-op.
+Selectors do not cancel descendant Steps or future executions of a selected
+Step type.
+
+Cancellation wins when the interpreter applies the resolved snapshot. Dex
+immediately applies the winner's next or close action and does not wait for
+target handlers to return. A target does not retry, follow a failure policy,
+publish output, write Flow state, or schedule recovery Steps. Responses arriving
+after cancellation are ignored. Attribute and Channel side effects committed by
+an earlier wait-for call remain committed.
+
+Thread interruption and `Context.isCancellationRequested()` cannot make an
+external API call or database transaction atomic. Use timeouts, idempotency, or
+compensation where required. Heartbeats make cancellation reach a regular
+activity promptly; without them the Flow still proceeds, but a handler may run
+until its natural return or timeout.
+
+Dex calls the backend SDK heartbeat API once per second while the regular Step
+activity is active. Temporal and Cadence throttle the actual requests sent to the service;
+Dex does not derive another interval from the configured heartbeat timeout.
+
+Temporal eager regular activities still need heartbeats for prompt handler
+cancellation. Eager execution reduces activity dispatch latency; it does not
+change the SDK's heartbeat-based cancellation delivery described by the
+[Temporal Go SDK activity options](https://github.com/temporalio/sdk-go/blob/main/internal/activity.go).
+
+## State and history
+
+Canceled executions disappear from active Flow state. A queued target receives
+its normal execution number before cancellation completes. Cancellation does not
+add a Dex semantic history event; regular activity cancellation remains visible
+only in the backend workflow history.
+
+## Traditional workarounds
+
+Without this abstraction, teams maintain winner flags, poll those flags from
+workers, suppress late writes in every code path, and reconcile queue records
+after crashes. That coordination is difficult to make atomic with the winning
+branch's durable decision.

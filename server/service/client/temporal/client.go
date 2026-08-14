@@ -716,6 +716,16 @@ func (t *temporalClient) addTemporalHistoryEvent(
 			attributes.GetScheduledEventId(),
 			failure,
 		)
+	case enums.EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED:
+		attributes := event.GetActivityTaskCancelRequestedEventAttributes()
+		if isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
+			builder.RecordActivityCanceled(attributes.GetScheduledEventId())
+		}
+	case enums.EVENT_TYPE_ACTIVITY_TASK_CANCELED:
+		attributes := event.GetActivityTaskCanceledEventAttributes()
+		if isStepActivity(scheduledTypes[attributes.GetScheduledEventId()]) {
+			builder.RecordActivityCanceled(attributes.GetScheduledEventId())
+		}
 	case enums.EVENT_TYPE_MARKER_RECORDED:
 		return t.recordTemporalLocalActivity(
 			builder,
@@ -875,7 +885,8 @@ func temporalStepMethodOptions(
 	attributes *history.ActivityTaskScheduledEventAttributes,
 ) *dexpb.StepMethodOptions {
 	options := &dexpb.StepMethodOptions{
-		TimeoutSeconds: int32(attributes.GetStartToCloseTimeout().AsDuration() / time.Second),
+		TimeoutSeconds:          int32(attributes.GetStartToCloseTimeout().AsDuration() / time.Second),
+		HeartbeatTimeoutSeconds: int32(attributes.GetHeartbeatTimeout().AsDuration() / time.Second),
 	}
 	policy := attributes.GetRetryPolicy()
 	if policy == nil {
@@ -951,6 +962,9 @@ func (t *temporalClient) recordTemporalLocalActivity(
 	}
 	result := attributes.GetDetails()["result"]
 	if result == nil {
+		if attributes.GetFailure().GetCanceledFailureInfo() != nil {
+			return nil
+		}
 		localFallbackCounts[activityMethod(marker.ActivityType)]++
 		failure, metadata, err := t.temporalLocalStepFailure(attributes.GetFailure())
 		if err != nil {

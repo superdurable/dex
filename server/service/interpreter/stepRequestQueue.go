@@ -56,6 +56,22 @@ func (srq *StepRequestQueue) TakeAll() []StepRequest {
 	return res
 }
 
+func (srq *StepRequestQueue) RemoveMatching(
+	matches func(StepRequest) bool,
+) []StepRequest {
+	retained := make([]StepRequest, 0, len(srq.queue))
+	var removed []StepRequest
+	for _, request := range srq.queue {
+		if matches(request) {
+			removed = append(removed, request)
+			continue
+		}
+		retained = append(retained, request)
+	}
+	srq.queue = retained
+	return removed
+}
+
 func (srq *StepRequestQueue) GetAllStepStartRequests() []*dexpb.StepMovement {
 	var res []*dexpb.StepMovement
 	for _, request := range srq.queue {

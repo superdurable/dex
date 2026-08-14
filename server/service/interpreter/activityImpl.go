@@ -106,6 +106,8 @@ func (a *Activities) InvokeWaitForMethod(
 	logger.Info("InvokeWaitForMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
+	heartbeat := NewActivityHeartbeat(provider, ctx, activityInfo)
+	defer heartbeat.Stop()
 	req := waitForMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
 		req.GetContext(),
@@ -122,11 +124,10 @@ func (a *Activities) InvokeWaitForMethod(
 	}
 
 	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
-	originalStepInputBlob := stepInputBlobRef(req.GetStepInput())
 	if !lazyLoading {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
 			a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
-			return nil, newServerActivityFailure(provider, err, localActivityFailure)
+			return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 		}
 	}
 	client, callCtx, release, err := a.workerPool.Acquire(
@@ -135,7 +136,7 @@ func (a *Activities) InvokeWaitForMethod(
 		activityInfo.WorkflowExecution.ID,
 	)
 	if err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 	defer release()
 
@@ -144,25 +145,21 @@ func (a *Activities) InvokeWaitForMethod(
 	if err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
-		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
+		return nil, newWorkerActivityFailure(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := validateWaitingCondition(resp.GetWaitingCondition()); err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
-		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
-	}
-	if err := validateTransientStepMovement(resp.GetTransientStepMovement()); err != nil {
-		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
-		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
+		return nil, newWorkerActivityFailure(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := validateWorkerWaitForResponse(resp); err != nil {
-		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
+		return nil, newWorkerActivityFailure(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := a.offloadSubFlowStartInputs(
 		ctx,
 		req.GetContext().GetStepExecutionId(),
 		resp.GetWaitingCondition().GetSubFlowConditions(),
 	); err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 	if err := a.persistStepEventInput(
 		ctx,
@@ -177,24 +174,9 @@ func (a *Activities) InvokeWaitForMethod(
 			},
 		},
 	); err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 
-	transientStep := resp.GetTransientStepMovement()
-	if transientStep != nil {
-		transientStep.FromStepExecutionIdInternalOnly = req.GetContext().GetStepExecutionId()
-		transientStep.RecoveryErrorInternalOnly = nil
-		if err := a.reuseOrOffloadStepInput(
-			ctx,
-			transientStep,
-			originalStepInputBlob,
-			req.GetStepInput(),
-			activityInfo.WorkflowExecution.ID,
-			activityInvocationId(activityInfo),
-		); err != nil {
-			return nil, newServerActivityFailure(provider, err, localActivityFailure)
-		}
-	}
 	resp.LocalActivityMetadata = nil
 	if activityInfo.IsLocalActivity {
 		resp.LocalActivityMetadata = composeLocalActivityMetadata(req.GetContext())
@@ -205,7 +187,7 @@ func (a *Activities) InvokeWaitForMethod(
 		activityInfo.WorkflowExecution.ID,
 		activityInvocationId(activityInfo),
 	); err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 	if err := a.offloadWorkerSideEffects(
 		ctx,
@@ -215,7 +197,7 @@ func (a *Activities) InvokeWaitForMethod(
 		activityInfo.WorkflowExecution.ID,
 		activityInvocationId(activityInfo),
 	); err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 
 	a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptSucc)
@@ -274,6 +256,8 @@ func (a *Activities) InvokeExecuteMethod(
 	logger.Info("InvokeExecuteMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
+	heartbeat := NewActivityHeartbeat(provider, ctx, activityInfo)
+	defer heartbeat.Stop()
 	req := executeMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
 		req.GetContext(),
@@ -294,13 +278,13 @@ func (a *Activities) InvokeExecuteMethod(
 	if !lazyLoading {
 		if err := a.hydrateWorkerRequestValues(ctx, req.GetStepInput(), req.GetAttributes()); err != nil {
 			a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
-			return nil, newServerActivityFailure(provider, err, localActivityFailure)
+			return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 		}
 		if err := blobstore.HydrateKVs(ctx, req.GetStepExeLocals(), a.blobStore); err != nil {
-			return nil, newServerActivityFailure(provider, err, localActivityFailure)
+			return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 		}
 		if err := blobstore.HydrateConditionResults(ctx, req.GetConditionResults(), a.blobStore); err != nil {
-			return nil, newServerActivityFailure(provider, err, localActivityFailure)
+			return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 		}
 	}
 	client, callCtx, release, err := a.workerPool.Acquire(
@@ -309,7 +293,7 @@ func (a *Activities) InvokeExecuteMethod(
 		activityInfo.WorkflowExecution.ID,
 	)
 	if err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 	defer release()
 
@@ -318,10 +302,10 @@ func (a *Activities) InvokeExecuteMethod(
 	if err != nil {
 		a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptFail)
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
-		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
+		return nil, newWorkerActivityFailure(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
-	if err := validateExecuteResponse(resp, input.GetIsTransientStep()); err != nil {
-		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
+	if err := validateExecuteResponse(resp); err != nil {
+		return nil, newWorkerActivityFailure(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := a.persistStepEventInput(
 		ctx,
@@ -336,7 +320,7 @@ func (a *Activities) InvokeExecuteMethod(
 			},
 		},
 	); err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 
 	service.SetFromStepExecutionIDForStepDecision(
@@ -355,7 +339,7 @@ func (a *Activities) InvokeExecuteMethod(
 		activityInfo.WorkflowExecution.ID,
 		activityInvocationId(activityInfo),
 	); err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 	if err := a.offloadWorkerAttributeWrites(
 		ctx,
@@ -363,7 +347,7 @@ func (a *Activities) InvokeExecuteMethod(
 		activityInfo.WorkflowExecution.ID,
 		activityInvocationId(activityInfo),
 	); err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 	if err := a.offloadWorkerSideEffects(
 		ctx,
@@ -373,7 +357,7 @@ func (a *Activities) InvokeExecuteMethod(
 		activityInfo.WorkflowExecution.ID,
 		activityInvocationId(activityInfo),
 	); err != nil {
-		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+		return nil, newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 
 	a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptSucc)
@@ -480,11 +464,11 @@ func (a *Activities) DumpFlowForContinueAsNew(
 
 	client, callCtx, err := a.internalClient.Client(ctx)
 	if err != nil {
-		return nil, newServerActivityFailure(provider, err, nil)
+		return nil, newServerActivityFailure(ctx, provider, err, nil)
 	}
 	resp, err := client.DumpFlowForContinueAsNew(callCtx, input.GetRequest())
 	if err != nil {
-		return nil, newServerActivityFailure(provider, err, nil)
+		return nil, newServerActivityFailure(ctx, provider, err, nil)
 	}
 	return &dexpb.DumpFlowForContinueAsNewActivityOutput{Response: resp}, nil
 }
@@ -511,7 +495,7 @@ func (a *Activities) InvokeWorkerRPC(
 		&a.cfg.BlobStore,
 	)
 	if err != nil {
-		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, nil)
+		return nil, newWorkerActivityFailure(ctx, provider, a.unifiedClient.GetBackendType(), err, nil)
 	}
 	out := &dexpb.InvokeWorkerRPCActivityOutput{
 		Response:  resp,
@@ -951,17 +935,9 @@ func validateWorkerWaitForResponse(resp *dexpb.InvokeWaitForMethodResponse) erro
 	return workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents())
 }
 
-func validateExecuteResponse(
-	resp *dexpb.InvokeExecuteMethodResponse,
-	isTransientStep bool,
-) error {
+func validateExecuteResponse(resp *dexpb.InvokeExecuteMethodResponse) error {
 	if err := validateStepDecision(resp.GetStepDecision()); err != nil {
 		return err
-	}
-	if isTransientStep {
-		if err := validateTransientDeadEndDecision(resp.GetStepDecision()); err != nil {
-			return err
-		}
 	}
 	return validateWorkerExecuteResponse(resp)
 }
@@ -992,6 +968,16 @@ func validateStepDecision(decision *dexpb.StepDecision) error {
 	for index, movement := range decision.GetNextSteps() {
 		if movement == nil || movement.GetStepType() == "" {
 			return fmt.Errorf("next step at index %d is invalid", index)
+		}
+	}
+	for index, stepType := range decision.GetCancelStepTypes() {
+		if stepType == "" {
+			return fmt.Errorf("cancel step type at index %d is invalid", index)
+		}
+	}
+	for index, stepType := range decision.GetCancelSiblingStepTypes() {
+		if stepType == "" {
+			return fmt.Errorf("cancel sibling step type at index %d is invalid", index)
 		}
 	}
 	if closeDecision := decision.GetCloseDecision(); closeDecision != nil {
@@ -1043,43 +1029,6 @@ func validateCloseDecision(closeDecision *dexpb.CloseDecision, nextStepCount int
 		}
 	default:
 		return fmt.Errorf("close decision type is unspecified")
-	}
-	return nil
-}
-
-func validateTransientStepMovement(movement *dexpb.StepMovement) error {
-	if movement == nil {
-		return nil
-	}
-	if movement.GetStepType() == "" {
-		return fmt.Errorf("transient step type is empty")
-	}
-	options := movement.GetStepOptions()
-	if !options.GetSkipWaitFor() {
-		return fmt.Errorf("transient step must skip WaitFor")
-	}
-	if options.GetWaitForFailurePolicy() ==
-		dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE {
-		return fmt.Errorf("transient step cannot proceed on WaitFor failure")
-	}
-	if options.GetExecuteFailurePolicy() ==
-		dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP {
-		return fmt.Errorf("transient step cannot proceed on Execute failure")
-	}
-	if options.GetExecuteFailureProceedStepType() != "" {
-		return fmt.Errorf("transient step cannot configure an Execute failure step")
-	}
-	if options.GetExecuteFailureProceedStepOptions() != nil {
-		return fmt.Errorf("transient step cannot configure Execute failure step options")
-	}
-	return nil
-}
-
-func validateTransientDeadEndDecision(decision *dexpb.StepDecision) error {
-	if decision == nil || len(decision.GetNextSteps()) != 0 ||
-		decision.GetCloseDecision().GetCloseDecisionType() !=
-			dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END {
-		return fmt.Errorf("transient step requires a DeadEnd close decision")
 	}
 	return nil
 }
@@ -1293,14 +1242,18 @@ func printDebugMsg(logger interfaces.UnifiedLogger, err error, target string) {
 
 // Worker and server errors become InternalActivityError before backend-specific encoding.
 func newWorkerActivityFailure(
+	ctx context.Context,
 	provider interfaces.ActivityProvider,
 	backendType service.BackendType,
 	err error,
 	localActivityFailure *dexpb.InternalLocalStepActivityFailure,
 ) error {
+	if ctx.Err() == context.Canceled {
+		return context.Canceled
+	}
 	grpcStatus, ok := status.FromError(err)
 	if !ok {
-		return newServerActivityFailure(provider, err, localActivityFailure)
+		return newServerActivityFailure(ctx, provider, err, localActivityFailure)
 	}
 
 	// Error() is "rpc error: code=… desc=<Message>"; do not concat both.
@@ -1356,10 +1309,14 @@ func newWorkerActivityFailure(
 }
 
 func newServerActivityFailure(
+	ctx context.Context,
 	provider interfaces.ActivityProvider,
 	err error,
 	localActivityFailure *dexpb.InternalLocalStepActivityFailure,
 ) error {
+	if ctx.Err() == context.Canceled {
+		return context.Canceled
+	}
 	return newBackendActivityFailure(
 		provider,
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL,

@@ -28,20 +28,20 @@ import (
 )
 
 type WorkflowUpdater struct {
-	activities           *Activities
-	apiCfg               *config.ApiConfig
-	ctx                  interfaces.UnifiedContext
-	persistenceManager   *PersistenceManager
-	provider             interfaces.WorkflowProvider
-	continueAsNewer      *ContinueAsNewer
-	continueAsNewCounter *cont.ContinueAsNewCounter
-	channelStore         *ChannelStore
-	signalReceiver       *SignalReceiver
-	terminalCoordinator  *TerminalCoordinator
-	stepRequestQueue     *StepRequestQueue
-	stepExecutionCounter *StepExecutionCounter
-	flowConfiger         *interpreterconfig.FlowConfiger
-	basicInfo            service.BasicInfo
+	activities            *Activities
+	apiCfg                *config.ApiConfig
+	persistenceManager    *PersistenceManager
+	provider              interfaces.WorkflowProvider
+	continueAsNewer       *ContinueAsNewer
+	continueAsNewCounter  *cont.ContinueAsNewCounter
+	channelStore          *ChannelStore
+	signalReceiver        *SignalReceiver
+	terminalCoordinator   *TerminalCoordinator
+	stepRequestQueue      *StepRequestQueue
+	stepExecutionCounter  *StepExecutionCounter
+	stepExecutionRegistry *StepExecutionRegistry
+	flowConfiger          *interpreterconfig.FlowConfiger
+	basicInfo             service.BasicInfo
 }
 
 func NewWorkflowUpdater(
@@ -57,6 +57,7 @@ func NewWorkflowUpdater(
 	signalReceiver *SignalReceiver,
 	terminalCoordinator *TerminalCoordinator,
 	stepExecutionCounter *StepExecutionCounter,
+	stepExecutionRegistry *StepExecutionRegistry,
 	flowConfiger *interpreterconfig.FlowConfiger,
 	basicInfo service.BasicInfo,
 ) error {
@@ -65,24 +66,24 @@ func NewWorkflowUpdater(
 		continueAsNewer == nil ||
 		continueAsNewCounter == nil || channelStore == nil ||
 		signalReceiver == nil || terminalCoordinator == nil ||
-		stepExecutionCounter == nil || flowConfiger == nil {
+		stepExecutionCounter == nil || stepExecutionRegistry == nil || flowConfiger == nil {
 		panic("WorkflowUpdater requires non-nil dependencies")
 	}
 	updater := &WorkflowUpdater{
-		activities:           activities,
-		apiCfg:               apiCfg,
-		ctx:                  ctx,
-		persistenceManager:   persistenceManager,
-		provider:             provider,
-		continueAsNewer:      continueAsNewer,
-		continueAsNewCounter: continueAsNewCounter,
-		channelStore:         channelStore,
-		signalReceiver:       signalReceiver,
-		terminalCoordinator:  terminalCoordinator,
-		stepRequestQueue:     stepRequestQueue,
-		stepExecutionCounter: stepExecutionCounter,
-		flowConfiger:         flowConfiger,
-		basicInfo:            basicInfo,
+		activities:            activities,
+		apiCfg:                apiCfg,
+		persistenceManager:    persistenceManager,
+		provider:              provider,
+		continueAsNewer:       continueAsNewer,
+		continueAsNewCounter:  continueAsNewCounter,
+		channelStore:          channelStore,
+		signalReceiver:        signalReceiver,
+		terminalCoordinator:   terminalCoordinator,
+		stepRequestQueue:      stepRequestQueue,
+		stepExecutionCounter:  stepExecutionCounter,
+		stepExecutionRegistry: stepExecutionRegistry,
+		flowConfiger:          flowConfiger,
+		basicInfo:             basicInfo,
 	}
 	if err := provider.SetInvokeRPCUpdateHandler(
 		ctx,
@@ -204,6 +205,9 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
+	if err := u.stepExecutionRegistry.CancelByStepTypes(ctx, decision.GetCancelStepTypes()); err != nil {
+		return nil, err
+	}
 	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
 	u.continueAsNewCounter.IncSyncUpdateReceived()
 	return &dexpb.InvokeRpcUpdateResult{
@@ -325,8 +329,9 @@ func (u *WorkflowUpdater) handleWaitForStepCompletion(
 		deadline:            workflowDeadline(u.provider.Now(ctx), request.GetWaitTimeSeconds()),
 		stepExecutionNumber: stepExecutionNumber,
 	}
-	if !wait.ready() && request.GetWaitTimeSeconds() > 0 {
-		if err := u.provider.Await(ctx, wait.ready); err != nil {
+	isReady := func() bool { return wait.ready(ctx) }
+	if !isReady() && request.GetWaitTimeSeconds() > 0 {
+		if err := u.provider.Await(ctx, isReady); err != nil {
 			return nil, err
 		}
 	}
@@ -346,14 +351,14 @@ func (u *WorkflowUpdater) handleWaitForStepCompletion(
 	)
 }
 
-func (w *stepCompletionWait) ready() bool {
+func (w *stepCompletionWait) ready(ctx interfaces.UnifiedContext) bool {
 	w.matched = w.updater.stepExecutionCounter.IsStepExecutionCompleted(
 		w.request.GetStepType(),
 		w.stepExecutionNumber,
 	)
 	return w.matched ||
 		w.updater.continueAsNewCounter.IsThresholdMet() ||
-		deadlinePassed(w.updater.provider.Now(w.updater.ctx), w.deadline)
+		deadlinePassed(w.updater.provider.Now(ctx), w.deadline)
 }
 
 func parseWaitForStepExecutionNumber(value string) (int32, error) {
@@ -422,8 +427,9 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 		request:  request,
 		deadline: workflowDeadline(u.provider.Now(ctx), request.GetWaitTimeSeconds()),
 	}
-	if !wait.ready() && request.GetWaitTimeSeconds() > 0 {
-		if err := u.provider.Await(ctx, wait.ready); err != nil {
+	isReady := func() bool { return wait.ready(ctx) }
+	if !isReady() && request.GetWaitTimeSeconds() > 0 {
+		if err := u.provider.Await(ctx, isReady); err != nil {
 			return nil, err
 		}
 	}
@@ -449,12 +455,12 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 	)
 }
 
-func (w *attributeWait) ready() bool {
+func (w *attributeWait) ready(ctx interfaces.UnifiedContext) bool {
 	w.matched, w.matchErr = w.updater.attributeMatches(w.request)
 	return w.matched ||
 		w.matchErr != nil ||
 		w.updater.continueAsNewCounter.IsThresholdMet() ||
-		deadlinePassed(w.updater.provider.Now(w.updater.ctx), w.deadline)
+		deadlinePassed(w.updater.provider.Now(ctx), w.deadline)
 }
 
 func (u *WorkflowUpdater) attributeMatches(

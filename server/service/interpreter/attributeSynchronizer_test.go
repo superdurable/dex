@@ -11,6 +11,7 @@
 package interpreter
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -68,12 +69,12 @@ func (p *attributeSynchronizerTestProvider) ExecuteActivity(
 }
 
 func TestAttributeSynchronizerBatchesByLimitAndStore(t *testing.T) {
+	ctx := interfaces.NewUnifiedContext(context.Background())
 	provider := &attributeSynchronizerTestProvider{}
 	synchronizer := &AttributeSynchronizer{
 		cfg:        &config.AttributeStoreConfig{SyncBatchSize: 2},
 		activities: &Activities{},
 		provider:   provider,
-		ctx:        interfaces.NewUnifiedContext(nil),
 		flowID:     "flow-id",
 		pending: []*dexpb.AttributeSyncItem{
 			{ConfigName: "reporting", Key: "first"},
@@ -84,7 +85,7 @@ func TestAttributeSynchronizerBatchesByLimitAndStore(t *testing.T) {
 		terminalFlushing: true,
 	}
 
-	synchronizer.run(synchronizer.ctx)
+	synchronizer.run(ctx)
 
 	require.Empty(t, synchronizer.pending)
 	require.Len(t, provider.inputs, 3)
