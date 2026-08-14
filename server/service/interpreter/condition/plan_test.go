@@ -8,7 +8,7 @@
 // Legacy Materials remain under their original licenses.
 // See LICENSE and LEGACY_NOTICES.md.
 
-package channel
+package condition
 
 import (
 	"testing"

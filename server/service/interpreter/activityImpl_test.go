@@ -417,7 +417,7 @@ func TestNewWorkerActivityFailureUsesInternalForNonGRPCError(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerActivityFailure(context.Background(), provider, service.BackendTypeTemporal, inputError, nil),
+		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeTemporal, inputError, nil),
 		expectedError,
 	)
 	require.Equal(t, "dial failed", internalActivityError.GetServerDetail())
@@ -456,7 +456,7 @@ func TestNewWorkerActivityFailurePreservesWorkerDetails(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerActivityFailure(context.Background(), provider, service.BackendTypeTemporal, grpcStatus.Err(), nil),
+		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeTemporal, grpcStatus.Err(), nil),
 		expectedError,
 	)
 	require.Empty(t, internalActivityError.GetServerDetail())
@@ -493,7 +493,7 @@ func TestNewWorkerActivityFailureRejectsRetryAfterOnCadence(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerActivityFailure(context.Background(), provider, service.BackendTypeCadence, grpcStatus.Err(), nil),
+		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeCadence, grpcStatus.Err(), nil),
 		expectedError,
 	)
 	require.Equal(
@@ -525,7 +525,7 @@ func TestNewWorkerActivityFailureFallsBackWhenMessageEmpty(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newWorkerActivityFailure(context.Background(), provider, service.BackendTypeTemporal, inputError, nil),
+		newWorkerSideActivityError(context.Background(), provider, service.BackendTypeTemporal, inputError, nil),
 		expectedError,
 	)
 	require.Equal(t, inputError.Error(), internalActivityError.GetServerDetail())
@@ -554,7 +554,7 @@ func TestNewServerActivityFailureKeepsGRPCErrorInternal(t *testing.T) {
 
 	require.ErrorIs(
 		t,
-		newServerActivityFailure(context.Background(), provider, inputError, nil),
+		newServerSideActivityError(context.Background(), provider, inputError, nil),
 		expectedError,
 	)
 	require.Contains(t, internalActivityError.GetServerDetail(), "internal service unavailable")

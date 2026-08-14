@@ -19,7 +19,7 @@ import (
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/event"
 	"github.com/superdurable/dex/service/common/retry"
-	"github.com/superdurable/dex/service/interpreter/channel"
+	"github.com/superdurable/dex/service/interpreter/condition"
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/cont"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
@@ -946,12 +946,12 @@ func (i *Interpreter) processStepExecution(
 		},
 	)
 
-	var matchPlan *channel.MatchPlan
+	var matchPlan *condition.MatchPlan
 	var conditionMet bool
 
 	// Wait for condition met, stop signal, or continue-as-new threshold
 	if err := provider.Await(ctx, func() bool {
-		matchPlan, conditionMet = channel.Plan(
+		matchPlan, conditionMet = condition.Plan(
 			waitingCondition,
 			channelStore.Availability(),
 			completedTimerConditions,
@@ -992,7 +992,7 @@ func (i *Interpreter) processStepExecution(
 	}
 
 	consumed := channelStore.CommitMatch(matchPlan)
-	conditionResults := channel.BuildConditionResults(
+	conditionResults := condition.BuildConditionResults(
 		waitingCondition,
 		completedTimerConditions,
 		consumed,

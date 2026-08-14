@@ -8,8 +8,8 @@
 // Legacy Materials remain under their original licenses.
 // See LICENSE and LEGACY_NOTICES.md.
 
-// Package channel plans waiting-condition channel consumption.
-package channel
+// Package condition plans waiting-condition channel consumption.
+package condition
 
 import "github.com/superdurable/dex/gen/dexpb"
 

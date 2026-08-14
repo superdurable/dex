@@ -21,7 +21,7 @@ const (
 
 	DefaultContinueAsNewPageSizeInBytes = 1024 * 1024
 
-	TaskQueue = "Interpreter_DEFAULT"
+	TaskQueue = "DEFAULT"
 
 	GetAttributesWorkflowQueryType    = "GetAttributes"
 	GetCurrentTimerInfosQueryType     = "GetCurrentTimerInfos"

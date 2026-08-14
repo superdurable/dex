@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/superdurable/dex/gen/dexpb"
-	"github.com/superdurable/dex/service/interpreter/channel"
+	"github.com/superdurable/dex/service/interpreter/condition"
 )
 
 func TestChannelStoreCommitMatchConsumesFIFOWithoutCloning(t *testing.T) {
@@ -30,10 +30,10 @@ func TestChannelStoreCommitMatchConsumesFIFOWithoutCloning(t *testing.T) {
 		{ChannelName: "events", Value: third},
 	})
 
-	require.Equal(t, channel.ChannelAvailability{"events": 3}, store.Availability())
+	require.Equal(t, condition.ChannelAvailability{"events": 3}, store.Availability())
 
-	consumed := store.CommitMatch(&channel.MatchPlan{
-		Consumes: []channel.Consume{{
+	consumed := store.CommitMatch(&condition.MatchPlan{
+		Consumes: []condition.Consume{{
 			ChannelConditionIndex: 1,
 			ChannelName:           "events",
 			Count:                 2,
@@ -53,8 +53,8 @@ func TestChannelStoreCommitMatchRejectsStalePlan(t *testing.T) {
 	}})
 
 	require.Panics(t, func() {
-		store.CommitMatch(&channel.MatchPlan{
-			Consumes: []channel.Consume{{
+		store.CommitMatch(&condition.MatchPlan{
+			Consumes: []condition.Consume{{
 				ChannelConditionIndex: 1,
 				ChannelName:           "events",
 				Count:                 2,
