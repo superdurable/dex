@@ -25,6 +25,11 @@ services:
     environment:
       POSTGRES_PASSWORD: temporal
       POSTGRES_USER: temporal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U temporal -d temporal"]
+      interval: 1s
+      timeout: 5s
+      retries: 60
     image: postgres:${POSTGRESQL_VERSION}
     networks:
       - testing-network
@@ -33,8 +38,10 @@ services:
   temporal:
     container_name: temporal
     depends_on:
-      - postgresql
-      - elasticsearch
+      postgresql:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_started
     environment:
       - DB=postgres12
       - DB_PORT=5432
