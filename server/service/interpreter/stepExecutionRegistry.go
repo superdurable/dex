@@ -21,16 +21,14 @@ type StepExecutionRegistry struct {
 	stepExecutionCounter *StepExecutionCounter
 	continueAsNewer      *ContinueAsNewer
 	timerProcessor       interfaces.TimerProcessor
-	persistenceManager   *PersistenceManager
 	subFlowTracker       *SubFlowTracker
 	activeExecutions     map[string]*registeredStepExecution
 	canceledExecutionIDs map[string]struct{}
 }
 
 type registeredStepExecution struct {
-	movement   *dexpb.StepMovement
-	cancel     func()
-	lockedKeys []string
+	movement *dexpb.StepMovement
+	cancel   func()
 }
 
 type stepCancellationSelector struct {
@@ -45,12 +43,10 @@ func NewStepExecutionRegistry(
 	stepExecutionCounter *StepExecutionCounter,
 	continueAsNewer *ContinueAsNewer,
 	timerProcessor interfaces.TimerProcessor,
-	persistenceManager *PersistenceManager,
 	subFlowTracker *SubFlowTracker,
 ) *StepExecutionRegistry {
 	if provider == nil || stepRequestQueue == nil || stepExecutionCounter == nil ||
-		continueAsNewer == nil || timerProcessor == nil || persistenceManager == nil ||
-		subFlowTracker == nil {
+		continueAsNewer == nil || timerProcessor == nil || subFlowTracker == nil {
 		panic("step execution registry requires non-nil dependencies")
 	}
 	return &StepExecutionRegistry{
@@ -59,7 +55,6 @@ func NewStepExecutionRegistry(
 		stepExecutionCounter: stepExecutionCounter,
 		continueAsNewer:      continueAsNewer,
 		timerProcessor:       timerProcessor,
-		persistenceManager:   persistenceManager,
 		subFlowTracker:       subFlowTracker,
 		activeExecutions:     map[string]*registeredStepExecution{},
 		canceledExecutionIDs: map[string]struct{}{},
@@ -139,12 +134,6 @@ func (r *StepExecutionRegistry) cancelSelected(selector *stepCancellationSelecto
 	return cancelErr
 }
 
-func (r *StepExecutionRegistry) TrackLockedKeys(stepExecutionID string, keys []string) {
-	if execution := r.activeExecutions[stepExecutionID]; execution != nil {
-		execution.lockedKeys = keys
-	}
-}
-
 func (r *StepExecutionRegistry) IsCanceled(stepExecutionID string) bool {
 	_, isCanceled := r.canceledExecutionIDs[stepExecutionID]
 	return isCanceled
@@ -176,7 +165,6 @@ func (r *StepExecutionRegistry) cancelActive(
 	execution *registeredStepExecution,
 ) error {
 	execution.cancel()
-	r.persistenceManager.UnlockKeys(execution.lockedKeys)
 	r.timerProcessor.RemovePendingTimersOfStep(stepExecutionID)
 	r.subFlowTracker.Unregister(stepExecutionID)
 	r.continueAsNewer.RemoveStepExecutionToResume(stepExecutionID)

@@ -192,7 +192,6 @@ func (i *Interpreter) StartEngineFlow(
 		stepExecutionCounter,
 		continueAsNewer,
 		timerProcessor,
-		persistenceManager,
 		subFlowTracker,
 	)
 	signalReceiver = NewSignalReceiver(
@@ -816,7 +815,6 @@ func (i *Interpreter) processStepExecution(
 				return nil, service.StepExecutionStatusInternalError, err
 			}
 			attributes = loadedAttributes
-			stepExecutionRegistry.TrackLockedKeys(stepExeId, lockAttributeKeys)
 		}
 
 		activityInput := &dexpb.InvokeWaitForMethodActivityInput{
@@ -842,7 +840,6 @@ func (i *Interpreter) processStepExecution(
 			},
 		)
 		persistenceManager.UnlockKeys(lockAttributeKeys)
-		stepExecutionRegistry.TrackLockedKeys(stepExeId, nil)
 
 		if stepExecutionRegistry.IsCanceled(stepExeId) {
 			return nil, service.StepExecutionStatusCanceled, nil
@@ -1140,7 +1137,6 @@ func (i *Interpreter) invokeExecuteMethod(
 			}
 			return nil, service.StepExecutionStatusInternalError, err
 		}
-		stepExecutionRegistry.TrackLockedKeys(stepExeId, lockAttributeKeys)
 	}
 
 	continueAsNewer.RemoveStepExecutionToResume(stepExeId)
@@ -1170,7 +1166,6 @@ func (i *Interpreter) invokeExecuteMethod(
 	)
 	// always unlock regardless of step success/failure
 	persistenceManager.UnlockKeys(lockAttributeKeys)
-	stepExecutionRegistry.TrackLockedKeys(stepExeId, nil)
 
 	if exeMethErr != nil {
 		if stepExecutionRegistry.IsCanceled(stepExeId) {
