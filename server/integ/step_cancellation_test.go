@@ -186,6 +186,7 @@ func testQueuedStepCancellationAcrossContinueAsNew(
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus())
 	require.False(t, handler.WasQueuedLoserExecuted())
+	require.False(t, handler.WasWaitingLoserExecuted())
 
 	firstRunEvents, _ := getAllWebHistoryEvents(
 		t,

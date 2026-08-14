@@ -413,8 +413,15 @@ func (i *Interpreter) StartEngineFlow(
 						signalReceiver,
 						subFlowTracker,
 					)
-					if stepExecutionRegistry.IsCanceled(stepExeId) {
+					isCanceled := stepExecutionRegistry.IsCanceled(stepExeId)
+					if stepExecutionStatus != service.StepExecutionStatusWaitingAborted {
+						// WaitingAborted ends only the current run's goroutine; the logical Step execution remains resumable.
+						// Keep it registered through continue-as-new finalization because drained RPC signals or parallel
+						// Step decisions can still cancel it. Unregistering it here would consume such cancellation as a
+						// no-op, after which the next run would register and incorrectly resume the execution.
 						stepExecutionRegistry.Unregister(stepExeId)
+					}
+					if isCanceled {
 						return
 					}
 					if stepExecutionStatus == service.StepExecutionStatusInternalError {
@@ -429,7 +436,6 @@ func (i *Interpreter) StartEngineFlow(
 					}
 					if stepExecutionStatus == service.StepExecutionStatusCompleted {
 						// NOTE: decision is only available on this CompletedStepExecutionStatus
-						stepExecutionRegistry.Unregister(stepExeId)
 						if cancelErr := stepExecutionRegistry.CancelByStepTypesAndSiblingStepTypes(
 							ctx,
 							decision,
@@ -501,7 +507,6 @@ func (i *Interpreter) StartEngineFlow(
 							)
 							return
 						}
-						stepExecutionRegistry.Unregister(stepExeId)
 						options := step.GetStepOptions()
 						stepRequestQueue.AddSingleStepStartRequest(
 							options.GetExecuteFailureProceedStepType(),

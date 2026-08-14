@@ -35,6 +35,7 @@ const (
 	QueuedProducer      = "QueuedProducer"
 	QueuedWinner        = "QueuedWinner"
 	QueuedLoser         = "QueuedLoser"
+	QueuedWaitingLoser  = "QueuedWaitingLoser"
 	QueuedFinal         = "QueuedFinal"
 	LocalRoot           = "LocalRoot"
 	LocalWinner         = "LocalWinner"
@@ -55,6 +56,7 @@ type Handler struct {
 	canceledHandlers         map[string]bool
 	hasNoHeartbeatLateReturn bool
 	wasQueuedLoserExecuted   bool
+	wasWaitingLoserExecuted  bool
 }
 
 func NewHandler() *Handler {
@@ -109,6 +111,8 @@ func (h *Handler) InvokeWaitForMethod(
 	case GlobalWait:
 		return channelWait(), nil
 	case RpcGlobal:
+		return channelWait(), nil
+	case QueuedWaitingLoser:
 		return channelWait(), nil
 	case RpcFinal:
 		return timerWait(3 * time.Second), nil
@@ -176,6 +180,7 @@ func (h *Handler) InvokeExecuteMethod(
 		return next(
 			movement(QueuedProducer, syncExecuteOptions(false)),
 			movement(QueuedWinner, syncExecuteOptions(false)),
+			movement(QueuedWaitingLoser, nil),
 		), nil
 	case QueuedProducer:
 		time.Sleep(time.Second)
@@ -184,11 +189,16 @@ func (h *Handler) InvokeExecuteMethod(
 		time.Sleep(2 * time.Second)
 		return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
 			NextSteps:       []*dexpb.StepMovement{movement(QueuedFinal, nil)},
-			CancelStepTypes: []string{QueuedLoser},
+			CancelStepTypes: []string{QueuedLoser, QueuedWaitingLoser},
 		}}, nil
 	case QueuedLoser:
 		h.mu.Lock()
 		h.wasQueuedLoserExecuted = true
+		h.mu.Unlock()
+		return graceful(), nil
+	case QueuedWaitingLoser:
+		h.mu.Lock()
+		h.wasWaitingLoserExecuted = true
 		h.mu.Unlock()
 		return graceful(), nil
 	case QueuedFinal:
@@ -235,6 +245,12 @@ func (h *Handler) WasQueuedLoserExecuted() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.wasQueuedLoserExecuted
+}
+
+func (h *Handler) WasWaitingLoserExecuted() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.wasWaitingLoserExecuted
 }
 
 func (h *Handler) markCanceled(stepType string) {
