@@ -42,32 +42,51 @@ type subFlowHandler struct {
 	dexpb.UnimplementedWorkerServiceServer
 	mu           sync.Mutex
 	observations []subFlowObservation
+	reusePolicy  dexpb.SubFlowReusePolicy
 }
 
 func TestSubFlowConditionTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
 	}
-	for i := 0; i < *repeatIntegTest; i++ {
-		t.Run(fmt.Sprintf("terminal-attach-after-reset-%d", i), func(t *testing.T) {
-			doTestSubFlowCondition(t, service.BackendTypeTemporal)
-		})
-	}
+	testSubFlowReuseAfterReset(t, service.BackendTypeTemporal)
 }
 
 func TestSubFlowConditionCadence(t *testing.T) {
 	if !*cadenceIntegTest {
 		t.Skip()
 	}
+	testSubFlowReuseAfterReset(t, service.BackendTypeCadence)
+}
+
+func testSubFlowReuseAfterReset(t *testing.T, backendType service.BackendType) {
 	for i := 0; i < *repeatIntegTest; i++ {
-		t.Run(fmt.Sprintf("terminal-attach-after-reset-%d", i), func(t *testing.T) {
-			doTestSubFlowCondition(t, service.BackendTypeCadence)
+		t.Run(fmt.Sprintf("terminal-default-after-reset-%d", i), func(t *testing.T) {
+			doTestSubFlowCondition(
+				t,
+				backendType,
+				dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY,
+				false,
+			)
+		})
+		t.Run(fmt.Sprintf("terminal-always-restart-after-reset-%d", i), func(t *testing.T) {
+			doTestSubFlowCondition(
+				t,
+				backendType,
+				dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART,
+				true,
+			)
 		})
 	}
 }
 
-func doTestSubFlowCondition(t *testing.T, backendType service.BackendType) {
-	handler := &subFlowHandler{}
+func doTestSubFlowCondition(
+	t *testing.T,
+	backendType service.BackendType,
+	reusePolicy dexpb.SubFlowReusePolicy,
+	shouldRestart bool,
+) {
+	handler := &subFlowHandler{reusePolicy: reusePolicy}
 	workerTarget := startWorker(t, handler)
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType:        backendType,
@@ -145,7 +164,7 @@ func doTestSubFlowCondition(t *testing.T, backendType service.BackendType) {
 		)
 	}
 
-	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
+	resetResponse, err := flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
 		FlowId:    parentFlowID,
 		RunId:     startResponse.GetRunId(),
 		ResetType: dexpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING,
@@ -163,8 +182,13 @@ func doTestSubFlowCondition(t *testing.T, backendType service.BackendType) {
 		FlowId: childFlowID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, firstChild.GetFlowExecutionId().GetRunId(), secondChild.GetFlowExecutionId().GetRunId())
-	require.Equal(t, firstChild.GetRequestId(), secondChild.GetRequestId())
+	if shouldRestart {
+		require.NotEqual(t, firstChild.GetFlowExecutionId().GetRunId(), secondChild.GetFlowExecutionId().GetRunId())
+		require.Equal(t, resetResponse.GetRunId()+subFlowParentStep+"-1", secondChild.GetRequestId())
+	} else {
+		require.Equal(t, firstChild.GetFlowExecutionId().GetRunId(), secondChild.GetFlowExecutionId().GetRunId())
+		require.Equal(t, firstChild.GetRequestId(), secondChild.GetRequestId())
+	}
 	require.Equal(t, []subFlowObservation{
 		{status: dexpb.FlowStatus_FLOW_STATUS_COMPLETED},
 		{status: dexpb.FlowStatus_FLOW_STATUS_COMPLETED},
@@ -188,7 +212,7 @@ func (h *subFlowHandler) InvokeWaitForMethod(
 				StepInput:     request.GetStepInput(),
 				StepOptions:   &dexpb.StepOptions{SkipWaitFor: true},
 				Options: &dexpb.SubFlowOptions{
-					ReusePolicy: dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY,
+					ReusePolicy: h.reusePolicy,
 					Attributes: []*dexpb.AttributeWrite{{
 						Key:   "child-attribute",
 						Value: stringValue(subFlowAttribute),

@@ -15,6 +15,7 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	uclient "github.com/superdurable/dex/service/client"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
 type SubFlowReuseResolver struct {
@@ -36,31 +37,23 @@ func (r *SubFlowReuseResolver) Resolve(
 	workflowOptions uclient.StartWorkflowOptions,
 	workflowInput *dexpb.InterpreterWorkflowInput,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
-	for {
-		description, err := r.client.DescribeWorkflowExecution(ctx, subFlowID, "", nil)
-		if err != nil && !r.client.IsNotFoundError(err) {
-			return nil, fmt.Errorf("describe SubFlow %q: %w", subFlowID, err)
-		}
-		if err == nil {
-			output, resolveErr := r.resolveExisting(
-				ctx, condition, subFlowID, requestID, description,
-			)
-			if resolveErr != nil {
-				return nil, resolveErr
-			}
-			if output != nil {
-				return output, nil
-			}
-		}
+	_, startErr := r.client.StartInterpreterWorkflow(ctx, workflowOptions, workflowInput)
+	if startErr == nil {
+		return &dexpb.StartSubFlowActivityOutput{}, nil
+	}
 
-		_, startErr := r.client.StartInterpreterWorkflow(ctx, workflowOptions, workflowInput)
-		if startErr == nil {
-			return &dexpb.StartSubFlowActivityOutput{}, nil
-		}
-		if !r.client.IsWorkflowAlreadyStartedError(startErr) {
+	description, describeErr := r.client.DescribeWorkflowExecution(ctx, subFlowID, "", nil)
+	if describeErr != nil {
+		if r.client.IsNotFoundError(describeErr) {
 			return nil, fmt.Errorf("start SubFlow %q: %w", subFlowID, startErr)
 		}
+		return nil, fmt.Errorf(
+			"describe SubFlow %q after start error %v: %w", subFlowID, startErr, describeErr,
+		)
 	}
+	return r.resolveExisting(
+		ctx, condition, subFlowID, requestID, workflowOptions, workflowInput, description,
+	)
 }
 
 func (r *SubFlowReuseResolver) resolveExisting(
@@ -68,6 +61,8 @@ func (r *SubFlowReuseResolver) resolveExisting(
 	condition *dexpb.SubFlowCondition,
 	subFlowID string,
 	requestID string,
+	workflowOptions uclient.StartWorkflowOptions,
+	workflowInput *dexpb.InterpreterWorkflowInput,
 	description *uclient.DescribeWorkflowExecutionResponse,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	existingRequestID := memoString(description.Memos, service.WorkflowRequestId)
@@ -76,18 +71,47 @@ func (r *SubFlowReuseResolver) resolveExisting(
 	}
 
 	policy := effectiveSubFlowReusePolicy(condition.GetOptions().GetReusePolicy())
-	if description.Status == dexpb.FlowStatus_FLOW_STATUS_RUNNING {
-		if policy == dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART {
-			return nil, nil
+	switch policy {
+	case dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ATTACH:
+		return r.attachOrRead(ctx, subFlowID, description)
+	case dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART:
+		return r.startReplacement(
+			ctx,
+			subFlowID,
+			workflowOptions,
+			workflowInput,
+			dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING,
+		)
+	default:
+		if description.Status == dexpb.FlowStatus_FLOW_STATUS_RUNNING {
+			return &dexpb.StartSubFlowActivityOutput{}, nil
 		}
-		return &dexpb.StartSubFlowActivityOutput{}, nil
+		if isAbnormalSubFlowStatus(description.Status) {
+			return r.startReplacement(
+				ctx,
+				subFlowID,
+				workflowOptions,
+				workflowInput,
+				dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY,
+			)
+		}
+		return r.readTerminal(ctx, subFlowID, description)
 	}
-	if policy == dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART ||
-		(policy == dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY &&
-			isAbnormalSubFlowStatus(description.Status)) {
-		return nil, nil
+}
+
+func (r *SubFlowReuseResolver) startReplacement(
+	ctx context.Context,
+	subFlowID string,
+	workflowOptions uclient.StartWorkflowOptions,
+	workflowInput *dexpb.InterpreterWorkflowInput,
+	idReusePolicy dexpb.IdReusePolicy,
+) (*dexpb.StartSubFlowActivityOutput, error) {
+	workflowOptions.IdReusePolicy = ptr.Any(idReusePolicy)
+	_, err := r.client.StartInterpreterWorkflow(ctx, workflowOptions, workflowInput)
+	if err != nil {
+		return nil, fmt.Errorf("replace SubFlow %q: %w", subFlowID, err)
 	}
-	return r.readTerminal(ctx, subFlowID, description)
+	return &dexpb.StartSubFlowActivityOutput{}, nil
 }
 
 func (r *SubFlowReuseResolver) attachOrRead(

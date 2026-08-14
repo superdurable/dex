@@ -681,7 +681,7 @@ func buildSubFlowStartOptions(
 		ID:                       subFlowID,
 		TaskQueue:                service.TaskQueue,
 		WorkflowExecutionTimeout: time.Duration(options.GetFlowTimeoutSeconds()) * time.Second,
-		IdReusePolicy:            ptr.Any(subFlowIDReusePolicy(options.GetReusePolicy())),
+		IdReusePolicy:            ptr.Any(dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE),
 		RetryPolicy:              options.GetRetryPolicy(),
 		SearchAttributes:         index.ConvertAttributeWritesToSearchAttributeUpsertMap(options.GetAttributes()),
 		Memo: map[string]interface{}{
@@ -695,17 +695,6 @@ func buildSubFlowStartOptions(
 		workflowOptions.WorkflowStartDelay = ptr.Any(time.Duration(options.GetFlowStartDelaySeconds()) * time.Second)
 	}
 	return workflowOptions
-}
-
-func subFlowIDReusePolicy(policy dexpb.SubFlowReusePolicy) dexpb.IdReusePolicy {
-	switch effectiveSubFlowReusePolicy(policy) {
-	case dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ATTACH:
-		return dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE
-	case dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART:
-		return dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_TERMINATE_IF_RUNNING
-	default:
-		return dexpb.IdReusePolicy_ID_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABNORMALLY
-	}
 }
 
 // CleanupBlobsAfterAllRunsDeleted deletes blobs after the backend removes every run.
