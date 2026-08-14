@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import os
+import socket
 import time
 from collections.abc import Callable, Iterator
 from datetime import timedelta
@@ -39,7 +40,7 @@ def sync_app(tmp_path_factory: pytest.TempPathFactory) -> Iterator[SyncExampleAp
         server_address=os.environ.get(
             "DEX_FLOW_SERVICE_ADDRESS", DEFAULT_SERVER_ADDRESS
         ),
-        worker_bind_address="127.0.0.1:0",
+        worker_bind_address=_available_worker_address(),
         worker_target=None,
         http_address="127.0.0.1:0",
         blob_cache_dir=tmp_path_factory.mktemp("dex-sync-examples-blob-cache"),
@@ -85,3 +86,10 @@ def _server_is_ready(client: Client) -> bool:
         except DexServiceError:
             time.sleep(POLL_INTERVAL_SECONDS)
     return False
+
+
+def _available_worker_address() -> str:
+    with socket.socket() as worker_socket:
+        worker_socket.bind(("127.0.0.1", 0))
+        host, port = worker_socket.getsockname()
+    return f"{host}:{port}"

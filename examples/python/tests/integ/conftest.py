@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import timedelta
 from typing import Any
@@ -56,9 +57,8 @@ async def example_app(
     """Boots one ExampleApp with every Flow on an ephemeral Worker port."""
     config = ExamplesConfig(
         server_address=server_address(),
-        # Port 0 lets the Worker's gRPC server pick a free port; the Client then
-        # targets that exact Worker, so parallel sample apps cannot collide.
-        worker_bind_address="127.0.0.1:0",
+        # Reserve first so the readiness probe targets the Worker's actual port.
+        worker_bind_address=_available_worker_address(),
         worker_target=None,
         http_address="127.0.0.1:0",
         blob_cache_dir=tmp_path_factory.mktemp("dex-examples-blob-cache"),
@@ -106,6 +106,13 @@ async def server_is_ready(client: AsyncClient) -> bool:
         except DexServiceError:
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
     return False
+
+
+def _available_worker_address() -> str:
+    with socket.socket() as worker_socket:
+        worker_socket.bind(("127.0.0.1", 0))
+        host, port = worker_socket.getsockname()
+    return f"{host}:{port}"
 
 
 async def wait_until(
