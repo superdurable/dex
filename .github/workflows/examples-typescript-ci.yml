@@ -1,0 +1,79 @@
+name: TypeScript examples CI
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examples-typescript-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Published SDK, typecheck, and unit tests
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: examples/typescript
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: examples/typescript/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify published SDK dependency
+        run: |
+          declared_version="$(node -p "require('./package.json').dependencies['@superdurable/dex']")"
+          resolved_version="$(npm ls --json --depth=0 @superdurable/dex | jq -r '.dependencies["@superdurable/dex"].version')"
+          resolved_source="$(node -p "require('./package-lock.json').packages['node_modules/@superdurable/dex'].resolved")"
+          if [[ "$declared_version" != "0.1.5" || "$resolved_version" != "0.1.5" || "$resolved_source" != "https://registry.npmjs.org/@superdurable/dex/-/dex-0.1.5.tgz" ]]; then
+            echo "examples/typescript must use published @superdurable/dex 0.1.5"
+            exit 1
+          fi
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm test
+
+  integ:
+    name: Integration tests with dexcli dev
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: examples/typescript
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            examples/typescript/package-lock.json
+            web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: |
+            cli/go.sum
+            server/go.sum
+            web/go.sum
+      - name: Install Temporal CLI runtime for dexcli dev
+        uses: temporalio/setup-temporal@v0
+      - name: Install dependencies
+        run: npm ci
+      - name: Integration tests with dexcli dev
+        run: ./run-integration-tests.sh
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: typescript-examples-integration-services
+          path: /tmp/test-typescript-examples-integration-services.log
+          if-no-files-found: ignore

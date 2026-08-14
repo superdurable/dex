@@ -22,6 +22,8 @@
 
 set -euo pipefail
 
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+repo_root=$(cd "$script_dir/../.." && pwd)
 dex_port="${DEX_EXAMPLES_DEX_PORT:-19801}"
 web_port="${DEX_EXAMPLES_WEB_PORT:-19901}"
 temporal_port="${DEX_EXAMPLES_TEMPORAL_PORT:-19233}"
@@ -32,29 +34,48 @@ postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/da
 compose_project="dataset-deal-e2e-$$"
 log_file="/tmp/test-go-examples-e2e-services.log"
 test_dir=$(mktemp -d)
+binary_dir=$(mktemp -d)
 dexcli_pid=""
+: >"$log_file"
 
 cleanup() {
+  status=$?
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
   fi
-  DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
+  if ! DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
     -p "$compose_project" \
-    -f dataset-deal/docker-compose.yml \
-    down --volumes >/dev/null 2>&1 || true
-  rm -r "$test_dir"
+    -f "$script_dir/dataset-deal/docker-compose.yml" \
+    down --volumes >>"$log_file" 2>&1; then
+    echo "failed to stop the Go examples database" >&2
+  fi
+  if [[ "$status" -ne 0 ]]; then
+    cat "$log_file" >&2
+  fi
+  rm -r "$test_dir" "$binary_dir"
 }
 trap cleanup EXIT
 
 DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
   -p "$compose_project" \
-  -f dataset-deal/docker-compose.yml \
+  -f "$script_dir/dataset-deal/docker-compose.yml" \
   up -d --wait
 
-make -C ../../cli build
-: >"$log_file"
-../../cli/dexcli dev \
+if [[ ! -f "$repo_root/web/assets/dist/index.html" ]]; then
+  (
+    cd "$repo_root/web"
+    npm ci
+    npm run build
+  )
+fi
+
+(
+  cd "$repo_root/cli"
+  GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
+)
+
+"$binary_dir/dexcli" dev \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
@@ -64,9 +85,28 @@ make -C ../../cli build
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 
+dex_ready=false
+for _ in {1..240}; do
+  if grep -q "Dex development environment is ready" "$log_file"; then
+    dex_ready=true
+    break
+  fi
+  if ! kill -0 "$dexcli_pid" 2>/dev/null; then
+    echo "dexcli exited before Dex became ready" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+if ! $dex_ready; then
+  echo "Dex did not become ready" >&2
+  exit 1
+fi
+
+cd "$script_dir"
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
 DEX_WORKER_HOST=127.0.0.1 \
 DATASET_DEAL_POSTGRES_URL="$postgres_url" \
 GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
 GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \
+GOWORK=off \
   go test -count=1 -race -v ./integ

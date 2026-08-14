@@ -14,8 +14,9 @@
  * limitations under the License.
  */
 
-import { FlowNotActiveError, type Client } from "@superdurable/dex";
+import type { Client } from "@superdurable/dex";
 
+import { isFlowMissingOrInactive } from "../../service-errors.js";
 import type { EmployerOptInFlow } from "./employer-opt-in-flow.js";
 
 export function employerOptIn(employerId: string): string {
@@ -36,7 +37,7 @@ export async function isOptedIn(
       await client.invokeRPC(employerOptInFlow.isOptedIn, employerOptIn(employerId)),
     );
   } catch (failure) {
-    if (failure instanceof FlowNotActiveError) {
+    if (isFlowMissingOrInactive(failure)) {
       return false;
     }
     throw failure;

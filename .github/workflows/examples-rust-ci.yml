@@ -1,15 +1,6 @@
 name: Rust examples CI
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "examples/rust/**"
-      - ".github/workflows/examples-rust-ci.yml"
-  pull_request:
-    paths:
-      - "examples/rust/**"
-      - ".github/workflows/examples-rust-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -50,3 +41,38 @@ jobs:
         run: make clippy
       - name: Run catalog integration tests
         run: make test
+
+  integ:
+    name: Integration tests with dexcli dev
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-heavy' || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: examples/rust
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: |
+            cli/go.sum
+            server/go.sum
+            web/go.sum
+      - name: Install Temporal CLI runtime for dexcli dev
+        uses: temporalio/setup-temporal@v0
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
+      - name: Integration tests with dexcli dev
+        run: ./run-integration-tests.sh
+      - name: Upload service logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-examples-integration-services
+          path: /tmp/test-rust-examples-integration-services.log
+          if-no-files-found: ignore

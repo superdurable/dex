@@ -18,7 +18,6 @@ import type { Express, Router } from "express";
 import { Router as createRouter } from "express";
 
 import {
-  FlowNotActiveError,
   IdReusePolicy,
   InitialAttribute,
   StepExecutionId,
@@ -26,6 +25,7 @@ import {
 } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
+import { isFlowMissingOrInactive } from "../../service-errors.js";
 import type { BackoffPollingFlow } from "../workflow/polling/backoff-polling-flow.js";
 import type { SimplePollingFlow } from "../workflow/polling/simple-polling-flow.js";
 import type { InterruptibleExecutionFlow } from "../workflow/interruptible/interruptible-execution-flow.js";
@@ -302,7 +302,7 @@ export function registerDesignPatternRoutes(
       );
       message = "Signaled the workflow";
     } catch (error) {
-      if (error instanceof FlowNotActiveError) {
+      if (isFlowMissingOrInactive(error)) {
         const runId = await client.startFlow(
           flows.drainSignalChannelsFlow,
           workflowId,

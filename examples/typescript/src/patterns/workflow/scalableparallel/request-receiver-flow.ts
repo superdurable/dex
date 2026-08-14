@@ -15,7 +15,6 @@
  */
 
 import {
-  FlowNotActiveError,
   StepList,
   doubleCodec,
   gracefulComplete,
@@ -28,6 +27,7 @@ import {
 
 import { getClient } from "../../../client-holder.js";
 import { startOptions } from "../../../config/env.js";
+import { isFlowMissingOrInactive } from "../../../service-errors.js";
 import { EnqueueFailedException } from "./exceptions/enqueue-failed-exception.js";
 import { NUM_PARENT_WORKFLOWS, parentFlow, type ParentFlow } from "./parent-flow.js";
 import type { BatchEnqueueRequest } from "./models/batch-enqueue-request.js";
@@ -60,7 +60,7 @@ class Request implements Step<number> {
         throw new EnqueueFailedException("Enqueue failed, retry in next attempt");
       }
     } catch (error) {
-      if (error instanceof FlowNotActiveError) {
+      if (isFlowMissingOrInactive(error)) {
         await client.startFlow(this.parent, parentWorkflowId, batch, startOptions());
       } else {
         throw error;

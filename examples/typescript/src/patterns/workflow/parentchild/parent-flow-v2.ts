@@ -16,7 +16,6 @@
 
 import {
   Channel,
-  FlowAlreadyStartedError,
   LongPollTimeoutError,
   StepList,
   StepMovement,
@@ -36,6 +35,7 @@ import {
 
 import { getClient } from "../../../client-holder.js";
 import { startOptions } from "../../../config/env.js";
+import { isFlowAlreadyStarted } from "../../../service-errors.js";
 import { childFlow, type ChildFlow } from "../scalableparallel/child-flow.js";
 import {
   waitForChildInputCodec,
@@ -109,7 +109,7 @@ class StartChildWorkflow implements Step<number> {
     try {
       await getClient().startFlow(this.child, childWorkflowId, String(uuid), startOptions());
     } catch (error) {
-      if (error instanceof FlowAlreadyStartedError) {
+      if (isFlowAlreadyStarted(error)) {
         console.log("ignore this error because it is already started");
       } else {
         throw error;
@@ -142,6 +142,7 @@ class AwaitChildWorkflowCompletion implements Step<WaitForChildInput> {
     try {
       await getClient().waitForFlow(
         input.childWFId,
+        voidCodec,
         Math.max(input.timerSeconds, 1) * 1000,
       );
     } catch (error) {
