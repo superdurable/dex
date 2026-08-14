@@ -11,6 +11,7 @@
 package interpreter
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -86,7 +87,7 @@ func TestPersistenceBatchSerializedEquality(t *testing.T) {
 			Payload:  []byte(`{"value":1}`),
 		}}},
 	}
-	err := manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{object})
+	err := manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{object})
 	require.NoError(t, err)
 
 	equalSerializedObject := &dexpb.AttributeWrite{
@@ -96,7 +97,7 @@ func TestPersistenceBatchSerializedEquality(t *testing.T) {
 			Payload:  []byte(`{"value":1}`),
 		}}},
 	}
-	err = manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{equalSerializedObject})
+	err = manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{equalSerializedObject})
 	require.NoError(t, err)
 	stored, exists := manager.GetAttribute("object")
 	require.True(t, exists)
@@ -116,14 +117,14 @@ func TestPersistenceIndexedMutationIsAtomic(t *testing.T) {
 
 	provider.upsertErr = errors.New("backend unavailable")
 	replacement := stringAttribute("indexed", "new", indexConfig)
-	err := manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{replacement})
+	err := manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{replacement})
 	require.ErrorContains(t, err, "backend unavailable")
 	stored, exists := manager.GetAttribute("indexed")
 	require.True(t, exists)
 	require.Same(t, initial.GetValue(), stored)
 
 	provider.upsertErr = nil
-	err = manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{replacement})
+	err = manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{replacement})
 	require.NoError(t, err)
 	require.Equal(t, "new", provider.upserts[0]["CustomKeywordField"])
 	require.Same(t, replacement.GetValue(), manager.GetAllAttributes()[0].GetValue())
@@ -140,14 +141,14 @@ func TestPersistenceNullDeletesUsingCurrentIndexConfig(t *testing.T) {
 		}},
 		IndexConfig: &dexpb.IndexConfig{Enable: true, IndexKey: "CurrentIndexKey"},
 	}
-	err := manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{deletion})
+	err := manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{deletion})
 	require.NoError(t, err)
 	require.Contains(t, provider.upserts[0], "CurrentIndexKey")
 	require.Nil(t, provider.upserts[0]["CurrentIndexKey"])
 	_, exists := manager.GetAttribute("indexed")
 	require.False(t, exists)
 
-	err = manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{deletion})
+	err = manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{deletion})
 	require.NoError(t, err)
 	require.Len(t, provider.upserts, 2)
 }
@@ -161,7 +162,7 @@ func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 		Type:     dexpb.IndexType_INDEX_TYPE_KEYWORD,
 		IndexKey: "NewIndexKey",
 	})
-	err := manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{moved})
+	err := manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{moved})
 	require.NoError(t, err)
 	require.NotContains(t, provider.upserts[0], "OldIndexKey")
 	require.Equal(t, "new", provider.upserts[0]["NewIndexKey"])
@@ -171,7 +172,7 @@ func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 		Type:     dexpb.IndexType_INDEX_TYPE_KEYWORD,
 		IndexKey: "AnotherIndexKey",
 	})
-	err = manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{sameValueWithNewIndex})
+	err = manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{sameValueWithNewIndex})
 	require.NoError(t, err)
 	require.Equal(t, "new", provider.upserts[1]["AnotherIndexKey"])
 	stored, exists := manager.GetAttribute("indexed")
@@ -179,7 +180,7 @@ func TestPersistenceUsesOnlyCurrentIndexConfig(t *testing.T) {
 	require.Same(t, sameValueWithNewIndex.GetValue(), stored)
 
 	disabled := stringAttribute("indexed", "stored-only", nil)
-	err = manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{disabled})
+	err = manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{disabled})
 	require.NoError(t, err)
 	require.Len(t, provider.upserts, 2)
 }
@@ -188,7 +189,7 @@ func TestPersistenceDoesNotEnforceIndexOwnership(t *testing.T) {
 	provider := &s2WorkflowProvider{}
 	manager := newTestPersistenceManager(provider, nil)
 
-	err := manager.ApplyAttributeWrites(nil, []*dexpb.AttributeWrite{
+	err := manager.ApplyAttributeWrites(persistenceTestContext(), []*dexpb.AttributeWrite{
 		stringAttribute("first", "new-first", &dexpb.IndexConfig{
 			Enable:   true,
 			Type:     dexpb.IndexType_INDEX_TYPE_KEYWORD,
@@ -223,6 +224,10 @@ func newTestPersistenceManager(
 		&AttributeSynchronizer{},
 		interpreterconfig.NewFlowConfiger(&dexpb.FlowConfig{}),
 	)
+}
+
+func persistenceTestContext() interfaces.UnifiedContext {
+	return interfaces.NewUnifiedContext(context.Background())
 }
 
 func stringKV(key, value string) *dexpb.KV {

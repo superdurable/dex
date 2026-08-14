@@ -145,14 +145,16 @@ func (t *GreedyTimerProcessor) WaitForTimerFiredOrSkipped(
 		}
 	}
 
-	// Await cancellation is handled by the status checks below.
-	_ = t.provider.Await(ctx, func() bool {
+	if err := t.provider.Await(ctx, func() bool {
 		// Timer firing creates a workflow task that reevaluates waiting goroutines.
 		return timer.GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED ||
 			timer.GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED ||
 			timer.GetFiringUnixTimestampSeconds() <= t.provider.Now(ctx).Unix() ||
 			*cancelWaiting
-	})
+	}); err != nil {
+		t.timerManager.removeTimer(timer)
+		return dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_PENDING
+	}
 
 	if timer.GetStatus() == dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED {
 		return dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_SKIPPED

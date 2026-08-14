@@ -29,20 +29,14 @@ const MaxOfAllVersions = DeterministicStepActivityIDVersion
 // GlobalVersioner is the forward hook for determinism-safe interpreter changes.
 // See https://stackoverflow.com/questions/73941723 for the pattern.
 type GlobalVersioner struct {
-	workflowProvider interfaces.WorkflowProvider
-	ctx              interfaces.UnifiedContext
-	version          int
+	version int
 }
 
 func NewGlobalVersioner(
 	workflowProvider interfaces.WorkflowProvider, ctx interfaces.UnifiedContext,
 ) *GlobalVersioner {
 	version := workflowProvider.GetVersion(ctx, globalChangeId, 0, MaxOfAllVersions)
-	return &GlobalVersioner{
-		workflowProvider: workflowProvider,
-		ctx:              ctx,
-		version:          version,
-	}
+	return &GlobalVersioner{version: version}
 }
 
 func (v *GlobalVersioner) UsesDeterministicStepActivityIDs() bool {

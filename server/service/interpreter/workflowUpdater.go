@@ -30,7 +30,6 @@ import (
 type WorkflowUpdater struct {
 	activities            *Activities
 	apiCfg                *config.ApiConfig
-	ctx                   interfaces.UnifiedContext
 	persistenceManager    *PersistenceManager
 	provider              interfaces.WorkflowProvider
 	continueAsNewer       *ContinueAsNewer
@@ -73,7 +72,6 @@ func NewWorkflowUpdater(
 	updater := &WorkflowUpdater{
 		activities:            activities,
 		apiCfg:                apiCfg,
-		ctx:                   ctx,
 		persistenceManager:    persistenceManager,
 		provider:              provider,
 		continueAsNewer:       continueAsNewer,
@@ -207,7 +205,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
-	if err := u.stepExecutionRegistry.CancelByStepTypes(decision.GetCancelStepTypes()); err != nil {
+	if err := u.stepExecutionRegistry.CancelByStepTypes(ctx, decision.GetCancelStepTypes()); err != nil {
 		return nil, err
 	}
 	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
@@ -331,8 +329,9 @@ func (u *WorkflowUpdater) handleWaitForStepCompletion(
 		deadline:            workflowDeadline(u.provider.Now(ctx), request.GetWaitTimeSeconds()),
 		stepExecutionNumber: stepExecutionNumber,
 	}
-	if !wait.ready() && request.GetWaitTimeSeconds() > 0 {
-		if err := u.provider.Await(ctx, wait.ready); err != nil {
+	isReady := func() bool { return wait.ready(ctx) }
+	if !isReady() && request.GetWaitTimeSeconds() > 0 {
+		if err := u.provider.Await(ctx, isReady); err != nil {
 			return nil, err
 		}
 	}
@@ -352,14 +351,14 @@ func (u *WorkflowUpdater) handleWaitForStepCompletion(
 	)
 }
 
-func (w *stepCompletionWait) ready() bool {
+func (w *stepCompletionWait) ready(ctx interfaces.UnifiedContext) bool {
 	w.matched = w.updater.stepExecutionCounter.IsStepExecutionCompleted(
 		w.request.GetStepType(),
 		w.stepExecutionNumber,
 	)
 	return w.matched ||
 		w.updater.continueAsNewCounter.IsThresholdMet() ||
-		deadlinePassed(w.updater.provider.Now(w.updater.ctx), w.deadline)
+		deadlinePassed(w.updater.provider.Now(ctx), w.deadline)
 }
 
 func parseWaitForStepExecutionNumber(value string) (int32, error) {
@@ -428,8 +427,9 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 		request:  request,
 		deadline: workflowDeadline(u.provider.Now(ctx), request.GetWaitTimeSeconds()),
 	}
-	if !wait.ready() && request.GetWaitTimeSeconds() > 0 {
-		if err := u.provider.Await(ctx, wait.ready); err != nil {
+	isReady := func() bool { return wait.ready(ctx) }
+	if !isReady() && request.GetWaitTimeSeconds() > 0 {
+		if err := u.provider.Await(ctx, isReady); err != nil {
 			return nil, err
 		}
 	}
@@ -455,12 +455,12 @@ func (u *WorkflowUpdater) handleWaitForAttribute(
 	)
 }
 
-func (w *attributeWait) ready() bool {
+func (w *attributeWait) ready(ctx interfaces.UnifiedContext) bool {
 	w.matched, w.matchErr = w.updater.attributeMatches(w.request)
 	return w.matched ||
 		w.matchErr != nil ||
 		w.updater.continueAsNewCounter.IsThresholdMet() ||
-		deadlinePassed(w.updater.provider.Now(w.updater.ctx), w.deadline)
+		deadlinePassed(w.updater.provider.Now(ctx), w.deadline)
 }
 
 func (u *WorkflowUpdater) attributeMatches(

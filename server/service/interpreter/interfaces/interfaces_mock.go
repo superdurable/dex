@@ -233,6 +233,20 @@ func (m *MockUnifiedContext) EXPECT() *MockUnifiedContextMockRecorder {
 	return m.recorder
 }
 
+// Err mocks base method.
+func (m *MockUnifiedContext) Err() error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Err")
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Err indicates an expected call of Err.
+func (mr *MockUnifiedContextMockRecorder) Err() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Err", reflect.TypeOf((*MockUnifiedContext)(nil).Err))
+}
+
 // GetContext mocks base method.
 func (m *MockUnifiedContext) GetContext() interface{} {
 	m.ctrl.T.Helper()

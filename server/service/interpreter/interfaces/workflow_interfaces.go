@@ -78,6 +78,7 @@ type ActivityOptions struct {
 
 type UnifiedContext interface {
 	GetContext() interface{}
+	Err() error
 }
 
 type contextHolder struct {
@@ -87,6 +88,14 @@ type contextHolder struct {
 
 func (c *contextHolder) GetContext() interface{} {
 	return c.ctx
+}
+
+func (c *contextHolder) Err() error {
+	ctx, ok := c.ctx.(interface{ Err() error })
+	if !ok {
+		panic("unified context does not expose Err")
+	}
+	return ctx.Err()
 }
 
 func NewUnifiedContext(ctx interface{}) UnifiedContext {

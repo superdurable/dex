@@ -81,10 +81,12 @@ func (r *StepExecutionRegistry) Unregister(stepExecutionID string) {
 }
 
 func (r *StepExecutionRegistry) CancelByStepTypesAndSiblingStepTypes(
+	ctx interfaces.UnifiedContext,
 	decision *dexpb.StepDecision,
 	fromStepExecutionID string,
 ) error {
 	return r.doCancel(
+		ctx,
 		newStepCancellationSelector(
 			decision.GetCancelStepTypes(),
 			decision.GetCancelSiblingStepTypes(),
@@ -93,15 +95,25 @@ func (r *StepExecutionRegistry) CancelByStepTypesAndSiblingStepTypes(
 	)
 }
 
-func (r *StepExecutionRegistry) CancelByStepTypes(stepTypes []string) error {
+func (r *StepExecutionRegistry) CancelByStepTypes(
+	ctx interfaces.UnifiedContext,
+	stepTypes []string,
+) error {
 	return r.doCancel(
+		ctx,
 		newStepCancellationSelector(stepTypes, nil, ""),
 	)
 }
 
-func (r *StepExecutionRegistry) doCancel(selector *stepCancellationSelector) error {
+func (r *StepExecutionRegistry) doCancel(
+	ctx interfaces.UnifiedContext,
+	selector *stepCancellationSelector,
+) error {
 	if selector.isEmpty() {
 		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	queued := r.stepRequestQueue.RemoveMatching(func(request StepRequest) bool {
@@ -121,12 +133,12 @@ func (r *StepExecutionRegistry) doCancel(selector *stepCancellationSelector) err
 	}
 	var cancelErr error
 	for _, request := range queued {
-		cancelErr = errors.Join(cancelErr, r.cancelQueued(request))
+		cancelErr = errors.Join(cancelErr, r.cancelQueued(ctx, request))
 	}
 	for _, stepExecutionID := range matchedIDs {
 		cancelErr = errors.Join(
 			cancelErr,
-			r.cancelActive(stepExecutionID, matched[stepExecutionID]),
+			r.cancelActive(ctx, stepExecutionID, matched[stepExecutionID]),
 		)
 	}
 	return cancelErr
@@ -138,6 +150,7 @@ func (r *StepExecutionRegistry) IsCanceled(stepExecutionID string) bool {
 }
 
 func (r *StepExecutionRegistry) cancelQueued(
+	ctx interfaces.UnifiedContext,
 	request StepRequest,
 ) error {
 	movement := request.GetStepMovement()
@@ -146,6 +159,7 @@ func (r *StepExecutionRegistry) cancelQueued(
 		r.subFlowTracker.Unregister(stepExecutionID)
 		r.continueAsNewer.RemoveStepExecutionToResume(stepExecutionID)
 		if err := r.stepExecutionCounter.MarkStepExecutionCompleted(
+			ctx,
 			movement,
 			stepExecutionID,
 			nil,
@@ -159,6 +173,7 @@ func (r *StepExecutionRegistry) cancelQueued(
 }
 
 func (r *StepExecutionRegistry) cancelActive(
+	ctx interfaces.UnifiedContext,
 	stepExecutionID string,
 	execution *registeredStepExecution,
 ) error {
@@ -168,6 +183,7 @@ func (r *StepExecutionRegistry) cancelActive(
 	r.continueAsNewer.RemoveStepExecutionToResume(stepExecutionID)
 	r.continueAsNewer.RemoveActiveStep(stepExecutionID)
 	return r.stepExecutionCounter.MarkStepExecutionCompleted(
+		ctx,
 		execution.movement,
 		stepExecutionID,
 		nil,

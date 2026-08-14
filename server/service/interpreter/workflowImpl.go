@@ -95,7 +95,7 @@ func (i *Interpreter) StartEngineFlow(
 			previous.GetStepsToStartFromBeginning(),
 			previous.GetStepExecutionsToResume(),
 		)
-		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
+		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger)
 		attributeSynchronizer = NewAttributeSynchronizer(
 			&i.sharedConfig.AttributeStore,
 			i.activities,
@@ -117,7 +117,6 @@ func (i *Interpreter) StartEngineFlow(
 			previous.GetStaleSkipTimers(),
 		)
 		stepExecutionCounter = RebuildStepExecutionCounter(
-			ctx,
 			provider,
 			flowConfiger,
 			continueAsNewCounter,
@@ -138,7 +137,7 @@ func (i *Interpreter) StartEngineFlow(
 	} else {
 		channelStore = NewChannelStore()
 		stepRequestQueue = NewStepRequestQueue()
-		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger, ctx, provider)
+		continueAsNewCounter = cont.NewContinueAsCounter(flowConfiger)
 		attributeSynchronizer = NewAttributeSynchronizer(
 			&i.sharedConfig.AttributeStore,
 			i.activities,
@@ -154,6 +153,7 @@ func (i *Interpreter) StartEngineFlow(
 			flowConfiger,
 		)
 		attributeSynchronizer.AppendingToPendings(
+			ctx,
 			input.GetInitAttributes(),
 			flowConfiger.Get().GetAttributeSyncConfigName(),
 		)
@@ -164,7 +164,6 @@ func (i *Interpreter) StartEngineFlow(
 			nil,
 		)
 		stepExecutionCounter = NewStepExecutionCounter(
-			ctx,
 			provider,
 			flowConfiger,
 			continueAsNewCounter,
@@ -206,7 +205,7 @@ func (i *Interpreter) StartEngineFlow(
 		flowConfiger,
 		subFlowTracker,
 	)
-	attributeSynchronizer.Start()
+	attributeSynchronizer.Start(ctx)
 
 	// we need these global varirables because sub threads(goroutine) need to report error back
 	// to main goroutine to return.
@@ -218,7 +217,6 @@ func (i *Interpreter) StartEngineFlow(
 
 	terminalCoordinator := NewTerminalCoordinator(
 		provider,
-		ctx,
 		continueAsNewer,
 		attributeSynchronizer,
 		signalReceiver,
@@ -246,7 +244,7 @@ func (i *Interpreter) StartEngineFlow(
 	}
 
 	defer func() {
-		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
+		retErr = terminalCoordinator.CoordinateAndFinalizeError(ctx, retErr)
 		if shouldReportSubFlowCompletion(provider, ctx, subFlowParentFlowID, retErr) {
 			if reportErr := i.reportSubFlowCompletion(
 				ctx, provider, subFlowParentFlowID, outputCollector.GetAll(), retErr,
@@ -348,6 +346,7 @@ func (i *Interpreter) StartEngineFlow(
 			if !continueAsNewCounter.IsThresholdMet() {
 				stepsToExecute = stepRequestQueue.TakeAll()
 				if err := stepExecutionCounter.MarkStepTypeActiveIfNotYet(
+					ctx,
 					stepsToExecute,
 				); err != nil {
 					return nil, err
@@ -413,7 +412,6 @@ func (i *Interpreter) StartEngineFlow(
 						globalVersioner,
 						signalReceiver,
 						subFlowTracker,
-						stepExecutionRegistry,
 					)
 					if stepExecutionRegistry.IsCanceled(stepExeId) {
 						stepExecutionRegistry.Unregister(stepExeId)
@@ -433,12 +431,14 @@ func (i *Interpreter) StartEngineFlow(
 						// NOTE: decision is only available on this CompletedStepExecutionStatus
 						stepExecutionRegistry.Unregister(stepExeId)
 						if cancelErr := stepExecutionRegistry.CancelByStepTypesAndSiblingStepTypes(
+							ctx,
 							decision,
 							step.GetFromStepExecutionIdInternalOnly(),
 						); cancelErr != nil {
 							errToFailWf = cancelErr
 							continueAsNewer.RemoveActiveStep(stepExeId)
 							if markErr := stepExecutionCounter.MarkStepExecutionCompleted(
+								ctx,
 								step,
 								stepExeId,
 								nil,
@@ -485,6 +485,7 @@ func (i *Interpreter) StartEngineFlow(
 						// finally, mark step completed and may also update system search attribute
 						continueAsNewer.RemoveActiveStep(stepExeId)
 						if err := stepExecutionCounter.MarkStepExecutionCompleted(
+							ctx,
 							step,
 							stepExeId,
 							decision.GetNextSteps(),
@@ -512,6 +513,7 @@ func (i *Interpreter) StartEngineFlow(
 						// finally, mark state completed and may also update activeStepType search attribute
 						continueAsNewer.RemoveActiveStep(stepExeId)
 						err := stepExecutionCounter.MarkStepExecutionCompleted(
+							ctx,
 							step,
 							stepExeId,
 							decision.GetNextSteps(),
@@ -727,7 +729,6 @@ func (i *Interpreter) processStepExecution(
 	globalVersioner *GlobalVersioner,
 	signalReceiver *SignalReceiver,
 	subFlowTracker *SubFlowTracker,
-	stepExecutionRegistry *StepExecutionRegistry,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
 	step := stepRequest.GetStepMovement()
@@ -777,7 +778,6 @@ func (i *Interpreter) processStepExecution(
 			flowConfiger,
 			stepExeLocals,
 			globalVersioner,
-			stepExecutionRegistry,
 		)
 	}
 
@@ -808,9 +808,6 @@ func (i *Interpreter) processStepExecution(
 		if len(lockAttributeKeys) > 0 {
 			loadedAttributes, err := persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 			if err != nil {
-				if stepExecutionRegistry.IsCanceled(stepExeId) {
-					return nil, service.StepExecutionStatusCanceled, nil
-				}
 				return nil, service.StepExecutionStatusInternalError, err
 			}
 			attributes = loadedAttributes
@@ -840,8 +837,8 @@ func (i *Interpreter) processStepExecution(
 		)
 		persistenceManager.UnlockKeys(lockAttributeKeys)
 
-		if stepExecutionRegistry.IsCanceled(stepExeId) {
-			return nil, service.StepExecutionStatusCanceled, nil
+		if err := ctx.Err(); err != nil {
+			return nil, service.StepExecutionStatusInternalError, err
 		}
 
 		if waitForMethErr != nil && !shouldProceedOnWaitForMethodError(step) {
@@ -856,9 +853,6 @@ func (i *Interpreter) processStepExecution(
 				activityOutput.Response.GetUpsertAttributes(),
 			); err != nil {
 				return nil, service.StepExecutionStatusInternalError, err
-			}
-			if stepExecutionRegistry.IsCanceled(stepExeId) {
-				return nil, service.StepExecutionStatusCanceled, nil
 			}
 			channelStore.ProcessPublishing(activityOutput.Response.GetPublishToChannel())
 			stepExeLocals = activityOutput.Response.GetUpsertStepExeLocals()
@@ -951,7 +945,7 @@ func (i *Interpreter) processStepExecution(
 	var conditionMet bool
 
 	// Wait for condition met, stop signal, or continue-as-new threshold
-	_ = provider.Await(ctx, func() bool {
+	if err := provider.Await(ctx, func() bool {
 		matchPlan, conditionMet = channel.Plan(
 			waitingCondition,
 			channelStore.Availability(),
@@ -959,22 +953,23 @@ func (i *Interpreter) processStepExecution(
 			completedSubFlowResults,
 		)
 		return conditionMet || signalReceiver.IsStopFlowRequested() ||
-			continueAsNewCounter.IsThresholdMet() || stepExecutionRegistry.IsCanceled(stepExeId)
-	})
+			continueAsNewCounter.IsThresholdMet()
+	}); err != nil {
+		waitingConditionDoneOrCanceled = true
+		return nil, service.StepExecutionStatusInternalError, err
+	}
 
 	waitingConditionDoneOrCanceled = true
 
-	_ = provider.Await(ctx, func() bool {
+	if err := provider.Await(ctx, func() bool {
 		for _, isCompleted := range waitForThreads {
 			if !isCompleted {
 				return false
 			}
 		}
 		return true
-	})
-
-	if stepExecutionRegistry.IsCanceled(stepExeId) {
-		return nil, service.StepExecutionStatusCanceled, nil
+	}); err != nil {
+		return nil, service.StepExecutionStatusInternalError, err
 	}
 
 	if signalReceiver.IsStopFlowRequested() || !conditionMet {
@@ -1021,7 +1016,6 @@ func (i *Interpreter) processStepExecution(
 		flowConfiger,
 		stepExeLocals,
 		globalVersioner,
-		stepExecutionRegistry,
 	)
 }
 
@@ -1104,7 +1098,6 @@ func (i *Interpreter) invokeExecuteMethod(
 	flowConfiger *interpreterconfig.FlowConfiger,
 	stepExeLocals []*dexpb.KV,
 	globalVersioner *GlobalVersioner,
-	stepExecutionRegistry *StepExecutionRegistry,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	var err error
 	activityOptions := interfaces.ActivityOptions{
@@ -1131,9 +1124,6 @@ func (i *Interpreter) invokeExecuteMethod(
 	if len(lockAttributeKeys) > 0 {
 		attributes, err = persistenceManager.LoadAttributes(ctx, lockAttributeKeys)
 		if err != nil {
-			if stepExecutionRegistry.IsCanceled(stepExeId) {
-				return nil, service.StepExecutionStatusCanceled, nil
-			}
 			return nil, service.StepExecutionStatusInternalError, err
 		}
 	}
@@ -1166,17 +1156,14 @@ func (i *Interpreter) invokeExecuteMethod(
 	// always unlock regardless of step success/failure
 	persistenceManager.UnlockKeys(lockAttributeKeys)
 
+	if err := ctx.Err(); err != nil {
+		return nil, service.StepExecutionStatusInternalError, err
+	}
 	if exeMethErr != nil {
-		if stepExecutionRegistry.IsCanceled(stepExeId) {
-			return nil, service.StepExecutionStatusCanceled, nil
-		}
 		if shouldProceedOnExecuteMethodError(step) {
 			return nil, service.StepExecutionStatusFailedAndProceed, exeMethErr
 		}
 		return nil, service.StepExecutionStatusFailedNoProceed, exeMethErr
-	}
-	if stepExecutionRegistry.IsCanceled(stepExeId) {
-		return nil, service.StepExecutionStatusCanceled, nil
 	}
 	executeResponse := activityOutput.GetResponse()
 	if err := persistenceManager.ApplyAttributeWrites(
@@ -1184,9 +1171,6 @@ func (i *Interpreter) invokeExecuteMethod(
 		executeResponse.GetUpsertAttributes(),
 	); err != nil {
 		return nil, service.StepExecutionStatusInternalError, err
-	}
-	if stepExecutionRegistry.IsCanceled(stepExeId) {
-		return nil, service.StepExecutionStatusCanceled, nil
 	}
 	channelStore.ProcessPublishing(executeResponse.GetPublishToChannel())
 
