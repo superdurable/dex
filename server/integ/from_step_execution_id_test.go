@@ -153,9 +153,20 @@ func testRPCStepLineageAcrossContinueAsNew(
 		RpcName:   deadend.RPCTriggerState,
 	})
 	require.NoError(t, err)
-	require.Eventually(t, func() bool {
-		return workerHandler.GetTestResult().InvokeHistory[deadend.State1+"_execute"] > 0
-	}, 30*time.Second, 50*time.Millisecond)
+	if backendType == service.BackendTypeTemporal {
+		_, err = runtime.FlowClient.WaitForStepCompletion(ctx, &dexpb.WaitForStepCompletionRequest{
+			FlowId:              flowID,
+			StepType:            deadend.State1,
+			StepExecutionNumber: "1",
+			WaitTimeSeconds:     30,
+			RequestId:           newRequestID(),
+		})
+		require.NoError(t, err)
+	} else {
+		require.Eventually(t, func() bool {
+			return workerHandler.GetTestResult().InvokeHistory[deadend.State1+"_execute"] > 0
+		}, 30*time.Second, 50*time.Millisecond)
+	}
 
 	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{FlowId: flowID})
 	require.NoError(t, err)
