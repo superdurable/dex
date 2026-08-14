@@ -170,6 +170,15 @@ requests. Without a heartbeat, the Flow still cancels logically and proceeds,
 but the Java handler may run until its RPC or activity timeout and its response
 is ignored.
 
+An ASYNC local activity keeps the current backend Workflow Task open until it
+returns or reaches Dex's seven-second local optimization timeout. This can delay
+another Step from starting its durable timer, or delay processing a timer that
+already elapsed. An already-started timer keeps its deadline. Use SYNC durability
+when cancellation must reach a running handler close to the intended deadline.
+After an ASYNC local timeout, Dex falls back to a regular activity; a backend
+error without local attempt metadata conservatively consumes one attempt and the
+elapsed local duration before fallback.
+
 `ClientOptions` and `WorkerOptions` contain a default Jackson `ObjectMapper` and
 accept a configured mapper when needed. Java does not expose a public Codec API.
 Workers use a builder so optional transport settings remain readable:

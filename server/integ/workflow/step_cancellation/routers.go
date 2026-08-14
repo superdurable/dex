@@ -41,6 +41,10 @@ const (
 	LocalWinner         = "LocalWinner"
 	LocalLoser          = "LocalLoser"
 	LocalFinal          = "LocalFinal"
+	LocalTimeoutRoot    = "LocalTimeoutRoot"
+	LocalTimeoutWinner  = "LocalTimeoutWinner"
+	LocalTimeoutLoser   = "LocalTimeoutLoser"
+	LocalTimeoutFinal   = "LocalTimeoutFinal"
 	RpcA                = "cancelRpcA"
 	RpcB                = "cancelRpcB"
 	RpcSpawn            = "spawn"
@@ -57,6 +61,7 @@ type Handler struct {
 	hasNoHeartbeatLateReturn bool
 	wasQueuedLoserExecuted   bool
 	wasWaitingLoserExecuted  bool
+	localTimeoutLoserAttempt int32
 }
 
 func NewHandler() *Handler {
@@ -103,6 +108,8 @@ func (h *Handler) InvokeWaitForMethod(
 	switch request.GetStepType() {
 	case Winner:
 		return timerWait(2 * time.Second), nil
+	case LocalTimeoutWinner:
+		return timerWait(3 * time.Second), nil
 	case SiblingWait:
 		if request.GetContext().GetFromStepExecutionId() == ParentA+"-1" {
 			return channelWait(), nil
@@ -220,6 +227,27 @@ func (h *Handler) InvokeExecuteMethod(
 		return nil, ctx.Err()
 	case LocalFinal:
 		return graceful(), nil
+	case LocalTimeoutRoot:
+		return next(
+			movement(LocalTimeoutWinner, asyncExecuteAfterWaitOptions()),
+			movement(LocalTimeoutLoser, asyncExecuteOptions()),
+		), nil
+	case LocalTimeoutWinner:
+		return &dexpb.InvokeExecuteMethodResponse{StepDecision: &dexpb.StepDecision{
+			NextSteps:       []*dexpb.StepMovement{movement(LocalTimeoutFinal, nil)},
+			CancelStepTypes: []string{LocalTimeoutLoser},
+		}}, nil
+	case LocalTimeoutLoser:
+		h.mu.Lock()
+		h.localTimeoutLoserAttempt = max(
+			h.localTimeoutLoserAttempt,
+			request.GetContext().GetAttempt(),
+		)
+		h.mu.Unlock()
+		<-ctx.Done()
+		return nil, ctx.Err()
+	case LocalTimeoutFinal:
+		return graceful(), nil
 	case RpcFinal:
 		return forceComplete(), nil
 	case CanceledRecovery:
@@ -251,6 +279,12 @@ func (h *Handler) WasWaitingLoserExecuted() bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.wasWaitingLoserExecuted
+}
+
+func (h *Handler) LocalTimeoutLoserAttempt() int32 {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.localTimeoutLoserAttempt
 }
 
 func (h *Handler) markCanceled(stepType string) {

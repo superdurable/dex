@@ -75,6 +75,27 @@ CPU-bound or batch-oriented handlers may additionally check
 `Context.isCancellationRequested()` at natural work boundaries. They do not
 need to poll continuously.
 
+## ASYNC local activities and timers
+
+An ASYNC Step first runs as a local activity. The local activity keeps the
+current backend Workflow Task open until it returns or reaches Dex's seven-second
+local optimization timeout. While that task is occupied, another Step may be
+unable to finish `waitFor` and start its durable timer. In that case, the timer
+starts after the local stage ends.
+
+If the timer was already started, it keeps its original deadline. Dex processes
+an elapsed deadline when the Workflow Task resumes instead of restarting the
+timer. In either case, cancellation can arrive up to the local-stage duration
+later than it would with a SYNC Step. If the local activity successfully returns
+first, its result is processed first and a later selector is a no-op for that
+completed execution.
+
+Use SYNC durability when a timer must cancel an executing handler close to its
+deadline. If the ASYNC local optimization times out, Dex falls back to a regular
+activity and the timer can cancel that fallback. A backend error without local
+attempt metadata conservatively consumes one attempt and the elapsed local-stage
+duration before Dex calculates the regular activity's remaining retry budget.
+
 ## Snapshot and completion semantics
 
 When Dex applies a `StepDecision`, it processes cancellation in this order:

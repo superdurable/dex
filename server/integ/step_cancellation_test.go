@@ -64,6 +64,20 @@ func TestLocalStepCancellationCadence(t *testing.T) {
 	testLocalStepCancellation(t, service.BackendTypeCadence)
 }
 
+func TestLocalTimeoutFallbackCancellationTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	testLocalTimeoutFallbackCancellation(t, service.BackendTypeTemporal)
+}
+
+func TestLocalTimeoutFallbackCancellationCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	testLocalTimeoutFallbackCancellation(t, service.BackendTypeCadence)
+}
+
 func TestRpcStepCancellationTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
@@ -224,6 +238,32 @@ func testLocalStepCancellation(t *testing.T, backendType service.BackendType) {
 	require.True(t, handler.IsCancellationObserved(step_cancellation.LocalLoser))
 	events, _ := getAllWebHistoryEvents(t, ctx, runtime.FlowClient, flowID, start.GetRunId())
 	assertNoExecuteHistory(t, events, step_cancellation.LocalLoser+"-1")
+}
+
+func testLocalTimeoutFallbackCancellation(t *testing.T, backendType service.BackendType) {
+	handler := step_cancellation.NewHandler()
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowID := step_cancellation.FlowType + "-local-timeout-" + uuid.NewString()
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           step_cancellation.FlowType,
+		FlowTimeoutSeconds: 20,
+		StartStepType:      step_cancellation.LocalTimeoutRoot,
+		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+	completed, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		WaitTimeSeconds: 15,
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, completed.GetFlowStatus())
+	require.Equal(t, int32(2), handler.LocalTimeoutLoserAttempt())
 }
 
 func testRpcStepCancellation(

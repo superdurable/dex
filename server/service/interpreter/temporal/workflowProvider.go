@@ -453,29 +453,31 @@ func (w *workflowProvider) ExecuteActivity(
 		if wfCtx.Err() != nil {
 			return wfCtx.Err()
 		}
-		if temporal.IsCanceledError(err) {
-			return err
-		}
 		if !isStepMethodActivity {
 			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 		}
-		applicationError, localFailure, isApplicationFailure := temporalLocalStepActivityError(err)
-		if !isApplicationFailure {
-			return err
+		applicationError, localFailure, hasLocalFailure := temporalLocalStepActivityError(err)
+		previousAttempts := int32(1)
+		firstAttemptTimestamp := firstAttemptTime.Unix()
+		if hasLocalFailure {
+			previousAttempts = localFailure.GetAttempt()
+			firstAttemptTimestamp = localFailure.GetFirstAttemptTimestamp()
 		}
-		previousAttempts := localFailure.GetAttempt()
 		remainingPolicy, canFallback := retry.RemainingActivityRetryPolicy(
 			options.RetryPolicy,
 			previousAttempts,
 			workflow.Now(wfCtx).Sub(firstAttemptTime),
 		)
 		if !canFallback {
-			return temporalFinalFlowError(applicationError, localFailure.GetActivityError())
+			if hasLocalFailure {
+				return temporalFinalFlowError(applicationError, localFailure.GetActivityError())
+			}
+			return err
 		}
 		regularInput = interfaces.StepActivityInputWithAttemptContext(
 			regularInput,
 			previousAttempts,
-			localFailure.GetFirstAttemptTimestamp(),
+			firstAttemptTimestamp,
 		)
 		options.RetryPolicy = remainingPolicy
 		regularCtx := workflow.WithActivityOptions(wfCtx, temporalActivityOptions(options))
@@ -528,17 +530,14 @@ func temporalLocalStepActivityError(
 		return nil, nil, false
 	}
 	if !applicationError.HasDetails() {
-		panic("Temporal local Step failure details required")
+		return nil, nil, false
 	}
 	failure, detailErr := decodeTemporalLocalStepErrorDetails(applicationError)
 	if detailErr != nil {
-		panic(fmt.Sprintf("decode Temporal local Step failure details: %v", detailErr))
+		return nil, nil, false
 	}
-	if failure.GetActivityError() == nil {
-		panic("Temporal local Step activity error required")
-	}
-	if failure.GetAttempt() <= 0 {
-		panic("Temporal local Step failure attempt required")
+	if failure.GetActivityError() == nil || failure.GetAttempt() <= 0 {
+		return nil, nil, false
 	}
 	return applicationError, failure, true
 }

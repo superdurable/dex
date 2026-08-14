@@ -75,6 +75,31 @@ public final class StepCancellationTest {
     }
 
     @Test
+    void testTimerCancelsAfterLocalTimeoutFallback() throws Exception {
+        final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
+                StepCancellationWorkflow.Scenario.LOCAL_TIMEOUT_FALLBACK);
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                workflow)) {
+            final String flowId = start(environment, workflow, "cancel-local-fallback");
+            assertTrue(workflow.awaitBlockingHandlerStarted(START_TIMEOUT));
+            environment.client().waitForStepCompletion(
+                    flowId,
+                    StepExecutionId.of(workflow.canceledStepType()),
+                    FLOW_TIMEOUT);
+            assertCompleted(
+                    environment,
+                    flowId,
+                    StepCancellationWorkflow.Scenario.LOCAL_TIMEOUT_FALLBACK);
+            assertEquals(1, workflow.blockingExecuteInvocations());
+            assertTrue(workflow.wasHandlerInterrupted());
+            assertTrue(workflow.didContextReportCancellation());
+            assertFalse(workflow.wasRecoveryRun());
+            assertNull(environment.client().getAttribute(flowId, workflow.lateWrite));
+        }
+    }
+
+    @Test
     void testCancellationWithoutHeartbeatContinuesBeforeLateHandlerReturn() throws Exception {
         final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
                 StepCancellationWorkflow.Scenario.NO_HEARTBEAT);

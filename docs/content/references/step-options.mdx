@@ -16,6 +16,12 @@ it. Heartbeats let a running handler observe
 [Step execution cancellation](/capabilities/advanced/step-execution-cancellation)
 promptly.
 
+An ASYNC local activity can delay a sibling Step from starting a durable timer,
+or delay processing a timer that already elapsed, until its Workflow Task
+resumes. The delay is at most the local stage's seven-second optimization
+window. An already-started timer keeps its deadline. Use SYNC durability when
+timer precision is required.
+
 ## Recovery durability
 
 Dex resolves each Step method's durability in this order:

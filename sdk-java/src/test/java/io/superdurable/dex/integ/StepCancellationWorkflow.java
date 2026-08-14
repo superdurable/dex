@@ -37,6 +37,7 @@ final class StepCancellationWorkflow implements Flow<Void> {
         HEARTBEAT_EXECUTE,
         HEARTBEAT_WAIT_FOR,
         LOCAL_EXECUTE,
+        LOCAL_TIMEOUT_FALLBACK,
         NO_HEARTBEAT,
         GLOBAL_SELECTOR,
         SIBLING_SELECTOR
@@ -228,6 +229,12 @@ final class StepCancellationWorkflow implements Flow<Void> {
                     .onExecuteFailureProceedTo(recovery);
             if (scenario == Scenario.LOCAL_EXECUTE) {
                 return options.executeDurability(StepDurability.ASYNC).build();
+            }
+            if (scenario == Scenario.LOCAL_TIMEOUT_FALLBACK) {
+                return options
+                        .heartbeatTimeout(HEARTBEAT_TIMEOUT)
+                        .executeDurability(StepDurability.ASYNC)
+                        .build();
             }
             if (scenario == Scenario.HEARTBEAT_EXECUTE) {
                 options.heartbeatTimeout(HEARTBEAT_TIMEOUT);
