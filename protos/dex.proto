@@ -964,10 +964,6 @@ message SubFlowCondition {
   StepOptions step_options = 5;
   SubFlowOptions options = 6;
   int32 sub_flow_index = 7;
-  // Server-generated during WaitFor normalization.
-  string parent_flow_id = 8;
-  // Server-generated during WaitFor normalization.
-  string request_id = 9;
 }
 
 message SubFlowConditionState {
@@ -1200,6 +1196,8 @@ message SyncAttributeBatchActivityInput {
 message StartSubFlowActivityInput {
   SubFlowCondition condition = 1;
   FlowConfig parent_flow_config = 2;
+  // Source Step; activity context supplies parent Flow and run IDs.
+  string parent_step_execution_id = 3;
 }
 
 message StartSubFlowActivityOutput {

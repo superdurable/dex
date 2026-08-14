@@ -31,8 +31,6 @@ private static final long serialVersionUID = 0L;
     conditionId_ = "";
     subFlowType_ = "";
     startStepType_ = "";
-    parentFlowId_ = "";
-    requestId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -268,100 +266,6 @@ private static final long serialVersionUID = 0L;
     return subFlowIndex_;
   }
 
-  public static final int PARENT_FLOW_ID_FIELD_NUMBER = 8;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object parentFlowId_ = "";
-  /**
-   * <pre>
-   * Server-generated during WaitFor normalization.
-   * </pre>
-   *
-   * <code>string parent_flow_id = 8;</code>
-   * @return The parentFlowId.
-   */
-  @java.lang.Override
-  public java.lang.String getParentFlowId() {
-    java.lang.Object ref = parentFlowId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      parentFlowId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <pre>
-   * Server-generated during WaitFor normalization.
-   * </pre>
-   *
-   * <code>string parent_flow_id = 8;</code>
-   * @return The bytes for parentFlowId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getParentFlowIdBytes() {
-    java.lang.Object ref = parentFlowId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      parentFlowId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int REQUEST_ID_FIELD_NUMBER = 9;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object requestId_ = "";
-  /**
-   * <pre>
-   * Server-generated during WaitFor normalization.
-   * </pre>
-   *
-   * <code>string request_id = 9;</code>
-   * @return The requestId.
-   */
-  @java.lang.Override
-  public java.lang.String getRequestId() {
-    java.lang.Object ref = requestId_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      requestId_ = s;
-      return s;
-    }
-  }
-  /**
-   * <pre>
-   * Server-generated during WaitFor normalization.
-   * </pre>
-   *
-   * <code>string request_id = 9;</code>
-   * @return The bytes for requestId.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getRequestIdBytes() {
-    java.lang.Object ref = requestId_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      requestId_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -397,12 +301,6 @@ private static final long serialVersionUID = 0L;
     if (subFlowIndex_ != 0) {
       output.writeInt32(7, subFlowIndex_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentFlowId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 8, parentFlowId_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 9, requestId_);
-    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -431,12 +329,6 @@ private static final long serialVersionUID = 0L;
     if (subFlowIndex_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(7, subFlowIndex_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentFlowId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(8, parentFlowId_);
-    }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(requestId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(9, requestId_);
     }
     return size;
   }
@@ -485,10 +377,6 @@ private static final long serialVersionUID = 0L;
     }
     if (getSubFlowIndex()
         != other.getSubFlowIndex()) return false;
-    if (!getParentFlowId()
-        .equals(other.getParentFlowId())) return false;
-    if (!getRequestId()
-        .equals(other.getRequestId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -520,10 +408,6 @@ private static final long serialVersionUID = 0L;
     }
     hash = (37 * hash) + SUB_FLOW_INDEX_FIELD_NUMBER;
     hash = (53 * hash) + getSubFlowIndex();
-    hash = (37 * hash) + PARENT_FLOW_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getParentFlowId().hashCode();
-    hash = (37 * hash) + REQUEST_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getRequestId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -682,8 +566,6 @@ private static final long serialVersionUID = 0L;
         optionsBuilder_ = null;
       }
       subFlowIndex_ = 0;
-      parentFlowId_ = "";
-      requestId_ = "";
       return this;
     }
 
@@ -748,12 +630,6 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000040) != 0)) {
         result.subFlowIndex_ = subFlowIndex_;
       }
-      if (((from_bitField0_ & 0x00000080) != 0)) {
-        result.parentFlowId_ = parentFlowId_;
-      }
-      if (((from_bitField0_ & 0x00000100) != 0)) {
-        result.requestId_ = requestId_;
-      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -795,16 +671,6 @@ private static final long serialVersionUID = 0L;
       }
       if (other.getSubFlowIndex() != 0) {
         setSubFlowIndex(other.getSubFlowIndex());
-      }
-      if (!other.getParentFlowId().isEmpty()) {
-        parentFlowId_ = other.parentFlowId_;
-        bitField0_ |= 0x00000080;
-        onChanged();
-      }
-      if (!other.getRequestId().isEmpty()) {
-        requestId_ = other.requestId_;
-        bitField0_ |= 0x00000100;
-        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -873,16 +739,6 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000040;
               break;
             } // case 56
-            case 66: {
-              parentFlowId_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000080;
-              break;
-            } // case 66
-            case 74: {
-              requestId_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000100;
-              break;
-            } // case 74
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1527,190 +1383,6 @@ private static final long serialVersionUID = 0L;
     public Builder clearSubFlowIndex() {
       bitField0_ = (bitField0_ & ~0x00000040);
       subFlowIndex_ = 0;
-      onChanged();
-      return this;
-    }
-
-    private java.lang.Object parentFlowId_ = "";
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string parent_flow_id = 8;</code>
-     * @return The parentFlowId.
-     */
-    public java.lang.String getParentFlowId() {
-      java.lang.Object ref = parentFlowId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        parentFlowId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string parent_flow_id = 8;</code>
-     * @return The bytes for parentFlowId.
-     */
-    public com.google.protobuf.ByteString
-        getParentFlowIdBytes() {
-      java.lang.Object ref = parentFlowId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        parentFlowId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string parent_flow_id = 8;</code>
-     * @param value The parentFlowId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setParentFlowId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      parentFlowId_ = value;
-      bitField0_ |= 0x00000080;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string parent_flow_id = 8;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearParentFlowId() {
-      parentFlowId_ = getDefaultInstance().getParentFlowId();
-      bitField0_ = (bitField0_ & ~0x00000080);
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string parent_flow_id = 8;</code>
-     * @param value The bytes for parentFlowId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setParentFlowIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      parentFlowId_ = value;
-      bitField0_ |= 0x00000080;
-      onChanged();
-      return this;
-    }
-
-    private java.lang.Object requestId_ = "";
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string request_id = 9;</code>
-     * @return The requestId.
-     */
-    public java.lang.String getRequestId() {
-      java.lang.Object ref = requestId_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        requestId_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string request_id = 9;</code>
-     * @return The bytes for requestId.
-     */
-    public com.google.protobuf.ByteString
-        getRequestIdBytes() {
-      java.lang.Object ref = requestId_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        requestId_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string request_id = 9;</code>
-     * @param value The requestId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRequestId(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      requestId_ = value;
-      bitField0_ |= 0x00000100;
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string request_id = 9;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearRequestId() {
-      requestId_ = getDefaultInstance().getRequestId();
-      bitField0_ = (bitField0_ & ~0x00000100);
-      onChanged();
-      return this;
-    }
-    /**
-     * <pre>
-     * Server-generated during WaitFor normalization.
-     * </pre>
-     *
-     * <code>string request_id = 9;</code>
-     * @param value The bytes for requestId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setRequestIdBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      requestId_ = value;
-      bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }

@@ -104,44 +104,4 @@ public interface SubFlowConditionOrBuilder extends
    * @return The subFlowIndex.
    */
   int getSubFlowIndex();
-
-  /**
-   * <pre>
-   * Server-generated during WaitFor normalization.
-   * </pre>
-   *
-   * <code>string parent_flow_id = 8;</code>
-   * @return The parentFlowId.
-   */
-  java.lang.String getParentFlowId();
-  /**
-   * <pre>
-   * Server-generated during WaitFor normalization.
-   * </pre>
-   *
-   * <code>string parent_flow_id = 8;</code>
-   * @return The bytes for parentFlowId.
-   */
-  com.google.protobuf.ByteString
-      getParentFlowIdBytes();
-
-  /**
-   * <pre>
-   * Server-generated during WaitFor normalization.
-   * </pre>
-   *
-   * <code>string request_id = 9;</code>
-   * @return The requestId.
-   */
-  java.lang.String getRequestId();
-  /**
-   * <pre>
-   * Server-generated during WaitFor normalization.
-   * </pre>
-   *
-   * <code>string request_id = 9;</code>
-   * @return The bytes for requestId.
-   */
-  com.google.protobuf.ByteString
-      getRequestIdBytes();
 }

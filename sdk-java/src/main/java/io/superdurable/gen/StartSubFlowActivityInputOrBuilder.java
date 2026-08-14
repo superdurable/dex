@@ -39,4 +39,24 @@ public interface StartSubFlowActivityInputOrBuilder extends
    * <code>.dex.FlowConfig parent_flow_config = 2;</code>
    */
   io.superdurable.gen.FlowConfigOrBuilder getParentFlowConfigOrBuilder();
+
+  /**
+   * <pre>
+   * Source Step; activity context supplies parent Flow and run IDs.
+   * </pre>
+   *
+   * <code>string parent_step_execution_id = 3;</code>
+   * @return The parentStepExecutionId.
+   */
+  java.lang.String getParentStepExecutionId();
+  /**
+   * <pre>
+   * Source Step; activity context supplies parent Flow and run IDs.
+   * </pre>
+   *
+   * <code>string parent_step_execution_id = 3;</code>
+   * @return The bytes for parentStepExecutionId.
+   */
+  com.google.protobuf.ByteString
+      getParentStepExecutionIdBytes();
 }

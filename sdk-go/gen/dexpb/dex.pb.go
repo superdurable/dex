@@ -7975,10 +7975,6 @@ type SubFlowCondition struct {
 	StepOptions   *StepOptions    `protobuf:"bytes,5,opt,name=step_options,json=stepOptions,proto3" json:"step_options,omitempty"`
 	Options       *SubFlowOptions `protobuf:"bytes,6,opt,name=options,proto3" json:"options,omitempty"`
 	SubFlowIndex  int32           `protobuf:"varint,7,opt,name=sub_flow_index,json=subFlowIndex,proto3" json:"sub_flow_index,omitempty"`
-	// Server-generated during WaitFor normalization.
-	ParentFlowId string `protobuf:"bytes,8,opt,name=parent_flow_id,json=parentFlowId,proto3" json:"parent_flow_id,omitempty"`
-	// Server-generated during WaitFor normalization.
-	RequestId     string `protobuf:"bytes,9,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -8060,20 +8056,6 @@ func (x *SubFlowCondition) GetSubFlowIndex() int32 {
 		return x.SubFlowIndex
 	}
 	return 0
-}
-
-func (x *SubFlowCondition) GetParentFlowId() string {
-	if x != nil {
-		return x.ParentFlowId
-	}
-	return ""
-}
-
-func (x *SubFlowCondition) GetRequestId() string {
-	if x != nil {
-		return x.RequestId
-	}
-	return ""
 }
 
 type SubFlowConditionState struct {
@@ -9991,8 +9973,10 @@ type StartSubFlowActivityInput struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	Condition        *SubFlowCondition      `protobuf:"bytes,1,opt,name=condition,proto3" json:"condition,omitempty"`
 	ParentFlowConfig *FlowConfig            `protobuf:"bytes,2,opt,name=parent_flow_config,json=parentFlowConfig,proto3" json:"parent_flow_config,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Source Step; activity context supplies parent Flow and run IDs.
+	ParentStepExecutionId string `protobuf:"bytes,3,opt,name=parent_step_execution_id,json=parentStepExecutionId,proto3" json:"parent_step_execution_id,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *StartSubFlowActivityInput) Reset() {
@@ -10037,6 +10021,13 @@ func (x *StartSubFlowActivityInput) GetParentFlowConfig() *FlowConfig {
 		return x.ParentFlowConfig
 	}
 	return nil
+}
+
+func (x *StartSubFlowActivityInput) GetParentStepExecutionId() string {
+	if x != nil {
+		return x.ParentStepExecutionId
+	}
+	return ""
 }
 
 type StartSubFlowActivityOutput struct {
@@ -11604,7 +11595,7 @@ const file_dex_proto_rawDesc = "" +
 	"\n" +
 	"attributes\x18\x05 \x03(\v2\x13.dex.AttributeWriteR\n" +
 	"attributes\x12A\n" +
-	"\x14flow_config_override\x18\x06 \x01(\v2\x0f.dex.FlowConfigR\x12flowConfigOverride\"\xfb\x02\n" +
+	"\x14flow_config_override\x18\x06 \x01(\v2\x0f.dex.FlowConfigR\x12flowConfigOverride\"\xb6\x02\n" +
 	"\x10SubFlowCondition\x12!\n" +
 	"\fcondition_id\x18\x01 \x01(\tR\vconditionId\x12\"\n" +
 	"\rsub_flow_type\x18\x02 \x01(\tR\vsubFlowType\x12&\n" +
@@ -11614,10 +11605,7 @@ const file_dex_proto_rawDesc = "" +
 	".dex.ValueR\tstepInput\x123\n" +
 	"\fstep_options\x18\x05 \x01(\v2\x10.dex.StepOptionsR\vstepOptions\x12-\n" +
 	"\aoptions\x18\x06 \x01(\v2\x13.dex.SubFlowOptionsR\aoptions\x12$\n" +
-	"\x0esub_flow_index\x18\a \x01(\x05R\fsubFlowIndex\x12$\n" +
-	"\x0eparent_flow_id\x18\b \x01(\tR\fparentFlowId\x12\x1d\n" +
-	"\n" +
-	"request_id\x18\t \x01(\tR\trequestId\":\n" +
+	"\x0esub_flow_index\x18\a \x01(\x05R\fsubFlowIndex\":\n" +
 	"\x15SubFlowConditionState\x12!\n" +
 	"\fcondition_id\x18\x01 \x01(\tR\vconditionId\"\xa1\x01\n" +
 	"\x0eTimerCondition\x12!\n" +
@@ -11773,10 +11761,11 @@ const file_dex_proto_rawDesc = "" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1f\n" +
 	"\vconfig_name\x18\x02 \x01(\tR\n" +
 	"configName\x12,\n" +
-	"\x05items\x18\x03 \x03(\v2\x16.dex.AttributeSyncItemR\x05items\"\x8f\x01\n" +
+	"\x05items\x18\x03 \x03(\v2\x16.dex.AttributeSyncItemR\x05items\"\xc8\x01\n" +
 	"\x19StartSubFlowActivityInput\x123\n" +
 	"\tcondition\x18\x01 \x01(\v2\x15.dex.SubFlowConditionR\tcondition\x12=\n" +
-	"\x12parent_flow_config\x18\x02 \x01(\v2\x0f.dex.FlowConfigR\x10parentFlowConfig\"a\n" +
+	"\x12parent_flow_config\x18\x02 \x01(\v2\x0f.dex.FlowConfigR\x10parentFlowConfig\x127\n" +
+	"\x18parent_step_execution_id\x18\x03 \x01(\tR\x15parentStepExecutionId\"a\n" +
 	"\x1aStartSubFlowActivityOutput\x12C\n" +
 	"\x15immediate_flow_result\x18\x01 \x01(\v2\x0f.dex.FlowResultR\x13immediateFlowResult\"r\n" +
 	"\x1eSubFlowCompletionSignalRequest\x12\x1e\n" +

@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/superdurable/dex/config"
@@ -151,12 +150,6 @@ func (a *Activities) InvokeWaitForMethod(
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
-	normalizeSubFlowConditions(
-		resp.GetWaitingCondition(),
-		req.GetContext().GetFlowId(),
-		req.GetContext().GetStepExecutionId(),
-		activityInfo.WorkflowExecution.RunID,
-	)
 	if err := validateTransientStepMovement(resp.GetTransientStepMovement()); err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
@@ -491,10 +484,12 @@ func (a *Activities) StartSubFlow(
 	ctx context.Context, input *dexpb.StartSubFlowActivityInput,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	condition := input.GetCondition()
-	if condition == nil || condition.GetParentFlowId() == "" || condition.GetRequestId() == "" {
-		return nil, fmt.Errorf("SubFlow condition requires server-normalized identity")
+	if condition == nil {
+		return nil, fmt.Errorf("SubFlow start requires a condition")
 	}
-	subFlowID, requestID, err := a.subFlowStartIdentity(ctx, condition)
+	parentFlowID, subFlowID, requestID, err := a.subFlowStartIdentity(
+		ctx, input.GetParentStepExecutionId(), condition.GetSubFlowIndex(),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +541,9 @@ func (a *Activities) StartSubFlow(
 		return nil, err
 	}
 
-	workflowOptions := buildSubFlowStartOptions(condition, flowConfig, subFlowID)
+	workflowOptions := buildSubFlowStartOptions(
+		condition, flowConfig, parentFlowID, subFlowID, requestID,
+	)
 	workflowInput := &dexpb.InterpreterWorkflowInput{
 		FlowType:       condition.GetSubFlowType(),
 		StartStepType:  condition.GetStartStepType(),
@@ -555,27 +552,29 @@ func (a *Activities) StartSubFlow(
 		InitAttributes: options.GetAttributes(),
 		Config:         flowConfig,
 	}
-	return a.subFlowResolver.Resolve(ctx, condition, subFlowID, workflowOptions, workflowInput)
+	return a.subFlowResolver.Resolve(
+		ctx, condition, subFlowID, requestID, workflowOptions, workflowInput,
+	)
 }
 
 func (a *Activities) subFlowStartIdentity(
 	ctx context.Context,
-	condition *dexpb.SubFlowCondition,
-) (string, string, error) {
+	stepExecutionID string,
+	subFlowIndex int32,
+) (string, string, string, error) {
+	if stepExecutionID == "" {
+		return "", "", "", fmt.Errorf("SubFlow start requires a Step execution ID")
+	}
 	activityInfo := a.activityProvider.GetActivityInfo(ctx)
 	parentExecution := activityInfo.WorkflowExecution
-	if condition.GetParentFlowId() != parentExecution.ID {
-		return "", "", fmt.Errorf("SubFlow parent Flow ID does not match the starting workflow")
+	if parentExecution.ID == "" || parentExecution.RunID == "" {
+		return "", "", "", fmt.Errorf("SubFlow start requires a parent Workflow execution")
 	}
-	requestID := condition.GetRequestId()
-	if !strings.HasPrefix(requestID, parentExecution.RunID) {
-		return "", "", fmt.Errorf("SubFlow request ID does not match the starting workflow run")
-	}
-	stepExecutionID := strings.TrimPrefix(requestID, parentExecution.RunID)
-	if stepExecutionID == "" {
-		return "", "", fmt.Errorf("SubFlow request ID does not contain a Step execution ID")
-	}
-	return service.SubFlowID(parentExecution.ID, stepExecutionID, condition.GetSubFlowIndex()), requestID, nil
+	requestID := parentExecution.RunID + stepExecutionID
+	return parentExecution.ID,
+		service.SubFlowID(parentExecution.ID, stepExecutionID, subFlowIndex),
+		requestID,
+		nil
 }
 
 func (a *Activities) ReportSubFlowCompletion(
@@ -664,7 +663,9 @@ func buildSubFlowConfig(parent, override *dexpb.FlowConfig) (*dexpb.FlowConfig, 
 func buildSubFlowStartOptions(
 	condition *dexpb.SubFlowCondition,
 	flowConfig *dexpb.FlowConfig,
+	parentFlowID string,
 	subFlowID string,
+	requestID string,
 ) uclient.StartWorkflowOptions {
 	options := condition.GetOptions()
 	workflowOptions := uclient.StartWorkflowOptions{
@@ -676,11 +677,11 @@ func buildSubFlowStartOptions(
 		SearchAttributes:         index.ConvertAttributeWritesToSearchAttributeUpsertMap(options.GetAttributes()),
 		Memo: map[string]interface{}{
 			service.WorkerAddressMemoKey: &dexpb.EncodedObject{Payload: []byte(flowConfig.GetWorkerTarget().GetAddress())},
-			service.WorkflowRequestId:    &dexpb.EncodedObject{Payload: []byte(condition.GetRequestId())},
+			service.WorkflowRequestId:    &dexpb.EncodedObject{Payload: []byte(requestID)},
 		},
 	}
 	workflowOptions.SearchAttributes[service.SearchAttributeDexWorkflowType] = condition.GetSubFlowType()
-	workflowOptions.SearchAttributes[service.SearchAttributeDexParentFlowID] = condition.GetParentFlowId()
+	workflowOptions.SearchAttributes[service.SearchAttributeDexParentFlowID] = parentFlowID
 	if options.GetFlowStartDelaySeconds() > 0 {
 		workflowOptions.WorkflowStartDelay = ptr.Any(time.Duration(options.GetFlowStartDelaySeconds()) * time.Second)
 	}
@@ -1181,9 +1182,6 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 		if subFlowCondition.GetSubFlowIndex() != int32(i) {
 			return fmt.Errorf("SubFlow condition at index %d has unstable index %d", i, subFlowCondition.GetSubFlowIndex())
 		}
-		if subFlowCondition.GetParentFlowId() != "" || subFlowCondition.GetRequestId() != "" {
-			return fmt.Errorf("SubFlow condition at index %d sets server-owned identity", i)
-		}
 		if subFlowCondition.GetOptions().GetFlowTimeoutSeconds() < 0 ||
 			subFlowCondition.GetOptions().GetFlowStartDelaySeconds() < 0 {
 			return fmt.Errorf("SubFlow condition at index %d has a negative duration", i)
@@ -1216,22 +1214,6 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 		return fmt.Errorf("unknown waiting_condition_type %d", waiting.GetWaitingConditionType())
 	}
 	return nil
-}
-
-func normalizeSubFlowConditions(
-	waiting *dexpb.WaitingCondition,
-	parentFlowID string,
-	stepExecutionID string,
-	parentRunID string,
-) {
-	if waiting == nil {
-		return
-	}
-	requestID := parentRunID + stepExecutionID
-	for _, condition := range waiting.GetSubFlowConditions() {
-		condition.ParentFlowId = parentFlowID
-		condition.RequestId = requestID
-	}
 }
 
 func registerWaitingConditionId(

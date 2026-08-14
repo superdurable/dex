@@ -73,8 +73,9 @@ func (s *SubFlowStarter) startOne(ctx interfaces.UnifiedContext) {
 		ctx,
 		s.activities.StartSubFlow,
 		&dexpb.StartSubFlowActivityInput{
-			Condition:        condition,
-			ParentFlowConfig: s.parentFlowConfig,
+			Condition:             condition,
+			ParentFlowConfig:      s.parentFlowConfig,
+			ParentStepExecutionId: s.stepExecutionID,
 		},
 	)
 	if err != nil && s.err == nil {

@@ -1447,7 +1447,7 @@ class SubFlowOptions(_message.Message):
     def __init__(self, reuse_policy: _Optional[_Union[SubFlowReusePolicy, str]] = ..., flow_timeout_seconds: _Optional[int] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
 
 class SubFlowCondition(_message.Message):
-    __slots__ = ("condition_id", "sub_flow_type", "start_step_type", "step_input", "step_options", "options", "sub_flow_index", "parent_flow_id", "request_id")
+    __slots__ = ("condition_id", "sub_flow_type", "start_step_type", "step_input", "step_options", "options", "sub_flow_index")
     CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
     SUB_FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     START_STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -1455,8 +1455,6 @@ class SubFlowCondition(_message.Message):
     STEP_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     OPTIONS_FIELD_NUMBER: _ClassVar[int]
     SUB_FLOW_INDEX_FIELD_NUMBER: _ClassVar[int]
-    PARENT_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
-    REQUEST_ID_FIELD_NUMBER: _ClassVar[int]
     condition_id: str
     sub_flow_type: str
     start_step_type: str
@@ -1464,9 +1462,7 @@ class SubFlowCondition(_message.Message):
     step_options: StepOptions
     options: SubFlowOptions
     sub_flow_index: int
-    parent_flow_id: str
-    request_id: str
-    def __init__(self, condition_id: _Optional[str] = ..., sub_flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., options: _Optional[_Union[SubFlowOptions, _Mapping]] = ..., sub_flow_index: _Optional[int] = ..., parent_flow_id: _Optional[str] = ..., request_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, condition_id: _Optional[str] = ..., sub_flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., options: _Optional[_Union[SubFlowOptions, _Mapping]] = ..., sub_flow_index: _Optional[int] = ...) -> None: ...
 
 class SubFlowConditionState(_message.Message):
     __slots__ = ("condition_id",)
@@ -1821,12 +1817,14 @@ class SyncAttributeBatchActivityInput(_message.Message):
     def __init__(self, flow_id: _Optional[str] = ..., config_name: _Optional[str] = ..., items: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
 
 class StartSubFlowActivityInput(_message.Message):
-    __slots__ = ("condition", "parent_flow_config")
+    __slots__ = ("condition", "parent_flow_config", "parent_step_execution_id")
     CONDITION_FIELD_NUMBER: _ClassVar[int]
     PARENT_FLOW_CONFIG_FIELD_NUMBER: _ClassVar[int]
+    PARENT_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     condition: SubFlowCondition
     parent_flow_config: FlowConfig
-    def __init__(self, condition: _Optional[_Union[SubFlowCondition, _Mapping]] = ..., parent_flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
+    parent_step_execution_id: str
+    def __init__(self, condition: _Optional[_Union[SubFlowCondition, _Mapping]] = ..., parent_flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., parent_step_execution_id: _Optional[str] = ...) -> None: ...
 
 class StartSubFlowActivityOutput(_message.Message):
     __slots__ = ("immediate_flow_result",)

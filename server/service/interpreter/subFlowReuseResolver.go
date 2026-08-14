@@ -32,6 +32,7 @@ func (r *SubFlowReuseResolver) Resolve(
 	ctx context.Context,
 	condition *dexpb.SubFlowCondition,
 	subFlowID string,
+	requestID string,
 	workflowOptions uclient.StartWorkflowOptions,
 	workflowInput *dexpb.InterpreterWorkflowInput,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
@@ -41,7 +42,9 @@ func (r *SubFlowReuseResolver) Resolve(
 			return nil, fmt.Errorf("describe SubFlow %q: %w", subFlowID, err)
 		}
 		if err == nil {
-			output, resolveErr := r.resolveExisting(ctx, condition, subFlowID, description)
+			output, resolveErr := r.resolveExisting(
+				ctx, condition, subFlowID, requestID, description,
+			)
 			if resolveErr != nil {
 				return nil, resolveErr
 			}
@@ -64,10 +67,11 @@ func (r *SubFlowReuseResolver) resolveExisting(
 	ctx context.Context,
 	condition *dexpb.SubFlowCondition,
 	subFlowID string,
+	requestID string,
 	description *uclient.DescribeWorkflowExecutionResponse,
 ) (*dexpb.StartSubFlowActivityOutput, error) {
 	existingRequestID := memoString(description.Memos, service.WorkflowRequestId)
-	if existingRequestID == condition.GetRequestId() {
+	if existingRequestID == requestID {
 		return r.attachOrRead(ctx, subFlowID, description)
 	}
 

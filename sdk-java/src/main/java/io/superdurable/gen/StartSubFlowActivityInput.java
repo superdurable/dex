@@ -28,6 +28,7 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private StartSubFlowActivityInput() {
+    parentStepExecutionId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -101,6 +102,53 @@ private static final long serialVersionUID = 0L;
     return parentFlowConfig_ == null ? io.superdurable.gen.FlowConfig.getDefaultInstance() : parentFlowConfig_;
   }
 
+  public static final int PARENT_STEP_EXECUTION_ID_FIELD_NUMBER = 3;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object parentStepExecutionId_ = "";
+  /**
+   * <pre>
+   * Source Step; activity context supplies parent Flow and run IDs.
+   * </pre>
+   *
+   * <code>string parent_step_execution_id = 3;</code>
+   * @return The parentStepExecutionId.
+   */
+  @java.lang.Override
+  public java.lang.String getParentStepExecutionId() {
+    java.lang.Object ref = parentStepExecutionId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      parentStepExecutionId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <pre>
+   * Source Step; activity context supplies parent Flow and run IDs.
+   * </pre>
+   *
+   * <code>string parent_step_execution_id = 3;</code>
+   * @return The bytes for parentStepExecutionId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getParentStepExecutionIdBytes() {
+    java.lang.Object ref = parentStepExecutionId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      parentStepExecutionId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -121,6 +169,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(2, getParentFlowConfig());
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentStepExecutionId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 3, parentStepExecutionId_);
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -132,6 +183,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(2, getParentFlowConfig());
+    }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentStepExecutionId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(3, parentStepExecutionId_);
     }
     return size;
   }
@@ -167,6 +221,8 @@ private static final long serialVersionUID = 0L;
       if (!getParentFlowConfig()
           .equals(other.getParentFlowConfig())) return false;
     }
+    if (!getParentStepExecutionId()
+        .equals(other.getParentStepExecutionId())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -186,6 +242,8 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + PARENT_FLOW_CONFIG_FIELD_NUMBER;
       hash = (53 * hash) + getParentFlowConfig().hashCode();
     }
+    hash = (37 * hash) + PARENT_STEP_EXECUTION_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getParentStepExecutionId().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -334,6 +392,7 @@ private static final long serialVersionUID = 0L;
         parentFlowConfigBuilder_.dispose();
         parentFlowConfigBuilder_ = null;
       }
+      parentStepExecutionId_ = "";
       return this;
     }
 
@@ -380,6 +439,9 @@ private static final long serialVersionUID = 0L;
             : parentFlowConfigBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
+      if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.parentStepExecutionId_ = parentStepExecutionId_;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -400,6 +462,11 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasParentFlowConfig()) {
         mergeParentFlowConfig(other.getParentFlowConfig());
+      }
+      if (!other.getParentStepExecutionId().isEmpty()) {
+        parentStepExecutionId_ = other.parentStepExecutionId_;
+        bitField0_ |= 0x00000004;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -441,6 +508,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000002;
               break;
             } // case 18
+            case 26: {
+              parentStepExecutionId_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000004;
+              break;
+            } // case 26
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -698,6 +770,98 @@ private static final long serialVersionUID = 0L;
         parentFlowConfig_ = null;
       }
       return parentFlowConfigBuilder_;
+    }
+
+    private java.lang.Object parentStepExecutionId_ = "";
+    /**
+     * <pre>
+     * Source Step; activity context supplies parent Flow and run IDs.
+     * </pre>
+     *
+     * <code>string parent_step_execution_id = 3;</code>
+     * @return The parentStepExecutionId.
+     */
+    public java.lang.String getParentStepExecutionId() {
+      java.lang.Object ref = parentStepExecutionId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        parentStepExecutionId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Source Step; activity context supplies parent Flow and run IDs.
+     * </pre>
+     *
+     * <code>string parent_step_execution_id = 3;</code>
+     * @return The bytes for parentStepExecutionId.
+     */
+    public com.google.protobuf.ByteString
+        getParentStepExecutionIdBytes() {
+      java.lang.Object ref = parentStepExecutionId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        parentStepExecutionId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <pre>
+     * Source Step; activity context supplies parent Flow and run IDs.
+     * </pre>
+     *
+     * <code>string parent_step_execution_id = 3;</code>
+     * @param value The parentStepExecutionId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setParentStepExecutionId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      parentStepExecutionId_ = value;
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Source Step; activity context supplies parent Flow and run IDs.
+     * </pre>
+     *
+     * <code>string parent_step_execution_id = 3;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearParentStepExecutionId() {
+      parentStepExecutionId_ = getDefaultInstance().getParentStepExecutionId();
+      bitField0_ = (bitField0_ & ~0x00000004);
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Source Step; activity context supplies parent Flow and run IDs.
+     * </pre>
+     *
+     * <code>string parent_step_execution_id = 3;</code>
+     * @param value The bytes for parentStepExecutionId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setParentStepExecutionIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      parentStepExecutionId_ = value;
+      bitField0_ |= 0x00000004;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.StartSubFlowActivityInput)

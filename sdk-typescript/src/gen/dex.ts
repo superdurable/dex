@@ -972,10 +972,6 @@ export interface SubFlowCondition {
   stepOptions: StepOptions | undefined;
   options: SubFlowOptions | undefined;
   subFlowIndex: number;
-  /** Server-generated during WaitFor normalization. */
-  parentFlowId: string;
-  /** Server-generated during WaitFor normalization. */
-  requestId: string;
 }
 
 export interface SubFlowConditionState {
@@ -1215,7 +1211,11 @@ export interface SyncAttributeBatchActivityInput {
 
 export interface StartSubFlowActivityInput {
   condition: SubFlowCondition | undefined;
-  parentFlowConfig: FlowConfig | undefined;
+  parentFlowConfig:
+    | FlowConfig
+    | undefined;
+  /** Source Step; activity context supplies parent Flow and run IDs. */
+  parentStepExecutionId: string;
 }
 
 export interface StartSubFlowActivityOutput {
@@ -10244,8 +10244,6 @@ function createBaseSubFlowCondition(): SubFlowCondition {
     stepOptions: undefined,
     options: undefined,
     subFlowIndex: 0,
-    parentFlowId: "",
-    requestId: "",
   };
 }
 
@@ -10271,12 +10269,6 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
     }
     if (message.subFlowIndex !== 0) {
       writer.uint32(56).int32(message.subFlowIndex);
-    }
-    if (message.parentFlowId !== "") {
-      writer.uint32(66).string(message.parentFlowId);
-    }
-    if (message.requestId !== "") {
-      writer.uint32(74).string(message.requestId);
     }
     return writer;
   },
@@ -10344,22 +10336,6 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
           message.subFlowIndex = reader.int32();
           continue;
         }
-        case 8: {
-          if (tag !== 66) {
-            break;
-          }
-
-          message.parentFlowId = reader.string();
-          continue;
-        }
-        case 9: {
-          if (tag !== 74) {
-            break;
-          }
-
-          message.requestId = reader.string();
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10387,8 +10363,6 @@ export const SubFlowCondition: MessageFns<SubFlowCondition> = {
       ? SubFlowOptions.fromPartial(object.options)
       : undefined;
     message.subFlowIndex = object.subFlowIndex ?? 0;
-    message.parentFlowId = object.parentFlowId ?? "";
-    message.requestId = object.requestId ?? "";
     return message;
   },
 };
@@ -13224,7 +13198,7 @@ export const SyncAttributeBatchActivityInput: MessageFns<SyncAttributeBatchActiv
 };
 
 function createBaseStartSubFlowActivityInput(): StartSubFlowActivityInput {
-  return { condition: undefined, parentFlowConfig: undefined };
+  return { condition: undefined, parentFlowConfig: undefined, parentStepExecutionId: "" };
 }
 
 export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = {
@@ -13234,6 +13208,9 @@ export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = 
     }
     if (message.parentFlowConfig !== undefined) {
       FlowConfig.encode(message.parentFlowConfig, writer.uint32(18).fork()).join();
+    }
+    if (message.parentStepExecutionId !== "") {
+      writer.uint32(26).string(message.parentStepExecutionId);
     }
     return writer;
   },
@@ -13261,6 +13238,14 @@ export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = 
           message.parentFlowConfig = FlowConfig.decode(reader, reader.uint32());
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.parentStepExecutionId = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -13281,6 +13266,7 @@ export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = 
     message.parentFlowConfig = (object.parentFlowConfig !== undefined && object.parentFlowConfig !== null)
       ? FlowConfig.fromPartial(object.parentFlowConfig)
       : undefined;
+    message.parentStepExecutionId = object.parentStepExecutionId ?? "";
     return message;
   },
 };
