@@ -16,6 +16,7 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -67,7 +68,10 @@ func TestMySQLAndPostgresAttributeStoreIntegration(t *testing.T) {
 	_, err = postgres.ExecContext(ctx, `ALTER TABLE flow_attributes RENAME TO flow_attributes_hidden`)
 	require.NoError(t, err)
 	require.Never(t, func() bool {
-		return manager.entries["reporting"].schema.Load() != previousSnapshot
+		return !reflect.DeepEqual(
+			manager.entries["reporting"].schema.Load(),
+			previousSnapshot,
+		)
 	}, 200*time.Millisecond, 20*time.Millisecond)
 	_, err = postgres.ExecContext(ctx, `ALTER TABLE flow_attributes_hidden RENAME TO flow_attributes`)
 	require.NoError(t, err)

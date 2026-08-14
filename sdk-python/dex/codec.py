@@ -377,7 +377,7 @@ def _matches_type(value: object, type_hint: object) -> bool:
 
 def _encode_json_value(value: Any) -> Any:
     if is_dataclass(value) and not isinstance(value, type):
-        return asdict(value)
+        return _encode_json_value(asdict(value))
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, Enum):
