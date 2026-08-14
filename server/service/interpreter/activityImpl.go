@@ -106,8 +106,8 @@ func (a *Activities) InvokeWaitForMethod(
 	logger.Info("InvokeWaitForMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
-	heartbeat := startActivityHeartbeat(provider, ctx, activityInfo)
-	defer heartbeat.stop()
+	heartbeat := NewActivityHeartbeat(provider, ctx, activityInfo)
+	defer heartbeat.Stop()
 	req := waitForMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
 		req.GetContext(),
@@ -143,9 +143,6 @@ func (a *Activities) InvokeWaitForMethod(
 	resp, err := client.InvokeWaitForMethod(callCtx, req)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if ctx.Err() == context.Canceled {
-		return nil, context.Canceled
-	}
-	if callCtx.Err() == context.Canceled {
 		return nil, context.Canceled
 	}
 	if err != nil {
@@ -262,8 +259,8 @@ func (a *Activities) InvokeExecuteMethod(
 	logger.Info("InvokeExecuteMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
-	heartbeat := startActivityHeartbeat(provider, ctx, activityInfo)
-	defer heartbeat.stop()
+	heartbeat := NewActivityHeartbeat(provider, ctx, activityInfo)
+	defer heartbeat.Stop()
 	req := executeMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
 		req.GetContext(),
@@ -306,9 +303,6 @@ func (a *Activities) InvokeExecuteMethod(
 	resp, err := client.InvokeExecuteMethod(callCtx, req)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if ctx.Err() == context.Canceled {
-		return nil, context.Canceled
-	}
-	if callCtx.Err() == context.Canceled {
 		return nil, context.Canceled
 	}
 	if err != nil {

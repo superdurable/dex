@@ -16,22 +16,22 @@ import (
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
-type activityHeartbeat struct {
+type ActivityHeartbeat struct {
 	provider interfaces.ActivityProvider
 	ctx      context.Context
 	done     chan struct{}
 	waiter   sync.WaitGroup
 }
 
-func startActivityHeartbeat(
+func NewActivityHeartbeat(
 	provider interfaces.ActivityProvider,
 	ctx context.Context,
 	info interfaces.ActivityInfo,
-) *activityHeartbeat {
+) *ActivityHeartbeat {
 	if info.IsLocalActivity || info.HeartbeatTimeout <= 0 {
 		return nil
 	}
-	heartbeat := &activityHeartbeat{
+	heartbeat := &ActivityHeartbeat{
 		provider: provider,
 		ctx:      ctx,
 		done:     make(chan struct{}),
@@ -41,7 +41,7 @@ func startActivityHeartbeat(
 	return heartbeat
 }
 
-func (h *activityHeartbeat) run() {
+func (h *ActivityHeartbeat) run() {
 	defer h.waiter.Done()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -57,7 +57,7 @@ func (h *activityHeartbeat) run() {
 	}
 }
 
-func (h *activityHeartbeat) stop() {
+func (h *ActivityHeartbeat) Stop() {
 	if h == nil {
 		return
 	}
