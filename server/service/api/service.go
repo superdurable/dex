@@ -326,8 +326,7 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 			}
 			return nil, s.handleError(err)
 		}
-		if updateType, ok := s.client.GetIfUpdateError(err, nil); !ok ||
-			updateType != dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED {
+		if !s.isWaitForStepCompletionUpdateTransitionError(err) {
 			return nil, s.handleError(err)
 		}
 		if originalWaitSeconds == 0 {
@@ -342,6 +341,15 @@ func (s *serviceImpl) WaitForStepCompletion(ctx context.Context, req *dexpb.Wait
 			backoff *= 2
 		}
 	}
+}
+
+func (s *serviceImpl) isWaitForStepCompletionUpdateTransitionError(err error) bool {
+	if s.client.IsUnknownUpdateError(err, service.WaitForStepCompletionUpdateType) {
+		return true
+	}
+	updateType, updateError := s.client.GetIfUpdateError(err, nil)
+	return updateError &&
+		updateType == dexpb.UpdateErrorType_UPDATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED
 }
 
 func (s *serviceImpl) isStepExecutionCompleted(
