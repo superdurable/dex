@@ -115,7 +115,7 @@ func (t *SubFlowTracker) HandleSubFlowCompletion(signal *dexpb.SubFlowCompletion
 func (t *SubFlowTracker) GetCompletedResults(stepExecutionID string) map[int32]*dexpb.FlowResult {
 	wait := t.waitStateByStepExeId[stepExecutionID]
 	if wait == nil {
-		return map[int32]*dexpb.FlowResult{}
+		panic("SubFlow wait state is missing for resumed Step " + stepExecutionID)
 	}
 	return wait.completedResults
 }

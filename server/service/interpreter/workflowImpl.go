@@ -740,7 +740,9 @@ func (i *Interpreter) processStepExecution(
 			completedTimerConditions = resumeRequest.GetCompletedConditions().GetCompletedTimerConditions()
 		}
 
-		completedSubFlowResults = subFlowTracker.GetCompletedResults(stepExeId)
+		if len(waitingCondition.GetSubFlowConditions()) > 0 {
+			completedSubFlowResults = subFlowTracker.GetCompletedResults(stepExeId)
+		}
 	} else {
 		if step.StepOptions != nil {
 			waitForMethodTimeout := options.GetWaitForTimeoutSeconds()

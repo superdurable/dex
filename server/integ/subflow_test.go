@@ -20,9 +20,9 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/integ/workflow/common"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -30,6 +30,8 @@ const (
 	subFlowChildType  = "sub-flow-child"
 	subFlowParentStep = "Parent"
 	subFlowChildStep  = "Child"
+	subFlowInput      = "child-output"
+	subFlowAttribute  = "child-initial-attribute"
 )
 
 type subFlowObservation struct {
@@ -67,14 +69,19 @@ func TestSubFlowConditionCadence(t *testing.T) {
 func doTestSubFlowCondition(t *testing.T, backendType service.BackendType) {
 	handler := &subFlowHandler{}
 	workerTarget := startWorker(t, handler)
-	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:        backendType,
+		LazyLoading:        ptr.Any(false),
+		LocalBlobDirectory: t.TempDir(),
+		LocalBlobThreshold: 10,
+	})
 	flowClient := runtime.FlowClient
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	parentFlowID := subFlowParentType + "-" + uuid.NewString()
 	childFlowID := "SubFlow-" + parentFlowID + "-" + subFlowParentStep + "-1-0"
-	input := stringValue("child-output")
+	input := stringValue(subFlowInput)
 	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             parentFlowID,
@@ -96,7 +103,13 @@ func doTestSubFlowCondition(t *testing.T, backendType service.BackendType) {
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, firstResult.GetFlowStatus())
 	require.Len(t, firstResult.GetResults(), 1)
-	require.True(t, proto.Equal(input, firstResult.GetResults()[0].GetCompletedStepOutput()))
+	completedOutput, err := common.LoadBlobsValue(
+		ctx,
+		flowClient,
+		firstResult.GetResults()[0].GetCompletedStepOutput(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, subFlowInput, completedOutput.GetStringValue())
 
 	firstChild, err := flowClient.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{
 		FlowId: childFlowID,
@@ -118,6 +131,19 @@ func doTestSubFlowCondition(t *testing.T, backendType service.BackendType) {
 		parentFlowID,
 		childDescription.IndexedAttributes[service.SearchAttributeDexParentFlowID].GetStringValue(),
 	)
+	objectCount, err := globalBlobStore.CountWorkflowObjectsForTesting(ctx, childFlowID)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), objectCount)
+	if backendType == service.BackendTypeTemporal {
+		requireTemporalHistoryStoresBlobIdsNotPayloads(
+			t,
+			ctx,
+			runtime.UnifiedClient,
+			parentFlowID,
+			[]string{"local-store-id|"},
+			[]string{subFlowInput, subFlowAttribute},
+		)
+	}
 
 	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
 		FlowId:    parentFlowID,
@@ -163,6 +189,10 @@ func (h *subFlowHandler) InvokeWaitForMethod(
 				StepOptions:   &dexpb.StepOptions{SkipWaitFor: true},
 				Options: &dexpb.SubFlowOptions{
 					ReusePolicy: dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY,
+					Attributes: []*dexpb.AttributeWrite{{
+						Key:   "child-attribute",
+						Value: stringValue(subFlowAttribute),
+					}},
 				},
 			}},
 		},
@@ -178,6 +208,11 @@ func (h *subFlowHandler) InvokeExecuteMethod(
 	case subFlowChildType:
 		if request.GetStepType() != subFlowChildStep {
 			return nil, status.Error(codes.InvalidArgument, "unexpected child Step")
+		}
+		attributes := request.GetAttributes()
+		if len(attributes) != 1 || attributes[0].GetKey() != "child-attribute" ||
+			attributes[0].GetValue().GetStringValue() != subFlowAttribute {
+			return nil, status.Error(codes.InvalidArgument, "unexpected child Attributes")
 		}
 		return &dexpb.InvokeExecuteMethodResponse{
 			StepDecision: &dexpb.StepDecision{

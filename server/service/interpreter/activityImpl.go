@@ -157,6 +157,13 @@ func (a *Activities) InvokeWaitForMethod(
 	if err := validateWorkerWaitForResponse(resp); err != nil {
 		return nil, newWorkerActivityFailure(provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
+	if err := a.offloadSubFlowStartInputs(
+		ctx,
+		req.GetContext().GetStepExecutionId(),
+		resp.GetWaitingCondition().GetSubFlowConditions(),
+	); err != nil {
+		return nil, newServerActivityFailure(provider, err, localActivityFailure)
+	}
 	if err := a.persistStepEventInput(
 		ctx,
 		localInput.GetCurrentRunStartedTimestamp(),
@@ -213,6 +220,47 @@ func (a *Activities) InvokeWaitForMethod(
 
 	a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptSucc)
 	return &dexpb.InvokeWaitForMethodActivityOutput{Response: resp}, nil
+}
+
+func (a *Activities) offloadSubFlowStartInputs(
+	ctx context.Context,
+	stepExecutionID string,
+	conditions []*dexpb.SubFlowCondition,
+) error {
+	for index, condition := range conditions {
+		_, subFlowID, requestID, err := a.subFlowStartIdentity(
+			ctx, stepExecutionID, int32(index),
+		)
+		if err != nil {
+			return err
+		}
+		if err := blobstore.ValidateWorkflowId(subFlowID); err != nil {
+			return err
+		}
+		if err := blobstore.OffloadLargeValue(
+			ctx,
+			condition.GetStepInput(),
+			subFlowID,
+			requestID,
+			a.cfg.BlobStore.EffectiveThresholdInBytes(),
+			a.blobStore,
+			a.cfg.BlobStore.EffectiveEnabled(),
+		); err != nil {
+			return err
+		}
+		if err := blobstore.OffloadLargeAttributeWrites(
+			ctx,
+			condition.GetOptions().GetAttributes(),
+			subFlowID,
+			requestID,
+			a.cfg.BlobStore.EffectiveThresholdInBytes(),
+			a.blobStore,
+			a.cfg.BlobStore.EffectiveEnabled(),
+		); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // InvokeExecuteMethod calls WorkerService.InvokeExecuteMethod.
@@ -500,12 +548,6 @@ func (a *Activities) StartSubFlow(
 	if options.GetFlowTimeoutSeconds() < 0 || options.GetFlowStartDelaySeconds() < 0 {
 		return nil, fmt.Errorf("SubFlow timeout and start delay must be non-negative")
 	}
-	if err := workerclient.RejectWorkerBlobIDs(condition.GetStepInput()); err != nil {
-		return nil, err
-	}
-	if err := workerclient.ValidateAttributeWrites(options.GetAttributes()); err != nil {
-		return nil, err
-	}
 
 	parentFlowConfig := input.GetParentFlowConfig()
 	if parentFlowConfig == nil {
@@ -517,28 +559,6 @@ func (a *Activities) StartSubFlow(
 	}
 	if configName := flowConfig.GetAttributeSyncConfigName(); configName != "" && !a.attributeStore.HasStore(configName) {
 		return nil, fmt.Errorf("Attribute Store %q is unavailable", configName)
-	}
-	if err := blobstore.OffloadLargeValue(
-		ctx,
-		condition.GetStepInput(),
-		subFlowID,
-		requestID,
-		a.cfg.BlobStore.EffectiveThresholdInBytes(),
-		a.blobStore,
-		a.cfg.BlobStore.EffectiveEnabled(),
-	); err != nil {
-		return nil, err
-	}
-	if err := blobstore.OffloadLargeAttributeWrites(
-		ctx,
-		options.GetAttributes(),
-		subFlowID,
-		requestID,
-		a.cfg.BlobStore.EffectiveThresholdInBytes(),
-		a.blobStore,
-		a.cfg.BlobStore.EffectiveEnabled(),
-	); err != nil {
-		return nil, err
 	}
 
 	workflowOptions := buildSubFlowStartOptions(
@@ -1193,7 +1213,7 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 		if err := workerclient.RejectWorkerBlobIDs(subFlowCondition.GetStepInput()); err != nil {
 			return err
 		}
-		if err := workerclient.RejectWorkerAttributeWriteBlobIDs(
+		if err := workerclient.ValidateAttributeWrites(
 			subFlowCondition.GetOptions().GetAttributes(),
 		); err != nil {
 			return err
