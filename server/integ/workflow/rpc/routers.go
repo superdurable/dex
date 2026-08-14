@@ -13,10 +13,10 @@ package rpc
 import (
 	"context"
 	"fmt"
-	"github.com/superdurable/dex/integ/workflow/common"
 	"sync"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -57,13 +57,14 @@ const (
 
 type handler struct {
 	dexpb.UnimplementedWorkerServiceServer
-	invokeHistory sync.Map
-	invokeData    sync.Map
+	invokeHistoryMutex sync.Mutex
+	invokeHistory      map[string]int64
+	invokeData         sync.Map
 }
 
 func NewHandler() *handler {
 	return &handler{
-		invokeHistory: sync.Map{},
+		invokeHistory: make(map[string]int64),
 		invokeData:    sync.Map{},
 	}
 }
@@ -232,11 +233,13 @@ func (h *handler) InvokeExecuteMethod(
 }
 
 func (h *handler) GetTestResult() common.TestResult {
-	invokeHistory := make(map[string]int64)
-	h.invokeHistory.Range(func(key, value interface{}) bool {
-		invokeHistory[key.(string)] = value.(int64)
-		return true
-	})
+	h.invokeHistoryMutex.Lock()
+	invokeHistory := make(map[string]int64, len(h.invokeHistory))
+	for key, value := range h.invokeHistory {
+		invokeHistory[key] = value
+	}
+	h.invokeHistoryMutex.Unlock()
+
 	invokeData := make(map[string]interface{})
 	h.invokeData.Range(func(key, value interface{}) bool {
 		invokeData[key.(string)] = value
@@ -246,11 +249,9 @@ func (h *handler) GetTestResult() common.TestResult {
 }
 
 func (h *handler) incrementInvokeHistory(key string) {
-	if value, ok := h.invokeHistory.Load(key); ok {
-		h.invokeHistory.Store(key, value.(int64)+1)
-		return
-	}
-	h.invokeHistory.Store(key, int64(1))
+	h.invokeHistoryMutex.Lock()
+	defer h.invokeHistoryMutex.Unlock()
+	h.invokeHistory[key]++
 }
 
 func validateStepContext(stepContext *dexpb.Context) error {
