@@ -207,7 +207,7 @@ func (u *WorkflowUpdater) handleWorkerRpc(
 		return nil, err
 	}
 	u.channelStore.ProcessPublishing(response.GetPublishToChannel())
-	if err := u.stepExecutionRegistry.CancelStepTypes(decision.GetCancelStepTypes()); err != nil {
+	if err := u.stepExecutionRegistry.CancelByStepTypes(decision.GetCancelStepTypes()); err != nil {
 		return nil, err
 	}
 	u.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())

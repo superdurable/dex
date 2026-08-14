@@ -31,12 +31,6 @@ type registeredStepExecution struct {
 	cancel   func()
 }
 
-type stepCancellationSelector struct {
-	globalStepTypes     map[string]bool
-	siblingStepTypes    map[string]bool
-	fromStepExecutionID string
-}
-
 func NewStepExecutionRegistry(
 	provider interfaces.WorkflowProvider,
 	stepRequestQueue *StepRequestQueue,
@@ -86,22 +80,26 @@ func (r *StepExecutionRegistry) Unregister(stepExecutionID string) {
 	delete(r.canceledExecutionIDs, stepExecutionID)
 }
 
-func (r *StepExecutionRegistry) CancelSelected(
+func (r *StepExecutionRegistry) CancelByStepTypesAndSiblingStepTypes(
 	decision *dexpb.StepDecision,
 	fromStepExecutionID string,
 ) error {
-	return r.cancelSelected(newStepCancellationSelector(
-		decision.GetCancelStepTypes(),
-		decision.GetCancelSiblingStepTypes(),
-		fromStepExecutionID,
-	))
+	return r.doCancel(
+		newStepCancellationSelector(
+			decision.GetCancelStepTypes(),
+			decision.GetCancelSiblingStepTypes(),
+			fromStepExecutionID,
+		),
+	)
 }
 
-func (r *StepExecutionRegistry) CancelStepTypes(stepTypes []string) error {
-	return r.cancelSelected(newStepCancellationSelector(stepTypes, nil, ""))
+func (r *StepExecutionRegistry) CancelByStepTypes(stepTypes []string) error {
+	return r.doCancel(
+		newStepCancellationSelector(stepTypes, nil, ""),
+	)
 }
 
-func (r *StepExecutionRegistry) cancelSelected(selector *stepCancellationSelector) error {
+func (r *StepExecutionRegistry) doCancel(selector *stepCancellationSelector) error {
 	if selector.isEmpty() {
 		return nil
 	}
@@ -174,6 +172,12 @@ func (r *StepExecutionRegistry) cancelActive(
 		stepExecutionID,
 		nil,
 	)
+}
+
+type stepCancellationSelector struct {
+	globalStepTypes     map[string]bool
+	siblingStepTypes    map[string]bool
+	fromStepExecutionID string
 }
 
 func newStepCancellationSelector(

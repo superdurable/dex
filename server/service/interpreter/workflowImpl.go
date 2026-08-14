@@ -433,7 +433,7 @@ func (i *Interpreter) StartEngineFlow(
 					if stepExecutionStatus == service.StepExecutionStatusCompleted {
 						// NOTE: decision is only available on this CompletedStepExecutionStatus
 						stepExecutionRegistry.Unregister(stepExeId)
-						if cancelErr := stepExecutionRegistry.CancelSelected(
+						if cancelErr := stepExecutionRegistry.CancelByStepTypesAndSiblingStepTypes(
 							decision,
 							step.GetFromStepExecutionIdInternalOnly(),
 						); cancelErr != nil {

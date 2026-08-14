@@ -309,7 +309,7 @@ func (sr *SignalReceiver) processExecuteRPC(
 	if decision == nil {
 		return nil
 	}
-	if err := sr.stepExecutionRegistry.CancelStepTypes(decision.GetCancelStepTypes()); err != nil {
+	if err := sr.stepExecutionRegistry.CancelByStepTypes(decision.GetCancelStepTypes()); err != nil {
 		return err
 	}
 	sr.stepRequestQueue.AddStepStartRequests(decision.GetNextSteps())
