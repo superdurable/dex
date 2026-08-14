@@ -99,8 +99,20 @@ func doTestSubFlowCondition(
 	defer cancel()
 
 	parentFlowID := subFlowParentType + "-" + uuid.NewString()
-	childFlowID := "SubFlow-" + parentFlowID + "-" + subFlowParentStep + "-1-0"
+	childFlowID := "SubFlow:" + parentFlowID + "-" + subFlowParentStep + "-1-0"
 	input := stringValue(subFlowInput)
+	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             childFlowID,
+		FlowType:           subFlowChildType,
+		FlowTimeoutSeconds: 30,
+		StartStepType:      subFlowChildStep,
+		StepInput:          input,
+		FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.ErrorContains(t, err, `flow ID contains reserved character ":"`)
+
 	startResponse, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             parentFlowID,

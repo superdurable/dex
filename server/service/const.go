@@ -56,5 +56,5 @@ const (
 
 // SubFlowID returns the durable child identity for one parent Step condition.
 func SubFlowID(parentFlowID string, stepExecutionID string, index int32) string {
-	return fmt.Sprintf("SubFlow-%s-%s-%d", parentFlowID, stepExecutionID, index)
+	return fmt.Sprintf("SubFlow:%s-%s-%d", parentFlowID, stepExecutionID, index)
 }

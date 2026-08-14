@@ -13,6 +13,7 @@ import type {
   StepGraphNode,
 } from './types';
 import { subFlowReusePolicyLabel, subFlowStatusName } from './semantic';
+import { generatedSubFlowID } from './subflows';
 
 export const START_NODE_ID = '__start__';
 export const END_NODE_ID = '__end__';
@@ -210,15 +211,6 @@ function addSubFlowNodes(
       reusePolicy: subFlowReusePolicyLabel(options.reusePolicy),
     });
   });
-}
-
-function generatedSubFlowID(
-  parentFlowID: string,
-  stepExecutionID: string,
-  index: number,
-): string {
-  if (!parentFlowID || !stepExecutionID) return '';
-  return `SubFlow-${parentFlowID}-${stepExecutionID}-${index}`;
 }
 
 function hasCloseDecision(event: FlowHistoryEvent): boolean {

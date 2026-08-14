@@ -18,17 +18,32 @@ import (
 	"time"
 )
 
-var reservedCharacters = []string{"/", "$"}
+var blobPathReservedCharacters = []string{"/", "$"}
+
+const userFlowIDReservedCharacter = ":"
 
 const (
 	StepEventInputMethodWaitFor = "wait_for"
 	StepEventInputMethodExecute = "execute"
 )
 
-func ValidateWorkflowId(fowId string) error {
+// ValidateUserFlowID rejects characters reserved for Dex identities and blob paths.
+func ValidateUserFlowID(flowID string) error {
+	if err := ValidateBlobPathFlowID(flowID); err != nil {
+		return err
+	}
+	return validateFlowIDCharacters(flowID, []string{userFlowIDReservedCharacter})
+}
+
+// ValidateBlobPathFlowID rejects characters that alter the blob storage hierarchy.
+func ValidateBlobPathFlowID(flowID string) error {
+	return validateFlowIDCharacters(flowID, blobPathReservedCharacters)
+}
+
+func validateFlowIDCharacters(flowID string, reservedCharacters []string) error {
 	for _, reservedCharacter := range reservedCharacters {
-		if strings.Contains(fowId, reservedCharacter) {
-			return fmt.Errorf("fowId contains reserved character: %s", reservedCharacter)
+		if strings.Contains(flowID, reservedCharacter) {
+			return fmt.Errorf("flow ID contains reserved character %q", reservedCharacter)
 		}
 	}
 	return nil

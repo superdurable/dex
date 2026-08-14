@@ -158,7 +158,7 @@ describe('step graph', () => {
     const subFlow = graph.nodes.find((node) => node.kind === 'subflow');
     expect(subFlow).toMatchObject({
       parentStepId: 'Parent-1',
-      flowId: 'SubFlow-parent-Parent-1-0',
+      flowId: 'SubFlow:parent-Parent-1-0',
       subFlowStatus: 'COMPLETED',
       reusePolicy: 'Attach',
     });
@@ -188,7 +188,7 @@ describe('step graph', () => {
     expect(graph.nodes.find((node) => node.kind === 'subflow')).toMatchObject({
       status: 'Failed',
       subFlowStatus: 'FAILED',
-      flowId: 'SubFlow-parent-Parent-1-0',
+      flowId: 'SubFlow:parent-Parent-1-0',
     });
   });
 });
