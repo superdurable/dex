@@ -415,8 +415,7 @@ func (i *Interpreter) StartEngineFlow(
 						subFlowTracker,
 						stepExecutionRegistry,
 					)
-					if stepExecutionStatus == service.StepExecutionStatusCanceled ||
-						stepExecutionRegistry.IsCanceled(stepExeId) {
+					if stepExecutionRegistry.IsCanceled(stepExeId) {
 						stepExecutionRegistry.Unregister(stepExeId)
 						return
 					}
