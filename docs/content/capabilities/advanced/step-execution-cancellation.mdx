@@ -71,13 +71,37 @@ public StepDecision execute(Context context, Job job) {
 
 ## Snapshot and completion semantics
 
-Dex commits the producer's successful Attribute and Channel writes, removes a
-Step producer from the candidate set, and resolves both selectors against one
-snapshot of queued and active executions. Next Steps created by that Step
-decision or RPC result are not in the snapshot. Targets that are absent,
-completed, or already canceled are successful no-ops.
-Selectors do not recursively cancel descendant Steps or affect future
-executions of a selected Step type.
+When Dex applies a `StepDecision`, it processes cancellation in this order:
+
+1. Finish the Step execution that returned the decision and commit its
+   successful Attribute and Channel writes. That execution cannot cancel
+   itself.
+2. Take one snapshot of all other Step executions that are currently queued or
+   active.
+3. Resolve both the global and sibling selectors against that same snapshot.
+4. Cancel the matched executions.
+5. Apply the decision's next or close action. Any Next Steps are created now,
+   after cancellation has been resolved.
+
+For example, suppose an existing `carrierA` execution is active and an existing
+`recordQuote` execution is queued when the winner returns:
+
+```java
+return StepDecision.goTo(recordQuote, quote)
+        .withCancelingSteps(carrierA, recordQuote);
+```
+
+Dex cancels those two existing executions. It then creates the new
+`recordQuote` execution requested by `goTo(...)`, so the new execution is not
+canceled by the same decision.
+
+An `RPCResult` follows the same snapshot rule, but there is no returning Step
+execution to exclude. Next Steps created by the RPC result are also created
+after cancellation has been resolved.
+
+A target that is absent, completed, or already canceled is a successful no-op.
+Selectors do not cancel descendant Steps or future executions of a selected
+Step type.
 
 Cancellation wins when the interpreter applies the resolved snapshot. Dex
 immediately applies the winner's next or close action and does not wait for
