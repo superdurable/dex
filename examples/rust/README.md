@@ -77,5 +77,6 @@ The catalog integration test constructs every Flow, checks the exact 9 + 19
 mapping, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 
-The integration script starts the current checkout's `dexcli dev`, then runs a
-Money Transfer Flow through the published Rust SDK.
+The integration script starts the current checkout's `dexcli dev`, then starts
+and verifies Money Transfer, Engagement, Microservice, Polling, Subscription,
+and Failure Recovery Flows through the published Rust SDK.

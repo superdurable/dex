@@ -35,6 +35,9 @@ npm run smoke            # every product + design-pattern HTTP route
 ./run-integration-tests.sh # start dexcli dev and run both integration suites
 ```
 
+The integration suite starts and verifies Money Transfer, Engagement,
+Microservice, Polling, Subscription, and Failure Recovery Flows.
+
 ## Product examples
 
 - [Money transfer](./src/workflow/money/transfer)

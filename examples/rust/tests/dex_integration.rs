@@ -18,9 +18,22 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dex_examples_rust::create_example_registry;
+use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
+use dex_examples_rust::workflow::engagement::{
+    ENGAGEMENT_ACCEPT, ENGAGEMENT_DESCRIBE, EngagementFlow, EngagementRequest, EngagementStatus,
+};
+use dex_examples_rust::workflow::microservices::{
+    ORCHESTRATION_READY, ORCHESTRATION_SWAP, OrchestrationFlow,
+};
 use dex_examples_rust::workflow::money_transfer::{MoneyTransferFlow, TransferRequest};
+use dex_examples_rust::workflow::polling::{POLLING_COMPLETE_TASK, PollingFlow};
+use dex_examples_rust::workflow::subscription::{
+    SUBSCRIPTION_CANCEL, SUBSCRIPTION_DESCRIBE, SUBSCRIPTION_UPDATE_CHARGE, SubscriptionFlow,
+    SubscriptionRequest, SubscriptionState,
+};
 use dex_sdk::{
-    BlobCache, BlobCacheConfig, Client, ClientOptions, SdkResult, Worker, WorkerOptions,
+    Attribute, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult, Worker,
+    WorkerOptions,
 };
 use tempfile::TempDir;
 
@@ -80,6 +93,36 @@ impl DexEnvironment {
             _cache_directory: cache_directory,
         }
     }
+
+    fn await_engagement_status(&self, flow_id: &str, expected: &str) -> EngagementStatus {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            let status = self
+                .client
+                .invoke_rpc_without_input(flow_id, ENGAGEMENT_DESCRIBE)
+                .expect("describe Rust Engagement Flow");
+            if status.status == expected {
+                return status;
+            }
+            thread::yield_now();
+        }
+        panic!("Rust Engagement Flow did not reach {expected}");
+    }
+
+    fn await_subscription_charge(&self, flow_id: &str, expected: i64) -> SubscriptionState {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            let state = self
+                .client
+                .invoke_rpc_without_input(flow_id, SUBSCRIPTION_DESCRIBE)
+                .expect("describe Rust Subscription Flow");
+            if state.charge_cents == expected {
+                return state;
+            }
+            thread::yield_now();
+        }
+        panic!("Rust Subscription Flow charge did not reach {expected}");
+    }
 }
 
 impl Drop for DexEnvironment {
@@ -100,7 +143,7 @@ impl Drop for DexEnvironment {
 fn money_transfer_completes_with_released_sdk() {
     let environment = DexEnvironment::start();
     let flow = MoneyTransferFlow::default();
-    let flow_id = unique_flow_id();
+    let flow_id = unique_flow_id("money-transfer");
     let input = TransferRequest {
         from_account: "released-sdk-source".to_string(),
         to_account: "released-sdk-destination".to_string(),
@@ -118,17 +161,216 @@ fn money_transfer_completes_with_released_sdk() {
     assert_eq!(output.from_account, "released-sdk-source");
     assert_eq!(output.to_account, "released-sdk-destination");
     assert_eq!(output.amount_cents, 4_200);
+    assert_eq!(
+        environment
+            .client
+            .describe_flow(&flow_id)
+            .expect("describe completed Rust Money Transfer Flow")
+            .status,
+        FlowStatus::Completed
+    );
 }
 
-fn unique_flow_id() -> String {
+#[test]
+#[ignore = "requires dexcli dev"]
+fn engagement_invokes_rpcs_and_completes() {
+    let environment = DexEnvironment::start();
+    let flow = EngagementFlow::default();
+    let flow_id = unique_flow_id("engagement");
+    let run_id = environment
+        .client
+        .start_flow(
+            &flow,
+            &flow_id,
+            EngagementRequest {
+                employer_id: "released-sdk-employer".to_string(),
+                candidate_id: "released-sdk-candidate".to_string(),
+            },
+        )
+        .expect("start Rust Engagement Flow");
+    assert!(!run_id.is_empty());
+
+    let pending = environment.await_engagement_status(&flow_id, "pending");
+    assert!(pending.notes.is_empty());
+    environment
+        .client
+        .invoke_rpc(
+            &flow_id,
+            ENGAGEMENT_ACCEPT,
+            "accepted in integration test".to_string(),
+        )
+        .expect("accept Rust Engagement Flow");
+    environment
+        .client
+        .wait_for_flow_with_timeout::<()>(&flow_id, Duration::from_secs(30))
+        .expect("complete Rust Engagement Flow");
+    assert_eq!(
+        environment
+            .client
+            .describe_flow(&flow_id)
+            .expect("describe completed Rust Engagement Flow")
+            .status,
+        FlowStatus::Completed
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn microservice_swaps_data_and_completes_when_ready() {
+    let environment = DexEnvironment::start();
+    let flow = OrchestrationFlow::default();
+    let flow_id = unique_flow_id("microservice");
+    let run_id = environment
+        .client
+        .start_flow(&flow, &flow_id, "initial-data".to_string())
+        .expect("start Rust Microservice Flow");
+    assert!(!run_id.is_empty());
+
+    let data = Attribute::<String>::new("orchestration-data");
+    environment
+        .client
+        .wait_for_attribute_equal(
+            &flow_id,
+            &data,
+            "initial-data".to_string(),
+            Duration::from_secs(20),
+        )
+        .expect("wait for initial Rust Microservice data");
+    let previous = environment
+        .client
+        .invoke_rpc(&flow_id, ORCHESTRATION_SWAP, "updated-data".to_string())
+        .expect("swap Rust Microservice data");
+    assert_eq!(previous, "initial-data");
+    environment
+        .client
+        .wait_for_attribute_equal(
+            &flow_id,
+            &data,
+            "updated-data".to_string(),
+            Duration::from_secs(20),
+        )
+        .expect("wait for updated Rust Microservice data");
+    environment
+        .client
+        .invoke_rpc_without_input::<()>(&flow_id, ORCHESTRATION_READY)
+        .expect("release Rust Microservice Flow");
+    environment
+        .client
+        .wait_for_flow_with_timeout::<()>(&flow_id, Duration::from_secs(30))
+        .expect("complete Rust Microservice Flow");
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn polling_completes_all_tasks() {
+    let environment = DexEnvironment::start();
+    let flow = PollingFlow::default();
+    let flow_id = unique_flow_id("polling");
+    let run_id = environment
+        .client
+        .start_flow(&flow, &flow_id, 1)
+        .expect("start Rust Polling Flow");
+    assert!(!run_id.is_empty());
+    environment
+        .client
+        .invoke_rpc(&flow_id, POLLING_COMPLETE_TASK, "a".to_string())
+        .expect("complete Rust Polling task a");
+    environment
+        .client
+        .invoke_rpc(&flow_id, POLLING_COMPLETE_TASK, "b".to_string())
+        .expect("complete Rust Polling task b");
+
+    let output: String = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .expect("complete Rust Polling Flow");
+    assert_eq!(output, "task-c");
+    assert_eq!(
+        environment
+            .client
+            .describe_flow(&flow_id)
+            .expect("describe completed Rust Polling Flow")
+            .status,
+        FlowStatus::Completed
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn subscription_updates_charge_and_cancels() {
+    let environment = DexEnvironment::start();
+    let flow = SubscriptionFlow::default();
+    let flow_id = unique_flow_id("subscription");
+    let run_id = environment
+        .client
+        .start_flow(
+            &flow,
+            &flow_id,
+            SubscriptionRequest {
+                customer_id: "released-sdk-customer".to_string(),
+                charge_cents: 100,
+                billing_periods: 2,
+            },
+        )
+        .expect("start Rust Subscription Flow");
+    assert!(!run_id.is_empty());
+
+    let initial = environment.await_subscription_charge(&flow_id, 100);
+    assert_eq!(initial.periods_charged, 0);
+    assert!(!initial.cancelled);
+    environment
+        .client
+        .invoke_rpc(&flow_id, SUBSCRIPTION_UPDATE_CHARGE, 250)
+        .expect("update Rust Subscription charge");
+    let updated = environment.await_subscription_charge(&flow_id, 250);
+    assert!(!updated.cancelled);
+    environment
+        .client
+        .invoke_rpc_without_input::<()>(&flow_id, SUBSCRIPTION_CANCEL)
+        .expect("cancel Rust Subscription Flow");
+
+    let output: SubscriptionState = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .expect("complete Rust Subscription Flow");
+    assert_eq!(output.charge_cents, 250);
+    assert_eq!(output.periods_charged, 0);
+    assert!(output.cancelled);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn failure_recovery_retries_and_compensates() {
+    let environment = DexEnvironment::start();
+    let flow = FailureRecoveryFlow::default();
+    let flow_id = unique_flow_id("failure-recovery");
+    let run_id = environment
+        .client
+        .start_flow(&flow, &flow_id, "released-sdk-reservation".to_string())
+        .expect("start Rust Failure Recovery Flow");
+    assert!(!run_id.is_empty());
+
+    let output: String = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .expect("complete Rust Failure Recovery Flow");
+    assert_eq!(output, "compensated");
+    assert_eq!(
+        environment
+            .client
+            .describe_flow(&flow_id)
+            .expect("describe completed Rust Failure Recovery Flow")
+            .status,
+        FlowStatus::Completed
+    );
+}
+
+fn unique_flow_id(prefix: &str) -> String {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("current time after Unix epoch")
         .as_nanos();
-    format!(
-        "rust-examples-money-transfer-{}-{timestamp}",
-        std::process::id()
-    )
+    format!("rust-examples-{prefix}-{}-{timestamp}", std::process::id())
 }
 
 fn available_worker_port() -> u16 {
