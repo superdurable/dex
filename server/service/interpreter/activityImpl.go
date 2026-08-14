@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/superdurable/dex/config"
@@ -49,13 +48,6 @@ type Activities struct {
 	eventHandler     event.HandleEventFunc
 	cfg              *config.Config
 	subFlowResolver  *SubFlowReuseResolver
-}
-
-type activityHeartbeat struct {
-	provider interfaces.ActivityProvider
-	ctx      context.Context
-	done     chan struct{}
-	waiter   sync.WaitGroup
 }
 
 func NewActivities(
@@ -430,48 +422,6 @@ func workerContextForAttempt(workerContext *dexpb.Context) *dexpb.Context {
 		FromStepExecutionId:   workerContext.GetFromStepExecutionId(),
 		RecoveryError:         workerContext.GetRecoveryError(),
 	}
-}
-
-func startActivityHeartbeat(
-	provider interfaces.ActivityProvider,
-	ctx context.Context,
-	info interfaces.ActivityInfo,
-) *activityHeartbeat {
-	if info.IsLocalActivity || info.HeartbeatTimeout <= 0 {
-		return nil
-	}
-	heartbeat := &activityHeartbeat{
-		provider: provider,
-		ctx:      ctx,
-		done:     make(chan struct{}),
-	}
-	heartbeat.waiter.Add(1)
-	go heartbeat.run()
-	return heartbeat
-}
-
-func (h *activityHeartbeat) run() {
-	defer h.waiter.Done()
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ticker.C:
-			h.provider.RecordHeartbeat(h.ctx)
-		case <-h.done:
-			return
-		case <-h.ctx.Done():
-			return
-		}
-	}
-}
-
-func (h *activityHeartbeat) stop() {
-	if h == nil {
-		return
-	}
-	close(h.done)
-	h.waiter.Wait()
 }
 
 func (a *Activities) persistStepEventInput(
