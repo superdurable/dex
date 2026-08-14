@@ -132,9 +132,7 @@ func (e *StepExecutionCounter) CreateNextExecutionId(stepType string) string {
 
 // MarkQueuedStepExecutionCanceled reserves an execution number for a movement canceled before
 // Start assigns its ID. The number is omitted from stepActiveExecutionNums, so
-// WaitForStepCompletion observes it as completed and later executions cannot reuse it. The
-// cancellation also advances the continue-as-new execution count consistently with other
-// completed executions.
+// WaitForStepCompletion observes it as completed and later executions cannot reuse it.
 func (e *StepExecutionCounter) MarkQueuedStepExecutionCanceled(
 	step *dexpb.StepMovement,
 ) {
