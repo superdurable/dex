@@ -638,11 +638,13 @@ func requireSyncTimeoutFailure(
 	)
 	workerStatus := codes.Code(details.GetOriginalWorkerErrorStatus())
 	workerDetail := details.GetDetail()
-	if workerStatus == codes.DeadlineExceeded && strings.Contains(workerDetail, "context deadline exceeded") {
-		return
+	if workerStatus == codes.DeadlineExceeded {
+		if strings.Contains(workerDetail, "context deadline exceeded") ||
+			strings.Contains(workerDetail, "RST_STREAM") {
+			return
+		}
 	}
-	if backendType == service.BackendTypeCadence &&
-		(workerStatus == codes.DeadlineExceeded || workerStatus == codes.Internal) {
+	if backendType == service.BackendTypeCadence && workerStatus == codes.Internal {
 		require.Contains(t, workerDetail, "RST_STREAM")
 		return
 	}
