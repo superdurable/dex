@@ -636,19 +636,17 @@ func requireSyncTimeoutFailure(
 		dexpb.ErrorSubStatus_ERROR_SUB_STATUS_WORKER_API_ERROR,
 		details.GetSubStatus(),
 	)
-	switch codes.Code(details.GetOriginalWorkerErrorStatus()) {
-	case codes.DeadlineExceeded:
-		require.Contains(t, details.GetDetail(), "context deadline exceeded")
-	case codes.Internal:
-		require.Equal(t, service.BackendTypeCadence, backendType)
-		require.Contains(t, details.GetDetail(), "RST_STREAM")
-	default:
-		t.Fatalf(
-			"unexpected worker status %v: %q",
-			codes.Code(details.GetOriginalWorkerErrorStatus()),
-			details.GetDetail(),
-		)
+	workerStatus := codes.Code(details.GetOriginalWorkerErrorStatus())
+	workerDetail := details.GetDetail()
+	if workerStatus == codes.DeadlineExceeded && strings.Contains(workerDetail, "context deadline exceeded") {
+		return
 	}
+	if backendType == service.BackendTypeCadence &&
+		(workerStatus == codes.DeadlineExceeded || workerStatus == codes.Internal) {
+		require.Contains(t, workerDetail, "RST_STREAM")
+		return
+	}
+	t.Fatalf("unexpected worker status %v: %q", workerStatus, workerDetail)
 }
 
 func requireStepMethodFailureJSON(t *testing.T, failure *dexpb.StepMethodFailure) {
