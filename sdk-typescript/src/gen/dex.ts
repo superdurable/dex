@@ -1228,6 +1228,7 @@ export interface SubFlowCompletionSignalRequest {
 }
 
 export interface ReportSubFlowCompletionActivityInput {
+  parentFlowId: string;
   request: SubFlowCompletionSignalRequest | undefined;
 }
 
@@ -13382,13 +13383,16 @@ export const SubFlowCompletionSignalRequest: MessageFns<SubFlowCompletionSignalR
 };
 
 function createBaseReportSubFlowCompletionActivityInput(): ReportSubFlowCompletionActivityInput {
-  return { request: undefined };
+  return { parentFlowId: "", request: undefined };
 }
 
 export const ReportSubFlowCompletionActivityInput: MessageFns<ReportSubFlowCompletionActivityInput> = {
   encode(message: ReportSubFlowCompletionActivityInput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.parentFlowId !== "") {
+      writer.uint32(10).string(message.parentFlowId);
+    }
     if (message.request !== undefined) {
-      SubFlowCompletionSignalRequest.encode(message.request, writer.uint32(10).fork()).join();
+      SubFlowCompletionSignalRequest.encode(message.request, writer.uint32(18).fork()).join();
     }
     return writer;
   },
@@ -13402,6 +13406,14 @@ export const ReportSubFlowCompletionActivityInput: MessageFns<ReportSubFlowCompl
       switch (tag >>> 3) {
         case 1: {
           if (tag !== 10) {
+            break;
+          }
+
+          message.parentFlowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
             break;
           }
 
@@ -13426,6 +13438,7 @@ export const ReportSubFlowCompletionActivityInput: MessageFns<ReportSubFlowCompl
     object: I,
   ): ReportSubFlowCompletionActivityInput {
     const message = createBaseReportSubFlowCompletionActivityInput();
+    message.parentFlowId = object.parentFlowId ?? "";
     message.request = (object.request !== undefined && object.request !== null)
       ? SubFlowCompletionSignalRequest.fromPartial(object.request)
       : undefined;

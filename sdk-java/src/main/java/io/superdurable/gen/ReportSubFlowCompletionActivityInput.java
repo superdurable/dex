@@ -28,6 +28,7 @@ private static final long serialVersionUID = 0L;
     super(builder);
   }
   private ReportSubFlowCompletionActivityInput() {
+    parentFlowId_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -49,10 +50,49 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  public static final int REQUEST_FIELD_NUMBER = 1;
+  public static final int PARENT_FLOW_ID_FIELD_NUMBER = 1;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object parentFlowId_ = "";
+  /**
+   * <code>string parent_flow_id = 1;</code>
+   * @return The parentFlowId.
+   */
+  @java.lang.Override
+  public java.lang.String getParentFlowId() {
+    java.lang.Object ref = parentFlowId_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      parentFlowId_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string parent_flow_id = 1;</code>
+   * @return The bytes for parentFlowId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getParentFlowIdBytes() {
+    java.lang.Object ref = parentFlowId_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      parentFlowId_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
+  public static final int REQUEST_FIELD_NUMBER = 2;
   private io.superdurable.gen.SubFlowCompletionSignalRequest request_;
   /**
-   * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+   * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
    * @return Whether the request field is set.
    */
   @java.lang.Override
@@ -60,7 +100,7 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+   * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
    * @return The request.
    */
   @java.lang.Override
@@ -68,7 +108,7 @@ private static final long serialVersionUID = 0L;
     return request_ == null ? io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance() : request_;
   }
   /**
-   * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+   * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder getRequestOrBuilder() {
@@ -89,16 +129,22 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public void writeTo(com.google.protobuf.CodedOutputStream output)
                       throws java.io.IOException {
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentFlowId_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 1, parentFlowId_);
+    }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(1, getRequest());
+      output.writeMessage(2, getRequest());
     }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(parentFlowId_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(1, parentFlowId_);
+    }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(1, getRequest());
+        .computeMessageSize(2, getRequest());
     }
     return size;
   }
@@ -124,6 +170,8 @@ private static final long serialVersionUID = 0L;
     }
     io.superdurable.gen.ReportSubFlowCompletionActivityInput other = (io.superdurable.gen.ReportSubFlowCompletionActivityInput) obj;
 
+    if (!getParentFlowId()
+        .equals(other.getParentFlowId())) return false;
     if (hasRequest() != other.hasRequest()) return false;
     if (hasRequest()) {
       if (!getRequest()
@@ -140,6 +188,8 @@ private static final long serialVersionUID = 0L;
     }
     int hash = 41;
     hash = (19 * hash) + getDescriptor().hashCode();
+    hash = (37 * hash) + PARENT_FLOW_ID_FIELD_NUMBER;
+    hash = (53 * hash) + getParentFlowId().hashCode();
     if (hasRequest()) {
       hash = (37 * hash) + REQUEST_FIELD_NUMBER;
       hash = (53 * hash) + getRequest().hashCode();
@@ -281,6 +331,7 @@ private static final long serialVersionUID = 0L;
     public Builder clear() {
       super.clear();
       bitField0_ = 0;
+      parentFlowId_ = "";
       request_ = null;
       if (requestBuilder_ != null) {
         requestBuilder_.dispose();
@@ -319,8 +370,11 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartial0(io.superdurable.gen.ReportSubFlowCompletionActivityInput result) {
       int from_bitField0_ = bitField0_;
-      int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000001) != 0)) {
+        result.parentFlowId_ = parentFlowId_;
+      }
+      int to_bitField0_ = 0;
+      if (((from_bitField0_ & 0x00000002) != 0)) {
         result.request_ = requestBuilder_ == null
             ? request_
             : requestBuilder_.build();
@@ -341,6 +395,11 @@ private static final long serialVersionUID = 0L;
 
     public Builder mergeFrom(io.superdurable.gen.ReportSubFlowCompletionActivityInput other) {
       if (other == io.superdurable.gen.ReportSubFlowCompletionActivityInput.getDefaultInstance()) return this;
+      if (!other.getParentFlowId().isEmpty()) {
+        parentFlowId_ = other.parentFlowId_;
+        bitField0_ |= 0x00000001;
+        onChanged();
+      }
       if (other.hasRequest()) {
         mergeRequest(other.getRequest());
       }
@@ -371,12 +430,17 @@ private static final long serialVersionUID = 0L;
               done = true;
               break;
             case 10: {
-              input.readMessage(
-                  internalGetRequestFieldBuilder().getBuilder(),
-                  extensionRegistry);
+              parentFlowId_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000001;
               break;
             } // case 10
+            case 18: {
+              input.readMessage(
+                  internalGetRequestFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000002;
+              break;
+            } // case 18
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -394,18 +458,90 @@ private static final long serialVersionUID = 0L;
     }
     private int bitField0_;
 
+    private java.lang.Object parentFlowId_ = "";
+    /**
+     * <code>string parent_flow_id = 1;</code>
+     * @return The parentFlowId.
+     */
+    public java.lang.String getParentFlowId() {
+      java.lang.Object ref = parentFlowId_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        parentFlowId_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string parent_flow_id = 1;</code>
+     * @return The bytes for parentFlowId.
+     */
+    public com.google.protobuf.ByteString
+        getParentFlowIdBytes() {
+      java.lang.Object ref = parentFlowId_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        parentFlowId_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string parent_flow_id = 1;</code>
+     * @param value The parentFlowId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setParentFlowId(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      parentFlowId_ = value;
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string parent_flow_id = 1;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearParentFlowId() {
+      parentFlowId_ = getDefaultInstance().getParentFlowId();
+      bitField0_ = (bitField0_ & ~0x00000001);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string parent_flow_id = 1;</code>
+     * @param value The bytes for parentFlowId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setParentFlowIdBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      parentFlowId_ = value;
+      bitField0_ |= 0x00000001;
+      onChanged();
+      return this;
+    }
+
     private io.superdurable.gen.SubFlowCompletionSignalRequest request_;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.SubFlowCompletionSignalRequest, io.superdurable.gen.SubFlowCompletionSignalRequest.Builder, io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder> requestBuilder_;
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
      * @return Whether the request field is set.
      */
     public boolean hasRequest() {
-      return ((bitField0_ & 0x00000001) != 0);
+      return ((bitField0_ & 0x00000002) != 0);
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
      * @return The request.
      */
     public io.superdurable.gen.SubFlowCompletionSignalRequest getRequest() {
@@ -416,7 +552,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
      */
     public Builder setRequest(io.superdurable.gen.SubFlowCompletionSignalRequest value) {
       if (requestBuilder_ == null) {
@@ -427,12 +563,12 @@ private static final long serialVersionUID = 0L;
       } else {
         requestBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000001;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
      */
     public Builder setRequest(
         io.superdurable.gen.SubFlowCompletionSignalRequest.Builder builderForValue) {
@@ -441,16 +577,16 @@ private static final long serialVersionUID = 0L;
       } else {
         requestBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000001;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
      */
     public Builder mergeRequest(io.superdurable.gen.SubFlowCompletionSignalRequest value) {
       if (requestBuilder_ == null) {
-        if (((bitField0_ & 0x00000001) != 0) &&
+        if (((bitField0_ & 0x00000002) != 0) &&
           request_ != null &&
           request_ != io.superdurable.gen.SubFlowCompletionSignalRequest.getDefaultInstance()) {
           getRequestBuilder().mergeFrom(value);
@@ -461,16 +597,16 @@ private static final long serialVersionUID = 0L;
         requestBuilder_.mergeFrom(value);
       }
       if (request_ != null) {
-        bitField0_ |= 0x00000001;
+        bitField0_ |= 0x00000002;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
      */
     public Builder clearRequest() {
-      bitField0_ = (bitField0_ & ~0x00000001);
+      bitField0_ = (bitField0_ & ~0x00000002);
       request_ = null;
       if (requestBuilder_ != null) {
         requestBuilder_.dispose();
@@ -480,15 +616,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
      */
     public io.superdurable.gen.SubFlowCompletionSignalRequest.Builder getRequestBuilder() {
-      bitField0_ |= 0x00000001;
+      bitField0_ |= 0x00000002;
       onChanged();
       return internalGetRequestFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
      */
     public io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder getRequestOrBuilder() {
       if (requestBuilder_ != null) {
@@ -499,7 +635,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.SubFlowCompletionSignalRequest request = 1;</code>
+     * <code>.dex.SubFlowCompletionSignalRequest request = 2;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.SubFlowCompletionSignalRequest, io.superdurable.gen.SubFlowCompletionSignalRequest.Builder, io.superdurable.gen.SubFlowCompletionSignalRequestOrBuilder> 

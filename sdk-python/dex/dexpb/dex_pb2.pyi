@@ -1841,10 +1841,12 @@ class SubFlowCompletionSignalRequest(_message.Message):
     def __init__(self, sub_flow_id: _Optional[str] = ..., flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
 
 class ReportSubFlowCompletionActivityInput(_message.Message):
-    __slots__ = ("request",)
+    __slots__ = ("parent_flow_id", "request")
+    PARENT_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     REQUEST_FIELD_NUMBER: _ClassVar[int]
+    parent_flow_id: str
     request: SubFlowCompletionSignalRequest
-    def __init__(self, request: _Optional[_Union[SubFlowCompletionSignalRequest, _Mapping]] = ...) -> None: ...
+    def __init__(self, parent_flow_id: _Optional[str] = ..., request: _Optional[_Union[SubFlowCompletionSignalRequest, _Mapping]] = ...) -> None: ...
 
 class ReportSubFlowCompletionActivityOutput(_message.Message):
     __slots__ = ("status",)

@@ -603,23 +603,12 @@ func (a *Activities) ReportSubFlowCompletion(
 	request := input.GetRequest()
 	result := request.GetFlowResult()
 	activityInfo := a.activityProvider.GetActivityInfo(ctx)
+	parentFlowID := input.GetParentFlowId()
+	if parentFlowID == "" {
+		return nil, fmt.Errorf("SubFlow completion requires a parent Flow ID")
+	}
 	if result == nil || request.GetSubFlowId() != activityInfo.WorkflowExecution.ID {
 		return nil, fmt.Errorf("SubFlow completion result does not match the reporting workflow")
-	}
-	description, describeErr := a.unifiedClient.DescribeWorkflowExecution(
-		ctx,
-		activityInfo.WorkflowExecution.ID,
-		activityInfo.WorkflowExecution.RunID,
-		map[string]dexpb.IndexType{
-			service.SearchAttributeDexParentFlowID: dexpb.IndexType_INDEX_TYPE_KEYWORD,
-		},
-	)
-	if describeErr != nil {
-		return nil, fmt.Errorf("describe reporting SubFlow: %w", describeErr)
-	}
-	parentFlowID := description.IndexedAttributes[service.SearchAttributeDexParentFlowID].GetStringValue()
-	if parentFlowID == "" {
-		return nil, fmt.Errorf("reporting SubFlow is missing %s", service.SearchAttributeDexParentFlowID)
 	}
 	err := a.unifiedClient.SignalWorkflow(
 		ctx, parentFlowID, "", service.SubFlowCompletionSignalChannelName, request,
@@ -629,7 +618,7 @@ func (a *Activities) ReportSubFlowCompletion(
 			Status: dexpb.SubFlowCompletionDeliveryStatus_SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED,
 		}, nil
 	}
-	if a.unifiedClient.IsWorkflowClosedOrNotFoundError(err) {
+	if a.unifiedClient.IsNotFoundError(err) {
 		return &dexpb.ReportSubFlowCompletionActivityOutput{
 			Status: dexpb.SubFlowCompletionDeliveryStatus_SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND,
 		}, nil

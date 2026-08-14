@@ -92,11 +92,6 @@ func (t *cadenceClient) IsUnknownUpdateError(error, string) bool {
 	return false
 }
 
-func (t *cadenceClient) IsWorkflowClosedOrNotFoundError(err error) bool {
-	var alreadyCompletedError *shared.WorkflowExecutionAlreadyCompletedError
-	return t.IsNotFoundError(err) || errors.As(err, &alreadyCompletedError)
-}
-
 func (t *cadenceClient) isQueryFailedError(err error) bool {
 	var serviceError *shared.QueryFailedError
 	ok := errors.As(err, &serviceError)

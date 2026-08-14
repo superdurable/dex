@@ -239,7 +239,7 @@ func (i *Interpreter) StartEngineFlow(
 		retErr = terminalCoordinator.CoordinateAndFinalizeError(retErr)
 		if shouldReportSubFlowCompletion(provider, ctx, subFlowParentFlowID, retErr) {
 			if reportErr := i.reportSubFlowCompletion(
-				ctx, provider, outputCollector.GetAll(), retErr,
+				ctx, provider, subFlowParentFlowID, outputCollector.GetAll(), retErr,
 			); reportErr != nil {
 				retErr = reportErr
 			}
@@ -1003,6 +1003,7 @@ func shouldReportSubFlowCompletion(
 func (i *Interpreter) reportSubFlowCompletion(
 	ctx interfaces.UnifiedContext,
 	provider interfaces.WorkflowProvider,
+	parentFlowID string,
 	outputs []*dexpb.StepCompletionOutput,
 	flowErr error,
 ) error {
@@ -1034,6 +1035,7 @@ func (i *Interpreter) reportSubFlowCompletion(
 		ctx,
 		i.activities.ReportSubFlowCompletion,
 		&dexpb.ReportSubFlowCompletionActivityInput{
+			ParentFlowId: parentFlowID,
 			Request: &dexpb.SubFlowCompletionSignalRequest{
 				SubFlowId:  info.WorkflowExecution.ID,
 				FlowResult: result,

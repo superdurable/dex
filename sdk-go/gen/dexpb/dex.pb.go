@@ -10128,7 +10128,8 @@ func (x *SubFlowCompletionSignalRequest) GetFlowResult() *FlowResult {
 
 type ReportSubFlowCompletionActivityInput struct {
 	state         protoimpl.MessageState          `protogen:"open.v1"`
-	Request       *SubFlowCompletionSignalRequest `protobuf:"bytes,1,opt,name=request,proto3" json:"request,omitempty"`
+	ParentFlowId  string                          `protobuf:"bytes,1,opt,name=parent_flow_id,json=parentFlowId,proto3" json:"parent_flow_id,omitempty"`
+	Request       *SubFlowCompletionSignalRequest `protobuf:"bytes,2,opt,name=request,proto3" json:"request,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -10161,6 +10162,13 @@ func (x *ReportSubFlowCompletionActivityInput) ProtoReflect() protoreflect.Messa
 // Deprecated: Use ReportSubFlowCompletionActivityInput.ProtoReflect.Descriptor instead.
 func (*ReportSubFlowCompletionActivityInput) Descriptor() ([]byte, []int) {
 	return file_dex_proto_rawDescGZIP(), []int{133}
+}
+
+func (x *ReportSubFlowCompletionActivityInput) GetParentFlowId() string {
+	if x != nil {
+		return x.ParentFlowId
+	}
+	return ""
 }
 
 func (x *ReportSubFlowCompletionActivityInput) GetRequest() *SubFlowCompletionSignalRequest {
@@ -11771,9 +11779,10 @@ const file_dex_proto_rawDesc = "" +
 	"\x1eSubFlowCompletionSignalRequest\x12\x1e\n" +
 	"\vsub_flow_id\x18\x01 \x01(\tR\tsubFlowId\x120\n" +
 	"\vflow_result\x18\x02 \x01(\v2\x0f.dex.FlowResultR\n" +
-	"flowResult\"e\n" +
-	"$ReportSubFlowCompletionActivityInput\x12=\n" +
-	"\arequest\x18\x01 \x01(\v2#.dex.SubFlowCompletionSignalRequestR\arequest\"e\n" +
+	"flowResult\"\x8b\x01\n" +
+	"$ReportSubFlowCompletionActivityInput\x12$\n" +
+	"\x0eparent_flow_id\x18\x01 \x01(\tR\fparentFlowId\x12=\n" +
+	"\arequest\x18\x02 \x01(\v2#.dex.SubFlowCompletionSignalRequestR\arequest\"e\n" +
 	"%ReportSubFlowCompletionActivityOutput\x12<\n" +
 	"\x06status\x18\x01 \x01(\x0e2$.dex.SubFlowCompletionDeliveryStatusR\x06status\"\x89\x03\n" +
 	"\x17ExecuteRpcSignalRequest\x12'\n" +

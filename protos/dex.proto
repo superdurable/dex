@@ -1216,7 +1216,8 @@ enum SubFlowCompletionDeliveryStatus {
 }
 
 message ReportSubFlowCompletionActivityInput {
-  SubFlowCompletionSignalRequest request = 1;
+  string parent_flow_id = 1;
+  SubFlowCompletionSignalRequest request = 2;
 }
 
 message ReportSubFlowCompletionActivityOutput {
