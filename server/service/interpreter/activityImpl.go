@@ -216,9 +216,6 @@ func (a *Activities) offloadSubFlowStartInputs(
 		if err != nil {
 			return err
 		}
-		if err := blobstore.ValidateBlobPathFlowID(subFlowID); err != nil {
-			return err
-		}
 		if err := blobstore.OffloadLargeValue(
 			ctx,
 			condition.GetStepInput(),
@@ -523,9 +520,6 @@ func (a *Activities) StartSubFlow(
 		ctx, input.GetParentStepExecutionId(), condition.GetSubFlowIndex(),
 	)
 	if err != nil {
-		return nil, err
-	}
-	if err := blobstore.ValidateBlobPathFlowID(subFlowID); err != nil {
 		return nil, err
 	}
 	options := condition.GetOptions()
