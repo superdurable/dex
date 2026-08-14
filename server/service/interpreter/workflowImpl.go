@@ -741,7 +741,7 @@ func (i *Interpreter) processStepExecution(
 		}
 
 		if len(waitingCondition.GetSubFlowConditions()) > 0 {
-			completedSubFlowResults = subFlowTracker.GetCompletedResults(stepExeId)
+			completedSubFlowResults = subFlowTracker.MustGetCompletedResults(stepExeId)
 		}
 	} else {
 		if step.StepOptions != nil {
