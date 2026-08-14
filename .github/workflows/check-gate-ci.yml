@@ -41,10 +41,6 @@ jobs:
             sdk_rust:
               - 'sdk-rust/**'
               - '.github/workflows/sdk-rust-ci.yml'
-            examples_go:
-              - 'examples/go/**'
-              - 'cli/**'
-              - '.github/workflows/examples-go-ci.yml'
             web:
               - 'web/**'
               - 'protos/**'
@@ -93,7 +89,6 @@ jobs:
           FILTER_SERVER: ${{ steps.filter.outputs.server }}
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
-          FILTER_EXAMPLES_GO: ${{ steps.filter.outputs.examples_go }}
           FILTER_WEB: ${{ steps.filter.outputs.web }}
           FILTER_GENERATED_CODE: ${{ steps.filter.outputs.generated_code }}
           FILTER_COPYRIGHT: ${{ steps.filter.outputs.copyright }}
@@ -110,6 +105,7 @@ jobs:
               "Java examples CI"
               "Python examples CI"
               "Rust examples CI"
+              "TypeScript examples CI"
               "Generated Code CI"
               "Go SDK CI"
               "Java SDK CI"
@@ -124,7 +120,6 @@ jobs:
             [[ "$FILTER_SERVER" == "true" ]] && expected+=("Server CI")
             [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
             [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
-            [[ "$FILTER_EXAMPLES_GO" == "true" ]] && expected+=("Go examples CI")
             [[ "$FILTER_WEB" == "true" ]] && expected+=("Web CI")
             [[ "$FILTER_GENERATED_CODE" == "true" ]] && expected+=("Generated Code CI")
             [[ "$FILTER_COPYRIGHT" == "true" ]] && expected+=("Copyright")

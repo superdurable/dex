@@ -32,6 +32,7 @@ jobs:
             examples-java-ci.yml
             examples-python-ci.yml
             examples-rust-ci.yml
+            examples-typescript-ci.yml
             generated-code-ci.yml
             sdk-go-ci.yml
             sdk-java-ci.yml

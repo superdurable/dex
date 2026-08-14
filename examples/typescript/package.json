@@ -16,7 +16,7 @@
     "smoke": "npm run build && node --test --test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/e2e/all-routes.test.js'"
   },
   "dependencies": {
-    "@superdurable/dex": "^0.1.5",
+    "@superdurable/dex": "0.1.5",
     "express": "^5.1.0"
   },
   "devDependencies": {

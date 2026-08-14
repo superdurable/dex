@@ -16,9 +16,10 @@
 
 import { Router } from "express";
 
-import { FlowAlreadyStartedError, type Client } from "@superdurable/dex";
+import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../config/env.js";
+import { isFlowAlreadyStarted } from "../service-errors.js";
 import type { SignupForm } from "../workflow/signup/signup-form.js";
 import { userSignupFlow } from "../workflow/signup/user-signup-flow.js";
 
@@ -37,7 +38,7 @@ export function createSignupRouter(client: Client): Router {
     try {
       await client.startFlow(userSignupFlow, username, form, startOptions());
     } catch (failure) {
-      if (failure instanceof FlowAlreadyStartedError) {
+      if (isFlowAlreadyStarted(failure)) {
         response.send("username already started registry");
         return;
       }

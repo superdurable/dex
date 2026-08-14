@@ -7,9 +7,8 @@ controller on port `8080`. Step `execute` / `waitFor` / RPC handlers may
 `await` the shared `Client` directly (async await on the Worker). Disk
 BlobCaches are under `DEX_BLOB_CACHE_DIR`.
 
-Controllers catch concrete SDK errors such as `FlowAlreadyStartedError`,
-`FlowNotFoundError`, and `FlowNotActiveError`; no example compares Dex
-sub-status metadata.
+Controllers handle expected duplicate and missing-Flow failures through
+`DexServiceError` gRPC codes; no example compares Dex sub-status metadata.
 
 ## Run locally
 
@@ -33,7 +32,11 @@ Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with
 npm test                 # SubscriptionBilling unit tests
 npm run test:integ       # product integ tests (requires Dex)
 npm run smoke            # every product + design-pattern HTTP route
+./run-integration-tests.sh # start dexcli dev and run both integration suites
 ```
+
+The integration suite starts and verifies Money Transfer, Engagement,
+Microservice, Polling, Subscription, and Failure Recovery Flows.
 
 ## Product examples
 

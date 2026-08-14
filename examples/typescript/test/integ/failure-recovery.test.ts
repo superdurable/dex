@@ -17,7 +17,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { stringCodec } from "@superdurable/dex";
+import { FlowUncompletedError, voidCodec } from "@superdurable/dex";
 
 import {
   acquireIntegEnvironment,
@@ -32,23 +32,30 @@ test.after(async () => {
   await releaseIntegEnvironment();
 });
 
-test("moneyTransferStart", async () => {
+test("failureRecoveryRetriesCompensatesAndFails", async () => {
   const environment = await acquireIntegEnvironment();
-  const flowId = environment.newFlowId("money-transfer");
+  const flowId = environment.newFlowId("failure-recovery");
   const runId = await environment.client.startFlow(
-    environment.moneyTransferFlow,
+    environment.failureRecoveryFlow,
     flowId,
     {
-      fromAccount: "from-ci",
-      toAccount: "to-ci",
-      amount: 42,
-      notes: "examples/typescript integration",
+      itemName: "released-sdk-item",
+      requestedQuantity: 100,
     },
     environment.startOptions(),
   );
   assert.ok(runId.length > 0);
-  const output = await environment.client.waitForFlow(flowId, stringCodec, 45_000);
-  assert.match(output, /transfer is done/);
-  assert.match(output, /from-ci/);
-  assert.match(output, /to-ci/);
+
+  await assert.rejects(
+    environment.client.waitForFlow(flowId, voidCodec, 45_000),
+    (error: unknown) => {
+      assert.ok(error instanceof FlowUncompletedError);
+      assert.equal(error.status, "failed");
+      assert.match(error.message, /Failed to process transaction/);
+      return true;
+    },
+  );
+
+  const summary = await environment.client.describeFlow(flowId);
+  assert.equal(summary.status, "failed");
 });

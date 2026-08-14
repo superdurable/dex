@@ -16,7 +16,6 @@
 
 import {
   Attribute,
-  FlowNotActiveError,
   StepList,
   Timer,
   Wait,
@@ -30,6 +29,7 @@ import {
 } from "@superdurable/dex";
 
 import { getClient } from "../../../client-holder.js";
+import { isFlowMissingOrInactive } from "../../../service-errors.js";
 
 export const PARENT_WORKFLOW_ID = "ParentWorkflowId";
 
@@ -59,7 +59,7 @@ class Processing implements Step<string> {
           context.flowId,
         );
       } catch (error) {
-        if (error instanceof FlowNotActiveError) {
+        if (isFlowMissingOrInactive(error)) {
           console.log(
             "Parent workflow may have completed, might be duplicate completion request, ignore it.",
           );

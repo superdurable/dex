@@ -70,8 +70,13 @@ cross-language catalog.
 make fmt-check
 make clippy
 make test
+./run-integration-tests.sh
 ```
 
 The catalog integration test constructs every Flow, checks the exact 9 + 19
 mapping, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
+
+The integration script starts the current checkout's `dexcli dev`, then starts
+and verifies Money Transfer, Engagement, Microservice, Polling, Subscription,
+and Failure Recovery Flows through the published Rust SDK.

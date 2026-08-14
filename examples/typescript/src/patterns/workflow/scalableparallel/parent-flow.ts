@@ -18,7 +18,6 @@ import {
   Attribute,
   Channel,
   ChannelMap,
-  FlowAlreadyStartedError,
   IdReusePolicy,
   InitialAttribute,
   StepList,
@@ -42,6 +41,7 @@ import {
 
 import { getClient } from "../../../client-holder.js";
 import { HOUR_MS } from "../../../config/env.js";
+import { isFlowAlreadyStarted } from "../../../service-errors.js";
 import {
   batchEnqueueRequestCodec,
   type BatchEnqueueRequest,
@@ -130,7 +130,7 @@ class LoopForNextMessage implements Step<void> {
         });
         newWaitList.push(childWorkflowId);
       } catch (error) {
-        if (error instanceof FlowAlreadyStartedError) {
+        if (isFlowAlreadyStarted(error)) {
           console.log(
             "already started by other state/workflow, ignore it -- not waiting for it",
           );
