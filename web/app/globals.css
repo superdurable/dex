@@ -2025,12 +2025,23 @@ pre {
   background: #c95252;
 }
 
+.legend-subflow {
+  border: 1px solid #4f7ba7;
+  background: #f2f7fb;
+}
+
 .graph-canvas {
   height: 650px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #f9fbfa;
+}
+
+.graph-canvas .react-flow__minimap {
+  border: 1px solid #c8d4d1;
+  border-radius: 8px;
+  background: rgba(249, 251, 250, 0.94);
 }
 
 .react-flow__node.step-flow-node {
@@ -2074,6 +2085,66 @@ pre {
 .react-flow__node.node-terminal {
   border-color: #4e81a9;
   background: #eef5f9;
+}
+
+.react-flow__node.node-subflow {
+  border-color: #4f7ba7;
+  background: #f2f7fb;
+}
+
+.react-flow__node.node-subflow.node-failed,
+.react-flow__node.node-subflow.node-canceled,
+.react-flow__node.node-subflow.node-timeout,
+.react-flow__node.node-subflow.node-terminated {
+  border-color: #c95252;
+  background: #fff5f4;
+}
+
+.graph-sub-flow-link {
+  display: flex;
+  min-height: 82px;
+  padding: 10px 12px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.graph-sub-flow-link:hover {
+  background: #e8f2fa;
+}
+
+.graph-sub-flow-link:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: -3px;
+}
+
+.graph-sub-flow-link > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #3c668f;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.graph-sub-flow-link b,
+.graph-sub-flow-link code,
+.graph-sub-flow-link small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-sub-flow-link b {
+  font-size: 12px;
+}
+
+.graph-sub-flow-link code,
+.graph-sub-flow-link small {
+  color: var(--muted);
+  font-size: 9px;
 }
 
 .graph-node-label {
@@ -2244,6 +2315,36 @@ pre {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.4;
+}
+
+.sub-flow-record {
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.sub-flow-record:hover {
+  border-color: #4f7ba7;
+  background: #f2f7fb;
+}
+
+.sub-flow-record:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.sub-flow-record > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sub-flow-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.35;
 }
 
 .graph-method-failed strong {

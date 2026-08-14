@@ -51,6 +51,11 @@ func testAttributeIndexSync(t *testing.T, backendType service.BackendType) {
 	)
 	require.Equal(
 		t,
+		dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		listed[service.SearchAttributeDexParentFlowID],
+	)
+	require.Equal(
+		t,
 		runtime.UnifiedClient.NormalizeAttributeIndexType(dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY),
 		listed[service.SearchAttributeActiveStepTypes],
 	)

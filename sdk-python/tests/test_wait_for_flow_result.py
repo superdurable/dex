@@ -58,7 +58,7 @@ class WaitForFlowService(dex_pb2_grpc.FlowServiceServicer):
         self,
         request: pb.WaitForFlowRequest,
         context: grpc.ServicerContext,
-    ) -> pb.WaitForFlowResponse:
+    ) -> pb.FlowResult:
         del context
         results = self._results()
         if request.flow_id == "empty":
@@ -70,7 +70,7 @@ class WaitForFlowService(dex_pb2_grpc.FlowServiceServicer):
             if request.flow_id == "failed"
             else pb.FLOW_STATUS_COMPLETED
         )
-        return pb.WaitForFlowResponse(
+        return pb.FlowResult(
             flow_status=status,
             results=results,
             error_type=pb.FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,

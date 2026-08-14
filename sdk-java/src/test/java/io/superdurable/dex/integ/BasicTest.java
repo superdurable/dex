@@ -19,16 +19,18 @@ import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.FlowInfo;
 import io.superdurable.dex.IdReusePolicy;
+import io.superdurable.dex.ResetFlowOptions;
+import io.superdurable.dex.ResetType;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.StepCompletion;
-import io.superdurable.dex.WaitForFlowResult;
+import io.superdurable.dex.TimerId;
+import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.WorkerTarget;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
-import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -59,6 +61,20 @@ public final class BasicTest {
             new SkipWaitUntilMixedWaitWorkflow();
     private static final BasicImmutableStepOptionsWorkflow IMMUTABLE_OPTIONS_WORKFLOW =
             new BasicImmutableStepOptionsWorkflow();
+    private static final SubFlowParentWorkflow SUB_FLOW_PARENT_WORKFLOW =
+            new SubFlowParentWorkflow();
+    private static final SubFlowAllParentWorkflow SUB_FLOW_ALL_PARENT_WORKFLOW =
+            new SubFlowAllParentWorkflow();
+    private static final SubFlowAnyParentWorkflow SUB_FLOW_ANY_PARENT_WORKFLOW =
+            new SubFlowAnyParentWorkflow();
+    private static final SubFlowAttachParentWorkflow SUB_FLOW_ATTACH_PARENT_WORKFLOW =
+            new SubFlowAttachParentWorkflow();
+    private static final SubFlowAlwaysRestartParentWorkflow SUB_FLOW_ALWAYS_RESTART_PARENT_WORKFLOW =
+            new SubFlowAlwaysRestartParentWorkflow();
+    private static final SubFlowAbnormalRestartParentWorkflow SUB_FLOW_ABNORMAL_PARENT_WORKFLOW =
+            new SubFlowAbnormalRestartParentWorkflow();
+    private static final SubFlowContinueAsNewParentWorkflow SUB_FLOW_CAN_PARENT_WORKFLOW =
+            new SubFlowContinueAsNewParentWorkflow();
 
     @TempDir
     Path cacheDirectory;
@@ -83,6 +99,156 @@ public final class BasicTest {
     }
 
     @Test
+    void testSubFlowConditionReturnsIdentityAndOutput() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                SUB_FLOW_PARENT_WORKFLOW,
+                WORKFLOW)) {
+            final String flowId = flowId("sub-flow-parent");
+            environment.client().startFlow(SUB_FLOW_PARENT_WORKFLOW, flowId, 4);
+
+            final String output = environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getSingleOutput(String.class);
+            final String[] parts = output.split("\\|", -1);
+            assertEquals(2, parts.length);
+            assertEquals("SubFlow-" + flowId + "-ParentStep-1-0", parts[0]);
+            assertEquals("6", parts[1]);
+        }
+    }
+
+    @Test
+    void testSubFlowAllOfReturnsStableTerminalResults() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                SUB_FLOW_ALL_PARENT_WORKFLOW,
+                WORKFLOW)) {
+            final String flowId = flowId("sub-flow-all");
+            environment.client().startFlow(SUB_FLOW_ALL_PARENT_WORKFLOW, flowId, 4);
+
+            final String output = environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getSingleOutput(String.class);
+            final String[] results = output.split(";", -1);
+            assertEquals(2, results.length);
+            assertSubFlowResult(results[0], flowId, 0, "COMPLETED", "6");
+            assertSubFlowResult(results[1], flowId, 1, "COMPLETED", "16");
+        }
+    }
+
+    @Test
+    void testSubFlowAnyOfReturnsRunningIdentityThatCanBeStopped() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                SUB_FLOW_ANY_PARENT_WORKFLOW,
+                new TimerWorkflow())) {
+            final String flowId = flowId("sub-flow-any");
+            environment.client().startFlow(SUB_FLOW_ANY_PARENT_WORKFLOW, flowId, 300);
+
+            final String output = environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getSingleOutput(String.class);
+            final String[] result = output.split("\\|", -1);
+            assertEquals(4, result.length);
+            assertEquals("SubFlow-" + flowId + "-ParentStep-1-0", result[0]);
+            assertEquals("RUNNING", result[1]);
+            assertEquals("false", result[2]);
+            assertEquals("true", result[3]);
+
+            environment.client().stopFlow(result[0]);
+            assertEquals(
+                    FlowStatus.CANCELED,
+                    environment.client()
+                            .waitForFlow(result[0], Duration.ofSeconds(30))
+                            .getStatus());
+        }
+    }
+
+    @Test
+    void testSubFlowAttachKeepsRunningExecutionAcrossParentReset() throws Exception {
+        assertRunningSubFlowReuseAcrossReset(SUB_FLOW_ATTACH_PARENT_WORKFLOW, false);
+    }
+
+    @Test
+    void testSubFlowAlwaysRestartReplacesRunningExecutionAcrossParentReset() throws Exception {
+        assertRunningSubFlowReuseAcrossReset(SUB_FLOW_ALWAYS_RESTART_PARENT_WORKFLOW, true);
+    }
+
+    @Test
+    void testSubFlowDefaultReuseRestartsFailedExecutionAcrossParentReset() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                SUB_FLOW_ABNORMAL_PARENT_WORKFLOW,
+                ABNORMAL_EXIT_WORKFLOW)) {
+            final String flowId = flowId("sub-flow-abnormal");
+            final String childFlowId = "SubFlow-" + flowId + "-ParentStep-1-0";
+            environment.client().startFlow(SUB_FLOW_ABNORMAL_PARENT_WORKFLOW, flowId, 1);
+            final String[] first = environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getSingleOutput(String.class)
+                    .split("\\|", -1);
+            assertEquals("FAILED", first[1]);
+            final String firstChildRunId = environment.client().describeFlow(childFlowId).getRunId();
+
+            environment.client().resetFlow(
+                    flowId,
+                    ResetFlowOptions.newBuilder(ResetType.BEGINNING)
+                            .reason("verify SubFlow abnormal reuse")
+                            .build());
+            final String[] second = environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getSingleOutput(String.class)
+                    .split("\\|", -1);
+            assertEquals("FAILED", second[1]);
+            assertTrue(!firstChildRunId.equals(
+                    environment.client().describeFlow(childFlowId).getRunId()));
+        }
+    }
+
+    @Test
+    void testSubFlowPartialResultsSurviveContinueAsNewWithoutRestart() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                SUB_FLOW_CAN_PARENT_WORKFLOW,
+                WORKFLOW,
+                new TimerWorkflow())) {
+            final String flowId = flowId("sub-flow-can");
+            final String completedChildId = "SubFlow-" + flowId + "-ParentStep-1-0";
+            final String delayedChildId = "SubFlow-" + flowId + "-ParentStep-1-1";
+            final String firstParentRunId = environment.client().startFlow(
+                    SUB_FLOW_CAN_PARENT_WORKFLOW,
+                    flowId,
+                    4,
+                    StartFlowOptions.newBuilder()
+                            .configOverride(FlowConfig.newBuilder()
+                                    .continueAsNewThreshold(1)
+                                    .build())
+                            .build());
+
+            awaitFlowRun(environment.client(), flowId, firstParentRunId);
+            final String completedChildRunId =
+                    environment.client().describeFlow(completedChildId).getRunId();
+            environment.client().skipTimer(
+                    delayedChildId,
+                    StepExecutionId.of("TimerStep"),
+                    TimerId.byConditionId("test-timer-id"));
+
+            final String[] output = environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getSingleOutput(String.class)
+                    .split("\\|", -1);
+            assertEquals(4, output.length);
+            assertEquals(completedChildId, output[0]);
+            assertEquals("6", output[1]);
+            assertEquals(delayedChildId, output[2]);
+            assertEquals("COMPLETED", output[3]);
+            assertEquals(
+                    completedChildRunId,
+                    environment.client().describeFlow(completedChildId).getRunId());
+        }
+    }
+
+    @Test
     void testParallelBranchesReturnHeterogeneousStepCompletions() throws Exception {
         final MultiOutputWorkflow workflow = new MultiOutputWorkflow();
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
@@ -90,7 +256,7 @@ public final class BasicTest {
                 workflow)) {
             final String flowId = flowId("multi-output");
             environment.client().startFlow(workflow, flowId, null);
-            final WaitForFlowResult result =
+            final FlowResult result =
                     environment.client().waitForFlow(flowId, Duration.ofSeconds(30));
             final Map<String, StepCompletion> completions =
                     new HashMap<String, StepCompletion>();
@@ -118,15 +284,13 @@ public final class BasicTest {
             final StartFlowOptions options = StartFlowOptions.newBuilder()
                     .idReusePolicy(IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED)
                     .build();
-            final String failedRun = environment.client().startFlow(
+            environment.client().startFlow(
                     ABNORMAL_EXIT_WORKFLOW,
                     flowId,
                     0,
                     options);
-            final FlowUncompletedException failure = assertThrows(
-                    FlowUncompletedException.class,
-                    () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
-            assertEquals(failedRun, failure.getRunId());
+            final FlowResult failure =
+                    environment.client().waitForFlow(flowId, Duration.ofSeconds(30));
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             environment.client().startFlow(WORKFLOW, flowId, 0, options);
             assertEquals(2, environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
@@ -281,12 +445,11 @@ public final class BasicTest {
             final String flowId = flowId("immutable-options");
             environment.client().startFlow(IMMUTABLE_OPTIONS_WORKFLOW, flowId, 0);
 
-            final FlowUncompletedException failure = assertThrows(
-                    FlowUncompletedException.class,
-                    () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
+            final FlowResult failure =
+                    environment.client().waitForFlow(flowId, Duration.ofSeconds(30));
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
-            assertEquals("expected wait failure 2", failure.getMessage());
+            assertEquals("expected wait failure 2", failure.getErrorMessage());
         }
     }
 
@@ -331,6 +494,80 @@ public final class BasicTest {
     }
 
     private static void consume(final Object value) {
+    }
+
+    private void assertRunningSubFlowReuseAcrossReset(
+            final TimerSubFlowParentWorkflow parent,
+            final boolean expectsRestart) throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                parent,
+                new TimerWorkflow())) {
+            final String flowId = flowId("sub-flow-reuse");
+            final String childFlowId = "SubFlow-" + flowId + "-ParentStep-1-0";
+            environment.client().startFlow(parent, flowId, 300);
+            final String firstChildRunId = awaitFlowRun(
+                    environment.client(), childFlowId, null);
+
+            environment.client().resetFlow(
+                    flowId,
+                    ResetFlowOptions.newBuilder(ResetType.BEGINNING)
+                            .reason("verify SubFlow running reuse")
+                            .build());
+            final String activeChildRunId = expectsRestart
+                    ? awaitFlowRun(environment.client(), childFlowId, firstChildRunId)
+                    : awaitFlowRun(environment.client(), childFlowId, null);
+            if (expectsRestart) {
+                assertTrue(!firstChildRunId.equals(activeChildRunId));
+            } else {
+                assertEquals(firstChildRunId, activeChildRunId);
+            }
+
+            environment.client().skipTimer(
+                    childFlowId,
+                    StepExecutionId.of("TimerStep"),
+                    TimerId.byConditionId("test-timer-id"));
+            final String[] output = environment.client()
+                    .waitForFlow(flowId, Duration.ofSeconds(30))
+                    .getSingleOutput(String.class)
+                    .split("\\|", -1);
+            assertEquals(childFlowId, output[0]);
+            assertEquals("COMPLETED", output[1]);
+        }
+    }
+
+    private static String awaitFlowRun(
+            final Client client,
+            final String flowId,
+            final String excludedRunId) {
+        final long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+        while (System.nanoTime() < deadline) {
+            try {
+                final FlowInfo info = client.describeFlow(flowId);
+                if (info.getStatus() == FlowStatus.RUNNING
+                        && (excludedRunId == null || !excludedRunId.equals(info.getRunId()))) {
+                    return info.getRunId();
+                }
+            } catch (FlowNotFoundException notStartedYet) {
+                Thread.yield();
+                continue;
+            }
+            Thread.yield();
+        }
+        throw new AssertionError("SubFlow did not reach the expected running execution: " + flowId);
+    }
+
+    private static void assertSubFlowResult(
+            final String encoded,
+            final String parentFlowId,
+            final int index,
+            final String status,
+            final String output) {
+        final String[] fields = encoded.split("\\|", -1);
+        assertEquals(3, fields.length);
+        assertEquals("SubFlow-" + parentFlowId + "-ParentStep-1-" + index, fields[0]);
+        assertEquals(status, fields[1]);
+        assertEquals(output, fields[2]);
     }
 
     private static String flowId(final String prefix) {

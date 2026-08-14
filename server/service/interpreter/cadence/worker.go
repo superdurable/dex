@@ -137,6 +137,8 @@ func (iw *InterpreterWorker) doStart(disableStickyCache bool) error {
 	iw.worker.RegisterActivity(iw.activities.InvokeExecuteMethod)
 	iw.worker.RegisterActivity(iw.activities.DumpFlowForContinueAsNew)
 	iw.worker.RegisterActivity(iw.activities.InvokeWorkerRPC)
+	iw.worker.RegisterActivity(iw.activities.StartSubFlow)
+	iw.worker.RegisterActivity(iw.activities.ReportSubFlowCompletion)
 	iw.worker.RegisterActivity(iw.activities.CleanupBlobsAfterAllRunsDeleted)
 	iw.worker.RegisterActivity(iw.activities.SyncAttributeBatch)
 

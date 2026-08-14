@@ -132,4 +132,63 @@ describe('step graph', () => {
     expect(node?.pendingExecute?.payload.phase).toBe(2);
     expect(node?.pendingExecute?.type).toBe('StepExecutePending');
   });
+
+  it('creates linked SubFlow leaf nodes with deterministic identity', () => {
+    const graph = buildStepGraph([
+      event(1, 'StepWaitForCompleted', {
+        stepExecutionId: 'Parent-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'Parent',
+      }, {
+        output: { waitForCondition: { subFlowConditions: [{
+          options: { reusePolicy: 1 },
+        }] } },
+      }),
+      event(2, 'StepExecuteCompleted', {
+        stepExecutionId: 'Parent-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'Parent',
+      }, {
+        input: { conditionResults: { subFlowResults: [{
+          flowStatus: 2,
+        }] } },
+      }),
+    ], [], 'parent');
+
+    const subFlow = graph.nodes.find((node) => node.kind === 'subflow');
+    expect(subFlow).toMatchObject({
+      parentStepId: 'Parent-1',
+      flowId: 'SubFlow-parent-Parent-1-0',
+      subFlowStatus: 'COMPLETED',
+      reusePolicy: 'Attach',
+    });
+    expect(graph.edges).toContainEqual({
+      id: 'Parent-1->__subflow:Parent-1:0',
+      source: 'Parent-1',
+      target: '__subflow:Parent-1:0',
+    });
+  });
+
+  it('uses terminal SubFlow results restored in active continue-as-new state', () => {
+    const graph = buildStepGraph([], [{
+      stepExecutionId: 'Parent-1',
+      fromStepExecutionId: '__start__',
+      stepType: 'Parent',
+      phase: 'Waiting',
+      stepExecutionLocals: [],
+      timers: [],
+      waitingCondition: { subFlowConditions: [{
+        conditionId: 'child',
+      }] },
+      completedConditions: { completedSubFlowResults: { 0: {
+        flowStatus: 3,
+      } } },
+    }], 'parent');
+
+    expect(graph.nodes.find((node) => node.kind === 'subflow')).toMatchObject({
+      status: 'Failed',
+      subFlowStatus: 'FAILED',
+      flowId: 'SubFlow-parent-Parent-1-0',
+    });
+  });
 });

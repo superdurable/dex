@@ -63,4 +63,28 @@ public interface ConditionResultsOrBuilder extends
    * @return The waitForFailed.
    */
   boolean getWaitForFailed();
+
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  java.util.List<io.superdurable.gen.FlowResult> 
+      getSubFlowResultsList();
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  io.superdurable.gen.FlowResult getSubFlowResults(int index);
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  int getSubFlowResultsCount();
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.FlowResultOrBuilder> 
+      getSubFlowResultsOrBuilderList();
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  io.superdurable.gen.FlowResultOrBuilder getSubFlowResultsOrBuilder(
+      int index);
 }

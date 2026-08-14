@@ -59,7 +59,7 @@ function renderDetails(
 ): string {
   return renderToStaticMarkup(
     <PreferencesProvider>
-      <SemanticEventDetails event={event} history={history} />
+      <SemanticEventDetails event={event} history={history} parentFlowId="parent" />
     </PreferencesProvider>,
   );
 }
@@ -377,6 +377,62 @@ describe('selected step event details', () => {
     expect(markup).toContain('Any completed');
     expect(markup).not.toContain('Single condition');
   });
+
+  it('renders a keyboard-accessible SubFlow link card with reuse details', () => {
+    const markup = renderDetails(waitForEvent({
+      waitingConditionType: 'WAITING_CONDITION_TYPE_ALL_COMPLETED',
+      subFlowConditions: [{
+        options: { reusePolicy: 1 },
+      }],
+    }));
+
+    expect(markup).toContain('href="/flows/SubFlow-parent-charge-1-0"');
+    expect(markup).toContain('aria-label="Open SubFlow SubFlow-parent-charge-1-0"');
+    expect(markup).toContain('Attach');
+  });
+
+  it('renders complete SubFlow options and terminal outputs', () => {
+    const event = executeEvent(1);
+    event.payload.input = {
+      conditionResults: { subFlowResults: [{
+        flowStatus: 3,
+        errorType: 'FLOW_ERROR_TYPE_WORKER_API_FAIL',
+        errorMessage: 'child failed',
+        results: [{
+          completedStepType: 'ChildStep',
+          completedStepExecutionId: 'ChildStep-1',
+          completedStepOutput: { stringValue: 'partial output' },
+        }],
+      }] },
+    };
+    const wait = waitForEvent({
+      subFlowConditions: [{
+        stepInput: { intValue: 7 },
+        stepOptions: { skipWaitFor: true },
+        options: {
+          retryPolicy: { initialIntervalSeconds: 2, maximumAttempts: 4 },
+          attributes: [{ key: 'region', value: { stringValue: 'west' } }],
+          flowConfigOverride: { continueAsNewThreshold: 20 },
+        },
+      }],
+    });
+
+    const waitMarkup = renderDetails(wait);
+    expect(waitMarkup).toContain('Retry initial interval');
+    expect(waitMarkup).toContain('2s');
+    expect(waitMarkup).toContain('Starting Step options');
+    expect(waitMarkup).toContain('Initial Attributes');
+    expect(waitMarkup).toContain('region');
+    expect(waitMarkup).toContain('Flow configuration override');
+    expect(waitMarkup).toContain('continueAsNewThreshold');
+
+    const resultMarkup = renderDetails(event, [wait, event]);
+    expect(resultMarkup).toContain('href="/flows/SubFlow-parent-charge-1-0"');
+    expect(resultMarkup).toContain('Worker method failed');
+    expect(resultMarkup).toContain('child failed');
+    expect(resultMarkup).toContain('ChildStep-1');
+    expect(resultMarkup).toContain('partial output');
+  });
 });
 
 describe('RPC event details', () => {
@@ -450,5 +506,28 @@ describe('flow start event details', () => {
 
     expect(markup).toContain('Flow timeout');
     expect(markup).toContain('1m');
+  });
+
+  it('links a minimal continued SubFlow state by generated Flow ID', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-08-05T23:44:29Z',
+      type: 'FlowStartedOrContinued',
+      payload: {
+        continuedStart: {
+          stepsToResume: [{
+            stepExecutionId: 'charge-1',
+            waitingCondition: {
+              subFlowConditions: [{ conditionId: 'child' }],
+            },
+          }],
+        },
+      },
+    };
+
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('href="/flows/SubFlow-parent-charge-1-0"');
+    expect(markup).toContain('SubFlow-parent-charge-1-0');
   });
 });

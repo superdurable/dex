@@ -536,6 +536,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
             <FlowStatePanel
               selectedEvent={selected}
               history={displayedHistory}
+              parentFlowId={flowId}
             />
           </aside>
         )}

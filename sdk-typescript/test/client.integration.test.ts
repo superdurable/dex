@@ -29,6 +29,7 @@ import {
 import {
   FlowServiceService,
   FlowErrorType as ProtoFlowErrorType,
+  type FlowResult as ProtoFlowResult,
   FlowStatus,
   Value,
   type FlowServiceServer,
@@ -39,7 +40,6 @@ import {
   type StartFlowRequest,
   type StartFlowResponse,
   type WaitForFlowRequest,
-  type WaitForFlowResponse,
 } from "../src/gen/dex.js";
 
 interface Input {
@@ -103,7 +103,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     },
     waitForFlow(
       call: { request: WaitForFlowRequest },
-      callback: sendUnaryData<WaitForFlowResponse>,
+      callback: sendUnaryData<ProtoFlowResult>,
     ) {
       const results = [
         {

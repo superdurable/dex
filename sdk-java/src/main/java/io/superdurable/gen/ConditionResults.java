@@ -30,6 +30,7 @@ private static final long serialVersionUID = 0L;
   private ConditionResults() {
     channelResults_ = java.util.Collections.emptyList();
     timerResults_ = java.util.Collections.emptyList();
+    subFlowResults_ = java.util.Collections.emptyList();
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -143,6 +144,47 @@ private static final long serialVersionUID = 0L;
     return waitForFailed_;
   }
 
+  public static final int SUB_FLOW_RESULTS_FIELD_NUMBER = 4;
+  @SuppressWarnings("serial")
+  private java.util.List<io.superdurable.gen.FlowResult> subFlowResults_;
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.superdurable.gen.FlowResult> getSubFlowResultsList() {
+    return subFlowResults_;
+  }
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  @java.lang.Override
+  public java.util.List<? extends io.superdurable.gen.FlowResultOrBuilder> 
+      getSubFlowResultsOrBuilderList() {
+    return subFlowResults_;
+  }
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  @java.lang.Override
+  public int getSubFlowResultsCount() {
+    return subFlowResults_.size();
+  }
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.FlowResult getSubFlowResults(int index) {
+    return subFlowResults_.get(index);
+  }
+  /**
+   * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.FlowResultOrBuilder getSubFlowResultsOrBuilder(
+      int index) {
+    return subFlowResults_.get(index);
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -165,6 +207,9 @@ private static final long serialVersionUID = 0L;
     }
     if (waitForFailed_ != false) {
       output.writeBool(3, waitForFailed_);
+    }
+    for (int i = 0; i < subFlowResults_.size(); i++) {
+      output.writeMessage(4, subFlowResults_.get(i));
     }
     getUnknownFields().writeTo(output);
   }
@@ -192,6 +237,15 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeBoolSize(3, waitForFailed_);
     }
+
+        {
+          final int count = subFlowResults_.size();
+          for (int i = 0; i < count; i++) {
+            size += com.google.protobuf.CodedOutputStream
+              .computeMessageSizeNoTag(subFlowResults_.get(i));
+          }
+          size += 1 * count;
+        }
     return size;
   }
   @java.lang.Override
@@ -222,6 +276,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getTimerResultsList())) return false;
     if (getWaitForFailed()
         != other.getWaitForFailed()) return false;
+    if (!getSubFlowResultsList()
+        .equals(other.getSubFlowResultsList())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -244,6 +300,10 @@ private static final long serialVersionUID = 0L;
     hash = (37 * hash) + WAIT_FOR_FAILED_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
         getWaitForFailed());
+    if (getSubFlowResultsCount() > 0) {
+      hash = (37 * hash) + SUB_FLOW_RESULTS_FIELD_NUMBER;
+      hash = (53 * hash) + getSubFlowResultsList().hashCode();
+    }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -390,6 +450,13 @@ private static final long serialVersionUID = 0L;
       }
       bitField0_ = (bitField0_ & ~0x00000002);
       waitForFailed_ = false;
+      if (subFlowResultsBuilder_ == null) {
+        subFlowResults_ = java.util.Collections.emptyList();
+      } else {
+        subFlowResults_ = null;
+        subFlowResultsBuilder_.clear();
+      }
+      bitField0_ = (bitField0_ & ~0x00000008);
       return this;
     }
 
@@ -440,6 +507,15 @@ private static final long serialVersionUID = 0L;
         result.timerResults_ = timerResults_;
       } else {
         result.timerResults_ = timerResultsBuilder_.build();
+      }
+      if (subFlowResultsBuilder_ == null) {
+        if (((bitField0_ & 0x00000008) != 0)) {
+          subFlowResults_ = java.util.Collections.unmodifiableList(subFlowResults_);
+          bitField0_ = (bitField0_ & ~0x00000008);
+        }
+        result.subFlowResults_ = subFlowResults_;
+      } else {
+        result.subFlowResults_ = subFlowResultsBuilder_.build();
       }
     }
 
@@ -517,6 +593,32 @@ private static final long serialVersionUID = 0L;
       if (other.getWaitForFailed() != false) {
         setWaitForFailed(other.getWaitForFailed());
       }
+      if (subFlowResultsBuilder_ == null) {
+        if (!other.subFlowResults_.isEmpty()) {
+          if (subFlowResults_.isEmpty()) {
+            subFlowResults_ = other.subFlowResults_;
+            bitField0_ = (bitField0_ & ~0x00000008);
+          } else {
+            ensureSubFlowResultsIsMutable();
+            subFlowResults_.addAll(other.subFlowResults_);
+          }
+          onChanged();
+        }
+      } else {
+        if (!other.subFlowResults_.isEmpty()) {
+          if (subFlowResultsBuilder_.isEmpty()) {
+            subFlowResultsBuilder_.dispose();
+            subFlowResultsBuilder_ = null;
+            subFlowResults_ = other.subFlowResults_;
+            bitField0_ = (bitField0_ & ~0x00000008);
+            subFlowResultsBuilder_ = 
+              com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
+                 internalGetSubFlowResultsFieldBuilder() : null;
+          } else {
+            subFlowResultsBuilder_.addAllMessages(other.subFlowResults_);
+          }
+        }
+      }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
       return this;
@@ -574,6 +676,19 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 24
+            case 34: {
+              io.superdurable.gen.FlowResult m =
+                  input.readMessage(
+                      io.superdurable.gen.FlowResult.parser(),
+                      extensionRegistry);
+              if (subFlowResultsBuilder_ == null) {
+                ensureSubFlowResultsIsMutable();
+                subFlowResults_.add(m);
+              } else {
+                subFlowResultsBuilder_.addMessage(m);
+              }
+              break;
+            } // case 34
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1101,6 +1216,246 @@ private static final long serialVersionUID = 0L;
       waitForFailed_ = false;
       onChanged();
       return this;
+    }
+
+    private java.util.List<io.superdurable.gen.FlowResult> subFlowResults_ =
+      java.util.Collections.emptyList();
+    private void ensureSubFlowResultsIsMutable() {
+      if (!((bitField0_ & 0x00000008) != 0)) {
+        subFlowResults_ = new java.util.ArrayList<io.superdurable.gen.FlowResult>(subFlowResults_);
+        bitField0_ |= 0x00000008;
+       }
+    }
+
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder> subFlowResultsBuilder_;
+
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public java.util.List<io.superdurable.gen.FlowResult> getSubFlowResultsList() {
+      if (subFlowResultsBuilder_ == null) {
+        return java.util.Collections.unmodifiableList(subFlowResults_);
+      } else {
+        return subFlowResultsBuilder_.getMessageList();
+      }
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public int getSubFlowResultsCount() {
+      if (subFlowResultsBuilder_ == null) {
+        return subFlowResults_.size();
+      } else {
+        return subFlowResultsBuilder_.getCount();
+      }
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public io.superdurable.gen.FlowResult getSubFlowResults(int index) {
+      if (subFlowResultsBuilder_ == null) {
+        return subFlowResults_.get(index);
+      } else {
+        return subFlowResultsBuilder_.getMessage(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public Builder setSubFlowResults(
+        int index, io.superdurable.gen.FlowResult value) {
+      if (subFlowResultsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSubFlowResultsIsMutable();
+        subFlowResults_.set(index, value);
+        onChanged();
+      } else {
+        subFlowResultsBuilder_.setMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public Builder setSubFlowResults(
+        int index, io.superdurable.gen.FlowResult.Builder builderForValue) {
+      if (subFlowResultsBuilder_ == null) {
+        ensureSubFlowResultsIsMutable();
+        subFlowResults_.set(index, builderForValue.build());
+        onChanged();
+      } else {
+        subFlowResultsBuilder_.setMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public Builder addSubFlowResults(io.superdurable.gen.FlowResult value) {
+      if (subFlowResultsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSubFlowResultsIsMutable();
+        subFlowResults_.add(value);
+        onChanged();
+      } else {
+        subFlowResultsBuilder_.addMessage(value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public Builder addSubFlowResults(
+        int index, io.superdurable.gen.FlowResult value) {
+      if (subFlowResultsBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        ensureSubFlowResultsIsMutable();
+        subFlowResults_.add(index, value);
+        onChanged();
+      } else {
+        subFlowResultsBuilder_.addMessage(index, value);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public Builder addSubFlowResults(
+        io.superdurable.gen.FlowResult.Builder builderForValue) {
+      if (subFlowResultsBuilder_ == null) {
+        ensureSubFlowResultsIsMutable();
+        subFlowResults_.add(builderForValue.build());
+        onChanged();
+      } else {
+        subFlowResultsBuilder_.addMessage(builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public Builder addSubFlowResults(
+        int index, io.superdurable.gen.FlowResult.Builder builderForValue) {
+      if (subFlowResultsBuilder_ == null) {
+        ensureSubFlowResultsIsMutable();
+        subFlowResults_.add(index, builderForValue.build());
+        onChanged();
+      } else {
+        subFlowResultsBuilder_.addMessage(index, builderForValue.build());
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public Builder addAllSubFlowResults(
+        java.lang.Iterable<? extends io.superdurable.gen.FlowResult> values) {
+      if (subFlowResultsBuilder_ == null) {
+        ensureSubFlowResultsIsMutable();
+        com.google.protobuf.AbstractMessageLite.Builder.addAll(
+            values, subFlowResults_);
+        onChanged();
+      } else {
+        subFlowResultsBuilder_.addAllMessages(values);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public Builder clearSubFlowResults() {
+      if (subFlowResultsBuilder_ == null) {
+        subFlowResults_ = java.util.Collections.emptyList();
+        bitField0_ = (bitField0_ & ~0x00000008);
+        onChanged();
+      } else {
+        subFlowResultsBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public Builder removeSubFlowResults(int index) {
+      if (subFlowResultsBuilder_ == null) {
+        ensureSubFlowResultsIsMutable();
+        subFlowResults_.remove(index);
+        onChanged();
+      } else {
+        subFlowResultsBuilder_.remove(index);
+      }
+      return this;
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public io.superdurable.gen.FlowResult.Builder getSubFlowResultsBuilder(
+        int index) {
+      return internalGetSubFlowResultsFieldBuilder().getBuilder(index);
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public io.superdurable.gen.FlowResultOrBuilder getSubFlowResultsOrBuilder(
+        int index) {
+      if (subFlowResultsBuilder_ == null) {
+        return subFlowResults_.get(index);  } else {
+        return subFlowResultsBuilder_.getMessageOrBuilder(index);
+      }
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public java.util.List<? extends io.superdurable.gen.FlowResultOrBuilder> 
+         getSubFlowResultsOrBuilderList() {
+      if (subFlowResultsBuilder_ != null) {
+        return subFlowResultsBuilder_.getMessageOrBuilderList();
+      } else {
+        return java.util.Collections.unmodifiableList(subFlowResults_);
+      }
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public io.superdurable.gen.FlowResult.Builder addSubFlowResultsBuilder() {
+      return internalGetSubFlowResultsFieldBuilder().addBuilder(
+          io.superdurable.gen.FlowResult.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public io.superdurable.gen.FlowResult.Builder addSubFlowResultsBuilder(
+        int index) {
+      return internalGetSubFlowResultsFieldBuilder().addBuilder(
+          index, io.superdurable.gen.FlowResult.getDefaultInstance());
+    }
+    /**
+     * <code>repeated .dex.FlowResult sub_flow_results = 4;</code>
+     */
+    public java.util.List<io.superdurable.gen.FlowResult.Builder> 
+         getSubFlowResultsBuilderList() {
+      return internalGetSubFlowResultsFieldBuilder().getBuilderList();
+    }
+    private com.google.protobuf.RepeatedFieldBuilder<
+        io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder> 
+        internalGetSubFlowResultsFieldBuilder() {
+      if (subFlowResultsBuilder_ == null) {
+        subFlowResultsBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
+            io.superdurable.gen.FlowResult, io.superdurable.gen.FlowResult.Builder, io.superdurable.gen.FlowResultOrBuilder>(
+                subFlowResults_,
+                ((bitField0_ & 0x00000008) != 0),
+                getParentForChildren(),
+                isClean());
+        subFlowResults_ = null;
+      }
+      return subFlowResultsBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.ConditionResults)

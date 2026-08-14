@@ -149,6 +149,8 @@ export function FlowOverview({
                           value={step.waitingCondition}
                           label="Waiting condition"
                           persistKey={`overview:active-step:${step.stepType}:waiting-condition`}
+                          parentFlowId={summary.flowId}
+                          stepExecutionId={step.stepExecutionId}
                         />
                       )}
                       {step.timers.length > 0 && (
@@ -250,7 +252,11 @@ export function FlowOverview({
           </div>
           {started ? (
             <div className="semantic-event">
-              <SemanticEventDetails event={started} showStartHeading={false} />
+              <SemanticEventDetails
+                event={started}
+                parentFlowId={summary.flowId}
+                showStartHeading={false}
+              />
             </div>
           ) : (
             <p className="muted">The start event is not in the loaded history page.</p>
@@ -271,7 +277,11 @@ export function FlowOverview({
                 </div>
               </header>
               <div className="overview-selected-event-body">
-                <EventDetails event={selectedEvent} history={events} />
+                <EventDetails
+                  event={selectedEvent}
+                  history={events}
+                  parentFlowId={summary.flowId}
+                />
               </div>
             </>
           ) : (

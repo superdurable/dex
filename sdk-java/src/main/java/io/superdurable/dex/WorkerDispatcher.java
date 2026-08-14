@@ -16,6 +16,7 @@ package io.superdurable.dex;
 
 import io.superdurable.dex.exceptions.InvalidStepResultException;
 import io.superdurable.gen.ChannelCondition;
+import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.CloseDecision;
 import io.superdurable.gen.CloseDecisionType;
 import io.superdurable.gen.ConditionCombination;
@@ -27,6 +28,7 @@ import io.superdurable.gen.InvokeWaitForMethodResponse;
 import io.superdurable.gen.InvokeWorkerRPCRequest;
 import io.superdurable.gen.InvokeWorkerRPCResponse;
 import io.superdurable.gen.StepMovement;
+import io.superdurable.gen.SubFlowCondition;
 import io.superdurable.gen.TimerCondition;
 import io.superdurable.gen.WaitForMethodFailurePolicy;
 import io.superdurable.gen.WaitingCondition;
@@ -217,6 +219,7 @@ final class WorkerDispatcher {
         }
         waiting.addAllTimerConditions(mapper.timers);
         waiting.addAllChannelConditions(mapper.channels);
+        waiting.addAllSubFlowConditions(mapper.subFlows);
         return waiting.build();
     }
 
@@ -449,6 +452,7 @@ final class WorkerDispatcher {
         private final Set<String> used = new HashSet<String>();
         private final List<TimerCondition> timers = new ArrayList<TimerCondition>();
         private final List<ChannelCondition> channels = new ArrayList<ChannelCondition>();
+        private final List<SubFlowCondition> subFlows = new ArrayList<SubFlowCondition>();
 
         ConditionMapper(final Registry.RegisteredFlow flow) {
             this.flow = flow;
@@ -483,7 +487,7 @@ final class WorkerDispatcher {
                         .setConditionId(id)
                         .setDurationSeconds(condition.getDuration().getSeconds())
                         .build());
-            } else {
+            } else if (condition.getKind() == Condition.Kind.CHANNEL) {
                 final io.superdurable.dex.PersistenceDefinition definition =
                         flow.getPersistence().get(condition.getChannelName());
                 if (!(definition instanceof Channel) && !(definition instanceof ChannelMap)) {
@@ -505,9 +509,156 @@ final class WorkerDispatcher {
                     channel.setAtMost(condition.getAtMost());
                 }
                 channels.add(channel.build());
+            } else {
+                subFlows.add(mapSubFlow(condition, id, subFlows.size()));
             }
             ids.put(condition, id);
             return id;
         }
+
+        private SubFlowCondition mapSubFlow(
+                final Condition condition,
+                final String conditionId,
+                final int index) {
+            final Registry.RegisteredFlow target = registry.getFlow(condition.getSubFlowClass());
+            final Registry.RegisteredStep start = target.getStartStep();
+            if (start == null) {
+                throw new InvalidStepResultException(
+                        "SubFlow " + target.getName() + " requires a starting Step");
+            }
+            final SubFlowOptions options = condition.getSubFlowOptions();
+            final io.superdurable.gen.SubFlowOptions.Builder mappedOptions =
+                    io.superdurable.gen.SubFlowOptions.newBuilder()
+                            .setReusePolicy(mapSubFlowReuse(options.getReusePolicy()));
+            if (options.getTimeout() != null) {
+                mappedOptions.setFlowTimeoutSeconds(seconds32(options.getTimeout()));
+            }
+            if (options.getStartDelay() != null) {
+                mappedOptions.setFlowStartDelaySeconds(seconds32(options.getStartDelay()));
+            }
+            if (options.getRetryPolicy() != null) {
+                mappedOptions.setRetryPolicy(mapFlowRetry(options.getRetryPolicy()));
+            }
+            for (SubFlowOptions.AttributeInitialization initialization
+                    : options.getAttributes()) {
+                final PersistenceDefinition registered = target.getPersistence().get(
+                        initialization.getDefinition().getName());
+                if (registered != initialization.getDefinition()) {
+                    throw new InvalidStepResultException(
+                            "SubFlow " + target.getName() + " Attribute does not belong to Flow: "
+                                    + initialization.getDefinition().getName());
+                }
+                final String key = initialization.getInstance() == null
+                        ? registered.getName()
+                        : Registry.physicalName(registered.getName(), initialization.getInstance());
+                final AttributeWrite.Builder write = AttributeWrite.newBuilder()
+                        .setKey(key)
+                        .setValue(values.encode(initialization.getValue()));
+                final AttributeIndex attributeIndex = registered instanceof Attribute
+                        ? ((Attribute<?>) registered).getIndex()
+                        : ((AttributeMap<?>) registered).getIndex();
+                final io.superdurable.gen.IndexConfig indexConfig = values.indexConfig(
+                        attributeIndex, initialization.getInstance() != null);
+                if (indexConfig != null) {
+                    write.setIndexConfig(indexConfig);
+                }
+                if (registered.isSyncToAttributeStore()) {
+                    write.setSyncConfig(io.superdurable.gen.AttributeSyncConfig.newBuilder()
+                            .setEnabled(true));
+                }
+                mappedOptions.addAttributes(write);
+            }
+            if (options.getConfigOverride() != null) {
+                mappedOptions.setFlowConfigOverride(mapFlowConfig(options.getConfigOverride()));
+            }
+            final SubFlowCondition.Builder mapped = SubFlowCondition.newBuilder()
+                    .setConditionId(conditionId)
+                    .setSubFlowType(target.getName())
+                    .setStartStepType(start.getName())
+                    .setStepInput(values.encode(condition.getSubFlowInput()))
+                    .setOptions(mappedOptions)
+                    .setSubFlowIndex(index);
+            final io.superdurable.gen.StepOptions stepOptions =
+                    mapStepOptions(start.getStep().getStepOptions());
+            if (stepOptions != null || start.skipsWaitFor()) {
+                final io.superdurable.gen.StepOptions.Builder mappedStepOptions =
+                        stepOptions == null
+                                ? io.superdurable.gen.StepOptions.newBuilder()
+                                : stepOptions.toBuilder();
+                mappedStepOptions.setSkipWaitFor(start.skipsWaitFor());
+                mapped.setStepOptions(mappedStepOptions);
+            }
+            return mapped.build();
+        }
+    }
+
+    private static io.superdurable.gen.SubFlowReusePolicy mapSubFlowReuse(
+            final SubFlowReusePolicy policy) {
+        switch (policy) {
+            case ATTACH:
+                return io.superdurable.gen.SubFlowReusePolicy.SUB_FLOW_REUSE_POLICY_ATTACH;
+            case ALWAYS_RESTART:
+                return io.superdurable.gen.SubFlowReusePolicy
+                        .SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART;
+            default:
+                return io.superdurable.gen.SubFlowReusePolicy
+                        .SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY;
+        }
+    }
+
+    private static io.superdurable.gen.FlowRetryPolicy mapFlowRetry(
+            final RetryPolicy retry) {
+        final io.superdurable.gen.FlowRetryPolicy.Builder mapped =
+                io.superdurable.gen.FlowRetryPolicy.newBuilder()
+                        .setBackoffCoefficient((float) retry.getBackoffCoefficient())
+                        .setMaximumAttempts(retry.getMaximumAttempts());
+        if (retry.getInitialInterval() != null) {
+            mapped.setInitialIntervalSeconds(seconds32(retry.getInitialInterval()));
+        }
+        if (retry.getMaximumInterval() != null) {
+            mapped.setMaximumIntervalSeconds(seconds32(retry.getMaximumInterval()));
+        }
+        return mapped.build();
+    }
+
+    private static io.superdurable.gen.FlowConfig mapFlowConfig(final FlowConfig config) {
+        final io.superdurable.gen.FlowConfig.Builder mapped =
+                io.superdurable.gen.FlowConfig.newBuilder();
+        if (config.getActiveStepSearchMode() != null) {
+            switch (config.getActiveStepSearchMode()) {
+                case ALL:
+                    mapped.setActiveStepSearchMode(io.superdurable.gen.ActiveStepSearchMode
+                            .ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL);
+                    break;
+                case WITH_WAIT_FOR:
+                    mapped.setActiveStepSearchMode(io.superdurable.gen.ActiveStepSearchMode
+                            .ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR);
+                    break;
+                case DISABLED:
+                    mapped.setActiveStepSearchMode(io.superdurable.gen.ActiveStepSearchMode
+                            .ACTIVE_STEP_SEARCH_MODE_DISABLED);
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (config.getContinueAsNewThreshold() != null) {
+            mapped.setContinueAsNewThreshold(config.getContinueAsNewThreshold());
+        }
+        if (config.getContinueAsNewPageSizeBytes() != null) {
+            mapped.setContinueAsNewPageSizeInBytes(config.getContinueAsNewPageSizeBytes());
+        }
+        if (config.getStepDurability() != null) {
+            mapped.setStepDurability(mapDurability(config.getStepDurability()));
+        }
+        if (config.getWorkerTarget() != null) {
+            mapped.setWorkerTarget(io.superdurable.gen.WorkerTarget.newBuilder()
+                    .setAddress(config.getWorkerTarget().getAddress())
+                    .setIsHeadlessAddress(config.getWorkerTarget().isHeadless()));
+        }
+        if (config.getAttributeStoreName() != null) {
+            mapped.setAttributeSyncConfigName(config.getAttributeStoreName());
+        }
+        return mapped.build();
     }
 }

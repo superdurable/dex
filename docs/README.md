@@ -21,6 +21,8 @@ npm run serve
 Published pages live under [`content/`](content/). Site config:
 `docusaurus.config.ts`, `sidebars.ts`, `src/`.
 
+Feature guides include [durable SubFlows](content/capabilities/advanced/subflows.mdx).
+
 ## Contributor design notes
 
 Engineering design docs (not in the public sidebar):

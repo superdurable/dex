@@ -28,15 +28,15 @@ func timerCond(id string) *dexpb.TimerCondition {
 	return &dexpb.TimerCondition{ConditionId: id, DurationSeconds: 1}
 }
 
-func wcAny(channels ...*dexpb.ChannelCondition) *dexpb.WaitingCondition {
-	return &dexpb.WaitingCondition{
+func wcAny(channels ...*dexpb.ChannelCondition) *dexpb.WaitingConditionState {
+	return &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 		ChannelConditions:    channels,
 	}
 }
 
-func wcAll(channels ...*dexpb.ChannelCondition) *dexpb.WaitingCondition {
-	return &dexpb.WaitingCondition{
+func wcAll(channels ...*dexpb.ChannelCondition) *dexpb.WaitingConditionState {
+	return &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		ChannelConditions:    channels,
 	}
@@ -76,7 +76,7 @@ func TestNormalization(t *testing.T) {
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 			waitingCondition := wcAny(testCase.cond)
-			plan, ok := Plan(waitingCondition, ChannelAvailability{"ch": testCase.avail}, nil)
+			plan, ok := Plan(waitingCondition, ChannelAvailability{"ch": testCase.avail}, nil, nil)
 			assert.Equal(t, testCase.wantMatch, ok)
 			if testCase.wantMatch {
 				assert.Equal(t, testCase.wantCount, consumeByConditionIndex(plan)[0])
@@ -88,7 +88,7 @@ func TestNormalization(t *testing.T) {
 func TestPlan_DoesNotMutateAvailability(t *testing.T) {
 	waitingCondition := wcAny(chCond("c", "ch", ptr.Any(int32(1)), nil))
 	availability := ChannelAvailability{"ch": 3}
-	_, ok := Plan(waitingCondition, availability, nil)
+	_, ok := Plan(waitingCondition, availability, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, int32(3), availability["ch"], "Plan must not consume; commit is a separate step")
 }
@@ -100,10 +100,10 @@ func TestPlan_ALL_SharedChannelCompetingMinima(t *testing.T) {
 		chCond("b", "ch", ptr.Any(int32(2)), ptr.Any(int32(2))),
 	)
 
-	_, ok := Plan(waitingCondition, ChannelAvailability{"ch": 3}, nil)
+	_, ok := Plan(waitingCondition, ChannelAvailability{"ch": 3}, nil, nil)
 	assert.False(t, ok, "summed minima 4 > available 3 is infeasible")
 
-	plan, ok := Plan(waitingCondition, ChannelAvailability{"ch": 4}, nil)
+	plan, ok := Plan(waitingCondition, ChannelAvailability{"ch": 4}, nil, nil)
 	require.True(t, ok)
 	got := consumeByConditionIndex(plan)
 	assert.Equal(t, int32(2), got[0])
@@ -116,7 +116,7 @@ func TestPlan_ALL_ZeroToAllDoesNotStealExactMinimum(t *testing.T) {
 		chCond("exact", "ch", ptr.Any(int32(2)), ptr.Any(int32(2))),
 		chCond("zero", "ch", ptr.Any(int32(0)), nil),
 	)
-	plan, ok := Plan(waitingCondition, ChannelAvailability{"ch": 3}, nil)
+	plan, ok := Plan(waitingCondition, ChannelAvailability{"ch": 3}, nil, nil)
 	require.True(t, ok)
 	got := consumeByConditionIndex(plan)
 	assert.Equal(t, int32(2), got[0])
@@ -128,7 +128,7 @@ func TestPlan_ALL_ZeroToAllStealsNothingWhenMinimumTight(t *testing.T) {
 		chCond("exact", "ch", ptr.Any(int32(2)), ptr.Any(int32(2))),
 		chCond("zero", "ch", ptr.Any(int32(0)), nil),
 	)
-	plan, ok := Plan(waitingCondition, ChannelAvailability{"ch": 2}, nil)
+	plan, ok := Plan(waitingCondition, ChannelAvailability{"ch": 2}, nil, nil)
 	require.True(t, ok)
 	got := consumeByConditionIndex(plan)
 	assert.Equal(t, int32(2), got[0])
@@ -141,7 +141,7 @@ func TestPlan_ANY_FirstFeasibleInDeclarationOrder(t *testing.T) {
 		chCond("c1", "chA", ptr.Any(int32(5)), ptr.Any(int32(5))),
 		chCond("c2", "chB", nil, nil),
 	)
-	plan, ok := Plan(waitingCondition, ChannelAvailability{"chA": 1, "chB": 2}, nil)
+	plan, ok := Plan(waitingCondition, ChannelAvailability{"chA": 1, "chB": 2}, nil, nil)
 	require.True(t, ok)
 	counts := consumeByConditionIndex(plan)
 	assert.Contains(t, counts, 1)
@@ -149,7 +149,7 @@ func TestPlan_ANY_FirstFeasibleInDeclarationOrder(t *testing.T) {
 }
 
 func TestPlan_ANY_TimerCandidate(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1")},
 		ChannelConditions:    []*dexpb.ChannelCondition{chCond("c1", "ch", ptr.Any(int32(5)), ptr.Any(int32(5)))},
@@ -159,6 +159,7 @@ func TestPlan_ANY_TimerCandidate(t *testing.T) {
 		waitingCondition,
 		ChannelAvailability{"ch": 0},
 		map[int32]dexpb.InternalTimerStatus{},
+		nil,
 	)
 	assert.False(t, ok, "timer pending and channel unmet -> no trigger")
 
@@ -168,13 +169,14 @@ func TestPlan_ANY_TimerCandidate(t *testing.T) {
 		map[int32]dexpb.InternalTimerStatus{
 			0: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
 		},
+		nil,
 	)
 	require.True(t, ok, "fired timer satisfies ANY")
 	assert.Empty(t, plan.Consumes)
 }
 
 func TestPlan_ALL_RequiresTimerCompletion(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1")},
 		ChannelConditions:    []*dexpb.ChannelCondition{chCond("c1", "ch", nil, nil)},
@@ -183,6 +185,7 @@ func TestPlan_ALL_RequiresTimerCompletion(t *testing.T) {
 		waitingCondition,
 		ChannelAvailability{"ch": 3},
 		map[int32]dexpb.InternalTimerStatus{},
+		nil,
 	)
 	assert.False(t, ok, "ALL requires the timer to have fired")
 	_, ok = Plan(
@@ -191,12 +194,13 @@ func TestPlan_ALL_RequiresTimerCompletion(t *testing.T) {
 		map[int32]dexpb.InternalTimerStatus{
 			0: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
 		},
+		nil,
 	)
 	assert.True(t, ok)
 }
 
 func TestPlan_ALL_AllowsMissingConditionIds(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 		TimerConditions:      []*dexpb.TimerCondition{timerCond("")},
 		ChannelConditions: []*dexpb.ChannelCondition{
@@ -210,6 +214,7 @@ func TestPlan_ALL_AllowsMissingConditionIds(t *testing.T) {
 		map[int32]dexpb.InternalTimerStatus{
 			0: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
 		},
+		nil,
 	)
 	require.True(t, ok)
 	require.Equal(t, map[int]int32{0: 1, 1: 1}, consumeByConditionIndex(plan))
@@ -220,7 +225,7 @@ func TestPlan_ANY_AllowsMissingConditionIds(t *testing.T) {
 		chCond("", "unavailable", nil, nil),
 		chCond("", "available", nil, nil),
 	)
-	plan, ok := Plan(waitingCondition, ChannelAvailability{"available": 1}, nil)
+	plan, ok := Plan(waitingCondition, ChannelAvailability{"available": 1}, nil, nil)
 	require.True(t, ok)
 	require.Equal(t, map[int]int32{1: 1}, consumeByConditionIndex(plan))
 
@@ -228,6 +233,7 @@ func TestPlan_ANY_AllowsMissingConditionIds(t *testing.T) {
 		waitingCondition,
 		nil,
 		map[int][]*dexpb.Value{1: nil},
+		nil,
 	)
 	require.Equal(
 		t,
@@ -243,7 +249,7 @@ func TestPlan_ANY_AllowsMissingConditionIds(t *testing.T) {
 
 func TestPlan_AnyCombination(t *testing.T) {
 	// Two combinations; first is infeasible (needs 5 on chA), second feasible.
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED,
 		ChannelConditions: []*dexpb.ChannelCondition{
 			chCond("a", "chA", ptr.Any(int32(5)), ptr.Any(int32(5))),
@@ -255,7 +261,7 @@ func TestPlan_AnyCombination(t *testing.T) {
 			{ConditionIds: []string{"b", "c"}},
 		},
 	}
-	plan, ok := Plan(waitingCondition, ChannelAvailability{"chA": 1, "chB": 1, "chC": 1}, nil)
+	plan, ok := Plan(waitingCondition, ChannelAvailability{"chA": 1, "chB": 1, "chC": 1}, nil, nil)
 	require.True(t, ok)
 	counts := consumeByConditionIndex(plan)
 	assert.Contains(t, counts, 1)
@@ -264,16 +270,16 @@ func TestPlan_AnyCombination(t *testing.T) {
 }
 
 func TestPlan_EmptyWaitingConditionMatches(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 	}
-	plan, ok := Plan(waitingCondition, ChannelAvailability{}, nil)
+	plan, ok := Plan(waitingCondition, ChannelAvailability{}, nil, nil)
 	require.True(t, ok)
 	assert.Empty(t, plan.Consumes)
 }
 
 func TestBuildConditionResults(t *testing.T) {
-	waitingCondition := &dexpb.WaitingCondition{
+	waitingCondition := &dexpb.WaitingConditionState{
 		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 		TimerConditions:      []*dexpb.TimerCondition{timerCond("t1")},
 		ChannelConditions: []*dexpb.ChannelCondition{
@@ -288,6 +294,7 @@ func TestBuildConditionResults(t *testing.T) {
 			0: dexpb.InternalTimerStatus_INTERNAL_TIMER_STATUS_FIRED,
 		},
 		map[int][]*dexpb.Value{0: values},
+		nil,
 	)
 
 	require.Len(t, results.GetTimerResults(), 1)

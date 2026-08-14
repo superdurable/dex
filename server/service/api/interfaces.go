@@ -24,7 +24,7 @@ type ApiService interface {
 	GetAttributes(context.Context, *dexpb.GetAttributesRequest) (*dexpb.GetAttributesResponse, error)
 	SetAttributes(context.Context, *dexpb.SetAttributesRequest) (*emptypb.Empty, error)
 	LoadBlobs(context.Context, *dexpb.LoadBlobsRequest) (*dexpb.LoadBlobsResponse, error)
-	WaitForFlow(context.Context, *dexpb.WaitForFlowRequest) (*dexpb.WaitForFlowResponse, error)
+	WaitForFlow(context.Context, *dexpb.WaitForFlowRequest) (*dexpb.FlowResult, error)
 	SearchFlows(context.Context, *dexpb.SearchFlowsRequest) (*dexpb.SearchFlowsResponse, error)
 	SyncAttributeIndexes(context.Context, *dexpb.SyncAttributeIndexRequest) (*dexpb.SyncAttributeIndexResponse, error)
 	GetFlowSummary(context.Context, *dexpb.GetFlowSummaryRequest) (*dexpb.GetFlowSummaryResponse, error)

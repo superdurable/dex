@@ -17,6 +17,7 @@ import (
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 	"go.temporal.io/sdk/converter"
@@ -88,6 +89,50 @@ func (w *workflowProvider) IsApplicationError(err error) bool {
 	return errors.As(err, &applicationError)
 }
 
+func (w *workflowProvider) MapToFlowResultError(
+	err error,
+) (dexpb.FlowErrorType, *dexpb.RecoveryErrorInfo, error) {
+	var applicationError *temporal.ApplicationError
+	if !errors.As(err, &applicationError) {
+		recoveryError, mappingErr := w.MapToRecoveryError(err)
+		if mappingErr != nil {
+			return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, mappingErr
+		}
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, recoveryError, nil
+	}
+	value, ok := dexpb.FlowErrorType_value[applicationError.Type()]
+	if !ok {
+		recoveryError, mappingErr := w.MapToRecoveryError(err)
+		if mappingErr != nil {
+			return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, mappingErr
+		}
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, recoveryError, nil
+	}
+	flowError, detailsErr := decodeTemporalFlowErrorDetails(applicationError)
+	if detailsErr != nil {
+		return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil,
+			fmt.Errorf("decode Temporal Flow failure details: %w", detailsErr)
+	}
+	return dexpb.FlowErrorType(value), temporalFlowRecoveryError(
+		flowError, applicationError.Message(), applicationError.Type(),
+	), nil
+}
+
+func temporalFlowRecoveryError(
+	flowError *dexpb.InternalFlowError,
+	backendDetail string,
+	backendType string,
+) *dexpb.RecoveryErrorInfo {
+	if activityError := flowError.GetActivityError(); activityError != nil {
+		return temporalRecoveryError(activityError, backendDetail, backendType)
+	}
+	detail := flowError.GetServerDetail()
+	if detail == "" {
+		detail = backendDetail
+	}
+	return &dexpb.RecoveryErrorInfo{Detail: detail, ErrorType: backendType}
+}
+
 func (w *workflowProvider) MapToRecoveryError(err error) (*dexpb.RecoveryErrorInfo, error) {
 	var timeoutError *temporal.TimeoutError
 	if errors.As(err, &timeoutError) {
@@ -139,9 +184,21 @@ func temporalRecoveryError(
 	}
 	return &dexpb.RecoveryErrorInfo{Detail: detail, ErrorType: backendType}
 }
+func (w *workflowProvider) IsCanceledError(err error) bool {
+	return temporal.IsCanceledError(err)
+}
 
 func (w *workflowProvider) IsContinueAsNewError(err error) bool {
 	return workflow.IsContinueAsNewError(err)
+}
+
+func (w *workflowProvider) NewDisconnectedContext(ctx interfaces.UnifiedContext) interfaces.UnifiedContext {
+	wfCtx, ok := ctx.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to temporal workflow context")
+	}
+	disconnected, _ := workflow.NewDisconnectedContext(wfCtx)
+	return interfaces.NewUnifiedContext(disconnected)
 }
 
 func (w *workflowProvider) NewInterpreterContinueAsNewError(
@@ -181,7 +238,7 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		panic("cannot convert to temporal workflow context")
 	}
 	info := workflow.GetInfo(wfCtx)
-	return interfaces.WorkflowInfo{
+	workflowInfo := interfaces.WorkflowInfo{
 		WorkflowExecution: interfaces.WorkflowExecution{
 			ID:    info.WorkflowExecution.ID,
 			RunID: info.WorkflowExecution.RunID,
@@ -190,7 +247,31 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 		WorkflowExecutionTimeout: info.WorkflowExecutionTimeout,
 		FirstRunID:               info.FirstRunID,
 		CurrentRunID:             info.WorkflowExecution.RunID,
+		Attempt:                  info.Attempt,
 	}
+	if info.RetryPolicy != nil {
+		workflowInfo.RetryMaximumAttempts = ptr.Any(info.RetryPolicy.MaximumAttempts)
+	}
+	return workflowInfo
+}
+
+func (w *workflowProvider) GetSearchAttributeKeyword(
+	ctx interfaces.UnifiedContext,
+	key string,
+) (string, error) {
+	wfCtx, ok := ctx.GetContext().(workflow.Context)
+	if !ok {
+		panic("cannot convert to temporal workflow context")
+	}
+	field, ok := workflow.GetInfo(wfCtx).SearchAttributes.GetIndexedFields()[key]
+	if !ok {
+		return "", nil
+	}
+	var value string
+	if err := converter.GetDefaultDataConverter().FromPayload(field, &value); err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func (w *workflowProvider) GetSearchAttributeKeywordArray(
@@ -455,6 +536,12 @@ func decodeTemporalStepErrorDetails(
 	applicationError *temporal.ApplicationError,
 ) (*dexpb.InternalActivityError, error) {
 	return decodeTemporalApplicationErrorDetail[dexpb.InternalActivityError](applicationError)
+}
+
+func decodeTemporalFlowErrorDetails(
+	applicationError *temporal.ApplicationError,
+) (*dexpb.InternalFlowError, error) {
+	return decodeTemporalApplicationErrorDetail[dexpb.InternalFlowError](applicationError)
 }
 
 func decodeTemporalLocalStepErrorDetails(

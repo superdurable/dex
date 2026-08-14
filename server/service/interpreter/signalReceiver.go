@@ -25,6 +25,7 @@ type SignalReceiver struct {
 	channelStore       *ChannelStore
 	stepRequestQueue   *StepRequestQueue
 	persistenceManager *PersistenceManager
+	subFlowTracker     *SubFlowTracker
 	stopFlowRequested  bool
 	stopFlowErr        error
 }
@@ -38,6 +39,7 @@ func NewSignalReceiver(
 	timerProcessor interfaces.TimerProcessor,
 	continueAsNewCounter *cont.ContinueAsNewCounter,
 	flowConfiger *config.FlowConfiger,
+	subFlowTracker *SubFlowTracker,
 ) *SignalReceiver {
 	sr := &SignalReceiver{
 		provider:           provider,
@@ -46,6 +48,7 @@ func NewSignalReceiver(
 		channelStore:       channelStore,
 		stepRequestQueue:   stepRequestQueue,
 		persistenceManager: persistenceManager,
+		subFlowTracker:     subFlowTracker,
 	}
 
 	//The thread waits until a StopWorkflowSignalChannelName signal has been
@@ -104,6 +107,26 @@ func NewSignalReceiver(
 				// NOTE: continueAsNew will wait for all threads to complete, so we must stop this thread for continueAsNew when no more signals to process
 				return
 			}
+		}
+	})
+
+	provider.GoNamed(ctx, "sub-flow-completion-signal-handler", func(ctx interfaces.UnifiedContext) {
+		for {
+			ch := provider.GetSignalChannel(ctx, service.SubFlowCompletionSignalChannelName)
+			val := dexpb.SubFlowCompletionSignalRequest{}
+			received := false
+			err := provider.Await(ctx, func() bool {
+				received = ch.ReceiveAsync(&val)
+				return received || continueAsNewCounter.IsThresholdMet()
+			})
+			if err != nil {
+				return
+			}
+			if !received {
+				return
+			}
+			continueAsNewCounter.IncSignalsReceived()
+			subFlowTracker.HandleSubFlowCompletion(&val)
 		}
 	})
 
@@ -245,6 +268,16 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 			if err := sr.flowConfiger.UpdateByAPI(val.GetFlowConfig()); err != nil {
 				sr.failInvalidFlowConfig(err)
 			}
+		} else {
+			break
+		}
+	}
+
+	ch = sr.provider.GetSignalChannel(ctx, service.SubFlowCompletionSignalChannelName)
+	for {
+		val := dexpb.SubFlowCompletionSignalRequest{}
+		if ch.ReceiveAsync(&val) {
+			sr.subFlowTracker.HandleSubFlowCompletion(&val)
 		} else {
 			break
 		}

@@ -92,4 +92,28 @@ public interface WaitingConditionOrBuilder extends
    */
   io.superdurable.gen.ConditionCombinationOrBuilder getConditionCombinationsOrBuilder(
       int index);
+
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  java.util.List<io.superdurable.gen.SubFlowCondition> 
+      getSubFlowConditionsList();
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  io.superdurable.gen.SubFlowCondition getSubFlowConditions(int index);
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  int getSubFlowConditionsCount();
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  java.util.List<? extends io.superdurable.gen.SubFlowConditionOrBuilder> 
+      getSubFlowConditionsOrBuilderList();
+  /**
+   * <code>repeated .dex.SubFlowCondition sub_flow_conditions = 5;</code>
+   */
+  io.superdurable.gen.SubFlowConditionOrBuilder getSubFlowConditionsOrBuilder(
+      int index);
 }

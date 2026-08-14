@@ -217,9 +217,9 @@ private static final long serialVersionUID = 0L;
   }
 
   public static final int WAITING_CONDITION_FIELD_NUMBER = 6;
-  private io.superdurable.gen.WaitingCondition waitingCondition_;
+  private io.superdurable.gen.WaitingConditionState waitingCondition_;
   /**
-   * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+   * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
    * @return Whether the waitingCondition field is set.
    */
   @java.lang.Override
@@ -227,19 +227,19 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000002) != 0);
   }
   /**
-   * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+   * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
    * @return The waitingCondition.
    */
   @java.lang.Override
-  public io.superdurable.gen.WaitingCondition getWaitingCondition() {
-    return waitingCondition_ == null ? io.superdurable.gen.WaitingCondition.getDefaultInstance() : waitingCondition_;
+  public io.superdurable.gen.WaitingConditionState getWaitingCondition() {
+    return waitingCondition_ == null ? io.superdurable.gen.WaitingConditionState.getDefaultInstance() : waitingCondition_;
   }
   /**
-   * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+   * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
    */
   @java.lang.Override
-  public io.superdurable.gen.WaitingConditionOrBuilder getWaitingConditionOrBuilder() {
-    return waitingCondition_ == null ? io.superdurable.gen.WaitingCondition.getDefaultInstance() : waitingCondition_;
+  public io.superdurable.gen.WaitingConditionStateOrBuilder getWaitingConditionOrBuilder() {
+    return waitingCondition_ == null ? io.superdurable.gen.WaitingConditionState.getDefaultInstance() : waitingCondition_;
   }
 
   public static final int COMPLETED_CONDITIONS_FIELD_NUMBER = 7;
@@ -1444,31 +1444,31 @@ private static final long serialVersionUID = 0L;
       return movementBuilder_;
     }
 
-    private io.superdurable.gen.WaitingCondition waitingCondition_;
+    private io.superdurable.gen.WaitingConditionState waitingCondition_;
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WaitingCondition, io.superdurable.gen.WaitingCondition.Builder, io.superdurable.gen.WaitingConditionOrBuilder> waitingConditionBuilder_;
+        io.superdurable.gen.WaitingConditionState, io.superdurable.gen.WaitingConditionState.Builder, io.superdurable.gen.WaitingConditionStateOrBuilder> waitingConditionBuilder_;
     /**
-     * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+     * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
      * @return Whether the waitingCondition field is set.
      */
     public boolean hasWaitingCondition() {
       return ((bitField0_ & 0x00000020) != 0);
     }
     /**
-     * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+     * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
      * @return The waitingCondition.
      */
-    public io.superdurable.gen.WaitingCondition getWaitingCondition() {
+    public io.superdurable.gen.WaitingConditionState getWaitingCondition() {
       if (waitingConditionBuilder_ == null) {
-        return waitingCondition_ == null ? io.superdurable.gen.WaitingCondition.getDefaultInstance() : waitingCondition_;
+        return waitingCondition_ == null ? io.superdurable.gen.WaitingConditionState.getDefaultInstance() : waitingCondition_;
       } else {
         return waitingConditionBuilder_.getMessage();
       }
     }
     /**
-     * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+     * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
      */
-    public Builder setWaitingCondition(io.superdurable.gen.WaitingCondition value) {
+    public Builder setWaitingCondition(io.superdurable.gen.WaitingConditionState value) {
       if (waitingConditionBuilder_ == null) {
         if (value == null) {
           throw new NullPointerException();
@@ -1482,10 +1482,10 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+     * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
      */
     public Builder setWaitingCondition(
-        io.superdurable.gen.WaitingCondition.Builder builderForValue) {
+        io.superdurable.gen.WaitingConditionState.Builder builderForValue) {
       if (waitingConditionBuilder_ == null) {
         waitingCondition_ = builderForValue.build();
       } else {
@@ -1496,13 +1496,13 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+     * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
      */
-    public Builder mergeWaitingCondition(io.superdurable.gen.WaitingCondition value) {
+    public Builder mergeWaitingCondition(io.superdurable.gen.WaitingConditionState value) {
       if (waitingConditionBuilder_ == null) {
         if (((bitField0_ & 0x00000020) != 0) &&
           waitingCondition_ != null &&
-          waitingCondition_ != io.superdurable.gen.WaitingCondition.getDefaultInstance()) {
+          waitingCondition_ != io.superdurable.gen.WaitingConditionState.getDefaultInstance()) {
           getWaitingConditionBuilder().mergeFrom(value);
         } else {
           waitingCondition_ = value;
@@ -1517,7 +1517,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+     * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
      */
     public Builder clearWaitingCondition() {
       bitField0_ = (bitField0_ & ~0x00000020);
@@ -1530,33 +1530,33 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+     * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
      */
-    public io.superdurable.gen.WaitingCondition.Builder getWaitingConditionBuilder() {
+    public io.superdurable.gen.WaitingConditionState.Builder getWaitingConditionBuilder() {
       bitField0_ |= 0x00000020;
       onChanged();
       return internalGetWaitingConditionFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+     * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
      */
-    public io.superdurable.gen.WaitingConditionOrBuilder getWaitingConditionOrBuilder() {
+    public io.superdurable.gen.WaitingConditionStateOrBuilder getWaitingConditionOrBuilder() {
       if (waitingConditionBuilder_ != null) {
         return waitingConditionBuilder_.getMessageOrBuilder();
       } else {
         return waitingCondition_ == null ?
-            io.superdurable.gen.WaitingCondition.getDefaultInstance() : waitingCondition_;
+            io.superdurable.gen.WaitingConditionState.getDefaultInstance() : waitingCondition_;
       }
     }
     /**
-     * <code>.dex.WaitingCondition waiting_condition = 6;</code>
+     * <code>.dex.WaitingConditionState waiting_condition = 6;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.WaitingCondition, io.superdurable.gen.WaitingCondition.Builder, io.superdurable.gen.WaitingConditionOrBuilder> 
+        io.superdurable.gen.WaitingConditionState, io.superdurable.gen.WaitingConditionState.Builder, io.superdurable.gen.WaitingConditionStateOrBuilder> 
         internalGetWaitingConditionFieldBuilder() {
       if (waitingConditionBuilder_ == null) {
         waitingConditionBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.WaitingCondition, io.superdurable.gen.WaitingCondition.Builder, io.superdurable.gen.WaitingConditionOrBuilder>(
+            io.superdurable.gen.WaitingConditionState, io.superdurable.gen.WaitingConditionState.Builder, io.superdurable.gen.WaitingConditionStateOrBuilder>(
                 getWaitingCondition(),
                 getParentForChildren(),
                 isClean());

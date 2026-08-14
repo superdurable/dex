@@ -12,6 +12,7 @@ import type {
   StepGraphEdge,
   StepGraphNode,
 } from './types';
+import { subFlowReusePolicyLabel, subFlowStatusName } from './semantic';
 
 export const START_NODE_ID = '__start__';
 export const END_NODE_ID = '__end__';
@@ -44,6 +45,7 @@ function previousRunID(events: FlowHistoryEvent[]): string {
 export function buildStepGraph(
   events: FlowHistoryEvent[],
   activeSteps: ActiveStepExecution[] = [],
+  parentFlowID = '',
 ): { nodes: StepGraphNode[]; edges: StepGraphEdge[] } {
   const nodes = new Map<string, StepGraphNode>();
   const closingStepExecutionIDs = new Set<string>();
@@ -101,6 +103,11 @@ export function buildStepGraph(
     });
   }
 
+  for (const stepNode of [...nodes.values()]) {
+    if (stepNode.kind !== 'step') continue;
+    addSubFlowNodes(nodes, stepNode, parentFlowID);
+  }
+
   const closed = events.findLast((event) => event.type === 'FlowClosed');
   if (closed) {
     nodes.set(END_NODE_ID, {
@@ -126,6 +133,14 @@ export function buildStepGraph(
 
   const edges: StepGraphEdge[] = [];
   for (const node of nodes.values()) {
+    if (node.kind === 'subflow') {
+      edges.push({
+        id: `${node.parentStepId}->${node.id}`,
+        source: node.parentStepId ?? START_NODE_ID,
+        target: node.id,
+      });
+      continue;
+    }
     if (node.kind !== 'step') continue;
     const requestedSource = node.fromStepExecutionId || START_NODE_ID;
     const source = nodes.has(requestedSource) ? requestedSource : START_NODE_ID;
@@ -143,6 +158,69 @@ export function buildStepGraph(
   }
 
   return { nodes: [...nodes.values()], edges };
+}
+
+function addSubFlowNodes(
+  nodes: Map<string, StepGraphNode>,
+  stepNode: StepGraphNode,
+  parentFlowID: string,
+): void {
+  const waitOutput = stepNode.waitFor?.payload.output;
+  const output = waitOutput && typeof waitOutput === 'object'
+    ? waitOutput as Record<string, unknown> : {};
+  const waitingCondition = output.waitForCondition && typeof output.waitForCondition === 'object'
+    ? output.waitForCondition as Record<string, unknown>
+    : stepNode.active?.waitingCondition ?? {};
+  const conditions = Array.isArray(waitingCondition.subFlowConditions)
+    ? waitingCondition.subFlowConditions : [];
+  const executeInput = stepNode.execute?.payload.input;
+  const input = executeInput && typeof executeInput === 'object'
+    ? executeInput as Record<string, unknown> : {};
+  const conditionResults = input.conditionResults && typeof input.conditionResults === 'object'
+    ? input.conditionResults as Record<string, unknown> : {};
+  const results = Array.isArray(conditionResults.subFlowResults)
+    ? conditionResults.subFlowResults : [];
+  const completedConditions = stepNode.active?.completedConditions ?? {};
+  const activeResults = completedConditions.completedSubFlowResults
+    && typeof completedConditions.completedSubFlowResults === 'object'
+    ? completedConditions.completedSubFlowResults as Record<string, unknown>
+    : {};
+  conditions.forEach((rawCondition, index) => {
+    if (!rawCondition || typeof rawCondition !== 'object') return;
+    const condition = rawCondition as Record<string, unknown>;
+    const result = results[index] && typeof results[index] === 'object'
+      ? results[index] as Record<string, unknown>
+      : activeResults[String(index)] && typeof activeResults[String(index)] === 'object'
+        ? activeResults[String(index)] as Record<string, unknown>
+        : {};
+    const flowId = generatedSubFlowID(parentFlowID, stepNode.id, index);
+    if (!flowId) return;
+    const status = subFlowStatusName(result.flowStatus ?? 1);
+    const options = condition.options && typeof condition.options === 'object'
+      ? condition.options as Record<string, unknown> : {};
+    const id = `__subflow:${stepNode.id}:${index}`;
+    nodes.set(id, {
+      id,
+      label: flowId,
+      kind: 'subflow',
+      status: ['FAILED', 'CANCELED', 'TIMEOUT', 'TERMINATED'].includes(status)
+        ? 'Failed'
+        : status === 'RUNNING' ? 'Waiting' : 'Completed',
+      parentStepId: stepNode.id,
+      flowId,
+      subFlowStatus: status,
+      reusePolicy: subFlowReusePolicyLabel(options.reusePolicy),
+    });
+  });
+}
+
+function generatedSubFlowID(
+  parentFlowID: string,
+  stepExecutionID: string,
+  index: number,
+): string {
+  if (!parentFlowID || !stepExecutionID) return '';
+  return `SubFlow-${parentFlowID}-${stepExecutionID}-${index}`;
 }
 
 function hasCloseDecision(event: FlowHistoryEvent): boolean {

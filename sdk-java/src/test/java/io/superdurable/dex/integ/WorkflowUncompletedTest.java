@@ -14,8 +14,8 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowErrorType;
+import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.FlowStatus;
-import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StopFlowOptions;
@@ -70,14 +70,14 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 WAIT_TIMEOUT_WORKFLOW)) {
             final String flowId = flowId("flow-timeout");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     WAIT_TIMEOUT_WORKFLOW,
                     flowId,
                     1,
                     StartFlowOptions.newBuilder().timeout(Duration.ofSeconds(1)).build());
 
-            final FlowUncompletedException failure = waitForFailure(environment, flowId);
-            assertFailure(failure, runId, FlowStatus.TIMED_OUT, null, null, 0);
+            final FlowResult failure = waitForFailure(environment, flowId);
+            assertFailure(failure, FlowStatus.TIMED_OUT, null, null, 0);
         }
     }
 
@@ -112,15 +112,14 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 FORCE_FAIL_WORKFLOW)) {
             final String flowId = flowId("force-fail");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     FORCE_FAIL_WORKFLOW,
                     flowId,
                     5);
 
-            final FlowUncompletedException failure = waitForFailure(environment, flowId);
+            final FlowResult failure = waitForFailure(environment, flowId);
             assertFailure(
                     failure,
-                    runId,
                     FlowStatus.FAILED,
                     FlowErrorType.STEP_DECISION_FAILED,
                     "a failing message",
@@ -134,16 +133,15 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 STATE_FAILURE_WORKFLOW)) {
             final String flowId = flowId("worker-api-failure");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     STATE_FAILURE_WORKFLOW,
                     flowId,
                     5);
 
-            final FlowUncompletedException failure = waitForFailure(environment, flowId);
-            assertEquals(runId, failure.getRunId());
+            final FlowResult failure = waitForFailure(environment, flowId);
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
-            assertTrue(failure.getMessage().contains("test api failing"), failure.getMessage());
+            assertTrue(failure.getErrorMessage().contains("test api failing"), failure.getErrorMessage());
             assertEquals(0, failure.getCompletions().size());
         }
     }
@@ -154,16 +152,15 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 STATE_TIMEOUT_WORKFLOW)) {
             final String flowId = flowId("worker-api-timeout");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     STATE_TIMEOUT_WORKFLOW,
                     flowId,
                     5);
 
-            final FlowUncompletedException failure = waitForFailure(environment, flowId);
-            assertEquals(runId, failure.getRunId());
+            final FlowResult failure = waitForFailure(environment, flowId);
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
-            assertTrue(failure.getMessage().toLowerCase().contains("timeout"), failure.getMessage());
+            assertTrue(failure.getErrorMessage().toLowerCase().contains("timeout"), failure.getErrorMessage());
             assertEquals(0, failure.getCompletions().size());
         }
     }
@@ -174,18 +171,17 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 EMPTY_DECISION_WORKFLOW)) {
             final String flowId = flowId("empty-decision");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     EMPTY_DECISION_WORKFLOW,
                     flowId,
                     5);
 
-            final FlowUncompletedException failure = waitForFailure(environment, flowId);
-            assertEquals(runId, failure.getRunId());
+            final FlowResult failure = waitForFailure(environment, flowId);
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertTrue(
-                    failure.getMessage().contains("goToMulti requires a movement"),
-                    failure.getMessage());
+                    failure.getErrorMessage().contains("goToMulti requires a movement"),
+                    failure.getErrorMessage());
             assertEquals(0, failure.getCompletions().size());
         }
     }
@@ -200,16 +196,15 @@ public final class WorkflowUncompletedTest {
                 cacheDirectory,
                 WAIT_TIMEOUT_WORKFLOW)) {
             final String flowId = flowId("stopped");
-            final String runId = environment.client().startFlow(
+            environment.client().startFlow(
                     WAIT_TIMEOUT_WORKFLOW,
                     flowId,
                     1);
             environment.client().stopFlow(flowId, new StopFlowOptions(stopType, reason));
 
-            final FlowUncompletedException failure = waitForFailure(environment, flowId);
+            final FlowResult failure = waitForFailure(environment, flowId);
             assertFailure(
                     failure,
-                    runId,
                     expectedStatus,
                     expectedErrorType,
                     expectedMessage,
@@ -217,28 +212,24 @@ public final class WorkflowUncompletedTest {
         }
     }
 
-    private static FlowUncompletedException waitForFailure(
+    private static FlowResult waitForFailure(
             final DexDevTestEnvironment environment,
             final String flowId) {
-        return assertThrows(
-                FlowUncompletedException.class,
-                () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(15)).getSingleOutput(Integer.class));
+        return environment.client().waitForFlow(flowId, Duration.ofSeconds(15));
     }
 
     private static void assertFailure(
-            final FlowUncompletedException failure,
-            final String runId,
+            final FlowResult failure,
             final FlowStatus status,
             final FlowErrorType errorType,
             final String message,
             final int resultCount) {
-        assertEquals(runId, failure.getRunId());
         assertEquals(status, failure.getStatus());
         assertEquals(errorType, failure.getErrorType());
         if (message == null) {
-            assertNull(failure.getMessage());
+            assertNull(failure.getErrorMessage());
         } else {
-            assertEquals(message, failure.getMessage());
+            assertEquals(message, failure.getErrorMessage());
         }
         assertEquals(resultCount, failure.getCompletions().size());
     }

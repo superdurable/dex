@@ -63,7 +63,7 @@ type FlowServiceClient interface {
 	GetAttributes(ctx context.Context, in *GetAttributesRequest, opts ...grpc.CallOption) (*GetAttributesResponse, error)
 	SetAttributes(ctx context.Context, in *SetAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	LoadBlobs(ctx context.Context, in *LoadBlobsRequest, opts ...grpc.CallOption) (*LoadBlobsResponse, error)
-	WaitForFlow(ctx context.Context, in *WaitForFlowRequest, opts ...grpc.CallOption) (*WaitForFlowResponse, error)
+	WaitForFlow(ctx context.Context, in *WaitForFlowRequest, opts ...grpc.CallOption) (*FlowResult, error)
 	SearchFlows(ctx context.Context, in *SearchFlowsRequest, opts ...grpc.CallOption) (*SearchFlowsResponse, error)
 	SyncAttributeIndexes(ctx context.Context, in *SyncAttributeIndexRequest, opts ...grpc.CallOption) (*SyncAttributeIndexResponse, error)
 	GetFlowSummary(ctx context.Context, in *GetFlowSummaryRequest, opts ...grpc.CallOption) (*GetFlowSummaryResponse, error)
@@ -148,9 +148,9 @@ func (c *flowServiceClient) LoadBlobs(ctx context.Context, in *LoadBlobsRequest,
 	return out, nil
 }
 
-func (c *flowServiceClient) WaitForFlow(ctx context.Context, in *WaitForFlowRequest, opts ...grpc.CallOption) (*WaitForFlowResponse, error) {
+func (c *flowServiceClient) WaitForFlow(ctx context.Context, in *WaitForFlowRequest, opts ...grpc.CallOption) (*FlowResult, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(WaitForFlowResponse)
+	out := new(FlowResult)
 	err := c.cc.Invoke(ctx, FlowService_WaitForFlow_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -310,7 +310,7 @@ type FlowServiceServer interface {
 	GetAttributes(context.Context, *GetAttributesRequest) (*GetAttributesResponse, error)
 	SetAttributes(context.Context, *SetAttributesRequest) (*emptypb.Empty, error)
 	LoadBlobs(context.Context, *LoadBlobsRequest) (*LoadBlobsResponse, error)
-	WaitForFlow(context.Context, *WaitForFlowRequest) (*WaitForFlowResponse, error)
+	WaitForFlow(context.Context, *WaitForFlowRequest) (*FlowResult, error)
 	SearchFlows(context.Context, *SearchFlowsRequest) (*SearchFlowsResponse, error)
 	SyncAttributeIndexes(context.Context, *SyncAttributeIndexRequest) (*SyncAttributeIndexResponse, error)
 	GetFlowSummary(context.Context, *GetFlowSummaryRequest) (*GetFlowSummaryResponse, error)
@@ -353,7 +353,7 @@ func (UnimplementedFlowServiceServer) SetAttributes(context.Context, *SetAttribu
 func (UnimplementedFlowServiceServer) LoadBlobs(context.Context, *LoadBlobsRequest) (*LoadBlobsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method LoadBlobs not implemented")
 }
-func (UnimplementedFlowServiceServer) WaitForFlow(context.Context, *WaitForFlowRequest) (*WaitForFlowResponse, error) {
+func (UnimplementedFlowServiceServer) WaitForFlow(context.Context, *WaitForFlowRequest) (*FlowResult, error) {
 	return nil, status.Error(codes.Unimplemented, "method WaitForFlow not implemented")
 }
 func (UnimplementedFlowServiceServer) SearchFlows(context.Context, *SearchFlowsRequest) (*SearchFlowsResponse, error) {

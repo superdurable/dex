@@ -76,7 +76,7 @@ service FlowService {
   rpc GetAttributes(GetAttributesRequest) returns (GetAttributesResponse);
   rpc SetAttributes(SetAttributesRequest) returns (google.protobuf.Empty);
   rpc LoadBlobs(LoadBlobsRequest) returns (LoadBlobsResponse);
-  rpc WaitForFlow(WaitForFlowRequest) returns (WaitForFlowResponse);
+  rpc WaitForFlow(WaitForFlowRequest) returns (FlowResult);
   rpc SearchFlows(SearchFlowsRequest) returns (SearchFlowsResponse);
   rpc SyncAttributeIndexes(SyncAttributeIndexRequest) returns (SyncAttributeIndexResponse);
   rpc GetFlowSummary(GetFlowSummaryRequest) returns (GetFlowSummaryResponse);
@@ -387,7 +387,7 @@ message StepCompletionOutput {
   Value completed_step_output = 3;
 }
 
-message WaitForFlowResponse {
+message FlowResult {
   FlowStatus flow_status = 1;
   repeated StepCompletionOutput results = 2;
   FlowErrorType error_type = 3;
@@ -655,7 +655,7 @@ message ActiveStepExecutionState {
   string step_type = 3;
   ActiveStepPhase phase = 4;
   StepMovement movement = 5;
-  WaitingCondition waiting_condition = 6;
+  WaitingConditionState waiting_condition = 6;
   StepExecutionCompletedConditions completed_conditions = 7;
   repeated KV step_execution_locals = 8;
   repeated TimerInfo timers = 9;
@@ -928,6 +928,46 @@ message WaitingCondition {
   repeated TimerCondition timer_conditions = 2;
   repeated ChannelCondition channel_conditions = 3;
   repeated ConditionCombination condition_combinations = 4;
+  repeated SubFlowCondition sub_flow_conditions = 5;
+}
+
+message WaitingConditionState {
+  WaitingConditionType waiting_condition_type = 1;
+  repeated TimerCondition timer_conditions = 2;
+  repeated ChannelCondition channel_conditions = 3;
+  repeated ConditionCombination condition_combinations = 4;
+  repeated SubFlowConditionState sub_flow_conditions = 5;
+}
+
+enum SubFlowReusePolicy {
+  SUB_FLOW_REUSE_POLICY_UNSPECIFIED = 0;
+  SUB_FLOW_REUSE_POLICY_ATTACH = 1;
+  SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY = 2;
+  SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART = 3;
+}
+
+message SubFlowOptions {
+  SubFlowReusePolicy reuse_policy = 1;
+  int32 flow_timeout_seconds = 2;
+  int32 flow_start_delay_seconds = 3;
+  FlowRetryPolicy retry_policy = 4;
+  repeated AttributeWrite attributes = 5;
+  FlowConfig flow_config_override = 6;
+}
+
+message SubFlowCondition {
+  // Optional unless waiting_condition_type is ANY_COMBINATION_COMPLETED.
+  string condition_id = 1;
+  string sub_flow_type = 2;
+  string start_step_type = 3;
+  Value step_input = 4;
+  StepOptions step_options = 5;
+  SubFlowOptions options = 6;
+  int32 sub_flow_index = 7;
+}
+
+message SubFlowConditionState {
+  string condition_id = 1;
 }
 
 message TimerCondition {
@@ -952,6 +992,7 @@ message ConditionResults {
   repeated ChannelResult channel_results = 1;
   repeated TimerResult timer_results = 2;
   bool wait_for_failed = 3;
+  repeated FlowResult sub_flow_results = 4;
 }
 
 enum ConditionStatus {
@@ -996,13 +1037,14 @@ message ChannelValues {
 
 message StepExecutionCompletedConditions {
   map<int32, InternalTimerStatus> completed_timer_conditions = 1;
+  map<int32, FlowResult> completed_sub_flow_results = 2;
 }
 
 message StepExecutionResumeInfo {
   string step_execution_id = 1;
   StepMovement step = 2;
   StepExecutionCompletedConditions completed_conditions = 3;
-  WaitingCondition waiting_condition = 4;
+  WaitingConditionState waiting_condition = 4;
   repeated KV step_exe_locals = 5;
 }
 
@@ -1149,6 +1191,37 @@ message SyncAttributeBatchActivityInput {
   string flow_id = 1;
   string config_name = 2;
   repeated AttributeSyncItem items = 3;
+}
+
+message StartSubFlowActivityInput {
+  SubFlowCondition condition = 1;
+  FlowConfig parent_flow_config = 2;
+  // Source Step; activity context supplies parent Flow and run IDs.
+  string parent_step_execution_id = 3;
+}
+
+message StartSubFlowActivityOutput {
+  FlowResult immediate_flow_result = 1;
+}
+
+message SubFlowCompletionSignalRequest {
+  string sub_flow_id = 1;
+  FlowResult flow_result = 2;
+}
+
+enum SubFlowCompletionDeliveryStatus {
+  SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED = 0;
+  SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED = 1;
+  SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND = 2;
+}
+
+message ReportSubFlowCompletionActivityInput {
+  string parent_flow_id = 1;
+  SubFlowCompletionSignalRequest request = 2;
+}
+
+message ReportSubFlowCompletionActivityOutput {
+  SubFlowCompletionDeliveryStatus status = 1;
 }
 
 message ExecuteRpcSignalRequest {

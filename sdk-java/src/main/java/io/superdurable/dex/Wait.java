@@ -24,9 +24,10 @@ import java.util.List;
  * Describes when Dex may invoke a Step's execute method.
  *
  * <p>Return a {@code Wait} from {@link Step#waitFor}. The value is declarative and immutable: Dex
- * persists and evaluates its timer and Channel conditions without blocking the worker thread that
- * produced it. Use {@link #until} for a single condition, {@link #allOf} or {@link #anyOf} for a
- * flat group, and {@link #anyCombinationOf} for alternatives containing multiple conditions.
+ * persists and evaluates its Timer, Channel, and SubFlow conditions without blocking the worker
+ * thread that produced it. Use {@link #until} for a single condition, {@link #allOf} or
+ * {@link #anyOf} for a flat group, and {@link #anyCombinationOf} for alternatives containing
+ * multiple conditions.
  *
  * <pre>{@code
  * public Wait waitFor(Context context, Order input) {
@@ -69,7 +70,7 @@ public final class Wait {
     /**
      * Waits for one condition to be satisfied.
      *
-     * @param condition the single timer or Channel condition
+     * @param condition the single Timer, Channel, or SubFlow condition
      * @return a wait equivalent to {@code allOf(condition)}
      */
     public static Wait until(final Condition condition) {

@@ -16,7 +16,7 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowInfo;
 import io.superdurable.dex.FlowErrorType;
 import io.superdurable.dex.FlowStatus;
-import io.superdurable.dex.exceptions.FlowUncompletedException;
+import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
@@ -46,13 +46,11 @@ public final class AnyCommandCombinationTest {
                 WORKFLOW)) {
             final String flowId = "any-combination-fail-" + UUID.randomUUID();
             final String runId = environment.client().startFlow(WORKFLOW, flowId, 5);
-            final FlowUncompletedException failure = assertThrows(
-                    FlowUncompletedException.class,
-                    () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(30)).getSingleOutput(Integer.class));
-            assertEquals(runId, failure.getRunId());
+            final FlowResult failure =
+                    environment.client().waitForFlow(flowId, Duration.ofSeconds(30));
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
-            assertTrue(failure.getMessage().contains("unknown condition ID"));
+            assertTrue(failure.getErrorMessage().contains("unknown condition ID"));
             assertEquals(0, failure.getCompletions().size());
             final FlowInfo info = environment.client().describeFlow(flowId);
             assertEquals(runId, info.getRunId());

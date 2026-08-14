@@ -163,6 +163,14 @@ export enum WaitingConditionType {
   UNRECOGNIZED = -1,
 }
 
+export enum SubFlowReusePolicy {
+  SUB_FLOW_REUSE_POLICY_UNSPECIFIED = 0,
+  SUB_FLOW_REUSE_POLICY_ATTACH = 1,
+  SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY = 2,
+  SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART = 3,
+  UNRECOGNIZED = -1,
+}
+
 export enum ConditionStatus {
   CONDITION_STATUS_UNSPECIFIED = 0,
   CONDITION_STATUS_WAITING = 1,
@@ -186,6 +194,13 @@ export enum UpdateErrorType {
   UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED = 4,
   UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE = 5,
   UPDATE_ERROR_TYPE_SERVER_INTERNAL = 6,
+  UNRECOGNIZED = -1,
+}
+
+export enum SubFlowCompletionDeliveryStatus {
+  SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED = 0,
+  SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED = 1,
+  SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND = 2,
   UNRECOGNIZED = -1,
 }
 
@@ -409,7 +424,7 @@ export interface StepCompletionOutput {
   completedStepOutput: Value | undefined;
 }
 
-export interface WaitForFlowResponse {
+export interface FlowResult {
   flowStatus: FlowStatus;
   results: StepCompletionOutput[];
   errorType: FlowErrorType;
@@ -674,7 +689,7 @@ export interface ActiveStepExecutionState {
   stepType: string;
   phase: ActiveStepPhase;
   movement: StepMovement | undefined;
-  waitingCondition: WaitingCondition | undefined;
+  waitingCondition: WaitingConditionState | undefined;
   completedConditions: StepExecutionCompletedConditions | undefined;
   stepExecutionLocals: KV[];
   timers: TimerInfo[];
@@ -928,6 +943,39 @@ export interface WaitingCondition {
   timerConditions: TimerCondition[];
   channelConditions: ChannelCondition[];
   conditionCombinations: ConditionCombination[];
+  subFlowConditions: SubFlowCondition[];
+}
+
+export interface WaitingConditionState {
+  waitingConditionType: WaitingConditionType;
+  timerConditions: TimerCondition[];
+  channelConditions: ChannelCondition[];
+  conditionCombinations: ConditionCombination[];
+  subFlowConditions: SubFlowConditionState[];
+}
+
+export interface SubFlowOptions {
+  reusePolicy: SubFlowReusePolicy;
+  flowTimeoutSeconds: number;
+  flowStartDelaySeconds: number;
+  retryPolicy: FlowRetryPolicy | undefined;
+  attributes: AttributeWrite[];
+  flowConfigOverride: FlowConfig | undefined;
+}
+
+export interface SubFlowCondition {
+  /** Optional unless waiting_condition_type is ANY_COMBINATION_COMPLETED. */
+  conditionId: string;
+  subFlowType: string;
+  startStepType: string;
+  stepInput: Value | undefined;
+  stepOptions: StepOptions | undefined;
+  options: SubFlowOptions | undefined;
+  subFlowIndex: number;
+}
+
+export interface SubFlowConditionState {
+  conditionId: string;
 }
 
 export interface TimerCondition {
@@ -952,6 +1000,7 @@ export interface ConditionResults {
   channelResults: ChannelResult[];
   timerResults: TimerResult[];
   waitForFailed: boolean;
+  subFlowResults: FlowResult[];
 }
 
 export interface TimerResult {
@@ -988,6 +1037,7 @@ export interface ChannelValues {
 
 export interface StepExecutionCompletedConditions {
   completedTimerConditions: { [key: number]: InternalTimerStatus };
+  completedSubFlowResults: { [key: number]: FlowResult };
 }
 
 export interface StepExecutionCompletedConditions_CompletedTimerConditionsEntry {
@@ -995,11 +1045,16 @@ export interface StepExecutionCompletedConditions_CompletedTimerConditionsEntry 
   value: InternalTimerStatus;
 }
 
+export interface StepExecutionCompletedConditions_CompletedSubFlowResultsEntry {
+  key: number;
+  value: FlowResult | undefined;
+}
+
 export interface StepExecutionResumeInfo {
   stepExecutionId: string;
   step: StepMovement | undefined;
   completedConditions: StepExecutionCompletedConditions | undefined;
-  waitingCondition: WaitingCondition | undefined;
+  waitingCondition: WaitingConditionState | undefined;
   stepExeLocals: KV[];
 }
 
@@ -1152,6 +1207,33 @@ export interface SyncAttributeBatchActivityInput {
   flowId: string;
   configName: string;
   items: AttributeSyncItem[];
+}
+
+export interface StartSubFlowActivityInput {
+  condition: SubFlowCondition | undefined;
+  parentFlowConfig:
+    | FlowConfig
+    | undefined;
+  /** Source Step; activity context supplies parent Flow and run IDs. */
+  parentStepExecutionId: string;
+}
+
+export interface StartSubFlowActivityOutput {
+  immediateFlowResult: FlowResult | undefined;
+}
+
+export interface SubFlowCompletionSignalRequest {
+  subFlowId: string;
+  flowResult: FlowResult | undefined;
+}
+
+export interface ReportSubFlowCompletionActivityInput {
+  parentFlowId: string;
+  request: SubFlowCompletionSignalRequest | undefined;
+}
+
+export interface ReportSubFlowCompletionActivityOutput {
+  status: SubFlowCompletionDeliveryStatus;
 }
 
 export interface ExecuteRpcSignalRequest {
@@ -3621,12 +3703,12 @@ export const StepCompletionOutput: MessageFns<StepCompletionOutput> = {
   },
 };
 
-function createBaseWaitForFlowResponse(): WaitForFlowResponse {
+function createBaseFlowResult(): FlowResult {
   return { flowStatus: 0, results: [], errorType: 0, errorMessage: "" };
 }
 
-export const WaitForFlowResponse: MessageFns<WaitForFlowResponse> = {
-  encode(message: WaitForFlowResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const FlowResult: MessageFns<FlowResult> = {
+  encode(message: FlowResult, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.flowStatus !== 0) {
       writer.uint32(8).int32(message.flowStatus);
     }
@@ -3642,10 +3724,10 @@ export const WaitForFlowResponse: MessageFns<WaitForFlowResponse> = {
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): WaitForFlowResponse {
+  decode(input: BinaryReader | Uint8Array, length?: number): FlowResult {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseWaitForFlowResponse();
+    const message = createBaseFlowResult();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -3690,11 +3772,11 @@ export const WaitForFlowResponse: MessageFns<WaitForFlowResponse> = {
     return message;
   },
 
-  create<I extends Exact<DeepPartial<WaitForFlowResponse>, I>>(base?: I): WaitForFlowResponse {
-    return WaitForFlowResponse.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<FlowResult>, I>>(base?: I): FlowResult {
+    return FlowResult.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<WaitForFlowResponse>, I>>(object: I): WaitForFlowResponse {
-    const message = createBaseWaitForFlowResponse();
+  fromPartial<I extends Exact<DeepPartial<FlowResult>, I>>(object: I): FlowResult {
+    const message = createBaseFlowResult();
     message.flowStatus = object.flowStatus ?? 0;
     message.results = object.results?.map((e) => StepCompletionOutput.fromPartial(e)) || [];
     message.errorType = object.errorType ?? 0;
@@ -6935,7 +7017,7 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
       StepMovement.encode(message.movement, writer.uint32(42).fork()).join();
     }
     if (message.waitingCondition !== undefined) {
-      WaitingCondition.encode(message.waitingCondition, writer.uint32(50).fork()).join();
+      WaitingConditionState.encode(message.waitingCondition, writer.uint32(50).fork()).join();
     }
     if (message.completedConditions !== undefined) {
       StepExecutionCompletedConditions.encode(message.completedConditions, writer.uint32(58).fork()).join();
@@ -7004,7 +7086,7 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
             break;
           }
 
-          message.waitingCondition = WaitingCondition.decode(reader, reader.uint32());
+          message.waitingCondition = WaitingConditionState.decode(reader, reader.uint32());
           continue;
         }
         case 7: {
@@ -7061,7 +7143,7 @@ export const ActiveStepExecutionState: MessageFns<ActiveStepExecutionState> = {
       ? StepMovement.fromPartial(object.movement)
       : undefined;
     message.waitingCondition = (object.waitingCondition !== undefined && object.waitingCondition !== null)
-      ? WaitingCondition.fromPartial(object.waitingCondition)
+      ? WaitingConditionState.fromPartial(object.waitingCondition)
       : undefined;
     message.completedConditions = (object.completedConditions !== undefined && object.completedConditions !== null)
       ? StepExecutionCompletedConditions.fromPartial(object.completedConditions)
@@ -9838,7 +9920,13 @@ export const ConditionCombination: MessageFns<ConditionCombination> = {
 };
 
 function createBaseWaitingCondition(): WaitingCondition {
-  return { waitingConditionType: 0, timerConditions: [], channelConditions: [], conditionCombinations: [] };
+  return {
+    waitingConditionType: 0,
+    timerConditions: [],
+    channelConditions: [],
+    conditionCombinations: [],
+    subFlowConditions: [],
+  };
 }
 
 export const WaitingCondition: MessageFns<WaitingCondition> = {
@@ -9854,6 +9942,9 @@ export const WaitingCondition: MessageFns<WaitingCondition> = {
     }
     for (const v of message.conditionCombinations) {
       ConditionCombination.encode(v!, writer.uint32(34).fork()).join();
+    }
+    for (const v of message.subFlowConditions) {
+      SubFlowCondition.encode(v!, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -9897,6 +9988,14 @@ export const WaitingCondition: MessageFns<WaitingCondition> = {
           message.conditionCombinations.push(ConditionCombination.decode(reader, reader.uint32()));
           continue;
         }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.subFlowConditions.push(SubFlowCondition.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -9915,6 +10014,402 @@ export const WaitingCondition: MessageFns<WaitingCondition> = {
     message.timerConditions = object.timerConditions?.map((e) => TimerCondition.fromPartial(e)) || [];
     message.channelConditions = object.channelConditions?.map((e) => ChannelCondition.fromPartial(e)) || [];
     message.conditionCombinations = object.conditionCombinations?.map((e) => ConditionCombination.fromPartial(e)) || [];
+    message.subFlowConditions = object.subFlowConditions?.map((e) => SubFlowCondition.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseWaitingConditionState(): WaitingConditionState {
+  return {
+    waitingConditionType: 0,
+    timerConditions: [],
+    channelConditions: [],
+    conditionCombinations: [],
+    subFlowConditions: [],
+  };
+}
+
+export const WaitingConditionState: MessageFns<WaitingConditionState> = {
+  encode(message: WaitingConditionState, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.waitingConditionType !== 0) {
+      writer.uint32(8).int32(message.waitingConditionType);
+    }
+    for (const v of message.timerConditions) {
+      TimerCondition.encode(v!, writer.uint32(18).fork()).join();
+    }
+    for (const v of message.channelConditions) {
+      ChannelCondition.encode(v!, writer.uint32(26).fork()).join();
+    }
+    for (const v of message.conditionCombinations) {
+      ConditionCombination.encode(v!, writer.uint32(34).fork()).join();
+    }
+    for (const v of message.subFlowConditions) {
+      SubFlowConditionState.encode(v!, writer.uint32(42).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): WaitingConditionState {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseWaitingConditionState();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.waitingConditionType = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.timerConditions.push(TimerCondition.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.channelConditions.push(ChannelCondition.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.conditionCombinations.push(ConditionCombination.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.subFlowConditions.push(SubFlowConditionState.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<WaitingConditionState>, I>>(base?: I): WaitingConditionState {
+    return WaitingConditionState.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<WaitingConditionState>, I>>(object: I): WaitingConditionState {
+    const message = createBaseWaitingConditionState();
+    message.waitingConditionType = object.waitingConditionType ?? 0;
+    message.timerConditions = object.timerConditions?.map((e) => TimerCondition.fromPartial(e)) || [];
+    message.channelConditions = object.channelConditions?.map((e) => ChannelCondition.fromPartial(e)) || [];
+    message.conditionCombinations = object.conditionCombinations?.map((e) => ConditionCombination.fromPartial(e)) || [];
+    message.subFlowConditions = object.subFlowConditions?.map((e) => SubFlowConditionState.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseSubFlowOptions(): SubFlowOptions {
+  return {
+    reusePolicy: 0,
+    flowTimeoutSeconds: 0,
+    flowStartDelaySeconds: 0,
+    retryPolicy: undefined,
+    attributes: [],
+    flowConfigOverride: undefined,
+  };
+}
+
+export const SubFlowOptions: MessageFns<SubFlowOptions> = {
+  encode(message: SubFlowOptions, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.reusePolicy !== 0) {
+      writer.uint32(8).int32(message.reusePolicy);
+    }
+    if (message.flowTimeoutSeconds !== 0) {
+      writer.uint32(16).int32(message.flowTimeoutSeconds);
+    }
+    if (message.flowStartDelaySeconds !== 0) {
+      writer.uint32(24).int32(message.flowStartDelaySeconds);
+    }
+    if (message.retryPolicy !== undefined) {
+      FlowRetryPolicy.encode(message.retryPolicy, writer.uint32(34).fork()).join();
+    }
+    for (const v of message.attributes) {
+      AttributeWrite.encode(v!, writer.uint32(42).fork()).join();
+    }
+    if (message.flowConfigOverride !== undefined) {
+      FlowConfig.encode(message.flowConfigOverride, writer.uint32(50).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SubFlowOptions {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSubFlowOptions();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.reusePolicy = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.flowTimeoutSeconds = reader.int32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.flowStartDelaySeconds = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.retryPolicy = FlowRetryPolicy.decode(reader, reader.uint32());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.attributes.push(AttributeWrite.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.flowConfigOverride = FlowConfig.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SubFlowOptions>, I>>(base?: I): SubFlowOptions {
+    return SubFlowOptions.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SubFlowOptions>, I>>(object: I): SubFlowOptions {
+    const message = createBaseSubFlowOptions();
+    message.reusePolicy = object.reusePolicy ?? 0;
+    message.flowTimeoutSeconds = object.flowTimeoutSeconds ?? 0;
+    message.flowStartDelaySeconds = object.flowStartDelaySeconds ?? 0;
+    message.retryPolicy = (object.retryPolicy !== undefined && object.retryPolicy !== null)
+      ? FlowRetryPolicy.fromPartial(object.retryPolicy)
+      : undefined;
+    message.attributes = object.attributes?.map((e) => AttributeWrite.fromPartial(e)) || [];
+    message.flowConfigOverride = (object.flowConfigOverride !== undefined && object.flowConfigOverride !== null)
+      ? FlowConfig.fromPartial(object.flowConfigOverride)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseSubFlowCondition(): SubFlowCondition {
+  return {
+    conditionId: "",
+    subFlowType: "",
+    startStepType: "",
+    stepInput: undefined,
+    stepOptions: undefined,
+    options: undefined,
+    subFlowIndex: 0,
+  };
+}
+
+export const SubFlowCondition: MessageFns<SubFlowCondition> = {
+  encode(message: SubFlowCondition, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.conditionId !== "") {
+      writer.uint32(10).string(message.conditionId);
+    }
+    if (message.subFlowType !== "") {
+      writer.uint32(18).string(message.subFlowType);
+    }
+    if (message.startStepType !== "") {
+      writer.uint32(26).string(message.startStepType);
+    }
+    if (message.stepInput !== undefined) {
+      Value.encode(message.stepInput, writer.uint32(34).fork()).join();
+    }
+    if (message.stepOptions !== undefined) {
+      StepOptions.encode(message.stepOptions, writer.uint32(42).fork()).join();
+    }
+    if (message.options !== undefined) {
+      SubFlowOptions.encode(message.options, writer.uint32(50).fork()).join();
+    }
+    if (message.subFlowIndex !== 0) {
+      writer.uint32(56).int32(message.subFlowIndex);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SubFlowCondition {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSubFlowCondition();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.conditionId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.subFlowType = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.startStepType = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.stepInput = Value.decode(reader, reader.uint32());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.stepOptions = StepOptions.decode(reader, reader.uint32());
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.options = SubFlowOptions.decode(reader, reader.uint32());
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.subFlowIndex = reader.int32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SubFlowCondition>, I>>(base?: I): SubFlowCondition {
+    return SubFlowCondition.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SubFlowCondition>, I>>(object: I): SubFlowCondition {
+    const message = createBaseSubFlowCondition();
+    message.conditionId = object.conditionId ?? "";
+    message.subFlowType = object.subFlowType ?? "";
+    message.startStepType = object.startStepType ?? "";
+    message.stepInput = (object.stepInput !== undefined && object.stepInput !== null)
+      ? Value.fromPartial(object.stepInput)
+      : undefined;
+    message.stepOptions = (object.stepOptions !== undefined && object.stepOptions !== null)
+      ? StepOptions.fromPartial(object.stepOptions)
+      : undefined;
+    message.options = (object.options !== undefined && object.options !== null)
+      ? SubFlowOptions.fromPartial(object.options)
+      : undefined;
+    message.subFlowIndex = object.subFlowIndex ?? 0;
+    return message;
+  },
+};
+
+function createBaseSubFlowConditionState(): SubFlowConditionState {
+  return { conditionId: "" };
+}
+
+export const SubFlowConditionState: MessageFns<SubFlowConditionState> = {
+  encode(message: SubFlowConditionState, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.conditionId !== "") {
+      writer.uint32(10).string(message.conditionId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SubFlowConditionState {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSubFlowConditionState();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.conditionId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SubFlowConditionState>, I>>(base?: I): SubFlowConditionState {
+    return SubFlowConditionState.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SubFlowConditionState>, I>>(object: I): SubFlowConditionState {
+    const message = createBaseSubFlowConditionState();
+    message.conditionId = object.conditionId ?? "";
     return message;
   },
 };
@@ -10085,7 +10580,7 @@ export const ChannelCondition: MessageFns<ChannelCondition> = {
 };
 
 function createBaseConditionResults(): ConditionResults {
-  return { channelResults: [], timerResults: [], waitForFailed: false };
+  return { channelResults: [], timerResults: [], waitForFailed: false, subFlowResults: [] };
 }
 
 export const ConditionResults: MessageFns<ConditionResults> = {
@@ -10098,6 +10593,9 @@ export const ConditionResults: MessageFns<ConditionResults> = {
     }
     if (message.waitForFailed !== false) {
       writer.uint32(24).bool(message.waitForFailed);
+    }
+    for (const v of message.subFlowResults) {
+      FlowResult.encode(v!, writer.uint32(34).fork()).join();
     }
     return writer;
   },
@@ -10133,6 +10631,14 @@ export const ConditionResults: MessageFns<ConditionResults> = {
           message.waitForFailed = reader.bool();
           continue;
         }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.subFlowResults.push(FlowResult.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10150,6 +10656,7 @@ export const ConditionResults: MessageFns<ConditionResults> = {
     message.channelResults = object.channelResults?.map((e) => ChannelResult.fromPartial(e)) || [];
     message.timerResults = object.timerResults?.map((e) => TimerResult.fromPartial(e)) || [];
     message.waitForFailed = object.waitForFailed ?? false;
+    message.subFlowResults = object.subFlowResults?.map((e) => FlowResult.fromPartial(e)) || [];
     return message;
   },
 };
@@ -10505,7 +11012,7 @@ export const ChannelValues: MessageFns<ChannelValues> = {
 };
 
 function createBaseStepExecutionCompletedConditions(): StepExecutionCompletedConditions {
-  return { completedTimerConditions: {} };
+  return { completedTimerConditions: {}, completedSubFlowResults: {} };
 }
 
 export const StepExecutionCompletedConditions: MessageFns<StepExecutionCompletedConditions> = {
@@ -10518,6 +11025,12 @@ export const StepExecutionCompletedConditions: MessageFns<StepExecutionCompleted
         ).join();
       },
     );
+    globalThis.Object.entries(message.completedSubFlowResults).forEach(([key, value]: [string, FlowResult]) => {
+      StepExecutionCompletedConditions_CompletedSubFlowResultsEntry.encode(
+        { key: key as any, value },
+        writer.uint32(18).fork(),
+      ).join();
+    });
     return writer;
   },
 
@@ -10536,6 +11049,17 @@ export const StepExecutionCompletedConditions: MessageFns<StepExecutionCompleted
           const entry1 = StepExecutionCompletedConditions_CompletedTimerConditionsEntry.decode(reader, reader.uint32());
           if (entry1.value !== undefined) {
             message.completedTimerConditions[entry1.key] = entry1.value;
+          }
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          const entry2 = StepExecutionCompletedConditions_CompletedSubFlowResultsEntry.decode(reader, reader.uint32());
+          if (entry2.value !== undefined) {
+            message.completedSubFlowResults[entry2.key] = entry2.value;
           }
           continue;
         }
@@ -10562,6 +11086,16 @@ export const StepExecutionCompletedConditions: MessageFns<StepExecutionCompleted
         (acc: { [key: number]: InternalTimerStatus }, [key, value]: [string, InternalTimerStatus]) => {
           if (value !== undefined) {
             acc[globalThis.Number(key)] = value as InternalTimerStatus;
+          }
+          return acc;
+        },
+        {},
+      );
+    message.completedSubFlowResults =
+      (globalThis.Object.entries(object.completedSubFlowResults ?? {}) as [string, FlowResult][]).reduce(
+        (acc: { [key: number]: FlowResult }, [key, value]: [string, FlowResult]) => {
+          if (value !== undefined) {
+            acc[globalThis.Number(key)] = FlowResult.fromPartial(value);
           }
           return acc;
         },
@@ -10641,6 +11175,78 @@ export const StepExecutionCompletedConditions_CompletedTimerConditionsEntry: Mes
   },
 };
 
+function createBaseStepExecutionCompletedConditions_CompletedSubFlowResultsEntry(): StepExecutionCompletedConditions_CompletedSubFlowResultsEntry {
+  return { key: 0, value: undefined };
+}
+
+export const StepExecutionCompletedConditions_CompletedSubFlowResultsEntry: MessageFns<
+  StepExecutionCompletedConditions_CompletedSubFlowResultsEntry
+> = {
+  encode(
+    message: StepExecutionCompletedConditions_CompletedSubFlowResultsEntry,
+    writer: BinaryWriter = new BinaryWriter(),
+  ): BinaryWriter {
+    if (message.key !== 0) {
+      writer.uint32(8).int32(message.key);
+    }
+    if (message.value !== undefined) {
+      FlowResult.encode(message.value, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(
+    input: BinaryReader | Uint8Array,
+    length?: number,
+  ): StepExecutionCompletedConditions_CompletedSubFlowResultsEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStepExecutionCompletedConditions_CompletedSubFlowResultsEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.key = reader.int32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.value = FlowResult.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StepExecutionCompletedConditions_CompletedSubFlowResultsEntry>, I>>(
+    base?: I,
+  ): StepExecutionCompletedConditions_CompletedSubFlowResultsEntry {
+    return StepExecutionCompletedConditions_CompletedSubFlowResultsEntry.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StepExecutionCompletedConditions_CompletedSubFlowResultsEntry>, I>>(
+    object: I,
+  ): StepExecutionCompletedConditions_CompletedSubFlowResultsEntry {
+    const message = createBaseStepExecutionCompletedConditions_CompletedSubFlowResultsEntry();
+    message.key = object.key ?? 0;
+    message.value = (object.value !== undefined && object.value !== null)
+      ? FlowResult.fromPartial(object.value)
+      : undefined;
+    return message;
+  },
+};
+
 function createBaseStepExecutionResumeInfo(): StepExecutionResumeInfo {
   return {
     stepExecutionId: "",
@@ -10663,7 +11269,7 @@ export const StepExecutionResumeInfo: MessageFns<StepExecutionResumeInfo> = {
       StepExecutionCompletedConditions.encode(message.completedConditions, writer.uint32(26).fork()).join();
     }
     if (message.waitingCondition !== undefined) {
-      WaitingCondition.encode(message.waitingCondition, writer.uint32(34).fork()).join();
+      WaitingConditionState.encode(message.waitingCondition, writer.uint32(34).fork()).join();
     }
     for (const v of message.stepExeLocals) {
       KV.encode(v!, writer.uint32(42).fork()).join();
@@ -10707,7 +11313,7 @@ export const StepExecutionResumeInfo: MessageFns<StepExecutionResumeInfo> = {
             break;
           }
 
-          message.waitingCondition = WaitingCondition.decode(reader, reader.uint32());
+          message.waitingCondition = WaitingConditionState.decode(reader, reader.uint32());
           continue;
         }
         case 5: {
@@ -10740,7 +11346,7 @@ export const StepExecutionResumeInfo: MessageFns<StepExecutionResumeInfo> = {
       ? StepExecutionCompletedConditions.fromPartial(object.completedConditions)
       : undefined;
     message.waitingCondition = (object.waitingCondition !== undefined && object.waitingCondition !== null)
-      ? WaitingCondition.fromPartial(object.waitingCondition)
+      ? WaitingConditionState.fromPartial(object.waitingCondition)
       : undefined;
     message.stepExeLocals = object.stepExeLocals?.map((e) => KV.fromPartial(e)) || [];
     return message;
@@ -12592,6 +13198,304 @@ export const SyncAttributeBatchActivityInput: MessageFns<SyncAttributeBatchActiv
   },
 };
 
+function createBaseStartSubFlowActivityInput(): StartSubFlowActivityInput {
+  return { condition: undefined, parentFlowConfig: undefined, parentStepExecutionId: "" };
+}
+
+export const StartSubFlowActivityInput: MessageFns<StartSubFlowActivityInput> = {
+  encode(message: StartSubFlowActivityInput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.condition !== undefined) {
+      SubFlowCondition.encode(message.condition, writer.uint32(10).fork()).join();
+    }
+    if (message.parentFlowConfig !== undefined) {
+      FlowConfig.encode(message.parentFlowConfig, writer.uint32(18).fork()).join();
+    }
+    if (message.parentStepExecutionId !== "") {
+      writer.uint32(26).string(message.parentStepExecutionId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StartSubFlowActivityInput {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStartSubFlowActivityInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.condition = SubFlowCondition.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.parentFlowConfig = FlowConfig.decode(reader, reader.uint32());
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.parentStepExecutionId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StartSubFlowActivityInput>, I>>(base?: I): StartSubFlowActivityInput {
+    return StartSubFlowActivityInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StartSubFlowActivityInput>, I>>(object: I): StartSubFlowActivityInput {
+    const message = createBaseStartSubFlowActivityInput();
+    message.condition = (object.condition !== undefined && object.condition !== null)
+      ? SubFlowCondition.fromPartial(object.condition)
+      : undefined;
+    message.parentFlowConfig = (object.parentFlowConfig !== undefined && object.parentFlowConfig !== null)
+      ? FlowConfig.fromPartial(object.parentFlowConfig)
+      : undefined;
+    message.parentStepExecutionId = object.parentStepExecutionId ?? "";
+    return message;
+  },
+};
+
+function createBaseStartSubFlowActivityOutput(): StartSubFlowActivityOutput {
+  return { immediateFlowResult: undefined };
+}
+
+export const StartSubFlowActivityOutput: MessageFns<StartSubFlowActivityOutput> = {
+  encode(message: StartSubFlowActivityOutput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.immediateFlowResult !== undefined) {
+      FlowResult.encode(message.immediateFlowResult, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StartSubFlowActivityOutput {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStartSubFlowActivityOutput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.immediateFlowResult = FlowResult.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StartSubFlowActivityOutput>, I>>(base?: I): StartSubFlowActivityOutput {
+    return StartSubFlowActivityOutput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StartSubFlowActivityOutput>, I>>(object: I): StartSubFlowActivityOutput {
+    const message = createBaseStartSubFlowActivityOutput();
+    message.immediateFlowResult = (object.immediateFlowResult !== undefined && object.immediateFlowResult !== null)
+      ? FlowResult.fromPartial(object.immediateFlowResult)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseSubFlowCompletionSignalRequest(): SubFlowCompletionSignalRequest {
+  return { subFlowId: "", flowResult: undefined };
+}
+
+export const SubFlowCompletionSignalRequest: MessageFns<SubFlowCompletionSignalRequest> = {
+  encode(message: SubFlowCompletionSignalRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.subFlowId !== "") {
+      writer.uint32(10).string(message.subFlowId);
+    }
+    if (message.flowResult !== undefined) {
+      FlowResult.encode(message.flowResult, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SubFlowCompletionSignalRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSubFlowCompletionSignalRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.subFlowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.flowResult = FlowResult.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<SubFlowCompletionSignalRequest>, I>>(base?: I): SubFlowCompletionSignalRequest {
+    return SubFlowCompletionSignalRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SubFlowCompletionSignalRequest>, I>>(
+    object: I,
+  ): SubFlowCompletionSignalRequest {
+    const message = createBaseSubFlowCompletionSignalRequest();
+    message.subFlowId = object.subFlowId ?? "";
+    message.flowResult = (object.flowResult !== undefined && object.flowResult !== null)
+      ? FlowResult.fromPartial(object.flowResult)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseReportSubFlowCompletionActivityInput(): ReportSubFlowCompletionActivityInput {
+  return { parentFlowId: "", request: undefined };
+}
+
+export const ReportSubFlowCompletionActivityInput: MessageFns<ReportSubFlowCompletionActivityInput> = {
+  encode(message: ReportSubFlowCompletionActivityInput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.parentFlowId !== "") {
+      writer.uint32(10).string(message.parentFlowId);
+    }
+    if (message.request !== undefined) {
+      SubFlowCompletionSignalRequest.encode(message.request, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ReportSubFlowCompletionActivityInput {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseReportSubFlowCompletionActivityInput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.parentFlowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.request = SubFlowCompletionSignalRequest.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ReportSubFlowCompletionActivityInput>, I>>(
+    base?: I,
+  ): ReportSubFlowCompletionActivityInput {
+    return ReportSubFlowCompletionActivityInput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ReportSubFlowCompletionActivityInput>, I>>(
+    object: I,
+  ): ReportSubFlowCompletionActivityInput {
+    const message = createBaseReportSubFlowCompletionActivityInput();
+    message.parentFlowId = object.parentFlowId ?? "";
+    message.request = (object.request !== undefined && object.request !== null)
+      ? SubFlowCompletionSignalRequest.fromPartial(object.request)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseReportSubFlowCompletionActivityOutput(): ReportSubFlowCompletionActivityOutput {
+  return { status: 0 };
+}
+
+export const ReportSubFlowCompletionActivityOutput: MessageFns<ReportSubFlowCompletionActivityOutput> = {
+  encode(message: ReportSubFlowCompletionActivityOutput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.status !== 0) {
+      writer.uint32(8).int32(message.status);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ReportSubFlowCompletionActivityOutput {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseReportSubFlowCompletionActivityOutput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.status = reader.int32() as any;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ReportSubFlowCompletionActivityOutput>, I>>(
+    base?: I,
+  ): ReportSubFlowCompletionActivityOutput {
+    return ReportSubFlowCompletionActivityOutput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ReportSubFlowCompletionActivityOutput>, I>>(
+    object: I,
+  ): ReportSubFlowCompletionActivityOutput {
+    const message = createBaseReportSubFlowCompletionActivityOutput();
+    message.status = object.status ?? 0;
+    return message;
+  },
+};
+
 function createBaseExecuteRpcSignalRequest(): ExecuteRpcSignalRequest {
   return {
     rpcInput: undefined,
@@ -13788,8 +14692,8 @@ export const FlowServiceService = {
     responseStream: false as const,
     requestSerialize: (value: WaitForFlowRequest): Buffer => Buffer.from(WaitForFlowRequest.encode(value).finish()),
     requestDeserialize: (value: Buffer): WaitForFlowRequest => WaitForFlowRequest.decode(value),
-    responseSerialize: (value: WaitForFlowResponse): Buffer => Buffer.from(WaitForFlowResponse.encode(value).finish()),
-    responseDeserialize: (value: Buffer): WaitForFlowResponse => WaitForFlowResponse.decode(value),
+    responseSerialize: (value: FlowResult): Buffer => Buffer.from(FlowResult.encode(value).finish()),
+    responseDeserialize: (value: Buffer): FlowResult => FlowResult.decode(value),
   },
   searchFlows: {
     path: "/dex.FlowService/SearchFlows" as const,
@@ -13940,7 +14844,7 @@ export interface FlowServiceServer extends UntypedServiceImplementation {
   getAttributes: handleUnaryCall<GetAttributesRequest, GetAttributesResponse>;
   setAttributes: handleUnaryCall<SetAttributesRequest, Empty>;
   loadBlobs: handleUnaryCall<LoadBlobsRequest, LoadBlobsResponse>;
-  waitForFlow: handleUnaryCall<WaitForFlowRequest, WaitForFlowResponse>;
+  waitForFlow: handleUnaryCall<WaitForFlowRequest, FlowResult>;
   searchFlows: handleUnaryCall<SearchFlowsRequest, SearchFlowsResponse>;
   syncAttributeIndexes: handleUnaryCall<SyncAttributeIndexRequest, SyncAttributeIndexResponse>;
   getFlowSummary: handleUnaryCall<GetFlowSummaryRequest, GetFlowSummaryResponse>;
@@ -14047,18 +14951,18 @@ export interface FlowServiceClient extends Client {
   ): ClientUnaryCall;
   waitForFlow(
     request: WaitForFlowRequest,
-    callback: (error: ServiceError | null, response: WaitForFlowResponse) => void,
+    callback: (error: ServiceError | null, response: FlowResult) => void,
   ): ClientUnaryCall;
   waitForFlow(
     request: WaitForFlowRequest,
     metadata: Metadata,
-    callback: (error: ServiceError | null, response: WaitForFlowResponse) => void,
+    callback: (error: ServiceError | null, response: FlowResult) => void,
   ): ClientUnaryCall;
   waitForFlow(
     request: WaitForFlowRequest,
     metadata: Metadata,
     options: Partial<CallOptions>,
-    callback: (error: ServiceError | null, response: WaitForFlowResponse) => void,
+    callback: (error: ServiceError | null, response: FlowResult) => void,
   ): ClientUnaryCall;
   searchFlows(
     request: SearchFlowsRequest,

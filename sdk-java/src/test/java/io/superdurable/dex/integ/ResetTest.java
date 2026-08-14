@@ -14,13 +14,12 @@ package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowStatus;
+import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.ResetFlowOptions;
 import io.superdurable.dex.ResetType;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepCompletion;
-import io.superdurable.dex.WaitForFlowResult;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
-import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -81,7 +80,8 @@ public final class ResetTest {
                     flowId,
                     resetOptions(true));
 
-            assertResetTimesOutWithoutAttributes(environment, flowId, resetRunId);
+            assertEquals(resetRunId, environment.client().describeFlow(flowId).getRunId());
+            assertResetTimesOutWithoutAttributes(environment, flowId);
         }
     }
 
@@ -110,7 +110,8 @@ public final class ResetTest {
                     flowId,
                     resetOptions(true));
 
-            assertResetTimesOutWithoutAttributes(environment, flowId, resetRunId);
+            assertEquals(resetRunId, environment.client().describeFlow(flowId).getRunId());
+            assertResetTimesOutWithoutAttributes(environment, flowId);
         }
     }
 
@@ -195,12 +196,9 @@ public final class ResetTest {
 
     private static void assertResetTimesOutWithoutAttributes(
             final DexDevTestEnvironment environment,
-            final String flowId,
-            final String resetRunId) {
-        final FlowUncompletedException failure = assertThrows(
-                FlowUncompletedException.class,
-                () -> environment.client().waitForFlow(flowId, Duration.ofSeconds(10)).getSingleOutput(Integer.class));
-        assertEquals(resetRunId, failure.getRunId());
+            final String flowId) {
+        final FlowResult failure =
+                environment.client().waitForFlow(flowId, Duration.ofSeconds(10));
         assertEquals(FlowStatus.TIMED_OUT, failure.getStatus());
         assertEquals(0, failure.getCompletions().size());
         assertNull(environment.client().getAttribute(flowId, WORKFLOW.data));
@@ -213,7 +211,7 @@ public final class ResetTest {
     private static void consume(final Object value) {
     }
 
-    private static Set<Integer> completionOutputs(final WaitForFlowResult result) {
+    private static Set<Integer> completionOutputs(final FlowResult result) {
         final Set<Integer> outputs = new HashSet<Integer>();
         for (final StepCompletion completion : result.getCompletions()) {
             outputs.add(completion.getOutput(Integer.class));

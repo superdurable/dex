@@ -48,12 +48,31 @@ func (p *fakeWorkflowProvider) MapToRecoveryError(error) (*dexpb.RecoveryErrorIn
 	return nil, nil
 }
 
+func (p *fakeWorkflowProvider) MapToFlowResultError(error) (dexpb.FlowErrorType, *dexpb.RecoveryErrorInfo, error) {
+	return dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, nil, nil
+}
+
+func (p *fakeWorkflowProvider) IsCanceledError(error) bool {
+	return false
+}
+
 func (p *fakeWorkflowProvider) IsContinueAsNewError(error) bool {
 	return false
 }
 
+func (p *fakeWorkflowProvider) NewDisconnectedContext(ctx interfaces.UnifiedContext) interfaces.UnifiedContext {
+	return ctx
+}
+
 func (p *fakeWorkflowProvider) GetWorkflowInfo(interfaces.UnifiedContext) interfaces.WorkflowInfo {
 	return interfaces.WorkflowInfo{}
+}
+
+func (p *fakeWorkflowProvider) GetSearchAttributeKeyword(
+	interfaces.UnifiedContext,
+	string,
+) (string, error) {
+	return "", nil
 }
 
 func (p *fakeWorkflowProvider) GetSearchAttributeKeywordArray(

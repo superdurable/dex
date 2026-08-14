@@ -256,8 +256,9 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		t.Cleanup(func() { require.NoError(t, store.Close()) })
 	}
 	attributeIndexes := map[string]dexpb.IndexType{
-		"FlowType":        dexpb.IndexType_INDEX_TYPE_KEYWORD,
-		"ActiveStepTypes": dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
+		service.SearchAttributeDexWorkflowType: dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		service.SearchAttributeDexParentFlowID: dexpb.IndexType_INDEX_TYPE_KEYWORD,
+		service.SearchAttributeActiveStepTypes: dexpb.IndexType_INDEX_TYPE_KEYWORD_ARRAY,
 	}
 	for name, indexType := range localDexDevTestAttributeIndexes {
 		attributeIndexes[name] = indexType

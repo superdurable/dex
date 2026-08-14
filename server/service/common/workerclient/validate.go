@@ -16,6 +16,25 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 )
 
+// ValidateAttributeWrites validates untrusted start Attributes and rejects server-owned blob IDs.
+func ValidateAttributeWrites(attributes []*dexpb.AttributeWrite) error {
+	seenKeys := make(map[string]bool, len(attributes))
+	for index, attribute := range attributes {
+		if attribute == nil || attribute.GetKey() == "" || attribute.GetValue() == nil ||
+			attribute.GetValue().GetKind() == nil {
+			return fmt.Errorf("attribute %d is invalid", index)
+		}
+		if seenKeys[attribute.GetKey()] {
+			return fmt.Errorf("attribute keys must be unique")
+		}
+		seenKeys[attribute.GetKey()] = true
+		if err := RejectWorkerBlobIDs(attribute.GetValue()); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // RejectWorkerBlobIDs rejects server-minted blob-id arms on worker responses (untrusted).
 func RejectWorkerBlobIDs(values ...*dexpb.Value) error {
 	for _, value := range values {

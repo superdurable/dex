@@ -63,6 +63,8 @@ type WorkflowInfo struct {
 	WorkflowExecutionTimeout time.Duration
 	FirstRunID               string
 	CurrentRunID             string
+	Attempt                  int32
+	RetryMaximumAttempts     *int32
 }
 
 type ActivityOptions struct {
@@ -125,9 +127,13 @@ type WorkflowProvider interface {
 	NewCanceledError(reason string) error
 	NewUpdateError(errType dexpb.UpdateErrorType, detail string) error
 	IsApplicationError(err error) bool
+	MapToFlowResultError(err error) (dexpb.FlowErrorType, *dexpb.RecoveryErrorInfo, error)
 	MapToRecoveryError(err error) (*dexpb.RecoveryErrorInfo, error)
+	IsCanceledError(err error) bool
 	IsContinueAsNewError(err error) bool
+	NewDisconnectedContext(ctx UnifiedContext) UnifiedContext
 	GetWorkflowInfo(ctx UnifiedContext) WorkflowInfo
+	GetSearchAttributeKeyword(ctx UnifiedContext, key string) (string, error)
 	GetSearchAttributeKeywordArray(ctx UnifiedContext, key string) ([]string, error)
 	UpsertSearchAttributes(ctx UnifiedContext, attributes map[string]interface{}) error
 	SetQueryHandler(ctx UnifiedContext, queryType string, handler interface{}) error

@@ -10,6 +10,8 @@
 
 package service
 
+import "fmt"
+
 type (
 	BackendType string
 )
@@ -33,6 +35,7 @@ const (
 	WaitForAttributeUpdateType      = "WaitForAttribute"
 
 	SearchAttributeActiveStepTypes = "ActiveStepTypes"
+	SearchAttributeDexParentFlowID = "DexParentFlowID"
 	SearchAttributeDexWorkflowType = "FlowType"
 
 	BackendTypeCadence  BackendType = "cadence"
@@ -45,7 +48,13 @@ const (
 	UpdateConfigSignalChannelName         = DexSystemConstPrefix + "UpdateWorkflowConfig"
 	ExecuteRpcSignalChannelName           = DexSystemConstPrefix + "ExecuteRpc"
 	TriggerContinueAsNewSignalChannelName = DexSystemConstPrefix + "TriggerContinueAsNew"
+	SubFlowCompletionSignalChannelName    = DexSystemConstPrefix + "SubFlowCompletion"
 
 	WorkerAddressMemoKey = DexSystemConstPrefix + "WorkerAddress"
 	WorkflowRequestId    = DexSystemConstPrefix + "WorkflowRequestId"
 )
+
+// SubFlowID returns the durable child identity for one parent Step condition.
+func SubFlowID(parentFlowID string, stepExecutionID string, index int32) string {
+	return fmt.Sprintf("SubFlow-%s-%s-%d", parentFlowID, stepExecutionID, index)
+}

@@ -6,8 +6,8 @@
 package io.superdurable.gen;
 
 @com.google.protobuf.Generated
-public interface WaitForFlowResponseOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:dex.WaitForFlowResponse)
+public interface FlowResultOrBuilder extends
+    // @@protoc_insertion_point(interface_extends:dex.FlowResult)
     com.google.protobuf.MessageOrBuilder {
 
   /**

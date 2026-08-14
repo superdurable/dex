@@ -104,7 +104,8 @@ function isWaitingCondition(value: unknown): boolean {
   const data = asData(value);
   return 'waitingConditionType' in data
     || 'channelConditions' in data
-    || 'timerConditions' in data;
+    || 'timerConditions' in data
+    || 'subFlowConditions' in data;
 }
 
 function isKeyValueList(value: unknown): boolean {
@@ -119,11 +120,20 @@ function isTimerList(value: unknown): boolean {
   ));
 }
 
-function WaitingConditionStructured({ value }: { value: unknown }) {
+function WaitingConditionStructured({
+  value,
+  parentFlowId,
+  stepExecutionId,
+}: {
+  value: unknown;
+  parentFlowId: string;
+  stepExecutionId: string;
+}) {
   const { timezone } = usePreferences();
   const condition = asData(value);
   const channels = asDataArray(condition.channelConditions);
   const timers = asDataArray(condition.timerConditions);
+  const subFlows = asDataArray(condition.subFlowConditions);
   return (
     <div className="structured-value">
       <Fields values={[[
@@ -150,8 +160,30 @@ function WaitingConditionStructured({ value }: { value: unknown }) {
           ]} />
         </div>
       ))}
+      {subFlows.map((subFlow, index) => (
+        <a
+          className="semantic-record sub-flow-record"
+          href={`/flows/${encodeURIComponent(generatedSubFlowID(parentFlowId, stepExecutionId, index))}`}
+          aria-label={`Open SubFlow ${generatedSubFlowID(parentFlowId, stepExecutionId, index)}`}
+          key={`${parentFlowId}-${stepExecutionId}-${index}`}
+        >
+          <strong><code>{generatedSubFlowID(parentFlowId, stepExecutionId, index)}</code></strong>
+          <Fields values={[
+            ['Condition ID', subFlow.conditionId],
+            ['Reuse policy', asData(subFlow.options).reusePolicy],
+          ]} />
+        </a>
+      ))}
     </div>
   );
+}
+
+function generatedSubFlowID(
+  parentFlowId: string,
+  stepExecutionId: string,
+  index: number,
+): string {
+  return `SubFlow-${parentFlowId}-${stepExecutionId}-${index}`;
 }
 
 function KeyValueListStructured({ value }: { value: unknown }) {
@@ -233,7 +265,15 @@ function ArrayStructured({ value }: { value: unknown[] }) {
   );
 }
 
-export function StructuredValue({ value }: { value: unknown }) {
+export function StructuredValue({
+  value,
+  parentFlowId = '',
+  stepExecutionId = '',
+}: {
+  value: unknown;
+  parentFlowId?: string;
+  stepExecutionId?: string;
+}) {
   if (value === undefined || value === null) {
     return <p className="muted">No value</p>;
   }
@@ -245,7 +285,13 @@ export function StructuredValue({ value }: { value: unknown }) {
   }
   if (typeof value === 'object') {
     if (Object.keys(value).length === 0) return <p className="muted">Empty object</p>;
-    if (isWaitingCondition(value)) return <WaitingConditionStructured value={value} />;
+    if (isWaitingCondition(value)) {
+      return <WaitingConditionStructured
+        value={value}
+        parentFlowId={parentFlowId}
+        stepExecutionId={stepExecutionId}
+      />;
+    }
     return <ObjectStructured value={asData(value)} />;
   }
   return <code>{displayValue(value)}</code>;

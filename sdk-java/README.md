@@ -154,7 +154,7 @@ For multiple outputs, select by Step type or Step execution ID and decode each
 completion independently:
 
 ```java
-WaitForFlowResult result = client.waitForFlow("flow-123");
+FlowResult result = client.waitForFlow("flow-123");
 for (StepCompletion completion : result.getCompletions()) {
     if (completion.getStepType().equals("ChargeCard")) {
         Receipt receipt = completion.getOutput(Receipt.class);
@@ -175,6 +175,15 @@ not part of the public API.
 `Wait.allOf` and `Wait.anyOf` accept unnamed Conditions and send an empty
 Condition ID. Every Condition in `Wait.anyCombinationOf` must have a non-empty
 user ID; the same Condition object may be reused across combinations.
+
+`SubFlow.run(ChildFlow.class, input)` declares a normal Flow execution as a
+durable condition. Read it during `execute` with
+`SubFlow.getConditionResults(context, index)`. `allOf` results are terminal;
+an unfinished `anyOf` loser is a `RUNNING` snapshot. Obtain its deterministic
+Flow ID with `SubFlow.getFlowId(context, index)` before passing it to
+`Client.stopFlow`. Continue-as-new retains only each SubFlow Condition ID and
+stable list position, not its starting input or options. SubFlows continue when
+their parent closes.
 
 `client.waitForAttributeEqual(...)` overloads cover singleton Attributes and
 AttributeMap instances in the current run. Only String,
@@ -213,8 +222,9 @@ configuration, and step-wait operations that require an open Flow.
 
 `FlowAlreadyStartedException` identifies duplicate starts.
 `LongPollTimeoutException` identifies an expected long-poll timeout.
-`FlowUncompletedException` exposes hydrated `StepCompletion` values with their
-Step type and Step execution ID.
+`Client.waitForFlow` returns `FlowResult` for successful and unsuccessful
+terminal statuses. Inspect `getStatus`, `getErrorType`, and `getErrorMessage`
+before decoding outputs from an unsuccessful result.
 `WorkerInvocationException` preserves the original WorkerService error type,
 detail, gRPC code, and Java stack trace. Read the persisted trace with
 `getWorkerStackTrace()`; it may be empty for Workers implemented by another SDK.

@@ -65,6 +65,13 @@ func TestWorkflowProviderMapsWorkerAndTimeoutErrors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "worker detail", recoveryError.GetDetail())
 	require.Equal(t, "worker type", recoveryError.GetErrorType())
+	flowErrorType, flowResultError, err := provider.MapToFlowResultError(
+		provider.NewFlowErrorFromActivityError(workerFailure),
+	)
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_WORKER_API_FAIL, flowErrorType)
+	require.Equal(t, "worker detail", flowResultError.GetDetail())
+	require.Equal(t, "worker type", flowResultError.GetErrorType())
 
 	localFailure := &dexpb.InternalLocalStepActivityFailure{
 		Attempt:       2,

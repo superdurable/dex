@@ -102,7 +102,7 @@ export interface FlowState {
 export interface StepGraphNode {
   id: string;
   label: string;
-  kind: 'source' | 'step' | 'terminal';
+  kind: 'source' | 'step' | 'subflow' | 'terminal';
   status: 'Source' | 'Active' | 'Waiting' | 'Pending' | 'Completed' | 'Failed' | 'Terminal';
   previousRunId?: string;
   stepType?: string;
@@ -113,6 +113,10 @@ export interface StepGraphNode {
   pendingExecute?: FlowHistoryEvent;
   active?: ActiveStepExecution;
   transient?: boolean;
+  parentStepId?: string;
+  flowId?: string;
+  subFlowStatus?: string;
+  reusePolicy?: string;
 }
 
 export interface StepGraphEdge {

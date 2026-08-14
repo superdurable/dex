@@ -712,7 +712,7 @@ func mapRPCResult[OUT any](result *RPCResult[OUT]) (*dexpb.InvokeWorkerRPCRespon
 }
 
 func mapWaitForFlowResult(
-	response *dexpb.WaitForFlowResponse,
+	response *dexpb.FlowResult,
 ) (WaitForFlowResult, error) {
 	if response == nil {
 		return WaitForFlowResult{}, fmt.Errorf("dex: WaitForFlow response is nil")

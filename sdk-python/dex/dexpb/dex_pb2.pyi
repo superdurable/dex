@@ -130,6 +130,13 @@ class WaitingConditionType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     WAITING_CONDITION_TYPE_ANY_COMPLETED: _ClassVar[WaitingConditionType]
     WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED: _ClassVar[WaitingConditionType]
 
+class SubFlowReusePolicy(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SUB_FLOW_REUSE_POLICY_UNSPECIFIED: _ClassVar[SubFlowReusePolicy]
+    SUB_FLOW_REUSE_POLICY_ATTACH: _ClassVar[SubFlowReusePolicy]
+    SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY: _ClassVar[SubFlowReusePolicy]
+    SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART: _ClassVar[SubFlowReusePolicy]
+
 class ConditionStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     CONDITION_STATUS_UNSPECIFIED: _ClassVar[ConditionStatus]
@@ -152,6 +159,12 @@ class UpdateErrorType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED: _ClassVar[UpdateErrorType]
     UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE: _ClassVar[UpdateErrorType]
     UPDATE_ERROR_TYPE_SERVER_INTERNAL: _ClassVar[UpdateErrorType]
+
+class SubFlowCompletionDeliveryStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED: _ClassVar[SubFlowCompletionDeliveryStatus]
+    SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED: _ClassVar[SubFlowCompletionDeliveryStatus]
+    SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND: _ClassVar[SubFlowCompletionDeliveryStatus]
 INDEX_TYPE_UNSPECIFIED: IndexType
 INDEX_TYPE_KEYWORD: IndexType
 INDEX_TYPE_TEXT: IndexType
@@ -224,6 +237,10 @@ WAITING_CONDITION_TYPE_UNSPECIFIED: WaitingConditionType
 WAITING_CONDITION_TYPE_ALL_COMPLETED: WaitingConditionType
 WAITING_CONDITION_TYPE_ANY_COMPLETED: WaitingConditionType
 WAITING_CONDITION_TYPE_ANY_COMBINATION_COMPLETED: WaitingConditionType
+SUB_FLOW_REUSE_POLICY_UNSPECIFIED: SubFlowReusePolicy
+SUB_FLOW_REUSE_POLICY_ATTACH: SubFlowReusePolicy
+SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY: SubFlowReusePolicy
+SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART: SubFlowReusePolicy
 CONDITION_STATUS_UNSPECIFIED: ConditionStatus
 CONDITION_STATUS_WAITING: ConditionStatus
 CONDITION_STATUS_COMPLETED: ConditionStatus
@@ -238,6 +255,9 @@ UPDATE_ERROR_TYPE_FAILED_PRECONDITION: UpdateErrorType
 UPDATE_ERROR_TYPE_DEADLINE_EXCEEDED: UpdateErrorType
 UPDATE_ERROR_TYPE_RPC_ACQUIRE_LOCK_FAILURE: UpdateErrorType
 UPDATE_ERROR_TYPE_SERVER_INTERNAL: UpdateErrorType
+SUB_FLOW_COMPLETION_DELIVERY_STATUS_UNSPECIFIED: SubFlowCompletionDeliveryStatus
+SUB_FLOW_COMPLETION_DELIVERY_STATUS_DELIVERED: SubFlowCompletionDeliveryStatus
+SUB_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_CLOSED_OR_NOT_FOUND: SubFlowCompletionDeliveryStatus
 
 class Value(_message.Message):
     __slots__ = ("internal_blob_id_for_string_value", "internal_blob_id_for_obj_value", "string_value", "obj_value", "int_value", "double_value", "bool_value", "null_value")
@@ -562,7 +582,7 @@ class StepCompletionOutput(_message.Message):
     completed_step_output: Value
     def __init__(self, completed_step_type: _Optional[str] = ..., completed_step_execution_id: _Optional[str] = ..., completed_step_output: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
-class WaitForFlowResponse(_message.Message):
+class FlowResult(_message.Message):
     __slots__ = ("flow_status", "results", "error_type", "error_message")
     FLOW_STATUS_FIELD_NUMBER: _ClassVar[int]
     RESULTS_FIELD_NUMBER: _ClassVar[int]
@@ -1001,12 +1021,12 @@ class ActiveStepExecutionState(_message.Message):
     step_type: str
     phase: ActiveStepPhase
     movement: StepMovement
-    waiting_condition: WaitingCondition
+    waiting_condition: WaitingConditionState
     completed_conditions: StepExecutionCompletedConditions
     step_execution_locals: _containers.RepeatedCompositeFieldContainer[KV]
     timers: _containers.RepeatedCompositeFieldContainer[TimerInfo]
     last_failure_info: StepMethodFailure
-    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., phase: _Optional[_Union[ActiveStepPhase, str]] = ..., movement: _Optional[_Union[StepMovement, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., timers: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ...) -> None: ...
+    def __init__(self, step_execution_id: _Optional[str] = ..., from_step_execution_id: _Optional[str] = ..., step_type: _Optional[str] = ..., phase: _Optional[_Union[ActiveStepPhase, str]] = ..., movement: _Optional[_Union[StepMovement, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingConditionState, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., step_execution_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., timers: _Optional[_Iterable[_Union[TimerInfo, _Mapping]]] = ..., last_failure_info: _Optional[_Union[StepMethodFailure, _Mapping]] = ...) -> None: ...
 
 class GetFlowStateRequest(_message.Message):
     __slots__ = ("flow_id", "run_id")
@@ -1383,16 +1403,72 @@ class ConditionCombination(_message.Message):
     def __init__(self, condition_ids: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class WaitingCondition(_message.Message):
-    __slots__ = ("waiting_condition_type", "timer_conditions", "channel_conditions", "condition_combinations")
+    __slots__ = ("waiting_condition_type", "timer_conditions", "channel_conditions", "condition_combinations", "sub_flow_conditions")
     WAITING_CONDITION_TYPE_FIELD_NUMBER: _ClassVar[int]
     TIMER_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     CHANNEL_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     CONDITION_COMBINATIONS_FIELD_NUMBER: _ClassVar[int]
+    SUB_FLOW_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
     waiting_condition_type: WaitingConditionType
     timer_conditions: _containers.RepeatedCompositeFieldContainer[TimerCondition]
     channel_conditions: _containers.RepeatedCompositeFieldContainer[ChannelCondition]
     condition_combinations: _containers.RepeatedCompositeFieldContainer[ConditionCombination]
-    def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ...) -> None: ...
+    sub_flow_conditions: _containers.RepeatedCompositeFieldContainer[SubFlowCondition]
+    def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowCondition, _Mapping]]] = ...) -> None: ...
+
+class WaitingConditionState(_message.Message):
+    __slots__ = ("waiting_condition_type", "timer_conditions", "channel_conditions", "condition_combinations", "sub_flow_conditions")
+    WAITING_CONDITION_TYPE_FIELD_NUMBER: _ClassVar[int]
+    TIMER_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
+    CONDITION_COMBINATIONS_FIELD_NUMBER: _ClassVar[int]
+    SUB_FLOW_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
+    waiting_condition_type: WaitingConditionType
+    timer_conditions: _containers.RepeatedCompositeFieldContainer[TimerCondition]
+    channel_conditions: _containers.RepeatedCompositeFieldContainer[ChannelCondition]
+    condition_combinations: _containers.RepeatedCompositeFieldContainer[ConditionCombination]
+    sub_flow_conditions: _containers.RepeatedCompositeFieldContainer[SubFlowConditionState]
+    def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowConditionState, _Mapping]]] = ...) -> None: ...
+
+class SubFlowOptions(_message.Message):
+    __slots__ = ("reuse_policy", "flow_timeout_seconds", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override")
+    REUSE_POLICY_FIELD_NUMBER: _ClassVar[int]
+    FLOW_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    FLOW_START_DELAY_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
+    ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
+    FLOW_CONFIG_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
+    reuse_policy: SubFlowReusePolicy
+    flow_timeout_seconds: int
+    flow_start_delay_seconds: int
+    retry_policy: FlowRetryPolicy
+    attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
+    flow_config_override: FlowConfig
+    def __init__(self, reuse_policy: _Optional[_Union[SubFlowReusePolicy, str]] = ..., flow_timeout_seconds: _Optional[int] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
+
+class SubFlowCondition(_message.Message):
+    __slots__ = ("condition_id", "sub_flow_type", "start_step_type", "step_input", "step_options", "options", "sub_flow_index")
+    CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
+    SUB_FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
+    START_STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
+    STEP_INPUT_FIELD_NUMBER: _ClassVar[int]
+    STEP_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    SUB_FLOW_INDEX_FIELD_NUMBER: _ClassVar[int]
+    condition_id: str
+    sub_flow_type: str
+    start_step_type: str
+    step_input: Value
+    step_options: StepOptions
+    options: SubFlowOptions
+    sub_flow_index: int
+    def __init__(self, condition_id: _Optional[str] = ..., sub_flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., options: _Optional[_Union[SubFlowOptions, _Mapping]] = ..., sub_flow_index: _Optional[int] = ...) -> None: ...
+
+class SubFlowConditionState(_message.Message):
+    __slots__ = ("condition_id",)
+    CONDITION_ID_FIELD_NUMBER: _ClassVar[int]
+    condition_id: str
+    def __init__(self, condition_id: _Optional[str] = ...) -> None: ...
 
 class TimerCondition(_message.Message):
     __slots__ = ("condition_id", "duration_seconds", "firing_unix_timestamp_seconds")
@@ -1417,14 +1493,16 @@ class ChannelCondition(_message.Message):
     def __init__(self, condition_id: _Optional[str] = ..., channel_name: _Optional[str] = ..., at_least: _Optional[int] = ..., at_most: _Optional[int] = ...) -> None: ...
 
 class ConditionResults(_message.Message):
-    __slots__ = ("channel_results", "timer_results", "wait_for_failed")
+    __slots__ = ("channel_results", "timer_results", "wait_for_failed", "sub_flow_results")
     CHANNEL_RESULTS_FIELD_NUMBER: _ClassVar[int]
     TIMER_RESULTS_FIELD_NUMBER: _ClassVar[int]
     WAIT_FOR_FAILED_FIELD_NUMBER: _ClassVar[int]
+    SUB_FLOW_RESULTS_FIELD_NUMBER: _ClassVar[int]
     channel_results: _containers.RepeatedCompositeFieldContainer[ChannelResult]
     timer_results: _containers.RepeatedCompositeFieldContainer[TimerResult]
     wait_for_failed: bool
-    def __init__(self, channel_results: _Optional[_Iterable[_Union[ChannelResult, _Mapping]]] = ..., timer_results: _Optional[_Iterable[_Union[TimerResult, _Mapping]]] = ..., wait_for_failed: _Optional[bool] = ...) -> None: ...
+    sub_flow_results: _containers.RepeatedCompositeFieldContainer[FlowResult]
+    def __init__(self, channel_results: _Optional[_Iterable[_Union[ChannelResult, _Mapping]]] = ..., timer_results: _Optional[_Iterable[_Union[TimerResult, _Mapping]]] = ..., wait_for_failed: _Optional[bool] = ..., sub_flow_results: _Optional[_Iterable[_Union[FlowResult, _Mapping]]] = ...) -> None: ...
 
 class TimerResult(_message.Message):
     __slots__ = ("condition_id", "condition_status")
@@ -1477,7 +1555,7 @@ class ChannelValues(_message.Message):
     def __init__(self, values: _Optional[_Iterable[_Union[Value, _Mapping]]] = ...) -> None: ...
 
 class StepExecutionCompletedConditions(_message.Message):
-    __slots__ = ("completed_timer_conditions",)
+    __slots__ = ("completed_timer_conditions", "completed_sub_flow_results")
     class CompletedTimerConditionsEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -1485,9 +1563,18 @@ class StepExecutionCompletedConditions(_message.Message):
         key: int
         value: InternalTimerStatus
         def __init__(self, key: _Optional[int] = ..., value: _Optional[_Union[InternalTimerStatus, str]] = ...) -> None: ...
+    class CompletedSubFlowResultsEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: int
+        value: FlowResult
+        def __init__(self, key: _Optional[int] = ..., value: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
     COMPLETED_TIMER_CONDITIONS_FIELD_NUMBER: _ClassVar[int]
+    COMPLETED_SUB_FLOW_RESULTS_FIELD_NUMBER: _ClassVar[int]
     completed_timer_conditions: _containers.ScalarMap[int, InternalTimerStatus]
-    def __init__(self, completed_timer_conditions: _Optional[_Mapping[int, InternalTimerStatus]] = ...) -> None: ...
+    completed_sub_flow_results: _containers.MessageMap[int, FlowResult]
+    def __init__(self, completed_timer_conditions: _Optional[_Mapping[int, InternalTimerStatus]] = ..., completed_sub_flow_results: _Optional[_Mapping[int, FlowResult]] = ...) -> None: ...
 
 class StepExecutionResumeInfo(_message.Message):
     __slots__ = ("step_execution_id", "step", "completed_conditions", "waiting_condition", "step_exe_locals")
@@ -1499,9 +1586,9 @@ class StepExecutionResumeInfo(_message.Message):
     step_execution_id: str
     step: StepMovement
     completed_conditions: StepExecutionCompletedConditions
-    waiting_condition: WaitingCondition
+    waiting_condition: WaitingConditionState
     step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
-    def __init__(self, step_execution_id: _Optional[str] = ..., step: _Optional[_Union[StepMovement, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
+    def __init__(self, step_execution_id: _Optional[str] = ..., step: _Optional[_Union[StepMovement, _Mapping]] = ..., completed_conditions: _Optional[_Union[StepExecutionCompletedConditions, _Mapping]] = ..., waiting_condition: _Optional[_Union[WaitingConditionState, _Mapping]] = ..., step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ...) -> None: ...
 
 class StepExecutionCounterInfo(_message.Message):
     __slots__ = ("step_type_started_count", "step_type_currently_executing_count", "total_currently_executing_count", "step_active_execution_nums")
@@ -1728,6 +1815,44 @@ class SyncAttributeBatchActivityInput(_message.Message):
     config_name: str
     items: _containers.RepeatedCompositeFieldContainer[AttributeSyncItem]
     def __init__(self, flow_id: _Optional[str] = ..., config_name: _Optional[str] = ..., items: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
+
+class StartSubFlowActivityInput(_message.Message):
+    __slots__ = ("condition", "parent_flow_config", "parent_step_execution_id")
+    CONDITION_FIELD_NUMBER: _ClassVar[int]
+    PARENT_FLOW_CONFIG_FIELD_NUMBER: _ClassVar[int]
+    PARENT_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
+    condition: SubFlowCondition
+    parent_flow_config: FlowConfig
+    parent_step_execution_id: str
+    def __init__(self, condition: _Optional[_Union[SubFlowCondition, _Mapping]] = ..., parent_flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., parent_step_execution_id: _Optional[str] = ...) -> None: ...
+
+class StartSubFlowActivityOutput(_message.Message):
+    __slots__ = ("immediate_flow_result",)
+    IMMEDIATE_FLOW_RESULT_FIELD_NUMBER: _ClassVar[int]
+    immediate_flow_result: FlowResult
+    def __init__(self, immediate_flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
+
+class SubFlowCompletionSignalRequest(_message.Message):
+    __slots__ = ("sub_flow_id", "flow_result")
+    SUB_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOW_RESULT_FIELD_NUMBER: _ClassVar[int]
+    sub_flow_id: str
+    flow_result: FlowResult
+    def __init__(self, sub_flow_id: _Optional[str] = ..., flow_result: _Optional[_Union[FlowResult, _Mapping]] = ...) -> None: ...
+
+class ReportSubFlowCompletionActivityInput(_message.Message):
+    __slots__ = ("parent_flow_id", "request")
+    PARENT_FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    REQUEST_FIELD_NUMBER: _ClassVar[int]
+    parent_flow_id: str
+    request: SubFlowCompletionSignalRequest
+    def __init__(self, parent_flow_id: _Optional[str] = ..., request: _Optional[_Union[SubFlowCompletionSignalRequest, _Mapping]] = ...) -> None: ...
+
+class ReportSubFlowCompletionActivityOutput(_message.Message):
+    __slots__ = ("status",)
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    status: SubFlowCompletionDeliveryStatus
+    def __init__(self, status: _Optional[_Union[SubFlowCompletionDeliveryStatus, str]] = ...) -> None: ...
 
 class ExecuteRpcSignalRequest(_message.Message):
     __slots__ = ("rpc_input", "rpc_output", "upsert_attributes", "step_decision", "record_events", "publish_to_channel", "is_set_attribute_api")

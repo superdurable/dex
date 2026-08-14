@@ -22,6 +22,7 @@ import io.superdurable.gen.ChannelResult;
 import io.superdurable.gen.ConditionResults;
 import io.superdurable.gen.ConditionStatus;
 import io.superdurable.gen.KV;
+import io.superdurable.gen.FlowResult;
 import io.superdurable.gen.TimerResult;
 import io.superdurable.gen.Value;
 
@@ -150,6 +151,40 @@ final class InvocationContext implements Context {
     @Override
     public boolean waitForMethodFailed() {
         return conditionResults != null && conditionResults.getWaitForFailed();
+    }
+
+    io.superdurable.dex.FlowResult subFlowResult(final int index) {
+        if (method != Method.EXECUTE || conditionResults == null) {
+            throw new IllegalStateException(
+                    "SubFlow condition results are only available during Step execute");
+        }
+        if (index < 0 || index >= conditionResults.getSubFlowResultsCount()) {
+            throw new IllegalArgumentException("SubFlow condition index is out of range: " + index);
+        }
+        final FlowResult result = conditionResults.getSubFlowResults(index);
+        final List<StepCompletion> completions = new ArrayList<StepCompletion>();
+        for (io.superdurable.gen.StepCompletionOutput completion
+                : result.getResultsList()) {
+            completions.add(new StepCompletion(
+                    completion,
+                    (value, outputType) -> values.decode(value, outputType)));
+        }
+        return new io.superdurable.dex.FlowResult(
+                Client.mapFlowStatus(result.getFlowStatus()),
+                Client.mapNullableFlowErrorType(result.getErrorType()),
+                result.getErrorMessage().isEmpty() ? null : result.getErrorMessage(),
+                completions);
+    }
+
+    String subFlowId(final int index) {
+        if (method != Method.EXECUTE || conditionResults == null) {
+            throw new IllegalStateException(
+                    "SubFlow IDs are only available during Step execute");
+        }
+        if (index < 0 || index >= conditionResults.getSubFlowResultsCount()) {
+            throw new IllegalArgumentException("SubFlow condition index is out of range: " + index);
+        }
+        return "SubFlow-" + metadata.getFlowId() + "-" + metadata.getStepExecutionId() + "-" + index;
     }
 
     @Override

@@ -17,7 +17,6 @@
 package io.superdurable.dex.patterns.workflow.parentchild;
 
 import io.superdurable.dex.Channel;
-import io.superdurable.dex.Client;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -25,16 +24,11 @@ import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepMovement;
-import io.superdurable.dex.Timer;
+import io.superdurable.dex.SubFlow;
 import io.superdurable.dex.Wait;
-import io.superdurable.dex.controller.ExampleFlows;
-import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
-import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.patterns.workflow.scalableparallel.ChildFlow;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -48,29 +42,14 @@ public class ParentFlowV2 implements Flow<Integer> {
 
     public final Channel<Integer> taskQueue = Channel.define(TASK_QUEUE, Integer.class);
 
-    private final ObjectProvider<Client> clientProvider;
-    private final ChildFlow childFlow;
-
     private final Init init = new Init();
     private final LoopForNextTask loopForNextTask = new LoopForNextTask();
-    private final StartChildWorkflow startChildWorkflow = new StartChildWorkflow();
-    private final AwaitChildWorkflowCompletion awaitChildWorkflowCompletion =
-            new AwaitChildWorkflowCompletion();
-
-    public ParentFlowV2(
-            final ObjectProvider<Client> clientProvider, final ChildFlow childFlow) {
-        this.clientProvider = clientProvider;
-        this.childFlow = childFlow;
-    }
-
-    private Client client() {
-        return clientProvider.getObject();
-    }
+    private final RunSubFlow runSubFlow = new RunSubFlow();
 
     @Override
     public StepList<Integer> getSteps() {
         return StepList.startStep(init)
-                .otherSteps(loopForNextTask, startChildWorkflow, awaitChildWorkflowCompletion);
+                .otherSteps(loopForNextTask, runSubFlow);
     }
 
     @Override
@@ -112,56 +91,24 @@ public class ParentFlowV2 implements Flow<Integer> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             final Integer request = taskQueue.getConditionResults(context).get(0);
-            return StepDecision.goTo(startChildWorkflow, request);
+            return StepDecision.goTo(runSubFlow, request);
         }
     }
 
-    final class StartChildWorkflow implements Step<Integer> {
+    final class RunSubFlow implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final Integer uuid) {
-            final String childWorkflowId = "child-wf-" + uuid;
-            try {
-                client().startFlow(
-                        childFlow,
-                        childWorkflowId,
-                        uuid.toString(),
-                        ExampleFlows.startOptions());
-            } catch (final FlowAlreadyStartedException alreadyStarted) {
-                System.out.println("ignore this error because it is already started");
-            }
-            return StepDecision.goTo(
-                    awaitChildWorkflowCompletion,
-                    new WaitForChildInput(childWorkflowId, 1));
-        }
-    }
-
-    final class AwaitChildWorkflowCompletion implements Step<WaitForChildInput> {
-        @Override
-        public Class<WaitForChildInput> getInputType() {
-            return WaitForChildInput.class;
+        public Wait waitFor(final Context context, final Integer request) {
+            return Wait.until(SubFlow.run(ChildFlow.class, request.toString()));
         }
 
         @Override
-        public Wait waitFor(final Context context, final WaitForChildInput input) {
-            return Wait.until(Timer.byDuration(Duration.ofSeconds(input.timerSeconds)));
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final WaitForChildInput input) {
-            try {
-                client().waitForFlow(input.childWFId, Duration.ofSeconds(Math.max(input.timerSeconds, 1))).getSingleOutput(Object.class);
-            } catch (final LongPollTimeoutException e) {
-                return StepDecision.goTo(
-                        awaitChildWorkflowCompletion,
-                        new WaitForChildInput(
-                                input.childWFId,
-                                Math.min(input.timerSeconds * 2, 10)));
-            }
+        public StepDecision execute(final Context context, final Integer request) {
+            SubFlow.getConditionResults(context);
             return StepDecision.goTo(loopForNextTask, null);
         }
     }

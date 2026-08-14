@@ -25,7 +25,6 @@ import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
-import io.superdurable.dex.exceptions.FlowUncompletedException;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.exceptions.RpcLockConflictException;
 import io.superdurable.dex.exceptions.WorkerInvocationException;
@@ -55,7 +54,6 @@ import io.superdurable.gen.TriggerContinueAsNewRequest;
 import io.superdurable.gen.UpdateFlowConfigRequest;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForFlowRequest;
-import io.superdurable.gen.WaitForFlowResponse;
 import io.superdurable.gen.WaitForStepCompletionRequest;
 import io.superdurable.gen.WaitForAttributeCondition;
 import io.superdurable.gen.WaitForAttributeEqual;
@@ -88,9 +86,8 @@ import java.util.concurrent.TimeUnit;
  * client for a registered set of Flow definitions and reuse it across calls; the underlying gRPC
  * channel supports concurrent callers. The supplied {@link BlobCache} is borrowed and is not closed
  * by the client. Service failures use typed {@link DexServiceException} subclasses. Long-poll
- * operations can throw {@link LongPollTimeoutException}, while {@link #waitForFlow(String)} can
- * throw {@link FlowUncompletedException} after observing a terminal status other than
- * {@link FlowStatus#COMPLETED}.
+ * operations can throw {@link LongPollTimeoutException}. {@link #waitForFlow(String)} returns a
+ * {@link FlowResult} for every terminal status.
  *
  * <pre>{@code
  * Registry registry = new Registry(Collections.<Flow<?>>singletonList(orderFlow));
@@ -560,37 +557,37 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Blocks until a Flow reaches a terminal status and returns normally only for
-     * {@link FlowStatus#COMPLETED}.
+     * Blocks until a Flow reaches any terminal status.
      *
      * @param flowId the target Flow ID
-     * @return all output-bearing Step completions in server collection order
-     * @throws FlowUncompletedException if the terminal status is not {@link FlowStatus#COMPLETED}
+     * @return the terminal Flow result
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
-    public WaitForFlowResult waitForFlow(final String flowId) {
+    public FlowResult waitForFlow(final String flowId) {
         return waitForFlow(flowId, null);
     }
 
     /**
-     * Blocks for a bounded duration until a Flow reaches a terminal status and returns every
-     * output-bearing Step completion only for {@link FlowStatus#COMPLETED}.
+     * Blocks for a bounded duration until a Flow reaches any terminal status.
      *
      * @param flowId the target Flow ID
      * @param timeout the nonnegative whole-second long-poll duration, or {@code null} for no bound
-     * @return all output-bearing Step completions in server collection order
+     * @return the terminal Flow result
      * @throws LongPollTimeoutException if {@code timeout} expires while the Flow remains running
-     * @throws FlowUncompletedException if the terminal status is not {@link FlowStatus#COMPLETED}
      * @throws IllegalArgumentException if {@code timeout} is not a supported whole-second duration
      * @throws FlowNotFoundException if no matching Flow execution exists
      * @throws DexServiceException if Dex otherwise cannot complete the wait request
      */
-    public WaitForFlowResult waitForFlow(
+    public FlowResult waitForFlow(
             final String flowId,
             final Duration timeout) {
-        final WaitForFlowResponse response = waitForFlowResponse(flowId, timeout);
-        return new WaitForFlowResult(mapStepCompletions(response.getResultsList()));
+        final io.superdurable.gen.FlowResult response = waitForFlowResponse(flowId, timeout);
+        return new FlowResult(
+                mapFlowStatus(response.getFlowStatus()),
+                mapNullableFlowErrorType(response.getErrorType()),
+                response.getErrorMessage().isEmpty() ? null : response.getErrorMessage(),
+                mapStepCompletions(response.getResultsList()));
     }
 
     /**
@@ -1015,7 +1012,7 @@ public final class Client implements AutoCloseable {
                 flowId);
     }
 
-    private WaitForFlowResponse waitForFlowResponse(
+    private io.superdurable.gen.FlowResult waitForFlowResponse(
             final String flowId,
             final Duration timeout) {
         final WaitForFlowRequest.Builder request = WaitForFlowRequest.newBuilder()
@@ -1024,20 +1021,10 @@ public final class Client implements AutoCloseable {
         if (timeout != null) {
             request.setWaitTimeSeconds(seconds32(timeout));
         }
-        final WaitForFlowResponse response = call(
+        return call(
                 () -> service.waitForFlow(request.build()),
                 FlowTargetRequirement.EXISTING,
                 flowId);
-        if (response.getFlowStatus() != io.superdurable.gen.FlowStatus.FLOW_STATUS_COMPLETED) {
-            final FlowInfo flow = describeFlow(flowId);
-            throw new FlowUncompletedException(
-                    flow.getRunId(),
-                    mapFlowStatus(response.getFlowStatus()),
-                    mapFlowErrorType(response.getErrorType()),
-                    response.getErrorMessage().isEmpty() ? null : response.getErrorMessage(),
-                    mapStepCompletions(response.getResultsList()));
-        }
-        return response;
     }
 
     private List<StepCompletion> mapStepCompletions(
@@ -1193,7 +1180,7 @@ public final class Client implements AutoCloseable {
         }
     }
 
-    private static FlowStatus mapFlowStatus(final io.superdurable.gen.FlowStatus status) {
+    static FlowStatus mapFlowStatus(final io.superdurable.gen.FlowStatus status) {
         switch (status) {
             case FLOW_STATUS_RUNNING:
                 return FlowStatus.RUNNING;
@@ -1214,7 +1201,7 @@ public final class Client implements AutoCloseable {
         }
     }
 
-    private static FlowErrorType mapFlowErrorType(
+    static FlowErrorType mapNullableFlowErrorType(
             final io.superdurable.gen.FlowErrorType type) {
         switch (type) {
             case FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW:

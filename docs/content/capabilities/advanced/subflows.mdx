@@ -1,0 +1,110 @@
+---
+title: Durable SubFlows
+sidebar_position: 4
+---
+
+# Durable SubFlows
+
+A SubFlow is an independently addressable Dex Flow used as a durable `Wait` condition. Dex starts
+it as a normal Temporal or Cadence Workflow and resumes the parent Step only when the declared
+condition is satisfied.
+
+```java
+public Wait waitFor(Context context, Order input) {
+    return Wait.allOf(
+        SubFlow.run(ReserveInventoryFlow.class, input),
+        SubFlow.run(ChargePaymentFlow.class, input)
+    );
+}
+
+public StepDecision execute(Context context, Order input) {
+    FlowResult inventory = SubFlow.getConditionResults(context);
+    FlowResult payment = SubFlow.getConditionResults(context, 1);
+    return StepDecision.gracefulComplete(
+        new OrderResult(
+            inventory.getSingleOutput(Reservation.class),
+            payment.getSingleOutput(Receipt.class)
+        )
+    );
+}
+```
+
+The zero-based result index is the stable order of SubFlow conditions in the current `Wait`. An
+`allOf` result is terminal. If another condition wins an `anyOf`, the unfinished SubFlow result has
+status `RUNNING` and no outputs. `RUNNING` is the parent’s durable snapshot, not a fresh backend
+query.
+
+## Identity and stopping an `anyOf` loser
+
+Dex generates IDs that application code cannot override:
+
+```text
+Flow ID    SubFlow-{parentFlowID}-{stepExecutionID}-{index}
+request ID {parentRunID}{stepExecutionID}
+```
+
+`FlowResult` contains only status, failure, and output data. Generate the stable SubFlow Flow ID
+from the current execution context when the application needs its identity. A losing SubFlow
+continues independently; stop it explicitly when that is the application’s desired cleanup policy:
+
+```java
+FlowResult loser = SubFlow.getConditionResults(context, 1);
+if (!loser.isTerminal()) {
+    cleanupRequests.publish(context, SubFlow.getFlowId(context, 1));
+}
+```
+
+An external worker or service can consume that ID and call `Client.stopFlow`. Completion can race
+with the stop request, so callers should treat an already-closed Flow as a successful cleanup.
+
+Every SubFlow execution also has the keyword Search Attribute `DexParentFlowID`. Query it to list
+all SubFlows for one parent. Together with the generated SubFlow Flow ID, it identifies the source
+Step execution ID and condition index without copying parent metadata into workflow input.
+
+## Reuse behavior
+
+`SubFlowOptions` defaults to `RESTART_IF_PREVIOUS_EXITS_ABNORMALLY`:
+
+| Existing execution | `ATTACH` | `RESTART_IF_PREVIOUS_EXITS_ABNORMALLY` | `ALWAYS_RESTART` |
+| --- | --- | --- | --- |
+| Missing | Start | Start | Start |
+| Running | Attach | Attach | Terminate and start |
+| Completed | Return result | Return result | Start |
+| Failed, canceled, timed out, or terminated | Return result | Start | Start |
+
+The same request ID always attaches or returns the existing result. This makes retries
+safe when the backend accepted a start but the local activity response was lost. Backend ID reuse
+policies provide only the atomic start operation; Dex describes and resolves the existing execution
+before invoking it.
+
+```java
+SubFlowOptions options = SubFlowOptions.newBuilder()
+    .reusePolicy(SubFlowReusePolicy.ATTACH)
+    .timeout(Duration.ofMinutes(20))
+    .startDelay(Duration.ofSeconds(5))
+    .retryPolicy(retry)
+    .configOverride(childConfig)
+    .build();
+```
+
+Options also support initial Attributes. Flow ID, request ID, and already-started suppression are
+intentionally server-owned.
+
+## Continue-as-new and lifecycle
+
+Across continue-as-new, Dex replaces the SDK declaration with a durable waiting-condition state.
+Each SubFlow entry retains only its Condition ID; list position remains its stable index. SubFlow
+starting Step input, Step options, SubFlow options, request ID, parent Flow ID, and Flow type are not
+copied into the snapshot. Received terminal results remain beside the state so partial `allOf` results
+survive without restarting already-started SubFlows.
+
+Parent completion, failure, cancellation, reset, or restart does not automatically cancel a
+SubFlow. A SubFlow reports terminal completion to the current parent execution by parent Flow ID.
+If the parent is already closed or no longer exists, Dex records
+`PARENT_CLOSED_OR_NOT_FOUND` in the reporting local activity result and completes the SubFlow
+normally.
+
+Hard termination and Workflow execution timeout cannot run the reporting local activity. A parent
+waiting only for that completion signal may therefore remain waiting. Use cooperative cancellation
+when completion delivery is required, or reset/restart the parent so reuse handling can read the
+SubFlow’s terminal result directly.

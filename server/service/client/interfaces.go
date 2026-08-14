@@ -53,7 +53,7 @@ type UnifiedClient interface {
 	) (*WorkflowHistory, error)
 	GetWorkflowResult(
 		ctx context.Context, valuePtr interface{}, workflowID string, runID string,
-	) (resolvedRunID string, status dexpb.FlowStatus, err error)
+	) (status dexpb.FlowStatus, err error)
 	SynchronousUpdateWorkflow(
 		ctx context.Context, valuePtr interface{}, workflowID, runID, updateID, updateType string, input interface{},
 	) error

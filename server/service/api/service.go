@@ -676,7 +676,7 @@ func blobArmForLoad(value *dexpb.Value) (blobId string, hydrateValue *dexpb.Valu
 func (s *serviceImpl) WaitForFlow(
 	ctx context.Context,
 	req *dexpb.WaitForFlowRequest,
-) (*dexpb.WaitForFlowResponse, error) {
+) (*dexpb.FlowResult, error) {
 	if req == nil || req.GetFlowId() == "" || req.GetWaitTimeSeconds() < 0 {
 		return nil, makeInvalidRequestError("valid flow ID and non-negative wait time are required")
 	}
@@ -687,13 +687,13 @@ func (s *serviceImpl) WaitForFlow(
 	)
 	defer cancel()
 	var output dexpb.InterpreterWorkflowOutput
-	_, flowStatus, getErr := s.client.GetWorkflowResult(
+	flowStatus, getErr := s.client.GetWorkflowResult(
 		getCtx,
 		&output,
 		req.GetFlowId(),
 		req.GetRunId(),
 	)
-	response := &dexpb.WaitForFlowResponse{
+	response := &dexpb.FlowResult{
 		FlowStatus: flowStatus,
 	}
 	if getErr == nil {

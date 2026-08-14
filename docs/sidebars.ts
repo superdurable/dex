@@ -32,6 +32,7 @@ const sidebars: SidebarsConfig = {
           items: [
             'capabilities/advanced/rpc',
             'capabilities/advanced/channels',
+            'capabilities/advanced/subflows',
             'capabilities/advanced/fan-out-fan-in',
             'capabilities/advanced/error-handling-saga',
             'capabilities/advanced/multi-threading',
