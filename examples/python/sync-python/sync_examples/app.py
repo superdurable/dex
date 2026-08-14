@@ -82,7 +82,14 @@ class SyncExampleApp:
             ),
         )
         self.worker = Worker(self.registry, self.blob_cache, worker_options)
-        self._client: Client | None = None
+        self._client = Client(
+            self.registry,
+            self.blob_cache,
+            ClientOptions(
+                server_address=config.server_address,
+                worker_target=self.worker.worker_target,
+            ),
+        )
         self._worker_thread: threading.Thread | None = None
 
     @property
@@ -103,15 +110,7 @@ class SyncExampleApp:
             daemon=True,
         )
         self._worker_thread.start()
-        _await_worker(self.worker)
-        self._client = Client(
-            self.registry,
-            self.blob_cache,
-            ClientOptions(
-                server_address=self.config.server_address,
-                worker_target=self.worker.worker_target,
-            ),
-        )
+        _await_worker(self.worker.worker_target.address)
 
     def close(self) -> None:
         if self._client is not None:
@@ -124,11 +123,11 @@ class SyncExampleApp:
         self.blob_cache.close()
 
 
-def _await_worker(worker: Worker) -> None:
+def _await_worker(address: str) -> None:
+    host, _, port_text = address.rpartition(":")
+    port = int(port_text)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        host, _, port_text = worker.worker_target.address.rpartition(":")
-        port = int(port_text)
         try:
             with socket.create_connection((host or "127.0.0.1", port), timeout=0.1):
                 return
