@@ -81,8 +81,6 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 	_, err := flowClient.StartFlow(ctx, startRequest)
 	require.NoError(t, err)
 
-	time.Sleep(time.Duration(*searchWaitTimeIntegTest) * time.Millisecond)
-
 	mode := dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
 	if flowConfig != nil && flowConfig.ActiveStepSearchMode != nil {
 		mode = flowConfig.GetActiveStepSearchMode()
@@ -90,8 +88,8 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 
 	switch mode {
 	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL:
-		assertSearchFlows(t, flowClient, fmt.Sprintf("WorkflowId='%v'", flowId), 1)
-		assertSearchFlows(
+		requireSearchFlowEventually(t, flowClient, fmt.Sprintf("WorkflowId='%v'", flowId))
+		requireSearchFlowEventually(
 			t,
 			flowClient,
 			fmt.Sprintf(
@@ -100,11 +98,10 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 				service.SearchAttributeActiveStepTypes,
 				wait_until_search_attributes.State2,
 			),
-			1,
 		)
 	case dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR,
 		dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_DISABLED:
-		assertSearchFlows(t, flowClient, fmt.Sprintf("WorkflowId='%v'", flowId), 1)
+		requireSearchFlowEventually(t, flowClient, fmt.Sprintf("WorkflowId='%v'", flowId))
 		assertSearchFlows(
 			t,
 			flowClient,
@@ -123,4 +120,24 @@ func doTestWaitUntilSearchAttributes(t *testing.T, flowConfig *dexpb.FlowConfig)
 	})
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, resp.GetFlowStatus())
+}
+
+func requireSearchFlowEventually(
+	t *testing.T,
+	flowClient dexpb.FlowServiceClient,
+	query string,
+) {
+	t.Helper()
+	var searchResponse *dexpb.SearchFlowsResponse
+	var searchErr error
+	require.Eventually(t, func() bool {
+		searchResponse, searchErr = flowClient.SearchFlows(context.Background(), &dexpb.SearchFlowsRequest{
+			Query:    query,
+			PageSize: 2,
+		})
+		return searchErr == nil && len(searchResponse.GetFlowRuns()) == 1
+	}, 10*time.Second, 100*time.Millisecond, "expected one result for query %v", query)
+	require.NoError(t, searchErr)
+	require.NotEmpty(t, searchResponse.GetFlowRuns()[0].GetIndexedAttributes())
+	require.Empty(t, searchResponse.GetNextPageToken())
 }
