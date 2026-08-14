@@ -126,7 +126,7 @@ func NewSignalReceiver(
 				return
 			}
 			continueAsNewCounter.IncSignalsReceived()
-			subFlowTracker.HandleCompletion(&val)
+			subFlowTracker.HandleSubFlowCompletion(&val)
 		}
 	})
 
@@ -277,7 +277,7 @@ func (sr *SignalReceiver) DrainAllReceivedButUnprocessedSignals(
 	for {
 		val := dexpb.SubFlowCompletionSignalRequest{}
 		if ch.ReceiveAsync(&val) {
-			sr.subFlowTracker.HandleCompletion(&val)
+			sr.subFlowTracker.HandleSubFlowCompletion(&val)
 		} else {
 			break
 		}

@@ -181,7 +181,7 @@ func (i *Interpreter) StartEngineFlow(
 			timerProcessor,
 			attributeSynchronizer,
 		)
-	}
+	} // end of NOT continueAsNew
 	subFlowTracker := NewSubFlowTracker(
 		provider.GetWorkflowInfo(ctx).WorkflowExecution.ID,
 		resumeInfos,
@@ -702,9 +702,8 @@ func (i *Interpreter) processStepExecution(
 
 	var waitForMethErr error
 	var stepExeLocals []*dexpb.KV
-	var returnedWaitingCondition *dexpb.WaitingCondition
 	var waitingCondition *dexpb.WaitingConditionState
-	var transientStep *dexpb.StepMovement
+
 	//This variable tells all (timer) condition threads to stop waiting and exit, even if their specific condition has not been completed.
 	waitingConditionDoneOrCanceled := false
 	completedTimerConditions := map[int32]dexpb.InternalTimerStatus{}
@@ -740,9 +739,8 @@ func (i *Interpreter) processStepExecution(
 			resumeRequest.GetCompletedConditions().GetCompletedTimerConditions() != nil {
 			completedTimerConditions = resumeRequest.GetCompletedConditions().GetCompletedTimerConditions()
 		}
-		if tracked := subFlowTracker.Completed(stepExeId); tracked != nil {
-			completedSubFlowResults = tracked
-		}
+
+		completedSubFlowResults = subFlowTracker.GetCompletedResults(stepExeId)
 	} else {
 		if step.StepOptions != nil {
 			waitForMethodTimeout := options.GetWaitForTimeoutSeconds()
@@ -791,6 +789,7 @@ func (i *Interpreter) processStepExecution(
 			return nil, service.StepExecutionStatusFailedNoProceed, waitForMethErr
 		}
 
+		var returnedWaitingCondition *dexpb.WaitingCondition
 		if waitForMethErr == nil {
 			returnedWaitingCondition = activityOutput.Response.GetWaitingCondition()
 			if err := persistenceManager.ApplyAttributeWrites(
@@ -801,33 +800,32 @@ func (i *Interpreter) processStepExecution(
 			}
 			channelStore.ProcessPublishing(activityOutput.Response.GetPublishToChannel())
 			stepExeLocals = activityOutput.Response.GetUpsertStepExeLocals()
-			transientStep = activityOutput.Response.GetTransientStepMovement()
+
+			transientStep := activityOutput.Response.GetTransientStepMovement()
+			if transientStep != nil {
+				transientStatus, transientErr := i.processTransientStepExecution(
+					ctx,
+					provider,
+					basicInfo,
+					transientStep,
+					persistenceManager,
+					channelStore,
+					continueAsNewer,
+					stepExecutionCounter,
+					flowConfiger,
+					globalVersioner,
+				)
+				if transientStatus != service.StepExecutionStatusCompleted {
+					return nil, transientStatus, transientErr
+				}
+			}
 		}
-	}
-	if transientStep != nil {
-		transientStatus, transientErr := i.processTransientStepExecution(
-			ctx,
-			provider,
-			basicInfo,
-			transientStep,
-			persistenceManager,
-			channelStore,
-			continueAsNewer,
-			stepExecutionCounter,
-			flowConfiger,
-			globalVersioner,
-		)
-		if transientStatus != service.StepExecutionStatusCompleted {
-			return nil, transientStatus, transientErr
-		}
-	}
-	if !isResumeFromContinueAsNew {
+
 		waitingCondition = convertToWaitingConditionState(
 			ctx, provider, returnedWaitingCondition,
 		)
-	}
-	if len(waitingCondition.GetSubFlowConditions()) > 0 {
-		if !isResumeFromContinueAsNew {
+
+		if len(waitingCondition.GetSubFlowConditions()) > 0 {
 			subFlowTracker.Register(stepExeId, waitingCondition, completedSubFlowResults)
 			starter := NewSubFlowStarter(
 				provider,
@@ -840,10 +838,8 @@ func (i *Interpreter) processStepExecution(
 			if err := starter.StartAll(ctx); err != nil {
 				return nil, service.StepExecutionStatusInternalError, err
 			}
-		} else if subFlowTracker.Completed(stepExeId) == nil {
-			subFlowTracker.Register(stepExeId, waitingCondition, completedSubFlowResults)
 		}
-	}
+	} // end of NOT isResumeFromContinueAsNew
 
 	waitForThreads := map[string]bool{}
 
@@ -994,6 +990,8 @@ func shouldReportSubFlowCompletion(
 		return true
 	}
 	info := provider.GetWorkflowInfo(ctx)
+	// We support retry policy for subFlow.
+	// When using retry policy and having error, we will let subFlow retry until the last attempt
 	if flowErr == nil || info.RetryMaximumAttempts == nil {
 		return true
 	}

@@ -23,8 +23,8 @@ type SubFlowStarter struct {
 	stepExecutionID  string
 	parentFlowConfig *dexpb.FlowConfig
 	condition        *dexpb.WaitingCondition
-	done             []bool
-	err              error
+	doneByIdx        []bool
+	startErr         error
 }
 
 func NewSubFlowStarter(
@@ -42,7 +42,7 @@ func NewSubFlowStarter(
 		stepExecutionID:  stepExecutionID,
 		parentFlowConfig: parentFlowConfig,
 		condition:        condition,
-		done:             make([]bool, len(condition.GetSubFlowConditions())),
+		doneByIdx:        make([]bool, len(condition.GetSubFlowConditions())),
 	}
 }
 
@@ -55,10 +55,10 @@ func (s *SubFlowStarter) StartAll(ctx interfaces.UnifiedContext) error {
 		startCtx := s.provider.ExtendContextWithValue(ctx, "subFlowIndex", index)
 		s.provider.GoNamed(startCtx, fmt.Sprintf("start-sub-flow-%d", index), s.startOne)
 	}
-	if err := s.provider.Await(ctx, s.allDone); err != nil {
+	if err := s.provider.Await(ctx, s.isAllDone); err != nil {
 		return err
 	}
-	return s.err
+	return s.startErr
 }
 
 func (s *SubFlowStarter) startOne(ctx interfaces.UnifiedContext) {
@@ -78,17 +78,17 @@ func (s *SubFlowStarter) startOne(ctx interfaces.UnifiedContext) {
 			ParentStepExecutionId: s.stepExecutionID,
 		},
 	)
-	if err != nil && s.err == nil {
-		s.err = err
+	if err != nil && s.startErr == nil {
+		s.startErr = err
 	}
 	if err == nil {
-		s.tracker.ApplyStartResult(s.stepExecutionID, int32(index), &output)
+		s.tracker.ApplyImmediateFlowResultFromStart(s.stepExecutionID, int32(index), &output)
 	}
-	s.done[index] = true
+	s.doneByIdx[index] = true
 }
 
-func (s *SubFlowStarter) allDone() bool {
-	for _, done := range s.done {
+func (s *SubFlowStarter) isAllDone() bool {
+	for _, done := range s.doneByIdx {
 		if !done {
 			return false
 		}
