@@ -94,7 +94,7 @@ func doTestGreedyTimerFlowCustomConfig(
 		RequestId:          newRequestID(),
 		FlowId:             flowId,
 		FlowType:           greedy_timer.WorkflowType,
-		FlowTimeoutSeconds: 30,
+		FlowTimeoutSeconds: 300,
 
 		StartStepType: greedy_timer.ScheduleTimerState,
 		StepInput:     encodedObjectValue("json", inputData),
@@ -106,11 +106,9 @@ func doTestGreedyTimerFlowCustomConfig(
 
 	time.Sleep(time.Second)
 
-	debug := &dexpb.DebugDumpResponse{}
-	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
-	require.NoError(t, err)
-	assertions.Equal(1, len(debug.GetFiringTimersUnixTimestamps()))
-	singleTimerScheduled := debug.GetFiringTimersUnixTimestamps()[0]
+	firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
+	assertions.Len(firingUserTimers, 1)
+	singleTimerScheduled := firingUserTimers[0]
 
 	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 20, 1)
 
@@ -123,10 +121,9 @@ func doTestGreedyTimerFlowCustomConfig(
 
 	time.Sleep(time.Second)
 
-	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
-	require.NoError(t, err)
-	assertions.Equal(1, len(debug.GetFiringTimersUnixTimestamps()))
-	assertions.LessOrEqual(singleTimerScheduled, debug.GetFiringTimersUnixTimestamps()[0])
+	firingUserTimers = queryFiringUserTimers(t, ctx, unifiedClient, flowId)
+	assertions.Len(firingUserTimers, 1)
+	assertions.LessOrEqual(singleTimerScheduled, firingUserTimers[0])
 	scheduleTimerAndAssertExpectedScheduled(t, flowClient, unifiedClient, flowId, 5, 2)
 
 	_, err = flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
@@ -169,8 +166,36 @@ func scheduleTimerAndAssertExpectedScheduled(
 
 	time.Sleep(time.Second)
 
+	firingUserTimers := queryFiringUserTimers(t, ctx, unifiedClient, flowId)
+	assertions.LessOrEqual(len(firingUserTimers), noMoreThan)
+}
+
+func queryFiringUserTimers(
+	t *testing.T,
+	ctx context.Context,
+	unifiedClient uclient.UnifiedClient,
+	flowID string,
+) []int64 {
 	debug := &dexpb.DebugDumpResponse{}
-	err = unifiedClient.QueryWorkflow(ctx, debug, flowId, "", service.DebugDumpQueryType)
+	err := unifiedClient.QueryWorkflow(ctx, debug, flowID, "", service.DebugDumpQueryType)
 	require.NoError(t, err)
-	assertions.LessOrEqual(len(debug.GetFiringTimersUnixTimestamps()), noMoreThan)
+
+	timerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{}
+	err = unifiedClient.QueryWorkflow(ctx, timerInfos, flowID, "", service.GetCurrentTimerInfosQueryType)
+	require.NoError(t, err)
+	timeoutTimers := timerInfos.GetStepExecutionCurrentTimerInfos()[service.FlowTimeoutStepExecutionID]
+	require.NotNil(t, timeoutTimers)
+	require.Len(t, timeoutTimers.GetTimers(), 1)
+	timeoutFiringTimestamp := timeoutTimers.GetTimers()[0].GetFiringUnixTimestampSeconds()
+
+	userTimers := make([]int64, 0, len(debug.GetFiringTimersUnixTimestamps()))
+	hasRemovedTimeout := false
+	for _, firingTimestamp := range debug.GetFiringTimersUnixTimestamps() {
+		if !hasRemovedTimeout && firingTimestamp == timeoutFiringTimestamp {
+			hasRemovedTimeout = true
+			continue
+		}
+		userTimers = append(userTimers, firingTimestamp)
+	}
+	return userTimers
 }
