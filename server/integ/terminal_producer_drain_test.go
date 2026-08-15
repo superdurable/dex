@@ -24,20 +24,33 @@ import (
 )
 
 const (
-	terminalProducerDrainFlowType    = "terminal-producer-drain"
-	terminalProducerDrainStepType    = "blocking-execute"
-	terminalProducerDrainProbeRPC    = "terminal-producer-drain-probe"
-	terminalProducerDrainFailureText = "stop while Execute is active"
+	terminalProducerDrainFlowType            = "terminal-producer-drain"
+	terminalProducerDrainBlockingStepType    = "blocking-execute"
+	terminalProducerDrainTimerStartStepType  = "timer-start"
+	terminalProducerDrainWaitingStepType     = "waiting-timer"
+	terminalProducerDrainFailingStepType     = "failing-timer"
+	terminalProducerDrainWakeupStepType      = "wakeup-timer"
+	terminalProducerDrainProbeRPC            = "terminal-producer-drain-probe"
+	terminalProducerDrainStopFailureText     = "stop while Execute is active"
+	terminalProducerDrainDecisionFailureText = "fail while timer Step is waiting"
+	terminalProducerDrainLongTimerSeconds    = 60
+	terminalProducerDrainFailureTimerSeconds = 1
+	terminalProducerDrainWakeupTimerSeconds  = 2
 )
 
 type terminalProducerDrainHandler struct {
 	dexpb.UnimplementedWorkerServiceServer
-	executeStartedOnce sync.Once
-	executeStarted     chan struct{}
+	executeStartedOnce      sync.Once
+	waitingTimerStartedOnce sync.Once
+	executeStarted          chan struct{}
+	waitingTimerStarted     chan struct{}
 }
 
 func newTerminalProducerDrainHandler() *terminalProducerDrainHandler {
-	return &terminalProducerDrainHandler{executeStarted: make(chan struct{})}
+	return &terminalProducerDrainHandler{
+		executeStarted:      make(chan struct{}),
+		waitingTimerStarted: make(chan struct{}),
+	}
 }
 
 func TestTerminalProducerDrainTemporal(t *testing.T) {
@@ -55,6 +68,15 @@ func TestTerminalProducerDrainCadence(t *testing.T) {
 }
 
 func testTerminalProducerDrain(t *testing.T, backendType service.BackendType) {
+	t.Run("active Execute", func(t *testing.T) {
+		testTerminalActiveExecuteProducerDrain(t, backendType)
+	})
+	t.Run("waiting timer", func(t *testing.T) {
+		testTerminalWaitingTimerProducerDrain(t, backendType)
+	})
+}
+
+func testTerminalActiveExecuteProducerDrain(t *testing.T, backendType service.BackendType) {
 	handler := newTerminalProducerDrainHandler()
 	workerTarget := startWorker(t, handler)
 	runtime := startDexService(t, DexServiceTestConfig{
@@ -71,7 +93,7 @@ func testTerminalProducerDrain(t *testing.T, backendType service.BackendType) {
 		FlowId:             flowID,
 		FlowType:           terminalProducerDrainFlowType,
 		FlowTimeoutSeconds: 30,
-		StartStepType:      terminalProducerDrainStepType,
+		StartStepType:      terminalProducerDrainBlockingStepType,
 		StepOptions:        &dexpb.StepOptions{SkipWaitFor: true},
 		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
 	})
@@ -85,7 +107,7 @@ func testTerminalProducerDrain(t *testing.T, backendType service.BackendType) {
 	_, err = runtime.FlowClient.StopFlow(ctx, &dexpb.StopFlowRequest{
 		FlowId:   flowID,
 		StopType: dexpb.StopType_STOP_TYPE_FAIL,
-		Reason:   terminalProducerDrainFailureText,
+		Reason:   terminalProducerDrainStopFailureText,
 	})
 	require.NoError(t, err)
 
@@ -106,7 +128,49 @@ func testTerminalProducerDrain(t *testing.T, backendType service.BackendType) {
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW,
 		result.GetErrorType(),
 	)
-	require.Equal(t, terminalProducerDrainFailureText, result.GetErrorMessage())
+	require.Equal(t, terminalProducerDrainStopFailureText, result.GetErrorMessage())
+}
+
+func testTerminalWaitingTimerProducerDrain(t *testing.T, backendType service.BackendType) {
+	handler := newTerminalProducerDrainHandler()
+	workerTarget := startWorker(t, handler)
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:                            backendType,
+		UseTemporalSynchronousUpdateForAllRPCs: true,
+	})
+	flowID := terminalProducerDrainFlowType + "-timer-" + uuid.NewString()
+	cleanupTerminalProducerDrainFlow(t, runtime.FlowClient, flowID)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           terminalProducerDrainFlowType,
+		FlowTimeoutSeconds: 30,
+		StartStepType:      terminalProducerDrainTimerStartStepType,
+		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+	})
+	require.NoError(t, err)
+
+	result, waitErr := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		WaitTimeSeconds: 8,
+	})
+	if waitErr != nil {
+		confirmTerminalFinalizationStarted(t, ctx, runtime.FlowClient, flowID, backendType)
+		t.Fatalf(
+			"Flow remained running because a waiting timer Step blocked terminal producer drain: %v",
+			waitErr,
+		)
+	}
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
+	require.Equal(
+		t,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
+		result.GetErrorType(),
+	)
+	require.Equal(t, terminalProducerDrainDecisionFailureText, result.GetErrorMessage())
 }
 
 func cleanupTerminalProducerDrainFlow(
@@ -160,11 +224,82 @@ func (h *terminalProducerDrainHandler) InvokeWorkerRPC(
 	return &dexpb.InvokeWorkerRPCResponse{}, nil
 }
 
+func (h *terminalProducerDrainHandler) InvokeWaitForMethod(
+	ctx context.Context,
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	switch request.GetStepType() {
+	case terminalProducerDrainTimerStartStepType:
+		return terminalProducerDrainTimerResponse(0), nil
+	case terminalProducerDrainWaitingStepType:
+		h.waitingTimerStartedOnce.Do(func() { close(h.waitingTimerStarted) })
+		return terminalProducerDrainTimerResponse(terminalProducerDrainLongTimerSeconds), nil
+	case terminalProducerDrainFailingStepType:
+		select {
+		case <-h.waitingTimerStarted:
+		case <-ctx.Done():
+			return nil, status.Error(codes.Canceled, "waiting timer Step did not start")
+		}
+		return terminalProducerDrainTimerResponse(terminalProducerDrainFailureTimerSeconds), nil
+	case terminalProducerDrainWakeupStepType:
+		return terminalProducerDrainTimerResponse(terminalProducerDrainWakeupTimerSeconds), nil
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "unexpected WaitFor Step type %q", request.GetStepType())
+	}
+}
+
+func terminalProducerDrainTimerResponse(durationSeconds int64) *dexpb.InvokeWaitForMethodResponse {
+	condition := &dexpb.WaitingCondition{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+	}
+	if durationSeconds > 0 {
+		condition.TimerConditions = []*dexpb.TimerCondition{{
+			ConditionId:     "timer",
+			DurationSeconds: durationSeconds,
+		}}
+	}
+	return &dexpb.InvokeWaitForMethodResponse{WaitingCondition: condition}
+}
+
 func (h *terminalProducerDrainHandler) InvokeExecuteMethod(
 	ctx context.Context,
-	_ *dexpb.InvokeExecuteMethodRequest,
+	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	h.executeStartedOnce.Do(func() { close(h.executeStarted) })
-	<-ctx.Done()
-	return nil, status.Error(codes.Canceled, "Execute canceled")
+	switch request.GetStepType() {
+	case terminalProducerDrainBlockingStepType:
+		h.executeStartedOnce.Do(func() { close(h.executeStarted) })
+		<-ctx.Done()
+		return nil, status.Error(codes.Canceled, "Execute canceled")
+	case terminalProducerDrainTimerStartStepType:
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{
+					{StepType: terminalProducerDrainWaitingStepType},
+					{StepType: terminalProducerDrainFailingStepType},
+					{StepType: terminalProducerDrainWakeupStepType},
+				},
+			},
+		}, nil
+	case terminalProducerDrainFailingStepType:
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				CloseDecision: &dexpb.CloseDecision{
+					CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_FORCE_FAIL,
+					CloseInput: &dexpb.Value{Kind: &dexpb.Value_StringValue{
+						StringValue: terminalProducerDrainDecisionFailureText,
+					}},
+				},
+			},
+		}, nil
+	case terminalProducerDrainWakeupStepType:
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				CloseDecision: &dexpb.CloseDecision{
+					CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_DEAD_END,
+				},
+			},
+		}, nil
+	default:
+		return nil, status.Errorf(codes.InvalidArgument, "unexpected Execute Step type %q", request.GetStepType())
+	}
 }
