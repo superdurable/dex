@@ -130,6 +130,8 @@ public final class StepCancellationTest {
                 cacheDirectory,
                 workflow)) {
             final String flowId = start(environment, workflow, "cancel-global");
+            assertTrue(workflow.awaitSelectorWaits(START_TIMEOUT));
+            environment.client().publish(flowId, workflow.selectorWinnerRelease, (Void) null);
             assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.GLOBAL_SELECTOR);
             assertFalse(workflow.wasFirstSelectorExecuted());
             assertFalse(workflow.wasSecondSelectorExecuted());
@@ -144,6 +146,15 @@ public final class StepCancellationTest {
                 cacheDirectory,
                 workflow)) {
             final String flowId = start(environment, workflow, "cancel-sibling");
+            assertTrue(workflow.awaitSelectorWaits(START_TIMEOUT));
+            environment.client().publish(flowId, workflow.selectorWinnerRelease, (Void) null);
+            environment.client().waitForStepCompletion(
+                    flowId,
+                    StepExecutionId.of(workflow.selectorWinnerStepType()),
+                    CANCELLATION_TIMEOUT);
+            environment.client().publish(flowId, workflow.selectorWaitingRelease, (Void) null);
+            assertTrue(workflow.awaitSecondSelectorExecution(CANCELLATION_TIMEOUT));
+            environment.client().publish(flowId, workflow.selectorFinalRelease, (Void) null);
             assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.SIBLING_SELECTOR);
             assertFalse(workflow.wasFirstSelectorExecuted());
             assertTrue(workflow.wasSecondSelectorExecuted());

@@ -13,6 +13,7 @@
 package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Attribute;
+import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -51,12 +52,19 @@ final class StepCancellationWorkflow implements Flow<Void> {
     private static final long LATE_HANDLER_MILLIS = 7_000L;
 
     final Attribute<String> lateWrite = Attribute.define("cancellation-late-write", String.class);
+    final Channel<Void> selectorWinnerRelease =
+            Channel.define("selector-winner-release", Void.class);
+    final Channel<Void> selectorWaitingRelease =
+            Channel.define("selector-waiting-release", Void.class);
+    final Channel<Void> selectorFinalRelease =
+            Channel.define("selector-final-release", Void.class);
 
     private final Scenario scenario;
     private final CountDownLatch blockingHandlerStarted = new CountDownLatch(1);
     private final CountDownLatch cancellationObserved = new CountDownLatch(1);
     private final CountDownLatch lateHandlerReturned = new CountDownLatch(1);
     private final CountDownLatch selectorWaitsRegistered = new CountDownLatch(2);
+    private final CountDownLatch secondSelectorExecution = new CountDownLatch(1);
     private final AtomicBoolean handlerInterrupted = new AtomicBoolean();
     private final AtomicBoolean contextReportedCancellation = new AtomicBoolean();
     private final AtomicBoolean recoveryRan = new AtomicBoolean();
@@ -101,7 +109,11 @@ final class StepCancellationWorkflow implements Flow<Void> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(lateWrite);
+        return PersistenceSchema.of(
+                lateWrite,
+                selectorWinnerRelease,
+                selectorWaitingRelease,
+                selectorFinalRelease);
     }
 
     String canceledStepType() {
@@ -120,6 +132,14 @@ final class StepCancellationWorkflow implements Flow<Void> {
 
     boolean awaitLateHandlerReturn(final Duration timeout) throws InterruptedException {
         return lateHandlerReturned.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    boolean awaitSelectorWaits(final Duration timeout) throws InterruptedException {
+        return selectorWaitsRegistered.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+    }
+
+    boolean awaitSecondSelectorExecution(final Duration timeout) throws InterruptedException {
+        return secondSelectorExecution.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     boolean hasLateHandlerReturned() {
@@ -146,19 +166,12 @@ final class StepCancellationWorkflow implements Flow<Void> {
         return secondSelectorExecuted.get();
     }
 
-    int blockingExecuteInvocations() {
-        return blockingExecuteInvocations.get();
+    String selectorWinnerStepType() {
+        return selectorWinner.getStepType();
     }
 
-    private void awaitSelectorWaits() {
-        try {
-            if (!selectorWaitsRegistered.await(10, TimeUnit.SECONDS)) {
-                throw new IllegalStateException("selector Steps did not reach waiting");
-            }
-        } catch (InterruptedException interruption) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("selector winner interrupted", interruption);
-        }
+    int blockingExecuteInvocations() {
+        return blockingExecuteInvocations.get();
     }
 
     private void blockUntilCanceled(final Context context) {
@@ -323,7 +336,7 @@ final class StepCancellationWorkflow implements Flow<Void> {
         }
     }
 
-    static final class StepCancellationFinalStep implements Step<String> {
+    final class StepCancellationFinalStep implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -331,6 +344,12 @@ final class StepCancellationWorkflow implements Flow<Void> {
 
         @Override
         public Wait waitFor(final Context context, final String input) {
+            if (Scenario.GLOBAL_SELECTOR.name().equals(input)) {
+                return Wait.skipImmediately();
+            }
+            if (Scenario.SIBLING_SELECTOR.name().equals(input)) {
+                return Wait.until(selectorFinalRelease.forOne());
+            }
             return Wait.until(Timer.byDuration(Duration.ofSeconds(1)));
         }
 
@@ -374,12 +393,11 @@ final class StepCancellationWorkflow implements Flow<Void> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.until(Timer.byDuration(Duration.ofSeconds(1)));
+            return Wait.until(selectorWinnerRelease.forOne());
         }
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            awaitSelectorWaits();
             final StepDecision decision = StepDecision.goTo(finalStep, scenario.name());
             return scenario == Scenario.GLOBAL_SELECTOR
                     ? decision.withCancelingSteps(selectorWaiting)
@@ -396,8 +414,7 @@ final class StepCancellationWorkflow implements Flow<Void> {
         @Override
         public Wait waitFor(final Context context, final String input) {
             selectorWaitsRegistered.countDown();
-            return Wait.until(Timer.byDuration(
-                    "first".equals(input) ? Duration.ofSeconds(30) : Duration.ofSeconds(2)));
+            return Wait.until(selectorWaitingRelease.forOne());
         }
 
         @Override
@@ -406,6 +423,7 @@ final class StepCancellationWorkflow implements Flow<Void> {
                 firstSelectorExecuted.set(true);
             } else {
                 secondSelectorExecuted.set(true);
+                secondSelectorExecution.countDown();
             }
             return StepDecision.deadEnd();
         }
