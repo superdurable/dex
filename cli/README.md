@@ -120,15 +120,15 @@ dexcli flow inspect FLOW_ID [--run-id RUN_ID] [--all-history]
 dexcli flow watch FLOW_ID [--run-id RUN_ID] [--from-event-id N] [--follow-runs]
 dexcli flow stop FLOW_ID --run-id RUN_ID
                  --type cancel|terminate|fail [--reason TEXT] --yes
-dexcli flow reset FLOW_ID --run-id RUN_ID
-                  --type beginning|history-event-id|history-event-time|step-type|step-execution-id
-                  [--target VALUE] --reason TEXT --yes
+dexcli flow time-travel FLOW_ID --run-id RUN_ID
+                        --type beginning|history-event-id|history-event-time|step-type|step-execution-id
+                        [--target VALUE] --reason TEXT --yes
 ```
 
 With the default JSON output, `watch` writes one object per line and exits when
 the run becomes terminal.
 `--follow-runs` continues into the current run after Continue-As-New. Stop and
-reset require both an exact run ID and `--yes`, including in non-interactive use.
+time travel require both an exact run ID and `--yes`, including in non-interactive use.
 
 ## Call any FlowService API
 

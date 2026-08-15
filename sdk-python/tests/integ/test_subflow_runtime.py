@@ -15,8 +15,8 @@ from dex import (
     FlowConfig,
     FlowNotFoundError,
     FlowStatus,
-    ResetFlowOptions,
-    ResetType,
+    TimeTravelOptions,
+    TimeTravelType,
     StartFlowOptions,
     StepExecutionId,
     SubFlowReusePolicy,
@@ -111,10 +111,10 @@ def test_subflow_default_reuse_restarts_failed_execution_across_parent_reset() -
             == "FAILED"
         )
         first_run_id = environment.client.describe_flow(child_id).run_id
-        environment.client.reset_flow(
+        environment.client.time_travel(
             flow_id,
-            ResetFlowOptions(
-                ResetType.BEGINNING, reason="verify SubFlow abnormal reuse"
+            TimeTravelOptions(
+                TimeTravelType.BEGINNING, reason="verify SubFlow abnormal reuse"
             ),
         )
         assert (
@@ -162,10 +162,10 @@ def _assert_running_reuse(policy: SubFlowReusePolicy, expects_restart: bool) -> 
         child_id = f"SubFlow:{flow_id}-{parent.start.get_step_type()}-1-0"
         environment.client.start_flow(parent, flow_id, 300)
         first_run_id = _await_running(environment, child_id)
-        environment.client.reset_flow(
+        environment.client.time_travel(
             flow_id,
-            ResetFlowOptions(
-                ResetType.BEGINNING, reason="verify SubFlow running reuse"
+            TimeTravelOptions(
+                TimeTravelType.BEGINNING, reason="verify SubFlow running reuse"
             ),
         )
         active_run_id = _await_running(

@@ -52,8 +52,8 @@ func (c *flowCommand) Execute(ctx context.Context, args []string, options option
 		return executeWatch(c, ctx, args[1:], options)
 	case "stop":
 		return executeStop(c, ctx, args[1:], options)
-	case "reset":
-		return executeReset(c, ctx, args[1:], options)
+	case "time-travel":
+		return executeTimeTravel(c, ctx, args[1:], options)
 	case "help", "--help", "-h":
 		c.printUsage()
 		return nil
@@ -294,7 +294,7 @@ func protoTimestamp(timestamp *timestamppb.Timestamp) any {
 func (c *flowCommand) printUsage() {
 	fmt.Fprintln(c.stdout, "Usage: dexcli flow <command>")
 	fmt.Fprintln(c.stdout)
-	fmt.Fprintln(c.stdout, "Commands: search, summary, state, history, inspect, watch, stop, reset")
+	fmt.Fprintln(c.stdout, "Commands: search, summary, state, history, inspect, watch, stop, time-travel")
 }
 
 func parseInt32(value string, name string) (int32, error) {

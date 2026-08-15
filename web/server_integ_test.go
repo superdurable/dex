@@ -33,12 +33,34 @@ import (
 
 type flowService struct {
 	dexpb.UnimplementedFlowServiceServer
-	waitStarted       chan struct{}
-	waitCanceled      chan struct{}
-	searchRequests    chan *dexpb.SearchFlowsRequest
-	loadBlobsRequests chan *dexpb.LoadBlobsRequest
-	loadBlobsError    error
-	stopRequests      chan *dexpb.StopFlowRequest
+	waitStarted        chan struct{}
+	waitCanceled       chan struct{}
+	searchRequests     chan *dexpb.SearchFlowsRequest
+	loadBlobsRequests  chan *dexpb.LoadBlobsRequest
+	loadBlobsError     error
+	stopRequests       chan *dexpb.StopFlowRequest
+	timeTravelRequests chan *dexpb.ResetFlowRequest
+}
+
+func TestWebServerTimeTravelsToHistoryEvent(t *testing.T) {
+	service := &flowService{timeTravelRequests: make(chan *dexpb.ResetFlowRequest, 1)}
+	harness := newHarness(t, service)
+	response := postJSON(
+		t,
+		harness.http.URL+"/api/flows/time-travel",
+		`{"flowId":"checkout-1","runId":"run-1","timeTravelType":1,"historyEventId":42,"reason":"retry fixed code"}`,
+	)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("time travel status = %d body=%q", response.StatusCode, readBody(t, response))
+	}
+	request := <-service.timeTravelRequests
+	if request.GetFlowId() != "checkout-1" || request.GetRunId() != "run-1" {
+		t.Fatalf("unexpected execution: %+v", request)
+	}
+	if request.GetResetType() != dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_ID || request.GetHistoryEventId() != 42 {
+		t.Fatalf("unexpected time travel point: %+v", request)
+	}
 }
 
 func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
@@ -327,6 +349,14 @@ func (s *flowService) StopFlow(
 ) (*emptypb.Empty, error) {
 	s.stopRequests <- request
 	return &emptypb.Empty{}, nil
+}
+
+func (s *flowService) ResetFlow(
+	_ context.Context,
+	request *dexpb.ResetFlowRequest,
+) (*dexpb.ResetFlowResponse, error) {
+	s.timeTravelRequests <- request
+	return &dexpb.ResetFlowResponse{RunId: "run-2"}, nil
 }
 
 type harness struct {

@@ -357,7 +357,7 @@ and Worker. Their option-level loggers override it for that component.
 ## Calling FlowService
 
 Client methods target the current run by sending an empty run ID. This follows
-Continue-as-New automatically. `StartFlow` and `ResetFlow` return run IDs for
+Continue-as-New automatically. `StartFlow` and `TimeTravel` return run IDs for
 diagnostics, while normal calls need only the flow ID.
 
 `ClientOptions.WorkerTarget` is the default advertised target for StartFlow.
@@ -394,7 +394,7 @@ if errors.As(err, &inactive) {
 ```
 
 `FlowNotFoundError` is returned by reads requiring an existing Flow, including
-GetAttribute, GetAttributes, WaitForFlow, and ResetFlow. Mutations, RPCs,
+GetAttribute, GetAttributes, WaitForFlow, and TimeTravel. Mutations, RPCs,
 publishes, timer operations, and step or attribute waits return
 `FlowNotActiveError` when no active Flow is available.
 

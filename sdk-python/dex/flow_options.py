@@ -270,8 +270,8 @@ class SubFlowOptions:
         )
 
 
-class ResetType(Enum):
-    """Select the history point from which a Flow reset should resume.
+class TimeTravelType(Enum):
+    """Select the historical point from which time travel should create a new run.
 
     Attributes:
         BEGINNING: Restart from the beginning of the Flow.
@@ -289,24 +289,24 @@ class ResetType(Enum):
 
 
 @dataclass(frozen=True)
-class ResetFlowOptions:
+class TimeTravelOptions:
     """Configure creation of a new run from existing Flow history.
 
     Exactly one selector matching ``type`` must be set. The Client
     validates combinations before sending the request.
 
     Attributes:
-        type: The reset-point selector kind.
+        type: The time travel point selector kind.
         history_event_id: Event ID used by ``HISTORY_EVENT_ID``.
         history_event_time: Timestamp used by ``HISTORY_EVENT_TIME``.
         step_type: Registered Step type used by ``STEP_TYPE``.
         step_execution_id: Exact execution ID used by ``STEP_EXECUTION_ID``.
-        reason: Optional operator-readable reset reason.
+        reason: Optional operator-readable time travel reason.
         skip_writes_reapply: Do not replay RPCs, Channel publications, or Attribute
-            writes after the reset point.
+            writes after the selected point.
     """
 
-    type: ResetType
+    type: TimeTravelType
     history_event_id: int | None = None
     history_event_time: datetime | None = None
     step_type: str | None = None

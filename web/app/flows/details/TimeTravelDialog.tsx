@@ -6,11 +6,11 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
 
-const resetTypes = [
+const timeTravelTypes = [
   { value: 2, label: 'Beginning' },
   { value: 1, label: 'History event ID' },
   { value: 3, label: 'History event time' },
@@ -18,20 +18,22 @@ const resetTypes = [
   { value: 5, label: 'Step execution ID' },
 ];
 
-export function ResetFlowDialog({
+export function TimeTravelDialog({
   open,
   summary,
   events,
+  initialEvent,
   onClose,
 }: {
   open: boolean;
   summary: FlowSummary;
   events: FlowHistoryEvent[];
+  initialEvent: FlowHistoryEvent | null;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const [resetType, setResetType] = useState(2);
-  const [target, setTarget] = useState('');
+  const [timeTravelType, setTimeTravelType] = useState(() => initialEvent ? 1 : 2);
+  const [target, setTarget] = useState(() => initialEvent ? String(initialEvent.eventId) : '');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -44,6 +46,14 @@ export function ResetFlowDialog({
     return [...values];
   }, [events]);
 
+  useEffect(() => {
+    if (!open) return;
+    setTimeTravelType(initialEvent ? 1 : 2);
+    setTarget(initialEvent ? String(initialEvent.eventId) : '');
+    setReason('');
+    setError('');
+  }, [initialEvent?.eventId, open]);
+
   if (!open) return null;
 
   async function submit() {
@@ -52,25 +62,25 @@ export function ResetFlowDialog({
     const payload: Record<string, unknown> = {
       flowId: summary.flowId,
       runId: summary.runId,
-      resetType,
+      timeTravelType,
       reason,
     };
-    if (resetType === 1) payload.historyEventId = Number(target);
-    if (resetType === 3) payload.historyEventTime = target;
-    if (resetType === 4) payload.stepType = target;
-    if (resetType === 5) payload.stepExecutionId = target;
+    if (timeTravelType === 1) payload.historyEventId = Number(target);
+    if (timeTravelType === 3) payload.historyEventTime = target;
+    if (timeTravelType === 4) payload.stepType = target;
+    if (timeTravelType === 5) payload.stepExecutionId = target;
     try {
-      const response = await fetch('/api/flows/reset', {
+      const response = await fetch('/api/flows/time-travel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       const data = await response.json() as { runId?: string; error?: string };
-      if (!response.ok) throw new Error(data.error || 'Reset failed');
+      if (!response.ok) throw new Error(data.error || 'Time travel failed');
       navigate(`/flows/${encodeURIComponent(summary.flowId)}/${encodeURIComponent(data.runId || '')}`);
       onClose();
-    } catch (resetError) {
-      setError(resetError instanceof Error ? resetError.message : 'Reset failed');
+    } catch (timeTravelError) {
+      setError(timeTravelError instanceof Error ? timeTravelError.message : 'Time travel failed');
     } finally {
       setSubmitting(false);
     }
@@ -80,32 +90,32 @@ export function ResetFlowDialog({
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <div className="modal-header">
-          <div><p className="eyebrow">Destructive operation</p><h2>Reset flow</h2></div>
+          <div><p className="eyebrow">New Flow run</p><h2>Time travel</h2></div>
           <button className="icon-button" onClick={onClose}>×</button>
         </div>
         <p>
-          Reset creates a new run from a selected Dex point. The current run remains available in history.
+          Time travel creates a new run from a selected Dex point. The current run remains available in history.
         </p>
         <label>
-          Reset point
-          <select value={resetType} onChange={(event) => {
-            setResetType(Number(event.target.value));
+          Time travel point
+          <select value={timeTravelType} onChange={(event) => {
+            setTimeTravelType(Number(event.target.value));
             setTarget('');
           }}>
-            {resetTypes.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
+            {timeTravelTypes.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
           </select>
         </label>
-        {resetType !== 2 && (
+        {timeTravelType !== 2 && (
           <label>
             Target
-            {resetType === 4 ? (
+            {timeTravelType === 4 ? (
               <>
-                <input list="reset-step-types" value={target} onChange={(event) => setTarget(event.target.value)} />
-                <datalist id="reset-step-types">{stepTypes.map((value) => <option value={value} key={value} />)}</datalist>
+                <input list="time-travel-step-types" value={target} onChange={(event) => setTarget(event.target.value)} />
+                <datalist id="time-travel-step-types">{stepTypes.map((value) => <option value={value} key={value} />)}</datalist>
               </>
             ) : (
               <input
-                type={resetType === 1 ? 'number' : resetType === 3 ? 'datetime-local' : 'text'}
+                type={timeTravelType === 1 ? 'number' : timeTravelType === 3 ? 'datetime-local' : 'text'}
                 value={target}
                 onChange={(event) => setTarget(event.target.value)}
               />
@@ -121,10 +131,10 @@ export function ResetFlowDialog({
           <button className="button ghost" onClick={onClose}>Cancel</button>
           <button
             className="button danger"
-            disabled={submitting || !reason.trim() || (resetType !== 2 && !target)}
+            disabled={submitting || !reason.trim() || (timeTravelType !== 2 && !target)}
             onClick={() => void submit()}
           >
-            {submitting ? 'Resetting…' : 'Reset flow'}
+            {submitting ? 'Time traveling…' : 'Time travel'}
           </button>
         </div>
       </div>

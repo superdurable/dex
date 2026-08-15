@@ -225,7 +225,7 @@ Flow config, Condition ID, and reuse. Parent completion does not cancel an unfin
 ## Errors
 
 Client calls reject with concrete `DexServiceError` subclasses. Existing-Flow
-reads (`getAttribute`, `describeFlow`, `waitForFlow`, and `resetFlow`) use
+reads (`getAttribute`, `describeFlow`, `waitForFlow`, and `timeTravel`) use
 `FlowNotFoundError`; operations that require a running Flow use
 `FlowNotActiveError`. Start conflicts, worker failures, RPC lock contention,
 and long-poll timeouts use `FlowAlreadyStartedError`,

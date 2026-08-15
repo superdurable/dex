@@ -11,18 +11,18 @@ use std::time::SystemTime;
 use crate::{Step, StepExecutionId};
 
 #[derive(Clone, Debug)]
-/// Selects a historical point from which [`crate::Client::reset_flow`] creates a new run.
+/// Selects a historical point from which [`crate::Client::time_travel`] creates a new run.
 ///
-/// Constructors identify exactly one reset point. Builder methods add an audit reason and control
+/// Constructors identify exactly one time travel point. Builder methods add an audit reason and control
 /// whether writes are reapplied. Write reapplication defaults to enabled.
-pub struct ResetFlowOptions {
-    pub(crate) point: ResetPoint,
+pub struct TimeTravelOptions {
+    pub(crate) point: TimeTravelPoint,
     pub(crate) reason: Option<String>,
     pub(crate) skip_writes_reapply: bool,
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum ResetPoint {
+pub(crate) enum TimeTravelPoint {
     Beginning,
     HistoryEventId(i64),
     HistoryEventTime(SystemTime),
@@ -30,45 +30,45 @@ pub(crate) enum ResetPoint {
     StepExecution(StepExecutionId),
 }
 
-impl ResetFlowOptions {
-    /// Resets before the first workflow-history event.
+impl TimeTravelOptions {
+    /// Resumes before the first workflow-history event.
     pub fn from_beginning() -> Self {
-        Self::new(ResetPoint::Beginning)
+        Self::new(TimeTravelPoint::Beginning)
     }
 
-    /// Resets at the specified server workflow-history event ID.
+    /// Resumes at the specified server workflow-history event ID.
     pub fn from_history_event_id(event_id: i64) -> Self {
-        Self::new(ResetPoint::HistoryEventId(event_id))
+        Self::new(TimeTravelPoint::HistoryEventId(event_id))
     }
 
-    /// Resets at the last eligible history event at or before `event_time`.
+    /// Resumes at the last eligible history event at or before `event_time`.
     pub fn from_history_event_time(event_time: SystemTime) -> Self {
-        Self::new(ResetPoint::HistoryEventTime(event_time))
+        Self::new(TimeTravelPoint::HistoryEventTime(event_time))
     }
 
-    /// Resets before the first execution of the selected Step type.
+    /// Resumes before the first execution of the selected Step type.
     pub fn from_step<SomeStep: Step>(step: &SomeStep) -> Self {
-        Self::new(ResetPoint::StepType(step.step_type()))
+        Self::new(TimeTravelPoint::StepType(step.step_type()))
     }
 
-    /// Resets before the exact Step execution identified by `step_execution`.
+    /// Resumes before the exact Step execution identified by `step_execution`.
     pub fn from_step_execution(step_execution: StepExecutionId) -> Self {
-        Self::new(ResetPoint::StepExecution(step_execution))
+        Self::new(TimeTravelPoint::StepExecution(step_execution))
     }
 
-    /// Adds an operator-facing reason recorded with the reset.
+    /// Adds an operator-facing reason recorded with time travel.
     pub fn reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
         self
     }
 
-    /// Controls whether post-reset RPCs, Channel publications, and Attribute writes are skipped.
+    /// Controls whether later RPCs, Channel publications, and Attribute writes are skipped.
     pub fn skip_writes_reapply(mut self, skip: bool) -> Self {
         self.skip_writes_reapply = skip;
         self
     }
 
-    fn new(point: ResetPoint) -> Self {
+    fn new(point: TimeTravelPoint) -> Self {
         Self {
             point,
             reason: None,

@@ -6,7 +6,7 @@ title: And more
 
 ## Why you need it
 
-Compose primitives for Indexed Attributes, continue-as-new, reset, cron schedules, and observability.
+Compose primitives for Indexed Attributes, continue-as-new, time travel, cron schedules, and observability.
 
 ## Code examples
 
@@ -16,7 +16,7 @@ Choose an SDK (preference is sticky in this browser; default Python).
 <SdkSnippet lang="python">
 
 ```python
-# SearchFlows, ResetFlow, ContinueAsNew — see References and Production.
+# SearchFlows, TimeTravel, ContinueAsNew — see References and Production.
 ```
 
 </SdkSnippet>
@@ -38,7 +38,7 @@ Choose an SDK (preference is sticky in this browser; default Python).
 
 ```typescript
 await client.searchFlows(query, pageSize);
-await client.resetFlow(flowId);
+await client.timeTravel(flowId, options);
 // Async Step can await client.startFlow / waitForFlow on one Worker.
 ```
 

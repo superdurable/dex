@@ -38,10 +38,12 @@ export function FlowStatePanel({
   selectedEvent,
   history,
   parentFlowId,
+  onTimeTravel,
 }: {
   selectedEvent: FlowHistoryEvent | null;
   history: FlowHistoryEvent[];
   parentFlowId: string;
+  onTimeTravel: (event: FlowHistoryEvent) => void;
 }) {
   const sidebar = useRef<HTMLDivElement>(null);
 
@@ -63,6 +65,12 @@ export function FlowStatePanel({
               <span>Event {selectedEvent.eventId}</span>
               <span>{selectedEvent.eventTime || 'No timestamp'}</span>
             </div>
+            <button
+              className="button ghost selected-event-time-travel"
+              onClick={() => onTimeTravel(selectedEvent)}
+            >
+              Time travel here
+            </button>
           </header>
           <section className="sidebar-section selected-event-body">
             <EventDetails

@@ -720,18 +720,18 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Resets a Flow and returns the new run ID.
+     * Creates a new run from a selected point in an existing Flow's history.
      *
      * @param flowId the target Flow ID
-     * @param options the reset point and replay behavior
-     * @return the server-assigned run ID of the reset execution
+     * @param options the time travel point and replay behavior
+     * @return the server-assigned run ID of the new execution
      * @throws FlowNotFoundException if no matching Flow execution exists
-     * @throws DexServiceException if Dex otherwise rejects or cannot perform the reset
+     * @throws DexServiceException if Dex otherwise rejects or cannot perform time travel
      */
-    public String resetFlow(final String flowId, final ResetFlowOptions options) {
+    public String timeTravel(final String flowId, final TimeTravelOptions options) {
         final ResetFlowRequest.Builder request = ResetFlowRequest.newBuilder()
                 .setFlowId(flowId)
-                .setResetType(mapResetType(options.getType()))
+                .setResetType(mapTimeTravelType(options.getType()))
                 .setReason(options.getReason() == null ? "" : options.getReason())
                 .setSkipWritesReapply(options.isSkipWritesReapply());
         if (options.getHistoryEventId() != null) {
@@ -1206,7 +1206,7 @@ public final class Client implements AutoCloseable {
         }
     }
 
-    private static FlowResetType mapResetType(final ResetType type) {
+    private static FlowResetType mapTimeTravelType(final TimeTravelType type) {
         switch (type) {
             case HISTORY_EVENT_ID:
                 return FlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_ID;

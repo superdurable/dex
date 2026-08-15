@@ -268,8 +268,8 @@ export const TimerId = Object.freeze({
   },
 });
 
-/** Selects the history point from which a Flow reset resumes. */
-export const ResetType = Object.freeze({
+/** Selects the historical point from which time travel creates a new run. */
+export const TimeTravelType = Object.freeze({
   /** Restarts from the beginning of the Flow. */
   BEGINNING: "beginning",
   /** Resumes at a specific history event ID. */
@@ -282,13 +282,13 @@ export const ResetType = Object.freeze({
   STEP_EXECUTION_ID: "stepExecutionId",
 } as const);
 
-/** Represents a value from {@link ResetType}. */
-export type ResetType = (typeof ResetType)[keyof typeof ResetType];
+/** Represents a value from {@link TimeTravelType}. */
+export type TimeTravelType = (typeof TimeTravelType)[keyof typeof TimeTravelType];
 
 /** Configures creation of a new run from existing Flow history. */
-export interface ResetFlowOptions {
-  /** Reset-point selector kind. */
-  readonly type: ResetType;
+export interface TimeTravelOptions {
+  /** Time travel point selector kind. */
+  readonly type: TimeTravelType;
   /** Event ID used with `HISTORY_EVENT_ID`. */
   readonly historyEventId?: bigint;
   /** Timestamp used with `HISTORY_EVENT_TIME`. */
@@ -297,9 +297,9 @@ export interface ResetFlowOptions {
   readonly stepType?: string;
   /** Exact execution ID used with `STEP_EXECUTION_ID`. */
   readonly stepExecutionId?: string;
-  /** Optional operator-readable reset reason. */
+  /** Optional operator-readable time travel reason. */
   readonly reason?: string;
-  /** Prevents reapplication of RPCs, Channel publications, and Attribute writes after reset. */
+  /** Prevents reapplication of RPCs, Channel publications, and Attribute writes after the selected point. */
   readonly skipWritesReapply?: boolean;
 }
 

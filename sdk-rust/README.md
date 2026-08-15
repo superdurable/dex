@@ -88,7 +88,7 @@ fn execute(&self, context: &mut Context, _input: ChargeInput) -> HandlerResult<S
 Flow config, Condition ID, and reuse. Parent completion does not cancel an unfinished SubFlow.
 
 Existing-Flow reads (`get_attribute`, `describe_flow`, `wait_for_flow`, and
-`reset_flow`) use `FlowNotFound`; operations requiring a running Flow use
+`time_travel`) use `FlowNotFound`; operations requiring a running Flow use
 `FlowNotActive`. Each remote variant owns a `ServiceError`, available through
 `SdkError::service_error()`, with gRPC code, Dex sub-status, detail, operation,
 Flow ID, and the original `tonic::Status` source. `WorkerInvocation` also owns

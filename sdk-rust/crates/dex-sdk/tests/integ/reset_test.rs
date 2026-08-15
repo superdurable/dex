@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use dex_sdk::{Client, FlowStatus, Registry, ResetFlowOptions, SdkResult, StartFlowOptions};
+use dex_sdk::{Client, FlowStatus, Registry, SdkResult, StartFlowOptions, TimeTravelOptions};
 
 use crate::reset_workflow::ResetWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id};
@@ -70,9 +70,9 @@ fn run_reset_scenario(locking: bool, skip_writes: bool) {
     assert_completed_with_attributes(&environment, &workflow, &flow_id, locking);
     let reset_run_id = environment
         .client
-        .reset_flow(
+        .time_travel(
             &flow_id,
-            ResetFlowOptions::from_beginning()
+            TimeTravelOptions::from_beginning()
                 .reason("testing reset")
                 .skip_writes_reapply(skip_writes),
         )
@@ -217,17 +217,17 @@ fn compile_locking_rpc_reapply(client: &Client) -> SdkResult<()> {
     client.invoke_rpc_without_input::<()>("reset-locking", ResetWorkflow::WITH_LOCKING)?;
     client
         .invoke_rpc_without_input::<()>("reset-locking", ResetWorkflow::WITH_ATTRIBUTE_MAP_LOCK)?;
-    let options = ResetFlowOptions::from_beginning()
+    let options = TimeTravelOptions::from_beginning()
         .reason("replay locking RPC")
         .skip_writes_reapply(false);
-    let _run_id = client.reset_flow("reset-locking", options)?;
+    let _run_id = client.time_travel("reset-locking", options)?;
     Ok(())
 }
 
 #[allow(dead_code)]
 fn compile_skip_writes_reapply(client: &Client) -> SdkResult<()> {
     let workflow = ResetWorkflow::new();
-    let options = ResetFlowOptions::from_step(&workflow.first).skip_writes_reapply(true);
-    let _run_id = client.reset_flow("reset-locking", options)?;
+    let options = TimeTravelOptions::from_step(&workflow.first).skip_writes_reapply(true);
+    let _run_id = client.time_travel("reset-locking", options)?;
     Ok(())
 }

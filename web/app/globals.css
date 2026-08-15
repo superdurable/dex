@@ -969,6 +969,11 @@ pre {
   margin-bottom: 0;
 }
 
+.selected-event-time-travel {
+  width: 100%;
+  margin-top: 10px;
+}
+
 .selected-event-body .event-details {
   margin-top: 0;
 }

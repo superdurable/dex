@@ -988,11 +988,11 @@ func mapStopOptions(options StopOptions) (dexpb.StopType, string, error) {
 	return stopType, options.Reason, nil
 }
 
-func mapResetOptions(options ResetOptions) (*dexpb.ResetFlowRequest, error) {
-	if err := validateResetOptions(options); err != nil {
+func mapTimeTravelOptions(options TimeTravelOptions) (*dexpb.ResetFlowRequest, error) {
+	if err := validateTimeTravelOptions(options); err != nil {
 		return nil, err
 	}
-	resetType, err := mapResetType(options.Type)
+	resetType, err := mapTimeTravelType(options.Type)
 	if err != nil {
 		return nil, err
 	}
@@ -1011,46 +1011,46 @@ func mapResetOptions(options ResetOptions) (*dexpb.ResetFlowRequest, error) {
 	}, nil
 }
 
-func validateResetOptions(options ResetOptions) error {
+func validateTimeTravelOptions(options TimeTravelOptions) error {
 	hasHistoryEventID := options.HistoryEventID != 0
 	hasHistoryEventTime := !options.HistoryEventTime.IsZero()
 	hasStepType := options.StepType != ""
 	hasStepExecutionID := options.StepExecutionID != ""
 	switch options.Type {
-	case ResetByHistoryEventID:
+	case TimeTravelByHistoryEventID:
 		if options.HistoryEventID <= 0 {
-			return fmt.Errorf("dex: reset history event ID must be positive")
+			return fmt.Errorf("dex: time travel history event ID must be positive")
 		}
 		if hasHistoryEventTime || hasStepType || hasStepExecutionID {
-			return fmt.Errorf("dex: reset history event ID cannot be combined with another selector")
+			return fmt.Errorf("dex: time travel history event ID cannot be combined with another selector")
 		}
-	case ResetToBeginning:
+	case TimeTravelToBeginning:
 		if hasHistoryEventID || hasHistoryEventTime || hasStepType || hasStepExecutionID {
-			return fmt.Errorf("dex: reset to beginning cannot include another selector")
+			return fmt.Errorf("dex: time travel to beginning cannot include another selector")
 		}
-	case ResetByHistoryEventTime:
+	case TimeTravelByHistoryEventTime:
 		if !hasHistoryEventTime {
-			return fmt.Errorf("dex: reset history event time must not be zero")
+			return fmt.Errorf("dex: time travel history event time must not be zero")
 		}
 		if hasHistoryEventID || hasStepType || hasStepExecutionID {
-			return fmt.Errorf("dex: reset history event time cannot be combined with another selector")
+			return fmt.Errorf("dex: time travel history event time cannot be combined with another selector")
 		}
-	case ResetByStepType:
+	case TimeTravelByStepType:
 		if !hasStepType {
-			return fmt.Errorf("dex: reset step type must not be empty")
+			return fmt.Errorf("dex: time travel Step type must not be empty")
 		}
 		if hasHistoryEventID || hasHistoryEventTime || hasStepExecutionID {
-			return fmt.Errorf("dex: reset step type cannot be combined with another selector")
+			return fmt.Errorf("dex: time travel Step type cannot be combined with another selector")
 		}
-	case ResetByStepExecutionID:
+	case TimeTravelByStepExecutionID:
 		if !hasStepExecutionID {
-			return fmt.Errorf("dex: reset step execution ID must not be empty")
+			return fmt.Errorf("dex: time travel Step execution ID must not be empty")
 		}
 		if hasHistoryEventID || hasHistoryEventTime || hasStepType {
-			return fmt.Errorf("dex: reset step execution ID cannot be combined with another selector")
+			return fmt.Errorf("dex: time travel Step execution ID cannot be combined with another selector")
 		}
 	default:
-		return fmt.Errorf("dex: unsupported reset type %d", options.Type)
+		return fmt.Errorf("dex: unsupported time travel type %d", options.Type)
 	}
 	return nil
 }
@@ -1331,21 +1331,21 @@ func mapIDReusePolicy(policy IDReusePolicy) (dexpb.IdReusePolicy, error) {
 	}
 }
 
-func mapResetType(resetType ResetType) (dexpb.FlowResetType, error) {
-	switch resetType {
-	case ResetByHistoryEventID:
+func mapTimeTravelType(timeTravelType TimeTravelType) (dexpb.FlowResetType, error) {
+	switch timeTravelType {
+	case TimeTravelByHistoryEventID:
 		return dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_ID, nil
-	case ResetToBeginning:
+	case TimeTravelToBeginning:
 		return dexpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING, nil
-	case ResetByHistoryEventTime:
+	case TimeTravelByHistoryEventTime:
 		return dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME, nil
-	case ResetByStepType:
+	case TimeTravelByStepType:
 		return dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE, nil
-	case ResetByStepExecutionID:
+	case TimeTravelByStepExecutionID:
 		return dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID, nil
 	default:
 		return dexpb.FlowResetType_FLOW_RESET_TYPE_UNSPECIFIED,
-			fmt.Errorf("dex: unsupported reset type %d", resetType)
+			fmt.Errorf("dex: unsupported time travel type %d", timeTravelType)
 	}
 }
 

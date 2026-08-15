@@ -12,8 +12,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use dex_sdk::{
-    Client, Flow, FlowStatus, Registry, ResetFlowOptions, StartFlowOptions, Step, StepExecutionId,
-    StopFlowOptions, SubFlowReusePolicy, TimerId,
+    Client, Flow, FlowStatus, Registry, StartFlowOptions, Step, StepExecutionId, StopFlowOptions,
+    SubFlowReusePolicy, TimeTravelOptions, TimerId,
 };
 
 use crate::basic_abnormal_exit_workflow::BasicAbnormalExitWorkflow;
@@ -108,9 +108,9 @@ fn test_subflow_default_reuse_restarts_failed_execution_across_parent_reset() {
     let first_run_id = environment.client.describe_flow(&child_id).unwrap().run_id;
     environment
         .client
-        .reset_flow(
+        .time_travel(
             &id,
-            ResetFlowOptions::from_beginning().reason("verify SubFlow abnormal reuse"),
+            TimeTravelOptions::from_beginning().reason("verify SubFlow abnormal reuse"),
         )
         .unwrap();
     let second: String = wait(&environment.client, &id).single_output().unwrap();
@@ -183,9 +183,9 @@ fn assert_running_reuse(reuse_policy: SubFlowReusePolicy, expects_restart: bool)
     let first_run_id = await_running(&environment.client, &child_id, None);
     environment
         .client
-        .reset_flow(
+        .time_travel(
             &id,
-            ResetFlowOptions::from_beginning().reason("verify SubFlow running reuse"),
+            TimeTravelOptions::from_beginning().reason("verify SubFlow running reuse"),
         )
         .unwrap();
     let active_run_id = await_running(

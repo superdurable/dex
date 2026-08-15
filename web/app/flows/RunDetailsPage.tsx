@@ -26,7 +26,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { usePreferences } from '../providers';
 import { FlowOverview } from './details/FlowOverview';
 import { FlowStatePanel } from './details/FlowStatePanel';
-import { ResetFlowDialog } from './details/ResetFlowDialog';
+import { TimeTravelDialog } from './details/TimeTravelDialog';
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { StepGraph } from './details/StepGraph';
 import { Timeline } from './details/Timeline';
@@ -94,7 +94,8 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [resetOpen, setResetOpen] = useState(false);
+  const [timeTravelOpen, setTimeTravelOpen] = useState(false);
+  const [timeTravelEvent, setTimeTravelEvent] = useState<FlowHistoryEvent | null>(null);
   const [stopOpen, setStopOpen] = useState(false);
   const [waitCycle, setWaitCycle] = useState(0);
   const [hydratedEvents, setHydratedEvents] = useState<Record<number, FlowHistoryEvent>>({});
@@ -391,6 +392,16 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     return [...new Set([summary.firstRunId, summary.runId].filter(Boolean))];
   }, [summary]);
 
+  const openTimeTravel = useCallback((event: FlowHistoryEvent | null) => {
+    setTimeTravelEvent(event);
+    setTimeTravelOpen(true);
+  }, []);
+
+  const closeTimeTravel = useCallback(() => {
+    setTimeTravelOpen(false);
+    setTimeTravelEvent(null);
+  }, []);
+
   if (loading && !summary) return <div className="page-loading">Loading flow run…</div>;
 
   return (
@@ -426,7 +437,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
             >
               Stop
             </button>
-            <button className="button danger" onClick={() => setResetOpen(true)}>Reset</button>
+            <button className="button danger" onClick={() => openTimeTravel(null)}>Time Travel</button>
           </div>
         </div>
         {summary && (
@@ -481,6 +492,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
               events={displayedHistory}
               state={state}
               selectedEvent={selected}
+              onTimeTravel={openTimeTravel}
             />
           )}
           {tab === 'steps' && (
@@ -537,17 +549,20 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
               selectedEvent={selected}
               history={displayedHistory}
               parentFlowId={flowId}
+              onTimeTravel={openTimeTravel}
             />
           </aside>
         )}
       </div>
 
       {summary && (
-        <ResetFlowDialog
-          open={resetOpen}
+        <TimeTravelDialog
+          key={timeTravelEvent?.eventId ?? 'manual'}
+          open={timeTravelOpen}
           summary={summary}
           events={history}
-          onClose={() => setResetOpen(false)}
+          initialEvent={timeTravelEvent}
+          onClose={closeTimeTravel}
         />
       )}
       {summary && (

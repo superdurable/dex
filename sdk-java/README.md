@@ -342,7 +342,7 @@ try {
 ```
 
 `FlowNotFoundException` is returned by read and history operations such as
-`describeFlow`, `getAttribute`, `waitForFlow`, and `resetFlow`. These operations
+`describeFlow`, `getAttribute`, `waitForFlow`, and `timeTravel`. These operations
 can read a closed Flow, so failure means no matching execution was found.
 `FlowNotActiveException` is returned by RPC, publish, mutation, stop, timer,
 configuration, and step-wait operations that require an open Flow.
@@ -399,7 +399,7 @@ disables future synchronization with protocol presence.
 The IWF integration inventory is implemented as real Dex E2E tests under
 [`src/test/java/io/superdurable/dex/integ`](src/test/java/io/superdurable/dex/integ/README.md).
 They run Java Client and Java Worker against `dexcli dev`, with Rust used only
-for BlobCache. They cover flows, steps, RPCs, persistence, reset, timers,
+for BlobCache. They cover flows, steps, RPCs, persistence, time travel, timers,
 failure modes, and options.
 
 ## Runtime architecture

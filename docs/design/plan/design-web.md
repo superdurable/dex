@@ -17,7 +17,7 @@ Phase 1 确定：
 
 1. 定稿 public history event 和 internal async snapshot proto。
 2. 实现 Temporal/Cadence history converter、local snapshot persistence 和 server tests。
-3. 将 Timeline、Step Graph、Reset 和 Selected Event 迁移到统一 `input/output/context`。
+3. 将 Timeline、Step Graph、Time Travel 和 Selected Event 迁移到统一 `input/output/context`。
 4. 完成 Web blob hydration tests、E2E、文档和发布验证。
 
 ## 2. 核心原则
@@ -739,7 +739,7 @@ Web Vitest：
 
 - 递归发现和替换 step input、attributes、channels、continued state 和 condition results。
 - batch cache 避免切换 tab 后重复加载。
-- timeline、step graph、reset dialog 和 selected event 不再读取旧的 execution/request/response。
+- timeline、step graph、time travel dialog 和 selected event 不再读取旧的 execution/request/response。
 - Input 按 step input、condition results、attributes、locals 排列；Output 和 Context 使用新结构。
 - terminal ASYNC failure 缺少 snapshot 时解释 short retry 行为；单个 Value blob unavailable 仍使用数据提示。
 - 加载失败显示 unavailable，结构化 details 和 Raw JSON 都不泄露 blob ID。

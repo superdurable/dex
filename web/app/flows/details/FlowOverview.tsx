@@ -54,11 +54,13 @@ export function FlowOverview({
   events,
   state,
   selectedEvent,
+  onTimeTravel,
 }: {
   summary: FlowSummary;
   events: FlowHistoryEvent[];
   state: FlowState | null;
   selectedEvent: FlowHistoryEvent | null;
+  onTimeTravel: (event: FlowHistoryEvent) => void;
 }) {
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const closed = events.findLast((event) => event.type === 'FlowClosed');
@@ -275,6 +277,12 @@ export function FlowOverview({
                   <span>Event {selectedEvent.eventId}</span>
                   <span>{selectedEvent.eventTime || 'No timestamp'}</span>
                 </div>
+                <button
+                  className="button ghost selected-event-time-travel"
+                  onClick={() => onTimeTravel(selectedEvent)}
+                >
+                  Time travel here
+                </button>
               </header>
               <div className="overview-selected-event-body">
                 <EventDetails

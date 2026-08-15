@@ -13,22 +13,22 @@ package io.superdurable.dex;
 import java.time.Instant;
 
 /**
- * Selects a reset point and replay behavior for {@link Client#resetFlow}.
+ * Selects a historical point and replay behavior for {@link Client#timeTravel}.
  *
- * <p>Create the builder with one {@link ResetType}, then set the selector that corresponds to that
- * type. Reset creates a new run of the Flow. Writes after the reset point are reapplied by default
+ * <p>Create the builder with one {@link TimeTravelType}, then set the selector that corresponds to that
+ * type. Time travel creates a new run of the Flow. Writes after the selected point are reapplied by default
  * unless explicitly skipped.
  *
  * <pre>{@code
- * ResetFlowOptions options = ResetFlowOptions.newBuilder(ResetType.STEP_TYPE)
+ * TimeTravelOptions options = TimeTravelOptions.newBuilder(TimeTravelType.STEP_TYPE)
  *         .stepType("ChargeOrder")
  *         .reason("retry after operator review")
  *         .build();
- * String newRunId = client.resetFlow("order-123", options);
+ * String newRunId = client.timeTravel("order-123", options);
  * }</pre>
  */
-public final class ResetFlowOptions {
-    private final ResetType type;
+public final class TimeTravelOptions {
+    private final TimeTravelType type;
     private final Long historyEventId;
     private final Instant historyEventTime;
     private final String stepType;
@@ -36,7 +36,7 @@ public final class ResetFlowOptions {
     private final String reason;
     private final boolean skipWritesReapply;
 
-    private ResetFlowOptions(final Builder builder) {
+    private TimeTravelOptions(final Builder builder) {
         this.type = builder.type;
         this.historyEventId = builder.historyEventId;
         this.historyEventTime = builder.historyEventTime;
@@ -47,16 +47,16 @@ public final class ResetFlowOptions {
     }
 
     /**
-     * Creates a builder for a reset strategy.
+     * Creates a builder for a time travel strategy.
      *
-     * @param type the reset-point strategy
+     * @param type the historical-point strategy
      * @return a new mutable builder
      */
-    public static Builder newBuilder(final ResetType type) {
+    public static Builder newBuilder(final TimeTravelType type) {
         return new Builder(type);
     }
 
-    ResetType getType() {
+    TimeTravelType getType() {
         return type;
     }
 
@@ -84,9 +84,9 @@ public final class ResetFlowOptions {
         return skipWritesReapply;
     }
 
-    /** Builds immutable {@link ResetFlowOptions} values. */
+    /** Builds immutable {@link TimeTravelOptions} values. */
     public static final class Builder {
-        private final ResetType type;
+        private final TimeTravelType type;
         private Long historyEventId;
         private Instant historyEventTime;
         private String stepType;
@@ -94,7 +94,7 @@ public final class ResetFlowOptions {
         private String reason;
         private boolean skipWritesReapply;
 
-        private Builder(final ResetType type) {
+        private Builder(final TimeTravelType type) {
             this.type = type;
         }
 
@@ -121,7 +121,7 @@ public final class ResetFlowOptions {
         }
 
         /**
-         * Selects a reset point by Step type.
+         * Selects a time travel point by Step type.
          *
          * @param value the Step type
          * @return this builder
@@ -132,7 +132,7 @@ public final class ResetFlowOptions {
         }
 
         /**
-         * Selects a reset point by server Step execution ID.
+         * Selects a time travel point by server Step execution ID.
          *
          * @param value the Step execution ID
          * @return this builder
@@ -143,9 +143,9 @@ public final class ResetFlowOptions {
         }
 
         /**
-         * Records a human-readable reset reason.
+         * Records a human-readable time travel reason.
          *
-         * @param value the reset reason, or {@code null}
+         * @param value the time travel reason, or {@code null}
          * @return this builder
          */
         public Builder reason(final String value) {
@@ -156,7 +156,7 @@ public final class ResetFlowOptions {
         /**
          * Controls whether historical writes are omitted from replay.
          *
-         * <p>Writes include RPCs, Channel publications, and Attribute writes after the reset point.
+         * <p>Writes include RPCs, Channel publications, and Attribute writes after the selected point.
          *
          * @param value {@code true} to skip reapplying writes
          * @return this builder
@@ -167,12 +167,12 @@ public final class ResetFlowOptions {
         }
 
         /**
-         * Builds immutable reset options from the current values.
+         * Builds immutable time travel options from the current values.
          *
-         * @return the configured reset options
+         * @return the configured time travel options
          */
-        public ResetFlowOptions build() {
-            return new ResetFlowOptions(this);
+        public TimeTravelOptions build() {
+            return new TimeTravelOptions(this);
         }
     }
 }

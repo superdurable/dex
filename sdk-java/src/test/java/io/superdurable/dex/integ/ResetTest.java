@@ -15,8 +15,8 @@ package io.superdurable.dex.integ;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.FlowResult;
-import io.superdurable.dex.ResetFlowOptions;
-import io.superdurable.dex.ResetType;
+import io.superdurable.dex.TimeTravelOptions;
+import io.superdurable.dex.TimeTravelType;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepCompletion;
 import io.superdurable.dex.exceptions.FlowNotFoundException;
@@ -49,9 +49,9 @@ public final class ResetTest {
         try (DexDevTestEnvironment environment = startEnvironment()) {
             assertThrows(
                     FlowNotFoundException.class,
-                    () -> environment.client().resetFlow(
+                    () -> environment.client().timeTravel(
                             "missing-reset-" + UUID.randomUUID(),
-                            ResetFlowOptions.newBuilder(ResetType.BEGINNING).build()));
+                            TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING).build()));
         }
     }
 
@@ -61,7 +61,7 @@ public final class ResetTest {
             final String flowId = startAndInvoke(environment, true);
             assertCompletedWithAttributes(environment, flowId, true);
 
-            final String resetRunId = environment.client().resetFlow(
+            final String resetRunId = environment.client().timeTravel(
                     flowId,
                     resetOptions(false));
 
@@ -76,7 +76,7 @@ public final class ResetTest {
             final String flowId = startAndInvoke(environment, true);
             assertCompletedWithAttributes(environment, flowId, true);
 
-            final String resetRunId = environment.client().resetFlow(
+            final String resetRunId = environment.client().timeTravel(
                     flowId,
                     resetOptions(true));
 
@@ -91,7 +91,7 @@ public final class ResetTest {
             final String flowId = startAndInvoke(environment, false);
             assertCompletedWithAttributes(environment, flowId, false);
 
-            final String resetRunId = environment.client().resetFlow(
+            final String resetRunId = environment.client().timeTravel(
                     flowId,
                     resetOptions(false));
 
@@ -106,7 +106,7 @@ public final class ResetTest {
             final String flowId = startAndInvoke(environment, false);
             assertCompletedWithAttributes(environment, flowId, false);
 
-            final String resetRunId = environment.client().resetFlow(
+            final String resetRunId = environment.client().timeTravel(
                     flowId,
                     resetOptions(true));
 
@@ -122,20 +122,20 @@ public final class ResetTest {
                 "reset-locking");
         client.invokeRPC(stub::withLocking);
         client.invokeRPC(stub::withAttributeMapLock);
-        final ResetFlowOptions options = ResetFlowOptions.newBuilder(ResetType.BEGINNING)
+        final TimeTravelOptions options = TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING)
                 .reason("replay locking RPC")
                 .skipWritesReapply(false)
                 .build();
-        final String runId = client.resetFlow("reset-locking", options);
+        final String runId = client.timeTravel("reset-locking", options);
         consume(runId);
     }
 
     void compileSkipWritesReapply(final Client client) {
-        final ResetFlowOptions options = ResetFlowOptions.newBuilder(ResetType.STEP_TYPE)
+        final TimeTravelOptions options = TimeTravelOptions.newBuilder(TimeTravelType.STEP_TYPE)
                 .stepType("LockWaitStep")
                 .skipWritesReapply(true)
                 .build();
-        final String runId = client.resetFlow("reset-locking", options);
+        final String runId = client.timeTravel("reset-locking", options);
         consume(runId);
     }
 
@@ -162,8 +162,8 @@ public final class ResetTest {
         return flowId;
     }
 
-    private static ResetFlowOptions resetOptions(final boolean skipWrites) {
-        return ResetFlowOptions.newBuilder(ResetType.BEGINNING)
+    private static TimeTravelOptions resetOptions(final boolean skipWrites) {
+        return TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING)
                 .reason("testing reset")
                 .skipWritesReapply(skipWrites)
                 .build();

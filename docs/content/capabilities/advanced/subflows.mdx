@@ -175,7 +175,7 @@ starting Step input, Step options, SubFlow options, request ID, parent Flow ID, 
 copied into the snapshot. Received terminal results remain beside the state so partial `allOf` results
 survive without restarting already-started SubFlows.
 
-Parent completion, failure, cancellation, reset, or restart does not automatically cancel a
+Parent completion, failure, cancellation, time travel, or restart does not automatically cancel a
 SubFlow. A SubFlow reports terminal completion to the current parent execution by parent Flow ID.
 If the parent is already closed or no longer exists, Dex records
 `PARENT_CLOSED_OR_NOT_FOUND` in the reporting local activity result and completes the SubFlow
@@ -183,5 +183,5 @@ normally.
 
 Hard termination and Workflow execution timeout cannot run the reporting local activity. A parent
 waiting only for that completion signal may therefore remain waiting. Use cooperative cancellation
-when completion delivery is required, or reset/restart the parent so reuse handling can read the
+when completion delivery is required, or time travel/restart the parent so reuse handling can read the
 SubFlow’s terminal result directly.

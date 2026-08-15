@@ -24,7 +24,7 @@ Flows fail when:
 - Application code decides to fail a Step
 - Step API retries are exhausted
 
-Mitigation after a fix: [reset](/references/client-apis) failed Flows when appropriate.
+Mitigation after a fix: [time travel](/references/client-apis) failed Flows when appropriate.
 
 ### Flow timeout
 
@@ -41,7 +41,7 @@ deadline; retries and cron runs start with a fresh budget.
 
 Every positive timeout uses one internal `sys:timeout_handler` timer visible in
 active-Step diagnostics. `SkipTimer` can fire it early by timer index. Mitigate
-a failed timeout with reset only after fixing the underlying cause.
+a failed timeout with time travel only after fixing the underlying cause.
 
 ## How to operate
 
@@ -65,6 +65,6 @@ Useful inspection concepts (Dex terms):
 
 Focus on application-meaningful events: Flow started (input), Step activity scheduled/completed/failed, and completion. Treat pure Temporal plumbing as implementation detail unless you are debugging the Dex server itself.
 
-### Reset
+### Time Travel
 
-Reset is the primary mitigation after shipping a Worker bugfix. Prefer resetting from a safe Step boundary. See [Versioning](/production/versioning) and Client APIs.
+Time Travel is the primary mitigation after shipping a Worker bugfix. Prefer a safe Step boundary. See [Versioning](/production/versioning) and Client APIs.

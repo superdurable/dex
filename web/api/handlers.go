@@ -45,7 +45,7 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("GET /api/flows/history", handler.getHistoryEvents)
 	mux.HandleFunc("GET /api/flows/state", handler.getFlowState)
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
-	mux.HandleFunc("POST /api/flows/reset", handler.resetFlow)
+	mux.HandleFunc("POST /api/flows/time-travel", handler.timeTravelFlow)
 	mux.HandleFunc("POST /api/flows/stop", handler.stopFlow)
 	mux.HandleFunc("POST /api/blobs/load", handler.loadBlobs)
 	mux.HandleFunc("GET /healthz", health)
@@ -213,17 +213,17 @@ func (h *handler) waitForHistoryEvent(response http.ResponseWriter, request *htt
 	writeJSON(response, http.StatusOK, mapped)
 }
 
-func (h *handler) resetFlow(response http.ResponseWriter, request *http.Request) {
-	var body resetFlowRequest
+func (h *handler) timeTravelFlow(response http.ResponseWriter, request *http.Request) {
+	var body timeTravelFlowRequest
 	if err := decodeJSON(response, request, &body); err != nil {
 		WriteError(response, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	if body.FlowID == "" || body.RunID == "" || body.ResetType == 0 || strings.TrimSpace(body.Reason) == "" {
+	if body.FlowID == "" || body.RunID == "" || body.TimeTravelType == 0 || strings.TrimSpace(body.Reason) == "" {
 		WriteError(
 			response,
 			http.StatusBadRequest,
-			"flowId, runId, resetType, and reason are required",
+			"flowId, runId, timeTravelType, and reason are required",
 			nil,
 		)
 		return
@@ -231,7 +231,7 @@ func (h *handler) resetFlow(response http.ResponseWriter, request *http.Request)
 	result, err := h.client.ResetFlow(request.Context(), &dexpb.ResetFlowRequest{
 		FlowId:           body.FlowID,
 		RunId:            body.RunID,
-		ResetType:        dexpb.FlowResetType(body.ResetType),
+		ResetType:        dexpb.FlowResetType(body.TimeTravelType),
 		HistoryEventId:   body.HistoryEventID,
 		Reason:           body.Reason,
 		StepType:         body.StepType,
@@ -239,10 +239,10 @@ func (h *handler) resetFlow(response http.ResponseWriter, request *http.Request)
 		HistoryEventTime: body.HistoryEventTime,
 	})
 	if err != nil {
-		writeGRPCError(response, err, "ResetFlow")
+		writeGRPCError(response, err, "TimeTravel")
 		return
 	}
-	writeJSON(response, http.StatusOK, resetFlowResponse{RunID: result.GetRunId()})
+	writeJSON(response, http.StatusOK, timeTravelFlowResponse{RunID: result.GetRunId()})
 }
 
 func (h *handler) stopFlow(response http.ResponseWriter, request *http.Request) {

@@ -158,7 +158,7 @@ web/app/api/flows/summary/route.ts
 web/app/api/flows/history/route.ts
 web/app/api/flows/state/route.ts
 web/app/api/flows/wait/route.ts
-web/app/api/flows/reset/route.ts
+web/app/api/flows/time-travel/route.ts
 web/app/api/_grpc/
 ```
 
@@ -170,7 +170,7 @@ GET  /api/flows/summary
 GET  /api/flows/history
 GET  /api/flows/state
 GET  /api/flows/wait
-POST /api/flows/reset
+POST /api/flows/time-travel
 GET  /healthz
 ```
 
@@ -403,7 +403,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 ### Phase 2：Go Web server
 
 1. 在 `web/` 实现 Go HTTP server 和 Dex gRPC adapter。
-2. 按现有 TypeScript contract 迁移 search、summary、history、state、wait、reset。
+2. 按现有 TypeScript contract 迁移 search、summary、history、state、wait、time travel。
 3. 用真实 Dex FlowService integration tests 验证 handlers。
 4. 删除 Next API routes 和 Node gRPC dependencies。
 
@@ -442,7 +442,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 
 ### Web API integration
 
-- 对真实 Temporal Dex flow 验证 search、summary、history pagination、state、wait cancellation 和 reset。
+- 对真实 Temporal Dex flow 验证 search、summary、history pagination、state、wait cancellation 和 time travel。
 - 对 Cadence 重复同一组 Web API integration scenarios，保证 Go rewrite 不降低现有 backend 覆盖。
 - 验证 gRPC `InvalidArgument`、`NotFound`、`FailedPrecondition`、`DeadlineExceeded` 到 HTTP response 的稳定转换。
 - 验证 `/api/*` unknown route 返回 JSON 404，而不是 SPA HTML。
@@ -465,7 +465,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 
 - 从 `http://127.0.0.1:8802` 搜索并进入 Flow Details。
 - 直接加载和刷新 `/flows/:flowId/:runId` 不产生 404。
-- Basic/Advanced query、pagination、long poll、Step Graph、Timeline 和 Reset 保持现有行为。
+- Basic/Advanced query、pagination、long poll、Step Graph、Timeline 和 Time Travel 保持现有行为。
 - Dex Server 暂时不可用时展示可操作错误，恢复后能够重新加载。
 
 ### Packaging
@@ -490,7 +490,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 - `--open` 只打开 Dex Web，不自动打开 Temporal Web。
 - External Temporal 未提供 UI 地址时不显示猜测链接。
 - Browser API errors 使用当前页面内错误状态，不显示 Go/gRPC internal stack。
-- Local SYNC/ASYNC history、Step Graph、Timeline 和 Reset 的 UI 功能不得因静态 SPA 迁移减少。
+- Local SYNC/ASYNC history、Step Graph、Timeline 和 Time Travel 的 UI 功能不得因静态 SPA 迁移减少。
 
 ## 15. 完成标准
 

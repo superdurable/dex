@@ -19,8 +19,8 @@ import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.FlowInfo;
 import io.superdurable.dex.IdReusePolicy;
-import io.superdurable.dex.ResetFlowOptions;
-import io.superdurable.dex.ResetType;
+import io.superdurable.dex.TimeTravelOptions;
+import io.superdurable.dex.TimeTravelType;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepExecutionId;
 import io.superdurable.dex.StepCompletion;
@@ -190,9 +190,9 @@ public final class BasicTest {
             assertEquals("FAILED", first[1]);
             final String firstChildRunId = environment.client().describeFlow(childFlowId).getRunId();
 
-            environment.client().resetFlow(
+            environment.client().timeTravel(
                     flowId,
-                    ResetFlowOptions.newBuilder(ResetType.BEGINNING)
+                    TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING)
                             .reason("verify SubFlow abnormal reuse")
                             .build());
             final String[] second = environment.client()
@@ -509,9 +509,9 @@ public final class BasicTest {
             final String firstChildRunId = awaitFlowRun(
                     environment.client(), childFlowId, null);
 
-            environment.client().resetFlow(
+            environment.client().timeTravel(
                     flowId,
-                    ResetFlowOptions.newBuilder(ResetType.BEGINNING)
+                    TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING)
                             .reason("verify SubFlow running reuse")
                             .build());
             final String activeChildRunId = expectsRestart

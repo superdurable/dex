@@ -1,7 +1,7 @@
 # Dex Web
 
 Dex Web searches flows and displays Dex semantic history, step topology,
-live flow state, reset points, and stop controls.
+live flow state, time travel points, and stop controls.
 
 The production Web server is Go. It serves an embedded React SPA and translates
 same-origin HTTP/JSON requests under `/api/` to Dex `FlowService` gRPC calls.
@@ -9,7 +9,7 @@ Temporal/Cadence credentials and backend history never enter the browser.
 
 `GetHistoryEvents` returns the same `input`, `output`, and `context` step-event
 shape for sync, async, and async-fallback execution. Timeline, Step graph,
-Reset, and Selected event use that common structure.
+Time Travel and Selected event use that common structure.
 
 `POST /api/blobs/load` batches Dex `LoadBlobs` calls. The browser recursively
 hydrates the selected event and current flow state, dedupes by blob kind and ID,
@@ -68,8 +68,9 @@ preferences.
 
 The Run page provides Overview (Live Flow State beside Selected event, then
 Run input beside Identity), Step graph, Timeline, attributes, timers, queued
-steps, channels, completed outputs, stop, and reset. Timeline and Step graph keep
-Selected event in the sidebar.
+steps, channels, completed outputs, stop, and time travel. Timeline and Step graph keep
+Selected event in the sidebar, where **Time travel here** opens the operation with
+that history event ID already selected.
 Continued runs link to their previous run from Timeline and Step graph.
 Timeline connects each Step execution's first method event to the Flow start,
 Flow continued, RPC, Step decision, or recovery event that scheduled it.

@@ -15,7 +15,7 @@ import io.grpc.Status;
 /**
  * Reports that a read or history operation cannot find a matching Flow execution.
  *
- * <p>Methods such as describe, Attribute read, Flow wait, search-adjacent history access, and reset
+ * <p>Methods such as describe, Attribute read, Flow wait, search-adjacent history access, and time travel
  * can inspect closed Flows, so this exception means no requested execution was found. Operations
  * that specifically require a running target use {@link FlowNotActiveException} instead.
  */
