@@ -80,6 +80,7 @@ Selecting the first event reveals that source link; selecting a
 WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
 Selecting a Step execution emphasizes it in green, its previous Step in blue, its next Steps in orange, and their connecting arrows.
+Close decisions remain in event details and do not create misleading Step graph edges.
 Large Step graphs extend down the page at readable size. Fan-out ranks spread
 horizontally and scale down to fit when possible, with a minimum one-third zoom.
 Persisted Step decisions add planned graph branches. A selector-matched branch without a Step event appears Canceled with no execution ID.

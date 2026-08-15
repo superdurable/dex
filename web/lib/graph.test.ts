@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { describe, expect, it } from 'vitest';
-import { buildStepGraph, END_NODE_ID, stepGraphSelection } from './graph';
+import { buildStepGraph, stepGraphSelection } from './graph';
 import type { FlowHistoryEvent } from './types';
 
 function event(
@@ -128,7 +128,7 @@ describe('step graph', () => {
     });
   });
 
-  it('connects only the step with a close decision to the terminal node', () => {
+  it('does not create topology edges for close decisions', () => {
     const graph = buildStepGraph([
       event(1, 'StepWaitForCompleted', {
         stepExecutionId: 'trial-1',
@@ -150,11 +150,19 @@ describe('step graph', () => {
       event(4, 'FlowClosed'),
     ]);
 
-    expect(graph.edges.filter((edge) => edge.target === END_NODE_ID)).toEqual([{
-      id: 'cancel-1->__end__',
-      source: 'cancel-1',
-      target: '__end__',
-    }]);
+    expect(graph.nodes.map((node) => node.id)).not.toContain('__end__');
+    expect(graph.edges).toEqual([
+      {
+        id: '__start__->trial-1',
+        source: '__start__',
+        target: 'trial-1',
+      },
+      {
+        id: '__start__->cancel-1',
+        source: '__start__',
+        target: 'cancel-1',
+      },
+    ]);
   });
 
   it('retains a step method that was still pending when the flow closed', () => {

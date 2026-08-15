@@ -2170,11 +2170,6 @@ pre {
   background: #f5f1fb;
 }
 
-.react-flow__node.node-terminal {
-  border-color: #4e81a9;
-  background: #eef5f9;
-}
-
 .react-flow__node.node-subflow {
   border-color: #4f7ba7;
   background: #f2f7fb;

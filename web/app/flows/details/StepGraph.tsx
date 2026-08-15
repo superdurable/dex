@@ -295,7 +295,7 @@ export function StepGraph({
           <SubFlowNodeLabel flow={node} />
         ) : (
           <div className="graph-node-label">
-            <span>{node.kind === 'source' ? 'Source' : node.kind === 'terminal' ? 'Terminal' : node.status}</span>
+            <span>{node.kind === 'source' ? 'Source' : node.status}</span>
             {node.previousRunId ? (
               <>
                 <b>

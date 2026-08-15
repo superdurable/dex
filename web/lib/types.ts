@@ -102,8 +102,8 @@ export interface FlowState {
 export interface StepGraphNode {
   id: string;
   label: string;
-  kind: 'source' | 'step' | 'subflow' | 'terminal';
-  status: 'Source' | 'Active' | 'Waiting' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Terminal';
+  kind: 'source' | 'step' | 'subflow';
+  status: 'Source' | 'Active' | 'Waiting' | 'Pending' | 'Completed' | 'Failed' | 'Canceled';
   previousRunId?: string;
   stepType?: string;
   fromStepExecutionId?: string;
