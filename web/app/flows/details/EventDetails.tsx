@@ -581,8 +581,9 @@ function StepDecisionContent({ value }: { value: unknown }) {
   if (!hasData(decision)) return null;
   const close = asData(decision.closeDecision);
   return (
-    <>
+    <div className="step-decision-content">
       <StepMovements values={decision.nextSteps} showFrom={false} />
+      <CancellationSelectors decision={decision} />
       {hasData(close) && (
         <div className="semantic-record decision-record">
           <strong>{closeDecisionTypeLabel(close.closeDecisionType)}</strong>
@@ -593,7 +594,35 @@ function StepDecisionContent({ value }: { value: unknown }) {
           <ValueBlock label="Close input" value={close.closeInput} />
         </div>
       )}
-    </>
+    </div>
+  );
+}
+
+function CancellationSelectors({ decision }: { decision: Data }) {
+  const flowStepTypes = listText(decision.cancelStepTypes);
+  const siblingStepTypes = listText(decision.cancelSiblingStepTypes);
+  if (!flowStepTypes && !siblingStepTypes) return null;
+  return (
+    <div className="semantic-records">
+      {flowStepTypes && (
+        <div className="semantic-record decision-record">
+          <strong>Cancel Step executions</strong>
+          <Fields values={[
+            ['Scope', 'Entire Flow'],
+            ['Step types', flowStepTypes],
+          ]} />
+        </div>
+      )}
+      {siblingStepTypes && (
+        <div className="semantic-record decision-record">
+          <strong>Cancel sibling Step executions</strong>
+          <Fields values={[
+            ['Scope', 'Same parent execution'],
+            ['Step types', siblingStepTypes],
+          ]} />
+        </div>
+      )}
+    </div>
   );
 }
 

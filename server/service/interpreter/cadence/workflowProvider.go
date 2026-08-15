@@ -454,29 +454,31 @@ func (w *workflowProvider) ExecuteActivity(
 		if wfCtx.Err() != nil {
 			return wfCtx.Err()
 		}
-		if cadence.IsCanceledError(err) {
-			return err
-		}
 		if !isStepMethodActivity {
 			return workflow.ExecuteActivity(wfCtx, activity, regularArgs...).Get(wfCtx, valuePtr)
 		}
-		customError, localFailure, isApplicationFailure := cadenceLocalStepActivityError(err)
-		if !isApplicationFailure {
-			return err
+		customError, localFailure, hasLocalFailure := cadenceLocalStepActivityError(err)
+		previousAttempts := int32(1)
+		firstAttemptTimestamp := firstAttemptTime.Unix()
+		if hasLocalFailure {
+			previousAttempts = localFailure.GetAttempt()
+			firstAttemptTimestamp = localFailure.GetFirstAttemptTimestamp()
 		}
-		previousAttempts := localFailure.GetAttempt()
 		remainingPolicy, canFallback := retry.RemainingActivityRetryPolicy(
 			options.RetryPolicy,
 			previousAttempts,
 			workflow.Now(wfCtx).Sub(firstAttemptTime),
 		)
 		if !canFallback {
-			return cadenceFinalFlowError(customError, localFailure.GetActivityError())
+			if hasLocalFailure {
+				return cadenceFinalFlowError(customError, localFailure.GetActivityError())
+			}
+			return err
 		}
 		regularInput = interfaces.StepActivityInputWithAttemptContext(
 			regularInput,
 			previousAttempts,
-			localFailure.GetFirstAttemptTimestamp(),
+			firstAttemptTimestamp,
 		)
 		options.RetryPolicy = remainingPolicy
 		regularCtx := workflow.WithActivityOptions(wfCtx, cadenceActivityOptions(options))
@@ -530,17 +532,14 @@ func cadenceLocalStepActivityError(
 		return nil, nil, false
 	}
 	if !customError.HasDetails() {
-		panic("Cadence local Step failure details required")
+		return nil, nil, false
 	}
 	var failure *dexpb.InternalLocalStepActivityFailure
 	if detailErr := customError.Details(&failure); detailErr != nil {
-		panic(fmt.Sprintf("decode Cadence local Step failure details: %v", detailErr))
+		return nil, nil, false
 	}
-	if failure == nil || failure.GetActivityError() == nil {
-		panic("Cadence local Step activity error required")
-	}
-	if failure.GetAttempt() <= 0 {
-		panic("Cadence local Step failure attempt required")
+	if failure == nil || failure.GetActivityError() == nil || failure.GetAttempt() <= 0 {
+		return nil, nil, false
 	}
 	return customError, failure, true
 }

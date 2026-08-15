@@ -82,6 +82,26 @@ describe('selected step event details', () => {
     expect(markup).not.toContain('previousAttempt');
   });
 
+  it('renders Flow-wide and sibling cancellation selectors with next Steps', () => {
+    const event = executeEvent(2);
+    event.payload.output = {
+      stepDecision: {
+        nextSteps: [{ stepType: 'complete' }],
+        cancelStepTypes: ['global-loser', 'shared-loser'],
+        cancelSiblingStepTypes: ['sibling-loser'],
+      },
+    };
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('complete');
+    expect(markup).toContain('Cancel Step executions');
+    expect(markup).toContain('Entire Flow');
+    expect(markup).toContain('global-loser, shared-loser');
+    expect(markup).toContain('Cancel sibling Step executions');
+    expect(markup).toContain('Same parent execution');
+    expect(markup).toContain('sibling-loser');
+  });
+
   it('renders the latest sync failure in context', () => {
     const event = executeEvent(1);
     event.payload.context = {

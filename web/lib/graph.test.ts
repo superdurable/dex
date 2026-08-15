@@ -133,6 +133,175 @@ describe('step graph', () => {
     expect(node?.pendingExecute?.type).toBe('StepExecutePending');
   });
 
+  it('shows a planned branch canceled before a Step event was recorded', () => {
+    const graph = buildStepGraph([
+      event(1, 'StepExecuteCompleted', {
+        stepExecutionId: 'Root-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'Root',
+      }, {
+        output: { stepDecision: { nextSteps: [{
+          stepType: 'Winner',
+          fromStepExecutionIdInternalOnly: 'Root-1',
+        }, {
+          stepType: 'Loser',
+          fromStepExecutionIdInternalOnly: 'Root-1',
+          stepOptions: { skipWaitFor: true },
+        }] } },
+      }),
+      event(2, 'StepExecuteCompleted', {
+        stepExecutionId: 'Winner-1',
+        fromStepExecutionId: 'Root-1',
+        stepType: 'Winner',
+      }, {
+        output: { stepDecision: { cancelStepTypes: ['Loser'] } },
+      }),
+      event(3, 'FlowClosed'),
+    ]);
+
+    expect(graph.nodes.filter((node) => node.stepType === 'Winner')).toHaveLength(1);
+    const loser = graph.nodes.find((node) => node.stepType === 'Loser');
+    expect(loser).toMatchObject({
+      status: 'Canceled',
+      fromStepExecutionId: 'Root-1',
+      isPlanned: true,
+    });
+    expect(graph.edges).toContainEqual({
+      id: `Root-1->${loser?.id}`,
+      source: 'Root-1',
+      target: loser?.id,
+    });
+  });
+
+  it('excludes next Steps created by the canceling decision from its snapshot', () => {
+    const graph = buildStepGraph([
+      event(1, 'StepExecuteCompleted', {
+        stepExecutionId: 'Root-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'Root',
+      }, {
+        output: { stepDecision: { nextSteps: [{
+          stepType: 'Worker',
+          fromStepExecutionIdInternalOnly: 'Root-1',
+        }, {
+          stepType: 'Worker',
+          fromStepExecutionIdInternalOnly: 'Root-1',
+        }, {
+          stepType: 'Winner',
+          fromStepExecutionIdInternalOnly: 'Root-1',
+        }] } },
+      }),
+      event(2, 'StepExecuteCompleted', {
+        stepExecutionId: 'Worker-1',
+        fromStepExecutionId: 'Root-1',
+        stepType: 'Worker',
+      }),
+      event(3, 'StepExecuteCompleted', {
+        stepExecutionId: 'Winner-1',
+        fromStepExecutionId: 'Root-1',
+        stepType: 'Winner',
+      }, {
+        output: { stepDecision: {
+          cancelStepTypes: ['Worker'],
+          nextSteps: [{
+            stepType: 'Worker',
+            fromStepExecutionIdInternalOnly: 'Winner-1',
+          }],
+        } },
+      }),
+    ]);
+
+    const workers = graph.nodes.filter((node) => node.stepType === 'Worker');
+    expect(workers).toHaveLength(3);
+    expect(workers.find((node) => node.id === 'Worker-1')?.status).toBe('Completed');
+    expect(workers.find((node) => node.isPlanned
+      && node.fromStepExecutionId === 'Root-1')?.status).toBe('Canceled');
+    expect(workers.find((node) => node.fromStepExecutionId === 'Winner-1')?.status).toBe('Pending');
+  });
+
+  it('limits sibling cancellation to the canceling Step lineage', () => {
+    const graph = buildStepGraph([
+      event(1, 'StepExecuteCompleted', {
+        stepExecutionId: 'Root-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'Root',
+      }, {
+        output: { stepDecision: { nextSteps: [{
+          stepType: 'ParentA',
+          fromStepExecutionIdInternalOnly: 'Root-1',
+        }, {
+          stepType: 'ParentB',
+          fromStepExecutionIdInternalOnly: 'Root-1',
+        }] } },
+      }),
+      event(2, 'StepExecuteCompleted', {
+        stepExecutionId: 'ParentA-1',
+        fromStepExecutionId: 'Root-1',
+        stepType: 'ParentA',
+      }, {
+        output: { stepDecision: { nextSteps: [{
+          stepType: 'Worker',
+          fromStepExecutionIdInternalOnly: 'ParentA-1',
+        }, {
+          stepType: 'Winner',
+          fromStepExecutionIdInternalOnly: 'ParentA-1',
+        }] } },
+      }),
+      event(3, 'StepExecuteCompleted', {
+        stepExecutionId: 'ParentB-1',
+        fromStepExecutionId: 'Root-1',
+        stepType: 'ParentB',
+      }, {
+        output: { stepDecision: { nextSteps: [{
+          stepType: 'Worker',
+          fromStepExecutionIdInternalOnly: 'ParentB-1',
+        }] } },
+      }),
+      event(4, 'StepExecuteCompleted', {
+        stepExecutionId: 'Winner-1',
+        fromStepExecutionId: 'ParentA-1',
+        stepType: 'Winner',
+      }, {
+        output: { stepDecision: { cancelSiblingStepTypes: ['Worker'] } },
+      }),
+    ]);
+
+    const workers = graph.nodes.filter((node) => node.stepType === 'Worker');
+    expect(workers.find((node) => node.fromStepExecutionId === 'ParentA-1')?.status).toBe('Canceled');
+    expect(workers.find((node) => node.fromStepExecutionId === 'ParentB-1')?.status).toBe('Pending');
+  });
+
+  it('keeps cancellation ahead of a stale active-state overlay', () => {
+    const graph = buildStepGraph([
+      event(1, 'StepWaitForCompleted', {
+        stepExecutionId: 'Worker-1',
+        fromStepExecutionId: 'Root-1',
+        stepType: 'Worker',
+      }),
+      event(2, 'StepExecuteCompleted', {
+        stepExecutionId: 'Winner-1',
+        fromStepExecutionId: 'Root-1',
+        stepType: 'Winner',
+      }, {
+        output: { stepDecision: { cancelStepTypes: ['Worker'] } },
+      }),
+    ], [{
+      stepExecutionId: 'Worker-1',
+      fromStepExecutionId: 'Root-1',
+      stepType: 'Worker',
+      phase: 'Active',
+      stepExecutionLocals: [],
+      timers: [],
+    }]);
+
+    const worker = graph.nodes.find((node) => node.id === 'Worker-1');
+    expect(worker).toMatchObject({
+      status: 'Canceled',
+      active: undefined,
+    });
+    expect(worker?.isPlanned).toBeUndefined();
+  });
+
   it('creates linked SubFlow leaf nodes with deterministic identity', () => {
     const graph = buildStepGraph([
       event(1, 'StepWaitForCompleted', {

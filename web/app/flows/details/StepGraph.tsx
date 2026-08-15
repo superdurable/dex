@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Background,
@@ -28,7 +28,7 @@ interface StepNodeData extends Record<string, unknown> {
   model: StepGraphNode;
 }
 
-type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Not started';
+type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Not started';
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
   const output = node.waitFor?.payload.output;
@@ -55,7 +55,7 @@ function channelNames(condition: Record<string, unknown>): string[] {
 }
 
 function skipsWaitFor(node: StepGraphNode): boolean {
-  const options = node.active?.movement?.stepOptions;
+  const options = node.active?.movement?.stepOptions ?? node.movement?.stepOptions;
   return Boolean(options && typeof options === 'object' && (options as Record<string, unknown>).skipWaitFor === true);
 }
 
@@ -91,6 +91,7 @@ function waitForStatus(node: StepGraphNode): MethodStatus {
   if (node.active?.phase === 'Waiting') return 'Waiting';
   if (node.waitFor) return 'Started';
   if (node.active) return 'Running';
+  if (node.status === 'Canceled') return 'Canceled';
   return 'Not started';
 }
 
@@ -99,6 +100,7 @@ function executeStatus(node: StepGraphNode): MethodStatus {
   if (node.pendingExecute) return 'Pending';
   if (node.execute) return 'Completed';
   if (node.active?.phase === 'Active' && node.waitFor) return 'Running';
+  if (node.status === 'Canceled') return 'Canceled';
   return 'Not started';
 }
 
@@ -147,14 +149,21 @@ function StepNodeLabel({
   const channelSummary = channels.length > 0 ? channels.join(', ') : `${channelCount} channel${channelCount === 1 ? '' : 's'}`;
   const showWaitFor = Boolean(
     node.waitFor || node.pendingWaitFor
-      || (!skipsWaitFor(node) && node.active && !node.execute),
+      || (!skipsWaitFor(node) && (node.active || node.isPlanned) && !node.execute),
   );
   return (
     <div className="graph-step-label">
       <div className="graph-step-heading">
         <span>{node.status}</span>
         <b>{node.label}</b>
-        <code>{node.id}</code>
+        <code title={node.isPlanned
+          ? node.status === 'Canceled'
+            ? 'Canceled before a Step event was recorded'
+            : 'No Step event has been recorded'
+          : undefined}
+        >
+          {node.isPlanned ? 'Execution ID unavailable' : node.id}
+        </code>
       </div>
       <div className="graph-methods">
         {showWaitFor && (
@@ -226,6 +235,7 @@ export function StepGraph({
   selectedEvent: FlowHistoryEvent | null;
   onSelectEvent: (event: FlowHistoryEvent | null) => void;
 }) {
+  const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
   const graph = useMemo(
     () => buildStepGraph(events, state?.activeStepExecutions ?? [], flowId),
     [events, flowId, state],
@@ -281,7 +291,7 @@ export function StepGraph({
           <h2>Step graph</h2>
         </div>
         <div className="graph-legend">
-          {['Active', 'Waiting', 'Pending', 'Completed', 'Failed'].map((status) => (
+          {['Active', 'Waiting', 'Pending', 'Completed', 'Failed', 'Canceled'].map((status) => (
             <span key={status}><i className={`legend-${status.toLowerCase()}`} />{status}</span>
           ))}
           <span><i className="legend-subflow" />SubFlow</span>
@@ -303,7 +313,28 @@ export function StepGraph({
         >
           <Background gap={22} size={1} color="#dfe7e5" />
           <Controls position="top-right" />
-          <MiniMap pannable zoomable nodeStrokeWidth={2} />
+          <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
+            {isMiniMapExpanded && (
+              <MiniMap
+                ariaLabel="Step graph Mini Map"
+                className="graph-minimap"
+                pannable
+                position="top-left"
+                zoomable
+                nodeStrokeWidth={2}
+              />
+            )}
+            <button
+              aria-expanded={isMiniMapExpanded}
+              aria-label={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
+              className="graph-minimap-toggle"
+              onClick={() => setIsMiniMapExpanded((expanded) => !expanded)}
+              title={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
+              type="button"
+            >
+              {isMiniMapExpanded ? <span aria-hidden="true">×</span> : 'Mini Map'}
+            </button>
+          </div>
         </ReactFlow>
       </div>
       {selectedEvent && (

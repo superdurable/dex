@@ -103,10 +103,12 @@ export interface StepGraphNode {
   id: string;
   label: string;
   kind: 'source' | 'step' | 'subflow' | 'terminal';
-  status: 'Source' | 'Active' | 'Waiting' | 'Pending' | 'Completed' | 'Failed' | 'Terminal';
+  status: 'Source' | 'Active' | 'Waiting' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Terminal';
   previousRunId?: string;
   stepType?: string;
   fromStepExecutionId?: string;
+  movement?: Record<string, unknown>;
+  isPlanned?: boolean;
   waitFor?: FlowHistoryEvent;
   execute?: FlowHistoryEvent;
   pendingWaitFor?: FlowHistoryEvent;
