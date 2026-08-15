@@ -409,7 +409,12 @@ impl Step for CancellationSelectorWaiting {
         if self.0.selector_wait_count.fetch_add(1, Ordering::SeqCst) == 1 {
             self.0.selector_waits_registered.set();
         }
-        let duration = if input == "first" { 30 } else { 2 };
+        let duration =
+            if input == "first" || self.0.scenario == CancellationScenario::GlobalSelector {
+                30
+            } else {
+                2
+            };
         Ok(Wait::until(Timer::by_duration(Duration::from_secs(
             duration,
         ))))

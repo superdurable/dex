@@ -249,7 +249,12 @@ class CancellationSelectorWaiting(Step[str]):
         self.flow.selector_wait_count += 1
         if self.flow.selector_wait_count == 2:
             self.flow.selector_waits_registered.set()
-        duration = 30 if input == "first" else 2
+        duration = (
+            30
+            if input == "first"
+            or self.flow.scenario is CancellationScenario.GLOBAL_SELECTOR
+            else 2
+        )
         return Wait.until(Timer.by_duration(timedelta(seconds=duration)))
 
     def execute(self, context: Context, input: str) -> StepDecision:
