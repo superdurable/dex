@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { describe, expect, it } from 'vitest';
-import { buildStepGraph, END_NODE_ID } from './graph';
+import { buildStepGraph, END_NODE_ID, stepGraphSelection } from './graph';
 import type { FlowHistoryEvent } from './types';
 
 function event(
@@ -20,6 +20,54 @@ function event(
 }
 
 describe('step graph', () => {
+  it('selects adjacent Step executions and their connecting edges', () => {
+    const selectedEvent = event(2, 'StepExecuteCompleted', {
+      stepExecutionId: 'Root-1',
+      fromStepExecutionId: 'Previous-1',
+      stepType: 'Root',
+    }, {
+      output: { stepDecision: { nextSteps: [{
+        stepType: 'Left',
+        fromStepExecutionIdInternalOnly: 'Root-1',
+      }, {
+        stepType: 'Right',
+        fromStepExecutionIdInternalOnly: 'Root-1',
+      }] } },
+    });
+    const graph = buildStepGraph([
+      event(1, 'StepExecuteCompleted', {
+        stepExecutionId: 'Previous-1',
+        fromStepExecutionId: '__start__',
+        stepType: 'Previous',
+      }),
+      selectedEvent,
+      event(3, 'StepExecuteCompleted', {
+        stepExecutionId: 'Left-1',
+        fromStepExecutionId: 'Root-1',
+        stepType: 'Left',
+      }),
+      event(4, 'StepExecuteCompleted', {
+        stepExecutionId: 'Right-1',
+        fromStepExecutionId: 'Root-1',
+        stepType: 'Right',
+      }),
+    ]);
+
+    const selection = stepGraphSelection(graph.nodes, graph.edges, selectedEvent);
+
+    expect(selection.selectedStepExecutionID).toBe('Root-1');
+    expect([...selection.previousStepExecutionIDs]).toEqual(['Previous-1']);
+    expect([...selection.nextStepExecutionIDs]).toEqual([
+      'Left-1',
+      'Right-1',
+    ]);
+    expect([...selection.incomingEdgeIDs]).toEqual(['Previous-1->Root-1']);
+    expect([...selection.outgoingEdgeIDs]).toEqual([
+      'Root-1->Left-1',
+      'Root-1->Right-1',
+    ]);
+  });
+
   it('uses the same lineage model for semantic SYNC and ASYNC events', () => {
     const events = [
       event(1, 'StepExecuteCompleted', {

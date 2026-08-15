@@ -20,7 +20,7 @@ import {
   type Node,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import { buildStepGraph } from '@/lib/graph';
+import { buildStepGraph, stepGraphSelection } from '@/lib/graph';
 import type { FlowHistoryEvent, FlowState, StepGraphNode } from '@/lib/types';
 import { graphBounds, layoutGraph } from './graphLayout';
 
@@ -30,6 +30,10 @@ interface StepNodeData extends Record<string, unknown> {
 }
 
 type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Not started';
+
+const graphEdgeColor = '#78909c';
+const previousStepColor = '#3f78a8';
+const nextStepColor = '#c16f24';
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
   const output = node.waitFor?.payload.output;
@@ -243,17 +247,35 @@ export function StepGraph({
     () => buildStepGraph(events, state?.activeStepExecutions ?? [], flowId),
     [events, flowId, state],
   );
-  const edges = useMemo<Edge[]>(() => graph.edges.map((edge) => ({
-    ...edge,
-    type: 'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: '#78909c' },
-    style: { stroke: '#78909c', strokeWidth: 1.5 },
-  })), [graph.edges]);
+  const selection = useMemo(
+    () => stepGraphSelection(graph.nodes, graph.edges, selectedEvent),
+    [graph.edges, graph.nodes, selectedEvent],
+  );
+  const edges = useMemo<Edge[]>(() => graph.edges.map((edge) => {
+    const isIncoming = selection.incomingEdgeIDs.has(edge.id);
+    const isOutgoing = selection.outgoingEdgeIDs.has(edge.id);
+    const color = isIncoming ? previousStepColor : isOutgoing ? nextStepColor : graphEdgeColor;
+    return {
+      ...edge,
+      className: isIncoming ? 'graph-edge-incoming' : isOutgoing ? 'graph-edge-outgoing' : undefined,
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color },
+      style: { stroke: color, strokeWidth: isIncoming || isOutgoing ? 3 : 1.5 },
+      zIndex: isIncoming || isOutgoing ? 2 : 0,
+    };
+  }), [graph.edges, selection]);
   const nodes = useMemo(() => {
     const raw: Array<Node<StepNodeData>> = graph.nodes.map((node) => ({
       id: node.id,
       position: { x: 0, y: 0 },
-      className: `step-flow-node node-${node.kind} node-${node.status.toLowerCase()}`,
+      className: [
+        'step-flow-node',
+        `node-${node.kind}`,
+        `node-${node.status.toLowerCase()}`,
+        node.id === selection.selectedStepExecutionID ? 'graph-node-current' : '',
+        selection.previousStepExecutionIDs.has(node.id) ? 'graph-node-previous' : '',
+        selection.nextStepExecutionIDs.has(node.id) ? 'graph-node-next' : '',
+      ].filter(Boolean).join(' '),
       style: {
         width: node.kind === 'step' ? 300 : 220,
         height: node.kind === 'step' && node.execute && !node.waitFor && !node.pendingWaitFor
@@ -287,7 +309,7 @@ export function StepGraph({
       },
     }));
     return layoutGraph(raw, edges);
-  }, [edges, graph.nodes, onSelectEvent]);
+  }, [edges, graph.nodes, onSelectEvent, selection]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
 
   useEffect(() => {
@@ -325,6 +347,7 @@ export function StepGraph({
           edges={edges}
           minZoom={0.15}
           maxZoom={2}
+          elementsSelectable={false}
           nodesDraggable={false}
           preventScrolling={false}
           zoomOnScroll={false}
@@ -351,12 +374,12 @@ export function StepGraph({
             <button
               aria-expanded={isMiniMapExpanded}
               aria-label={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
-              className="graph-minimap-toggle"
+              className="graph-minimap-toggle nodrag nopan"
               onClick={() => setIsMiniMapExpanded((expanded) => !expanded)}
               title={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
               type="button"
             >
-              {isMiniMapExpanded ? <span aria-hidden="true">×</span> : 'Mini Map'}
+              {isMiniMapExpanded ? 'Close ×' : 'Mini Map'}
             </button>
           </div>
         </ReactFlow>

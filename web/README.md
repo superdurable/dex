@@ -76,6 +76,7 @@ Flow continued, RPC, Step decision, or recovery event that scheduled it.
 Selecting the first event reveals that source link; selecting a
 WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
+Selecting a Step execution emphasizes it in green, its previous Step in blue, its next Steps in orange, and their connecting arrows.
 Large Step graphs extend down the page at readable size. Parallel ranks wrap to
 two nodes per row so fan-out and fan-in topologies do not require wide horizontal panning.
 Persisted Step decisions add planned graph branches. A selector-matched branch without a Step event appears Canceled with no execution ID.

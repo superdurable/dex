@@ -162,6 +162,56 @@ export function buildStepGraph(
   return { nodes: [...nodes.values()], edges };
 }
 
+export function stepGraphSelection(
+  nodes: StepGraphNode[],
+  edges: StepGraphEdge[],
+  selectedEvent: FlowHistoryEvent | null,
+): {
+  selectedStepExecutionID: string;
+  previousStepExecutionIDs: Set<string>;
+  nextStepExecutionIDs: Set<string>;
+  incomingEdgeIDs: Set<string>;
+  outgoingEdgeIDs: Set<string>;
+} {
+  const selectedStepExecutionID = selectedEvent
+    ? stringField(stepContext(selectedEvent).stepExecutionId)
+    : '';
+  const stepExecutionIDs = new Set(
+    nodes.filter((node) => node.kind === 'step' && !node.isPlanned).map((node) => node.id),
+  );
+  const previousStepExecutionIDs = new Set<string>();
+  const nextStepExecutionIDs = new Set<string>();
+  const incomingEdgeIDs = new Set<string>();
+  const outgoingEdgeIDs = new Set<string>();
+  if (!stepExecutionIDs.has(selectedStepExecutionID)) {
+    return {
+      selectedStepExecutionID: '',
+      previousStepExecutionIDs,
+      nextStepExecutionIDs,
+      incomingEdgeIDs,
+      outgoingEdgeIDs,
+    };
+  }
+
+  for (const edge of edges) {
+    if (edge.target === selectedStepExecutionID && stepExecutionIDs.has(edge.source)) {
+      previousStepExecutionIDs.add(edge.source);
+      incomingEdgeIDs.add(edge.id);
+    }
+    if (edge.source === selectedStepExecutionID && stepExecutionIDs.has(edge.target)) {
+      nextStepExecutionIDs.add(edge.target);
+      outgoingEdgeIDs.add(edge.id);
+    }
+  }
+  return {
+    selectedStepExecutionID,
+    previousStepExecutionIDs,
+    nextStepExecutionIDs,
+    incomingEdgeIDs,
+    outgoingEdgeIDs,
+  };
+}
+
 function addStepEvent(
   nodes: Map<string, StepGraphNode>,
   plannedNodesByLineage: Map<string, string[]>,
