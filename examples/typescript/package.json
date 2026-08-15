@@ -11,9 +11,9 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "npm run build && node dist/src/main.js",
-    "test": "npm run build && node --test --test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/workflow/**/*.test.js'",
-    "test:integ": "npm run build && node --test --test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/integ/*.test.js'",
-    "smoke": "npm run build && node --test --test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/e2e/all-routes.test.js'"
+    "test": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/workflow/**/*.test.js'",
+    "test:integ": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/integ/*.test.js'",
+    "smoke": "npm run build && node --test --experimental-test-isolation=none --test-force-exit --test-concurrency=1 'dist/test/e2e/all-routes.test.js'"
   },
   "dependencies": {
     "@superdurable/dex": "0.1.5",
