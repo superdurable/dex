@@ -28,23 +28,15 @@ func NewFlowTimeout(input *dexpb.InterpreterWorkflowInput) *FlowTimeout {
 	if input == nil {
 		panic("flow timeout requires workflow input")
 	}
-	timeout := &FlowTimeout{
-		policy:         input.GetFlowTimeoutPolicy(),
-		timeoutSeconds: input.GetConfiguredFlowTimeoutSeconds(),
+	timeoutSeconds := input.GetConfiguredFlowTimeoutSeconds()
+	policy := input.GetFlowTimeoutPolicy()
+	resolvedPolicy, err := service.ResolveFlowTimeoutPolicy(timeoutSeconds, policy)
+	if err != nil || resolvedPolicy != policy {
+		panic("workflow input has an invalid Flow timeout")
 	}
-	if timeout.timeoutSeconds == 0 {
-		if timeout.policy != dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED {
-			panic("disabled Flow timeout has a policy")
-		}
-		return timeout
-	}
-	switch timeout.policy {
-	case dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL,
-		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL,
-		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER:
-		return timeout
-	default:
-		panic("enabled Flow timeout has an invalid policy")
+	return &FlowTimeout{
+		policy:         policy,
+		timeoutSeconds: timeoutSeconds,
 	}
 }
 
