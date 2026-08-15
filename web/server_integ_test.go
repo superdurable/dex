@@ -92,6 +92,22 @@ func TestWebServerMapsGRPCErrors(t *testing.T) {
 	if result.Error != "invalid flow" || result.GRPCCode != int32(codes.InvalidArgument) {
 		t.Fatalf("unexpected error response: %+v", result)
 	}
+
+	missing := get(
+		t,
+		harness.http.URL+"/api/flows/summary?flowId=missing-flow&runId=missing-run",
+	)
+	defer missing.Body.Close()
+	if missing.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing summary status = %d", missing.StatusCode)
+	}
+	decodeResponse(t, missing, &result)
+	if result.Error != `Flow run is not found for flow ID "missing-flow" and run ID "missing-run"` {
+		t.Fatalf("missing summary error = %q", result.Error)
+	}
+	if result.GRPCCode != int32(codes.NotFound) {
+		t.Fatalf("missing summary gRPC code = %d", result.GRPCCode)
+	}
 }
 
 func TestWebServerScopesSearchesToEngineWorkflows(t *testing.T) {
@@ -288,9 +304,17 @@ func (s *flowService) SearchFlows(
 }
 
 func (s *flowService) GetFlowSummary(
-	context.Context,
-	*dexpb.GetFlowSummaryRequest,
+	_ context.Context,
+	request *dexpb.GetFlowSummaryRequest,
 ) (*dexpb.GetFlowSummaryResponse, error) {
+	if request.GetFlowId() == "missing-flow" {
+		return nil, status.Errorf(
+			codes.NotFound,
+			`workflow execution not found for workflow ID %q and run ID %q`,
+			request.GetFlowId(),
+			request.GetRunId(),
+		)
+	}
 	return nil, status.Error(codes.InvalidArgument, "invalid flow")
 }
 

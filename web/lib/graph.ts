@@ -16,7 +16,6 @@ import { subFlowReusePolicyLabel, subFlowStatusName } from './semantic';
 import { generatedSubFlowID } from './subflows';
 
 export const START_NODE_ID = '__start__';
-export const END_NODE_ID = '__end__';
 
 const stepEventTypes = new Set([
   'StepWaitForCompleted',
@@ -56,7 +55,6 @@ export function buildStepGraph(
 ): { nodes: StepGraphNode[]; edges: StepGraphEdge[] } {
   const nodes = new Map<string, StepGraphNode>();
   const plannedNodesByLineage = new Map<string, string[]>();
-  const closingStepExecutionIDs = new Set<string>();
   nodes.set(START_NODE_ID, {
     id: START_NODE_ID,
     label: 'Flow start',
@@ -68,10 +66,6 @@ export function buildStepGraph(
   for (const event of events) {
     if (stepEventTypes.has(event.type)) {
       addStepEvent(nodes, plannedNodesByLineage, event);
-      const stepExecutionID = stringField(stepContext(event).stepExecutionId);
-      if (stepExecutionID && event.type === 'StepExecuteCompleted' && hasCloseDecision(event)) {
-        closingStepExecutionIDs.add(stepExecutionID);
-      }
     }
     const decision = stepDecision(event);
     if (!decision) continue;
@@ -110,16 +104,6 @@ export function buildStepGraph(
     addSubFlowNodes(nodes, stepNode, parentFlowID);
   }
 
-  const closed = events.findLast((event) => event.type === 'FlowClosed');
-  if (closed) {
-    nodes.set(END_NODE_ID, {
-      id: END_NODE_ID,
-      label: 'Flow closed',
-      kind: 'terminal',
-      status: 'Terminal',
-    });
-  }
-
   for (const node of [...nodes.values()]) {
     const source = node.fromStepExecutionId;
     if (!source?.startsWith('__rpc/')) continue;
@@ -149,17 +133,57 @@ export function buildStepGraph(
     edges.push({ id: `${source}->${node.id}`, source, target: node.id });
   }
 
-  if (closed) {
-    for (const stepExecutionID of closingStepExecutionIDs) {
-      edges.push({
-        id: `${stepExecutionID}->${END_NODE_ID}`,
-        source: stepExecutionID,
-        target: END_NODE_ID,
-      });
-    }
+  return { nodes: [...nodes.values()], edges };
+}
+
+export function stepGraphSelection(
+  nodes: StepGraphNode[],
+  edges: StepGraphEdge[],
+  selectedEvent: FlowHistoryEvent | null,
+): {
+  selectedStepExecutionID: string;
+  previousStepExecutionIDs: Set<string>;
+  nextStepExecutionIDs: Set<string>;
+  incomingEdgeIDs: Set<string>;
+  outgoingEdgeIDs: Set<string>;
+} {
+  const selectedStepExecutionID = selectedEvent
+    ? stringField(stepContext(selectedEvent).stepExecutionId)
+    : '';
+  const stepExecutionIDs = new Set(
+    nodes.filter((node) => node.kind === 'step' && !node.isPlanned).map((node) => node.id),
+  );
+  const previousStepExecutionIDs = new Set<string>();
+  const nextStepExecutionIDs = new Set<string>();
+  const incomingEdgeIDs = new Set<string>();
+  const outgoingEdgeIDs = new Set<string>();
+  if (!stepExecutionIDs.has(selectedStepExecutionID)) {
+    return {
+      selectedStepExecutionID: '',
+      previousStepExecutionIDs,
+      nextStepExecutionIDs,
+      incomingEdgeIDs,
+      outgoingEdgeIDs,
+    };
   }
 
-  return { nodes: [...nodes.values()], edges };
+  for (const edge of edges) {
+    if (edge.target === selectedStepExecutionID && stepExecutionIDs.has(edge.source)) {
+      previousStepExecutionIDs.add(edge.source);
+      incomingEdgeIDs.add(edge.id);
+    }
+    if (edge.source === selectedStepExecutionID && stepExecutionIDs.has(edge.target)) {
+      nextStepExecutionIDs.add(edge.target);
+      outgoingEdgeIDs.add(edge.id);
+    }
+  }
+  return {
+    selectedStepExecutionID,
+    previousStepExecutionIDs,
+    nextStepExecutionIDs,
+    incomingEdgeIDs,
+    outgoingEdgeIDs,
+  };
 }
 
 function addStepEvent(
@@ -339,13 +363,4 @@ function addSubFlowNodes(
       reusePolicy: subFlowReusePolicyLabel(options.reusePolicy),
     });
   });
-}
-
-function hasCloseDecision(event: FlowHistoryEvent): boolean {
-  const output = event.payload.output;
-  if (!output || typeof output !== 'object') return false;
-  const stepDecision = (output as Record<string, unknown>).stepDecision;
-  if (!stepDecision || typeof stepDecision !== 'object') return false;
-  const closeDecision = (stepDecision as Record<string, unknown>).closeDecision;
-  return Boolean(closeDecision && typeof closeDecision === 'object');
 }

@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Background,
@@ -18,10 +18,16 @@ import {
   ReactFlow,
   type Edge,
   type Node,
+  type ReactFlowInstance,
 } from '@xyflow/react';
-import { buildStepGraph } from '@/lib/graph';
+import { buildStepGraph, stepGraphSelection } from '@/lib/graph';
 import type { FlowHistoryEvent, FlowState, StepGraphNode } from '@/lib/types';
-import { layoutGraph } from './graphLayout';
+import {
+  defaultGraphZoom,
+  graphBounds,
+  layoutGraph,
+  minimumGraphZoom,
+} from './graphLayout';
 
 interface StepNodeData extends Record<string, unknown> {
   label: React.ReactNode;
@@ -29,6 +35,10 @@ interface StepNodeData extends Record<string, unknown> {
 }
 
 type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Not started';
+
+const graphEdgeColor = '#78909c';
+const previousStepColor = '#3f78a8';
+const nextStepColor = '#c16f24';
 
 function waitingCondition(node: StepGraphNode): Record<string, unknown> {
   const output = node.waitFor?.payload.output;
@@ -152,7 +162,7 @@ function StepNodeLabel({
       || (!skipsWaitFor(node) && (node.active || node.isPlanned) && !node.execute),
   );
   return (
-    <div className="graph-step-label">
+    <div className={`graph-step-label${showWaitFor ? '' : ' graph-step-label--execute-only'}`}>
       <div className="graph-step-heading">
         <span>{node.status}</span>
         <b>{node.label}</b>
@@ -235,23 +245,48 @@ export function StepGraph({
   selectedEvent: FlowHistoryEvent | null;
   onSelectEvent: (event: FlowHistoryEvent | null) => void;
 }) {
+  const graphCanvas = useRef<HTMLDivElement>(null);
+  const [canvasWidth, setCanvasWidth] = useState(0);
   const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
+  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<StepNodeData>, Edge> | null>(null);
   const graph = useMemo(
     () => buildStepGraph(events, state?.activeStepExecutions ?? [], flowId),
     [events, flowId, state],
   );
-  const edges = useMemo<Edge[]>(() => graph.edges.map((edge) => ({
-    ...edge,
-    type: 'smoothstep',
-    markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color: '#78909c' },
-    style: { stroke: '#78909c', strokeWidth: 1.5 },
-  })), [graph.edges]);
+  const selection = useMemo(
+    () => stepGraphSelection(graph.nodes, graph.edges, selectedEvent),
+    [graph.edges, graph.nodes, selectedEvent],
+  );
+  const edges = useMemo<Edge[]>(() => graph.edges.map((edge) => {
+    const isIncoming = selection.incomingEdgeIDs.has(edge.id);
+    const isOutgoing = selection.outgoingEdgeIDs.has(edge.id);
+    const color = isIncoming ? previousStepColor : isOutgoing ? nextStepColor : graphEdgeColor;
+    return {
+      ...edge,
+      className: isIncoming ? 'graph-edge-incoming' : isOutgoing ? 'graph-edge-outgoing' : undefined,
+      type: 'smoothstep',
+      markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color },
+      style: { stroke: color, strokeWidth: isIncoming || isOutgoing ? 3 : 1.5 },
+      zIndex: isIncoming || isOutgoing ? 2 : 0,
+    };
+  }), [graph.edges, selection]);
   const nodes = useMemo(() => {
     const raw: Array<Node<StepNodeData>> = graph.nodes.map((node) => ({
       id: node.id,
       position: { x: 0, y: 0 },
-      className: `step-flow-node node-${node.kind} node-${node.status.toLowerCase()}`,
-      style: { width: node.kind === 'step' ? 340 : 220 },
+      className: [
+        'step-flow-node',
+        `node-${node.kind}`,
+        `node-${node.status.toLowerCase()}`,
+        node.id === selection.selectedStepExecutionID ? 'graph-node-current' : '',
+        selection.previousStepExecutionIDs.has(node.id) ? 'graph-node-previous' : '',
+        selection.nextStepExecutionIDs.has(node.id) ? 'graph-node-next' : '',
+      ].filter(Boolean).join(' '),
+      style: {
+        width: node.kind === 'step' ? 300 : 220,
+        height: node.kind === 'step' && node.execute && !node.waitFor && !node.pendingWaitFor
+          ? 116 : node.kind === 'step' ? 158 : 90,
+      },
       data: {
         model: node,
         label: node.kind === 'step' ? (
@@ -260,7 +295,7 @@ export function StepGraph({
           <SubFlowNodeLabel flow={node} />
         ) : (
           <div className="graph-node-label">
-            <span>{node.kind === 'source' ? 'Source' : node.kind === 'terminal' ? 'Terminal' : node.status}</span>
+            <span>{node.kind === 'source' ? 'Source' : node.status}</span>
             {node.previousRunId ? (
               <>
                 <b>
@@ -280,7 +315,28 @@ export function StepGraph({
       },
     }));
     return layoutGraph(raw, edges);
-  }, [edges, graph.nodes, onSelectEvent]);
+  }, [edges, graph.nodes, onSelectEvent, selection]);
+  const bounds = useMemo(() => graphBounds(nodes), [nodes]);
+  const initialZoom = defaultGraphZoom(bounds.width, canvasWidth);
+
+  useEffect(() => {
+    const canvas = graphCanvas.current;
+    if (!canvas) return undefined;
+    const updateWidth = () => setCanvasWidth(canvas.clientWidth);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!flowInstance || canvasWidth <= 0) return;
+    void flowInstance.setViewport({
+      x: Math.max(0, (canvasWidth - bounds.width * initialZoom) / 2),
+      y: 0,
+      zoom: initialZoom,
+    });
+  }, [bounds.width, canvasWidth, flowInstance, initialZoom]);
 
   if (!nodes.length) return <div className="card empty-state"><h3>No step topology loaded</h3></div>;
   return (
@@ -297,19 +353,26 @@ export function StepGraph({
           <span><i className="legend-subflow" />SubFlow</span>
         </div>
       </div>
-      <div className="graph-canvas">
+      <div
+        className="graph-canvas"
+        ref={graphCanvas}
+        style={{ height: Math.max(650, bounds.height * initialZoom) }}
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          fitView
-          minZoom={0.15}
+          minZoom={minimumGraphZoom}
           maxZoom={2}
+          elementsSelectable={false}
+          nodesDraggable={false}
+          preventScrolling={false}
+          zoomOnScroll={false}
+          onInit={setFlowInstance}
           onNodeClick={(_, node) => {
             const model = (node.data as StepNodeData).model;
             if (model.kind === 'subflow') return;
             onSelectEvent(model.execute ?? model.pendingExecute ?? model.waitFor ?? model.pendingWaitFor ?? null);
           }}
-          nodesDraggable
         >
           <Background gap={22} size={1} color="#dfe7e5" />
           <Controls position="top-right" />
@@ -327,12 +390,12 @@ export function StepGraph({
             <button
               aria-expanded={isMiniMapExpanded}
               aria-label={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
-              className="graph-minimap-toggle"
+              className="graph-minimap-toggle nodrag nopan"
               onClick={() => setIsMiniMapExpanded((expanded) => !expanded)}
               title={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
               type="button"
             >
-              {isMiniMapExpanded ? <span aria-hidden="true">×</span> : 'Mini Map'}
+              {isMiniMapExpanded ? 'Close ×' : 'Mini Map'}
             </button>
           </div>
         </ReactFlow>
