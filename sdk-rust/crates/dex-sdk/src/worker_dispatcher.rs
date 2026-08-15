@@ -36,6 +36,8 @@ use crate::{
     WaitForFailurePolicy,
 };
 
+const TIMEOUT_HANDLER_STEP_TYPE: &str = "sys:timeout_handler";
+
 #[derive(Clone)]
 pub(crate) struct WorkerDispatcher {
     registry: Registry,
@@ -100,6 +102,9 @@ impl WorkerDispatcher {
     ) -> HandlerResult<InvokeExecuteMethodResponse> {
         let request = self.hydrate_execute(request).await?;
         let flow = self.registered_flow(&request.flow_type)?;
+        if request.step_type == TIMEOUT_HANDLER_STEP_TYPE {
+            return self.invoke_timeout_handler(request, flow).await;
+        }
         let step = flow
             .steps
             .get(request.step_type.as_str())
@@ -126,6 +131,52 @@ impl WorkerDispatcher {
             let decision = flow.handler.execute(step.name, &mut context, &input)?;
             let decision = map_decision(&flow, decision).map_err(|error| {
                 HandlerError::invalid_step_result(flow.name, Some(step.name), "execute", error)
+            })?;
+            let (attributes, locals, events, publications) = context.take_outputs();
+            Ok(InvokeExecuteMethodResponse {
+                local_activity_metadata: None,
+                step_decision: Some(decision),
+                upsert_attributes: attributes,
+                record_events: events,
+                upsert_step_exe_locals: locals,
+                publish_to_channel: publications,
+            })
+        })
+        .await
+    }
+
+    async fn invoke_timeout_handler(
+        &self,
+        request: InvokeExecuteMethodRequest,
+        flow: RegisteredFlow,
+    ) -> HandlerResult<InvokeExecuteMethodResponse> {
+        if request.step_input.is_some() {
+            return Err(HandlerError::new("timeout handler input must be absent"));
+        }
+        if !flow.handler.has_timeout_handler() {
+            return Err(HandlerError::new("Flow has no timeout handler"));
+        }
+        let mut context = Context::new(
+            InvocationMethod::Execute,
+            flow.clone(),
+            request
+                .context
+                .ok_or_else(|| HandlerError::new("Worker request Context is required"))?,
+            request.attributes,
+            request.step_exe_locals,
+            request.condition_results,
+            HashMap::new(),
+        )?;
+        let cancellation = context.cancellation();
+        run_handler(cancellation, move || {
+            let decision = flow.handler.handle_timeout(&mut context)?;
+            let decision = map_decision(&flow, decision).map_err(|error| {
+                HandlerError::invalid_step_result(
+                    flow.name,
+                    Some(TIMEOUT_HANDLER_STEP_TYPE),
+                    "execute",
+                    error,
+                )
             })?;
             let (attributes, locals, events, publications) = context.take_outputs();
             Ok(InvokeExecuteMethodResponse {
@@ -217,7 +268,9 @@ impl WorkerDispatcher {
         &self,
         mut request: InvokeExecuteMethodRequest,
     ) -> HandlerResult<InvokeExecuteMethodRequest> {
-        let mut values = vec![request.step_input.take().unwrap_or_default()];
+        let step_input = request.step_input.take();
+        let has_step_input = step_input.is_some();
+        let mut values = step_input.into_iter().collect::<Vec<_>>();
         let attribute_count = request.attributes.len();
         let local_count = request.step_exe_locals.len();
         values.extend(take_entry_values(&mut request.attributes)?);
@@ -262,7 +315,9 @@ impl WorkerDispatcher {
             .await
             .map_err(handler_error)?
             .into_iter();
-        request.step_input = hydrated.next();
+        if has_step_input {
+            request.step_input = hydrated.next();
+        }
         restore_n_entry_values(&mut request.attributes, &mut hydrated, attribute_count)?;
         restore_n_entry_values(&mut request.step_exe_locals, &mut hydrated, local_count)?;
         if let Some(conditions) = request.condition_results.as_mut() {
@@ -704,6 +759,13 @@ fn map_sub_flow_options(
     target: &RegisteredFlow,
     options: &crate::SubFlowOptions,
 ) -> HandlerResult<ProtoSubFlowOptions> {
+    let flow_timeout_seconds = optional_seconds(options.timeout)?;
+    let flow_timeout_policy = crate::client::map_flow_timeout_policy(
+        target,
+        flow_timeout_seconds,
+        options.timeout_policy,
+    )
+    .map_err(handler_error)?;
     let attributes = options
         .attributes
         .iter()
@@ -731,7 +793,8 @@ fn map_sub_flow_options(
             }
             SubFlowReusePolicy::AlwaysRestart => ProtoSubFlowReusePolicy::AlwaysRestart,
         } as i32,
-        flow_timeout_seconds: optional_seconds(options.timeout)?,
+        flow_timeout_seconds,
+        flow_timeout_policy,
         flow_start_delay_seconds: optional_seconds(options.start_delay)?,
         retry_policy: options
             .retry_policy

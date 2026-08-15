@@ -106,7 +106,7 @@ public enum ActiveStepPhase
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(10);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(11);
   }
 
   private static final ActiveStepPhase[] VALUES = values();

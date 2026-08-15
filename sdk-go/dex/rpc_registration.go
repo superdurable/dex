@@ -51,6 +51,11 @@ func discoverRPCs(flow Flow) (map[string]*registeredRPC, error) {
 		if _, skip := flowInterfaceMethodNames[method.Name]; skip {
 			continue
 		}
+		if method.Name == "HandleTimeout" {
+			if _, isTimeoutHandler := flow.(FlowTimeoutHandler); isTimeoutHandler {
+				continue
+			}
+		}
 		rpc, matches := newRegisteredRPC(receiver, method)
 		if !matches {
 			invalid = append(invalid, method.Name)

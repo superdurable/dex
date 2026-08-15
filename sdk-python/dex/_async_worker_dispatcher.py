@@ -14,7 +14,7 @@ from typing import Any, Callable
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._value_mapper import ValueMapper
-from dex._worker_dispatcher import WorkerDispatcher
+from dex._worker_dispatcher import _TIMEOUT_HANDLER_STEP_TYPE, WorkerDispatcher
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, RPCResult
 from dex.runtime_errors import InvalidStepResultError, ValueMappingError
@@ -78,6 +78,8 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
     ) -> pb.InvokeExecuteMethodResponse:
         request = await self._async_hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
+        if request.step_type == _TIMEOUT_HANDLER_STEP_TYPE:
+            return await self._invoke_timeout_handler_async(request, flow)
         step = flow.step(request.step_type)
         condition_results = (
             request.condition_results if request.HasField("condition_results") else None
@@ -109,6 +111,52 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         except (TypeError, ValueError) as error:
             raise InvalidStepResultError(
                 flow.name, step.name, "execute", str(error)
+            ) from error
+
+    async def _invoke_timeout_handler_async(
+        self,
+        request: pb.InvokeExecuteMethodRequest,
+        flow: Any,
+    ) -> pb.InvokeExecuteMethodResponse:
+        if request.HasField("step_input"):
+            raise InvalidStepResultError(
+                flow.name, _TIMEOUT_HANDLER_STEP_TYPE, "execute", "input must be absent"
+            )
+        if not flow.has_timeout_handler:
+            raise InvalidStepResultError(
+                flow.name,
+                _TIMEOUT_HANDLER_STEP_TYPE,
+                "execute",
+                "handler is not registered",
+            )
+        condition_results = (
+            request.condition_results if request.HasField("condition_results") else None
+        )
+        context = InvocationContext(
+            InvocationMethod.EXECUTE,
+            flow,
+            request.context,
+            self._values,
+            request.attributes,
+            request.step_exe_locals,
+            condition_results,
+        )
+        decision: Any = flow.flow.handle_timeout(context)
+        if isawaitable(decision):
+            decision = await decision
+        try:
+            if not isinstance(decision, StepDecision):
+                raise TypeError("handle_timeout must return StepDecision")
+            return pb.InvokeExecuteMethodResponse(
+                step_decision=self._map_decision(flow, decision),
+                upsert_attributes=list(context.attribute_writes.values()),
+                record_events=context.events,
+                upsert_step_exe_locals=list(context.local_writes.values()),
+                publish_to_channel=context.publications,
+            )
+        except (TypeError, ValueError) as error:
+            raise InvalidStepResultError(
+                flow.name, _TIMEOUT_HANDLER_STEP_TYPE, "execute", str(error)
             ) from error
 
     async def invoke_rpc(  # type: ignore[override]

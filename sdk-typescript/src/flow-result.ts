@@ -121,7 +121,8 @@ function mapStatus(status: ProtoFlowStatus): FlowStatus {
     [ProtoFlowStatus.FLOW_STATUS_RUNNING]: "running",
     [ProtoFlowStatus.FLOW_STATUS_COMPLETED]: "completed",
     [ProtoFlowStatus.FLOW_STATUS_FAILED]: "failed",
-    [ProtoFlowStatus.FLOW_STATUS_TIMEOUT]: "timedOut",
+    [ProtoFlowStatus.FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY]:
+      "serverSideTimeoutInternalOnly",
     [ProtoFlowStatus.FLOW_STATUS_TERMINATED]: "terminated",
     [ProtoFlowStatus.FLOW_STATUS_CANCELED]: "cancelled",
     [ProtoFlowStatus.FLOW_STATUS_CONTINUED_AS_NEW]: "continuedAsNew",
@@ -143,6 +144,7 @@ function mapErrorType(type: ProtoFlowErrorType): FlowErrorTypeValue | undefined 
     case ProtoFlowErrorType.FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE:
       return FlowErrorType.INVALID_USER_FLOW_CODE;
     case ProtoFlowErrorType.FLOW_ERROR_TYPE_INTERNAL: return FlowErrorType.INTERNAL;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_FLOW_TIMEOUT: return FlowErrorType.FLOW_TIMEOUT;
     default: throw new TypeError(`unsupported Flow error type ${type}`);
   }
 }

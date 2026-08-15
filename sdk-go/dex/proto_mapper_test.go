@@ -196,10 +196,11 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.NoError(t, err)
 	storeName := "reporting"
 
-	flowTimeout, options, err := mapStartFlowOptions(StartFlowOptions{
-		Timeout:    &timeout,
-		StartDelay: &delay,
-		Attributes: []InitialAttributeDef{initial, initialMap},
+	flowTimeout, timeoutPolicy, options, err := mapStartFlowOptions(StartFlowOptions{
+		Timeout:       &timeout,
+		TimeoutPolicy: TimeoutFail,
+		StartDelay:    &delay,
+		Attributes:    []InitialAttributeDef{initial, initialMap},
 		ConfigOverride: &FlowConfig{
 			ActiveStepSearchMode: &searchMode,
 			StepDurability:       &durability,
@@ -212,6 +213,7 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, int32(2), flowTimeout)
+	require.Equal(t, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL, timeoutPolicy)
 	require.Equal(t, int32(2), options.FlowStartDelaySeconds)
 	require.Len(t, options.Attributes, 2)
 	require.True(t, options.Attributes[0].GetSyncConfig().GetEnabled())
@@ -223,14 +225,14 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.NotNil(t, options.FlowConfigOverride.AttributeSyncConfigName)
 
 	disabled := ""
-	_, disabledOptions, err := mapStartFlowOptions(StartFlowOptions{
+	_, _, disabledOptions, err := mapStartFlowOptions(StartFlowOptions{
 		ConfigOverride: &FlowConfig{AttributeStoreName: &disabled},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, disabledOptions.FlowConfigOverride.AttributeSyncConfigName)
 	require.Empty(t, disabledOptions.FlowConfigOverride.GetAttributeSyncConfigName())
 
-	_, empty, err := mapStartFlowOptions(StartFlowOptions{})
+	_, _, empty, err := mapStartFlowOptions(StartFlowOptions{})
 	require.NoError(t, err)
 	require.Nil(t, empty.FlowConfigOverride)
 }

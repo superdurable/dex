@@ -191,6 +191,16 @@ func (c *ContinueAsNewer) GetActiveStepExecutionStates() []*dexpb.ActiveStepExec
 			)
 		}
 	}
+	timeoutStepExecutionID := service.FlowTimeoutStepExecutionID
+	_, isTimeoutActive := c.activeStepMovements[timeoutStepExecutionID]
+	_, isTimeoutQueued := queuedResumeRequests[timeoutStepExecutionID]
+	if isTimeoutActive && !isTimeoutQueued {
+		states = append(states, c.activeStepExecutionState(
+			timeoutStepExecutionID,
+			service.FlowTimeoutStepType,
+			timerInfos[timeoutStepExecutionID],
+		))
+	}
 	return states
 }
 

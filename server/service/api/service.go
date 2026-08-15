@@ -109,8 +109,12 @@ func (s *serviceImpl) StartFlow(
 	if req.GetRequestId() == "" {
 		return nil, makeInvalidRequestError("request ID is required")
 	}
-	if req.GetFlowTimeoutSeconds() < 0 {
-		return nil, makeInvalidRequestError("flow timeout must be non-negative")
+	timeoutPolicy, err := service.ResolveFlowTimeoutPolicy(
+		req.GetFlowTimeoutSeconds(),
+		req.GetFlowTimeoutPolicy(),
+	)
+	if err != nil {
+		return nil, makeInvalidRequestError(err.Error())
 	}
 	if err := workerclient.RejectWorkerBlobIDs(req.GetStepInput()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
@@ -179,10 +183,9 @@ func (s *serviceImpl) StartFlow(
 	workflowConfig.WorkerTarget = workerTarget
 
 	workflowOptions := uclient.StartWorkflowOptions{
-		ID:                       req.GetFlowId(),
-		TaskQueue:                s.taskQueue,
-		WorkflowExecutionTimeout: time.Duration(req.GetFlowTimeoutSeconds()) * time.Second,
-		SearchAttributes:         searchAttributes,
+		ID:               req.GetFlowId(),
+		TaskQueue:        s.taskQueue,
+		SearchAttributes: searchAttributes,
 		Memo: map[string]interface{}{
 			service.WorkerAddressMemoKey: &dexpb.EncodedObject{
 				Payload: []byte(workerTarget.GetAddress()),
@@ -219,12 +222,14 @@ func (s *serviceImpl) StartFlow(
 	}
 
 	input := &dexpb.InterpreterWorkflowInput{
-		FlowType:       req.GetFlowType(),
-		StartStepType:  req.GetStartStepType(),
-		StepInput:      req.GetStepInput(),
-		StepOptions:    req.GetStepOptions(),
-		InitAttributes: attributes,
-		Config:         &workflowConfig,
+		FlowType:                     req.GetFlowType(),
+		ConfiguredFlowTimeoutSeconds: req.GetFlowTimeoutSeconds(),
+		FlowTimeoutPolicy:            timeoutPolicy,
+		StartStepType:                req.GetStartStepType(),
+		StepInput:                    req.GetStepInput(),
+		StepOptions:                  req.GetStepOptions(),
+		InitAttributes:               attributes,
+		Config:                       &workflowConfig,
 	}
 
 	runId, err := s.client.StartInterpreterWorkflow(ctx, workflowOptions, input)
@@ -736,7 +741,7 @@ func (s *serviceImpl) WaitForFlow(
 	switch flowStatus {
 	case dexpb.FlowStatus_FLOW_STATUS_CANCELED,
 		dexpb.FlowStatus_FLOW_STATUS_TERMINATED,
-		dexpb.FlowStatus_FLOW_STATUS_TIMEOUT:
+		dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY:
 		return response, nil
 	case dexpb.FlowStatus_FLOW_STATUS_FAILED:
 		response.ErrorMessage = "unknown flow failure from interpreter implementation"

@@ -175,7 +175,7 @@ func effectiveSubFlowReusePolicy(policy dexpb.SubFlowReusePolicy) dexpb.SubFlowR
 
 func isAbnormalSubFlowStatus(status dexpb.FlowStatus) bool {
 	return status == dexpb.FlowStatus_FLOW_STATUS_FAILED ||
-		status == dexpb.FlowStatus_FLOW_STATUS_TIMEOUT ||
+		status == dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY ||
 		status == dexpb.FlowStatus_FLOW_STATUS_TERMINATED ||
 		status == dexpb.FlowStatus_FLOW_STATUS_CANCELED
 }

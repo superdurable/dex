@@ -30,6 +30,7 @@ private static final long serialVersionUID = 0L;
   private StartFlowRequest() {
     flowId_ = "";
     flowType_ = "";
+    flowTimeoutPolicy_ = 0;
     startStepType_ = "";
     requestId_ = "";
   }
@@ -140,6 +141,24 @@ private static final long serialVersionUID = 0L;
   @java.lang.Override
   public int getFlowTimeoutSeconds() {
     return flowTimeoutSeconds_;
+  }
+
+  public static final int FLOW_TIMEOUT_POLICY_FIELD_NUMBER = 4;
+  private int flowTimeoutPolicy_ = 0;
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 4;</code>
+   * @return The enum numeric value on the wire for flowTimeoutPolicy.
+   */
+  @java.lang.Override public int getFlowTimeoutPolicyValue() {
+    return flowTimeoutPolicy_;
+  }
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 4;</code>
+   * @return The flowTimeoutPolicy.
+   */
+  @java.lang.Override public io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy() {
+    io.superdurable.gen.FlowTimeoutPolicy result = io.superdurable.gen.FlowTimeoutPolicy.forNumber(flowTimeoutPolicy_);
+    return result == null ? io.superdurable.gen.FlowTimeoutPolicy.UNRECOGNIZED : result;
   }
 
   public static final int START_STEP_TYPE_FIELD_NUMBER = 5;
@@ -321,6 +340,9 @@ private static final long serialVersionUID = 0L;
     if (flowTimeoutSeconds_ != 0) {
       output.writeInt32(3, flowTimeoutSeconds_);
     }
+    if (flowTimeoutPolicy_ != io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED.getNumber()) {
+      output.writeEnum(4, flowTimeoutPolicy_);
+    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(startStepType_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 5, startStepType_);
     }
@@ -349,6 +371,10 @@ private static final long serialVersionUID = 0L;
     if (flowTimeoutSeconds_ != 0) {
       size += com.google.protobuf.CodedOutputStream
         .computeInt32Size(3, flowTimeoutSeconds_);
+    }
+    if (flowTimeoutPolicy_ != io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(4, flowTimeoutPolicy_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(startStepType_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(5, startStepType_);
@@ -398,6 +424,7 @@ private static final long serialVersionUID = 0L;
         .equals(other.getFlowType())) return false;
     if (getFlowTimeoutSeconds()
         != other.getFlowTimeoutSeconds()) return false;
+    if (flowTimeoutPolicy_ != other.flowTimeoutPolicy_) return false;
     if (!getStartStepType()
         .equals(other.getStartStepType())) return false;
     if (hasStepInput() != other.hasStepInput()) return false;
@@ -434,6 +461,8 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getFlowType().hashCode();
     hash = (37 * hash) + FLOW_TIMEOUT_SECONDS_FIELD_NUMBER;
     hash = (53 * hash) + getFlowTimeoutSeconds();
+    hash = (37 * hash) + FLOW_TIMEOUT_POLICY_FIELD_NUMBER;
+    hash = (53 * hash) + flowTimeoutPolicy_;
     hash = (37 * hash) + START_STEP_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + getStartStepType().hashCode();
     if (hasStepInput()) {
@@ -592,6 +621,7 @@ private static final long serialVersionUID = 0L;
       flowId_ = "";
       flowType_ = "";
       flowTimeoutSeconds_ = 0;
+      flowTimeoutPolicy_ = 0;
       startStepType_ = "";
       stepInput_ = null;
       if (stepInputBuilder_ != null) {
@@ -652,28 +682,31 @@ private static final long serialVersionUID = 0L;
         result.flowTimeoutSeconds_ = flowTimeoutSeconds_;
       }
       if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.flowTimeoutPolicy_ = flowTimeoutPolicy_;
+      }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.startStepType_ = startStepType_;
       }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000010) != 0)) {
+      if (((from_bitField0_ & 0x00000020) != 0)) {
         result.stepInput_ = stepInputBuilder_ == null
             ? stepInput_
             : stepInputBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000020) != 0)) {
+      if (((from_bitField0_ & 0x00000040) != 0)) {
         result.stepOptions_ = stepOptionsBuilder_ == null
             ? stepOptions_
             : stepOptionsBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
-      if (((from_bitField0_ & 0x00000040) != 0)) {
+      if (((from_bitField0_ & 0x00000080) != 0)) {
         result.flowStartOptions_ = flowStartOptionsBuilder_ == null
             ? flowStartOptions_
             : flowStartOptionsBuilder_.build();
         to_bitField0_ |= 0x00000004;
       }
-      if (((from_bitField0_ & 0x00000080) != 0)) {
+      if (((from_bitField0_ & 0x00000100) != 0)) {
         result.requestId_ = requestId_;
       }
       result.bitField0_ |= to_bitField0_;
@@ -704,9 +737,12 @@ private static final long serialVersionUID = 0L;
       if (other.getFlowTimeoutSeconds() != 0) {
         setFlowTimeoutSeconds(other.getFlowTimeoutSeconds());
       }
+      if (other.flowTimeoutPolicy_ != 0) {
+        setFlowTimeoutPolicyValue(other.getFlowTimeoutPolicyValue());
+      }
       if (!other.getStartStepType().isEmpty()) {
         startStepType_ = other.startStepType_;
-        bitField0_ |= 0x00000008;
+        bitField0_ |= 0x00000010;
         onChanged();
       }
       if (other.hasStepInput()) {
@@ -720,7 +756,7 @@ private static final long serialVersionUID = 0L;
       }
       if (!other.getRequestId().isEmpty()) {
         requestId_ = other.requestId_;
-        bitField0_ |= 0x00000080;
+        bitField0_ |= 0x00000100;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -764,35 +800,40 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 24
+            case 32: {
+              flowTimeoutPolicy_ = input.readEnum();
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 32
             case 42: {
               startStepType_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000008;
+              bitField0_ |= 0x00000010;
               break;
             } // case 42
             case 66: {
               input.readMessage(
                   internalGetStepInputFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000010;
+              bitField0_ |= 0x00000020;
               break;
             } // case 66
             case 74: {
               input.readMessage(
                   internalGetStepOptionsFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000020;
+              bitField0_ |= 0x00000040;
               break;
             } // case 74
             case 82: {
               input.readMessage(
                   internalGetFlowStartOptionsFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000040;
+              bitField0_ |= 0x00000080;
               break;
             } // case 82
             case 90: {
               requestId_ = input.readStringRequireUtf8();
-              bitField0_ |= 0x00000080;
+              bitField0_ |= 0x00000100;
               break;
             } // case 90
             default: {
@@ -988,6 +1029,58 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
+    private int flowTimeoutPolicy_ = 0;
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 4;</code>
+     * @return The enum numeric value on the wire for flowTimeoutPolicy.
+     */
+    @java.lang.Override public int getFlowTimeoutPolicyValue() {
+      return flowTimeoutPolicy_;
+    }
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 4;</code>
+     * @param value The enum numeric value on the wire for flowTimeoutPolicy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowTimeoutPolicyValue(int value) {
+      flowTimeoutPolicy_ = value;
+      bitField0_ |= 0x00000008;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 4;</code>
+     * @return The flowTimeoutPolicy.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy() {
+      io.superdurable.gen.FlowTimeoutPolicy result = io.superdurable.gen.FlowTimeoutPolicy.forNumber(flowTimeoutPolicy_);
+      return result == null ? io.superdurable.gen.FlowTimeoutPolicy.UNRECOGNIZED : result;
+    }
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 4;</code>
+     * @param value The flowTimeoutPolicy to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowTimeoutPolicy(io.superdurable.gen.FlowTimeoutPolicy value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000008;
+      flowTimeoutPolicy_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 4;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFlowTimeoutPolicy() {
+      bitField0_ = (bitField0_ & ~0x00000008);
+      flowTimeoutPolicy_ = 0;
+      onChanged();
+      return this;
+    }
+
     private java.lang.Object startStepType_ = "";
     /**
      * <code>string start_step_type = 5;</code>
@@ -1031,7 +1124,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       startStepType_ = value;
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
@@ -1041,7 +1134,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder clearStartStepType() {
       startStepType_ = getDefaultInstance().getStartStepType();
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000010);
       onChanged();
       return this;
     }
@@ -1055,7 +1148,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       startStepType_ = value;
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
@@ -1068,7 +1161,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the stepInput field is set.
      */
     public boolean hasStepInput() {
-      return ((bitField0_ & 0x00000010) != 0);
+      return ((bitField0_ & 0x00000020) != 0);
     }
     /**
      * <code>.dex.Value step_input = 8;</code>
@@ -1093,7 +1186,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepInputBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
@@ -1107,7 +1200,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepInputBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
@@ -1116,7 +1209,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeStepInput(io.superdurable.gen.Value value) {
       if (stepInputBuilder_ == null) {
-        if (((bitField0_ & 0x00000010) != 0) &&
+        if (((bitField0_ & 0x00000020) != 0) &&
           stepInput_ != null &&
           stepInput_ != io.superdurable.gen.Value.getDefaultInstance()) {
           getStepInputBuilder().mergeFrom(value);
@@ -1127,7 +1220,7 @@ private static final long serialVersionUID = 0L;
         stepInputBuilder_.mergeFrom(value);
       }
       if (stepInput_ != null) {
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000020;
         onChanged();
       }
       return this;
@@ -1136,7 +1229,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 8;</code>
      */
     public Builder clearStepInput() {
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000020);
       stepInput_ = null;
       if (stepInputBuilder_ != null) {
         stepInputBuilder_.dispose();
@@ -1149,7 +1242,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.Value step_input = 8;</code>
      */
     public io.superdurable.gen.Value.Builder getStepInputBuilder() {
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000020;
       onChanged();
       return internalGetStepInputFieldBuilder().getBuilder();
     }
@@ -1189,7 +1282,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the stepOptions field is set.
      */
     public boolean hasStepOptions() {
-      return ((bitField0_ & 0x00000020) != 0);
+      return ((bitField0_ & 0x00000040) != 0);
     }
     /**
      * <code>.dex.StepOptions step_options = 9;</code>
@@ -1214,7 +1307,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepOptionsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
@@ -1228,7 +1321,7 @@ private static final long serialVersionUID = 0L;
       } else {
         stepOptionsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
@@ -1237,7 +1330,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeStepOptions(io.superdurable.gen.StepOptions value) {
       if (stepOptionsBuilder_ == null) {
-        if (((bitField0_ & 0x00000020) != 0) &&
+        if (((bitField0_ & 0x00000040) != 0) &&
           stepOptions_ != null &&
           stepOptions_ != io.superdurable.gen.StepOptions.getDefaultInstance()) {
           getStepOptionsBuilder().mergeFrom(value);
@@ -1248,7 +1341,7 @@ private static final long serialVersionUID = 0L;
         stepOptionsBuilder_.mergeFrom(value);
       }
       if (stepOptions_ != null) {
-        bitField0_ |= 0x00000020;
+        bitField0_ |= 0x00000040;
         onChanged();
       }
       return this;
@@ -1257,7 +1350,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 9;</code>
      */
     public Builder clearStepOptions() {
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000040);
       stepOptions_ = null;
       if (stepOptionsBuilder_ != null) {
         stepOptionsBuilder_.dispose();
@@ -1270,7 +1363,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.StepOptions step_options = 9;</code>
      */
     public io.superdurable.gen.StepOptions.Builder getStepOptionsBuilder() {
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000040;
       onChanged();
       return internalGetStepOptionsFieldBuilder().getBuilder();
     }
@@ -1310,7 +1403,7 @@ private static final long serialVersionUID = 0L;
      * @return Whether the flowStartOptions field is set.
      */
     public boolean hasFlowStartOptions() {
-      return ((bitField0_ & 0x00000040) != 0);
+      return ((bitField0_ & 0x00000080) != 0);
     }
     /**
      * <code>.dex.FlowStartOptions flow_start_options = 10;</code>
@@ -1335,7 +1428,7 @@ private static final long serialVersionUID = 0L;
       } else {
         flowStartOptionsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000080;
       onChanged();
       return this;
     }
@@ -1349,7 +1442,7 @@ private static final long serialVersionUID = 0L;
       } else {
         flowStartOptionsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000080;
       onChanged();
       return this;
     }
@@ -1358,7 +1451,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder mergeFlowStartOptions(io.superdurable.gen.FlowStartOptions value) {
       if (flowStartOptionsBuilder_ == null) {
-        if (((bitField0_ & 0x00000040) != 0) &&
+        if (((bitField0_ & 0x00000080) != 0) &&
           flowStartOptions_ != null &&
           flowStartOptions_ != io.superdurable.gen.FlowStartOptions.getDefaultInstance()) {
           getFlowStartOptionsBuilder().mergeFrom(value);
@@ -1369,7 +1462,7 @@ private static final long serialVersionUID = 0L;
         flowStartOptionsBuilder_.mergeFrom(value);
       }
       if (flowStartOptions_ != null) {
-        bitField0_ |= 0x00000040;
+        bitField0_ |= 0x00000080;
         onChanged();
       }
       return this;
@@ -1378,7 +1471,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowStartOptions flow_start_options = 10;</code>
      */
     public Builder clearFlowStartOptions() {
-      bitField0_ = (bitField0_ & ~0x00000040);
+      bitField0_ = (bitField0_ & ~0x00000080);
       flowStartOptions_ = null;
       if (flowStartOptionsBuilder_ != null) {
         flowStartOptionsBuilder_.dispose();
@@ -1391,7 +1484,7 @@ private static final long serialVersionUID = 0L;
      * <code>.dex.FlowStartOptions flow_start_options = 10;</code>
      */
     public io.superdurable.gen.FlowStartOptions.Builder getFlowStartOptionsBuilder() {
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000080;
       onChanged();
       return internalGetFlowStartOptionsFieldBuilder().getBuilder();
     }
@@ -1466,7 +1559,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       requestId_ = value;
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }
@@ -1476,7 +1569,7 @@ private static final long serialVersionUID = 0L;
      */
     public Builder clearRequestId() {
       requestId_ = getDefaultInstance().getRequestId();
-      bitField0_ = (bitField0_ & ~0x00000080);
+      bitField0_ = (bitField0_ & ~0x00000100);
       onChanged();
       return this;
     }
@@ -1490,7 +1583,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       requestId_ = value;
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000100;
       onChanged();
       return this;
     }

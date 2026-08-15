@@ -78,6 +78,14 @@ export enum StepDurability {
   UNRECOGNIZED = -1,
 }
 
+export enum FlowTimeoutPolicy {
+  FLOW_TIMEOUT_POLICY_UNSPECIFIED = 0,
+  FLOW_TIMEOUT_POLICY_FAIL = 1,
+  FLOW_TIMEOUT_POLICY_CANCEL = 2,
+  FLOW_TIMEOUT_POLICY_HANDLER = 3,
+  UNRECOGNIZED = -1,
+}
+
 export enum StopType {
   STOP_TYPE_UNSPECIFIED = 0,
   STOP_TYPE_CANCEL = 1,
@@ -91,7 +99,8 @@ export enum FlowStatus {
   FLOW_STATUS_RUNNING = 1,
   FLOW_STATUS_COMPLETED = 2,
   FLOW_STATUS_FAILED = 3,
-  FLOW_STATUS_TIMEOUT = 4,
+  /** FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY - Reserved for reporting a backend hard timeout; applications must not depend on this status. */
+  FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY = 4,
   FLOW_STATUS_TERMINATED = 5,
   FLOW_STATUS_CANCELED = 6,
   FLOW_STATUS_CONTINUED_AS_NEW = 7,
@@ -105,6 +114,7 @@ export enum FlowErrorType {
   /** FLOW_ERROR_TYPE_WORKER_API_FAIL - includes waitFor/execute/rpc methods */
   FLOW_ERROR_TYPE_WORKER_API_FAIL = 3,
   FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE = 4,
+  FLOW_ERROR_TYPE_FLOW_TIMEOUT = 5,
   /** FLOW_ERROR_TYPE_INTERNAL - either bug in sdk or server */
   FLOW_ERROR_TYPE_INTERNAL = 6,
   UNRECOGNIZED = -1,
@@ -344,6 +354,7 @@ export interface StartFlowRequest {
   flowId: string;
   flowType: string;
   flowTimeoutSeconds: number;
+  flowTimeoutPolicy: FlowTimeoutPolicy;
   startStepType: string;
   stepInput: Value | undefined;
   stepOptions: StepOptions | undefined;
@@ -534,6 +545,7 @@ export interface FlowStartedOrContinuedHistoryEvent {
   flowType: string;
   flowConfig: FlowConfig | undefined;
   flowTimeout: Duration | undefined;
+  flowTimeoutPolicy: FlowTimeoutPolicy;
   startOrContinue: { $case: "initialStart"; value: FlowInitialStart } | {
     $case: "continuedStart";
     value: FlowContinuedStart;
@@ -962,6 +974,7 @@ export interface SubFlowOptions {
   retryPolicy: FlowRetryPolicy | undefined;
   attributes: AttributeWrite[];
   flowConfigOverride: FlowConfig | undefined;
+  flowTimeoutPolicy: FlowTimeoutPolicy;
 }
 
 export interface SubFlowCondition {
@@ -1110,6 +1123,8 @@ export interface ContinueAsNewInput {
 
 export interface InterpreterWorkflowInput {
   flowType: string;
+  configuredFlowTimeoutSeconds: number;
+  flowTimeoutPolicy: FlowTimeoutPolicy;
   startStepType: string;
   stepInput: Value | undefined;
   stepOptions: StepOptions | undefined;
@@ -2790,6 +2805,7 @@ function createBaseStartFlowRequest(): StartFlowRequest {
     flowId: "",
     flowType: "",
     flowTimeoutSeconds: 0,
+    flowTimeoutPolicy: 0,
     startStepType: "",
     stepInput: undefined,
     stepOptions: undefined,
@@ -2808,6 +2824,9 @@ export const StartFlowRequest: MessageFns<StartFlowRequest> = {
     }
     if (message.flowTimeoutSeconds !== 0) {
       writer.uint32(24).int32(message.flowTimeoutSeconds);
+    }
+    if (message.flowTimeoutPolicy !== 0) {
+      writer.uint32(32).int32(message.flowTimeoutPolicy);
     }
     if (message.startStepType !== "") {
       writer.uint32(42).string(message.startStepType);
@@ -2856,6 +2875,14 @@ export const StartFlowRequest: MessageFns<StartFlowRequest> = {
           }
 
           message.flowTimeoutSeconds = reader.int32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.flowTimeoutPolicy = reader.int32() as any;
           continue;
         }
         case 5: {
@@ -2915,6 +2942,7 @@ export const StartFlowRequest: MessageFns<StartFlowRequest> = {
     message.flowId = object.flowId ?? "";
     message.flowType = object.flowType ?? "";
     message.flowTimeoutSeconds = object.flowTimeoutSeconds ?? 0;
+    message.flowTimeoutPolicy = object.flowTimeoutPolicy ?? 0;
     message.startStepType = object.startStepType ?? "";
     message.stepInput = (object.stepInput !== undefined && object.stepInput !== null)
       ? Value.fromPartial(object.stepInput)
@@ -5087,6 +5115,7 @@ function createBaseFlowStartedOrContinuedHistoryEvent(): FlowStartedOrContinuedH
     flowType: "",
     flowConfig: undefined,
     flowTimeout: undefined,
+    flowTimeoutPolicy: 0,
     startOrContinue: undefined,
   };
 }
@@ -5104,6 +5133,9 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
     }
     if (message.flowTimeout !== undefined) {
       Duration.encode(message.flowTimeout, writer.uint32(34).fork()).join();
+    }
+    if (message.flowTimeoutPolicy !== 0) {
+      writer.uint32(40).int32(message.flowTimeoutPolicy);
     }
     switch (message.startOrContinue?.$case) {
       case "initialStart":
@@ -5155,6 +5187,14 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
           message.flowTimeout = Duration.decode(reader, reader.uint32());
           continue;
         }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.flowTimeoutPolicy = reader.int32() as any;
+          continue;
+        }
         case 10: {
           if (tag !== 82) {
             break;
@@ -5202,6 +5242,7 @@ export const FlowStartedOrContinuedHistoryEvent: MessageFns<FlowStartedOrContinu
     message.flowTimeout = (object.flowTimeout !== undefined && object.flowTimeout !== null)
       ? Duration.fromPartial(object.flowTimeout)
       : undefined;
+    message.flowTimeoutPolicy = object.flowTimeoutPolicy ?? 0;
     switch (object.startOrContinue?.$case) {
       case "initialStart": {
         if (object.startOrContinue?.value !== undefined && object.startOrContinue?.value !== null) {
@@ -10128,6 +10169,7 @@ function createBaseSubFlowOptions(): SubFlowOptions {
     retryPolicy: undefined,
     attributes: [],
     flowConfigOverride: undefined,
+    flowTimeoutPolicy: 0,
   };
 }
 
@@ -10150,6 +10192,9 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
     }
     if (message.flowConfigOverride !== undefined) {
       FlowConfig.encode(message.flowConfigOverride, writer.uint32(50).fork()).join();
+    }
+    if (message.flowTimeoutPolicy !== 0) {
+      writer.uint32(56).int32(message.flowTimeoutPolicy);
     }
     return writer;
   },
@@ -10209,6 +10254,14 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
           message.flowConfigOverride = FlowConfig.decode(reader, reader.uint32());
           continue;
         }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.flowTimeoutPolicy = reader.int32() as any;
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -10233,6 +10286,7 @@ export const SubFlowOptions: MessageFns<SubFlowOptions> = {
     message.flowConfigOverride = (object.flowConfigOverride !== undefined && object.flowConfigOverride !== null)
       ? FlowConfig.fromPartial(object.flowConfigOverride)
       : undefined;
+    message.flowTimeoutPolicy = object.flowTimeoutPolicy ?? 0;
     return message;
   },
 };
@@ -12024,6 +12078,8 @@ export const ContinueAsNewInput: MessageFns<ContinueAsNewInput> = {
 function createBaseInterpreterWorkflowInput(): InterpreterWorkflowInput {
   return {
     flowType: "",
+    configuredFlowTimeoutSeconds: 0,
+    flowTimeoutPolicy: 0,
     startStepType: "",
     stepInput: undefined,
     stepOptions: undefined,
@@ -12039,26 +12095,32 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
     if (message.flowType !== "") {
       writer.uint32(10).string(message.flowType);
     }
+    if (message.configuredFlowTimeoutSeconds !== 0) {
+      writer.uint32(16).int32(message.configuredFlowTimeoutSeconds);
+    }
+    if (message.flowTimeoutPolicy !== 0) {
+      writer.uint32(24).int32(message.flowTimeoutPolicy);
+    }
     if (message.startStepType !== "") {
-      writer.uint32(26).string(message.startStepType);
+      writer.uint32(34).string(message.startStepType);
     }
     if (message.stepInput !== undefined) {
-      Value.encode(message.stepInput, writer.uint32(50).fork()).join();
+      Value.encode(message.stepInput, writer.uint32(42).fork()).join();
     }
     if (message.stepOptions !== undefined) {
-      StepOptions.encode(message.stepOptions, writer.uint32(58).fork()).join();
+      StepOptions.encode(message.stepOptions, writer.uint32(50).fork()).join();
     }
     for (const v of message.initAttributes) {
-      AttributeWrite.encode(v!, writer.uint32(66).fork()).join();
+      AttributeWrite.encode(v!, writer.uint32(58).fork()).join();
     }
     if (message.config !== undefined) {
-      FlowConfig.encode(message.config, writer.uint32(74).fork()).join();
+      FlowConfig.encode(message.config, writer.uint32(66).fork()).join();
     }
     if (message.isResumeFromContinueAsNew !== false) {
-      writer.uint32(80).bool(message.isResumeFromContinueAsNew);
+      writer.uint32(72).bool(message.isResumeFromContinueAsNew);
     }
     if (message.continueAsNewInput !== undefined) {
-      ContinueAsNewInput.encode(message.continueAsNewInput, writer.uint32(90).fork()).join();
+      ContinueAsNewInput.encode(message.continueAsNewInput, writer.uint32(82).fork()).join();
     }
     return writer;
   },
@@ -12078,12 +12140,36 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
           message.flowType = reader.string();
           continue;
         }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.configuredFlowTimeoutSeconds = reader.int32();
+          continue;
+        }
         case 3: {
-          if (tag !== 26) {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.flowTimeoutPolicy = reader.int32() as any;
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
             break;
           }
 
           message.startStepType = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.stepInput = Value.decode(reader, reader.uint32());
           continue;
         }
         case 6: {
@@ -12091,7 +12177,7 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
             break;
           }
 
-          message.stepInput = Value.decode(reader, reader.uint32());
+          message.stepOptions = StepOptions.decode(reader, reader.uint32());
           continue;
         }
         case 7: {
@@ -12099,7 +12185,7 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
             break;
           }
 
-          message.stepOptions = StepOptions.decode(reader, reader.uint32());
+          message.initAttributes.push(AttributeWrite.decode(reader, reader.uint32()));
           continue;
         }
         case 8: {
@@ -12107,27 +12193,19 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
             break;
           }
 
-          message.initAttributes.push(AttributeWrite.decode(reader, reader.uint32()));
-          continue;
-        }
-        case 9: {
-          if (tag !== 74) {
-            break;
-          }
-
           message.config = FlowConfig.decode(reader, reader.uint32());
           continue;
         }
-        case 10: {
-          if (tag !== 80) {
+        case 9: {
+          if (tag !== 72) {
             break;
           }
 
           message.isResumeFromContinueAsNew = reader.bool();
           continue;
         }
-        case 11: {
-          if (tag !== 90) {
+        case 10: {
+          if (tag !== 82) {
             break;
           }
 
@@ -12149,6 +12227,8 @@ export const InterpreterWorkflowInput: MessageFns<InterpreterWorkflowInput> = {
   fromPartial<I extends Exact<DeepPartial<InterpreterWorkflowInput>, I>>(object: I): InterpreterWorkflowInput {
     const message = createBaseInterpreterWorkflowInput();
     message.flowType = object.flowType ?? "";
+    message.configuredFlowTimeoutSeconds = object.configuredFlowTimeoutSeconds ?? 0;
+    message.flowTimeoutPolicy = object.flowTimeoutPolicy ?? 0;
     message.startStepType = object.startStepType ?? "";
     message.stepInput = (object.stepInput !== undefined && object.stepInput !== null)
       ? Value.fromPartial(object.stepInput)

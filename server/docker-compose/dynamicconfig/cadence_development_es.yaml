@@ -1,11 +1,3 @@
-# Copyright (c) 2026 Super Durable, Inc.
-#
-# Licensed under the Super Durable Source License 1.0.
-# You may not use this file except in compliance with the License.
-# See the LICENSE file in the repository root.
-#
-# SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
-
 frontend.enableActiveClusterSelectionPolicyInStartWorkflow:
 - value: true
   constraints: {}
@@ -37,6 +29,8 @@ frontend.validSearchAttributes:
     CustomKeywordArrayField: 1
     CustomKeywordField: 1
     CustomTextField: 0
+    DexIntegAttributeIndex_a80505f1-24b6-4597-91ea-77718482755f: 1
+    DexIntegConcurrentAttributeIndex_1fea5d1c-4b32-4d94-8117-18072f639483: 1
     DexParentFlowID: 1
     DomainID: 1
     ExecutionStatus: 2

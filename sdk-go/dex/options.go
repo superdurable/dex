@@ -143,8 +143,11 @@ type FlowConfig struct {
 // StartFlowOptions configures a new Flow execution.
 // Nil and zero fields preserve server defaults; RequestID is generated when omitted.
 type StartFlowOptions struct {
-	// Timeout limits total Flow execution duration.
+	// Timeout sets Dex's durable soft timeout; nil or zero disables it.
 	Timeout *time.Duration
+	// TimeoutPolicy controls what Dex does when Timeout expires.
+	// The default uses Handler when the Flow implements FlowTimeoutHandler, otherwise Fail.
+	TimeoutPolicy FlowTimeoutPolicy
 	// IDReusePolicy controls reuse of an existing Flow ID.
 	IDReusePolicy IDReusePolicy
 	// CronSchedule is the server cron expression for recurring runs.
@@ -162,6 +165,20 @@ type StartFlowOptions struct {
 	// RequestID defaults to a UUID; set a stable business identifier for cross-call retries.
 	RequestID *string
 }
+
+// FlowTimeoutPolicy controls how a positive Flow timeout ends or redirects execution.
+type FlowTimeoutPolicy uint8
+
+const (
+	// TimeoutDefault selects Handler for a FlowTimeoutHandler and Fail otherwise.
+	TimeoutDefault FlowTimeoutPolicy = iota
+	// TimeoutFail fails the Flow with FlowErrorTimeout and permits Flow retries.
+	TimeoutFail
+	// TimeoutCancel cancels the Flow without retrying it.
+	TimeoutCancel
+	// TimeoutHandler invokes FlowTimeoutHandler.HandleTimeout once.
+	TimeoutHandler
+)
 
 // SubFlowReusePolicy controls how a generated SubFlow Flow ID resolves an existing execution.
 type SubFlowReusePolicy uint8
@@ -184,6 +201,9 @@ const (
 type SubFlowOptions struct {
 	// Timeout limits total SubFlow execution duration.
 	Timeout *time.Duration
+	// TimeoutPolicy controls what Dex does when Timeout expires.
+	// The default uses Handler when the SubFlow implements FlowTimeoutHandler, otherwise Fail.
+	TimeoutPolicy FlowTimeoutPolicy
 	// StartDelay postpones the SubFlow starting Step after start acceptance.
 	StartDelay *time.Duration
 	// RetryPolicy configures whole-Flow retries after terminal failures.

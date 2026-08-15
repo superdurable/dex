@@ -23,6 +23,7 @@ import {
   SubFlowOptions as ProtoSubFlowOptions,
   SubFlowReusePolicy as ProtoSubFlowReusePolicy,
   FlowRetryPolicy,
+  FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
   FlowConfig as ProtoFlowConfig,
   ActiveStepSearchMode as ProtoActiveStepSearchMode,
   StepDurability as ProtoStepDurability,
@@ -53,7 +54,7 @@ import {
 import { InvocationContext } from "./invocation-context.js";
 import { Attribute, AttributeMap, IndexType } from "./persistence.js";
 import { mapAttributeStoreName, mapAttributeStoreSync } from "./attribute-store-sync.js";
-import { ActiveStepSearchMode, type FlowConfig } from "./options.js";
+import { ActiveStepSearchMode, FlowTimeoutPolicy, type FlowConfig } from "./options.js";
 import { SubFlowReusePolicy, type SubFlowOptions } from "./subflow.js";
 import type { RegisteredRPC } from "./rpc.js";
 import type {
@@ -71,6 +72,7 @@ import {
 } from "./value-mapper.js";
 import { Channel, ChannelMap, type Condition, type Wait } from "./wait.js";
 
+const timeoutHandlerStepType = "sys:timeout_handler";
 
 export class WorkerDispatcher {
   public constructor(
@@ -121,6 +123,9 @@ export class WorkerDispatcher {
     const request = await this.hydrateExecute(original);
     cancellationSignal.throwIfAborted();
     const flow = registeredFlowByName(this.registry, request.flowType);
+    if (request.stepType === timeoutHandlerStepType) {
+      return this.invokeTimeoutHandler(request, flow, cancellationSignal);
+    }
     const step = registeredStep(flow, request.stepType);
     const context = new InvocationContext(
       "execute",
@@ -144,6 +149,41 @@ export class WorkerDispatcher {
       });
     } catch (failure) {
       throw invalidStepResult(flow.name, step.name, "execute", failure);
+    }
+  }
+
+  private async invokeTimeoutHandler(
+    request: InvokeExecuteMethodRequest,
+    flow: RegisteredFlow,
+    cancellationSignal: AbortSignal,
+  ): Promise<InvokeExecuteMethodResponse> {
+    try {
+      if (request.stepInput !== undefined) {
+        throw new TypeError("timeout handler input must be absent");
+      }
+      if (flow.flow.handleTimeout === undefined) {
+        throw new TypeError(`Flow ${flow.name} does not implement handleTimeout`);
+      }
+      const context = new InvocationContext(
+        "execute",
+        flow,
+        request.context,
+        request.attributes,
+        request.stepExeLocals,
+        request.conditionResults,
+        {},
+        cancellationSignal,
+      );
+      const decision = await flow.flow.handleTimeout(context);
+      return InvokeExecuteMethodResponse.create({
+        stepDecision: mapDecision(flow, decision),
+        upsertAttributes: [...context.getAttributeWrites()],
+        recordEvents: [...context.getEvents()],
+        upsertStepExeLocals: [...context.getLocalWrites()],
+        publishToChannel: [...context.getPublications()],
+      });
+    } catch (failure) {
+      throw invalidStepResult(flow.name, timeoutHandlerStepType, "execute", failure);
     }
   }
 
@@ -206,14 +246,15 @@ export class WorkerDispatcher {
     const subFlowValues = request.conditionResults?.subFlowResults.flatMap(
       (result) => result.results.map((completion) => completion.completedStepOutput),
     ) ?? [];
+    const hasInput = request.stepInput !== undefined;
     const values = await this.hydrator.hydrateAll([
-      request.stepInput,
+      ...(hasInput ? [request.stepInput] : []),
       ...request.attributes.map((entry) => entry.value),
       ...request.stepExeLocals.map((entry) => entry.value),
       ...channelValues,
       ...subFlowValues,
     ]);
-    let offset = 1;
+    let offset = hasInput ? 1 : 0;
     const attributes = replaceEntryValues(
       request.attributes,
       values.slice(offset, (offset += request.attributes.length)),
@@ -226,7 +267,13 @@ export class WorkerDispatcher {
       request.conditionResults,
       values.slice(offset),
     );
-    return { ...request, attributes, stepExeLocals, conditionResults };
+    return {
+      ...request,
+      stepInput: hasInput ? values[0] : undefined,
+      attributes,
+      stepExeLocals,
+      conditionResults,
+    };
   }
 
   private async hydrateRPC(request: InvokeWorkerRPCRequest): Promise<InvokeWorkerRPCRequest> {
@@ -617,6 +664,7 @@ function mapSubFlowOptions(
   target: RegisteredFlow,
   options: SubFlowOptions,
 ): ProtoSubFlowOptions {
+  const timeoutSeconds = seconds(options.timeoutMs);
   const attributes = (options.attributes ?? []).map((initial) => {
     if (target.persistence.get(initial.attribute.name) !== initial.attribute) {
       throw new TypeError(`SubFlow Attribute does not belong to ${target.name}`);
@@ -645,12 +693,45 @@ function mapSubFlowOptions(
         : ProtoSubFlowReusePolicy.SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY;
   return ProtoSubFlowOptions.create({
     reusePolicy,
-    flowTimeoutSeconds: seconds(options.timeoutMs),
+    flowTimeoutSeconds: timeoutSeconds,
+    flowTimeoutPolicy: resolveFlowTimeoutPolicy(
+      target,
+      timeoutSeconds,
+      options.timeoutPolicy,
+    ),
     flowStartDelaySeconds: seconds(options.startDelayMs),
     retryPolicy: mapFlowRetry(options.retryPolicy),
     attributes,
     flowConfigOverride: mapSubFlowConfig(options.configOverride),
   });
+}
+
+function resolveFlowTimeoutPolicy(
+  flow: RegisteredFlow,
+  timeoutSeconds: number,
+  policy: FlowTimeoutPolicy | undefined,
+): ProtoFlowTimeoutPolicy {
+  const requested = policy ?? FlowTimeoutPolicy.DEFAULT;
+  if (timeoutSeconds === 0) {
+    if (requested !== FlowTimeoutPolicy.DEFAULT) {
+      throw new RangeError("Flow timeout policy requires a positive timeout");
+    }
+    return ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED;
+  }
+  const resolved = requested === FlowTimeoutPolicy.DEFAULT
+    ? flow.hasTimeoutHandler
+      ? FlowTimeoutPolicy.HANDLER
+      : FlowTimeoutPolicy.FAIL
+    : requested;
+  if (resolved === FlowTimeoutPolicy.HANDLER && !flow.hasTimeoutHandler) {
+    throw new TypeError(`Flow ${flow.name} does not implement handleTimeout`);
+  }
+  return {
+    [FlowTimeoutPolicy.DEFAULT]: ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED,
+    [FlowTimeoutPolicy.FAIL]: ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_FAIL,
+    [FlowTimeoutPolicy.CANCEL]: ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_CANCEL,
+    [FlowTimeoutPolicy.HANDLER]: ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_HANDLER,
+  }[resolved];
 }
 
 function mapFlowRetry(retry: RetryPolicy | undefined): FlowRetryPolicy | undefined {

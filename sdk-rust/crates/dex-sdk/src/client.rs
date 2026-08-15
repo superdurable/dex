@@ -15,9 +15,10 @@ use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use dex_protocol::dex::{
     ActiveStepSearchMode as ProtoSearchMode, AttributeWrite, FlowAlreadyStartedOptions,
     FlowConfig as ProtoFlowConfig, FlowResetType, FlowRetryPolicy, FlowStartOptions,
-    FlowStatus as ProtoFlowStatus, GetAttributesRequest, GetFlowSummaryRequest,
-    IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
-    ResetFlowRequest, SearchFlowsRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
+    GetAttributesRequest, GetFlowSummaryRequest, IdReusePolicy as ProtoIdReusePolicy,
+    InvokeRpcRequest, PublishToChannelRequest, ResetFlowRequest, SearchFlowsRequest,
+    SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
     StepDurability as ProtoStepDurability, StopFlowRequest, StopType as ProtoStopType,
     TriggerContinueAsNewRequest, UpdateFlowConfigRequest, WaitForAttributeCondition,
     WaitForAttributeEqual, WaitForAttributeRequest, WaitForFlowRequest,
@@ -35,10 +36,10 @@ use crate::value_mapper;
 use crate::worker_dispatcher::map_step_options;
 use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ClientOptions,
-    Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, IdReusePolicy, Registry,
-    ResetFlowOptions, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry, SearchFlowsPage,
-    StartFlowOptions, StepCompletion, StepDurability, StepExecutionId, StopFlowOptions, TimerId,
-    Value, WorkerTarget,
+    Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, FlowTimeoutPolicy,
+    IdReusePolicy, Registry, ResetFlowOptions, RetryPolicy, Rpc, SdkError, SdkResult,
+    SearchFlowEntry, SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability,
+    StepExecutionId, StopFlowOptions, TimerId, Value, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -168,10 +169,14 @@ impl Client {
             ),
             None => (String::new(), None, None),
         };
+        let flow_timeout_seconds = optional_seconds(options.timeout)?;
+        let flow_timeout_policy =
+            map_flow_timeout_policy(registered, flow_timeout_seconds, options.timeout_policy)?;
         let request = StartFlowRequest {
             flow_id: flow_id.to_string(),
             flow_type: registered.name.to_string(),
-            flow_timeout_seconds: optional_seconds(options.timeout)?,
+            flow_timeout_seconds,
+            flow_timeout_policy,
             start_step_type,
             step_input,
             step_options,
@@ -1073,7 +1078,9 @@ pub(crate) fn map_flow_status(status: i32) -> SdkResult<FlowStatus> {
         Some(ProtoFlowStatus::Running) => Ok(FlowStatus::Running),
         Some(ProtoFlowStatus::Completed) => Ok(FlowStatus::Completed),
         Some(ProtoFlowStatus::Failed) => Ok(FlowStatus::Failed),
-        Some(ProtoFlowStatus::Timeout) => Ok(FlowStatus::TimedOut),
+        Some(ProtoFlowStatus::ServerSideTimeoutInternalOnly) => {
+            Ok(FlowStatus::ServerSideTimeoutInternalOnly)
+        }
         Some(ProtoFlowStatus::Terminated) => Ok(FlowStatus::Terminated),
         Some(ProtoFlowStatus::Canceled) => Ok(FlowStatus::Canceled),
         Some(ProtoFlowStatus::ContinuedAsNew) => Ok(FlowStatus::ContinuedAsNew),
@@ -1092,8 +1099,41 @@ pub(crate) fn map_flow_error_type(error_type: i32) -> Option<FlowErrorType> {
         Some(ProtoFlowErrorType::WorkerApiFail) => Some(FlowErrorType::WorkerApiFailed),
         Some(ProtoFlowErrorType::InvalidUserFlowCode) => Some(FlowErrorType::InvalidUserFlowCode),
         Some(ProtoFlowErrorType::Internal) => Some(FlowErrorType::Internal),
+        Some(ProtoFlowErrorType::FlowTimeout) => Some(FlowErrorType::FlowTimeout),
         _ => None,
     }
+}
+
+pub(crate) fn map_flow_timeout_policy(
+    flow: &crate::registry::RegisteredFlow,
+    timeout_seconds: i32,
+    policy: FlowTimeoutPolicy,
+) -> SdkResult<i32> {
+    if timeout_seconds == 0 {
+        if policy != FlowTimeoutPolicy::Default {
+            return Err(invalid("Flow timeout policy requires a positive timeout"));
+        }
+        return Ok(ProtoFlowTimeoutPolicy::Unspecified as i32);
+    }
+    let resolved = match policy {
+        FlowTimeoutPolicy::Default if flow.handler.has_timeout_handler() => {
+            FlowTimeoutPolicy::Handler
+        }
+        FlowTimeoutPolicy::Default => FlowTimeoutPolicy::Fail,
+        configured => configured,
+    };
+    if resolved == FlowTimeoutPolicy::Handler && !flow.handler.has_timeout_handler() {
+        return Err(invalid(format!(
+            "Flow {} has no timeout handler",
+            flow.name
+        )));
+    }
+    Ok(match resolved {
+        FlowTimeoutPolicy::Default => ProtoFlowTimeoutPolicy::Unspecified,
+        FlowTimeoutPolicy::Fail => ProtoFlowTimeoutPolicy::Fail,
+        FlowTimeoutPolicy::Cancel => ProtoFlowTimeoutPolicy::Cancel,
+        FlowTimeoutPolicy::Handler => ProtoFlowTimeoutPolicy::Handler,
+    } as i32)
 }
 
 fn timestamp(timestamp: prost_types::Timestamp) -> SystemTime {

@@ -14,12 +14,17 @@ import test from "node:test";
 import {
   FlowErrorType,
   type FlowResult,
+  FlowTimeoutPolicy,
   LongPollTimeoutError,
   StopType,
   doubleCodec,
+  forceComplete,
+  stringCodec,
   type Client,
+  type Context,
   type FlowErrorType as FlowErrorTypeValue,
   type FlowStatus,
+  type StepDecision,
   type StopType as StopTypeValue,
 } from "../../src/index.js";
 import { EmptyDecisionFlow } from "./empty_decision_flow.js";
@@ -49,7 +54,64 @@ test("Flow execution timeout is reported without results", async () => {
     const id = flowId("flow-timeout");
     await client.startFlow(flow, id, 1, { timeoutMs: 1_000 });
     const failure = await waitForFailure(client, id);
-    assertFailure(failure, "timedOut", undefined, undefined, 0);
+    assertFailure(
+      failure,
+      "failed",
+      FlowErrorType.FLOW_TIMEOUT,
+      "Flow timed out after 1 seconds",
+      0,
+    );
+  });
+});
+
+class TimeoutHandlerFlow extends SignalFlow {
+  public handleTimeout(_context: Context): StepDecision {
+    return forceComplete("expired");
+  }
+}
+
+test("Flow timeout handler completes the Flow", async () => {
+  const flow = new TimeoutHandlerFlow();
+  await withEnvironment([flow], async ({ client }) => {
+    const id = flowId("flow-timeout-handler");
+    await client.startFlow(flow, id, 1, { timeoutMs: 1_000 });
+    assert.equal(
+      await client.waitForFlow(id, 15_000).then((result) => result.singleOutput(stringCodec)),
+      "expired",
+    );
+  });
+});
+
+test("cancel policy overrides a registered Flow timeout handler", async () => {
+  const flow = new TimeoutHandlerFlow();
+  await withEnvironment([flow], async ({ client }) => {
+    const id = flowId("flow-timeout-handler-cancel");
+    await client.startFlow(flow, id, 1, {
+      timeoutMs: 1_000,
+      timeoutPolicy: FlowTimeoutPolicy.CANCEL,
+    });
+    const failure = await waitForFailure(client, id);
+    assertFailure(failure, "cancelled", undefined, undefined, 0);
+  });
+});
+
+test("handler policy requires a registered Flow timeout handler", async () => {
+  const flow = new SignalFlow();
+  await withEnvironment([flow], async ({ client }) => {
+    await assert.rejects(
+      client.startFlow(flow, flowId("flow-timeout-policy-without-timeout"), 1, {
+        timeoutPolicy: FlowTimeoutPolicy.CANCEL,
+      }),
+      /requires a positive timeout/,
+    );
+
+    await assert.rejects(
+      client.startFlow(flow, flowId("flow-timeout-handler-missing"), 1, {
+        timeoutMs: 1_000,
+        timeoutPolicy: FlowTimeoutPolicy.HANDLER,
+      }),
+      /does not implement handleTimeout/,
+    );
   });
 });
 

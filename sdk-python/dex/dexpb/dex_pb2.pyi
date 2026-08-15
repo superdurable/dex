@@ -57,6 +57,13 @@ class StepDurability(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     STEP_DURABILITY_SYNC: _ClassVar[StepDurability]
     STEP_DURABILITY_ASYNC: _ClassVar[StepDurability]
 
+class FlowTimeoutPolicy(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    FLOW_TIMEOUT_POLICY_UNSPECIFIED: _ClassVar[FlowTimeoutPolicy]
+    FLOW_TIMEOUT_POLICY_FAIL: _ClassVar[FlowTimeoutPolicy]
+    FLOW_TIMEOUT_POLICY_CANCEL: _ClassVar[FlowTimeoutPolicy]
+    FLOW_TIMEOUT_POLICY_HANDLER: _ClassVar[FlowTimeoutPolicy]
+
 class StopType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     STOP_TYPE_UNSPECIFIED: _ClassVar[StopType]
@@ -70,7 +77,7 @@ class FlowStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FLOW_STATUS_RUNNING: _ClassVar[FlowStatus]
     FLOW_STATUS_COMPLETED: _ClassVar[FlowStatus]
     FLOW_STATUS_FAILED: _ClassVar[FlowStatus]
-    FLOW_STATUS_TIMEOUT: _ClassVar[FlowStatus]
+    FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY: _ClassVar[FlowStatus]
     FLOW_STATUS_TERMINATED: _ClassVar[FlowStatus]
     FLOW_STATUS_CANCELED: _ClassVar[FlowStatus]
     FLOW_STATUS_CONTINUED_AS_NEW: _ClassVar[FlowStatus]
@@ -82,6 +89,7 @@ class FlowErrorType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW: _ClassVar[FlowErrorType]
     FLOW_ERROR_TYPE_WORKER_API_FAIL: _ClassVar[FlowErrorType]
     FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: _ClassVar[FlowErrorType]
+    FLOW_ERROR_TYPE_FLOW_TIMEOUT: _ClassVar[FlowErrorType]
     FLOW_ERROR_TYPE_INTERNAL: _ClassVar[FlowErrorType]
 
 class PendingStepMethodPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
@@ -191,6 +199,10 @@ ACTIVE_STEP_SEARCH_MODE_DISABLED: ActiveStepSearchMode
 STEP_DURABILITY_UNSPECIFIED: StepDurability
 STEP_DURABILITY_SYNC: StepDurability
 STEP_DURABILITY_ASYNC: StepDurability
+FLOW_TIMEOUT_POLICY_UNSPECIFIED: FlowTimeoutPolicy
+FLOW_TIMEOUT_POLICY_FAIL: FlowTimeoutPolicy
+FLOW_TIMEOUT_POLICY_CANCEL: FlowTimeoutPolicy
+FLOW_TIMEOUT_POLICY_HANDLER: FlowTimeoutPolicy
 STOP_TYPE_UNSPECIFIED: StopType
 STOP_TYPE_CANCEL: StopType
 STOP_TYPE_TERMINATE: StopType
@@ -199,7 +211,7 @@ FLOW_STATUS_UNSPECIFIED: FlowStatus
 FLOW_STATUS_RUNNING: FlowStatus
 FLOW_STATUS_COMPLETED: FlowStatus
 FLOW_STATUS_FAILED: FlowStatus
-FLOW_STATUS_TIMEOUT: FlowStatus
+FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY: FlowStatus
 FLOW_STATUS_TERMINATED: FlowStatus
 FLOW_STATUS_CANCELED: FlowStatus
 FLOW_STATUS_CONTINUED_AS_NEW: FlowStatus
@@ -208,6 +220,7 @@ FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW: FlowErrorType
 FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW: FlowErrorType
 FLOW_ERROR_TYPE_WORKER_API_FAIL: FlowErrorType
 FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: FlowErrorType
+FLOW_ERROR_TYPE_FLOW_TIMEOUT: FlowErrorType
 FLOW_ERROR_TYPE_INTERNAL: FlowErrorType
 PENDING_STEP_METHOD_PHASE_UNSPECIFIED: PendingStepMethodPhase
 PENDING_STEP_METHOD_PHASE_SCHEDULED: PendingStepMethodPhase
@@ -458,10 +471,11 @@ class WorkerTarget(_message.Message):
     def __init__(self, address: _Optional[str] = ..., is_headless_address: _Optional[bool] = ...) -> None: ...
 
 class StartFlowRequest(_message.Message):
-    __slots__ = ("flow_id", "flow_type", "flow_timeout_seconds", "start_step_type", "step_input", "step_options", "flow_start_options", "request_id")
+    __slots__ = ("flow_id", "flow_type", "flow_timeout_seconds", "flow_timeout_policy", "start_step_type", "step_input", "step_options", "flow_start_options", "request_id")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     FLOW_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    FLOW_TIMEOUT_POLICY_FIELD_NUMBER: _ClassVar[int]
     START_STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_INPUT_FIELD_NUMBER: _ClassVar[int]
     STEP_OPTIONS_FIELD_NUMBER: _ClassVar[int]
@@ -470,12 +484,13 @@ class StartFlowRequest(_message.Message):
     flow_id: str
     flow_type: str
     flow_timeout_seconds: int
+    flow_timeout_policy: FlowTimeoutPolicy
     start_step_type: str
     step_input: Value
     step_options: StepOptions
     flow_start_options: FlowStartOptions
     request_id: str
-    def __init__(self, flow_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., flow_timeout_seconds: _Optional[int] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., flow_start_options: _Optional[_Union[FlowStartOptions, _Mapping]] = ..., request_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, flow_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., flow_timeout_seconds: _Optional[int] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., flow_start_options: _Optional[_Union[FlowStartOptions, _Mapping]] = ..., request_id: _Optional[str] = ...) -> None: ...
 
 class StartFlowResponse(_message.Message):
     __slots__ = ("run_id",)
@@ -754,20 +769,22 @@ class FlowHistoryEvent(_message.Message):
     def __init__(self, event_id: _Optional[int] = ..., event_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., flow_started_or_continued: _Optional[_Union[FlowStartedOrContinuedHistoryEvent, _Mapping]] = ..., flow_closed: _Optional[_Union[FlowClosedHistoryEvent, _Mapping]] = ..., step_wait_for_completed: _Optional[_Union[StepWaitForCompletedEvent, _Mapping]] = ..., step_wait_for_failed: _Optional[_Union[StepWaitForFailedEvent, _Mapping]] = ..., step_execute_completed: _Optional[_Union[StepExecuteCompletedEvent, _Mapping]] = ..., step_execute_failed: _Optional[_Union[StepExecuteFailedEvent, _Mapping]] = ..., rpc_execution_completed: _Optional[_Union[RpcExecutionCompletedEvent, _Mapping]] = ..., channel_external_publish: _Optional[_Union[ChannelExternalPublishEvent, _Mapping]] = ..., step_wait_for_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., step_execute_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ...) -> None: ...
 
 class FlowStartedOrContinuedHistoryEvent(_message.Message):
-    __slots__ = ("flow_execution_id", "flow_type", "flow_config", "flow_timeout", "initial_start", "continued_start")
+    __slots__ = ("flow_execution_id", "flow_type", "flow_config", "flow_timeout", "flow_timeout_policy", "initial_start", "continued_start")
     FLOW_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     FLOW_CONFIG_FIELD_NUMBER: _ClassVar[int]
     FLOW_TIMEOUT_FIELD_NUMBER: _ClassVar[int]
+    FLOW_TIMEOUT_POLICY_FIELD_NUMBER: _ClassVar[int]
     INITIAL_START_FIELD_NUMBER: _ClassVar[int]
     CONTINUED_START_FIELD_NUMBER: _ClassVar[int]
     flow_execution_id: FlowExecutionID
     flow_type: str
     flow_config: FlowConfig
     flow_timeout: _duration_pb2.Duration
+    flow_timeout_policy: FlowTimeoutPolicy
     initial_start: FlowInitialStart
     continued_start: FlowContinuedStart
-    def __init__(self, flow_execution_id: _Optional[_Union[FlowExecutionID, _Mapping]] = ..., flow_type: _Optional[str] = ..., flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., initial_start: _Optional[_Union[FlowInitialStart, _Mapping]] = ..., continued_start: _Optional[_Union[FlowContinuedStart, _Mapping]] = ...) -> None: ...
+    def __init__(self, flow_execution_id: _Optional[_Union[FlowExecutionID, _Mapping]] = ..., flow_type: _Optional[str] = ..., flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_timeout: _Optional[_Union[datetime.timedelta, _duration_pb2.Duration, _Mapping]] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., initial_start: _Optional[_Union[FlowInitialStart, _Mapping]] = ..., continued_start: _Optional[_Union[FlowContinuedStart, _Mapping]] = ...) -> None: ...
 
 class FlowInitialStart(_message.Message):
     __slots__ = ("start_step_type", "step_input", "step_options", "initial_attributes")
@@ -1433,20 +1450,22 @@ class WaitingConditionState(_message.Message):
     def __init__(self, waiting_condition_type: _Optional[_Union[WaitingConditionType, str]] = ..., timer_conditions: _Optional[_Iterable[_Union[TimerCondition, _Mapping]]] = ..., channel_conditions: _Optional[_Iterable[_Union[ChannelCondition, _Mapping]]] = ..., condition_combinations: _Optional[_Iterable[_Union[ConditionCombination, _Mapping]]] = ..., sub_flow_conditions: _Optional[_Iterable[_Union[SubFlowConditionState, _Mapping]]] = ...) -> None: ...
 
 class SubFlowOptions(_message.Message):
-    __slots__ = ("reuse_policy", "flow_timeout_seconds", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override")
+    __slots__ = ("reuse_policy", "flow_timeout_seconds", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override", "flow_timeout_policy")
     REUSE_POLICY_FIELD_NUMBER: _ClassVar[int]
     FLOW_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
     FLOW_START_DELAY_SECONDS_FIELD_NUMBER: _ClassVar[int]
     RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     FLOW_CONFIG_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
+    FLOW_TIMEOUT_POLICY_FIELD_NUMBER: _ClassVar[int]
     reuse_policy: SubFlowReusePolicy
     flow_timeout_seconds: int
     flow_start_delay_seconds: int
     retry_policy: FlowRetryPolicy
     attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     flow_config_override: FlowConfig
-    def __init__(self, reuse_policy: _Optional[_Union[SubFlowReusePolicy, str]] = ..., flow_timeout_seconds: _Optional[int] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ...) -> None: ...
+    flow_timeout_policy: FlowTimeoutPolicy
+    def __init__(self, reuse_policy: _Optional[_Union[SubFlowReusePolicy, str]] = ..., flow_timeout_seconds: _Optional[int] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ...) -> None: ...
 
 class SubFlowCondition(_message.Message):
     __slots__ = ("condition_id", "sub_flow_type", "start_step_type", "step_input", "step_options", "options", "sub_flow_index")
@@ -1669,8 +1688,10 @@ class ContinueAsNewInput(_message.Message):
     def __init__(self, previous_internal_run_id: _Optional[str] = ...) -> None: ...
 
 class InterpreterWorkflowInput(_message.Message):
-    __slots__ = ("flow_type", "start_step_type", "step_input", "step_options", "init_attributes", "config", "is_resume_from_continue_as_new", "continue_as_new_input")
+    __slots__ = ("flow_type", "configured_flow_timeout_seconds", "flow_timeout_policy", "start_step_type", "step_input", "step_options", "init_attributes", "config", "is_resume_from_continue_as_new", "continue_as_new_input")
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
+    CONFIGURED_FLOW_TIMEOUT_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    FLOW_TIMEOUT_POLICY_FIELD_NUMBER: _ClassVar[int]
     START_STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_INPUT_FIELD_NUMBER: _ClassVar[int]
     STEP_OPTIONS_FIELD_NUMBER: _ClassVar[int]
@@ -1679,6 +1700,8 @@ class InterpreterWorkflowInput(_message.Message):
     IS_RESUME_FROM_CONTINUE_AS_NEW_FIELD_NUMBER: _ClassVar[int]
     CONTINUE_AS_NEW_INPUT_FIELD_NUMBER: _ClassVar[int]
     flow_type: str
+    configured_flow_timeout_seconds: int
+    flow_timeout_policy: FlowTimeoutPolicy
     start_step_type: str
     step_input: Value
     step_options: StepOptions
@@ -1686,7 +1709,7 @@ class InterpreterWorkflowInput(_message.Message):
     config: FlowConfig
     is_resume_from_continue_as_new: bool
     continue_as_new_input: ContinueAsNewInput
-    def __init__(self, flow_type: _Optional[str] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., init_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., config: _Optional[_Union[FlowConfig, _Mapping]] = ..., is_resume_from_continue_as_new: _Optional[bool] = ..., continue_as_new_input: _Optional[_Union[ContinueAsNewInput, _Mapping]] = ...) -> None: ...
+    def __init__(self, flow_type: _Optional[str] = ..., configured_flow_timeout_seconds: _Optional[int] = ..., flow_timeout_policy: _Optional[_Union[FlowTimeoutPolicy, str]] = ..., start_step_type: _Optional[str] = ..., step_input: _Optional[_Union[Value, _Mapping]] = ..., step_options: _Optional[_Union[StepOptions, _Mapping]] = ..., init_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., config: _Optional[_Union[FlowConfig, _Mapping]] = ..., is_resume_from_continue_as_new: _Optional[bool] = ..., continue_as_new_input: _Optional[_Union[ContinueAsNewInput, _Mapping]] = ...) -> None: ...
 
 class InterpreterWorkflowOutput(_message.Message):
     __slots__ = ("step_completion_outputs",)

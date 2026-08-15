@@ -157,6 +157,29 @@ may check `Context.is_cancellation_requested()` at natural boundaries.
 RPCs do not support sibling selection because they have no Step execution
 lineage.
 
+### Soft Flow timeout
+
+Override `Flow.handle_timeout` to make a positive timeout use handler policy
+by default. Both synchronous and async Workers support the hook:
+
+```python
+class Orders(dex.Flow[str]):
+    async def handle_timeout(self, context: dex.Context) -> dex.StepDecision:
+        await notify_expiration(context)
+        return dex.force_complete("expired")
+
+options = dex.StartFlowOptions(
+    timeout=timedelta(minutes=30),
+    timeout_policy=dex.FlowTimeoutPolicy.HANDLER,
+)
+```
+
+Register async hooks with `allow_async_handlers=True` and run them with
+`AsyncWorker`. `FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow
+retry; `CANCEL` cancels without retry. Continue-as-new preserves the deadline,
+while retry and cron runs receive a fresh budget. A zero or absent timeout
+disables the feature.
+
 `Registry` validates every Flow, Step, RPC signature, durable name, lock, and
 codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.
@@ -207,8 +230,8 @@ def execute(self, context: Context, input: ChargeInput) -> StepDecision:
 ```
 
 `SubFlow.get_flow_id(context, index=0)` remains available for a running `any_of`
-loser. `SubFlowOptions` configures timing, retry, initial target Attributes, Flow
-config, Condition ID, and reuse. Parent completion does not cancel an unfinished
+loser. `SubFlowOptions` configures timing, timeout policy, retry, initial target
+Attributes, Flow config, Condition ID, and reuse. Parent completion does not cancel an unfinished
 SubFlow.
 
 ### Errors

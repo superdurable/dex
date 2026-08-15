@@ -956,9 +956,9 @@ Phase 5 implements the current public Client surface, but five existing
 contracts must be corrected in the same change so the transport does not encode
 known inconsistencies:
 
-1. `StartFlowOptions.Timeout == nil` maps to zero seconds. FlowService must
-   accept zero as no workflow execution timeout and reject only negative
-   values. Positive values continue to round up to whole seconds.
+1. `StartFlowOptions.Timeout == nil` maps to zero seconds. FlowService accepts
+   zero as no Dex soft Flow timeout and rejects only negative values. Positive
+   values continue to round up to whole seconds.
 2. The current server requires `request_id` for StartFlow, SetAttributes, every
    InvokeRPC, WaitForStepCompletion, and WaitForAttribute. Only StartFlow
    exposes an override because its request ID may be a business identifier.
@@ -1187,9 +1187,9 @@ When no starting step is declared, `input` must be nil and the Client omits the
 step type, input, and step options. This preserves flows that begin with RPC
 only and later move into a step.
 
-`StartFlowOptions.Timeout == nil` sends zero, meaning no workflow execution
-timeout. A non-nil duration must be non-negative; positive sub-second values
-round up. `StartDelay == nil` sends zero. A non-nil start delay must also be
+`StartFlowOptions.Timeout == nil` sends zero, meaning no Dex soft Flow timeout.
+A non-nil duration must be non-negative; positive sub-second values round up.
+`StartDelay == nil` sends zero. A non-nil start delay must also be
 non-negative and rounds up when positive.
 
 Initial attributes are already constructed through `InitialAttribute` and
@@ -2417,7 +2417,7 @@ const (
 	FlowRunning FlowStatus = iota + 1
 	FlowCompleted
 	FlowFailed
-	FlowTimedOut
+	FlowServerSideTimeoutInternalOnly
 	FlowTerminated
 	FlowCanceled
 	FlowContinuedAsNew
@@ -2506,6 +2506,7 @@ type FlowConfig struct {
 
 type StartFlowOptions struct {
 	Timeout        *time.Duration
+	TimeoutPolicy  FlowTimeoutPolicy
 	IDReusePolicy  IDReusePolicy
 	CronSchedule   string
 	StartDelay     *time.Duration
@@ -2514,6 +2515,34 @@ type StartFlowOptions struct {
 	ConfigOverride *FlowConfig
 	AlreadyStarted *AlreadyStartedOptions
 	RequestID      *string
+}
+
+type FlowTimeoutPolicy uint8
+
+const (
+	TimeoutDefault FlowTimeoutPolicy = iota
+	TimeoutFail
+	TimeoutCancel
+	TimeoutHandler
+)
+
+type SubFlowReusePolicy uint8
+
+const (
+	RestartSubFlowIfPreviousExitedAbnormally SubFlowReusePolicy = iota
+	AttachSubFlow
+	AlwaysRestartSubFlow
+)
+
+type SubFlowOptions struct {
+	Timeout        *time.Duration
+	TimeoutPolicy  FlowTimeoutPolicy
+	StartDelay     *time.Duration
+	RetryPolicy    *FlowRetryPolicy
+	Attributes     []InitialAttributeDef
+	ConfigOverride *FlowConfig
+	ReusePolicy    SubFlowReusePolicy
+	ConditionID    string
 }
 
 type IDReusePolicy uint8
@@ -2602,7 +2631,13 @@ empty string disables synchronization for future enabled writes.
 argument. Phase 5 adds `ClientOptions.WorkerTarget` as the default inserted into
 that FlowConfig.
 
-`StartFlowOptions.Timeout == nil` means no Flow execution timeout.
+`StartFlowOptions.Timeout == nil` means no Dex soft Flow timeout. A positive
+timeout uses `TimeoutHandler` when the registered Flow implements
+`FlowTimeoutHandler`; otherwise it uses `TimeoutFail`. Explicit
+`TimeoutHandler` without that capability fails locally. `TimeoutFail` produces
+`FlowErrorTypeFlowTimeout` and permits Flow retry, while `TimeoutCancel` does
+not retry. Continue-as-new preserves the absolute deadline; retry and cron runs
+receive a new budget.
 `StartFlowOptions.StartDelay == nil` omits the start delay. Starting-step
 options come from the step wrapped by `DefineStartStep`; StartFlow has no
 separate step-options override.

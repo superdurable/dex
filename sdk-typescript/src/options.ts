@@ -47,6 +47,22 @@ export const IdReusePolicy = Object.freeze({
 /** Represents a value from {@link IdReusePolicy}. */
 export type IdReusePolicy = (typeof IdReusePolicy)[keyof typeof IdReusePolicy];
 
+/** Controls how Dex responds when a positive soft Flow timeout expires. */
+export const FlowTimeoutPolicy = Object.freeze({
+  /** Invokes `Flow.handleTimeout` when present, and fails otherwise. */
+  DEFAULT: "default",
+  /** Fails with `FlowErrorType.FLOW_TIMEOUT` and permits Flow retries. */
+  FAIL: "fail",
+  /** Cancels without retrying the Flow. */
+  CANCEL: "cancel",
+  /** Invokes `Flow.handleTimeout` once after the durable timer fires or is skipped. */
+  HANDLER: "handler",
+} as const);
+
+/** Represents a value from {@link FlowTimeoutPolicy}. */
+export type FlowTimeoutPolicy =
+  (typeof FlowTimeoutPolicy)[keyof typeof FlowTimeoutPolicy];
+
 /** Overrides mutable server behavior for one Flow execution. */
 export interface FlowConfig {
   /** Optional active-Step visibility indexing policy. */
@@ -127,8 +143,10 @@ export const InitialAttribute = Object.freeze({
  * ```
  */
 export interface StartFlowOptions {
-  /** Maximum Flow lifetime in milliseconds; uses registered defaults when omitted. */
+  /** Dex durable soft timeout in milliseconds; omitted or zero disables it. */
   readonly timeoutMs?: number;
+  /** Action taken when a positive timeout expires; defaults from the Flow's hook. */
+  readonly timeoutPolicy?: FlowTimeoutPolicy;
   /** Delay before the starting Step becomes eligible, in milliseconds. */
   readonly startDelayMs?: number;
   /** Flow ID reuse policy; uses `DEFAULT` when omitted. */
@@ -147,14 +165,17 @@ export interface StartFlowOptions {
   readonly requestId?: string;
 }
 
-/** Describes the lifecycle state of one Flow run. */
+/**
+ * Describes the lifecycle state of one Flow run.
+ * `serverSideTimeoutInternalOnly` is reserved for backend hard-timeout reporting.
+ */
 export type FlowStatus =
   | "running"
   | "completed"
   | "failed"
   | "cancelled"
   | "terminated"
-  | "timedOut"
+  | "serverSideTimeoutInternalOnly"
   | "continuedAsNew";
 
 /** Summarizes the current or latest run for one Flow ID. */

@@ -142,6 +142,7 @@ fn assemble_flow<SomeFlow: Flow>(
     name: &'static str,
     flow: Arc<SomeFlow>,
 ) -> SdkResult<RegisteredFlow> {
+    let timeout_handler = flow.timeout_handler();
     let mut steps = HashMap::new();
     let mut start_step = None;
     for step in flow.steps().into_definitions() {
@@ -177,11 +178,16 @@ fn assemble_flow<SomeFlow: Flow>(
         start_step,
         rpcs,
         persistence,
-        handler: Arc::new(TypedFlow { flow }),
+        handler: Arc::new(TypedFlow {
+            flow,
+            timeout_handler,
+        }),
     })
 }
 
 pub(crate) trait ErasedFlow: Send + Sync {
+    fn has_timeout_handler(&self) -> bool;
+    fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision>;
     fn wait_for(
         &self,
         step_type: &str,
@@ -199,9 +205,20 @@ pub(crate) trait ErasedFlow: Send + Sync {
 
 struct TypedFlow<SomeFlow> {
     flow: Arc<SomeFlow>,
+    timeout_handler: Option<crate::FlowTimeoutHandler<SomeFlow>>,
 }
 
 impl<SomeFlow: Flow> ErasedFlow for TypedFlow<SomeFlow> {
+    fn has_timeout_handler(&self) -> bool {
+        self.timeout_handler.is_some()
+    }
+
+    fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
+        let handler = self
+            .timeout_handler
+            .ok_or_else(|| crate::HandlerError::new("Flow has no timeout handler"))?;
+        handler(self.flow.as_ref(), context)
+    }
     fn wait_for(
         &self,
         step_type: &str,

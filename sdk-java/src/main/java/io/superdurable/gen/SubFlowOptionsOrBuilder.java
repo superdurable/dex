@@ -86,4 +86,15 @@ public interface SubFlowOptionsOrBuilder extends
    * <code>.dex.FlowConfig flow_config_override = 6;</code>
    */
   io.superdurable.gen.FlowConfigOrBuilder getFlowConfigOverrideOrBuilder();
+
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 7;</code>
+   * @return The enum numeric value on the wire for flowTimeoutPolicy.
+   */
+  int getFlowTimeoutPolicyValue();
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 7;</code>
+   * @return The flowTimeoutPolicy.
+   */
+  io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy();
 }

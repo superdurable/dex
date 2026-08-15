@@ -68,6 +68,17 @@ public interface FlowStartedOrContinuedHistoryEventOrBuilder extends
   com.google.protobuf.DurationOrBuilder getFlowTimeoutOrBuilder();
 
   /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 5;</code>
+   * @return The enum numeric value on the wire for flowTimeoutPolicy.
+   */
+  int getFlowTimeoutPolicyValue();
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 5;</code>
+   * @return The flowTimeoutPolicy.
+   */
+  io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy();
+
+  /**
    * <code>.dex.FlowInitialStart initial_start = 10;</code>
    * @return Whether the initialStart field is set.
    */

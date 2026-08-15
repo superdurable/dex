@@ -10,7 +10,10 @@
 
 package interpreter
 
-import "github.com/superdurable/dex/gen/dexpb"
+import (
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+)
 
 type StepRequestQueue struct {
 	queue []StepRequest
@@ -46,6 +49,16 @@ func NewStepRequestQueueWithResumeRequests(
 
 func (srq *StepRequestQueue) IsEmpty() bool {
 	return len(srq.queue) == 0
+}
+
+// HasUserRequests reports whether user Step work is queued.
+func (srq *StepRequestQueue) HasUserRequests() bool {
+	for _, request := range srq.queue {
+		if request.GetStepType() != service.FlowTimeoutStepType {
+			return true
+		}
+	}
+	return false
 }
 
 func (srq *StepRequestQueue) TakeAll() []StepRequest {
@@ -97,6 +110,12 @@ func (srq *StepRequestQueue) AddStepStartRequests(reqs []*dexpb.StepMovement) {
 	for _, request := range reqs {
 		srq.queue = append(srq.queue, NewStepStartRequest(request))
 	}
+}
+
+func (srq *StepRequestQueue) AddStepResumeRequest(
+	resumeInfo *dexpb.StepExecutionResumeInfo,
+) {
+	srq.queue = append(srq.queue, NewStepResumeRequest(resumeInfo))
 }
 
 func (srq *StepRequestQueue) AddSingleStepStartRequest(

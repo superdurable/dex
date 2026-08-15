@@ -41,6 +41,7 @@ class FlowErrorType(Enum):
         WORKER_API_FAILED: A Worker handler or dispatch failed.
         INVALID_USER_FLOW_CODE: Application Flow definitions or results were invalid.
         INTERNAL: Dex encountered an internal invariant or infrastructure failure.
+        FLOW_TIMEOUT: A Dex soft Flow timeout expired under the fail policy.
     """
 
     STEP_DECISION_FAILED = "step_decision_failed"
@@ -48,6 +49,7 @@ class FlowErrorType(Enum):
     WORKER_API_FAILED = "worker_api_failed"
     INVALID_USER_FLOW_CODE = "invalid_user_flow_code"
     INTERNAL = "internal"
+    FLOW_TIMEOUT = "flow_timeout"
 
 
 class DexServiceError(RuntimeError):

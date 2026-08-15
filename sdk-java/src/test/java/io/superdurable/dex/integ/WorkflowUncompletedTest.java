@@ -13,11 +13,15 @@
 package io.superdurable.dex.integ;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.Context;
+import io.superdurable.dex.Flow;
 import io.superdurable.dex.FlowErrorType;
 import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.FlowStatus;
+import io.superdurable.dex.FlowTimeoutPolicy;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
 import io.superdurable.dex.StartFlowOptions;
+import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StopFlowOptions;
 import io.superdurable.dex.StopType;
 import io.superdurable.dex.testing.DexDevTestEnvironment;
@@ -77,7 +81,88 @@ public final class WorkflowUncompletedTest {
                     StartFlowOptions.newBuilder().timeout(Duration.ofSeconds(1)).build());
 
             final FlowResult failure = waitForFailure(environment, flowId);
-            assertFailure(failure, FlowStatus.TIMED_OUT, null, null, 0);
+            assertFailure(
+                    failure,
+                    FlowStatus.FAILED,
+                    FlowErrorType.FLOW_TIMEOUT,
+                    "Flow timed out after 1 seconds",
+                    0);
+        }
+    }
+
+    @Test
+    void testFlowTimeoutHandler() throws Exception {
+        final TimeoutHandlerFlow flow = new TimeoutHandlerFlow();
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                flow)) {
+            final String flowId = flowId("flow-timeout-handler");
+            environment.client().startFlow(
+                    flow,
+                    flowId,
+                    null,
+                    StartFlowOptions.newBuilder().timeout(Duration.ofSeconds(1)).build());
+
+            assertEquals(
+                    "expired",
+                    environment.client()
+                            .waitForFlow(flowId, Duration.ofSeconds(15))
+                            .getSingleOutput(String.class));
+        }
+    }
+
+    @Test
+    void testFlowTimeoutHandlerCancelOverride() throws Exception {
+        final TimeoutHandlerFlow flow = new TimeoutHandlerFlow();
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                flow)) {
+            final String flowId = flowId("flow-timeout-handler-cancel");
+            environment.client().startFlow(
+                    flow,
+                    flowId,
+                    null,
+                    StartFlowOptions.newBuilder()
+                            .timeout(Duration.ofSeconds(1))
+                            .timeoutPolicy(FlowTimeoutPolicy.CANCEL)
+                            .build());
+
+            assertFailure(
+                    waitForFailure(environment, flowId),
+                    FlowStatus.CANCELED,
+                    null,
+                    null,
+                    0);
+        }
+    }
+
+    @Test
+    void testFlowTimeoutHandlerRequiresOverride() throws Exception {
+        try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
+                cacheDirectory,
+                WAIT_TIMEOUT_WORKFLOW)) {
+            final IllegalArgumentException missingTimeout = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> environment.client().startFlow(
+                            WAIT_TIMEOUT_WORKFLOW,
+                            flowId("flow-timeout-policy-without-timeout"),
+                            1,
+                            StartFlowOptions.newBuilder()
+                                    .timeoutPolicy(FlowTimeoutPolicy.CANCEL)
+                                    .build()));
+            assertTrue(missingTimeout.getMessage().contains("requires a positive timeout"));
+
+            final IllegalArgumentException failure = assertThrows(
+                    IllegalArgumentException.class,
+                    () -> environment.client().startFlow(
+                            WAIT_TIMEOUT_WORKFLOW,
+                            flowId("flow-timeout-handler-missing"),
+                            1,
+                            StartFlowOptions.newBuilder()
+                                    .timeout(Duration.ofSeconds(1))
+                                    .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
+                                    .build()));
+            assertTrue(failure.getMessage().contains("does not override handleTimeout"));
         }
     }
 
@@ -236,5 +321,12 @@ public final class WorkflowUncompletedTest {
 
     private static String flowId(final String prefix) {
         return prefix + "-" + UUID.randomUUID();
+    }
+
+    private static final class TimeoutHandlerFlow implements Flow<Void> {
+        @Override
+        public StepDecision handleTimeout(final Context context) {
+            return StepDecision.forceComplete("expired");
+        }
     }
 }

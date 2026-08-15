@@ -523,8 +523,15 @@ func (a *Activities) StartSubFlow(
 		return nil, err
 	}
 	options := condition.GetOptions()
-	if options.GetFlowTimeoutSeconds() < 0 || options.GetFlowStartDelaySeconds() < 0 {
-		return nil, fmt.Errorf("SubFlow timeout and start delay must be non-negative")
+	timeoutPolicy, err := service.ResolveFlowTimeoutPolicy(
+		options.GetFlowTimeoutSeconds(),
+		options.GetFlowTimeoutPolicy(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if options.GetFlowStartDelaySeconds() < 0 {
+		return nil, fmt.Errorf("SubFlow start delay must be non-negative")
 	}
 
 	parentFlowConfig := input.GetParentFlowConfig()
@@ -543,12 +550,14 @@ func (a *Activities) StartSubFlow(
 		condition, flowConfig, parentFlowID, subFlowID, requestID,
 	)
 	workflowInput := &dexpb.InterpreterWorkflowInput{
-		FlowType:       condition.GetSubFlowType(),
-		StartStepType:  condition.GetStartStepType(),
-		StepInput:      condition.GetStepInput(),
-		StepOptions:    condition.GetStepOptions(),
-		InitAttributes: options.GetAttributes(),
-		Config:         flowConfig,
+		FlowType:                     condition.GetSubFlowType(),
+		ConfiguredFlowTimeoutSeconds: options.GetFlowTimeoutSeconds(),
+		FlowTimeoutPolicy:            timeoutPolicy,
+		StartStepType:                condition.GetStartStepType(),
+		StepInput:                    condition.GetStepInput(),
+		StepOptions:                  condition.GetStepOptions(),
+		InitAttributes:               options.GetAttributes(),
+		Config:                       flowConfig,
 	}
 	return a.subFlowResolver.Resolve(
 		ctx, condition, subFlowID, requestID, workflowOptions, workflowInput,
@@ -656,12 +665,11 @@ func buildSubFlowStartOptions(
 ) uclient.StartWorkflowOptions {
 	options := condition.GetOptions()
 	workflowOptions := uclient.StartWorkflowOptions{
-		ID:                       subFlowID,
-		TaskQueue:                service.TaskQueue,
-		WorkflowExecutionTimeout: time.Duration(options.GetFlowTimeoutSeconds()) * time.Second,
-		IdReusePolicy:            ptr.Any(dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE),
-		RetryPolicy:              options.GetRetryPolicy(),
-		SearchAttributes:         index.ConvertAttributeWritesToSearchAttributeUpsertMap(options.GetAttributes()),
+		ID:               subFlowID,
+		TaskQueue:        service.TaskQueue,
+		IdReusePolicy:    ptr.Any(dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE),
+		RetryPolicy:      options.GetRetryPolicy(),
+		SearchAttributes: index.ConvertAttributeWritesToSearchAttributeUpsertMap(options.GetAttributes()),
 		Memo: map[string]interface{}{
 			service.WorkerAddressMemoKey: &dexpb.EncodedObject{Payload: []byte(flowConfig.GetWorkerTarget().GetAddress())},
 			service.WorkflowRequestId:    &dexpb.EncodedObject{Payload: []byte(requestID)},
@@ -1141,11 +1149,17 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 		if subFlowCondition.GetSubFlowIndex() != int32(i) {
 			return fmt.Errorf("SubFlow condition at index %d has unstable index %d", i, subFlowCondition.GetSubFlowIndex())
 		}
-		if subFlowCondition.GetOptions().GetFlowTimeoutSeconds() < 0 ||
-			subFlowCondition.GetOptions().GetFlowStartDelaySeconds() < 0 {
-			return fmt.Errorf("SubFlow condition at index %d has a negative duration", i)
+		options := subFlowCondition.GetOptions()
+		if _, err := service.ResolveFlowTimeoutPolicy(
+			options.GetFlowTimeoutSeconds(),
+			options.GetFlowTimeoutPolicy(),
+		); err != nil {
+			return fmt.Errorf("SubFlow condition at index %d: %w", i, err)
 		}
-		reusePolicy := subFlowCondition.GetOptions().GetReusePolicy()
+		if options.GetFlowStartDelaySeconds() < 0 {
+			return fmt.Errorf("SubFlow condition at index %d has a negative start delay", i)
+		}
+		reusePolicy := options.GetReusePolicy()
 		if _, known := dexpb.SubFlowReusePolicy_name[int32(reusePolicy)]; !known {
 			return fmt.Errorf("SubFlow condition at index %d has an unknown reuse policy", i)
 		}
@@ -1153,7 +1167,7 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 			return err
 		}
 		if err := workerclient.ValidateAttributeWrites(
-			subFlowCondition.GetOptions().GetAttributes(),
+			options.GetAttributes(),
 		); err != nil {
 			return err
 		}

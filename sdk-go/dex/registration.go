@@ -30,13 +30,14 @@ type Registry struct {
 }
 
 type registeredFlow struct {
-	flow         Flow
-	flowType     string
-	startingStep *registeredStep
-	steps        map[string]*registeredStep
-	rpcs         map[string]*registeredRPC
-	attributes   map[string]registeredAttribute
-	channels     map[string]registeredChannel
+	flow           Flow
+	timeoutHandler FlowTimeoutHandler
+	flowType       string
+	startingStep   *registeredStep
+	steps          map[string]*registeredStep
+	rpcs           map[string]*registeredRPC
+	attributes     map[string]registeredAttribute
+	channels       map[string]registeredChannel
 }
 
 type registeredStep struct {
@@ -121,12 +122,13 @@ func (registry *Registry) registerFlow(
 		return nil, fmt.Errorf("dex: flow must use a named package type")
 	}
 	registered := &registeredFlow{
-		flow:       flow,
-		flowType:   flowType,
-		steps:      make(map[string]*registeredStep),
-		rpcs:       make(map[string]*registeredRPC),
-		attributes: make(map[string]registeredAttribute),
-		channels:   make(map[string]registeredChannel),
+		flow:           flow,
+		timeoutHandler: flowTimeoutHandler(flow),
+		flowType:       flowType,
+		steps:          make(map[string]*registeredStep),
+		rpcs:           make(map[string]*registeredRPC),
+		attributes:     make(map[string]registeredAttribute),
+		channels:       make(map[string]registeredChannel),
 	}
 	if err := registered.registerPersistence(
 		flow.GetPersistenceSchema(),
@@ -143,6 +145,11 @@ func (registry *Registry) registerFlow(
 	}
 	registered.rpcs = rpcs
 	return registered, nil
+}
+
+func flowTimeoutHandler(flow Flow) FlowTimeoutHandler {
+	handler, _ := flow.(FlowTimeoutHandler)
+	return handler
 }
 
 func (flow *registeredFlow) registerPersistence(

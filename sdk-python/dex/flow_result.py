@@ -190,7 +190,7 @@ def flow_result_from_proto(result: pb.FlowResult, decoder: _Decoder) -> FlowResu
         pb.FLOW_STATUS_FAILED: FlowStatus.FAILED,
         pb.FLOW_STATUS_CANCELED: FlowStatus.CANCELED,
         pb.FLOW_STATUS_TERMINATED: FlowStatus.TERMINATED,
-        pb.FLOW_STATUS_TIMEOUT: FlowStatus.TIMED_OUT,
+        pb.FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY: FlowStatus.SERVER_SIDE_TIMEOUT_INTERNAL_ONLY,
         pb.FLOW_STATUS_CONTINUED_AS_NEW: FlowStatus.CONTINUED_AS_NEW,
     }
     errors = {
@@ -200,6 +200,7 @@ def flow_result_from_proto(result: pb.FlowResult, decoder: _Decoder) -> FlowResu
         pb.FLOW_ERROR_TYPE_WORKER_API_FAIL: FlowErrorType.WORKER_API_FAILED,
         pb.FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: FlowErrorType.INVALID_USER_FLOW_CODE,
         pb.FLOW_ERROR_TYPE_INTERNAL: FlowErrorType.INTERNAL,
+        pb.FLOW_ERROR_TYPE_FLOW_TIMEOUT: FlowErrorType.FLOW_TIMEOUT,
     }
     try:
         status = statuses[result.flow_status]

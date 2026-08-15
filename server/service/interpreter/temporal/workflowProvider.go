@@ -255,11 +255,10 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 			ID:    info.WorkflowExecution.ID,
 			RunID: info.WorkflowExecution.RunID,
 		},
-		WorkflowStartTime:        info.WorkflowStartTime,
-		WorkflowExecutionTimeout: info.WorkflowExecutionTimeout,
-		FirstRunID:               info.FirstRunID,
-		CurrentRunID:             info.WorkflowExecution.RunID,
-		Attempt:                  info.Attempt,
+		WorkflowStartTime: info.WorkflowStartTime,
+		FirstRunID:        info.FirstRunID,
+		CurrentRunID:      info.WorkflowExecution.RunID,
+		Attempt:           info.Attempt,
 	}
 	if info.RetryPolicy != nil {
 		workflowInfo.RetryMaximumAttempts = ptr.Any(info.RetryPolicy.MaximumAttempts)

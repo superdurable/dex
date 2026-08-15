@@ -285,11 +285,19 @@ message StartFlowRequest {
   string flow_id = 1;
   string flow_type = 2;
   int32 flow_timeout_seconds = 3;
+  FlowTimeoutPolicy flow_timeout_policy = 4;
   string start_step_type = 5;
   Value step_input = 8;
   StepOptions step_options = 9;
   FlowStartOptions flow_start_options = 10;
   string request_id = 11;
+}
+
+enum FlowTimeoutPolicy {
+  FLOW_TIMEOUT_POLICY_UNSPECIFIED = 0;
+  FLOW_TIMEOUT_POLICY_FAIL = 1;
+  FLOW_TIMEOUT_POLICY_CANCEL = 2;
+  FLOW_TIMEOUT_POLICY_HANDLER = 3;
 }
 
 message StartFlowResponse {
@@ -365,7 +373,8 @@ enum FlowStatus {
   FLOW_STATUS_RUNNING = 1;
   FLOW_STATUS_COMPLETED = 2;
   FLOW_STATUS_FAILED = 3;
-  FLOW_STATUS_TIMEOUT = 4;
+  // Reserved for reporting a backend hard timeout; applications must not depend on this status.
+  FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY = 4;
   FLOW_STATUS_TERMINATED = 5;
   FLOW_STATUS_CANCELED = 6;
   FLOW_STATUS_CONTINUED_AS_NEW = 7;
@@ -378,6 +387,7 @@ enum FlowErrorType {
   // includes waitFor/execute/rpc methods
   FLOW_ERROR_TYPE_WORKER_API_FAIL = 3;
   FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE = 4;
+  FLOW_ERROR_TYPE_FLOW_TIMEOUT = 5;
   // either bug in sdk or server
   FLOW_ERROR_TYPE_INTERNAL = 6;
 }
@@ -493,6 +503,7 @@ message FlowStartedOrContinuedHistoryEvent {
   string flow_type = 2;
   FlowConfig flow_config = 3;
   google.protobuf.Duration flow_timeout = 4;
+  FlowTimeoutPolicy flow_timeout_policy = 5;
 
   oneof start_or_continue {
     FlowInitialStart initial_start = 10;
@@ -954,6 +965,7 @@ message SubFlowOptions {
   FlowRetryPolicy retry_policy = 4;
   repeated AttributeWrite attributes = 5;
   FlowConfig flow_config_override = 6;
+  FlowTimeoutPolicy flow_timeout_policy = 7;
 }
 
 message SubFlowCondition {
@@ -1100,14 +1112,16 @@ message ContinueAsNewInput {
 
 message InterpreterWorkflowInput {
   string flow_type = 1;
-  string start_step_type = 3;
-  Value step_input = 6;
-  StepOptions step_options = 7;
-  repeated AttributeWrite init_attributes = 8;
-  FlowConfig config = 9;
+  int32 configured_flow_timeout_seconds = 2;
+  FlowTimeoutPolicy flow_timeout_policy = 3;
+  string start_step_type = 4;
+  Value step_input = 5;
+  StepOptions step_options = 6;
+  repeated AttributeWrite init_attributes = 7;
+  FlowConfig config = 8;
   // When true, ignore start_step_type / step_input / step_options / init_attributes.
-  bool is_resume_from_continue_as_new = 10;
-  ContinueAsNewInput continue_as_new_input = 11;
+  bool is_resume_from_continue_as_new = 9;
+  ContinueAsNewInput continue_as_new_input = 10;
 }
 
 message InterpreterWorkflowOutput {

@@ -265,7 +265,6 @@ func (t *temporalClient) StartInterpreterWorkflow(
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                                       options.ID,
 		TaskQueue:                                options.TaskQueue,
-		WorkflowExecutionTimeout:                 options.WorkflowExecutionTimeout,
 		SearchAttributes:                         options.SearchAttributes,
 		Memo:                                     memo,
 		WorkflowExecutionErrorWhenAlreadyStarted: true,
@@ -295,14 +294,13 @@ func (t *temporalClient) StartInterpreterWorkflow(
 				CronExpressions: []string{*options.CronSchedule},
 			},
 			Action: &client.ScheduleWorkflowAction{
-				ID:                       workflowOptions.ID,
-				TaskQueue:                workflowOptions.TaskQueue,
-				Workflow:                 t.it.Engine,
-				Args:                     args,
-				WorkflowExecutionTimeout: workflowOptions.WorkflowExecutionTimeout,
-				RetryPolicy:              workflowOptions.RetryPolicy,
-				Memo:                     workflowOptions.Memo,
-				TypedSearchAttributes:    workflowOptions.TypedSearchAttributes,
+				ID:                    workflowOptions.ID,
+				TaskQueue:             workflowOptions.TaskQueue,
+				Workflow:              t.it.Engine,
+				Args:                  args,
+				RetryPolicy:           workflowOptions.RetryPolicy,
+				Memo:                  workflowOptions.Memo,
+				TypedSearchAttributes: workflowOptions.TypedSearchAttributes,
 			},
 		})
 
@@ -656,11 +654,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		); err != nil {
 			return err
 		}
-		var flowTimeout time.Duration
-		if timeout := attributes.GetWorkflowExecutionTimeout(); timeout != nil {
-			flowTimeout = timeout.AsDuration()
-		}
-		builder.RecordStart(event.GetEventId(), eventTime, &input, flowTimeout)
+		builder.RecordStart(event.GetEventId(), eventTime, &input)
 	case enums.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
 		return t.recordTemporalScheduledActivity(
 			builder,
@@ -807,7 +801,7 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		})
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT:
 		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
-			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_TIMEOUT,
+			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY,
 		})
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
 		attributes := event.GetWorkflowExecutionTerminatedEventAttributes()
@@ -1243,7 +1237,7 @@ func mapToDexWorkflowStatus(status enums.WorkflowExecutionStatus) (dexpb.FlowSta
 	case enums.WORKFLOW_EXECUTION_STATUS_RUNNING:
 		return dexpb.FlowStatus_FLOW_STATUS_RUNNING, nil
 	case enums.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
-		return dexpb.FlowStatus_FLOW_STATUS_TIMEOUT, nil
+		return dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY, nil
 	case enums.WORKFLOW_EXECUTION_STATUS_TERMINATED:
 		return dexpb.FlowStatus_FLOW_STATUS_TERMINATED, nil
 	default:
@@ -1262,7 +1256,7 @@ func (t *temporalClient) GetWorkflowResult(
 	case realtemporal.IsCanceledError(err):
 		status = dexpb.FlowStatus_FLOW_STATUS_CANCELED
 	case realtemporal.IsTimeoutError(err):
-		status = dexpb.FlowStatus_FLOW_STATUS_TIMEOUT
+		status = dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY
 	case realtemporal.IsTerminatedError(err):
 		status = dexpb.FlowStatus_FLOW_STATUS_TERMINATED
 	default:

@@ -21,7 +21,12 @@ from dex.condition import ChannelCondition, Condition, SubFlowCondition, TimerCo
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, RPCResult, _RegisteredFlow, _RegisteredStep
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
-from dex.flow_options import SubFlowOptions, SubFlowReusePolicy
+from dex.flow_options import (
+    FlowTimeoutPolicy,
+    SubFlowOptions,
+    SubFlowReusePolicy,
+    _resolve_flow_timeout_policy,
+)
 from dex.runtime_errors import InvalidStepResultError, ValueMappingError
 from dex.step import (
     DecisionKind,
@@ -34,6 +39,8 @@ from dex.step import (
     WaitForFailurePolicy,
 )
 from dex.wait import Wait, WaitKind
+
+_TIMEOUT_HANDLER_STEP_TYPE = "sys:timeout_handler"
 
 
 class WorkerDispatcher:
@@ -94,6 +101,8 @@ class WorkerDispatcher:
     ) -> pb.InvokeExecuteMethodResponse:
         request = self._hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
+        if request.step_type == _TIMEOUT_HANDLER_STEP_TYPE:
+            return self._invoke_timeout_handler(request, flow)
         step = flow.step(request.step_type)
         condition_results = (
             request.condition_results if request.HasField("condition_results") else None
@@ -127,6 +136,54 @@ class WorkerDispatcher:
         except (TypeError, ValueError) as error:
             raise InvalidStepResultError(
                 flow.name, step.name, "execute", str(error)
+            ) from error
+
+    def _invoke_timeout_handler(
+        self,
+        request: pb.InvokeExecuteMethodRequest,
+        flow: _RegisteredFlow,
+    ) -> pb.InvokeExecuteMethodResponse:
+        if request.HasField("step_input"):
+            raise InvalidStepResultError(
+                flow.name, _TIMEOUT_HANDLER_STEP_TYPE, "execute", "input must be absent"
+            )
+        if not flow.has_timeout_handler:
+            raise InvalidStepResultError(
+                flow.name,
+                _TIMEOUT_HANDLER_STEP_TYPE,
+                "execute",
+                "handler is not registered",
+            )
+        condition_results = (
+            request.condition_results if request.HasField("condition_results") else None
+        )
+        context = InvocationContext(
+            InvocationMethod.EXECUTE,
+            flow,
+            request.context,
+            self._values,
+            request.attributes,
+            request.step_exe_locals,
+            condition_results,
+        )
+        decision = flow.flow.handle_timeout(context)
+        try:
+            if isawaitable(decision):
+                raise TypeError(
+                    "handle_timeout returned an awaitable; use AsyncWorker for async handlers"
+                )
+            if not isinstance(decision, StepDecision):
+                raise TypeError("handle_timeout must return StepDecision")
+            return pb.InvokeExecuteMethodResponse(
+                step_decision=self._map_decision(flow, decision),
+                upsert_attributes=list(context.attribute_writes.values()),
+                record_events=context.events,
+                upsert_step_exe_locals=list(context.local_writes.values()),
+                publish_to_channel=context.publications,
+            )
+        except (TypeError, ValueError) as error:
+            raise InvalidStepResultError(
+                flow.name, _TIMEOUT_HANDLER_STEP_TYPE, "execute", str(error)
             ) from error
 
     def invoke_rpc(
@@ -304,6 +361,18 @@ class WorkerDispatcher:
         )
         if options.timeout is not None:
             mapped.flow_timeout_seconds = self._seconds32(options.timeout)
+        timeout_policy = _resolve_flow_timeout_policy(
+            target.name,
+            target.has_timeout_handler,
+            options.timeout,
+            options.timeout_policy,
+        )
+        mapped.flow_timeout_policy = {
+            FlowTimeoutPolicy.DEFAULT: pb.FLOW_TIMEOUT_POLICY_UNSPECIFIED,
+            FlowTimeoutPolicy.FAIL: pb.FLOW_TIMEOUT_POLICY_FAIL,
+            FlowTimeoutPolicy.CANCEL: pb.FLOW_TIMEOUT_POLICY_CANCEL,
+            FlowTimeoutPolicy.HANDLER: pb.FLOW_TIMEOUT_POLICY_HANDLER,
+        }[timeout_policy]
         if options.start_delay is not None:
             mapped.flow_start_delay_seconds = self._seconds32(options.start_delay)
         if options.retry_policy is not None:

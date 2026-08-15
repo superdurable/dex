@@ -19,6 +19,7 @@ const (
 	EventTypeFlowStart
 	EventTypeFlowComplete
 	EventTypeFlowFail
+	EventTypeFlowCancel
 	EventTypeWaitForAttemptFail
 	EventTypeWaitForAttemptSucc
 	EventTypeExecuteAttemptFail

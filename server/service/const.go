@@ -54,6 +54,11 @@ const (
 	WorkflowRequestId    = DexSystemConstPrefix + "WorkflowRequestId"
 )
 
+const (
+	FlowTimeoutStepType        = "sys:timeout_handler"
+	FlowTimeoutStepExecutionID = FlowTimeoutStepType + "-1"
+)
+
 // SubFlowID returns the durable child identity for one parent Step condition.
 func SubFlowID(parentFlowID string, stepExecutionID string, index int32) string {
 	return fmt.Sprintf("SubFlow:%s-%s-%d", parentFlowID, stepExecutionID, index)

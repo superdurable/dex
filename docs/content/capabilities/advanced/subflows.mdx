@@ -153,6 +153,7 @@ before invoking it.
 SubFlowOptions options = SubFlowOptions.newBuilder()
     .reusePolicy(SubFlowReusePolicy.ATTACH)
     .timeout(Duration.ofMinutes(20))
+    .timeoutPolicy(FlowTimeoutPolicy.CANCEL)
     .startDelay(Duration.ofSeconds(5))
     .retryPolicy(retry)
     .configOverride(childConfig)
@@ -161,6 +162,10 @@ SubFlowOptions options = SubFlowOptions.newBuilder()
 
 Options also support initial Attributes. Flow ID, request ID, and already-started suppression are
 intentionally server-owned.
+
+SubFlow timeouts use the same Dex soft-timeout policies as top-level Flows. A handler policy
+targets the child Flow's registered timeout hook; fail and cancel results are reported durably to
+the parent before the child backend execution closes.
 
 ## Continue-as-new and lifecycle
 

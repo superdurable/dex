@@ -16,7 +16,7 @@ import {
   stringCodec,
   type Client,
 } from "../../src/index.js";
-import { expectError, flowId, withEnvironment } from "./environment.js";
+import { flowId, withEnvironment } from "./environment.js";
 import { RpcLockingFlow } from "./rpc_locking_flow.js";
 
 for (const locking of [true, false]) {
@@ -40,13 +40,13 @@ for (const locking of [true, false]) {
     await withEnvironment([flow], async ({ client }) => {
       const id = await startAndInvoke(client, flow, locking);
       await assertCompletedWithAttributes(client, flow, id);
-      const resetRunId = await client.resetFlow(id, {
+      await client.resetFlow(id, {
         type: ResetType.BEGINNING,
         reason: "testing reset",
         skipWritesReapply: true,
       });
       const failure = await client.waitForFlow(id, 10_000);
-      assert.equal(failure.status, "timedOut");
+      assert.equal(failure.status, "failed");
       assert.equal(failure.completions.length, 0);
       assert.equal(await client.getAttribute(id, flow.data), undefined);
       assert.equal(await client.getAttribute(id, flow.keyword), undefined);

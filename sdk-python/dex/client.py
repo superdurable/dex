@@ -33,12 +33,14 @@ from dex.flow import Flow, Registry, RPCResult
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_info import FlowInfo, FlowStatus, SearchFlowEntry, SearchFlowsPage
 from dex.flow_options import (
+    FlowTimeoutPolicy,
     IdReusePolicy,
     ResetFlowOptions,
     ResetType,
     StartFlowOptions,
     StopFlowOptions,
     StopType,
+    _resolve_flow_timeout_policy,
 )
 from dex.flow_result import FlowResult, flow_result_from_proto
 from dex.runtime_errors import FlowErrorType
@@ -171,6 +173,7 @@ class Client:
             raise ValueError("Flow without a start Step requires None input")
         if options.timeout is not None:
             request.flow_timeout_seconds = self._seconds32(options.timeout)
+        request.flow_timeout_policy = self._resolve_timeout_policy(registered, options)
         response = cast(
             pb.StartFlowResponse,
             self._call(self._service.StartFlow, request, "start_flow", flow_id, "none"),
@@ -1162,6 +1165,23 @@ class Client:
         return instance, arguments["expected"], timeout
 
     @staticmethod
+    def _resolve_timeout_policy(
+        registered: Any, options: StartFlowOptions
+    ) -> pb.FlowTimeoutPolicy:
+        policy = _resolve_flow_timeout_policy(
+            registered.name,
+            registered.has_timeout_handler,
+            options.timeout,
+            options.timeout_policy,
+        )
+        return {
+            FlowTimeoutPolicy.DEFAULT: pb.FLOW_TIMEOUT_POLICY_UNSPECIFIED,
+            FlowTimeoutPolicy.FAIL: pb.FLOW_TIMEOUT_POLICY_FAIL,
+            FlowTimeoutPolicy.CANCEL: pb.FLOW_TIMEOUT_POLICY_CANCEL,
+            FlowTimeoutPolicy.HANDLER: pb.FLOW_TIMEOUT_POLICY_HANDLER,
+        }[policy]
+
+    @staticmethod
     def _seconds32(duration: timedelta) -> int:
         seconds = duration.total_seconds()
         if seconds < 0 or not seconds.is_integer() or seconds > 2**31 - 1:
@@ -1174,7 +1194,9 @@ class Client:
             int(pb.FLOW_STATUS_RUNNING): FlowStatus.RUNNING,
             int(pb.FLOW_STATUS_COMPLETED): FlowStatus.COMPLETED,
             int(pb.FLOW_STATUS_FAILED): FlowStatus.FAILED,
-            int(pb.FLOW_STATUS_TIMEOUT): FlowStatus.TIMED_OUT,
+            int(pb.FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY): (
+                FlowStatus.SERVER_SIDE_TIMEOUT_INTERNAL_ONLY
+            ),
             int(pb.FLOW_STATUS_TERMINATED): FlowStatus.TERMINATED,
             int(pb.FLOW_STATUS_CANCELED): FlowStatus.CANCELED,
             int(pb.FLOW_STATUS_CONTINUED_AS_NEW): FlowStatus.CONTINUED_AS_NEW,
@@ -1198,6 +1220,7 @@ class Client:
                 FlowErrorType.INVALID_USER_FLOW_CODE
             ),
             int(pb.FLOW_ERROR_TYPE_INTERNAL): FlowErrorType.INTERNAL,
+            int(pb.FLOW_ERROR_TYPE_FLOW_TIMEOUT): FlowErrorType.FLOW_TIMEOUT,
         }
         return error_types.get(error_type)
 

@@ -23,83 +23,100 @@ public interface InterpreterWorkflowInputOrBuilder extends
       getFlowTypeBytes();
 
   /**
-   * <code>string start_step_type = 3;</code>
+   * <code>int32 configured_flow_timeout_seconds = 2;</code>
+   * @return The configuredFlowTimeoutSeconds.
+   */
+  int getConfiguredFlowTimeoutSeconds();
+
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 3;</code>
+   * @return The enum numeric value on the wire for flowTimeoutPolicy.
+   */
+  int getFlowTimeoutPolicyValue();
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 3;</code>
+   * @return The flowTimeoutPolicy.
+   */
+  io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy();
+
+  /**
+   * <code>string start_step_type = 4;</code>
    * @return The startStepType.
    */
   java.lang.String getStartStepType();
   /**
-   * <code>string start_step_type = 3;</code>
+   * <code>string start_step_type = 4;</code>
    * @return The bytes for startStepType.
    */
   com.google.protobuf.ByteString
       getStartStepTypeBytes();
 
   /**
-   * <code>.dex.Value step_input = 6;</code>
+   * <code>.dex.Value step_input = 5;</code>
    * @return Whether the stepInput field is set.
    */
   boolean hasStepInput();
   /**
-   * <code>.dex.Value step_input = 6;</code>
+   * <code>.dex.Value step_input = 5;</code>
    * @return The stepInput.
    */
   io.superdurable.gen.Value getStepInput();
   /**
-   * <code>.dex.Value step_input = 6;</code>
+   * <code>.dex.Value step_input = 5;</code>
    */
   io.superdurable.gen.ValueOrBuilder getStepInputOrBuilder();
 
   /**
-   * <code>.dex.StepOptions step_options = 7;</code>
+   * <code>.dex.StepOptions step_options = 6;</code>
    * @return Whether the stepOptions field is set.
    */
   boolean hasStepOptions();
   /**
-   * <code>.dex.StepOptions step_options = 7;</code>
+   * <code>.dex.StepOptions step_options = 6;</code>
    * @return The stepOptions.
    */
   io.superdurable.gen.StepOptions getStepOptions();
   /**
-   * <code>.dex.StepOptions step_options = 7;</code>
+   * <code>.dex.StepOptions step_options = 6;</code>
    */
   io.superdurable.gen.StepOptionsOrBuilder getStepOptionsOrBuilder();
 
   /**
-   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 7;</code>
    */
   java.util.List<io.superdurable.gen.AttributeWrite> 
       getInitAttributesList();
   /**
-   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 7;</code>
    */
   io.superdurable.gen.AttributeWrite getInitAttributes(int index);
   /**
-   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 7;</code>
    */
   int getInitAttributesCount();
   /**
-   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 7;</code>
    */
   java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getInitAttributesOrBuilderList();
   /**
-   * <code>repeated .dex.AttributeWrite init_attributes = 8;</code>
+   * <code>repeated .dex.AttributeWrite init_attributes = 7;</code>
    */
   io.superdurable.gen.AttributeWriteOrBuilder getInitAttributesOrBuilder(
       int index);
 
   /**
-   * <code>.dex.FlowConfig config = 9;</code>
+   * <code>.dex.FlowConfig config = 8;</code>
    * @return Whether the config field is set.
    */
   boolean hasConfig();
   /**
-   * <code>.dex.FlowConfig config = 9;</code>
+   * <code>.dex.FlowConfig config = 8;</code>
    * @return The config.
    */
   io.superdurable.gen.FlowConfig getConfig();
   /**
-   * <code>.dex.FlowConfig config = 9;</code>
+   * <code>.dex.FlowConfig config = 8;</code>
    */
   io.superdurable.gen.FlowConfigOrBuilder getConfigOrBuilder();
 
@@ -108,23 +125,23 @@ public interface InterpreterWorkflowInputOrBuilder extends
    * When true, ignore start_step_type / step_input / step_options / init_attributes.
    * </pre>
    *
-   * <code>bool is_resume_from_continue_as_new = 10;</code>
+   * <code>bool is_resume_from_continue_as_new = 9;</code>
    * @return The isResumeFromContinueAsNew.
    */
   boolean getIsResumeFromContinueAsNew();
 
   /**
-   * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
+   * <code>.dex.ContinueAsNewInput continue_as_new_input = 10;</code>
    * @return Whether the continueAsNewInput field is set.
    */
   boolean hasContinueAsNewInput();
   /**
-   * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
+   * <code>.dex.ContinueAsNewInput continue_as_new_input = 10;</code>
    * @return The continueAsNewInput.
    */
   io.superdurable.gen.ContinueAsNewInput getContinueAsNewInput();
   /**
-   * <code>.dex.ContinueAsNewInput continue_as_new_input = 11;</code>
+   * <code>.dex.ContinueAsNewInput continue_as_new_input = 10;</code>
    */
   io.superdurable.gen.ContinueAsNewInputOrBuilder getContinueAsNewInputOrBuilder();
 }

@@ -292,7 +292,10 @@ class CancellationSelectorWaiting implements Step<string> {
 
   public waitFor(_context: Context, input: string): Wait {
     this.flow.markSelectorWaiting();
-    return Wait.until(Timer.byDuration(input === "first" ? 30_000 : 2_000));
+    const milliseconds = input === "first" || this.flow.scenario === "global-selector"
+      ? 30_000
+      : 2_000;
+    return Wait.until(Timer.byDuration(milliseconds));
   }
 
   public execute(_context: Context, input: string): StepDecision {

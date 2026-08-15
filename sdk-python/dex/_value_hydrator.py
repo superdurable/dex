@@ -88,7 +88,8 @@ class ValueHydrator:
     ) -> pb.InvokeExecuteMethodRequest:
         result = pb.InvokeExecuteMethodRequest()
         result.CopyFrom(request)
-        values = [request.step_input]
+        has_step_input = request.HasField("step_input")
+        values = [request.step_input] if has_step_input else []
         values.extend(entry.value for entry in request.attributes)
         values.extend(entry.value for entry in request.step_exe_locals)
         for channel_result in request.condition_results.channel_results:
@@ -98,7 +99,8 @@ class ValueHydrator:
                 completion.completed_step_output for completion in flow_result.results
             )
         hydrated = iter(self.hydrate_all(values))
-        result.step_input.CopyFrom(next(hydrated))
+        if has_step_input:
+            result.step_input.CopyFrom(next(hydrated))
         for entry in result.attributes:
             entry.value.CopyFrom(next(hydrated))
         for entry in result.step_exe_locals:

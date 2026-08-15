@@ -100,32 +100,36 @@ func mapAttributeSyncConfig(enabled bool) *dexpb.AttributeSyncConfig {
 
 func mapStartFlowOptions(
 	options StartFlowOptions,
-) (int32, *dexpb.FlowStartOptions, error) {
+) (int32, dexpb.FlowTimeoutPolicy, *dexpb.FlowStartOptions, error) {
 	timeout, err := optionalDurationSeconds32(options.Timeout)
 	if err != nil {
-		return 0, nil, fmt.Errorf("dex: flow timeout: %w", err)
+		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, fmt.Errorf("dex: flow timeout: %w", err)
+	}
+	timeoutPolicy, err := mapFlowTimeoutPolicy(options.TimeoutPolicy)
+	if err != nil {
+		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
 	startDelay, err := optionalDurationSeconds32(options.StartDelay)
 	if err != nil {
-		return 0, nil, fmt.Errorf("dex: start delay: %w", err)
+		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, fmt.Errorf("dex: start delay: %w", err)
 	}
 	idReuse, err := mapIDReusePolicy(options.IDReusePolicy)
 	if err != nil {
-		return 0, nil, err
+		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
 	retry, err := mapFlowRetryPolicy(options.RetryPolicy)
 	if err != nil {
-		return 0, nil, err
+		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
 	attributes, err := mapInitialAttributes(options.Attributes)
 	if err != nil {
-		return 0, nil, err
+		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
 	config, err := mapFlowConfig(options.ConfigOverride)
 	if err != nil {
-		return 0, nil, err
+		return 0, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil, err
 	}
-	return timeout, &dexpb.FlowStartOptions{
+	return timeout, timeoutPolicy, &dexpb.FlowStartOptions{
 		IdReusePolicy:         idReuse,
 		CronSchedule:          options.CronSchedule,
 		FlowStartDelaySeconds: startDelay,
@@ -136,6 +140,22 @@ func mapStartFlowOptions(
 			options.AlreadyStarted,
 		),
 	}, nil
+}
+
+func mapFlowTimeoutPolicy(policy FlowTimeoutPolicy) (dexpb.FlowTimeoutPolicy, error) {
+	switch policy {
+	case TimeoutDefault:
+		return dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED, nil
+	case TimeoutFail:
+		return dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL, nil
+	case TimeoutCancel:
+		return dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL, nil
+	case TimeoutHandler:
+		return dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER, nil
+	default:
+		return dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED,
+			fmt.Errorf("dex: invalid Flow timeout policy %d", policy)
+	}
 }
 
 func mapAlreadyStartedOptions(
@@ -592,6 +612,14 @@ func mapSubFlowOptions(
 	target *registeredFlow,
 	options SubFlowOptions,
 ) (*dexpb.SubFlowOptions, error) {
+	timeoutPolicy, err := resolveFlowTimeoutPolicy(
+		target,
+		options.Timeout,
+		options.TimeoutPolicy,
+	)
+	if err != nil {
+		return nil, err
+	}
 	timeout, err := optionalDurationSeconds32(options.Timeout)
 	if err != nil {
 		return nil, fmt.Errorf("dex: SubFlow timeout: %w", err)
@@ -619,9 +647,14 @@ func mapSubFlowOptions(
 	if err != nil {
 		return nil, err
 	}
+	mappedTimeoutPolicy, err := mapFlowTimeoutPolicy(timeoutPolicy)
+	if err != nil {
+		return nil, err
+	}
 	return &dexpb.SubFlowOptions{
 		ReusePolicy:           reusePolicy,
 		FlowTimeoutSeconds:    timeout,
+		FlowTimeoutPolicy:     mappedTimeoutPolicy,
 		FlowStartDelaySeconds: startDelay,
 		RetryPolicy:           retry,
 		Attributes:            attributes,
@@ -1324,8 +1357,8 @@ func mapFlowStatus(status dexpb.FlowStatus) (FlowStatus, error) {
 		return FlowCompleted, nil
 	case dexpb.FlowStatus_FLOW_STATUS_FAILED:
 		return FlowFailed, nil
-	case dexpb.FlowStatus_FLOW_STATUS_TIMEOUT:
-		return FlowTimedOut, nil
+	case dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY:
+		return FlowServerSideTimeoutInternalOnly, nil
 	case dexpb.FlowStatus_FLOW_STATUS_TERMINATED:
 		return FlowTerminated, nil
 	case dexpb.FlowStatus_FLOW_STATUS_CANCELED:
@@ -1351,6 +1384,8 @@ func mapFlowErrorType(errorType dexpb.FlowErrorType) (FlowErrorType, error) {
 		return FlowErrorInvalidUserCode, nil
 	case dexpb.FlowErrorType_FLOW_ERROR_TYPE_INTERNAL:
 		return FlowErrorInternal, nil
+	case dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT:
+		return FlowErrorTimeout, nil
 	default:
 		return 0, fmt.Errorf("dex: unsupported flow error type %d", errorType)
 	}

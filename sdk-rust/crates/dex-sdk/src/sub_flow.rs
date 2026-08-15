@@ -12,8 +12,8 @@ use std::time::Duration;
 use crate::start_flow_options::InitialAttribute;
 use crate::wait::SubFlowDefinition;
 use crate::{
-    Attribute, AttributeMap, Condition, Context, Flow, FlowConfig, FlowResult, HandlerResult,
-    RetryPolicy, SdkResult, Value, value_mapper,
+    Attribute, AttributeMap, Condition, Context, Flow, FlowConfig, FlowResult, FlowTimeoutPolicy,
+    HandlerResult, RetryPolicy, SdkResult, Value, value_mapper,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,6 +34,7 @@ pub enum SubFlowReusePolicy {
 /// request ID. Builder methods preserve normal Flow start defaults when omitted.
 pub struct SubFlowOptions {
     pub(crate) timeout: Option<Duration>,
+    pub(crate) timeout_policy: FlowTimeoutPolicy,
     pub(crate) start_delay: Option<Duration>,
     pub(crate) retry_policy: Option<RetryPolicy>,
     pub(crate) config_override: Option<FlowConfig>,
@@ -47,6 +48,7 @@ impl SubFlowOptions {
     pub fn new() -> Self {
         Self {
             timeout: None,
+            timeout_policy: FlowTimeoutPolicy::Default,
             start_delay: None,
             retry_policy: None,
             config_override: None,
@@ -59,6 +61,12 @@ impl SubFlowOptions {
     /// Sets the maximum total SubFlow execution duration.
     pub fn timeout(mut self, value: Duration) -> Self {
         self.timeout = Some(value);
+        self
+    }
+
+    /// Selects what Dex does when the positive soft SubFlow timeout expires.
+    pub fn timeout_policy(mut self, value: FlowTimeoutPolicy) -> Self {
+        self.timeout_policy = value;
         self
     }
 

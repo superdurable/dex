@@ -23,7 +23,7 @@ class FlowStatus(Enum):
         FAILED: The Flow ended because application or worker processing failed.
         CANCELED: The Flow cooperatively accepted a cancellation request.
         TERMINATED: The Flow was forcibly terminated.
-        TIMED_OUT: The Flow exceeded its configured timeout.
+        SERVER_SIDE_TIMEOUT_INTERNAL_ONLY: Reserved backend hard-timeout status.
         CONTINUED_AS_NEW: This run rolled forward into a new run.
     """
 
@@ -32,7 +32,7 @@ class FlowStatus(Enum):
     FAILED = "failed"
     CANCELED = "canceled"
     TERMINATED = "terminated"
-    TIMED_OUT = "timed_out"
+    SERVER_SIDE_TIMEOUT_INTERNAL_ONLY = "server_side_timeout_internal_only"
     CONTINUED_AS_NEW = "continued_as_new"
 
 

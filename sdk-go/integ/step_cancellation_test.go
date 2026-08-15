@@ -375,7 +375,7 @@ func (cancellationSelectorWaitingStep) WaitFor(
 		state.selectorOnce.Do(func() { close(state.selectorWaitsRegistered) })
 	}
 	duration := 2 * time.Second
-	if input == "first" {
+	if input == "first" || state.scenario == cancelGlobalSelector {
 		duration = 30 * time.Second
 	}
 	return dex.Until(dex.Timer(duration)), nil

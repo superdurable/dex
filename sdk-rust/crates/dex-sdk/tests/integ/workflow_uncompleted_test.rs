@@ -11,8 +11,8 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Client, FlowErrorType, FlowStatus, Registry, SdkError, SdkResult, StartFlowOptions,
-    StopFlowOptions,
+    Client, Context, Flow, FlowErrorType, FlowStatus, FlowTimeoutHandler, FlowTimeoutPolicy,
+    HandlerResult, Registry, SdkError, SdkResult, StartFlowOptions, StepDecision, StopFlowOptions,
 };
 
 use crate::signal_workflow::SignalWorkflow;
@@ -62,11 +62,110 @@ fn test_flow_timeout() {
         .expect("start timed Flow");
     assert_failure(
         wait_for_failure(&environment, &flow_id),
-        FlowStatus::TimedOut,
+        FlowStatus::Failed,
+        Some(FlowErrorType::FlowTimeout),
+        Some("Flow timed out after 1 seconds"),
+        0,
+    );
+}
+
+struct TimeoutHandlerFlow;
+
+impl TimeoutHandlerFlow {
+    fn handle_timeout(&self, _context: &mut Context) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::force_complete("expired".to_string()))
+    }
+}
+
+impl Flow for TimeoutHandlerFlow {
+    type StartInput = ();
+
+    fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
+        Some(Self::handle_timeout)
+    }
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn test_flow_timeout_handler() {
+    let environment = DexDevTestEnvironment::start(Registry::new().register(TimeoutHandlerFlow));
+    let flow_id = flow_id("flow-timeout-handler");
+    environment
+        .client
+        .start_flow_with_options(
+            &TimeoutHandlerFlow,
+            &flow_id,
+            (),
+            StartFlowOptions::new().timeout(Duration::from_secs(1)),
+        )
+        .expect("start timeout-handler Flow");
+    let output: String = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(15))
+        .and_then(|result| result.single_output())
+        .expect("timeout handler completes Flow");
+    assert_eq!("expired", output);
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn test_flow_timeout_handler_cancel_override() {
+    let environment = DexDevTestEnvironment::start(Registry::new().register(TimeoutHandlerFlow));
+    let flow_id = flow_id("flow-timeout-handler-cancel");
+    environment
+        .client
+        .start_flow_with_options(
+            &TimeoutHandlerFlow,
+            &flow_id,
+            (),
+            StartFlowOptions::new()
+                .timeout(Duration::from_secs(1))
+                .timeout_policy(FlowTimeoutPolicy::Cancel),
+        )
+        .expect("start canceled timeout Flow");
+    assert_failure(
+        wait_for_failure(&environment, &flow_id),
+        FlowStatus::Canceled,
         None,
         None,
         0,
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn test_flow_timeout_handler_requires_registration() {
+    let environment = DexDevTestEnvironment::start(Registry::new().register(SignalWorkflow::new()));
+    let workflow = SignalWorkflow::new();
+    let error = environment
+        .client
+        .start_flow_with_options(
+            &workflow,
+            &flow_id("flow-timeout-policy-without-timeout"),
+            1,
+            StartFlowOptions::new().timeout_policy(FlowTimeoutPolicy::Cancel),
+        )
+        .expect_err("non-default policy must require a positive timeout");
+    assert!(matches!(
+        error,
+        SdkError::InvalidArgument { message } if message.contains("requires a positive timeout")
+    ));
+
+    let error = environment
+        .client
+        .start_flow_with_options(
+            &workflow,
+            &flow_id("flow-timeout-handler-missing"),
+            1,
+            StartFlowOptions::new()
+                .timeout(Duration::from_secs(1))
+                .timeout_policy(FlowTimeoutPolicy::Handler),
+        )
+        .expect_err("handler policy must require a registered handler");
+    assert!(matches!(
+        error,
+        SdkError::InvalidArgument { message } if message.contains("has no timeout handler")
+    ));
 }
 
 #[test]

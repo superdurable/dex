@@ -41,6 +41,17 @@ public interface StartFlowRequestOrBuilder extends
   int getFlowTimeoutSeconds();
 
   /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 4;</code>
+   * @return The enum numeric value on the wire for flowTimeoutPolicy.
+   */
+  int getFlowTimeoutPolicyValue();
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 4;</code>
+   * @return The flowTimeoutPolicy.
+   */
+  io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy();
+
+  /**
    * <code>string start_step_type = 5;</code>
    * @return The startStepType.
    */

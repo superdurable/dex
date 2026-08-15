@@ -13,13 +13,18 @@ from datetime import timedelta
 import pytest
 
 from dex import (
+    Context,
+    Flow,
     FlowErrorType,
     FlowStatus,
     FlowResult,
+    FlowTimeoutPolicy,
     LongPollTimeoutError,
+    StepDecision,
     StartFlowOptions,
     StopFlowOptions,
     StopType,
+    force_complete,
 )
 
 from .empty_decision_flow import EmptyDecisionFlow
@@ -55,7 +60,81 @@ def test_flow_timeout() -> None:
             StartFlowOptions(timeout=timedelta(seconds=1)),
         )
         failure = wait_for_failure(environment, flow_id)
-        assert_failure(failure, FlowStatus.TIMED_OUT, None, None)
+        assert_failure(
+            failure,
+            FlowStatus.FAILED,
+            FlowErrorType.FLOW_TIMEOUT,
+            "Flow timed out after 1 seconds",
+        )
+
+
+class TimeoutHandlerFlow(Flow[None]):
+    def handle_timeout(self, context: Context) -> StepDecision:
+        del context
+        return force_complete("expired")
+
+
+def test_flow_timeout_handler() -> None:
+    flow = TimeoutHandlerFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("flow-timeout-handler")
+        environment.client.start_flow(
+            flow,
+            flow_id,
+            None,
+            StartFlowOptions(timeout=timedelta(seconds=1)),
+        )
+        assert (
+            environment.client.wait_for_flow(
+                flow_id,
+                timedelta(seconds=15),
+            ).single_output(str)
+            == "expired"
+        )
+
+
+def test_flow_timeout_handler_cancel_override() -> None:
+    flow = TimeoutHandlerFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        flow_id = unique_id("flow-timeout-handler-cancel")
+        environment.client.start_flow(
+            flow,
+            flow_id,
+            None,
+            StartFlowOptions(
+                timeout=timedelta(seconds=1),
+                timeout_policy=FlowTimeoutPolicy.CANCEL,
+            ),
+        )
+        assert_failure(
+            wait_for_failure(environment, flow_id),
+            FlowStatus.CANCELED,
+            None,
+            None,
+        )
+
+
+def test_flow_timeout_handler_requires_override() -> None:
+    flow = SignalFlow()
+    with DexDevTestEnvironment(flow) as environment:
+        with pytest.raises(ValueError, match="requires a positive timeout"):
+            environment.client.start_flow(
+                flow,
+                unique_id("flow-timeout-policy-without-timeout"),
+                1,
+                StartFlowOptions(timeout_policy=FlowTimeoutPolicy.CANCEL),
+            )
+
+        with pytest.raises(ValueError, match="has no handle_timeout override"):
+            environment.client.start_flow(
+                flow,
+                unique_id("flow-timeout-handler-missing"),
+                1,
+                StartFlowOptions(
+                    timeout=timedelta(seconds=1),
+                    timeout_policy=FlowTimeoutPolicy.HANDLER,
+                ),
+            )
 
 
 @pytest.mark.parametrize(

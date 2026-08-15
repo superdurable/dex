@@ -168,6 +168,7 @@ func integrationFlows() []dex.Flow {
 		forceFailFlow{},
 		waitForFailureFlow{},
 		waitForMethodTimeoutFlow{},
+		timeoutHandlerFlow{},
 		timerFlow{},
 		subFlowParentFlow{},
 		subFlowAllParentFlow{},

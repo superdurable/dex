@@ -59,6 +59,7 @@ func (i *Interpreter) StartEngineFlow(
 		FlowType:            input.GetFlowType(),
 		RunStartedTimestamp: runStartedTimestamp,
 	}
+	flowTimeout := NewFlowTimeout(input)
 	subFlowParentFlowID, parentFlowErr := provider.GetSearchAttributeKeyword(
 		ctx, service.SearchAttributeDexParentFlowID,
 	)
@@ -85,6 +86,9 @@ func (i *Interpreter) StartEngineFlow(
 		)
 		if err != nil {
 			return nil, err
+		}
+		if flowTimeout.IsEnabled() && provider.GetWorkflowInfo(ctx).Attempt > 1 {
+			flowTimeout.ResetSnapshotForRetry(ctx, provider, previous)
 		}
 		resumeInfos = previous.GetStepExecutionsToResume()
 
@@ -213,7 +217,7 @@ func (i *Interpreter) StartEngineFlow(
 	// We only support last one wins. we may use multiError to improve.
 	var errToFailWf error
 	var forceCompleteWf bool
-	var shouldGracefulComplete bool
+	var isGracefulCompletionRequested bool
 
 	terminalCoordinator := NewTerminalCoordinator(
 		provider,
@@ -258,6 +262,8 @@ func (i *Interpreter) StartEngineFlow(
 		eventType := event.EventTypeUnspecified
 		if retErr == nil {
 			eventType = event.EventTypeFlowComplete
+		} else if provider.IsCanceledError(retErr) {
+			eventType = event.EventTypeFlowCancel
 		} else if provider.IsApplicationError(retErr) {
 			eventType = event.EventTypeFlowFail
 		}
@@ -298,6 +304,11 @@ func (i *Interpreter) StartEngineFlow(
 	}
 
 	if !input.GetIsResumeFromContinueAsNew() {
+		if flowTimeout.IsEnabled() {
+			stepRequestQueue.AddStepResumeRequest(
+				flowTimeout.NewStepExecutionResumeInfo(ctx, provider),
+			)
+		}
 		// it's possible that a flow is started without any starting step
 		// it will wait for a new step coming in (by RPC results)
 		if input.GetStartStepType() != "" {
@@ -325,7 +336,14 @@ func (i *Interpreter) StartEngineFlow(
 
 	for {
 		if err := provider.Await(ctx, func() bool {
-			return !stepRequestQueue.IsEmpty() || signalReceiver.IsStopFlowRequested() || shouldGracefulComplete || continueAsNewCounter.IsThresholdMet()
+			return !stepRequestQueue.IsEmpty() || signalReceiver.IsStopFlowRequested() ||
+				errToFailWf != nil || forceCompleteWf ||
+				isGracefulCompletionReady(
+					isGracefulCompletionRequested,
+					stepRequestQueue,
+					stepExecutionCounter,
+				) ||
+				continueAsNewCounter.IsThresholdMet()
 		}); err != nil {
 			return nil, err
 		}
@@ -335,9 +353,24 @@ func (i *Interpreter) StartEngineFlow(
 				StepCompletionOutputs: outputCollector.GetAll(),
 			}, stopErr
 		}
+		if errToFailWf != nil || forceCompleteWf {
+			return &dexpb.InterpreterWorkflowOutput{
+				StepCompletionOutputs: outputCollector.GetAll(),
+			}, errToFailWf
+		}
 
-		// gracefully complete flow when all steps are executed to dead ends
-		if shouldGracefulComplete && stepRequestQueue.IsEmpty() {
+		// gracefully complete flow after all user Steps finish
+		shouldCompleteFlow, err := prepareGracefulCompletion(
+			ctx,
+			isGracefulCompletionRequested,
+			stepRequestQueue,
+			stepExecutionCounter,
+			stepExecutionRegistry,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if shouldCompleteFlow {
 			break
 		}
 
@@ -412,6 +445,7 @@ func (i *Interpreter) StartEngineFlow(
 						globalVersioner,
 						signalReceiver,
 						subFlowTracker,
+						flowTimeout,
 					)
 					isCanceled := stepExecutionRegistry.IsCanceled(stepExeId)
 					if stepExecutionStatus != service.StepExecutionStatusWaitingAborted {
@@ -425,6 +459,14 @@ func (i *Interpreter) StartEngineFlow(
 						return
 					}
 					if stepExecutionStatus == service.StepExecutionStatusInternalError {
+						errToFailWf = stepExeErr
+						return
+					}
+					if stepExecutionStatus == service.StepExecutionStatusFlowTimeout {
+						if stepExeErr == nil {
+							panic("FlowTimeout Step execution requires an error")
+						}
+						continueAsNewer.RemoveActiveStep(stepExeId)
 						errToFailWf = stepExeErr
 						return
 					}
@@ -467,7 +509,7 @@ func (i *Interpreter) StartEngineFlow(
 							// no return so that it can fall through to call MarkStepExecutionCompleted
 						}
 						if gracefulComplete {
-							shouldGracefulComplete = true
+							isGracefulCompletionRequested = true
 						}
 						if (gracefulComplete || forceComplete) && output != nil {
 							outputCollector.Add(output)
@@ -539,7 +581,7 @@ func (i *Interpreter) StartEngineFlow(
 			//    and it's time to wake up the outer loop to go to next iteration. Alternatively, waiting for all current started in this iteration to complete will also work,
 			//    but not as efficient as this one because it will take much longer time.
 			// For errToFailFlow != nil || forceCompleteFlow: this means we need to close flow immediately
-			// For stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0: this means all the step executions have reached "Dead Ends" so the flow can complete gracefully without output
+			// For stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0: this means all user Step executions have reached "Dead Ends" so the flow can complete gracefully without output
 			// For continueAsNewCounter.IsThresholdMet(): this means flow needs to continueAsNew
 			awaitError := provider.Await(ctx, func() bool {
 				stopBySignal, stopErr := signalReceiver.GetIfStopFlowRequested()
@@ -592,9 +634,26 @@ func (i *Interpreter) StartEngineFlow(
 					StepCompletionOutputs: outputCollector.GetAll(),
 				}, stopErr
 			}
-			if stepRequestQueue.IsEmpty() && !continueAsNewer.HasAnyStepExecutionToResume() && shouldGracefulComplete {
+			if errToFailWf != nil || forceCompleteWf {
+				return &dexpb.InterpreterWorkflowOutput{
+					StepCompletionOutputs: outputCollector.GetAll(),
+				}, errToFailWf
+			}
+			shouldCompleteFlow, err := prepareGracefulCompletion(
+				ctx,
+				isGracefulCompletionRequested,
+				stepRequestQueue,
+				stepExecutionCounter,
+				stepExecutionRegistry,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if stepRequestQueue.IsEmpty() &&
+				!continueAsNewer.HasAnyStepExecutionToResume() &&
+				shouldCompleteFlow {
 				// if it is empty and no stepExecutionsToResume and request a graceful complete just complete the loop
-				// so that we don't carry over shouldGracefulComplete
+				// so that we don't carry over the graceful completion request
 				return &dexpb.InterpreterWorkflowOutput{
 					StepCompletionOutputs: outputCollector.GetAll(),
 				}, nil
@@ -615,10 +674,39 @@ func (i *Interpreter) StartEngineFlow(
 
 	} // end main loop
 
-	// gracefully complete workflow when all states are executed to dead ends
+	// gracefully complete workflow when all user Steps finish
 	return &dexpb.InterpreterWorkflowOutput{
 		StepCompletionOutputs: outputCollector.GetAll(),
 	}, errToFailWf
+}
+
+func prepareGracefulCompletion(
+	ctx interfaces.UnifiedContext,
+	isRequested bool,
+	stepRequestQueue *StepRequestQueue,
+	stepExecutionCounter *StepExecutionCounter,
+	stepExecutionRegistry *StepExecutionRegistry,
+) (bool, error) {
+	if !isGracefulCompletionReady(isRequested, stepRequestQueue, stepExecutionCounter) {
+		return false, nil
+	}
+	if err := stepExecutionRegistry.CancelByStepTypes(
+		ctx,
+		[]string{service.FlowTimeoutStepType},
+	); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func isGracefulCompletionReady(
+	isGracefulCompletionRequested bool,
+	stepRequestQueue *StepRequestQueue,
+	stepExecutionCounter *StepExecutionCounter,
+) bool {
+	return isGracefulCompletionRequested &&
+		!stepRequestQueue.HasUserRequests() &&
+		stepExecutionCounter.GetTotalCurrentlyExecutingCount() == 0
 }
 
 func normalizeStepFailureError(
@@ -734,6 +822,7 @@ func (i *Interpreter) processStepExecution(
 	globalVersioner *GlobalVersioner,
 	signalReceiver *SignalReceiver,
 	subFlowTracker *SubFlowTracker,
+	flowTimeout *FlowTimeout,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	info := provider.GetWorkflowInfo(ctx)
 	step := stepRequest.GetStepMovement()
@@ -1006,6 +1095,11 @@ func (i *Interpreter) processStepExecution(
 			return nil, service.StepExecutionStatusInternalError, mappingErr
 		}
 		executionContext.RecoveryError = recoveryError
+	}
+	if step.GetStepType() == service.FlowTimeoutStepType && !flowTimeout.UsesHandler() {
+		continueAsNewer.RemoveStepExecutionToResume(stepExeId)
+		return nil, service.StepExecutionStatusFlowTimeout,
+			flowTimeout.NewTerminalError(provider)
 	}
 	return i.invokeExecuteMethod(
 		ctx,

@@ -30,6 +30,7 @@ private static final long serialVersionUID = 0L;
   private SubFlowOptions() {
     reusePolicy_ = 0;
     attributes_ = java.util.Collections.emptyList();
+    flowTimeoutPolicy_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -184,6 +185,24 @@ private static final long serialVersionUID = 0L;
     return flowConfigOverride_ == null ? io.superdurable.gen.FlowConfig.getDefaultInstance() : flowConfigOverride_;
   }
 
+  public static final int FLOW_TIMEOUT_POLICY_FIELD_NUMBER = 7;
+  private int flowTimeoutPolicy_ = 0;
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 7;</code>
+   * @return The enum numeric value on the wire for flowTimeoutPolicy.
+   */
+  @java.lang.Override public int getFlowTimeoutPolicyValue() {
+    return flowTimeoutPolicy_;
+  }
+  /**
+   * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 7;</code>
+   * @return The flowTimeoutPolicy.
+   */
+  @java.lang.Override public io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy() {
+    io.superdurable.gen.FlowTimeoutPolicy result = io.superdurable.gen.FlowTimeoutPolicy.forNumber(flowTimeoutPolicy_);
+    return result == null ? io.superdurable.gen.FlowTimeoutPolicy.UNRECOGNIZED : result;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -215,6 +234,9 @@ private static final long serialVersionUID = 0L;
     }
     if (((bitField0_ & 0x00000002) != 0)) {
       output.writeMessage(6, getFlowConfigOverride());
+    }
+    if (flowTimeoutPolicy_ != io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED.getNumber()) {
+      output.writeEnum(7, flowTimeoutPolicy_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -248,6 +270,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(6, getFlowConfigOverride());
+    }
+    if (flowTimeoutPolicy_ != io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(7, flowTimeoutPolicy_);
     }
     return size;
   }
@@ -290,6 +316,7 @@ private static final long serialVersionUID = 0L;
       if (!getFlowConfigOverride()
           .equals(other.getFlowConfigOverride())) return false;
     }
+    if (flowTimeoutPolicy_ != other.flowTimeoutPolicy_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -319,6 +346,8 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + FLOW_CONFIG_OVERRIDE_FIELD_NUMBER;
       hash = (53 * hash) + getFlowConfigOverride().hashCode();
     }
+    hash = (37 * hash) + FLOW_TIMEOUT_POLICY_FIELD_NUMBER;
+    hash = (53 * hash) + flowTimeoutPolicy_;
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -478,6 +507,7 @@ private static final long serialVersionUID = 0L;
         flowConfigOverrideBuilder_.dispose();
         flowConfigOverrideBuilder_ = null;
       }
+      flowTimeoutPolicy_ = 0;
       return this;
     }
 
@@ -546,6 +576,9 @@ private static final long serialVersionUID = 0L;
             : flowConfigOverrideBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
+      if (((from_bitField0_ & 0x00000040) != 0)) {
+        result.flowTimeoutPolicy_ = flowTimeoutPolicy_;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -601,6 +634,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasFlowConfigOverride()) {
         mergeFlowConfigOverride(other.getFlowConfigOverride());
+      }
+      if (other.flowTimeoutPolicy_ != 0) {
+        setFlowTimeoutPolicyValue(other.getFlowTimeoutPolicyValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -670,6 +706,11 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000020;
               break;
             } // case 50
+            case 56: {
+              flowTimeoutPolicy_ = input.readEnum();
+              bitField0_ |= 0x00000040;
+              break;
+            } // case 56
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1283,6 +1324,58 @@ private static final long serialVersionUID = 0L;
         flowConfigOverride_ = null;
       }
       return flowConfigOverrideBuilder_;
+    }
+
+    private int flowTimeoutPolicy_ = 0;
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 7;</code>
+     * @return The enum numeric value on the wire for flowTimeoutPolicy.
+     */
+    @java.lang.Override public int getFlowTimeoutPolicyValue() {
+      return flowTimeoutPolicy_;
+    }
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 7;</code>
+     * @param value The enum numeric value on the wire for flowTimeoutPolicy to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowTimeoutPolicyValue(int value) {
+      flowTimeoutPolicy_ = value;
+      bitField0_ |= 0x00000040;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 7;</code>
+     * @return The flowTimeoutPolicy.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.FlowTimeoutPolicy getFlowTimeoutPolicy() {
+      io.superdurable.gen.FlowTimeoutPolicy result = io.superdurable.gen.FlowTimeoutPolicy.forNumber(flowTimeoutPolicy_);
+      return result == null ? io.superdurable.gen.FlowTimeoutPolicy.UNRECOGNIZED : result;
+    }
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 7;</code>
+     * @param value The flowTimeoutPolicy to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowTimeoutPolicy(io.superdurable.gen.FlowTimeoutPolicy value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000040;
+      flowTimeoutPolicy_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowTimeoutPolicy flow_timeout_policy = 7;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFlowTimeoutPolicy() {
+      bitField0_ = (bitField0_ & ~0x00000040);
+      flowTimeoutPolicy_ = 0;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.SubFlowOptions)

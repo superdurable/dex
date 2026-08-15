@@ -6,7 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-use crate::{PersistenceSchema, RpcList, StepList, Value, short_type_name};
+use crate::{
+    Context, HandlerResult, PersistenceSchema, RpcList, StepDecision, StepList, Value,
+    short_type_name,
+};
+
+/// Function registered by a [`Flow`] to handle expiration of its soft timeout.
+pub type FlowTimeoutHandler<SomeFlow> = fn(&SomeFlow, &mut Context) -> HandlerResult<StepDecision>;
 
 /// Defines a durable application Flow and its registered API surface.
 ///
@@ -56,6 +62,17 @@ pub trait Flow: Send + Sync + 'static {
     /// The default schema is empty.
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
+    }
+
+    /// Returns the optional handler invoked after this Flow's durable timeout timer expires.
+    ///
+    /// Returning `Some` makes a positive timeout default to [`crate::FlowTimeoutPolicy::Handler`].
+    /// The handler runs at most once and its decision uses normal Step Execute validation.
+    fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>>
+    where
+        Self: Sized,
+    {
+        None
     }
 
     /// Binds public RPC names to methods on this Flow implementation.

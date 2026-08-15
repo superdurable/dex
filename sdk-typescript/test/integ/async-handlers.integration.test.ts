@@ -11,13 +11,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { stringCodec } from "../../src/index.js";
+import { forceComplete, stringCodec, type Context, type StepDecision } from "../../src/index.js";
 import {
   AsyncRpcFlow,
   AsyncStartAndWaitFlow,
   AsyncWaitForFlow,
 } from "./async_handlers_flows.js";
 import { flowId, withEnvironment } from "./environment.js";
+import { SignalFlow } from "./signal_flow.js";
 import {
   MixedSyncAsyncStepsFlow,
   MixedSyncStepAsyncRpcFlow,
@@ -79,5 +80,24 @@ test("async RPC wakes a synchronous waiting Step on the same Worker", async () =
     await client.startFlow(flow, id, "payload");
     assert.equal(await client.invokeRPC(flow.wake, id, "rpc"), "woke:rpc");
     assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)), "payload");
+  });
+});
+
+class AsyncTimeoutHandlerFlow extends SignalFlow {
+  public async handleTimeout(_context: Context): Promise<StepDecision> {
+    await Promise.resolve();
+    return forceComplete("expired");
+  }
+}
+
+test("async Flow timeout handler completes the Flow", async () => {
+  const flow = new AsyncTimeoutHandlerFlow();
+  await withEnvironment([flow], async ({ client }) => {
+    const id = flowId("async-timeout-handler");
+    await client.startFlow(flow, id, 1, { timeoutMs: 1_000 });
+    assert.equal(
+      await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(stringCodec)),
+      "expired",
+    );
   });
 });
