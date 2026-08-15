@@ -29,6 +29,8 @@ this mode.
 
 To populate Web with a 90-execution Flow containing serial, fan-out, and fan-in
 sections, run the [Large Step Graph demo](./demo/large-step-graph).
+To exercise the widest layout, run the [90-way fan-out demo](./demo/fan-out-90),
+which creates `Step1`, 90 parallel Steps, and no close-decision graph edges.
 
 ## Frontend development
 
