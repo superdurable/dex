@@ -22,6 +22,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/superdurable/dex/cmd/server/dex"
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
 	"go.temporal.io/sdk/client"
 	"go.uber.org/cadence/.gen/go/cadence/workflowserviceclient"
@@ -158,4 +160,16 @@ func TestMain(m *testing.M) {
 
 func newRequestID() string {
 	return uuid.NewString()
+}
+
+func userActiveStepExecutions(
+	state *dexpb.GetFlowStateResponse,
+) []*dexpb.ActiveStepExecutionState {
+	userExecutions := make([]*dexpb.ActiveStepExecutionState, 0, len(state.GetActiveStepExecutions()))
+	for _, execution := range state.GetActiveStepExecutions() {
+		if execution.GetStepType() != service.FlowTimeoutStepType {
+			userExecutions = append(userExecutions, execution)
+		}
+	}
+	return userExecutions
 }

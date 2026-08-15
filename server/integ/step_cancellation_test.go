@@ -296,10 +296,14 @@ func testRpcStepCancellation(
 			FlowId: flowID,
 			RunId:  start.GetRunId(),
 		})
-		if stateErr != nil || len(state.GetActiveStepExecutions()) != 2 {
+		if stateErr != nil {
 			return false
 		}
-		for _, execution := range state.GetActiveStepExecutions() {
+		activeUserSteps := userActiveStepExecutions(state)
+		if len(activeUserSteps) != 2 {
+			return false
+		}
+		for _, execution := range activeUserSteps {
 			if execution.GetPhase() != dexpb.ActiveStepPhase_ACTIVE_STEP_PHASE_WAITING {
 				return false
 			}
@@ -327,9 +331,12 @@ func testRpcStepCancellation(
 			FlowId: flowID,
 			RunId:  start.GetRunId(),
 		})
-		assert.NoError(collect, stateErr)
-		active := make([]string, 0, len(state.GetActiveStepExecutions()))
-		for _, execution := range state.GetActiveStepExecutions() {
+		if !assert.NoError(collect, stateErr) {
+			return
+		}
+		activeUserSteps := userActiveStepExecutions(state)
+		active := make([]string, 0, len(activeUserSteps))
+		for _, execution := range activeUserSteps {
 			active = append(active, execution.GetStepExecutionId())
 		}
 		assert.ElementsMatch(collect, []string{

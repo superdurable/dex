@@ -338,15 +338,19 @@ func testWebParallelSameTypeFailures(t *testing.T, backendType service.BackendTy
 			FlowId: flowID,
 			RunId:  startResponse.GetRunId(),
 		})
-		if stateErr != nil || len(state.GetActiveStepExecutions()) != 2 {
+		if stateErr != nil {
 			return false
 		}
-		for _, activeStep := range state.GetActiveStepExecutions() {
+		activeUserSteps := userActiveStepExecutions(state)
+		if len(activeUserSteps) != 2 {
+			return false
+		}
+		for _, activeStep := range activeUserSteps {
 			if activeStep.GetStepType() != "branch" || activeStep.GetLastFailureInfo() == nil {
 				return false
 			}
 		}
-		activeSteps = state.GetActiveStepExecutions()
+		activeSteps = activeUserSteps
 		return true
 	}, 2*time.Second, 50*time.Millisecond)
 	for _, activeStep := range activeSteps {
@@ -474,10 +478,14 @@ func testWebSyncLastFailure(
 			FlowId: flowID,
 			RunId:  startResponse.GetRunId(),
 		})
-		if stateErr != nil || len(state.GetActiveStepExecutions()) != 1 {
+		if stateErr != nil {
 			return false
 		}
-		activeFailure = state.GetActiveStepExecutions()[0].GetLastFailureInfo()
+		activeUserSteps := userActiveStepExecutions(state)
+		if len(activeUserSteps) != 1 {
+			return false
+		}
+		activeFailure = activeUserSteps[0].GetLastFailureInfo()
 		return activeFailure != nil
 	}, 2*time.Second, 50*time.Millisecond)
 	require.Equal(t, int32(1), activeFailure.GetAttempt())
@@ -1541,10 +1549,14 @@ func testWebCurrentState(t *testing.T, backendType service.BackendType, lazyLoad
 				RunId:  startResponse.GetRunId(),
 			},
 		)
-		if stateErr != nil || len(state.GetActiveStepExecutions()) != 1 {
+		if stateErr != nil {
 			return false
 		}
-		active := state.GetActiveStepExecutions()[0]
+		activeUserSteps := userActiveStepExecutions(state)
+		if len(activeUserSteps) != 1 {
+			return false
+		}
+		active := activeUserSteps[0]
 		return active.GetStepExecutionId() == signal.State1+"-1" &&
 			active.GetFromStepExecutionId() == service.StartingStepFromStepExecutionId &&
 			active.GetPhase() == dexpb.ActiveStepPhase_ACTIVE_STEP_PHASE_WAITING
@@ -1616,7 +1628,7 @@ func testWebSetAttributesHistory(t *testing.T, backendType service.BackendType) 
 			FlowId: flowID,
 			RunId:  startResponse.GetRunId(),
 		})
-		return stateErr == nil && len(state.GetActiveStepExecutions()) == 1
+		return stateErr == nil && len(userActiveStepExecutions(state)) == 1
 	}, 30*time.Second, 50*time.Millisecond)
 	_, nextInternalEventID := getAllWebHistoryEvents(
 		t, ctx, runtime.FlowClient, flowID, startResponse.GetRunId(),
