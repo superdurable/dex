@@ -271,7 +271,8 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 			}
 			if event.GetEventType() == enums.EVENT_TYPE_MARKER_RECORDED {
 				var isMatch bool
-				isMatch, decisionFinishID, err = matchesTemporalLocalActivityResetTarget(
+				var markerDecisionFinishID int64
+				isMatch, markerDecisionFinishID, err = matchesTemporalLocalActivityResetTarget(
 					event,
 					resetType,
 					stepMethod,
@@ -283,13 +284,13 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 					return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
 				}
 				if isMatch {
-					if decisionFinishID == 0 {
+					if markerDecisionFinishID == 0 {
 						return 0, composeErrorWithMessage(
 							"GetWorkflowExecutionHistory failed",
 							fmt.Errorf("local activity marker has no workflow task boundary"),
 						)
 					}
-					return
+					return markerDecisionFinishID, nil
 				}
 			}
 		}

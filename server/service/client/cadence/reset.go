@@ -287,7 +287,8 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 			}
 			if event.GetEventType() == shared.EventTypeMarkerRecorded {
 				var isMatch bool
-				isMatch, decisionFinishID, err = matchesCadenceLocalActivityResetTarget(
+				var markerDecisionFinishID int64
+				isMatch, markerDecisionFinishID, err = matchesCadenceLocalActivityResetTarget(
 					event,
 					resetType,
 					stepMethod,
@@ -299,13 +300,13 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 					return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
 				}
 				if isMatch {
-					if decisionFinishID == 0 {
+					if markerDecisionFinishID == 0 {
 						return 0, composeErrorWithMessage(
 							"GetWorkflowExecutionHistory failed",
 							fmt.Errorf("local activity marker has no decision task boundary"),
 						)
 					}
-					return
+					return markerDecisionFinishID, nil
 				}
 			}
 		}
