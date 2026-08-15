@@ -178,32 +178,32 @@ func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
 func (c *ContinueAsNewer) GetActiveStepExecutionStates() []*dexpb.ActiveStepExecutionState {
 	queuedResumeRequests := c.stepRequestQueue.GetAllStepResumeRequests()
 	timerInfos := c.timerProcessor.GetTimerInfos()
-	stepTypesByExecutionID := map[string]string{}
-	if _, isActive := c.activeStepMovements[service.FlowTimeoutStepExecutionID]; isActive {
-		stepTypesByExecutionID[service.FlowTimeoutStepExecutionID] = service.FlowTimeoutStepType
-	}
-	for stepType, executionNumbers := range c.stepExecutionCounter.stepActiveExecutionNums {
-		for _, executionNumber := range executionNumbers {
-			stepExecutionID := formatStepExecutionId(stepType, executionNumber)
-			stepTypesByExecutionID[stepExecutionID] = stepType
-		}
-	}
 	var states []*dexpb.ActiveStepExecutionState
-	for _, stepExecutionID := range DeterministicKeys(stepTypesByExecutionID) {
-		if _, isQueued := queuedResumeRequests[stepExecutionID]; isQueued {
-			continue
+	for _, stepType := range DeterministicKeys(c.stepExecutionCounter.stepActiveExecutionNums) {
+		for _, executionNumber := range c.stepExecutionCounter.stepActiveExecutionNums[stepType] {
+			stepExecutionID := formatStepExecutionId(stepType, executionNumber)
+			if _, queued := queuedResumeRequests[stepExecutionID]; queued {
+				continue
+			}
+			states = append(
+				states,
+				c.activeStepExecutionState(stepExecutionID, stepType, timerInfos[stepExecutionID]),
+			)
 		}
-		states = append(
-			states,
-			c.activeStepExecutionState(
-				stepExecutionID,
-				stepTypesByExecutionID[stepExecutionID],
-				timerInfos[stepExecutionID],
-			),
-		)
+	}
+	timeoutStepExecutionID := service.FlowTimeoutStepExecutionID
+	_, isTimeoutActive := c.activeStepMovements[timeoutStepExecutionID]
+	_, isTimeoutQueued := queuedResumeRequests[timeoutStepExecutionID]
+	if isTimeoutActive && !isTimeoutQueued {
+		states = append(states, c.activeStepExecutionState(
+			timeoutStepExecutionID,
+			service.FlowTimeoutStepType,
+			timerInfos[timeoutStepExecutionID],
+		))
 	}
 	return states
 }
+
 func (c *ContinueAsNewer) activeStepExecutionState(
 	stepExecutionID string,
 	stepType string,
