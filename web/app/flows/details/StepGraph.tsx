@@ -8,7 +8,7 @@
 
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Background,
@@ -235,6 +235,7 @@ export function StepGraph({
   selectedEvent: FlowHistoryEvent | null;
   onSelectEvent: (event: FlowHistoryEvent | null) => void;
 }) {
+  const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
   const graph = useMemo(
     () => buildStepGraph(events, state?.activeStepExecutions ?? [], flowId),
     [events, flowId, state],
@@ -312,7 +313,28 @@ export function StepGraph({
         >
           <Background gap={22} size={1} color="#dfe7e5" />
           <Controls position="top-right" />
-          <MiniMap pannable zoomable nodeStrokeWidth={2} />
+          <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
+            {isMiniMapExpanded && (
+              <MiniMap
+                ariaLabel="Step graph Mini Map"
+                className="graph-minimap"
+                pannable
+                position="top-left"
+                zoomable
+                nodeStrokeWidth={2}
+              />
+            )}
+            <button
+              aria-expanded={isMiniMapExpanded}
+              aria-label={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
+              className="graph-minimap-toggle"
+              onClick={() => setIsMiniMapExpanded((expanded) => !expanded)}
+              title={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
+              type="button"
+            >
+              {isMiniMapExpanded ? <span aria-hidden="true">×</span> : 'Mini Map'}
+            </button>
+          </div>
         </ReactFlow>
       </div>
       {selectedEvent && (

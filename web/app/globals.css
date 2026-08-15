@@ -1116,6 +1116,12 @@ pre {
   gap: 7px;
 }
 
+.step-decision-content {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
 .semantic-record {
   min-width: 0;
   padding: 8px;
@@ -2042,10 +2048,62 @@ pre {
   background: #f9fbfa;
 }
 
-.graph-canvas .react-flow__minimap {
+.graph-minimap-shell {
+  position: absolute;
+  right: 12px;
+  bottom: 26px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.graph-minimap-shell.expanded {
+  width: 200px;
+  height: 150px;
+}
+
+.graph-canvas .react-flow__minimap.graph-minimap {
+  top: 0;
+  left: 0;
+  margin: 0;
   border: 1px solid #c8d4d1;
   border-radius: 8px;
   background: rgba(249, 251, 250, 0.94);
+}
+
+.graph-minimap-toggle {
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid #b8c6c2;
+  border-radius: 7px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 3px 10px rgba(28, 51, 45, 0.14);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 750;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.graph-minimap-toggle:hover {
+  border-color: var(--brand);
+  color: var(--brand-dark);
+}
+
+.graph-minimap-toggle:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.graph-minimap-shell.expanded .graph-minimap-toggle {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
 }
 
 .react-flow__node.step-flow-node {
