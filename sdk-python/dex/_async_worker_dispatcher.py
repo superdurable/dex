@@ -9,14 +9,14 @@
 from __future__ import annotations
 
 from inspect import isawaitable
-from typing import Any
+from typing import Any, Callable
 
 from dex._async_value_hydrator import AsyncValueHydrator
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
 from dex.dexpb import dex_pb2 as pb
-from dex.flow import RPCResult, Registry
+from dex.flow import Registry, RPCResult
 from dex.runtime_errors import InvalidStepResultError, ValueMappingError
 from dex.step import StepDecision
 from dex.wait import Wait
@@ -36,6 +36,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
     async def invoke_wait_for(  # type: ignore[override]
         self,
         original: pb.InvokeWaitForMethodRequest,
+        is_active: Callable[[], bool] | None = None,
     ) -> pb.InvokeWaitForMethodResponse:
         request = await self._async_hydrator.wait_for_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -46,6 +47,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             request.context,
             self._values,
             request.attributes,
+            is_active=is_active,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         wait = step.step.wait_for(context, input)
@@ -72,6 +74,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
     async def invoke_execute(  # type: ignore[override]
         self,
         original: pb.InvokeExecuteMethodRequest,
+        is_active: Callable[[], bool] | None = None,
     ) -> pb.InvokeExecuteMethodResponse:
         request = await self._async_hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -87,6 +90,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             request.attributes,
             request.step_exe_locals,
             condition_results,
+            is_active=is_active,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         decision: Any = step.step.execute(context, input)
@@ -110,6 +114,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
     async def invoke_rpc(  # type: ignore[override]
         self,
         original: pb.InvokeWorkerRPCRequest,
+        is_active: Callable[[], bool] | None = None,
     ) -> pb.InvokeWorkerRPCResponse:
         request = await self._async_hydrator.rpc_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -121,6 +126,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             self._values,
             request.attributes,
             channel_infos=dict(request.channel_infos),
+            is_active=is_active,
         )
         arguments: list[object] = [context]
         if rpc.input_codec is not None:
@@ -144,6 +150,11 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
                     response.step_decision.next_steps.extend(
                         self._map_movements(flow, returned.next_steps)
                     )
+                response.step_decision.cancel_step_types.extend(
+                    self._map_cancellation_steps(flow, returned.canceling_steps)
+                )
+                if not returned.next_steps and not returned.canceling_steps:
+                    response.ClearField("step_decision")
             elif returned is None and rpc.output_codec is None:
                 response.output.CopyFrom(self._values.encode_dynamic(None))
             else:

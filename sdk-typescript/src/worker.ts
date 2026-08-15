@@ -11,6 +11,7 @@ import {
   ServerCredentials,
   Metadata,
   credentials,
+  type ServerUnaryCall,
   type sendUnaryData,
 } from "@grpc/grpc-js";
 
@@ -166,25 +167,42 @@ function syncAttributeIndexes(
 function workerService(dispatcher: WorkerDispatcher): WorkerServiceServer {
   return {
     invokeWaitForMethod(call, callback) {
-      invoke(() => dispatcher.invokeWaitFor(call.request), callback);
+      invoke(call, (signal) => dispatcher.invokeWaitFor(call.request, signal), callback);
     },
     invokeExecuteMethod(call, callback) {
-      invoke(() => dispatcher.invokeExecute(call.request), callback);
+      invoke(call, (signal) => dispatcher.invokeExecute(call.request, signal), callback);
     },
     invokeWorkerRpc(call, callback) {
-      invoke(() => dispatcher.invokeRPC(call.request), callback);
+      invoke(call, (signal) => dispatcher.invokeRPC(call.request, signal), callback);
     },
   };
 }
 
-function invoke<Response>(
-  invocation: () => Promise<Response>,
+function invoke<Request, Response>(
+  call: ServerUnaryCall<Request, Response>,
+  invocation: (signal: AbortSignal) => Promise<Response>,
   callback: sendUnaryData<Response>,
 ): void {
-  invocation().then(
-    (response) => callback(null, response),
-    (failure: unknown) => callback(workerServiceError(failure), null),
-  );
+  const controller = new AbortController();
+  const cancel = (): void => controller.abort();
+  call.once("cancelled", cancel);
+  if (call.cancelled) {
+    cancel();
+  }
+  invocation(controller.signal)
+    .then(
+      (response) => {
+        if (!controller.signal.aborted) {
+          callback(null, response);
+        }
+      },
+      (failure: unknown) => {
+        if (!controller.signal.aborted) {
+          callback(workerServiceError(failure), null);
+        }
+      },
+    )
+    .finally(() => call.off("cancelled", cancel));
 }
 
 function bind(server: Server, address: string): Promise<number> {

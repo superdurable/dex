@@ -30,18 +30,31 @@ type RPC[IN, OUT any] func(
 	input IN,
 ) (*RPCResult[OUT], error)
 
-// RPCResult carries typed RPC output and optional Step movements committed after success.
+// RPCResult carries typed output, Step movements, and Flow-wide Step cancellation.
 type RPCResult[OUT any] struct {
 	// Output is encoded as the RPC response value.
 	Output OUT
 	// NextSteps are scheduled in order after the RPC persistence changes commit.
 	NextSteps []StepMovement
+	// CancelingSteps selects registered Step types canceled before NextSteps are scheduled.
+	CancelingSteps []StepSelector
+}
+
+// CancelSteps selects queued or active executions of registered Step types.
+//
+// Dex resolves the selection after RPC persistence commits and before NextSteps are queued.
+// Finished, already-canceled, and absent executions are no-ops. RPCs cannot select siblings.
+// The result is mutated and returned for fluent use.
+func (result *RPCResult[OUT]) CancelSteps(steps ...StepSelector) *RPCResult[OUT] {
+	result.CancelingSteps = append(result.CancelingSteps, steps...)
+	return result
 }
 
 type rpcResult interface {
 	rpcOutput() any
 	rpcOutputType() reflect.Type
 	rpcMovements() []StepMovement
+	rpcCancelingSteps() []StepSelector
 }
 
 func (result RPCResult[OUT]) rpcOutput() any {
@@ -54,4 +67,8 @@ func (RPCResult[OUT]) rpcOutputType() reflect.Type {
 
 func (result RPCResult[OUT]) rpcMovements() []StepMovement {
 	return result.NextSteps
+}
+
+func (result RPCResult[OUT]) rpcCancelingSteps() []StepSelector {
+	return result.CancelingSteps
 }

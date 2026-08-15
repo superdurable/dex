@@ -113,9 +113,34 @@ func ForceCompleteIfChannelsEmpty(
 
 // StepDecision describes the durable outcome of one successful Step Execute call.
 type StepDecision struct {
-	kind      decisionKind
-	movements []StepMovement
-	close     CloseDecision
+	kind                  decisionKind
+	movements             []StepMovement
+	close                 CloseDecision
+	cancelingSteps        []StepSelector
+	cancelingSiblingSteps []StepSelector
+}
+
+// CancelSteps selects every queued or active execution of each registered Step type.
+//
+// Dex resolves one snapshot after the current Execute succeeds. Finished, already-canceled,
+// and absent executions are no-ops. Steps scheduled by this decision are outside the snapshot.
+// Repeated calls take the union; a Flow-wide selector supersedes a sibling selector.
+//
+// The decision is mutated and returned for fluent use.
+func (decision *StepDecision) CancelSteps(steps ...StepSelector) *StepDecision {
+	decision.cancelingSteps = append(decision.cancelingSteps, steps...)
+	return decision
+}
+
+// CancelSiblingSteps selects executions sharing the current execution's scheduling source.
+//
+// A sibling has the same Context.FromStepExecutionID value. Snapshot and no-op behavior match
+// CancelSteps. Repeated calls take the union; Flow-wide selection wins for the same Step type.
+//
+// The decision is mutated and returned for fluent use.
+func (decision *StepDecision) CancelSiblingSteps(steps ...StepSelector) *StepDecision {
+	decision.cancelingSiblingSteps = append(decision.cancelingSiblingSteps, steps...)
+	return decision
 }
 
 // CloseDecision stores the terminal output, failure reason, and guarded Channels.

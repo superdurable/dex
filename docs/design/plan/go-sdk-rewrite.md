@@ -2092,6 +2092,19 @@ func ForceCompleteIfChannelsEmpty(
 	channels []ChannelDef,
 	otherwise ...StepMovement,
 ) *StepDecision
+
+type StepSelector interface {
+	GetStepType() string
+	GetStepOptions() *StepOptions
+}
+
+func (decision *StepDecision) CancelSteps(
+	steps ...StepSelector,
+) *StepDecision
+
+func (decision *StepDecision) CancelSiblingSteps(
+	steps ...StepSelector,
+) *StepDecision
 ```
 
 Rules enforced by construction or Phase 3 validation:
@@ -2108,6 +2121,13 @@ Rules enforced by construction or Phase 3 validation:
 
 An RPC may return optional next-step movements but cannot close the flow.
 Execute must return a valid, non-nil, non-empty `StepDecision`.
+
+Cancellation selectors are resolved after the successful execution commits and
+before its next Steps are queued. `CancelSteps` selects the current Flow;
+`CancelSiblingSteps` additionally requires matching
+`Context.FromStepExecutionID()`. Repeated calls form a stable-order union, and a
+Flow-wide selector supersedes the same sibling selector. Registered identity is
+validated when the Worker maps the result.
 
 ### Step options
 
@@ -2159,6 +2179,7 @@ func ProceedToOnExecuteFailure[IN any](
 type StepOptions struct {
 	WaitForMethodTimeout  time.Duration
 	ExecuteMethodTimeout  time.Duration
+	HeartbeatTimeout      time.Duration
 	WaitForRetry    *RetryPolicy
 	ExecuteRetry    *RetryPolicy
 	WaitForFailure  WaitForFailurePolicy
@@ -2174,6 +2195,9 @@ The typed constructor prevents callers from placing an erased step inside
 `ExecuteFailure`. Phase 3 validates that its target consumes the failed step's
 unchanged input, because the server reuses that input. `StepOptions` does not
 expose physical attribute keys, server-owned fields, or a generic skip flag.
+`HeartbeatTimeout` applies to regular WaitFor and Execute activities. Zero
+disables it; positive values require whole seconds in the signed int32 range.
+Local activities ignore it, and an asynchronous regular fallback uses it.
 
 ### RPC
 
@@ -2186,9 +2210,14 @@ type RPC[IN, OUT any] func(
 ) (*RPCResult[OUT], error)
 
 type RPCResult[OUT any] struct {
-	Output    OUT
-	NextSteps []StepMovement
+	Output         OUT
+	NextSteps      []StepMovement
+	CancelingSteps []StepSelector
 }
+
+func (result *RPCResult[OUT]) CancelSteps(
+	steps ...StepSelector,
+) *RPCResult[OUT]
 ```
 
 Application code defines a Flow method with that signature:
@@ -2213,7 +2242,9 @@ name as the durable RPC name. Package-level functions are not registrable RPCs.
 
 RPC methods use typed attributes/channels and `Context.RecordEvent`. They do not
 receive a legacy `Persistence` or `Communication` argument. RPC cannot use
-step-execution locals or return a close decision.
+step-execution locals or return a close decision. It cannot use the sibling
+selector because an RPC has no Step execution lineage. Its Flow-wide selector
+is resolved before the same result's Next Steps are queued.
 
 ### Public client types and façade
 

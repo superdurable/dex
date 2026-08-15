@@ -61,6 +61,8 @@ export interface StepOptions {
   readonly waitForMethodTimeoutMs?: number;
   /** Maximum duration of one `execute` attempt in milliseconds. */
   readonly executeMethodTimeoutMs?: number;
+  /** Regular-activity heartbeat in milliseconds; must represent whole seconds. */
+  readonly heartbeatTimeoutMs?: number;
   /** Optional retry policy for `waitFor`. */
   readonly waitForRetry?: RetryPolicy;
   /** Optional retry policy for `execute`. */
@@ -234,8 +236,16 @@ export const StepMovement = Object.freeze({
   },
 });
 
+/** Selects queued or active Step executions canceled by a decision. */
+export interface StepCancellationSelection {
+  /** Registered Step types canceled across the current Flow. */
+  readonly cancelingSteps?: readonly Step<any>[];
+  /** Registered Step types canceled only when they share the current scheduling source. */
+  readonly cancelingSiblingSteps?: readonly Step<any>[];
+}
+
 /** Describes the durable transition returned by `Step.execute`. */
-export type StepDecision =
+export type StepDecision = (
   | Readonly<{
       /** Schedules next Step movements. */
       kind: "next";
@@ -267,7 +277,7 @@ export type StepDecision =
   | Readonly<{
       /** Ends this path without scheduling work or closing the Flow. */
       kind: "deadEnd";
-    }>;
+    }>) & Readonly<StepCancellationSelection>;
 
 /**
  * Creates a decision scheduling one next Step.
@@ -331,3 +341,56 @@ export const forceFail = (reason: string): StepDecision => ({ kind: "forceFail",
  * @returns A decision ending this path without closing the Flow.
  */
 export const deadEnd = (): StepDecision => ({ kind: "deadEnd" });
+
+/**
+ * Returns a copy selecting every current execution of the supplied Step types.
+ *
+ * Dex resolves one snapshot after `execute` succeeds. Finished, already-canceled,
+ * and absent executions are no-ops. Steps scheduled by the same decision are excluded.
+ * Repeated calls take the union, and Flow-wide selection supersedes sibling selection.
+ * @param decision - Decision to copy.
+ * @param steps - Exact Step instances registered with the current Flow.
+ * @returns A new decision containing the combined Flow-wide selectors.
+ */
+export const withCancelingSteps = (
+  decision: StepDecision,
+  ...steps: readonly Step<any>[]
+): StepDecision => {
+  const cancelingSteps = unionSteps(decision.cancelingSteps, steps);
+  const cancelingSiblingSteps = (decision.cancelingSiblingSteps ?? []).filter(
+    (step) => !cancelingSteps.includes(step),
+  );
+  return { ...decision, cancelingSteps, cancelingSiblingSteps };
+};
+
+/**
+ * Returns a copy selecting same-source executions of the supplied Step types.
+ *
+ * A sibling has the same `Context.fromStepExecutionId` as the execution returning
+ * the decision. Snapshot and no-op behavior match {@link withCancelingSteps}.
+ * @param decision - Decision to copy.
+ * @param steps - Exact Step instances registered with the current Flow.
+ * @returns A new decision containing the combined sibling selectors.
+ */
+export const withCancelingSiblingSteps = (
+  decision: StepDecision,
+  ...steps: readonly Step<any>[]
+): StepDecision => ({
+  ...decision,
+  cancelingSiblingSteps: unionSteps(decision.cancelingSiblingSteps, steps).filter(
+    (step) => !(decision.cancelingSteps ?? []).includes(step),
+  ),
+});
+
+function unionSteps(
+  existing: readonly Step<any>[] | undefined,
+  added: readonly Step<any>[],
+): readonly Step<any>[] {
+  const combined = [...(existing ?? [])];
+  for (const step of added) {
+    if (!combined.includes(step)) {
+      combined.push(step);
+    }
+  }
+  return combined;
+}

@@ -1,0 +1,112 @@
+// Portions of this file are derived from indeedeng/iwf-java-sdk.
+// Those portions are licensed under the Apache License, Version 2.0.
+// See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
+//
+// Modifications Copyright (c) 2026 Super Durable, Inc.
+//
+// Modifications are licensed under the Super Durable Source License 1.0.
+// Third-Party Materials remain under the Apache License, Version 2.0.
+// See LICENSE and LEGACY_NOTICES.md.
+
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+
+use dex_sdk::{Registry, StepExecutionId};
+
+use crate::step_cancellation_workflow::{
+    CancellationBlockingExecute, CancellationBlockingWaitFor, CancellationScenario,
+    CancellationState, StepCancellationWorkflow,
+};
+use crate::support::{DexDevTestEnvironment, flow_id};
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn test_step_cancellation() {
+    for scenario in CancellationScenario::ALL {
+        run_scenario(scenario);
+    }
+}
+
+fn run_scenario(scenario: CancellationScenario) {
+    let state = CancellationState::new(scenario);
+    let workflow = StepCancellationWorkflow::new(Arc::clone(&state));
+    let late_write = workflow.late_write.clone();
+    let environment = DexDevTestEnvironment::start(Registry::new().register(workflow));
+    let client_workflow = StepCancellationWorkflow::new(Arc::clone(&state));
+    let flow_id = flow_id(&format!("rust-cancellation-{}", scenario.name()));
+    environment
+        .client
+        .start_flow(&client_workflow, &flow_id, scenario.name().to_string())
+        .expect("start cancellation Flow");
+
+    if !matches!(
+        scenario,
+        CancellationScenario::GlobalSelector | CancellationScenario::SiblingSelector
+    ) {
+        assert!(state.blocking_started.wait(Duration::from_secs(10)));
+        if scenario == CancellationScenario::HeartbeatWaitFor {
+            environment
+                .client
+                .wait_for_step_completion(
+                    &flow_id,
+                    StepExecutionId::of(&CancellationBlockingWaitFor(Arc::clone(&state))),
+                    Duration::from_secs(30),
+                )
+                .expect("wait for canceled WaitFor Step");
+        } else {
+            environment
+                .client
+                .wait_for_step_completion(
+                    &flow_id,
+                    StepExecutionId::of(&CancellationBlockingExecute {
+                        state: Arc::clone(&state),
+                        late_write: late_write.clone(),
+                    }),
+                    Duration::from_secs(30),
+                )
+                .expect("wait for canceled Execute Step");
+        }
+    }
+
+    assert_eq!(
+        scenario.name(),
+        environment
+            .client
+            .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+            .and_then(|result| result.single_output::<String>())
+            .expect("complete cancellation Flow")
+    );
+
+    match scenario {
+        CancellationScenario::GlobalSelector => {
+            assert!(!state.first_selector_executed.load(Ordering::SeqCst));
+            assert!(!state.second_selector_executed.load(Ordering::SeqCst));
+            return;
+        }
+        CancellationScenario::SiblingSelector => {
+            assert!(!state.first_selector_executed.load(Ordering::SeqCst));
+            assert!(state.second_selector_executed.load(Ordering::SeqCst));
+            return;
+        }
+        CancellationScenario::NoHeartbeat => {
+            assert!(!state.handler_canceled.load(Ordering::SeqCst));
+            assert!(!state.late_handler_returned.is_set());
+            assert!(state.late_handler_returned.wait(Duration::from_secs(8)));
+        }
+        _ => {
+            assert!(state.cancellation_observed.wait(Duration::from_secs(8)));
+            assert!(state.handler_canceled.load(Ordering::SeqCst));
+            assert!(state.context_reported_cancellation.load(Ordering::SeqCst));
+        }
+    }
+    assert_eq!(1, state.blocking_invocations.load(Ordering::SeqCst));
+    assert!(!state.recovery_ran.load(Ordering::SeqCst));
+    assert_eq!(
+        None,
+        environment
+            .client
+            .get_attribute::<String>(&flow_id, &late_write)
+            .expect("read late Attribute")
+    );
+}

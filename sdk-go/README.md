@@ -95,6 +95,49 @@ attempts, total duration, and 1-based attempt numbers. Fallback starts
 immediately; later regular retries continue the backoff sequence at the
 cumulative attempt.
 
+### Canceling Step executions
+
+A successful Step can cancel queued or active executions while continuing with
+its normal decision:
+
+```go
+return dex.GoTo(RecordQuote, quote).
+	CancelSiblingSteps(CarrierA, CarrierB).
+	CancelSteps(GlobalQuoteTimeout), nil
+```
+
+`CancelSteps` selects every current execution of each registered Step type.
+`CancelSiblingSteps` selects only executions whose
+`Context.FromStepExecutionID()` matches the current execution. Repeated calls
+form a union, and a Flow-wide selector wins for the same Step type. The Worker
+rejects nil, mismatched, or unregistered selectors as invalid Step results.
+
+Dex resolves one snapshot after the current execution succeeds. Completed,
+already-canceled, and absent targets are no-ops. Next Steps created by the same
+decision are not in that snapshot. Dex immediately applies the next or close
+action without waiting for target handlers; late decisions, writes, retries,
+and recovery Steps are discarded.
+
+Configure `StepOptions.HeartbeatTimeout` on long-running regular Steps so
+cancellation reaches the Worker promptly. The same setting applies to WaitFor
+and Execute; local activities ignore it, while an ASYNC fallback uses it. Zero
+disables heartbeats, and positive values must be whole seconds within the
+signed int32 range. Go handlers receive cancellation through the standard
+`Context.Done()` channel:
+
+```go
+select {
+case <-ctx.Done():
+	return nil, ctx.Err()
+case result := <-work:
+	return dex.GracefulComplete(result), nil
+}
+```
+
+An RPC may call `RPCResult.CancelSteps` for Flow-wide selection while also
+returning output and scheduling Next Steps. RPCs do not support sibling
+selection because an RPC invocation has no Step execution lineage.
+
 Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass
 `nil` at every call site. It rejects accidental values unlike `any` and makes
 the absence of a payload explicit.

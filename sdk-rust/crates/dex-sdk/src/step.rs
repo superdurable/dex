@@ -186,6 +186,8 @@ impl StepMovement {
 /// or deliberately leaves the Flow at a dead end.
 pub struct StepDecision {
     pub(crate) kind: StepDecisionKind,
+    pub(crate) cancel_step_types: Vec<&'static str>,
+    pub(crate) cancel_sibling_step_types: Vec<&'static str>,
 }
 
 pub(crate) enum StepDecisionKind {
@@ -214,6 +216,8 @@ impl StepDecision {
     pub fn go_to_many(movements: impl IntoIterator<Item = StepMovement>) -> Self {
         Self {
             kind: StepDecisionKind::Next(movements.into_iter().collect()),
+            cancel_step_types: Vec::new(),
+            cancel_sibling_step_types: Vec::new(),
         }
     }
 
@@ -221,6 +225,8 @@ impl StepDecision {
     pub fn graceful_complete<Output: Value>(output: Output) -> Self {
         Self {
             kind: StepDecisionKind::GracefulComplete(Box::new(TypedValue(output))),
+            cancel_step_types: Vec::new(),
+            cancel_sibling_step_types: Vec::new(),
         }
     }
 
@@ -228,6 +234,8 @@ impl StepDecision {
     pub fn force_complete<Output: Value>(output: Output) -> Self {
         Self {
             kind: StepDecisionKind::ForceComplete(Box::new(TypedValue(output))),
+            cancel_step_types: Vec::new(),
+            cancel_sibling_step_types: Vec::new(),
         }
     }
 
@@ -243,6 +251,8 @@ impl StepDecision {
                 fallback: Box::new(fallback),
                 channels: channels.into_iter().collect(),
             },
+            cancel_step_types: Vec::new(),
+            cancel_sibling_step_types: Vec::new(),
         }
     }
 
@@ -250,6 +260,8 @@ impl StepDecision {
     pub fn force_fail(reason: impl Into<String>) -> Self {
         Self {
             kind: StepDecisionKind::ForceFail(reason.into()),
+            cancel_step_types: Vec::new(),
+            cancel_sibling_step_types: Vec::new(),
         }
     }
 
@@ -259,7 +271,45 @@ impl StepDecision {
     pub fn dead_end() -> Self {
         Self {
             kind: StepDecisionKind::DeadEnd,
+            cancel_step_types: Vec::new(),
+            cancel_sibling_step_types: Vec::new(),
         }
+    }
+
+    /// Selects every queued or active execution of one registered Step type.
+    ///
+    /// Dex resolves one snapshot after the current `execute` succeeds. Finished,
+    /// already-canceled, and absent executions are no-ops. Steps scheduled by this decision
+    /// are excluded. Call repeatedly to select multiple types; Flow-wide selection wins.
+    pub fn cancel_step<SelectedStep>(mut self, step: &SelectedStep) -> Self
+    where
+        SelectedStep: Step,
+    {
+        let step_type = step.step_type();
+        if !self.cancel_step_types.contains(&step_type) {
+            self.cancel_step_types.push(step_type);
+        }
+        self.cancel_sibling_step_types
+            .retain(|selected| *selected != step_type);
+        self
+    }
+
+    /// Selects same-source executions of one registered Step type.
+    ///
+    /// A sibling has the same [`Context::from_step_execution_id`](crate::Context::from_step_execution_id)
+    /// as the execution returning this decision. Snapshot and no-op behavior match
+    /// [`Self::cancel_step`]. Call repeatedly to select multiple Step types.
+    pub fn cancel_sibling_step<SelectedStep>(mut self, step: &SelectedStep) -> Self
+    where
+        SelectedStep: Step,
+    {
+        let step_type = step.step_type();
+        if !self.cancel_step_types.contains(&step_type)
+            && !self.cancel_sibling_step_types.contains(&step_type)
+        {
+            self.cancel_sibling_step_types.push(step_type);
+        }
+        self
     }
 }
 

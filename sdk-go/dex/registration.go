@@ -431,6 +431,26 @@ func (flow *registeredFlow) resolveStepReference(
 	return target, nil
 }
 
+func (flow *registeredFlow) resolveStepSelector(
+	selector StepSelector,
+) (*registeredStep, error) {
+	if selector == nil || nilInterface(selector) {
+		return nil, fmt.Errorf("step cancellation selector is nil")
+	}
+	stepType := selector.GetStepType()
+	if stepType == "" {
+		stepType = getSimpleTypeNameFromReflect(selector)
+	}
+	target, found := flow.steps[stepType]
+	if !found {
+		return nil, fmt.Errorf("step %q is not registered", stepType)
+	}
+	if reflect.TypeOf(target.handler.stepValue()) != reflect.TypeOf(selector) {
+		return nil, fmt.Errorf("step %q selector does not match its registered type", stepType)
+	}
+	return target, nil
+}
+
 func (flow *registeredFlow) resolveChannels(
 	definitions []ChannelDef,
 ) ([]registeredChannel, error) {

@@ -31,21 +31,30 @@ class WorkerService(dex_pb2_grpc.WorkerServiceServicer):
         request: pb.InvokeWaitForMethodRequest,
         context: grpc.ServicerContext,
     ) -> pb.InvokeWaitForMethodResponse:
-        return self._invoke(context, lambda: self._dispatcher.invoke_wait_for(request))
+        return self._invoke(
+            context,
+            lambda: self._dispatcher.invoke_wait_for(request, context.is_active),
+        )
 
     def InvokeExecuteMethod(
         self,
         request: pb.InvokeExecuteMethodRequest,
         context: grpc.ServicerContext,
     ) -> pb.InvokeExecuteMethodResponse:
-        return self._invoke(context, lambda: self._dispatcher.invoke_execute(request))
+        return self._invoke(
+            context,
+            lambda: self._dispatcher.invoke_execute(request, context.is_active),
+        )
 
     def InvokeWorkerRPC(
         self,
         request: pb.InvokeWorkerRPCRequest,
         context: grpc.ServicerContext,
     ) -> pb.InvokeWorkerRPCResponse:
-        return self._invoke(context, lambda: self._dispatcher.invoke_rpc(request))
+        return self._invoke(
+            context,
+            lambda: self._dispatcher.invoke_rpc(request, context.is_active),
+        )
 
     @staticmethod
     def _invoke(
@@ -55,6 +64,11 @@ class WorkerService(dex_pb2_grpc.WorkerServiceServicer):
         try:
             return invocation()
         except BaseException as error:
+            if not context.is_active():
+                context.abort(
+                    grpc.StatusCode.CANCELLED,
+                    "Python Worker invocation canceled",
+                )
             _LOGGER.exception("Python Worker invocation failed")
             abort_worker_error(context, error)
             raise RuntimeError("gRPC abort returned unexpectedly") from error

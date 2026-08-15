@@ -34,6 +34,7 @@ use crate::{RetryPolicy, Step, Value};
 pub struct StepOptions<Input> {
     pub(crate) wait_for_method_timeout: Option<Duration>,
     pub(crate) execute_method_timeout: Option<Duration>,
+    pub(crate) heartbeat_timeout: Option<Duration>,
     pub(crate) wait_for_retry: Option<RetryPolicy>,
     pub(crate) execute_retry: Option<RetryPolicy>,
     pub(crate) wait_for_failure: WaitForFailurePolicy,
@@ -49,6 +50,7 @@ pub struct StepOptions<Input> {
 pub(crate) struct ErasedStepOptions {
     pub(crate) wait_for_method_timeout: Option<Duration>,
     pub(crate) execute_method_timeout: Option<Duration>,
+    pub(crate) heartbeat_timeout: Option<Duration>,
     pub(crate) wait_for_retry: Option<RetryPolicy>,
     pub(crate) execute_retry: Option<RetryPolicy>,
     pub(crate) wait_for_failure: WaitForFailurePolicy,
@@ -64,6 +66,7 @@ impl<Input> From<StepOptions<Input>> for ErasedStepOptions {
         Self {
             wait_for_method_timeout: options.wait_for_method_timeout,
             execute_method_timeout: options.execute_method_timeout,
+            heartbeat_timeout: options.heartbeat_timeout,
             wait_for_retry: options.wait_for_retry,
             execute_retry: options.execute_retry,
             wait_for_failure: options.wait_for_failure,
@@ -82,6 +85,7 @@ impl<Input: Value> StepOptions<Input> {
         Self {
             wait_for_method_timeout: None,
             execute_method_timeout: None,
+            heartbeat_timeout: None,
             wait_for_retry: None,
             execute_retry: None,
             wait_for_failure: WaitForFailurePolicy::FailFlow,
@@ -103,6 +107,15 @@ impl<Input: Value> StepOptions<Input> {
     /// Sets the maximum duration of one `execute` handler attempt.
     pub fn execute_method_timeout(mut self, value: Duration) -> Self {
         self.execute_method_timeout = Some(value);
+        self
+    }
+
+    /// Enables cooperative cancellation heartbeats for regular `wait_for` and `execute` activities.
+    ///
+    /// Zero disables heartbeats. Positive values must be whole seconds within the int32 range.
+    /// Local activities ignore this option; an asynchronous fallback to regular activity uses it.
+    pub fn heartbeat_timeout(mut self, value: Duration) -> Self {
+        self.heartbeat_timeout = Some(value);
         self
     }
 

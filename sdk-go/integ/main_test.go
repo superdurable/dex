@@ -179,6 +179,7 @@ func integrationFlows() []dex.Flow {
 		subFlowTimerFlow{},
 		subFlowFailingFlow{},
 		subFlowImmediateFlow{},
+		stepCancellationFlow{},
 	}
 }
 

@@ -10,7 +10,7 @@ import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import type { Flow } from "./flow.js";
 import type { AttributeLock } from "./persistence.js";
-import type { StepMovement } from "./step.js";
+import type { Step, StepMovement } from "./step.js";
 import { requireName } from "./validation.js";
 
 /**
@@ -22,6 +22,8 @@ export interface RPCResult<Output> {
   readonly output: Output;
   /** Step movements applied atomically with handler persistence writes. */
   readonly nextSteps?: readonly StepMovement<unknown>[];
+  /** Registered Step types canceled before `nextSteps` are scheduled. */
+  readonly cancelingSteps?: readonly Step<any>[];
 }
 
 /**

@@ -11,10 +11,12 @@ replica, or the first branch that reaches quorum. Once the result is durable,
 the remaining work should stop consuming capacity and must not produce a late
 decision that changes the Flow.
 
-## Java example
+## SDK examples
 
 Return the winner's normal next action and select losing Step types in the same
-immutable decision:
+decision. Each SDK keeps its language's normal builder style.
+
+### Java
 
 ```java
 @Override
@@ -25,14 +27,79 @@ public StepDecision execute(Context context, Quote quote) {
 }
 ```
 
-`withCancelingSteps(...)` selects all queued or active executions of the exact
-registered Step types in the current Flow. `withCancelingSiblingSteps(...)`
-selects only targets with the same `Context.getFromStepExecutionId()` as the
-winner. Sibling selection is useful when several independent fan-outs reuse the
-same Step classes.
+### Go
 
-An RPC can cancel all executions of selected Step types with
-`RPCResult.withCancelingSteps(...)`:
+```go
+func (Winner) Execute(
+    ctx dex.Context,
+    quote Quote,
+) (*dex.StepDecision, error) {
+    return dex.GoTo(RecordQuote, quote).
+        CancelSiblingSteps(CarrierA, CarrierB).
+        CancelSteps(GlobalQuoteTimeout), nil
+}
+```
+
+### Python
+
+```python
+def execute(self, context: dex.Context, quote: Quote) -> dex.StepDecision:
+    return (
+        dex.go_to(self.record_quote, quote)
+        .with_canceling_sibling_steps(self.carrier_a, self.carrier_b)
+        .with_canceling_steps(self.global_quote_timeout)
+    )
+```
+
+### TypeScript
+
+```typescript
+execute(_context: Context, quote: Quote): StepDecision {
+  return withCancelingSteps(
+    withCancelingSiblingSteps(
+      goTo(this.recordQuote, quote),
+      this.carrierA,
+      this.carrierB,
+    ),
+    this.globalQuoteTimeout,
+  );
+}
+```
+
+### Rust
+
+```rust
+fn execute(
+    &self,
+    _context: &mut Context,
+    quote: Quote,
+) -> HandlerResult<StepDecision> {
+    Ok(StepDecision::go_to(&self.record_quote, quote)
+        .cancel_sibling_step(&self.carrier_a)
+        .cancel_sibling_step(&self.carrier_b)
+        .cancel_step(&self.global_quote_timeout))
+}
+```
+
+Use the first method to select all queued or active executions of a registered
+Step type. Use the sibling method when the target must also have the same
+`fromStepExecutionId` as the winner.
+
+| SDK | All current executions | Same-source executions |
+| --- | --- | --- |
+| Java | `withCancelingSteps` | `withCancelingSiblingSteps` |
+| Go | `CancelSteps` | `CancelSiblingSteps` |
+| Python | `with_canceling_steps` | `with_canceling_sibling_steps` |
+| TypeScript | `withCancelingSteps` | `withCancelingSiblingSteps` |
+| Rust | `cancel_step` | `cancel_sibling_step` |
+
+Sibling selection is useful when independent fan-outs reuse the same Step
+types.
+
+An RPC can cancel all executions of selected Step types. Java uses
+`RPCResult.withCancelingSteps(...)`; Go, Python, TypeScript, and Rust expose the
+same Flow-wide capability as `CancelSteps`, `with_canceling_steps`, the
+`cancelingSteps` result field, and `cancel_step` respectively:
 
 ```java
 @RPC(name = "acceptQuote")
@@ -49,9 +116,12 @@ same RPC name do not share an invocation-scoped Step execution lineage, so
 treating their Steps as siblings could cancel unrelated work.
 
 Long-running regular Steps should use a heartbeat timeout so cancellation
-reaches the Java Worker promptly. Dex then cancels the handler task with
-`Future.cancel(true)`, which interrupts the handler thread. Blocking handlers
-should return when interrupted:
+reaches the Worker promptly. The option is `heartbeatTimeout` in Java,
+`HeartbeatTimeout` in Go, `heartbeat_timeout` in Python,
+`heartbeatTimeoutMs` in TypeScript, and `heartbeat_timeout` in Rust.
+
+Java cancels the handler task with `Future.cancel(true)`, which interrupts the
+handler thread. Blocking handlers should return when interrupted:
 
 ```java
 private final StepOptions options = StepOptions.newBuilder()
@@ -74,6 +144,13 @@ public StepDecision execute(Context context, Job job) {
 CPU-bound or batch-oriented handlers may additionally check
 `Context.isCancellationRequested()` at natural work boundaries. They do not
 need to poll continuously.
+
+Go handlers observe the standard `Context.Done()` channel. Python's
+`AsyncWorker` cancels the asyncio task and exposes
+`Context.is_cancellation_requested()` for synchronous or batch work.
+TypeScript aborts `Context.cancellationSignal`, which can be passed directly to
+abort-aware APIs. Rust handlers can block in `Context::wait_for_cancellation()`
+or inspect `Context::is_cancelled()` at natural work boundaries.
 
 ## ASYNC local activities and timers
 

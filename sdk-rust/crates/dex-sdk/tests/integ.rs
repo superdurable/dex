@@ -95,6 +95,10 @@ mod state_recovery_no_wait_workflow;
 mod state_recovery_test;
 #[path = "integ/state_recovery_workflow.rs"]
 mod state_recovery_workflow;
+#[path = "integ/step_cancellation_test.rs"]
+mod step_cancellation_test;
+#[path = "integ/step_cancellation_workflow.rs"]
+mod step_cancellation_workflow;
 #[path = "integ/subflow_test.rs"]
 mod subflow_test;
 #[path = "integ/subflow_workflow.rs"]

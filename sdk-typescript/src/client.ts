@@ -840,6 +840,7 @@ function mapStepOptions(
   return ProtoStepOptions.create({
     waitForTimeoutSeconds: seconds(options?.waitForMethodTimeoutMs),
     executeTimeoutSeconds: seconds(options?.executeMethodTimeoutMs),
+    heartbeatTimeoutSeconds: heartbeatSeconds(options?.heartbeatTimeoutMs),
     waitForRetryPolicy: mapRetryPolicy(options?.waitForRetry),
     executeRetryPolicy: mapRetryPolicy(options?.executeRetry),
     waitForFailurePolicy:
@@ -1049,6 +1050,14 @@ function seconds(milliseconds: number | undefined): number {
     throw new RangeError("duration must be a non-negative whole number of seconds");
   }
   return milliseconds / 1_000;
+}
+
+function heartbeatSeconds(milliseconds: number | undefined): number {
+  const value = seconds(milliseconds);
+  if (value > 2_147_483_647) {
+    throw new RangeError("heartbeat timeout exceeds int32 seconds");
+  }
+  return value;
 }
 
 function number64(value: bigint | undefined): number {

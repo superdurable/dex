@@ -30,6 +30,13 @@ export interface Context {
   /** One-based handler retry attempt number. */
   readonly attempt: number;
   /**
+   * Signal aborted when Dex cancels the active Worker call.
+   *
+   * Pass it to abort-aware APIs or inspect it at natural CPU-work boundaries. JavaScript
+   * cannot forcibly stop synchronous code, and cancellation cannot make external effects atomic.
+   */
+  readonly cancellationSignal: AbortSignal;
+  /**
    * Reports whether a Timer made the current Wait ready.
    * @param index - Optional zero-based Timer index; checks any Timer when omitted.
    * @returns Whether the selected Timer fired.

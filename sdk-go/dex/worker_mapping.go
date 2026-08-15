@@ -97,6 +97,7 @@ func mapRegisteredDecision(
 	if decision == nil {
 		return nil, fmt.Errorf("dex: Execute returned nil")
 	}
+	var mapped *dexpb.StepDecision
 	switch decision.kind {
 	case decisionNext:
 		if len(decision.movements) == 0 {
@@ -106,7 +107,7 @@ func mapRegisteredDecision(
 		if err != nil {
 			return nil, err
 		}
-		return &dexpb.StepDecision{NextSteps: movements}, nil
+		mapped = &dexpb.StepDecision{NextSteps: movements}
 	case decisionClose:
 		if len(decision.movements) != 0 {
 			return nil, fmt.Errorf("dex: close decision cannot have next steps")
@@ -115,7 +116,7 @@ func mapRegisteredDecision(
 		if err != nil {
 			return nil, err
 		}
-		return &dexpb.StepDecision{CloseDecision: closeDecision}, nil
+		mapped = &dexpb.StepDecision{CloseDecision: closeDecision}
 	case decisionConditionalClose:
 		if len(decision.movements) == 0 {
 			return nil, fmt.Errorf("dex: conditional close requires fallback movements")
@@ -131,13 +132,68 @@ func mapRegisteredDecision(
 		if err != nil {
 			return nil, err
 		}
-		return &dexpb.StepDecision{
+		mapped = &dexpb.StepDecision{
 			NextSteps:     movements,
 			CloseDecision: closeDecision,
-		}, nil
+		}
 	default:
 		return nil, fmt.Errorf("dex: Execute returned an empty decision")
 	}
+	cancelingSteps, cancelingSiblings, err := mapCancellationSelectors(
+		flow,
+		decision.cancelingSteps,
+		decision.cancelingSiblingSteps,
+	)
+	if err != nil {
+		return nil, err
+	}
+	mapped.CancelStepTypes = cancelingSteps
+	mapped.CancelSiblingStepTypes = cancelingSiblings
+	return mapped, nil
+}
+
+func mapCancellationSelectors(
+	flow *registeredFlow,
+	global []StepSelector,
+	siblings []StepSelector,
+) ([]string, []string, error) {
+	globalTypes, err := mapStepSelectors(flow, global, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	selected := make(map[string]struct{}, len(globalTypes))
+	for _, stepType := range globalTypes {
+		selected[stepType] = struct{}{}
+	}
+	siblingTypes, err := mapStepSelectors(flow, siblings, selected)
+	if err != nil {
+		return nil, nil, err
+	}
+	return globalTypes, siblingTypes, nil
+}
+
+func mapStepSelectors(
+	flow *registeredFlow,
+	selectors []StepSelector,
+	excluded map[string]struct{},
+) ([]string, error) {
+	stepTypes := make([]string, 0, len(selectors))
+	seen := make(map[string]struct{}, len(selectors))
+	for _, selector := range selectors {
+		target, err := flow.resolveStepSelector(selector)
+		if err != nil {
+			return nil, err
+		}
+		if _, found := excluded[target.stepType]; found {
+			continue
+		}
+		if _, found := seen[target.stepType]; found {
+			continue
+		}
+		seen[target.stepType] = struct{}{}
+		stepTypes = append(stepTypes, target.stepType)
+	}
+	return stepTypes, nil
 }
 
 func validateRegisteredCloseChannels(
@@ -228,13 +284,20 @@ func mapRegisteredRPCResult(
 	}
 	response := &dexpb.InvokeWorkerRPCResponse{Output: output}
 	movements := result.rpcMovements()
-	if len(movements) == 0 {
+	cancelingSteps, err := mapStepSelectors(flow, result.rpcCancelingSteps(), nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(movements) == 0 && len(cancelingSteps) == 0 {
 		return response, nil
 	}
 	nextSteps, err := mapRegisteredMovements(flow, movements)
 	if err != nil {
 		return nil, err
 	}
-	response.StepDecision = &dexpb.StepDecision{NextSteps: nextSteps}
+	response.StepDecision = &dexpb.StepDecision{
+		NextSteps:       nextSteps,
+		CancelStepTypes: cancelingSteps,
+	}
 	return response, nil
 }

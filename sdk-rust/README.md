@@ -147,6 +147,39 @@ blocking executor, so they do not occupy gRPC I/O tasks. Long-running handlers
 can call `Context::wait_for_cancellation` or poll `Context::is_cancelled` to
 observe method deadlines and disconnected callers.
 
+### Canceling Step executions
+
+A successful Step can cancel queued or active executions while continuing with
+its normal decision:
+
+```rust
+Ok(StepDecision::go_to(&self.record_quote, quote)
+    .cancel_sibling_step(&self.carrier_a)
+    .cancel_sibling_step(&self.carrier_b)
+    .cancel_step(&self.global_quote_timeout))
+```
+
+`cancel_step` selects every current execution of one registered Step type.
+`cancel_sibling_step` selects only executions whose
+`Context::from_step_execution_id()` matches the current execution. Chain the
+builders to select multiple types; Flow-wide selection wins for the same type.
+The Worker rejects unregistered Step types as invalid results.
+
+Dex resolves one snapshot after the current execution succeeds. Completed,
+already-canceled, and absent targets are no-ops. Next Steps created by that
+decision are outside the snapshot. Dex immediately applies the next or close
+action; late decisions, writes, retries, and recovery Steps are discarded.
+
+Set `StepOptions::heartbeat_timeout` on long-running regular Steps so
+cancellation reaches the Worker promptly. Zero disables heartbeats, and
+positive values must be whole seconds in the signed int32 range. Local
+activities ignore the setting, while an ASYNC fallback uses it. Blocking
+handlers can call `Context::wait_for_cancellation`; batch handlers may check
+`Context::is_cancelled()` at natural boundaries.
+
+`RpcResult::cancel_step` provides Flow-wide selection for RPCs. RPCs do not
+support sibling selection because they have no Step execution lineage.
+
 Opt an Attribute or AttributeMap into Attribute Store synchronization and
 select the Server-configured Store for the Flow:
 

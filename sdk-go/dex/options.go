@@ -79,6 +79,9 @@ type StepOptions struct {
 	WaitForMethodTimeout time.Duration
 	// ExecuteMethodTimeout limits one Execute attempt; zero uses the server default.
 	ExecuteMethodTimeout time.Duration
+	// HeartbeatTimeout enables cooperative cancellation for regular WaitFor and Execute activities.
+	// Zero disables heartbeats. Positive values must be whole seconds within int32 range.
+	HeartbeatTimeout time.Duration
 	// WaitForRetry overrides the WaitFor retry policy; nil uses server defaults.
 	WaitForRetry *RetryPolicy
 	// ExecuteRetry overrides the Execute retry policy; nil uses server defaults.
