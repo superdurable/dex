@@ -169,7 +169,7 @@ func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
 		StepExecutionsToResume:    stepExecutionsToResume,
 		StepOutputs:               c.outputCollector.GetAll(),
 		StaleSkipTimers: c.timerProcessor.Dump(
-			c.IsStepExecutionActive,
+			c.stepExecutionCounter.IsStepExecutionActive,
 		),
 		PendingAttributeSyncItems: c.attributeSynchronizer.PendingItems(),
 	}
@@ -204,22 +204,6 @@ func (c *ContinueAsNewer) GetActiveStepExecutionStates() []*dexpb.ActiveStepExec
 	}
 	return states
 }
-
-// IsStepExecutionActive reports whether an execution should retain stale timer skips.
-func (c *ContinueAsNewer) IsStepExecutionActive(stepExecutionID string) bool {
-	if stepExecutionID != service.FlowTimeoutStepExecutionID {
-		return c.stepExecutionCounter.IsStepExecutionActive(stepExecutionID)
-	}
-	if _, isActive := c.activeStepMovements[stepExecutionID]; isActive {
-		return true
-	}
-	if _, isWaiting := c.StepExecutionToResumeMap[stepExecutionID]; isWaiting {
-		return true
-	}
-	_, isQueued := c.stepRequestQueue.GetAllStepResumeRequests()[stepExecutionID]
-	return isQueued
-}
-
 func (c *ContinueAsNewer) activeStepExecutionState(
 	stepExecutionID string,
 	stepType string,
