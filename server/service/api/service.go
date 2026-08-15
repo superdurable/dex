@@ -1155,14 +1155,51 @@ func (s *serviceImpl) ResetFlow(
 	ctx context.Context,
 	req *dexpb.ResetFlowRequest,
 ) (*dexpb.ResetFlowResponse, error) {
-	if req == nil || req.GetFlowId() == "" {
-		return nil, makeInvalidRequestError("flow ID is required")
+	if err := validateResetFlowRequest(req); err != nil {
+		return nil, err
 	}
 	runId, err := s.client.ResetWorkflow(ctx, req)
 	if err != nil {
 		return nil, s.handleError(err)
 	}
 	return &dexpb.ResetFlowResponse{RunId: runId}, nil
+}
+
+func validateResetFlowRequest(req *dexpb.ResetFlowRequest) error {
+	if req == nil || req.GetFlowId() == "" {
+		return makeInvalidRequestError("flow ID is required")
+	}
+	switch req.GetResetType() {
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING:
+		if req.GetStepMethod() != dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_UNSPECIFIED {
+			return makeInvalidRequestError("step method is only valid for a Step execution ID")
+		}
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME:
+		if req.GetHistoryEventTime() == "" {
+			return makeInvalidRequestError("history event time is required")
+		}
+		if req.GetStepMethod() != dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_UNSPECIFIED {
+			return makeInvalidRequestError("step method is only valid for a Step execution ID")
+		}
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE:
+		if req.GetStepType() == "" {
+			return makeInvalidRequestError("step type is required")
+		}
+		if req.GetStepMethod() != dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_UNSPECIFIED {
+			return makeInvalidRequestError("step method is only valid for a Step execution ID")
+		}
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID:
+		if req.GetStepExecutionId() == "" {
+			return makeInvalidRequestError("step execution ID is required")
+		}
+		if req.GetStepMethod() != dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR &&
+			req.GetStepMethod() != dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE {
+			return makeInvalidRequestError("step method must be WaitFor or Execute")
+		}
+	default:
+		return makeInvalidRequestError("time travel type is required")
+	}
+	return nil
 }
 
 func (s *serviceImpl) SkipTimer(

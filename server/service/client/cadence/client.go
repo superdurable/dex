@@ -1179,7 +1179,7 @@ func (t *cadenceClient) ResetWorkflow(
 
 	resetType := request.GetResetType()
 	resetBaseRunID, decisionFinishID, err := getResetIDsByType(ctx, resetType, t.domain, request.GetFlowId(),
-		reqRunId, t.serviceClient, t.converter, request.GetHistoryEventId(), request.GetHistoryEventTime(), request.GetStepType(), request.GetStepExecutionId())
+		reqRunId, t.serviceClient, t.converter, request.GetHistoryEventTime(), request.GetStepType(), request.GetStepExecutionId(), request.GetStepMethod())
 
 	if err != nil {
 		return "", err

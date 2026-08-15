@@ -16,6 +16,7 @@ import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowStatus;
 import io.superdurable.dex.FlowResult;
 import io.superdurable.dex.TimeTravelOptions;
+import io.superdurable.dex.TimeTravelStepMethod;
 import io.superdurable.dex.TimeTravelType;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepCompletion;
@@ -137,6 +138,13 @@ public final class ResetTest {
                 .build();
         final String runId = client.timeTravel("reset-locking", options);
         consume(runId);
+
+        final TimeTravelOptions stepExecutionOptions = TimeTravelOptions
+                .newBuilder(TimeTravelType.STEP_EXECUTION_ID)
+                .stepExecutionId("LockWaitStep-1")
+                .stepMethod(TimeTravelStepMethod.EXECUTE)
+                .build();
+        consume(client.timeTravel("reset-locking", stepExecutionOptions));
     }
 
     private DexDevTestEnvironment startEnvironment() throws Exception {

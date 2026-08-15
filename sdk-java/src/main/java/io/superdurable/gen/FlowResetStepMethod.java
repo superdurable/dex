@@ -6,23 +6,23 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf enum {@code dex.ConditionStatus}
+ * Protobuf enum {@code dex.FlowResetStepMethod}
  */
 @com.google.protobuf.Generated
-public enum ConditionStatus
+public enum FlowResetStepMethod
     implements com.google.protobuf.ProtocolMessageEnum {
   /**
-   * <code>CONDITION_STATUS_UNSPECIFIED = 0;</code>
+   * <code>FLOW_RESET_STEP_METHOD_UNSPECIFIED = 0;</code>
    */
-  CONDITION_STATUS_UNSPECIFIED(0),
+  FLOW_RESET_STEP_METHOD_UNSPECIFIED(0),
   /**
-   * <code>CONDITION_STATUS_WAITING = 1;</code>
+   * <code>FLOW_RESET_STEP_METHOD_WAIT_FOR = 1;</code>
    */
-  CONDITION_STATUS_WAITING(1),
+  FLOW_RESET_STEP_METHOD_WAIT_FOR(1),
   /**
-   * <code>CONDITION_STATUS_COMPLETED = 2;</code>
+   * <code>FLOW_RESET_STEP_METHOD_EXECUTE = 2;</code>
    */
-  CONDITION_STATUS_COMPLETED(2),
+  FLOW_RESET_STEP_METHOD_EXECUTE(2),
   UNRECOGNIZED(-1),
   ;
 
@@ -33,20 +33,20 @@ public enum ConditionStatus
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "ConditionStatus");
+      "FlowResetStepMethod");
   }
   /**
-   * <code>CONDITION_STATUS_UNSPECIFIED = 0;</code>
+   * <code>FLOW_RESET_STEP_METHOD_UNSPECIFIED = 0;</code>
    */
-  public static final int CONDITION_STATUS_UNSPECIFIED_VALUE = 0;
+  public static final int FLOW_RESET_STEP_METHOD_UNSPECIFIED_VALUE = 0;
   /**
-   * <code>CONDITION_STATUS_WAITING = 1;</code>
+   * <code>FLOW_RESET_STEP_METHOD_WAIT_FOR = 1;</code>
    */
-  public static final int CONDITION_STATUS_WAITING_VALUE = 1;
+  public static final int FLOW_RESET_STEP_METHOD_WAIT_FOR_VALUE = 1;
   /**
-   * <code>CONDITION_STATUS_COMPLETED = 2;</code>
+   * <code>FLOW_RESET_STEP_METHOD_EXECUTE = 2;</code>
    */
-  public static final int CONDITION_STATUS_COMPLETED_VALUE = 2;
+  public static final int FLOW_RESET_STEP_METHOD_EXECUTE_VALUE = 2;
 
 
   public final int getNumber() {
@@ -63,7 +63,7 @@ public enum ConditionStatus
    * @deprecated Use {@link #forNumber(int)} instead.
    */
   @java.lang.Deprecated
-  public static ConditionStatus valueOf(int value) {
+  public static FlowResetStepMethod valueOf(int value) {
     return forNumber(value);
   }
 
@@ -71,24 +71,24 @@ public enum ConditionStatus
    * @param value The numeric wire value of the corresponding enum entry.
    * @return The enum associated with the given numeric wire value.
    */
-  public static ConditionStatus forNumber(int value) {
+  public static FlowResetStepMethod forNumber(int value) {
     switch (value) {
-      case 0: return CONDITION_STATUS_UNSPECIFIED;
-      case 1: return CONDITION_STATUS_WAITING;
-      case 2: return CONDITION_STATUS_COMPLETED;
+      case 0: return FLOW_RESET_STEP_METHOD_UNSPECIFIED;
+      case 1: return FLOW_RESET_STEP_METHOD_WAIT_FOR;
+      case 2: return FLOW_RESET_STEP_METHOD_EXECUTE;
       default: return null;
     }
   }
 
-  public static com.google.protobuf.Internal.EnumLiteMap<ConditionStatus>
+  public static com.google.protobuf.Internal.EnumLiteMap<FlowResetStepMethod>
       internalGetValueMap() {
     return internalValueMap;
   }
   private static final com.google.protobuf.Internal.EnumLiteMap<
-      ConditionStatus> internalValueMap =
-        new com.google.protobuf.Internal.EnumLiteMap<ConditionStatus>() {
-          public ConditionStatus findValueByNumber(int number) {
-            return ConditionStatus.forNumber(number);
+      FlowResetStepMethod> internalValueMap =
+        new com.google.protobuf.Internal.EnumLiteMap<FlowResetStepMethod>() {
+          public FlowResetStepMethod findValueByNumber(int number) {
+            return FlowResetStepMethod.forNumber(number);
           }
         };
 
@@ -106,12 +106,12 @@ public enum ConditionStatus
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(18);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(13);
   }
 
-  private static final ConditionStatus[] VALUES = values();
+  private static final FlowResetStepMethod[] VALUES = values();
 
-  public static ConditionStatus valueOf(
+  public static FlowResetStepMethod valueOf(
       com.google.protobuf.Descriptors.EnumValueDescriptor desc) {
     if (desc.getType() != getDescriptor()) {
       throw new java.lang.IllegalArgumentException(
@@ -125,10 +125,10 @@ public enum ConditionStatus
 
   private final int value;
 
-  private ConditionStatus(int value) {
+  private FlowResetStepMethod(int value) {
     this.value = value;
   }
 
-  // @@protoc_insertion_point(enum_scope:dex.ConditionStatus)
+  // @@protoc_insertion_point(enum_scope:dex.FlowResetStepMethod)
 }
 

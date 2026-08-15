@@ -104,11 +104,11 @@ type timeTravelFlowRequest struct {
 	FlowID           string `json:"flowId"`
 	RunID            string `json:"runId"`
 	TimeTravelType   int32  `json:"timeTravelType"`
-	HistoryEventID   int32  `json:"historyEventId"`
 	Reason           string `json:"reason"`
 	StepType         string `json:"stepType"`
 	StepExecutionID  string `json:"stepExecutionId"`
 	HistoryEventTime string `json:"historyEventTime"`
+	StepMethod       int32  `json:"stepMethod"`
 }
 
 type timeTravelFlowResponse struct {

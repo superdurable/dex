@@ -232,11 +232,11 @@ func (h *handler) timeTravelFlow(response http.ResponseWriter, request *http.Req
 		FlowId:           body.FlowID,
 		RunId:            body.RunID,
 		ResetType:        dexpb.FlowResetType(body.TimeTravelType),
-		HistoryEventId:   body.HistoryEventID,
 		Reason:           body.Reason,
 		StepType:         body.StepType,
 		StepExecutionId:  body.StepExecutionID,
 		HistoryEventTime: body.HistoryEventTime,
+		StepMethod:       dexpb.FlowResetStepMethod(body.StepMethod),
 	})
 	if err != nil {
 		writeGRPCError(response, err, "TimeTravel")

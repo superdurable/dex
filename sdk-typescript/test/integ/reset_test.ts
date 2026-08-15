@@ -8,7 +8,7 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
-import { TimeTravelType, type Client } from "../../src/index.js";
+import { TimeTravelStepMethod, TimeTravelType, type Client } from "../../src/index.js";
 
 import * as flows from "./iwf_flows.js";
 
@@ -32,4 +32,11 @@ export async function compileSkipWritesReapply(client: Client): Promise<void> {
     skipWritesReapply: true,
   });
   void runId;
+
+  const stepExecutionRunId: string = await client.timeTravel("reset-locking", {
+    type: TimeTravelType.STEP_EXECUTION_ID,
+    stepExecutionId: "LockWaitStep-1",
+    stepMethod: TimeTravelStepMethod.EXECUTE,
+  });
+  void stepExecutionRunId;
 }

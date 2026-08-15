@@ -46,54 +46,48 @@ public interface ResetFlowRequestOrBuilder extends
   io.superdurable.gen.FlowResetType getResetType();
 
   /**
-   * <code>int32 history_event_id = 4;</code>
-   * @return The historyEventId.
-   */
-  int getHistoryEventId();
-
-  /**
-   * <code>string reason = 5;</code>
+   * <code>string reason = 4;</code>
    * @return The reason.
    */
   java.lang.String getReason();
   /**
-   * <code>string reason = 5;</code>
+   * <code>string reason = 4;</code>
    * @return The bytes for reason.
    */
   com.google.protobuf.ByteString
       getReasonBytes();
 
   /**
-   * <code>string history_event_time = 6;</code>
+   * <code>string history_event_time = 5;</code>
    * @return The historyEventTime.
    */
   java.lang.String getHistoryEventTime();
   /**
-   * <code>string history_event_time = 6;</code>
+   * <code>string history_event_time = 5;</code>
    * @return The bytes for historyEventTime.
    */
   com.google.protobuf.ByteString
       getHistoryEventTimeBytes();
 
   /**
-   * <code>string step_type = 7;</code>
+   * <code>string step_type = 6;</code>
    * @return The stepType.
    */
   java.lang.String getStepType();
   /**
-   * <code>string step_type = 7;</code>
+   * <code>string step_type = 6;</code>
    * @return The bytes for stepType.
    */
   com.google.protobuf.ByteString
       getStepTypeBytes();
 
   /**
-   * <code>string step_execution_id = 8;</code>
+   * <code>string step_execution_id = 7;</code>
    * @return The stepExecutionId.
    */
   java.lang.String getStepExecutionId();
   /**
-   * <code>string step_execution_id = 8;</code>
+   * <code>string step_execution_id = 7;</code>
    * @return The bytes for stepExecutionId.
    */
   com.google.protobuf.ByteString
@@ -104,8 +98,19 @@ public interface ResetFlowRequestOrBuilder extends
    * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
    * </pre>
    *
-   * <code>bool skip_writes_reapply = 9;</code>
+   * <code>bool skip_writes_reapply = 8;</code>
    * @return The skipWritesReapply.
    */
   boolean getSkipWritesReapply();
+
+  /**
+   * <code>.dex.FlowResetStepMethod step_method = 9;</code>
+   * @return The enum numeric value on the wire for stepMethod.
+   */
+  int getStepMethodValue();
+  /**
+   * <code>.dex.FlowResetStepMethod step_method = 9;</code>
+   * @return The stepMethod.
+   */
+  io.superdurable.gen.FlowResetStepMethod getStepMethod();
 }

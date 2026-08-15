@@ -67,7 +67,7 @@ pub use step_execution::StepExecutionId;
 pub use step_options::{StepDurability, StepOptions, WaitForFailurePolicy};
 pub use stop_flow_options::StopFlowOptions;
 pub use sub_flow::{SubFlow, SubFlowOptions, SubFlowReusePolicy};
-pub use time_travel_options::TimeTravelOptions;
+pub use time_travel_options::{TimeTravelOptions, TimeTravelStepMethod};
 pub use timer::{Timer, TimerId};
 pub use tonic::Code as GrpcCode;
 pub use value::Value;

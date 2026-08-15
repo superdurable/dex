@@ -275,17 +275,27 @@ class TimeTravelType(Enum):
 
     Attributes:
         BEGINNING: Restart from the beginning of the Flow.
-        HISTORY_EVENT_ID: Resume at a specific history event ID.
         HISTORY_EVENT_TIME: Resume at the first event at or after a timestamp.
         STEP_TYPE: Resume at the latest execution of a Step type.
         STEP_EXECUTION_ID: Resume at one exact Step execution ID.
     """
 
     BEGINNING = "beginning"
-    HISTORY_EVENT_ID = "history_event_id"
     HISTORY_EVENT_TIME = "history_event_time"
     STEP_TYPE = "step_type"
     STEP_EXECUTION_ID = "step_execution_id"
+
+
+class TimeTravelStepMethod(Enum):
+    """Select the Step method used as a Step execution time travel boundary.
+
+    Attributes:
+        WAIT_FOR: Rerun WaitFor and everything after it.
+        EXECUTE: Keep the WaitFor result and rerun Execute and everything after it.
+    """
+
+    WAIT_FOR = "wait_for"
+    EXECUTE = "execute"
 
 
 @dataclass(frozen=True)
@@ -297,20 +307,20 @@ class TimeTravelOptions:
 
     Attributes:
         type: The time travel point selector kind.
-        history_event_id: Event ID used by ``HISTORY_EVENT_ID``.
         history_event_time: Timestamp used by ``HISTORY_EVENT_TIME``.
         step_type: Registered Step type used by ``STEP_TYPE``.
         step_execution_id: Exact execution ID used by ``STEP_EXECUTION_ID``.
+        step_method: WaitFor or Execute boundary required by ``STEP_EXECUTION_ID``.
         reason: Optional operator-readable time travel reason.
         skip_writes_reapply: Do not replay RPCs, Channel publications, or Attribute
             writes after the selected point.
     """
 
     type: TimeTravelType
-    history_event_id: int | None = None
     history_event_time: datetime | None = None
     step_type: str | None = None
     step_execution_id: str | None = None
+    step_method: TimeTravelStepMethod | None = None
     reason: str | None = None
     skip_writes_reapply: bool = False
 

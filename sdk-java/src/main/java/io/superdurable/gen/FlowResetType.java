@@ -16,25 +16,21 @@ public enum FlowResetType
    */
   FLOW_RESET_TYPE_UNSPECIFIED(0),
   /**
-   * <code>FLOW_RESET_TYPE_HISTORY_EVENT_ID = 1;</code>
+   * <code>FLOW_RESET_TYPE_BEGINNING = 1;</code>
    */
-  FLOW_RESET_TYPE_HISTORY_EVENT_ID(1),
+  FLOW_RESET_TYPE_BEGINNING(1),
   /**
-   * <code>FLOW_RESET_TYPE_BEGINNING = 2;</code>
+   * <code>FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 2;</code>
    */
-  FLOW_RESET_TYPE_BEGINNING(2),
+  FLOW_RESET_TYPE_HISTORY_EVENT_TIME(2),
   /**
-   * <code>FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 3;</code>
+   * <code>FLOW_RESET_TYPE_STEP_TYPE = 3;</code>
    */
-  FLOW_RESET_TYPE_HISTORY_EVENT_TIME(3),
+  FLOW_RESET_TYPE_STEP_TYPE(3),
   /**
-   * <code>FLOW_RESET_TYPE_STEP_TYPE = 4;</code>
+   * <code>FLOW_RESET_TYPE_STEP_EXECUTION_ID = 4;</code>
    */
-  FLOW_RESET_TYPE_STEP_TYPE(4),
-  /**
-   * <code>FLOW_RESET_TYPE_STEP_EXECUTION_ID = 5;</code>
-   */
-  FLOW_RESET_TYPE_STEP_EXECUTION_ID(5),
+  FLOW_RESET_TYPE_STEP_EXECUTION_ID(4),
   UNRECOGNIZED(-1),
   ;
 
@@ -52,25 +48,21 @@ public enum FlowResetType
    */
   public static final int FLOW_RESET_TYPE_UNSPECIFIED_VALUE = 0;
   /**
-   * <code>FLOW_RESET_TYPE_HISTORY_EVENT_ID = 1;</code>
+   * <code>FLOW_RESET_TYPE_BEGINNING = 1;</code>
    */
-  public static final int FLOW_RESET_TYPE_HISTORY_EVENT_ID_VALUE = 1;
+  public static final int FLOW_RESET_TYPE_BEGINNING_VALUE = 1;
   /**
-   * <code>FLOW_RESET_TYPE_BEGINNING = 2;</code>
+   * <code>FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 2;</code>
    */
-  public static final int FLOW_RESET_TYPE_BEGINNING_VALUE = 2;
+  public static final int FLOW_RESET_TYPE_HISTORY_EVENT_TIME_VALUE = 2;
   /**
-   * <code>FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 3;</code>
+   * <code>FLOW_RESET_TYPE_STEP_TYPE = 3;</code>
    */
-  public static final int FLOW_RESET_TYPE_HISTORY_EVENT_TIME_VALUE = 3;
+  public static final int FLOW_RESET_TYPE_STEP_TYPE_VALUE = 3;
   /**
-   * <code>FLOW_RESET_TYPE_STEP_TYPE = 4;</code>
+   * <code>FLOW_RESET_TYPE_STEP_EXECUTION_ID = 4;</code>
    */
-  public static final int FLOW_RESET_TYPE_STEP_TYPE_VALUE = 4;
-  /**
-   * <code>FLOW_RESET_TYPE_STEP_EXECUTION_ID = 5;</code>
-   */
-  public static final int FLOW_RESET_TYPE_STEP_EXECUTION_ID_VALUE = 5;
+  public static final int FLOW_RESET_TYPE_STEP_EXECUTION_ID_VALUE = 4;
 
 
   public final int getNumber() {
@@ -98,11 +90,10 @@ public enum FlowResetType
   public static FlowResetType forNumber(int value) {
     switch (value) {
       case 0: return FLOW_RESET_TYPE_UNSPECIFIED;
-      case 1: return FLOW_RESET_TYPE_HISTORY_EVENT_ID;
-      case 2: return FLOW_RESET_TYPE_BEGINNING;
-      case 3: return FLOW_RESET_TYPE_HISTORY_EVENT_TIME;
-      case 4: return FLOW_RESET_TYPE_STEP_TYPE;
-      case 5: return FLOW_RESET_TYPE_STEP_EXECUTION_ID;
+      case 1: return FLOW_RESET_TYPE_BEGINNING;
+      case 2: return FLOW_RESET_TYPE_HISTORY_EVENT_TIME;
+      case 3: return FLOW_RESET_TYPE_STEP_TYPE;
+      case 4: return FLOW_RESET_TYPE_STEP_EXECUTION_ID;
       default: return null;
     }
   }

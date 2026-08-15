@@ -32,6 +32,7 @@ import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
 import io.superdurable.gen.FlowExecutionID;
+import io.superdurable.gen.FlowResetStepMethod;
 import io.superdurable.gen.FlowResetType;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.FlowStartOptions;
@@ -734,9 +735,6 @@ public final class Client implements AutoCloseable {
                 .setResetType(mapTimeTravelType(options.getType()))
                 .setReason(options.getReason() == null ? "" : options.getReason())
                 .setSkipWritesReapply(options.isSkipWritesReapply());
-        if (options.getHistoryEventId() != null) {
-            request.setHistoryEventId(Math.toIntExact(options.getHistoryEventId()));
-        }
         if (options.getHistoryEventTime() != null) {
             request.setHistoryEventTime(options.getHistoryEventTime().toString());
         }
@@ -745,6 +743,9 @@ public final class Client implements AutoCloseable {
         }
         if (options.getStepExecutionId() != null) {
             request.setStepExecutionId(options.getStepExecutionId());
+        }
+        if (options.getStepMethod() != null) {
+            request.setStepMethod(mapTimeTravelStepMethod(options.getStepMethod()));
         }
         return call(
                 () -> service.resetFlow(request.build()),
@@ -1208,8 +1209,6 @@ public final class Client implements AutoCloseable {
 
     private static FlowResetType mapTimeTravelType(final TimeTravelType type) {
         switch (type) {
-            case HISTORY_EVENT_ID:
-                return FlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_ID;
             case BEGINNING:
                 return FlowResetType.FLOW_RESET_TYPE_BEGINNING;
             case HISTORY_EVENT_TIME:
@@ -1220,6 +1219,17 @@ public final class Client implements AutoCloseable {
                 return FlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID;
             default:
                 return FlowResetType.FLOW_RESET_TYPE_UNSPECIFIED;
+        }
+    }
+
+    private static FlowResetStepMethod mapTimeTravelStepMethod(final TimeTravelStepMethod method) {
+        switch (method) {
+            case WAIT_FOR:
+                return FlowResetStepMethod.FLOW_RESET_STEP_METHOD_WAIT_FOR;
+            case EXECUTE:
+                return FlowResetStepMethod.FLOW_RESET_STEP_METHOD_EXECUTE;
+            default:
+                return FlowResetStepMethod.FLOW_RESET_STEP_METHOD_UNSPECIFIED;
         }
     }
 

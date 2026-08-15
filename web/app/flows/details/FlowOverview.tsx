@@ -7,6 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { useState } from 'react';
+import { eventTimeTravelTarget } from '@/lib/timeTravel';
+import { displayEventNumber } from '@/lib/timeline';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { JsonView } from '../../components/JsonView';
 import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from './EventDetails';
@@ -274,15 +276,17 @@ export function FlowOverview({
                 <p className="eyebrow">Selected event</p>
                 <h2>{eventTitle(selectedEvent)}</h2>
                 <div className="event-meta">
-                  <span>Event {selectedEvent.eventId}</span>
+                  <span>Event {displayEventNumber(events, selectedEvent)}</span>
                   <span>{selectedEvent.eventTime || 'No timestamp'}</span>
                 </div>
-                <button
-                  className="button ghost selected-event-time-travel"
-                  onClick={() => onTimeTravel(selectedEvent)}
-                >
-                  Time travel here
-                </button>
+                {eventTimeTravelTarget(selectedEvent) && (
+                  <button
+                    className="button ghost selected-event-time-travel"
+                    onClick={() => onTimeTravel(selectedEvent)}
+                  >
+                    Time travel here
+                  </button>
+                )}
               </header>
               <div className="overview-selected-event-body">
                 <EventDetails

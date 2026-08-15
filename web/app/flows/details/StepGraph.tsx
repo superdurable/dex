@@ -339,7 +339,7 @@ export function StepGraph({
       </div>
       {selectedEvent && (
         <div className="graph-selection">
-          Selected {selectedEvent.type} #{selectedEvent.eventId}
+          Selected {selectedEvent.type}
         </div>
       )}
     </div>

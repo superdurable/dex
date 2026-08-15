@@ -18,7 +18,7 @@ const event: FlowHistoryEvent = {
   eventId: 42,
   eventTime: '2026-08-15T12:00:00Z',
   type: 'StepExecuteCompleted',
-  payload: {},
+  payload: { context: { stepExecutionId: 'ChargeOrder-2' } },
 };
 
 const summary: FlowSummary = {
@@ -49,7 +49,7 @@ describe('selected event time travel', () => {
     expect(markup).toContain('Time travel here');
   });
 
-  it('opens with the selected history event ID prefilled', () => {
+  it('opens with the selected Step execution and method prefilled', () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <TimeTravelDialog
@@ -62,7 +62,8 @@ describe('selected event time travel', () => {
       </MemoryRouter>,
     );
 
-    expect(markup).toContain('<option value="1" selected="">History event ID</option>');
-    expect(markup).toContain('value="42"');
+    expect(markup).toContain('<option value="4" selected="">Step execution ID</option>');
+    expect(markup).toContain('value="ChargeOrder-2"');
+    expect(markup).toContain('<option value="2" selected="">Execute</option>');
   });
 });

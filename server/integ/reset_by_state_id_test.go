@@ -126,6 +126,7 @@ func doTestResetByStatIdWorkflow(
 		FlowId:          flowId,
 		ResetType:       dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID,
 		StepExecutionId: reset.State2 + "-4",
+		StepMethod:      dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE,
 	})
 	require.NoError(t, err)
 

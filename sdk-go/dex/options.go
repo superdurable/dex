@@ -318,10 +318,8 @@ type TimerID struct {
 type TimeTravelType uint8
 
 const (
-	// TimeTravelByHistoryEventID resumes at a workflow-history event ID.
-	TimeTravelByHistoryEventID TimeTravelType = iota + 1
 	// TimeTravelToBeginning resumes before the first history event.
-	TimeTravelToBeginning
+	TimeTravelToBeginning TimeTravelType = iota + 1
 	// TimeTravelByHistoryEventTime resumes at the last eligible event by time.
 	TimeTravelByHistoryEventTime
 	// TimeTravelByStepType resumes before the first execution of a Step type.
@@ -330,12 +328,20 @@ const (
 	TimeTravelByStepExecutionID
 )
 
+// TimeTravelStepMethod selects the Step method used as a time travel boundary.
+type TimeTravelStepMethod uint8
+
+const (
+	// TimeTravelStepWaitFor resumes before the selected Step execution's WaitFor method.
+	TimeTravelStepWaitFor TimeTravelStepMethod = iota + 1
+	// TimeTravelStepExecute resumes before the selected Step execution's Execute method.
+	TimeTravelStepExecute
+)
+
 // TimeTravelOptions configures Client.TimeTravel with exactly one historical point.
 type TimeTravelOptions struct {
 	// Type selects which time travel point field Dex reads.
 	Type TimeTravelType
-	// HistoryEventID supplies the event ID for TimeTravelByHistoryEventID.
-	HistoryEventID int32
 	// Reason is recorded with the time travel operation; empty leaves it unspecified.
 	Reason string
 	// HistoryEventTime supplies the time for TimeTravelByHistoryEventTime.
@@ -344,6 +350,8 @@ type TimeTravelOptions struct {
 	StepType string
 	// StepExecutionID supplies the exact execution for TimeTravelByStepExecutionID.
 	StepExecutionID string
+	// StepMethod selects WaitFor or Execute when Type is TimeTravelByStepExecutionID.
+	StepMethod TimeTravelStepMethod
 	// SkipWritesReapply prevents replay of later RPCs, Channel publications, and Attribute writes; false reapplies them.
 	SkipWritesReapply bool
 }

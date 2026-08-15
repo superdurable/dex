@@ -728,6 +728,7 @@ func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []**dexpb.Valu
 //	newRunID, err := client.TimeTravel(ctx, "order-123", dex.TimeTravelOptions{
 //		Type:            dex.TimeTravelByStepExecutionID,
 //		StepExecutionID: "ChargeOrder-2",
+//		StepMethod:      dex.TimeTravelStepExecute,
 //		Reason:          "retry after operator review",
 //	})
 //

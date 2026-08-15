@@ -647,6 +647,19 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "run-2", newRunID)
 	require.True(t, service.resetRequest.GetSkipWritesReapply())
+	newRunID, err = client.TimeTravel(ctx, "order-1", TimeTravelOptions{
+		Type:            TimeTravelByStepExecutionID,
+		StepExecutionID: "dex.clientTestStep-1",
+		StepMethod:      TimeTravelStepExecute,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "run-2", newRunID)
+	require.Equal(t, "dex.clientTestStep-1", service.resetRequest.GetStepExecutionId())
+	require.Equal(
+		t,
+		dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE,
+		service.resetRequest.GetStepMethod(),
+	)
 	require.NoError(t, client.SkipTimer(
 		ctx,
 		"order-1",

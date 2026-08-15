@@ -14,8 +14,8 @@ use std::time::{Duration, SystemTime};
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use dex_protocol::dex::{
     ActiveStepSearchMode as ProtoSearchMode, AttributeWrite, FlowAlreadyStartedOptions,
-    FlowConfig as ProtoFlowConfig, FlowResetType, FlowRetryPolicy, FlowStartOptions,
-    FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
+    FlowConfig as ProtoFlowConfig, FlowResetStepMethod, FlowResetType, FlowRetryPolicy,
+    FlowStartOptions, FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
     GetAttributesRequest, GetFlowSummaryRequest, IdReusePolicy as ProtoIdReusePolicy,
     InvokeRpcRequest, PublishToChannelRequest, ResetFlowRequest, SearchFlowsRequest,
     SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
@@ -30,7 +30,7 @@ use uuid::Uuid;
 
 use crate::sdk_error::{FlowTargetRequirement, ServiceError};
 use crate::stop_flow_options::StopType;
-use crate::time_travel_options::TimeTravelPoint;
+use crate::time_travel_options::{TimeTravelPoint, TimeTravelStepMethod};
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::worker_dispatcher::map_step_options;
@@ -499,27 +499,22 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns InvalidArgument for an unrepresentable history ID or time, FlowNotFound for an
-    /// unknown ID, or another service error.
+    /// Returns InvalidArgument for an unrepresentable time, FlowNotFound for an unknown ID, or
+    /// another service error.
     pub fn time_travel(&self, flow_id: &str, options: TimeTravelOptions) -> SdkResult<String> {
         let mut request = ResetFlowRequest {
             flow_id: flow_id.to_string(),
             run_id: String::new(),
             reset_type: FlowResetType::Unspecified as i32,
-            history_event_id: 0,
             reason: options.reason.unwrap_or_default(),
             history_event_time: String::new(),
             step_type: String::new(),
             step_execution_id: String::new(),
             skip_writes_reapply: options.skip_writes_reapply,
+            step_method: FlowResetStepMethod::Unspecified as i32,
         };
         match options.point {
             TimeTravelPoint::Beginning => request.reset_type = FlowResetType::Beginning as i32,
-            TimeTravelPoint::HistoryEventId(event_id) => {
-                request.reset_type = FlowResetType::HistoryEventId as i32;
-                request.history_event_id = i32::try_from(event_id)
-                    .map_err(|_| invalid("history event ID exceeds int32"))?;
-            }
             TimeTravelPoint::HistoryEventTime(time) => {
                 request.reset_type = FlowResetType::HistoryEventTime as i32;
                 request.history_event_time = rfc3339(time)?;
@@ -528,10 +523,14 @@ impl Client {
                 request.reset_type = FlowResetType::StepType as i32;
                 request.step_type = step_type.to_string();
             }
-            TimeTravelPoint::StepExecution(execution) => {
+            TimeTravelPoint::StepExecution(execution, method) => {
                 request.reset_type = FlowResetType::StepExecutionId as i32;
                 request.step_execution_id =
                     format!("{}-{}", execution.step_type, execution.execution_number);
+                request.step_method = match method {
+                    TimeTravelStepMethod::WaitFor => FlowResetStepMethod::WaitFor as i32,
+                    TimeTravelStepMethod::Execute => FlowResetStepMethod::Execute as i32,
+                };
             }
         }
         let mut service = self.service.clone();

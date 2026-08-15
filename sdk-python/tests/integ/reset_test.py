@@ -8,7 +8,7 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Client, TimeTravelOptions, TimeTravelType
+from dex import Client, TimeTravelOptions, TimeTravelStepMethod, TimeTravelType
 
 from .rpc_locking_flow import RpcLockingFlow
 
@@ -34,4 +34,12 @@ def compile_skip_writes_reapply(client: Client) -> None:
         skip_writes_reapply=True,
     )
     run_id: str = client.time_travel("reset-locking", options)
+    del run_id
+
+    step_execution_options = TimeTravelOptions(
+        type=TimeTravelType.STEP_EXECUTION_ID,
+        step_execution_id="LockWaitStep-1",
+        step_method=TimeTravelStepMethod.EXECUTE,
+    )
+    run_id = client.time_travel("reset-locking", step_execution_options)
     del run_id

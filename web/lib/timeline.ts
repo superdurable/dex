@@ -39,6 +39,14 @@ export function newestTimelineEvents(events: FlowHistoryEvent[]): FlowHistoryEve
   return [...events].sort((left, right) => right.eventId - left.eventId);
 }
 
+export function displayEventNumber(
+  events: FlowHistoryEvent[],
+  selectedEvent: FlowHistoryEvent,
+): number {
+  const chronologicalEvents = [...events].sort((left, right) => left.eventId - right.eventId);
+  return chronologicalEvents.findIndex((event) => event.eventId === selectedEvent.eventId) + 1;
+}
+
 export function buildTimelineStepLinks(events: FlowHistoryEvent[]): TimelineStepLink[] {
   const pendingWaitFor = new Map<string, FlowHistoryEvent>();
   const links: Omit<TimelineStepLink, 'lane'>[] = [];

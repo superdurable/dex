@@ -42,13 +42,13 @@ type flowService struct {
 	timeTravelRequests chan *dexpb.ResetFlowRequest
 }
 
-func TestWebServerTimeTravelsToHistoryEvent(t *testing.T) {
+func TestWebServerTimeTravelsToStepMethod(t *testing.T) {
 	service := &flowService{timeTravelRequests: make(chan *dexpb.ResetFlowRequest, 1)}
 	harness := newHarness(t, service)
 	response := postJSON(
 		t,
 		harness.http.URL+"/api/flows/time-travel",
-		`{"flowId":"checkout-1","runId":"run-1","timeTravelType":1,"historyEventId":42,"reason":"retry fixed code"}`,
+		`{"flowId":"checkout-1","runId":"run-1","timeTravelType":4,"stepExecutionId":"ChargeOrder-2","stepMethod":2,"reason":"retry fixed code"}`,
 	)
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
@@ -58,7 +58,9 @@ func TestWebServerTimeTravelsToHistoryEvent(t *testing.T) {
 	if request.GetFlowId() != "checkout-1" || request.GetRunId() != "run-1" {
 		t.Fatalf("unexpected execution: %+v", request)
 	}
-	if request.GetResetType() != dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_ID || request.GetHistoryEventId() != 42 {
+	if request.GetResetType() != dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID ||
+		request.GetStepExecutionId() != "ChargeOrder-2" ||
+		request.GetStepMethod() != dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE {
 		t.Fatalf("unexpected time travel point: %+v", request)
 	}
 }

@@ -16,6 +16,7 @@ import {
   ActiveStepSearchMode as ProtoActiveStepSearchMode,
   FlowErrorType as ProtoFlowErrorType,
   FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
+  FlowResetStepMethod as ProtoFlowResetStepMethod,
   FlowResetType as ProtoFlowResetType,
   FlowServiceClient,
   FlowStatus as ProtoFlowStatus,
@@ -62,6 +63,7 @@ import {
   ActiveStepSearchMode,
   FlowTimeoutPolicy,
   IdReusePolicy,
+  TimeTravelStepMethod,
   TimeTravelType,
   StopType,
   type ClientOptions,
@@ -628,12 +630,12 @@ export class Client {
           flowId: requireName(flowId),
           runId: "",
           resetType: mapTimeTravelType(options.type),
-          historyEventId: number64(options.historyEventId),
           reason: options.reason ?? "",
           historyEventTime: options.historyEventTime?.toISOString() ?? "",
           stepType: options.stepType ?? "",
           stepExecutionId: options.stepExecutionId ?? "",
           skipWritesReapply: options.skipWritesReapply ?? false,
+          stepMethod: mapTimeTravelStepMethod(options.stepMethod),
         },
         callback,
       ),
@@ -983,12 +985,24 @@ function mapStopType(type: StopType | undefined): ProtoStopType {
 function mapTimeTravelType(type: TimeTravelType): ProtoFlowResetType {
   const types: Record<TimeTravelType, ProtoFlowResetType> = {
     [TimeTravelType.BEGINNING]: ProtoFlowResetType.FLOW_RESET_TYPE_BEGINNING,
-    [TimeTravelType.HISTORY_EVENT_ID]: ProtoFlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_ID,
     [TimeTravelType.HISTORY_EVENT_TIME]: ProtoFlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
     [TimeTravelType.STEP_TYPE]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_TYPE,
     [TimeTravelType.STEP_EXECUTION_ID]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
   };
   return types[type];
+}
+
+function mapTimeTravelStepMethod(
+  method: TimeTravelStepMethod | undefined,
+): ProtoFlowResetStepMethod {
+  switch (method) {
+    case TimeTravelStepMethod.WAIT_FOR:
+      return ProtoFlowResetStepMethod.FLOW_RESET_STEP_METHOD_WAIT_FOR;
+    case TimeTravelStepMethod.EXECUTE:
+      return ProtoFlowResetStepMethod.FLOW_RESET_STEP_METHOD_EXECUTE;
+    default:
+      return ProtoFlowResetStepMethod.FLOW_RESET_STEP_METHOD_UNSPECIFIED;
+  }
 }
 
 function mapDurability(value: "sync" | "async" | undefined): ProtoStepDurability {

@@ -18,8 +18,8 @@ Content-Type: application/json
 }
 
 ### reset API
-### NOTE: supported resetType: BEGINNING, HISTORY_EVENT_ID, HISTORY_EVENT_TIME, STATE_ID, STATE_EXECUTION_ID
-### each reset type may require one supplement field, e.g. HISTORY_EVENT_ID requires historyEventId
+### NOTE: supported resetType: BEGINNING, HISTORY_EVENT_TIME, STEP_TYPE, STEP_EXECUTION_ID
+### STEP_EXECUTION_ID also requires stepMethod WAIT_FOR or EXECUTE.
 POST http://localhost:8801/api/v1/workflow/reset
 Content-Type: application/json
 

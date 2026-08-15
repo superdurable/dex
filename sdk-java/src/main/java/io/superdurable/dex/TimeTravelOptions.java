@@ -29,19 +29,19 @@ import java.time.Instant;
  */
 public final class TimeTravelOptions {
     private final TimeTravelType type;
-    private final Long historyEventId;
     private final Instant historyEventTime;
     private final String stepType;
     private final String stepExecutionId;
+    private final TimeTravelStepMethod stepMethod;
     private final String reason;
     private final boolean skipWritesReapply;
 
     private TimeTravelOptions(final Builder builder) {
         this.type = builder.type;
-        this.historyEventId = builder.historyEventId;
         this.historyEventTime = builder.historyEventTime;
         this.stepType = builder.stepType;
         this.stepExecutionId = builder.stepExecutionId;
+        this.stepMethod = builder.stepMethod;
         this.reason = builder.reason;
         this.skipWritesReapply = builder.skipWritesReapply;
     }
@@ -60,10 +60,6 @@ public final class TimeTravelOptions {
         return type;
     }
 
-    Long getHistoryEventId() {
-        return historyEventId;
-    }
-
     Instant getHistoryEventTime() {
         return historyEventTime;
     }
@@ -74,6 +70,10 @@ public final class TimeTravelOptions {
 
     String getStepExecutionId() {
         return stepExecutionId;
+    }
+
+    TimeTravelStepMethod getStepMethod() {
+        return stepMethod;
     }
 
     String getReason() {
@@ -87,26 +87,15 @@ public final class TimeTravelOptions {
     /** Builds immutable {@link TimeTravelOptions} values. */
     public static final class Builder {
         private final TimeTravelType type;
-        private Long historyEventId;
         private Instant historyEventTime;
         private String stepType;
         private String stepExecutionId;
+        private TimeTravelStepMethod stepMethod;
         private String reason;
         private boolean skipWritesReapply;
 
         private Builder(final TimeTravelType type) {
             this.type = type;
-        }
-
-        /**
-         * Selects a history event by numeric ID.
-         *
-         * @param value the history event ID
-         * @return this builder
-         */
-        public Builder historyEventId(final long value) {
-            historyEventId = value;
-            return this;
         }
 
         /**
@@ -139,6 +128,17 @@ public final class TimeTravelOptions {
          */
         public Builder stepExecutionId(final String value) {
             stepExecutionId = value;
+            return this;
+        }
+
+        /**
+         * Selects the WaitFor or Execute boundary for a Step execution.
+         *
+         * @param value the Step method used as the time travel boundary
+         * @return this builder
+         */
+        public Builder stepMethod(final TimeTravelStepMethod value) {
+            stepMethod = value;
             return this;
         }
 

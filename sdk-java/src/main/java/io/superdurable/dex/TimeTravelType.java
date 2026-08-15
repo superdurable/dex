@@ -13,15 +13,10 @@ package io.superdurable.dex;
 /**
  * Selects the historical point from which a Flow resumes in a new run.
  *
- * <p>Create {@link TimeTravelOptions} with the matching selector method for the chosen value. For
- * example, {@link #HISTORY_EVENT_ID} requires
- * {@link TimeTravelOptions.Builder#historyEventId(long)} before calling
- * {@link Client#timeTravel(String, TimeTravelOptions)}.
+ * <p>Create {@link TimeTravelOptions} with the matching selector method for the chosen value.
+ * {@link #STEP_EXECUTION_ID} also requires a {@link TimeTravelStepMethod}.
  */
 public enum TimeTravelType {
-    /** Resumes at a specific history event ID. */
-    HISTORY_EVENT_ID,
-
     /** Resumes at the beginning of the Flow execution. */
     BEGINNING,
 

@@ -115,7 +115,7 @@ public enum InternalTimerStatus
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(18);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(19);
   }
 
   private static final InternalTimerStatus[] VALUES = values();

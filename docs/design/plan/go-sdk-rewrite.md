@@ -2606,20 +2606,26 @@ type TimerID struct {
 type TimeTravelType uint8
 
 const (
-	TimeTravelByHistoryEventID TimeTravelType = iota + 1
-	TimeTravelToBeginning
+	TimeTravelToBeginning TimeTravelType = iota + 1
 	TimeTravelByHistoryEventTime
 	TimeTravelByStepType
 	TimeTravelByStepExecutionID
 )
 
+type TimeTravelStepMethod uint8
+
+const (
+	TimeTravelStepWaitFor TimeTravelStepMethod = iota + 1
+	TimeTravelStepExecute
+)
+
 type TimeTravelOptions struct {
 	Type                       TimeTravelType
-	HistoryEventID             int32
 	Reason                     string
 	HistoryEventTime           time.Time
 	StepType                   string
 	StepExecutionID            string
+	StepMethod                 TimeTravelStepMethod
 	SkipWritesReapply          bool
 }
 ```

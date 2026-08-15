@@ -11,6 +11,7 @@ import {
   buildSelectedTimelineLinks,
   buildTimelineLinks,
   buildTimelineStepLinks,
+  displayEventNumber,
   formatElapsedDuration,
   newestTimelineEvents,
 } from './timeline';
@@ -36,6 +37,16 @@ describe('timeline', () => {
     const history = [event(1, 'FlowStartedOrContinued'), event(8, 'FlowClosed'), event(4, 'ChannelExternalPublish')];
     expect(newestTimelineEvents(history).map((entry) => entry.eventId)).toEqual([8, 4, 1]);
     expect(history.map((entry) => entry.eventId)).toEqual([1, 8, 4]);
+  });
+
+  it('numbers Dex events contiguously instead of displaying backend IDs', () => {
+    const history = [
+      event(1, 'FlowStartedOrContinued'),
+      event(8, 'StepWaitForCompleted'),
+      event(14, 'StepExecuteCompleted'),
+      event(16, 'FlowClosed'),
+    ];
+    expect(history.map((entry) => displayEventNumber(history, entry))).toEqual([1, 2, 3, 4]);
   });
 
   it('pairs each WaitFor start with the following Execute result for the same execution', () => {

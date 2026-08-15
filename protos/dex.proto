@@ -689,24 +689,29 @@ message GetFlowStateResponse {
 
 enum FlowResetType {
   FLOW_RESET_TYPE_UNSPECIFIED = 0;
-  FLOW_RESET_TYPE_HISTORY_EVENT_ID = 1;
-  FLOW_RESET_TYPE_BEGINNING = 2;
-  FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 3;
-  FLOW_RESET_TYPE_STEP_TYPE = 4;
-  FLOW_RESET_TYPE_STEP_EXECUTION_ID = 5;
+  FLOW_RESET_TYPE_BEGINNING = 1;
+  FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 2;
+  FLOW_RESET_TYPE_STEP_TYPE = 3;
+  FLOW_RESET_TYPE_STEP_EXECUTION_ID = 4;
+}
+
+enum FlowResetStepMethod {
+  FLOW_RESET_STEP_METHOD_UNSPECIFIED = 0;
+  FLOW_RESET_STEP_METHOD_WAIT_FOR = 1;
+  FLOW_RESET_STEP_METHOD_EXECUTE = 2;
 }
 
 message ResetFlowRequest {
   string flow_id = 1;
   string run_id = 2;
   FlowResetType reset_type = 3;
-  int32 history_event_id = 4;
-  string reason = 5;
-  string history_event_time = 6;
-  string step_type = 7;
-  string step_execution_id = 8;
+  string reason = 4;
+  string history_event_time = 5;
+  string step_type = 6;
+  string step_execution_id = 7;
   // Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
-  bool skip_writes_reapply = 9;
+  bool skip_writes_reapply = 8;
+  FlowResetStepMethod step_method = 9;
 }
 
 message ResetFlowResponse {

@@ -186,7 +186,7 @@ message GetHistoryEventsResponse {
 
 ```proto
 message FlowHistoryEvent {
-  // Terminal or anchor raw-history event ID.
+  // Internal pagination and correlation key; Web renders contiguous Dex event numbers.
   int64 event_id = 1;
   google.protobuf.Timestamp event_time = 2;
 

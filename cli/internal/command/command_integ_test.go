@@ -213,14 +213,14 @@ func TestMutationRequiresYesBeforeSendingRequest(t *testing.T) {
 	}
 }
 
-func TestTimeTravelRequiresConfirmationAndMapsHistoryEvent(t *testing.T) {
+func TestTimeTravelRequiresConfirmationAndMapsStepMethod(t *testing.T) {
 	service, address := startTestFlowService(t)
 	stdout := &bytes.Buffer{}
 	stderr := &bytes.Buffer{}
 	app := NewApp(bytes.NewReader(nil), stdout, stderr)
 	err := app.Execute(context.Background(), []string{
-		"flow", "time-travel", "flow-1", "--run-id", "run-1", "--type", "history-event-id",
-		"--target", "42", "--reason", "retry fixed code", "--server", address,
+		"flow", "time-travel", "flow-1", "--run-id", "run-1", "--type", "step-execution-id",
+		"--target", "ChargeOrder-2", "--step-method", "execute", "--reason", "retry fixed code", "--server", address,
 	})
 	if err == nil || ExitCode(err) != 2 {
 		t.Fatalf("expected confirmation error, got %v", err)
@@ -233,15 +233,17 @@ func TestTimeTravelRequiresConfirmationAndMapsHistoryEvent(t *testing.T) {
 	service.mu.Unlock()
 
 	result := executeTestCommand(t, nil,
-		"flow", "time-travel", "flow-1", "--run-id", "run-1", "--type", "history-event-id",
-		"--target", "42", "--reason", "retry fixed code", "--yes", "--server", address,
+		"flow", "time-travel", "flow-1", "--run-id", "run-1", "--type", "step-execution-id",
+		"--target", "ChargeOrder-2", "--step-method", "execute", "--reason", "retry fixed code", "--yes", "--server", address,
 	)
 	if result["previousRunId"] != "run-1" || result["runId"] != "run-2" {
 		t.Fatalf("unexpected time travel result: %#v", result)
 	}
 	service.mu.Lock()
 	defer service.mu.Unlock()
-	if service.timeTravelCalls != 1 || service.timeTravelRequest.GetHistoryEventId() != 42 {
+	if service.timeTravelCalls != 1 ||
+		service.timeTravelRequest.GetStepExecutionId() != "ChargeOrder-2" ||
+		service.timeTravelRequest.GetStepMethod() != dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE {
 		t.Fatalf("unexpected time travel request: %#v", service.timeTravelRequest)
 	}
 }

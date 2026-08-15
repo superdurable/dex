@@ -12,7 +12,12 @@ import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
-import { buildSelectedTimelineLinks, formatElapsedDuration, newestTimelineEvents } from '@/lib/timeline';
+import {
+  buildSelectedTimelineLinks,
+  displayEventNumber,
+  formatElapsedDuration,
+  newestTimelineEvents,
+} from '@/lib/timeline';
 import { usePreferences } from '../../providers';
 import { eventTitle, eventTypeLabel } from './EventDetails';
 
@@ -89,6 +94,9 @@ export function Timeline({
   const timelineRef = useRef<HTMLDivElement>(null);
   const eventCards = useRef(new Map<number, HTMLDivElement>());
   const orderedEvents = useMemo(() => newestTimelineEvents(events), [events]);
+  const eventNumbers = useMemo(() => new Map(
+    events.map((event) => [event.eventId, displayEventNumber(events, event)]),
+  ), [events]);
   const stepLinks = useMemo(
     () => buildSelectedTimelineLinks(events, selectedEvent?.eventId),
     [events, selectedEvent?.eventId],
@@ -289,7 +297,7 @@ export function Timeline({
               >
                 <header>
                   <div>
-                    <span className="event-id">#{event.eventId}</span>
+                    <span className="event-id">#{eventNumbers.get(event.eventId)}</span>
                     <h3>
                       {previousRunId ? (
                         <Link

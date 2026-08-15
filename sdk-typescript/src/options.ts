@@ -272,8 +272,6 @@ export const TimerId = Object.freeze({
 export const TimeTravelType = Object.freeze({
   /** Restarts from the beginning of the Flow. */
   BEGINNING: "beginning",
-  /** Resumes at a specific history event ID. */
-  HISTORY_EVENT_ID: "historyEventId",
   /** Resumes at the first event at or after a timestamp. */
   HISTORY_EVENT_TIME: "historyEventTime",
   /** Resumes at the latest execution of a Step type. */
@@ -285,18 +283,29 @@ export const TimeTravelType = Object.freeze({
 /** Represents a value from {@link TimeTravelType}. */
 export type TimeTravelType = (typeof TimeTravelType)[keyof typeof TimeTravelType];
 
+/** Selects the Step method used as a Step execution time travel boundary. */
+export const TimeTravelStepMethod = Object.freeze({
+  /** Reruns WaitFor and everything after it. */
+  WAIT_FOR: "waitFor",
+  /** Keeps the WaitFor result and reruns Execute and everything after it. */
+  EXECUTE: "execute",
+} as const);
+
+/** Represents a value from {@link TimeTravelStepMethod}. */
+export type TimeTravelStepMethod = (typeof TimeTravelStepMethod)[keyof typeof TimeTravelStepMethod];
+
 /** Configures creation of a new run from existing Flow history. */
 export interface TimeTravelOptions {
   /** Time travel point selector kind. */
   readonly type: TimeTravelType;
-  /** Event ID used with `HISTORY_EVENT_ID`. */
-  readonly historyEventId?: bigint;
   /** Timestamp used with `HISTORY_EVENT_TIME`. */
   readonly historyEventTime?: Date;
   /** Registered Step type used with `STEP_TYPE`. */
   readonly stepType?: string;
   /** Exact execution ID used with `STEP_EXECUTION_ID`. */
   readonly stepExecutionId?: string;
+  /** WaitFor or Execute boundary required with `STEP_EXECUTION_ID`. */
+  readonly stepMethod?: TimeTravelStepMethod;
   /** Optional operator-readable time travel reason. */
   readonly reason?: string;
   /** Prevents reapplication of RPCs, Channel publications, and Attribute writes after the selected point. */

@@ -1305,7 +1305,7 @@ func (t *temporalClient) ResetWorkflow(
 	resetBaseRunID, resetEventId, err := getResetEventIDByType(ctx, resetType,
 		t.namespace, request.GetFlowId(), reqRunId,
 		t.tClient.WorkflowService(), t.dataConverter,
-		request.GetHistoryEventId(), request.GetHistoryEventTime(), request.GetStepType(), request.GetStepExecutionId())
+		request.GetHistoryEventTime(), request.GetStepType(), request.GetStepExecutionId(), request.GetStepMethod())
 
 	if err != nil {
 		return "", err

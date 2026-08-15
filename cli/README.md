@@ -121,14 +121,16 @@ dexcli flow watch FLOW_ID [--run-id RUN_ID] [--from-event-id N] [--follow-runs]
 dexcli flow stop FLOW_ID --run-id RUN_ID
                  --type cancel|terminate|fail [--reason TEXT] --yes
 dexcli flow time-travel FLOW_ID --run-id RUN_ID
-                        --type beginning|history-event-id|history-event-time|step-type|step-execution-id
-                        [--target VALUE] --reason TEXT --yes
+                        --type beginning|history-event-time|step-type|step-execution-id
+                        [--target VALUE] [--step-method wait-for|execute]
+                        --reason TEXT --yes
 ```
 
 With the default JSON output, `watch` writes one object per line and exits when
 the run becomes terminal.
 `--follow-runs` continues into the current run after Continue-As-New. Stop and
 time travel require both an exact run ID and `--yes`, including in non-interactive use.
+`--step-method` is required with `--type step-execution-id` and invalid for other types.
 
 ## Call any FlowService API
 

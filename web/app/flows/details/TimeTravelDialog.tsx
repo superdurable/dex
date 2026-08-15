@@ -8,14 +8,18 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  eventTimeTravelTarget,
+  TIME_TRAVEL_STEP_METHOD,
+  TIME_TRAVEL_TYPE,
+} from '@/lib/timeTravel';
 import type { FlowHistoryEvent, FlowSummary } from '@/lib/types';
 
 const timeTravelTypes = [
-  { value: 2, label: 'Beginning' },
-  { value: 1, label: 'History event ID' },
-  { value: 3, label: 'History event time' },
-  { value: 4, label: 'Step type' },
-  { value: 5, label: 'Step execution ID' },
+  { value: TIME_TRAVEL_TYPE.BEGINNING, label: 'Beginning' },
+  { value: TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME, label: 'History event time' },
+  { value: TIME_TRAVEL_TYPE.STEP_TYPE, label: 'Step type' },
+  { value: TIME_TRAVEL_TYPE.STEP_EXECUTION_ID, label: 'Step execution ID' },
 ];
 
 export function TimeTravelDialog({
@@ -32,8 +36,12 @@ export function TimeTravelDialog({
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const [timeTravelType, setTimeTravelType] = useState(() => initialEvent ? 1 : 2);
-  const [target, setTarget] = useState(() => initialEvent ? String(initialEvent.eventId) : '');
+  const initialTarget = eventTimeTravelTarget(initialEvent);
+  const [timeTravelType, setTimeTravelType] = useState<number>(() => (
+    initialTarget ? TIME_TRAVEL_TYPE.STEP_EXECUTION_ID : TIME_TRAVEL_TYPE.BEGINNING
+  ));
+  const [target, setTarget] = useState(() => initialTarget?.stepExecutionId ?? '');
+  const [stepMethod, setStepMethod] = useState<number>(() => initialTarget?.stepMethod ?? 0);
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -48,8 +56,10 @@ export function TimeTravelDialog({
 
   useEffect(() => {
     if (!open) return;
-    setTimeTravelType(initialEvent ? 1 : 2);
-    setTarget(initialEvent ? String(initialEvent.eventId) : '');
+    const eventTarget = eventTimeTravelTarget(initialEvent);
+    setTimeTravelType(eventTarget ? TIME_TRAVEL_TYPE.STEP_EXECUTION_ID : TIME_TRAVEL_TYPE.BEGINNING);
+    setTarget(eventTarget?.stepExecutionId ?? '');
+    setStepMethod(eventTarget?.stepMethod ?? 0);
     setReason('');
     setError('');
   }, [initialEvent?.eventId, open]);
@@ -65,10 +75,12 @@ export function TimeTravelDialog({
       timeTravelType,
       reason,
     };
-    if (timeTravelType === 1) payload.historyEventId = Number(target);
-    if (timeTravelType === 3) payload.historyEventTime = target;
-    if (timeTravelType === 4) payload.stepType = target;
-    if (timeTravelType === 5) payload.stepExecutionId = target;
+    if (timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME) payload.historyEventTime = target;
+    if (timeTravelType === TIME_TRAVEL_TYPE.STEP_TYPE) payload.stepType = target;
+    if (timeTravelType === TIME_TRAVEL_TYPE.STEP_EXECUTION_ID) {
+      payload.stepExecutionId = target;
+      payload.stepMethod = stepMethod;
+    }
     try {
       const response = await fetch('/api/flows/time-travel', {
         method: 'POST',
@@ -101,25 +113,36 @@ export function TimeTravelDialog({
           <select value={timeTravelType} onChange={(event) => {
             setTimeTravelType(Number(event.target.value));
             setTarget('');
+            setStepMethod(0);
           }}>
             {timeTravelTypes.map((item) => <option value={item.value} key={item.value}>{item.label}</option>)}
           </select>
         </label>
-        {timeTravelType !== 2 && (
+        {timeTravelType !== TIME_TRAVEL_TYPE.BEGINNING && (
           <label>
             Target
-            {timeTravelType === 4 ? (
+            {timeTravelType === TIME_TRAVEL_TYPE.STEP_TYPE ? (
               <>
                 <input list="time-travel-step-types" value={target} onChange={(event) => setTarget(event.target.value)} />
                 <datalist id="time-travel-step-types">{stepTypes.map((value) => <option value={value} key={value} />)}</datalist>
               </>
             ) : (
               <input
-                type={timeTravelType === 1 ? 'number' : timeTravelType === 3 ? 'datetime-local' : 'text'}
+                type={timeTravelType === TIME_TRAVEL_TYPE.HISTORY_EVENT_TIME ? 'datetime-local' : 'text'}
                 value={target}
                 onChange={(event) => setTarget(event.target.value)}
               />
             )}
+          </label>
+        )}
+        {timeTravelType === TIME_TRAVEL_TYPE.STEP_EXECUTION_ID && (
+          <label>
+            Step method
+            <select value={stepMethod} onChange={(event) => setStepMethod(Number(event.target.value))}>
+              <option value={0}>Select a method</option>
+              <option value={TIME_TRAVEL_STEP_METHOD.WAIT_FOR}>WaitFor</option>
+              <option value={TIME_TRAVEL_STEP_METHOD.EXECUTE}>Execute</option>
+            </select>
           </label>
         )}
         <label>
@@ -131,7 +154,10 @@ export function TimeTravelDialog({
           <button className="button ghost" onClick={onClose}>Cancel</button>
           <button
             className="button danger"
-            disabled={submitting || !reason.trim() || (timeTravelType !== 2 && !target)}
+            disabled={submitting
+              || !reason.trim()
+              || (timeTravelType !== TIME_TRAVEL_TYPE.BEGINNING && !target)
+              || (timeTravelType === TIME_TRAVEL_TYPE.STEP_EXECUTION_ID && stepMethod === 0)}
             onClick={() => void submit()}
           >
             {submitting ? 'Time traveling…' : 'Time travel'}

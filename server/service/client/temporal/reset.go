@@ -26,15 +26,13 @@ import (
 func getResetEventIDByType(ctx context.Context, resetType dexpb.FlowResetType,
 	namespace, wid, rid string,
 	frontendClient workflowservice.WorkflowServiceClient, converter converter.DataConverter,
-	historyEventId int32, earliestHistoryTimeStr string, stepType, stepExecutionId string,
+	earliestHistoryTimeStr string, stepType, stepExecutionId string,
+	stepMethod dexpb.FlowResetStepMethod,
 ) (resetBaseRunID string, workflowTaskFinishID int64, err error) {
 	// default to the same runID
 	resetBaseRunID = rid
 
 	switch resetType {
-	case dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_ID:
-		workflowTaskFinishID = int64(historyEventId)
-		return
 	case dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_TIME:
 		var earliestTimeUnixNano int64
 		earliestTimeUnixNano, err = timeparser.ParseTime(earliestHistoryTimeStr)
@@ -59,7 +57,18 @@ func getResetEventIDByType(ctx context.Context, resetType dexpb.FlowResetType,
 			return
 		}
 	case dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE, dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID:
-		workflowTaskFinishID, err = getDecisionEventIDByStepTypeOrStepExecutionId(ctx, namespace, wid, rid, stepType, stepExecutionId, frontendClient, converter)
+		workflowTaskFinishID, err = getDecisionEventIDByStepTypeOrStepExecutionId(
+			ctx,
+			namespace,
+			wid,
+			rid,
+			resetType,
+			stepType,
+			stepExecutionId,
+			stepMethod,
+			frontendClient,
+			converter,
+		)
 		if err != nil {
 			return
 		}
@@ -175,7 +184,7 @@ OuterLoop:
 		}
 	}
 	if decisionFinishID == 0 {
-		return 0, composeErrorWithMessage("Get historyEventId failed", fmt.Errorf("no historyEventId"))
+		return 0, composeErrorWithMessage("find reset boundary failed", fmt.Errorf("no workflow task boundary"))
 	}
 	return
 }
@@ -185,7 +194,10 @@ OuterLoop:
 func getDecisionEventIDByStepTypeOrStepExecutionId(
 	ctx context.Context,
 	namespace string, wid string,
-	rid string, stepType, stepExecutionId string,
+	rid string,
+	resetType dexpb.FlowResetType,
+	stepType, stepExecutionId string,
+	stepMethod dexpb.FlowResetStepMethod,
 	frontendClient workflowservice.WorkflowServiceClient, converter converter.DataConverter,
 ) (decisionFinishID int64, err error) {
 	req := &workflowservice.GetWorkflowExecutionHistoryRequest{
@@ -217,7 +229,15 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 					if err != nil {
 						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
 					}
-					if input.Request.GetStepType() == stepType || input.Request.GetContext().GetStepExecutionId() == stepExecutionId {
+					if matchesStepResetTarget(
+						resetType,
+						stepMethod,
+						dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE,
+						stepType,
+						stepExecutionId,
+						input.Request.GetStepType(),
+						input.Request.GetContext().GetStepExecutionId(),
+					) {
 						if decisionFinishID == 0 {
 							return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", fmt.Errorf("invalid history or something goes very wrong"))
 						}
@@ -229,8 +249,15 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 					if err != nil {
 						return 0, composeErrorWithMessage("GetWorkflowExecutionHistory failed", err)
 					}
-					if input.Request.GetStepType() == stepType ||
-						input.Request.GetContext().GetStepExecutionId() == stepExecutionId {
+					if matchesStepResetTarget(
+						resetType,
+						stepMethod,
+						dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR,
+						stepType,
+						stepExecutionId,
+						input.Request.GetStepType(),
+						input.Request.GetContext().GetStepExecutionId(),
+					) {
 						if decisionFinishID == 0 {
 							return 0, composeErrorWithMessage(
 								"GetWorkflowExecutionHistory failed",
@@ -248,7 +275,26 @@ func getDecisionEventIDByStepTypeOrStepExecutionId(
 			break
 		}
 	}
-	return 0, composeErrorWithMessage("Get historyEventId failed", fmt.Errorf("no historyEventId"))
+	return 0, composeErrorWithMessage("find reset boundary failed", fmt.Errorf("no workflow task boundary"))
+}
+
+func matchesStepResetTarget(
+	resetType dexpb.FlowResetType,
+	requestedMethod dexpb.FlowResetStepMethod,
+	candidateMethod dexpb.FlowResetStepMethod,
+	requestedStepType string,
+	requestedStepExecutionID string,
+	candidateStepType string,
+	candidateStepExecutionID string,
+) bool {
+	switch resetType {
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE:
+		return candidateStepType == requestedStepType
+	case dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID:
+		return candidateStepExecutionID == requestedStepExecutionID && candidateMethod == requestedMethod
+	default:
+		return false
+	}
 }
 
 func composeErrorWithMessage(msg string, err error) error {

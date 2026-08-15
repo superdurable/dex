@@ -24,21 +24,24 @@ pub struct TimeTravelOptions {
 #[derive(Clone, Debug)]
 pub(crate) enum TimeTravelPoint {
     Beginning,
-    HistoryEventId(i64),
     HistoryEventTime(SystemTime),
     StepType(&'static str),
-    StepExecution(StepExecutionId),
+    StepExecution(StepExecutionId, TimeTravelStepMethod),
+}
+
+#[derive(Clone, Copy, Debug)]
+/// Selects the Step method used as a Step execution time travel boundary.
+pub enum TimeTravelStepMethod {
+    /// Reruns WaitFor and everything after it.
+    WaitFor,
+    /// Keeps the WaitFor result and reruns Execute and everything after it.
+    Execute,
 }
 
 impl TimeTravelOptions {
     /// Resumes before the first workflow-history event.
     pub fn from_beginning() -> Self {
         Self::new(TimeTravelPoint::Beginning)
-    }
-
-    /// Resumes at the specified server workflow-history event ID.
-    pub fn from_history_event_id(event_id: i64) -> Self {
-        Self::new(TimeTravelPoint::HistoryEventId(event_id))
     }
 
     /// Resumes at the last eligible history event at or before `event_time`.
@@ -51,9 +54,12 @@ impl TimeTravelOptions {
         Self::new(TimeTravelPoint::StepType(step.step_type()))
     }
 
-    /// Resumes before the exact Step execution identified by `step_execution`.
-    pub fn from_step_execution(step_execution: StepExecutionId) -> Self {
-        Self::new(TimeTravelPoint::StepExecution(step_execution))
+    /// Resumes before one method of the exact Step execution identified by `step_execution`.
+    pub fn from_step_execution(
+        step_execution: StepExecutionId,
+        method: TimeTravelStepMethod,
+    ) -> Self {
+        Self::new(TimeTravelPoint::StepExecution(step_execution, method))
     }
 
     /// Adds an operator-facing reason recorded with time travel.

@@ -370,6 +370,7 @@ func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, optio
 	runID := flags.String("run-id", "", "Flow run ID")
 	timeTravelTypeName := flags.String("type", "", "time travel point type")
 	target := flags.String("target", "", "time travel point value")
+	stepMethodName := flags.String("step-method", "", "WaitFor or Execute boundary")
 	reason := flags.String("reason", "", "time travel reason")
 	shouldSkipWritesReapply := flags.Bool(
 		"skip-writes-reapply",
@@ -385,7 +386,14 @@ func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, optio
 	if err != nil {
 		return err
 	}
-	request, err := timeTravelRequest(flowID, *runID, *timeTravelTypeName, *target, *reason)
+	request, err := timeTravelRequest(
+		flowID,
+		*runID,
+		*timeTravelTypeName,
+		*target,
+		*stepMethodName,
+		*reason,
+	)
 	if err != nil {
 		return newUsageError("flow time-travel", err)
 	}
@@ -404,7 +412,14 @@ func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, optio
 	})
 }
 
-func timeTravelRequest(flowID string, runID string, typeName string, target string, reason string) (*dexpb.ResetFlowRequest, error) {
+func timeTravelRequest(
+	flowID string,
+	runID string,
+	typeName string,
+	target string,
+	stepMethodName string,
+	reason string,
+) (*dexpb.ResetFlowRequest, error) {
 	if runID == "" || strings.TrimSpace(reason) == "" {
 		return nil, fmt.Errorf("run-id and reason are required")
 	}
@@ -412,13 +427,6 @@ func timeTravelRequest(flowID string, runID string, typeName string, target stri
 	switch typeName {
 	case "beginning":
 		request.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_BEGINNING
-	case "history-event-id":
-		value, err := parseInt32(target, "target")
-		if err != nil || value <= 0 {
-			return nil, fmt.Errorf("target must be a positive history event ID")
-		}
-		request.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_HISTORY_EVENT_ID
-		request.HistoryEventId = value
 	case "history-event-time":
 		if _, err := time.Parse(time.RFC3339, target); err != nil {
 			return nil, fmt.Errorf("target must be an RFC3339 timestamp: %w", err)
@@ -431,8 +439,19 @@ func timeTravelRequest(flowID string, runID string, typeName string, target stri
 	case "step-execution-id":
 		request.ResetType = dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID
 		request.StepExecutionId = target
+		switch stepMethodName {
+		case "wait-for":
+			request.StepMethod = dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR
+		case "execute":
+			request.StepMethod = dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE
+		default:
+			return nil, fmt.Errorf("step-method must be wait-for or execute for step-execution-id")
+		}
 	default:
-		return nil, fmt.Errorf("type must be beginning, history-event-id, history-event-time, step-type, or step-execution-id")
+		return nil, fmt.Errorf("type must be beginning, history-event-time, step-type, or step-execution-id")
+	}
+	if typeName != "step-execution-id" && stepMethodName != "" {
+		return nil, fmt.Errorf("step-method is only valid for step-execution-id")
 	}
 	if typeName != "beginning" && strings.TrimSpace(target) == "" {
 		return nil, fmt.Errorf("target is required for time travel type %s", typeName)

@@ -10,7 +10,10 @@
 
 use std::time::Duration;
 
-use dex_sdk::{Client, FlowStatus, Registry, SdkResult, StartFlowOptions, TimeTravelOptions};
+use dex_sdk::{
+    Client, FlowStatus, Registry, SdkResult, StartFlowOptions, StepExecutionId, TimeTravelOptions,
+    TimeTravelStepMethod,
+};
 
 use crate::reset_workflow::ResetWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id};
@@ -228,6 +231,11 @@ fn compile_locking_rpc_reapply(client: &Client) -> SdkResult<()> {
 fn compile_skip_writes_reapply(client: &Client) -> SdkResult<()> {
     let workflow = ResetWorkflow::new();
     let options = TimeTravelOptions::from_step(&workflow.first).skip_writes_reapply(true);
+    let _run_id = client.time_travel("reset-locking", options)?;
+    let options = TimeTravelOptions::from_step_execution(
+        StepExecutionId::of(&workflow.first),
+        TimeTravelStepMethod::Execute,
+    );
     let _run_id = client.time_travel("reset-locking", options)?;
     Ok(())
 }
