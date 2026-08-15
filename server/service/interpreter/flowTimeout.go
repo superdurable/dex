@@ -58,6 +58,43 @@ func (t *FlowTimeout) UsesHandler() bool {
 	return t.policy == dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER
 }
 
+// ResetSnapshotForRetry gives a retried continued run a fresh timeout budget.
+func (t *FlowTimeout) ResetSnapshotForRetry(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+	snapshot *dexpb.ContinueAsNewDump,
+) {
+	if !t.IsEnabled() || provider == nil || snapshot == nil {
+		panic("enabled Flow timeout, provider, and snapshot are required")
+	}
+	timeoutResumeInfo := t.NewStepExecutionResumeInfo(ctx, provider)
+	timeoutResumeIndex := -1
+	resumeInfos := snapshot.GetStepExecutionsToResume()
+	for index, resumeInfo := range resumeInfos {
+		if resumeInfo.GetStepExecutionId() != service.FlowTimeoutStepExecutionID {
+			continue
+		}
+		if timeoutResumeIndex >= 0 {
+			panic("duplicate Flow timeout Step execution")
+		}
+		timeoutResumeIndex = index
+	}
+	if timeoutResumeIndex >= 0 {
+		resumeInfos[timeoutResumeIndex] = timeoutResumeInfo
+	} else {
+		resumeInfos = append(resumeInfos, timeoutResumeInfo)
+	}
+	snapshot.StepExecutionsToResume = resumeInfos
+
+	staleSkipTimers := snapshot.GetStaleSkipTimers()[:0]
+	for _, staleSkipTimer := range snapshot.GetStaleSkipTimers() {
+		if staleSkipTimer.GetStepExecutionId() != service.FlowTimeoutStepExecutionID {
+			staleSkipTimers = append(staleSkipTimers, staleSkipTimer)
+		}
+	}
+	snapshot.StaleSkipTimers = staleSkipTimers
+}
+
 // NewStepExecutionResumeInfo creates the system Step in its waiting phase.
 func (t *FlowTimeout) NewStepExecutionResumeInfo(
 	ctx interfaces.UnifiedContext,

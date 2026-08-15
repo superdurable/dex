@@ -59,6 +59,7 @@ func (i *Interpreter) StartEngineFlow(
 		FlowType:            input.GetFlowType(),
 		RunStartedTimestamp: runStartedTimestamp,
 	}
+	flowTimeout := NewFlowTimeout(input)
 	subFlowParentFlowID, parentFlowErr := provider.GetSearchAttributeKeyword(
 		ctx, service.SearchAttributeDexParentFlowID,
 	)
@@ -85,6 +86,9 @@ func (i *Interpreter) StartEngineFlow(
 		)
 		if err != nil {
 			return nil, err
+		}
+		if flowTimeout.IsEnabled() && provider.GetWorkflowInfo(ctx).Attempt > 1 {
+			flowTimeout.ResetSnapshotForRetry(ctx, provider, previous)
 		}
 		resumeInfos = previous.GetStepExecutionsToResume()
 
@@ -205,7 +209,6 @@ func (i *Interpreter) StartEngineFlow(
 		flowConfiger,
 		subFlowTracker,
 	)
-	flowTimeout := NewFlowTimeout(input)
 	attributeSynchronizer.Start(ctx)
 
 	// we need these global varirables because sub threads(goroutine) need to report error back
@@ -463,10 +466,7 @@ func (i *Interpreter) StartEngineFlow(
 						if stepExeErr == nil {
 							panic("FlowTimeout Step execution requires an error")
 						}
-						if cancelErr := stepExecutionRegistry.CancelAll(ctx); cancelErr != nil {
-							errToFailWf = cancelErr
-							return
-						}
+						continueAsNewer.RemoveActiveStep(stepExeId)
 						errToFailWf = stepExeErr
 						return
 					}

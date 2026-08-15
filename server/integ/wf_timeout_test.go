@@ -43,6 +43,8 @@ func TestFlowTimeoutTemporal(t *testing.T) {
 		smallWaitForFastTest()
 		doTestFlowTimeoutRetry(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
+		doTestFlowTimeoutRetryAfterContinueAsNew(t, service.BackendTypeTemporal)
+		smallWaitForFastTest()
 		doTestFlowTimeoutHandler(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
 		doTestFlowTimeoutHandlerDecisions(t, service.BackendTypeTemporal)
@@ -70,6 +72,8 @@ func TestFlowTimeoutCadence(t *testing.T) {
 		doTestFlowTimeout(t, service.BackendTypeCadence, nil, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL)
 		smallWaitForFastTest()
 		doTestFlowTimeoutRetry(t, service.BackendTypeCadence)
+		smallWaitForFastTest()
+		doTestFlowTimeoutRetryAfterContinueAsNew(t, service.BackendTypeCadence)
 		smallWaitForFastTest()
 		doTestFlowTimeoutHandler(t, service.BackendTypeCadence)
 		smallWaitForFastTest()
@@ -213,6 +217,81 @@ func doTestFlowTimeoutRetry(t *testing.T, backendType service.BackendType) {
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
 	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT, result.GetErrorType())
 	require.Equal(t, int32(2), workerHandler.waitForCalls.Load())
+}
+
+func doTestFlowTimeoutRetryAfterContinueAsNew(
+	t *testing.T,
+	backendType service.BackendType,
+) {
+	workerHandler := &softTimeoutRetryAfterContinueAsNewHandler{
+		executions: make(chan time.Time, 2),
+	}
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowID := "wf-timeout-retry-after-continue-as-new-test-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 2,
+		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			RetryPolicy: &dexpb.FlowRetryPolicy{
+				InitialIntervalSeconds: 1,
+				BackoffCoefficient:     1,
+				MaximumIntervalSeconds: 1,
+				MaximumAttempts:        2,
+			},
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
+	deadline := flowTimeoutDeadline(t, ctx, runtime, flowID)
+	_, err = runtime.FlowClient.TriggerContinueAsNew(ctx, &dexpb.TriggerContinueAsNewRequest{
+		FlowId: flowID,
+		RunId:  startResponse.GetRunId(),
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		currentRunID, queryErr := currentFlowRunID(ctx, runtime, flowID)
+		return queryErr == nil && currentRunID != startResponse.GetRunId()
+	}, 10*time.Second, 100*time.Millisecond)
+	waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
+	require.Equal(t, deadline, flowTimeoutDeadline(t, ctx, runtime, flowID))
+
+	firstExecution := waitForTimeoutExecution(t, ctx, workerHandler.executions)
+	secondExecution := waitForTimeoutExecution(t, ctx, workerHandler.executions)
+	require.GreaterOrEqual(t, secondExecution.Sub(firstExecution), 2*time.Second)
+	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
+	require.Equal(
+		t,
+		dexpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
+		result.GetErrorType(),
+	)
+}
+
+func waitForTimeoutExecution(
+	t *testing.T,
+	ctx context.Context,
+	executions <-chan time.Time,
+) time.Time {
+	t.Helper()
+	select {
+	case execution := <-executions:
+		return execution
+	case <-ctx.Done():
+		require.FailNow(t, "timeout handler was not executed", ctx.Err())
+		return time.Time{}
+	}
 }
 
 func doTestFlowTimeoutHandler(t *testing.T, backendType service.BackendType) {
@@ -651,6 +730,26 @@ func (h *softTimeoutRetryHandler) InvokeWaitForMethod(
 			ChannelConditions: []*dexpb.ChannelCondition{
 				{ChannelName: "never-published"},
 			},
+		},
+	}, nil
+}
+
+type softTimeoutRetryAfterContinueAsNewHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	executions chan time.Time
+}
+
+func (h *softTimeoutRetryAfterContinueAsNewHandler) InvokeExecuteMethod(
+	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetStepType() != service.FlowTimeoutStepType {
+		return nil, fmt.Errorf("unexpected Step type %q", request.GetStepType())
+	}
+	h.executions <- time.Now()
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			CloseDecision: common.ForceFailDecision(stringValue("retry timeout")),
 		},
 	}, nil
 }

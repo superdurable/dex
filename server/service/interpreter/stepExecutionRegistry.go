@@ -109,11 +109,6 @@ func (r *StepExecutionRegistry) CancelByStepTypes(
 	)
 }
 
-// CancelAll cancels every queued and active Step execution.
-func (r *StepExecutionRegistry) CancelAll(ctx interfaces.UnifiedContext) error {
-	return r.doCancel(ctx, newAllStepCancellationSelector())
-}
-
 func (r *StepExecutionRegistry) doCancel(
 	ctx interfaces.UnifiedContext,
 	selector *stepCancellationSelector,
