@@ -27,6 +27,12 @@ const stepEventTypes = new Set([
   'StepExecutePending',
 ]);
 
+const cancellableStatuses = new Set<StepGraphNode['status']>([
+  'Active',
+  'Waiting',
+  'Pending',
+]);
+
 function stepContext(event: FlowHistoryEvent): Record<string, unknown> {
   const value = event.payload.context;
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -49,6 +55,7 @@ export function buildStepGraph(
   parentFlowID = '',
 ): { nodes: StepGraphNode[]; edges: StepGraphEdge[] } {
   const nodes = new Map<string, StepGraphNode>();
+  const plannedNodesByLineage = new Map<string, string[]>();
   const closingStepExecutionIDs = new Set<string>();
   nodes.set(START_NODE_ID, {
     id: START_NODE_ID,
@@ -59,46 +66,42 @@ export function buildStepGraph(
   });
 
   for (const event of events) {
-    if (!stepEventTypes.has(event.type)) continue;
-    const info = stepContext(event);
-    const id = stringField(info.stepExecutionId);
-    if (!id) continue;
-    const existing = nodes.get(id);
-    const failed = event.type.endsWith('Failed');
-    const pending = event.type.endsWith('Pending');
-    const waitFor = event.type.startsWith('StepWaitFor') && !pending ? event : existing?.waitFor;
-    const execute = event.type.startsWith('StepExecute') && !pending ? event : existing?.execute;
-    if (event.type === 'StepExecuteCompleted' && hasCloseDecision(event)) {
-      closingStepExecutionIDs.add(id);
+    if (stepEventTypes.has(event.type)) {
+      addStepEvent(nodes, plannedNodesByLineage, event);
+      const stepExecutionID = stringField(stepContext(event).stepExecutionId);
+      if (stepExecutionID && event.type === 'StepExecuteCompleted' && hasCloseDecision(event)) {
+        closingStepExecutionIDs.add(stepExecutionID);
+      }
     }
-    nodes.set(id, {
-      id,
-      label: stringField(info.stepType) || id,
-      kind: 'step',
-      status: pending ? 'Pending' : failed ? 'Failed' : execute ? 'Completed' : 'Waiting',
-      stepType: stringField(info.stepType),
-      fromStepExecutionId: stringField(info.fromStepExecutionId) || START_NODE_ID,
-      waitFor,
-      execute,
-      pendingWaitFor: event.type === 'StepWaitForPending' ? event : existing?.pendingWaitFor,
-      pendingExecute: event.type === 'StepExecutePending' ? event : existing?.pendingExecute,
-    });
+    const decision = stepDecision(event);
+    if (!decision) continue;
+    cancelMatchingNodes(nodes, decision, stringField(stepContext(event).fromStepExecutionId));
+    addPlannedNodes(nodes, plannedNodesByLineage, event, decision);
   }
 
   for (const active of activeSteps) {
-    const existing = nodes.get(active.stepExecutionId);
+    const existing = nodes.get(active.stepExecutionId)
+      ?? takePlannedNode(
+        nodes,
+        plannedNodesByLineage,
+        active.fromStepExecutionId || START_NODE_ID,
+        active.stepType,
+      );
+    if (existing?.isPlanned) nodes.delete(existing.id);
+    const isCanceled = existing?.status === 'Canceled';
     nodes.set(active.stepExecutionId, {
       id: active.stepExecutionId,
       label: active.stepType || active.stepExecutionId,
       kind: 'step',
-      status: active.phase === 'Waiting' ? 'Waiting' : 'Active',
+      status: isCanceled ? 'Canceled' : active.phase === 'Waiting' ? 'Waiting' : 'Active',
       stepType: active.stepType,
       fromStepExecutionId: active.fromStepExecutionId || START_NODE_ID,
+      movement: existing?.movement ?? active.movement,
       waitFor: existing?.waitFor,
       execute: existing?.execute,
       pendingWaitFor: existing?.pendingWaitFor,
       pendingExecute: existing?.pendingExecute,
-      active,
+      active: isCanceled ? undefined : active,
     });
   }
 
@@ -157,6 +160,131 @@ export function buildStepGraph(
   }
 
   return { nodes: [...nodes.values()], edges };
+}
+
+function addStepEvent(
+  nodes: Map<string, StepGraphNode>,
+  plannedNodesByLineage: Map<string, string[]>,
+  event: FlowHistoryEvent,
+): void {
+  const info = stepContext(event);
+  const id = stringField(info.stepExecutionId);
+  if (!id) return;
+  const stepType = stringField(info.stepType);
+  const fromStepExecutionID = stringField(info.fromStepExecutionId) || START_NODE_ID;
+  const existing = nodes.get(id)
+    ?? takePlannedNode(nodes, plannedNodesByLineage, fromStepExecutionID, stepType);
+  if (existing?.isPlanned) nodes.delete(existing.id);
+  const failed = event.type.endsWith('Failed');
+  const pending = event.type.endsWith('Pending');
+  const waitFor = event.type.startsWith('StepWaitFor') && !pending ? event : existing?.waitFor;
+  const execute = event.type.startsWith('StepExecute') && !pending ? event : existing?.execute;
+  const status = existing?.status === 'Canceled'
+    ? 'Canceled'
+    : pending ? 'Pending' : failed ? 'Failed' : execute ? 'Completed' : 'Waiting';
+  nodes.set(id, {
+    id,
+    label: stepType || id,
+    kind: 'step',
+    status,
+    stepType,
+    fromStepExecutionId: fromStepExecutionID,
+    movement: existing?.movement,
+    waitFor,
+    execute,
+    pendingWaitFor: event.type === 'StepWaitForPending' ? event : existing?.pendingWaitFor,
+    pendingExecute: event.type === 'StepExecutePending' ? event : existing?.pendingExecute,
+  });
+}
+
+function addPlannedNodes(
+  nodes: Map<string, StepGraphNode>,
+  plannedNodesByLineage: Map<string, string[]>,
+  event: FlowHistoryEvent,
+  decision: Record<string, unknown>,
+): void {
+  const producerID = stringField(stepContext(event).stepExecutionId);
+  const movements = Array.isArray(decision.nextSteps) ? decision.nextSteps : [];
+  movements.forEach((rawMovement, index) => {
+    if (!rawMovement || typeof rawMovement !== 'object') return;
+    const movement = rawMovement as Record<string, unknown>;
+    const stepType = stringField(movement.stepType);
+    if (!stepType) return;
+    const fromStepExecutionID = stringField(movement.fromStepExecutionIdInternalOnly)
+      || stringField(movement.fromStepExecutionId)
+      || producerID
+      || START_NODE_ID;
+    const id = `__planned:${event.eventId}:${index}`;
+    nodes.set(id, {
+      id,
+      label: stepType,
+      kind: 'step',
+      status: 'Pending',
+      stepType,
+      fromStepExecutionId: fromStepExecutionID,
+      movement,
+      isPlanned: true,
+    });
+    const key = lineageKey(fromStepExecutionID, stepType);
+    plannedNodesByLineage.set(key, [...(plannedNodesByLineage.get(key) ?? []), id]);
+  });
+}
+
+function cancelMatchingNodes(
+  nodes: Map<string, StepGraphNode>,
+  decision: Record<string, unknown>,
+  producerFromStepExecutionID: string,
+): void {
+  const globalStepTypes = stringSet(decision.cancelStepTypes);
+  const siblingStepTypes = stringSet(decision.cancelSiblingStepTypes);
+  if (globalStepTypes.size === 0 && siblingStepTypes.size === 0) return;
+  for (const [id, node] of nodes) {
+    if (node.kind !== 'step' || !cancellableStatuses.has(node.status)) continue;
+    const isGlobalMatch = globalStepTypes.has(node.stepType ?? '');
+    const isSiblingMatch = siblingStepTypes.has(node.stepType ?? '')
+      && node.fromStepExecutionId === producerFromStepExecutionID;
+    if (isGlobalMatch || isSiblingMatch) {
+      nodes.set(id, { ...node, status: 'Canceled', active: undefined });
+    }
+  }
+}
+
+function takePlannedNode(
+  nodes: Map<string, StepGraphNode>,
+  plannedNodesByLineage: Map<string, string[]>,
+  fromStepExecutionID: string,
+  stepType: string,
+): StepGraphNode | undefined {
+  const key = lineageKey(fromStepExecutionID, stepType);
+  const ids = plannedNodesByLineage.get(key) ?? [];
+  const index = ids.findIndex((id) => {
+    const node = nodes.get(id);
+    return node?.isPlanned === true && node.status !== 'Canceled';
+  });
+  if (index < 0) return undefined;
+  const [id] = ids.splice(index, 1);
+  if (ids.length === 0) plannedNodesByLineage.delete(key);
+  return nodes.get(id);
+}
+
+function lineageKey(fromStepExecutionID: string, stepType: string): string {
+  return `${fromStepExecutionID}\u0000${stepType}`;
+}
+
+function stringSet(value: unknown): Set<string> {
+  if (!Array.isArray(value)) return new Set();
+  return new Set(value.filter((entry): entry is string => typeof entry === 'string'));
+}
+
+function stepDecision(event: FlowHistoryEvent): Record<string, unknown> | undefined {
+  const container = event.type === 'StepExecuteCompleted'
+    ? event.payload.output
+    : event.type === 'RpcExecutionCompleted' ? event.payload : undefined;
+  if (!container || typeof container !== 'object') return undefined;
+  const decision = (container as Record<string, unknown>).stepDecision;
+  return decision && typeof decision === 'object'
+    ? decision as Record<string, unknown>
+    : undefined;
 }
 
 function addSubFlowNodes(

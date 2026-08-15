@@ -76,6 +76,7 @@ Flow continued, RPC, Step decision, or recovery event that scheduled it.
 Selecting the first event reveals that source link; selecting a
 WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
+Persisted Step decisions add planned graph branches. A selector-matched branch without a Step event appears Canceled with no execution ID.
 SubFlow conditions appear as linked leaf nodes and compact WaitFor cards. Running
 and terminal nodes display and link by their generated Flow ID. Original WaitFor
 events retain the configured reuse policy; continue-as-new state retains only

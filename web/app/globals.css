@@ -2025,6 +2025,10 @@ pre {
   background: #c95252;
 }
 
+.legend-canceled {
+  background: #7b8581;
+}
+
 .legend-subflow {
   border: 1px solid #4f7ba7;
   background: #f2f7fb;
@@ -2075,6 +2079,11 @@ pre {
 
 .react-flow__node.node-failed {
   border-color: #c95252;
+}
+
+.react-flow__node.node-canceled {
+  border-color: #7b8581;
+  background: #f4f6f5;
 }
 
 .react-flow__node.node-source {
@@ -2349,6 +2358,10 @@ pre {
 
 .graph-method-failed strong {
   color: var(--danger);
+}
+
+.graph-method-canceled strong {
+  color: #626c68;
 }
 
 .graph-method-pending strong {
