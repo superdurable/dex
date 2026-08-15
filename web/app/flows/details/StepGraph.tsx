@@ -22,7 +22,12 @@ import {
 } from '@xyflow/react';
 import { buildStepGraph, stepGraphSelection } from '@/lib/graph';
 import type { FlowHistoryEvent, FlowState, StepGraphNode } from '@/lib/types';
-import { graphBounds, layoutGraph } from './graphLayout';
+import {
+  defaultGraphZoom,
+  graphBounds,
+  layoutGraph,
+  minimumGraphZoom,
+} from './graphLayout';
 
 interface StepNodeData extends Record<string, unknown> {
   label: React.ReactNode;
@@ -241,6 +246,7 @@ export function StepGraph({
   onSelectEvent: (event: FlowHistoryEvent | null) => void;
 }) {
   const graphCanvas = useRef<HTMLDivElement>(null);
+  const [canvasWidth, setCanvasWidth] = useState(0);
   const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<StepNodeData>, Edge> | null>(null);
   const graph = useMemo(
@@ -311,16 +317,26 @@ export function StepGraph({
     return layoutGraph(raw, edges);
   }, [edges, graph.nodes, onSelectEvent, selection]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
+  const initialZoom = defaultGraphZoom(bounds.width, canvasWidth);
 
   useEffect(() => {
-    if (!flowInstance) return;
-    const canvasWidth = graphCanvas.current?.clientWidth ?? bounds.width;
-    const viewport = flowInstance.getViewport();
+    const canvas = graphCanvas.current;
+    if (!canvas) return undefined;
+    const updateWidth = () => setCanvasWidth(canvas.clientWidth);
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!flowInstance || canvasWidth <= 0) return;
     void flowInstance.setViewport({
-      ...viewport,
-      x: Math.max(0, (canvasWidth - bounds.width * viewport.zoom) / 2),
+      x: Math.max(0, (canvasWidth - bounds.width * initialZoom) / 2),
+      y: 0,
+      zoom: initialZoom,
     });
-  }, [bounds.width, flowInstance]);
+  }, [bounds.width, canvasWidth, flowInstance, initialZoom]);
 
   if (!nodes.length) return <div className="card empty-state"><h3>No step topology loaded</h3></div>;
   return (
@@ -340,12 +356,12 @@ export function StepGraph({
       <div
         className="graph-canvas"
         ref={graphCanvas}
-        style={{ height: Math.max(650, bounds.height) }}
+        style={{ height: Math.max(650, bounds.height * initialZoom) }}
       >
         <ReactFlow
           nodes={nodes}
           edges={edges}
-          minZoom={0.15}
+          minZoom={minimumGraphZoom}
           maxZoom={2}
           elementsSelectable={false}
           nodesDraggable={false}

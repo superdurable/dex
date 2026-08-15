@@ -27,6 +27,9 @@ dexcli dev
 Open [http://127.0.0.1:8802](http://127.0.0.1:8802). No Node.js process runs in
 this mode.
 
+To populate Web with a 90-execution Flow containing serial, fan-out, and fan-in
+sections, run the [Large Step Graph demo](./demo/large-step-graph).
+
 ## Frontend development
 
 Requirements are Node.js 22+ and a local `dexcli` build.
@@ -77,8 +80,8 @@ Selecting the first event reveals that source link; selecting a
 WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
 Selecting a Step execution emphasizes it in green, its previous Step in blue, its next Steps in orange, and their connecting arrows.
-Large Step graphs extend down the page at readable size. Parallel ranks wrap to
-two nodes per row so fan-out and fan-in topologies do not require wide horizontal panning.
+Large Step graphs extend down the page at readable size. Fan-out ranks spread
+horizontally and scale down to fit when possible, with a minimum one-third zoom.
 Persisted Step decisions add planned graph branches. A selector-matched branch without a Step event appears Canceled with no execution ID.
 SubFlow conditions appear as linked leaf nodes and compact WaitFor cards. Running
 and terminal nodes display and link by their generated Flow ID. Original WaitFor

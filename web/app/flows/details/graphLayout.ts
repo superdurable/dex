@@ -13,7 +13,7 @@ const horizontalGap = 36;
 const verticalGap = 64;
 const horizontalMargin = 32;
 const verticalMargin = 32;
-const maximumNodesPerRow = 2;
+export const minimumGraphZoom = 1 / 3;
 
 interface LayoutNode<NodeData extends Record<string, unknown>> {
   height: number;
@@ -94,14 +94,7 @@ export function layoutGraph<NodeData extends Record<string, unknown>>(
 
   const rows = [...rankMembers.entries()]
     .sort(([left], [right]) => left - right)
-    .flatMap(([, members]) => {
-      const ordered = members.sort((left, right) => left.order - right.order);
-      const chunks: Array<Array<LayoutNode<NodeData>>> = [];
-      for (let index = 0; index < ordered.length; index += maximumNodesPerRow) {
-        chunks.push(ordered.slice(index, index + maximumNodesPerRow));
-      }
-      return chunks;
-    });
+    .map(([, members]) => members.sort((left, right) => left.order - right.order));
   const contentWidth = Math.max(...rows.map((row) => (
     row.reduce((width, member) => width + member.width, 0)
       + horizontalGap * Math.max(0, row.length - 1)
@@ -124,6 +117,12 @@ export function layoutGraph<NodeData extends Record<string, unknown>>(
   }
 
   return nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position }));
+}
+
+export function defaultGraphZoom(contentWidth: number, viewportWidth: number): number {
+  if (contentWidth <= 0 || viewportWidth <= 0) return 1;
+  const availableWidth = Math.max(0, viewportWidth - horizontalMargin * 2);
+  return Math.max(minimumGraphZoom, Math.min(1, availableWidth / contentWidth));
 }
 
 export function graphBounds<NodeData extends Record<string, unknown>>(

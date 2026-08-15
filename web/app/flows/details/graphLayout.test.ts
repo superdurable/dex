@@ -8,7 +8,12 @@
 
 import type { Edge, Node } from '@xyflow/react';
 import { describe, expect, it } from 'vitest';
-import { graphBounds, layoutGraph } from './graphLayout';
+import {
+  defaultGraphZoom,
+  graphBounds,
+  layoutGraph,
+  minimumGraphZoom,
+} from './graphLayout';
 
 function testNode(id: string): Node<Record<string, unknown>> {
   return {
@@ -20,7 +25,7 @@ function testNode(id: string): Node<Record<string, unknown>> {
 }
 
 describe('step graph layout', () => {
-  it('keeps a 90-execution fan-out and fan-in flow narrow and vertically readable', () => {
+  it('keeps a 90-execution fan-out and fan-in flow vertically readable', () => {
     const nodes: Array<Node<Record<string, unknown>>> = [testNode('start')];
     const edges: Edge[] = [];
     let parent = 'start';
@@ -59,10 +64,12 @@ describe('step graph layout', () => {
 
     expect(layouted).toHaveLength(91);
     expect(positions.size).toBe(91);
-    expect(bounds.width).toBeLessThanOrEqual(700);
-    expect(bounds.height).toBeGreaterThan(14_000);
-    expect(Math.max(...parallelRows.values())).toBeLessThanOrEqual(2);
-    expect(parallelRows.size).toBe(6);
+    expect(bounds.width).toBe(4_060);
+    expect(bounds.height).toBeGreaterThan(10_000);
+    expect(Math.max(...parallelRows.values())).toBe(12);
+    expect(parallelRows.size).toBe(1);
+    expect(defaultGraphZoom(bounds.width, 1_200)).toBe(minimumGraphZoom);
+    expect(defaultGraphZoom(bounds.width, 1_800)).toBeGreaterThan(minimumGraphZoom);
   });
 
   it('keeps uneven fan-out branches together', () => {
@@ -94,7 +101,11 @@ describe('step graph layout', () => {
       .filter((node) => node.id.startsWith('branch-'))
       .map((node) => node.position.y));
 
-    expect(branchRows.size).toBe(3);
-    expect(Math.max(...branchRows) - Math.min(...branchRows)).toBe(360);
+    expect(branchRows.size).toBe(1);
+  });
+
+  it('does not enlarge a graph or shrink it past three times', () => {
+    expect(defaultGraphZoom(600, 1_200)).toBe(1);
+    expect(defaultGraphZoom(3_000, 600)).toBe(minimumGraphZoom);
   });
 });

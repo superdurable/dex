@@ -1,4 +1,5 @@
 cli/dexcli
+web/large-step-graph
 examples/go/dex-samples
 examples/go/deepverify
 sdk-typescript/node_modules/
