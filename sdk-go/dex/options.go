@@ -160,6 +160,45 @@ type StartFlowOptions struct {
 	RequestID *string
 }
 
+// SubFlowReusePolicy controls how a generated SubFlow Flow ID resolves an existing execution.
+type SubFlowReusePolicy uint8
+
+const (
+	// RestartSubFlowIfPreviousExitedAbnormally attaches to running executions, returns completed
+	// results, and replaces failed, canceled, timed-out, or terminated executions.
+	RestartSubFlowIfPreviousExitedAbnormally SubFlowReusePolicy = iota
+	// AttachSubFlow attaches to a running execution or returns its existing terminal result.
+	AttachSubFlow
+	// AlwaysRestartSubFlow replaces a different existing execution, including a running one.
+	AlwaysRestartSubFlow
+)
+
+// SubFlowOptions configures one durable SubFlow Condition.
+//
+// Zero values inherit normal Flow start defaults and use
+// RestartSubFlowIfPreviousExitedAbnormally. The server owns the generated Flow ID and request ID;
+// callers cannot override either value. Attributes must belong to the target SubFlow.
+type SubFlowOptions struct {
+	// Timeout limits total SubFlow execution duration.
+	Timeout *time.Duration
+	// StartDelay postpones the SubFlow starting Step after start acceptance.
+	StartDelay *time.Duration
+	// RetryPolicy configures whole-Flow retries after terminal failures.
+	RetryPolicy *FlowRetryPolicy
+	// Attributes supplies encoded initial Attribute and Attribute-map values.
+	Attributes []InitialAttributeDef
+	// ConfigOverride overrides fields inherited from the parent Flow configuration.
+	ConfigOverride *FlowConfig
+	// ReusePolicy controls how an execution already using the generated Flow ID is resolved.
+	ReusePolicy SubFlowReusePolicy
+	// ConditionID assigns the stable ID required by AnyComboOf.
+	ConditionID string
+}
+
+func defaultSubFlowOptions() SubFlowOptions {
+	return SubFlowOptions{ReusePolicy: RestartSubFlowIfPreviousExitedAbnormally}
+}
+
 // IDReusePolicy controls whether StartFlow may reuse a Flow ID.
 type IDReusePolicy uint8
 

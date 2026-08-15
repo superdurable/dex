@@ -35,10 +35,10 @@ use crate::value_mapper;
 use crate::worker_dispatcher::map_step_options;
 use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ClientOptions,
-    Flow, FlowConfig, FlowErrorType, FlowInfo, FlowStatus, IdReusePolicy, Registry,
+    Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, IdReusePolicy, Registry,
     ResetFlowOptions, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry, SearchFlowsPage,
     StartFlowOptions, StepCompletion, StepDurability, StepExecutionId, StopFlowOptions, TimerId,
-    Value, WaitForFlowResult, WorkerTarget,
+    Value, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -326,13 +326,13 @@ impl Client {
         )
     }
 
-    /// Blocks until a Flow completes successfully and returns all output-bearing completions.
+    /// Blocks until a Flow closes and returns its terminal result.
     ///
     /// # Errors
     ///
-    /// Returns [`SdkError::FlowUncompleted`] for other terminal statuses, FlowNotFound for an
-    /// unknown ID, or a mapping/service error. This overload has no client-side timeout.
-    pub fn wait_for_flow(&self, flow_id: &str) -> SdkResult<WaitForFlowResult> {
+    /// Returns FlowNotFound for an unknown ID or a mapping/service error. Every terminal status is
+    /// represented by [`FlowResult`]. This overload has no client-side timeout.
+    pub fn wait_for_flow(&self, flow_id: &str) -> SdkResult<FlowResult> {
         self.wait_for_flow_result(flow_id, None)
     }
 
@@ -346,7 +346,7 @@ impl Client {
         &self,
         flow_id: &str,
         timeout: Duration,
-    ) -> SdkResult<WaitForFlowResult> {
+    ) -> SdkResult<FlowResult> {
         self.wait_for_flow_result(flow_id, Some(timeout))
     }
 
@@ -880,7 +880,7 @@ impl Client {
         &self,
         flow_id: &str,
         timeout: Option<Duration>,
-    ) -> SdkResult<WaitForFlowResult> {
+    ) -> SdkResult<FlowResult> {
         let mut service = self.service.clone();
         let response = self.runtime.block_on(async {
             service
@@ -902,7 +902,6 @@ impl Client {
                 })
         });
         let response = response?;
-        let status = map_flow_status(response.flow_status)?;
         let mut outputs = Vec::with_capacity(response.results.len());
         for result in &response.results {
             outputs.push(result.completed_step_output.clone().ok_or_else(|| {
@@ -924,17 +923,12 @@ impl Client {
                 )
             })
             .collect();
-        if status != FlowStatus::Completed {
-            let flow = self.describe_flow(flow_id)?;
-            return Err(SdkError::FlowUncompleted {
-                run_id: flow.run_id,
-                status,
-                error_type: map_flow_error_type(response.error_type),
-                message: (!response.error_message.is_empty()).then_some(response.error_message),
-                completions,
-            });
-        }
-        Ok(WaitForFlowResult::new(completions))
+        Ok(FlowResult::new(
+            map_flow_status(response.flow_status)?,
+            map_flow_error_type(response.error_type),
+            (!response.error_message.is_empty()).then_some(response.error_message),
+            completions,
+        ))
     }
 
     fn map_start_options(
@@ -1016,7 +1010,7 @@ impl Client {
     }
 }
 
-fn map_flow_config(
+pub(crate) fn map_flow_config(
     config: Option<&FlowConfig>,
     default_target: Option<&WorkerTarget>,
 ) -> SdkResult<ProtoFlowConfig> {
@@ -1057,7 +1051,7 @@ fn map_flow_config(
     })
 }
 
-fn map_flow_retry(retry: RetryPolicy) -> SdkResult<FlowRetryPolicy> {
+pub(crate) fn map_flow_retry(retry: RetryPolicy) -> SdkResult<FlowRetryPolicy> {
     Ok(FlowRetryPolicy {
         initial_interval_seconds: optional_seconds(retry.initial_interval)?,
         backoff_coefficient: retry.backoff_coefficient.unwrap_or_default() as f32,
@@ -1074,7 +1068,7 @@ fn map_worker_target(target: &WorkerTarget) -> ProtoWorkerTarget {
     }
 }
 
-fn map_flow_status(status: i32) -> SdkResult<FlowStatus> {
+pub(crate) fn map_flow_status(status: i32) -> SdkResult<FlowStatus> {
     match ProtoFlowStatus::try_from(status).ok() {
         Some(ProtoFlowStatus::Running) => Ok(FlowStatus::Running),
         Some(ProtoFlowStatus::Completed) => Ok(FlowStatus::Completed),
@@ -1087,7 +1081,7 @@ fn map_flow_status(status: i32) -> SdkResult<FlowStatus> {
     }
 }
 
-fn map_flow_error_type(error_type: i32) -> Option<FlowErrorType> {
+pub(crate) fn map_flow_error_type(error_type: i32) -> Option<FlowErrorType> {
     use dex_protocol::dex::FlowErrorType as ProtoFlowErrorType;
 
     match ProtoFlowErrorType::try_from(error_type).ok() {

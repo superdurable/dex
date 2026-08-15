@@ -115,7 +115,7 @@ func (service *workerService) invokeWaitForMethod(
 	if err != nil {
 		return nil, err
 	}
-	waiting, err := mapRegisteredWait(flow, wait)
+	waiting, err := mapRegisteredWait(service.registry, flow, wait)
 	if err != nil {
 		return nil, newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
 			FlowType: flow.flowType,
@@ -430,6 +430,21 @@ func executeRequestValuePointers(
 		}
 		for valueIndex := range result.Values {
 			valuePointers = append(valuePointers, &result.Values[valueIndex])
+		}
+	}
+	for resultIndex, result := range request.ConditionResults.SubFlowResults {
+		if result == nil {
+			return nil, fmt.Errorf("dex: SubFlow result at index %d is nil", resultIndex)
+		}
+		for completionIndex, completion := range result.Results {
+			if completion == nil {
+				return nil, fmt.Errorf(
+					"dex: SubFlow result %d completion %d is nil",
+					resultIndex,
+					completionIndex,
+				)
+			}
+			valuePointers = append(valuePointers, &completion.CompletedStepOutput)
 		}
 	}
 	return valuePointers, nil

@@ -140,6 +140,97 @@ class StartFlowOptions:
         )
 
 
+class SubFlowReusePolicy(Enum):
+    """Control how a generated SubFlow Flow ID resolves an existing execution.
+
+    Attributes:
+        ATTACH: Attach to a running execution or return its terminal result.
+        RESTART_IF_PREVIOUS_EXITS_ABNORMALLY: Attach while running, return a
+            successful result, and restart an abnormal previous execution.
+        ALWAYS_RESTART: Replace any different existing execution.
+    """
+
+    ATTACH = "attach"
+    RESTART_IF_PREVIOUS_EXITS_ABNORMALLY = "restart_if_previous_exits_abnormally"
+    ALWAYS_RESTART = "always_restart"
+
+
+@dataclass(frozen=True)
+class SubFlowOptions:
+    """Configure one durable SubFlow Condition.
+
+    The SubFlow inherits the parent's effective Flow configuration. ``None`` values
+    preserve normal start defaults. Dex generates the Flow ID and request ID.
+
+    Attributes:
+        timeout: Optional maximum SubFlow lifetime.
+        start_delay: Optional delay before its starting Step.
+        retry_policy: Optional whole-Flow retry policy.
+        config_override: Fields applied over the inherited parent configuration.
+        reuse_policy: Existing-execution resolution policy.
+        condition_id: Stable ID required by ``Wait.any_combination_of``.
+    """
+
+    timeout: timedelta | None = None
+    start_delay: timedelta | None = None
+    retry_policy: RetryPolicy | None = None
+    _attribute_initializations: tuple[_AttributeInitialization, ...] = ()
+    config_override: FlowConfig | None = None
+    reuse_policy: SubFlowReusePolicy = (
+        SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY
+    )
+    condition_id: str | None = None
+
+    @overload
+    def with_attribute(
+        self, attribute: Attribute[ValueT], value: ValueT, /
+    ) -> SubFlowOptions: ...
+
+    @overload
+    def with_attribute(
+        self,
+        attribute: AttributeMap[ValueT],
+        instance: str,
+        value: ValueT,
+        /,
+    ) -> SubFlowOptions: ...
+
+    def with_attribute(
+        self,
+        attribute: Attribute[Any] | AttributeMap[Any],
+        /,
+        *args: object,
+    ) -> SubFlowOptions:
+        """Return a copy with one target-Flow Attribute initialization appended.
+
+        Args:
+            attribute: A singleton Attribute or AttributeMap owned by the SubFlow.
+            *args: Its value, or a map instance followed by its value.
+
+        Returns:
+            A new immutable options value.
+
+        Raises:
+            TypeError: If arguments do not match either supported form.
+            ValueError: If an AttributeMap instance is empty.
+        """
+        if isinstance(attribute, Attribute) and len(args) == 1:
+            initialization = _AttributeInitialization(attribute, None, args[0])
+        elif isinstance(attribute, AttributeMap) and len(args) == 2:
+            instance = args[0]
+            if not isinstance(instance, str):
+                raise TypeError("attribute-map instance must be a string")
+            require_name(instance)
+            initialization = _AttributeInitialization(attribute, instance, args[1])
+        else:
+            raise TypeError("with_attribute received invalid arguments")
+        return replace(
+            self,
+            _attribute_initializations=self._attribute_initializations
+            + (initialization,),
+        )
+
+
 class ResetType(Enum):
     """Select the history point from which a Flow reset should resume.
 

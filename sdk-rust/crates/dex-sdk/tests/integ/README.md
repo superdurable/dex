@@ -51,7 +51,8 @@ one-to-one Java suite.
 | Worker handler failure | `WorkerInvocation` |
 | Locking RPC contention | `RpcLockConflict` |
 | Long-poll expiry | `LongPollTimeout` |
-| Non-completed Flow result | `FlowUncompleted` |
+| Terminal Flow result | `FlowResult` for every terminal status |
+| Durable SubFlow condition | Identity, all/any, reuse, reset, and continue-as-new |
 
 Local contract tests also cover malformed rich details, fallible registration,
 invalid Step-result worker metadata, user-owned Condition IDs, and map

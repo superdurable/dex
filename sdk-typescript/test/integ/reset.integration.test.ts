@@ -12,7 +12,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  FlowUncompletedError,
   ResetType,
   stringCodec,
   type Client,
@@ -46,11 +45,7 @@ for (const locking of [true, false]) {
         reason: "testing reset",
         skipWritesReapply: true,
       });
-      const failure = await expectError(
-        client.waitForFlow(id, 10_000).then((result) => result.singleOutput(stringCodec)),
-        FlowUncompletedError,
-      );
-      assert.equal(failure.runId, resetRunId);
+      const failure = await client.waitForFlow(id, 10_000);
       assert.equal(failure.status, "timedOut");
       assert.equal(failure.completions.length, 0);
       assert.equal(await client.getAttribute(id, flow.data), undefined);

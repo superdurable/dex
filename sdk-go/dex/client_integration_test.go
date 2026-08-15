@@ -626,7 +626,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 	require.NoError(t, multi.Completions[1].Output.Decode(&secondCompletion))
 	require.Equal(t, []byte("done"), secondCompletion)
 	require.ErrorContains(t, multi.DecodeSingleOutput(&completion), "exactly one Step output")
-	require.ErrorContains(t, (WaitForFlowResult{}).DecodeSingleOutput(&completion), "found 0")
+	require.ErrorContains(t, (FlowResult{Status: FlowCompleted}).DecodeSingleOutput(&completion), "found 0")
 
 	page, err := client.SearchFlows(ctx, "status = 'ready'", 10, "")
 	require.NoError(t, err)
@@ -689,7 +689,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 }
 
 func TestClientExplicitServiceErrors(t *testing.T) {
-	client, service := newClientIntegration(t)
+	client, _ := newClientIntegration(t)
 	ctx := context.Background()
 
 	_, err := client.StartFlow(
@@ -809,11 +809,8 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 	require.Equal(t, "timeout", timeout.FlowID)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(timeout))
 
-	_, err = client.WaitForFlow(ctx, "uncompleted", WaitForFlowOptions{NeedsResults: true})
-	var uncompleted *FlowUncompletedError
-	require.ErrorAs(t, err, &uncompleted)
-	require.Equal(t, "uncompleted", uncompleted.FlowID)
-	require.Equal(t, "run-uncompleted", uncompleted.RunID)
+	uncompleted, err := client.WaitForFlow(ctx, "uncompleted", WaitForFlowOptions{NeedsResults: true})
+	require.NoError(t, err)
 	require.Equal(t, FlowFailed, uncompleted.Status)
 	require.Equal(t, FlowErrorWorkerMethod, uncompleted.ErrorType)
 	require.Equal(t, "worker failed", uncompleted.ErrorMessage)
@@ -821,7 +818,6 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 	var partial string
 	require.NoError(t, uncompleted.Completions[0].Output.Decode(&partial))
 	require.Equal(t, "partial", partial)
-	require.Equal(t, "uncompleted", service.flowSummaryRequest.FlowId)
 }
 
 func newClientIntegration(t *testing.T) (*Client, *clientTestFlowService) {

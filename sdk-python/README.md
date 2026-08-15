@@ -140,7 +140,7 @@ include buffered publishes, and omit empty instances. Keys are decoded and
 sorted. Use `force_complete_if_channels_empty(...)` for conditional completion.
 
 `Client.wait_for_flow` and `AsyncClient.wait_for_flow` return a
-`WaitForFlowResult` after hydrating every output-bearing completion. Use
+`FlowResult` after hydrating every output-bearing completion. Use
 `single_output` only when the Flow contract produces exactly one output:
 
 ```python
@@ -155,8 +155,25 @@ for completion in result.completions:
 `completions` is an immutable tuple in server collection order. Parallel branch
 order is not deterministic, so select by `step_type` or `step_execution_id`.
 No-output Flows return an empty tuple; `single_output` raises `ValueError` for
-zero or multiple completions. `FlowUncompletedError.completions` uses the same
-hydrated model for partial outputs.
+zero or multiple completions. Every terminal status returns a `FlowResult`; inspect
+`status`, `error_type`, and `error_message` for unsuccessful completion.
+
+SubFlows are normal, independently addressable Flows used as durable Conditions:
+
+```python
+def wait_for(self, context: Context, input: ChargeInput) -> Wait:
+    return Wait.until(SubFlow.run(self.charge_flow, input))
+
+def execute(self, context: Context, input: ChargeInput) -> StepDecision:
+    del input
+    receipt = SubFlow.get_condition_results(context).single_output(Receipt)
+    return graceful_complete(receipt)
+```
+
+`SubFlow.get_flow_id(context, index=0)` remains available for a running `any_of`
+loser. `SubFlowOptions` configures timing, retry, initial target Attributes, Flow
+config, Condition ID, and reuse. Parent completion does not cancel an unfinished
+SubFlow.
 
 ### Errors
 

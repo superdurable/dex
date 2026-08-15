@@ -21,7 +21,6 @@ from dex import (
     FlowErrorType,
     FlowNotFoundError,
     FlowStatus,
-    FlowUncompletedError,
     IdReusePolicy,
     StartFlowOptions,
     StepExecutionId,
@@ -71,13 +70,9 @@ async def _basic_workflow_abnormal_exit_reuse() -> None:
         options = StartFlowOptions(
             id_reuse_policy=IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED
         )
-        failed_run = await environment.client.start_flow(abnormal, flow_id, 0, options)
-        with pytest.raises(FlowUncompletedError) as captured:
-            (
-                await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
-            ).single_output(int)
-        assert captured.value.run_id == failed_run
-        assert captured.value.status is FlowStatus.FAILED
+        await environment.client.start_flow(abnormal, flow_id, 0, options)
+        failed = await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        assert failed.status is FlowStatus.FAILED
         await environment.client.start_flow(basic, flow_id, 0, options)
         assert (
             await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
@@ -246,10 +241,7 @@ async def _movement_options_do_not_mutate_step_defaults() -> None:
     async with AsyncDexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("immutable-options")
         await environment.client.start_flow(flow, flow_id, 0)
-        with pytest.raises(FlowUncompletedError) as captured:
-            (
-                await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
-            ).single_output(int)
-        assert captured.value.status is FlowStatus.FAILED
-        assert captured.value.error_type is FlowErrorType.WORKER_API_FAILED
-        assert str(captured.value) == "expected wait failure 2"
+        failure = await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        assert failure.status is FlowStatus.FAILED
+        assert failure.error_type is FlowErrorType.WORKER_API_FAILED
+        assert failure.error_message == "expected wait failure 2"

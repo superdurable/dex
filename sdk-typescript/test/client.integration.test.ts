@@ -13,7 +13,6 @@ import { Server, ServerCredentials, type sendUnaryData } from "@grpc/grpc-js";
 
 import {
   Client,
-  FlowUncompletedError,
   Registry,
   StepList,
   jsonCodec,
@@ -181,16 +180,10 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     });
     const empty = await client.waitForFlow("empty");
     assert.throws(() => empty.singleOutput(stringCodec), /found 0/);
-    await assert.rejects(
-      client.waitForFlow("failed"),
-      (error: unknown) => {
-        assert.ok(error instanceof FlowUncompletedError);
-        assert.equal(error.runId, "run-failed");
-        assert.equal(error.completions[1]?.stepExecutionId, "Finish-2");
-        assert.equal(error.completions[1]?.decode(stringCodec), "done");
-        return true;
-      },
-    );
+    const failed = await client.waitForFlow("failed");
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.completions[1]?.stepExecutionId, "Finish-2");
+    assert.equal(failed.completions[1]?.decode(stringCodec), "done");
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.rpc?.rpcName, "accept");

@@ -354,6 +354,14 @@ func mapWorkerTarget(target *WorkerTarget) *dexpb.WorkerTarget {
 }
 
 func mapWait(wait *Wait) (*dexpb.WaitingCondition, error) {
+	return mapWaitWithRegistry(nil, nil, wait)
+}
+
+func mapWaitWithRegistry(
+	registry *Registry,
+	flow *registeredFlow,
+	wait *Wait,
+) (*dexpb.WaitingCondition, error) {
 	if wait == nil {
 		return nil, fmt.Errorf("dex: wait must not be nil")
 	}
@@ -362,29 +370,35 @@ func mapWait(wait *Wait) (*dexpb.WaitingCondition, error) {
 		return nil, nil
 	case waitAllOf:
 		return mapFlatWait(
+			registry,
+			flow,
 			dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
 			wait.conditions,
 		)
 	case waitAnyOf:
 		return mapFlatWait(
+			registry,
+			flow,
 			dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
 			wait.conditions,
 		)
 	case waitAnyComboOf:
-		return mapCombinationWait(wait.combinations)
+		return mapCombinationWait(registry, flow, wait.combinations)
 	default:
 		return nil, fmt.Errorf("dex: invalid wait")
 	}
 }
 
 func mapFlatWait(
+	registry *Registry,
+	flow *registeredFlow,
 	waitType dexpb.WaitingConditionType,
 	conditions []Condition,
 ) (*dexpb.WaitingCondition, error) {
 	if len(conditions) == 0 {
 		return nil, fmt.Errorf("dex: wait requires at least one condition")
 	}
-	mapper := newConditionMapper()
+	mapper := newConditionMapper(registry, flow)
 	for _, condition := range conditions {
 		if _, err := mapper.add(condition, false); err != nil {
 			return nil, err
@@ -395,12 +409,14 @@ func mapFlatWait(
 }
 
 func mapCombinationWait(
+	registry *Registry,
+	flow *registeredFlow,
 	combinations []ConditionCombination,
 ) (*dexpb.WaitingCondition, error) {
 	if len(combinations) == 0 {
 		return nil, fmt.Errorf("dex: AnyComboOf requires at least one combination")
 	}
-	mapper := newConditionMapper()
+	mapper := newConditionMapper(registry, flow)
 	mappedCombinations := make(
 		[]*dexpb.ConditionCombination,
 		0,
@@ -430,16 +446,21 @@ func mapCombinationWait(
 }
 
 type conditionMapper struct {
+	registry *Registry
+	flow     *registeredFlow
 	ids      map[*conditionImpl]string
 	usedIDs  map[string]struct{}
 	timers   []*dexpb.TimerCondition
 	channels []*dexpb.ChannelCondition
+	subFlows []*dexpb.SubFlowCondition
 }
 
-func newConditionMapper() *conditionMapper {
+func newConditionMapper(registry *Registry, flow *registeredFlow) *conditionMapper {
 	return &conditionMapper{
-		ids:     make(map[*conditionImpl]string),
-		usedIDs: make(map[string]struct{}),
+		registry: registry,
+		flow:     flow,
+		ids:      make(map[*conditionImpl]string),
+		usedIDs:  make(map[string]struct{}),
 	}
 }
 
@@ -494,6 +515,35 @@ func (mapper *conditionMapper) add(
 			AtLeast:     atLeast,
 			AtMost:      atMost,
 		})
+	case conditionSubFlow:
+		if mapper.registry == nil || mapper.flow == nil {
+			return "", fmt.Errorf("dex: SubFlow requires a registered Worker Flow")
+		}
+		target, targetErr := flowRegistryTarget(concrete, mapper.registry)
+		if targetErr != nil {
+			return "", targetErr
+		}
+		input, inputErr := encodeValue(concrete.subFlowInput)
+		if inputErr != nil {
+			return "", inputErr
+		}
+		stepOptions, optionsErr := mapRegisteredStepOptions(target.startingStep, nil)
+		if optionsErr != nil {
+			return "", optionsErr
+		}
+		options, optionsErr := mapSubFlowOptions(target, concrete.subFlowOptions)
+		if optionsErr != nil {
+			return "", optionsErr
+		}
+		mapper.subFlows = append(mapper.subFlows, &dexpb.SubFlowCondition{
+			ConditionId:   id,
+			SubFlowType:   target.flowType,
+			StartStepType: target.startingStep.stepType,
+			StepInput:     input,
+			StepOptions:   stepOptions,
+			Options:       options,
+			SubFlowIndex:  int32(len(mapper.subFlows)),
+		})
 	default:
 		return "", fmt.Errorf("dex: unsupported condition kind %d", concrete.kind)
 	}
@@ -529,6 +579,80 @@ func (mapper *conditionMapper) result(
 		WaitingConditionType: waitType,
 		TimerConditions:      mapper.timers,
 		ChannelConditions:    mapper.channels,
+		SubFlowConditions:    mapper.subFlows,
+	}
+}
+
+func mapSubFlowOptions(
+	target *registeredFlow,
+	options SubFlowOptions,
+) (*dexpb.SubFlowOptions, error) {
+	timeout, err := optionalDurationSeconds32(options.Timeout)
+	if err != nil {
+		return nil, fmt.Errorf("dex: SubFlow timeout: %w", err)
+	}
+	startDelay, err := optionalDurationSeconds32(options.StartDelay)
+	if err != nil {
+		return nil, fmt.Errorf("dex: SubFlow start delay: %w", err)
+	}
+	retry, err := mapFlowRetryPolicy(options.RetryPolicy)
+	if err != nil {
+		return nil, err
+	}
+	attributes, err := mapInitialAttributes(options.Attributes)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateSubFlowAttributes(target, options.Attributes); err != nil {
+		return nil, err
+	}
+	config, err := mapFlowConfig(options.ConfigOverride)
+	if err != nil {
+		return nil, err
+	}
+	reusePolicy, err := mapSubFlowReusePolicy(options.ReusePolicy)
+	if err != nil {
+		return nil, err
+	}
+	return &dexpb.SubFlowOptions{
+		ReusePolicy:           reusePolicy,
+		FlowTimeoutSeconds:    timeout,
+		FlowStartDelaySeconds: startDelay,
+		RetryPolicy:           retry,
+		Attributes:            attributes,
+		FlowConfigOverride:    config,
+	}, nil
+}
+
+func validateSubFlowAttributes(target *registeredFlow, attributes []InitialAttributeDef) error {
+	for _, definition := range attributes {
+		attribute, ok := definition.(initialAttribute)
+		if !ok {
+			return fmt.Errorf("dex: invalid SubFlow initial attribute %T", definition)
+		}
+		registered, found := target.attributes[attribute.name]
+		if !found || registered.isMap != attribute.isMap {
+			return fmt.Errorf(
+				"dex: SubFlow attribute %q is not registered by %q",
+				attribute.name,
+				target.flowType,
+			)
+		}
+	}
+	return nil
+}
+
+func mapSubFlowReusePolicy(policy SubFlowReusePolicy) (dexpb.SubFlowReusePolicy, error) {
+	switch policy {
+	case RestartSubFlowIfPreviousExitedAbnormally:
+		return dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY, nil
+	case AttachSubFlow:
+		return dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ATTACH, nil
+	case AlwaysRestartSubFlow:
+		return dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART, nil
+	default:
+		return dexpb.SubFlowReusePolicy_SUB_FLOW_REUSE_POLICY_UNSPECIFIED,
+			fmt.Errorf("dex: invalid SubFlow reuse policy %d", policy)
 	}
 }
 
@@ -711,28 +835,28 @@ func mapRPCResult[OUT any](result *RPCResult[OUT]) (*dexpb.InvokeWorkerRPCRespon
 	return response, nil
 }
 
-func mapWaitForFlowResult(
+func mapFlowResult(
 	response *dexpb.FlowResult,
-) (WaitForFlowResult, error) {
+) (FlowResult, error) {
 	if response == nil {
-		return WaitForFlowResult{}, fmt.Errorf("dex: WaitForFlow response is nil")
+		return FlowResult{}, fmt.Errorf("dex: Flow result is nil")
 	}
 	status, err := mapFlowStatus(response.FlowStatus)
 	if err != nil {
-		return WaitForFlowResult{}, err
+		return FlowResult{}, err
 	}
 	errorType, err := mapFlowErrorType(response.ErrorType)
 	if err != nil {
-		return WaitForFlowResult{}, err
+		return FlowResult{}, err
 	}
 	completions := make([]StepCompletion, 0, len(response.Results))
 	for _, completion := range response.Results {
 		if completion == nil {
-			return WaitForFlowResult{}, fmt.Errorf("dex: step completion is nil")
+			return FlowResult{}, fmt.Errorf("dex: step completion is nil")
 		}
 		output, valueErr := newValue(completion.CompletedStepOutput)
 		if valueErr != nil {
-			return WaitForFlowResult{}, valueErr
+			return FlowResult{}, valueErr
 		}
 		completions = append(completions, StepCompletion{
 			StepType:        completion.CompletedStepType,
@@ -740,7 +864,7 @@ func mapWaitForFlowResult(
 			Output:          output,
 		})
 	}
-	return WaitForFlowResult{
+	return FlowResult{
 		Status:       status,
 		Completions:  completions,
 		ErrorType:    errorType,

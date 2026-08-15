@@ -255,7 +255,7 @@ func (status FlowStatus) String() string {
 	}
 }
 
-// FlowErrorType categorizes the failure recorded for an uncompleted Flow.
+// FlowErrorType categorizes the failure recorded for a terminal Flow.
 type FlowErrorType uint8
 
 const (
@@ -271,7 +271,7 @@ const (
 	FlowErrorInternal
 )
 
-// StepCompletion contains one hydrated Step output returned by WaitForFlow.
+// StepCompletion contains one hydrated output from a completed Step.
 type StepCompletion struct {
 	// StepType is the registered Step type.
 	StepType string
@@ -281,9 +281,12 @@ type StepCompletion struct {
 	Output Value
 }
 
-// WaitForFlowResult contains the terminal status and output-bearing Step completions.
-type WaitForFlowResult struct {
-	// Status is the terminal Flow status.
+// FlowResult describes an observed Flow status and its output-bearing Step completions.
+//
+// Client.WaitForFlow returns terminal results. SubFlowResult can return a running
+// snapshot when another branch of AnyOf wins; that snapshot is not a live backend query.
+type FlowResult struct {
+	// Status is the observed Flow status.
 	Status FlowStatus
 	// Completions preserves server collection order when NeedsResults was true.
 	// Parallel completion order is not deterministic; select by StepType or StepExecutionID.
@@ -294,11 +297,19 @@ type WaitForFlowResult struct {
 	ErrorMessage string
 }
 
+// IsTerminal reports whether the result can no longer execute in its observed run.
+func (result FlowResult) IsTerminal() bool {
+	return result.Status != FlowRunning && result.Status != FlowContinuedAsNew
+}
+
 // DecodeSingleOutput decodes the output when exactly one completion exists.
 //
-// target follows Value.Decode semantics and must be a non-nil pointer. Zero or
-// multiple completions return an error without decoding a value.
-func (result WaitForFlowResult) DecodeSingleOutput(target any) error {
+// target follows Value.Decode semantics and must be a non-nil pointer. Running results and zero
+// or multiple completions return an error without decoding a value.
+func (result FlowResult) DecodeSingleOutput(target any) error {
+	if !result.IsTerminal() {
+		return fmt.Errorf("dex: Flow result is not terminal")
+	}
 	if len(result.Completions) != 1 {
 		return fmt.Errorf(
 			"dex: expected exactly one Step output, found %d",
@@ -568,22 +579,20 @@ func (client *Client) StopFlow(
 // WaitForFlow blocks until a Flow closes or the configured long-poll wait expires.
 //
 // options controls the server wait duration and whether Step completion results are
-// included. A completed Flow returns WaitForFlowResult. Any other closed status
-// returns FlowUncompletedError containing the run ID, status, failure details, and
-// available completions. LongPollTimeoutError means the Flow remained open; callers
-// may call WaitForFlow again. Context cancellation and hydration failures are also
-// returned.
+// included. Every terminal status returns FlowResult with any failure details and available
+// completions. LongPollTimeoutError means the Flow remained open; callers may call WaitForFlow
+// again. Context cancellation and hydration failures are also returned.
 func (client *Client) WaitForFlow(
 	ctx context.Context,
 	flowID string,
 	options WaitForFlowOptions,
-) (WaitForFlowResult, error) {
+) (FlowResult, error) {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
-		return WaitForFlowResult{}, err
+		return FlowResult{}, err
 	}
 	needsResults, timeout, err := mapWaitForFlowOptions(options)
 	if err != nil {
-		return WaitForFlowResult{}, err
+		return FlowResult{}, err
 	}
 	response, err := client.service.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowID,
@@ -591,7 +600,7 @@ func (client *Client) WaitForFlow(
 		WaitTimeSeconds: timeout,
 	})
 	if err != nil {
-		return WaitForFlowResult{}, translateRPCError(
+		return FlowResult{}, translateRPCError(
 			err,
 			"WaitForFlow",
 			flowID,
@@ -599,41 +608,13 @@ func (client *Client) WaitForFlow(
 		)
 	}
 	if err := client.hydrateValues(ctx, waitForFlowValuePointers(response)); err != nil {
-		return WaitForFlowResult{}, err
+		return FlowResult{}, err
 	}
-	result, err := mapWaitForFlowResult(response)
+	result, err := mapFlowResult(response)
 	if err != nil {
-		return WaitForFlowResult{}, err
+		return FlowResult{}, err
 	}
-	if result.Status == FlowCompleted {
-		return result, nil
-	}
-	runID, err := client.flowRunID(ctx, flowID)
-	if err != nil {
-		return WaitForFlowResult{}, err
-	}
-	return WaitForFlowResult{}, &FlowUncompletedError{
-		FlowID:       flowID,
-		RunID:        runID,
-		Status:       result.Status,
-		ErrorType:    result.ErrorType,
-		ErrorMessage: result.ErrorMessage,
-		Completions:  result.Completions,
-	}
-}
-
-func (client *Client) flowRunID(ctx context.Context, flowID string) (string, error) {
-	response, err := client.service.GetFlowSummary(ctx, &dexpb.GetFlowSummaryRequest{
-		FlowId: flowID,
-	})
-	if err != nil {
-		return "", translateRPCError(err, "GetFlowSummary", flowID, flowTargetExisting)
-	}
-	if response == nil || response.FlowExecutionId == nil ||
-		response.FlowExecutionId.RunId == "" {
-		return "", fmt.Errorf("dex: GetFlowSummary response has no run ID")
-	}
-	return response.FlowExecutionId.RunId, nil
+	return result, nil
 }
 
 func waitForFlowValuePointers(response *dexpb.FlowResult) []**dexpb.Value {

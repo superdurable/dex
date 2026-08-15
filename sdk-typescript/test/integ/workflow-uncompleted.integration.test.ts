@@ -13,7 +13,7 @@ import test from "node:test";
 
 import {
   FlowErrorType,
-  FlowUncompletedError,
+  type FlowResult,
   LongPollTimeoutError,
   StopType,
   doubleCodec,
@@ -47,9 +47,9 @@ test("Flow execution timeout is reported without results", async () => {
   const flow = new SignalFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("flow-timeout");
-    const runId = await client.startFlow(flow, id, 1, { timeoutMs: 1_000 });
+    await client.startFlow(flow, id, 1, { timeoutMs: 1_000 });
     const failure = await waitForFailure(client, id);
-    assertFailure(failure, runId, "timedOut", undefined, undefined, 0);
+    assertFailure(failure, "timedOut", undefined, undefined, 0);
   });
 });
 
@@ -77,11 +77,10 @@ test("forceFail produces a Step-decision failure", async () => {
   const flow = new ForceFailFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("force-fail");
-    const runId = await client.startFlow(flow, id, 5);
+    await client.startFlow(flow, id, 5);
     const failure = await waitForFailure(client, id);
     assertFailure(
       failure,
-      runId,
       "failed",
       FlowErrorType.STEP_DECISION_FAILED,
       "a failing message",
@@ -94,12 +93,11 @@ test("Worker API failure preserves the callback message", async () => {
   const flow = new StateFailureFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("worker-api-failure");
-    const runId = await client.startFlow(flow, id, 5);
+    await client.startFlow(flow, id, 5);
     const failure = await waitForFailure(client, id);
-    assert.equal(failure.runId, runId);
     assert.equal(failure.status, "failed");
     assert.equal(failure.errorType, FlowErrorType.WORKER_API_FAILED);
-    assert.match(failure.message, /test api failing/);
+    assert.match(failure.errorMessage ?? "", /test api failing/);
     assert.equal(failure.completions.length, 0);
   });
 });
@@ -108,12 +106,11 @@ test("Worker method timeout fails the Flow", async () => {
   const flow = new StateTimeoutFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("worker-api-timeout");
-    const runId = await client.startFlow(flow, id, 5);
+    await client.startFlow(flow, id, 5);
     const failure = await waitForFailure(client, id);
-    assert.equal(failure.runId, runId);
     assert.equal(failure.status, "failed");
     assert.equal(failure.errorType, FlowErrorType.WORKER_API_FAILED);
-    assert.match(failure.message, /timeout/i);
+    assert.match(failure.errorMessage ?? "", /timeout/i);
     assert.equal(failure.completions.length, 0);
   });
 });
@@ -122,12 +119,11 @@ test("empty goToMulti decision fails the Flow", async () => {
   const flow = new EmptyDecisionFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("empty-decision");
-    const runId = await client.startFlow(flow, id, 5);
+    await client.startFlow(flow, id, 5);
     const failure = await waitForFailure(client, id);
-    assert.equal(failure.runId, runId);
     assert.equal(failure.status, "failed");
     assert.equal(failure.errorType, FlowErrorType.WORKER_API_FAILED);
-    assert.match(failure.message, /goToMulti requires a movement/);
+    assert.match(failure.errorMessage ?? "", /goToMulti requires a movement/);
     assert.equal(failure.completions.length, 0);
   });
 });
@@ -142,31 +138,29 @@ async function assertStoppedFlow(
   const flow = new SignalFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("stopped");
-    const runId = await client.startFlow(flow, id, 1);
+    await client.startFlow(flow, id, 1);
     await client.stopFlow(id, {
       type: stopType,
       ...(reason === undefined ? {} : { reason }),
     });
     const failure = await waitForFailure(client, id);
-    assertFailure(failure, runId, expectedStatus, expectedErrorType, expectedMessage, 0);
+    assertFailure(failure, expectedStatus, expectedErrorType, expectedMessage, 0);
   });
 }
 
-async function waitForFailure(client: Client, id: string): Promise<FlowUncompletedError> {
-  return expectError(client.waitForFlow(id, 15_000).then((result) => result.singleOutput(doubleCodec)), FlowUncompletedError);
+async function waitForFailure(client: Client, id: string): Promise<FlowResult> {
+  return client.waitForFlow(id, 15_000);
 }
 
 function assertFailure(
-  failure: FlowUncompletedError,
-  runId: string,
+  failure: FlowResult,
   status: FlowStatus,
   errorType: FlowErrorTypeValue | undefined,
   message: string | undefined,
   resultCount: number,
 ): void {
-  assert.equal(failure.runId, runId);
   assert.equal(failure.status, status);
   assert.equal(failure.errorType, errorType);
-  assert.equal(failure.message, message ?? "");
+  assert.equal(failure.errorMessage, message);
   assert.equal(failure.completions.length, resultCount);
 }

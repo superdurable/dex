@@ -12,6 +12,8 @@ from collections.abc import Callable, Sequence
 from typing import Any, TypeVar, cast
 
 from dex.dexpb import dex_pb2 as pb
+from dex.flow_info import FlowStatus
+from dex.runtime_errors import FlowErrorType
 
 OutputT = TypeVar("OutputT")
 _Decoder = Callable[[pb.Value, type[Any]], Any]
@@ -78,25 +80,76 @@ class StepCompletion:
         return cast(OutputT, self._decoder(self._output, output_type))
 
 
-class WaitForFlowResult:
-    """Contain every output-bearing completion from a successful Flow.
+class FlowResult:
+    """Describe an observed Flow status and its output-bearing completions.
 
-    ``completions`` preserves server collection order, which is not deterministic
-    for parallel Steps. Select by Step type or Step execution ID when identity matters.
+    Client results are terminal. A SubFlow result can be a running snapshot when
+    another AnyOf Condition won; that status is not a live backend query.
 
     Attributes:
+        status: The observed lifecycle state.
+        error_type: Dex failure category when available.
+        error_message: Server failure detail when available.
         completions: An immutable sequence of Step completions.
     """
 
-    __slots__ = ("_completions",)
+    __slots__ = ("_completions", "_error_message", "_error_type", "_status")
 
-    def __init__(self, completions: Sequence[StepCompletion]) -> None:
-        """Create a result with an immutable completion snapshot.
+    def __init__(
+        self,
+        status: FlowStatus,
+        completions: Sequence[StepCompletion],
+        error_type: FlowErrorType | None = None,
+        error_message: str | None = None,
+    ) -> None:
+        """Create an immutable Flow result snapshot.
 
         Args:
+            status: The observed Flow status.
             completions: Output-bearing Step completions in server collection order.
+            error_type: Optional Dex failure category.
+            error_message: Optional server failure detail.
         """
+        self._status = status
         self._completions = tuple(completions)
+        self._error_type = error_type
+        self._error_message = error_message
+
+    @property
+    def status(self) -> FlowStatus:
+        """Return the observed Flow lifecycle state.
+
+        Returns:
+            The status captured by this result.
+        """
+        return self._status
+
+    @property
+    def error_type(self) -> FlowErrorType | None:
+        """Return the Dex failure category, if one was reported.
+
+        Returns:
+            The failure category, or ``None`` when Dex reported none.
+        """
+        return self._error_type
+
+    @property
+    def error_message(self) -> str | None:
+        """Return the server failure detail, if one was reported.
+
+        Returns:
+            The failure detail, or ``None`` when Dex reported none.
+        """
+        return self._error_message
+
+    @property
+    def is_terminal(self) -> bool:
+        """Return whether this observed run can no longer execute.
+
+        Returns:
+            ``True`` for a terminal snapshot; otherwise ``False``.
+        """
+        return self.status not in (FlowStatus.RUNNING, FlowStatus.CONTINUED_AS_NEW)
 
     @property
     def completions(self) -> tuple[StepCompletion, ...]:
@@ -117,11 +170,45 @@ class WaitForFlowResult:
             The only decoded Step output.
 
         Raises:
-            ValueError: If the Flow returned zero or multiple outputs.
+            ValueError: If the result is nonterminal or has zero or multiple outputs.
             ValueMappingError: If the output cannot be decoded as ``output_type``.
         """
+        if not self.is_terminal:
+            raise ValueError("Flow result is not terminal")
         if len(self.completions) != 1:
             raise ValueError(
                 f"Expected exactly one Step output, found {len(self.completions)}"
             )
         return self.completions[0].decode(output_type)
+
+
+def flow_result_from_proto(result: pb.FlowResult, decoder: _Decoder) -> FlowResult:
+    """Map one hydrated wire result into the public immutable representation."""
+    statuses = {
+        pb.FLOW_STATUS_RUNNING: FlowStatus.RUNNING,
+        pb.FLOW_STATUS_COMPLETED: FlowStatus.COMPLETED,
+        pb.FLOW_STATUS_FAILED: FlowStatus.FAILED,
+        pb.FLOW_STATUS_CANCELED: FlowStatus.CANCELED,
+        pb.FLOW_STATUS_TERMINATED: FlowStatus.TERMINATED,
+        pb.FLOW_STATUS_TIMEOUT: FlowStatus.TIMED_OUT,
+        pb.FLOW_STATUS_CONTINUED_AS_NEW: FlowStatus.CONTINUED_AS_NEW,
+    }
+    errors = {
+        pb.FLOW_ERROR_TYPE_UNSPECIFIED: None,
+        pb.FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW: FlowErrorType.STEP_DECISION_FAILED,
+        pb.FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW: FlowErrorType.CLIENT_API_FAILED,
+        pb.FLOW_ERROR_TYPE_WORKER_API_FAIL: FlowErrorType.WORKER_API_FAILED,
+        pb.FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: FlowErrorType.INVALID_USER_FLOW_CODE,
+        pb.FLOW_ERROR_TYPE_INTERNAL: FlowErrorType.INTERNAL,
+    }
+    try:
+        status = statuses[result.flow_status]
+        error_type = errors[result.error_type]
+    except KeyError as error:
+        raise ValueError("unsupported Flow result enum") from error
+    return FlowResult(
+        status,
+        [StepCompletion(completion, decoder) for completion in result.results],
+        error_type,
+        result.error_message or None,
+    )

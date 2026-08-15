@@ -19,7 +19,9 @@ use dex_protocol::dex::{
 use crate::persistence::PersistenceKind;
 use crate::registry::{RegisteredFlow, decode_instance, physical_name};
 use crate::value_mapper;
-use crate::{Attribute, AttributeMap, Channel, ChannelMap, HandlerError, HandlerResult, Value};
+use crate::{
+    Attribute, AttributeMap, Channel, ChannelMap, FlowResult, HandlerError, HandlerResult, Value,
+};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum InvocationMethod {
@@ -110,6 +112,31 @@ impl Context {
         self.condition_results
             .as_ref()
             .is_some_and(|results| results.wait_for_failed)
+    }
+
+    pub(crate) fn sub_flow_result(&self, index: usize) -> HandlerResult<FlowResult> {
+        if self.method != InvocationMethod::Execute {
+            return Err(HandlerError::new(
+                "SubFlow results are available only during execute",
+            ));
+        }
+        let result = self
+            .condition_results
+            .as_ref()
+            .and_then(|results| results.sub_flow_results.get(index))
+            .ok_or_else(|| {
+                HandlerError::new(format!("SubFlow result index is unavailable: {index}"))
+            })?;
+        FlowResult::from_proto(result).map_err(|error| HandlerError::new(error.to_string()))
+    }
+
+    pub(crate) fn sub_flow_id(&self, index: usize) -> HandlerResult<String> {
+        self.sub_flow_result(index)?;
+        Ok(format!(
+            "SubFlow:{}-{}-{index}",
+            self.flow_id(),
+            self.step_execution_id()
+        ))
     }
 
     /// Blocks the current thread until Dex cancels this handler attempt.

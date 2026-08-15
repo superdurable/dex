@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use dex_sdk::{
     Context, Flow, FlowErrorType, FlowStatus, HandlerError, HandlerResult, Registry, RetryPolicy,
-    SdkError, Step, StepDecision, StepList, StepOptions, Wait,
+    Step, StepDecision, StepList, StepOptions, Wait,
 };
 
 use crate::support::{DexDevTestEnvironment, flow_id};
@@ -190,33 +190,20 @@ fn wait_for_method_timeout_reports_timeout_message() {
     );
 }
 
-fn wait_for_failure(environment: &DexDevTestEnvironment, flow_id: &str) -> SdkError {
+fn wait_for_failure(environment: &DexDevTestEnvironment, flow_id: &str) -> dex_sdk::FlowResult {
     environment
         .client
         .wait_for_flow_with_timeout(flow_id, Duration::from_secs(15))
-        .and_then(|result| result.single_output::<i32>())
-        .expect_err("Flow must not complete")
+        .expect("wait for failed Flow result")
 }
 
 fn assert_worker_failure(
-    failure: SdkError,
-    run_id: &str,
+    failure: dex_sdk::FlowResult,
+    _run_id: &str,
     message_matches: impl FnOnce(&str) -> bool,
 ) {
-    match failure {
-        SdkError::FlowUncompleted {
-            run_id: failed_run_id,
-            status,
-            error_type,
-            message,
-            completions,
-        } => {
-            assert_eq!(run_id, failed_run_id);
-            assert_eq!(FlowStatus::Failed, status);
-            assert_eq!(Some(FlowErrorType::WorkerApiFailed), error_type);
-            assert!(message.as_deref().is_some_and(message_matches));
-            assert_eq!(0, completions.len());
-        }
-        error => panic!("expected FlowUncompleted, got {error:?}"),
-    }
+    assert_eq!(FlowStatus::Failed, failure.status());
+    assert_eq!(Some(FlowErrorType::WorkerApiFailed), failure.error_type());
+    assert!(failure.error_message().is_some_and(message_matches));
+    assert_eq!(0, failure.completions().len());
 }

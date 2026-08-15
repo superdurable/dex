@@ -271,7 +271,7 @@ func waitForOrder(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
-) (dex.WaitForFlowResult, error) {
+) (dex.FlowResult, error) {
 	return client.WaitForFlow(
 		ctx,
 		flowID,

@@ -125,6 +125,31 @@ sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
 include buffered publishes, but omit empty instances. Keys are decoded and
 sorted. Use `ForceCompleteIfChannelsEmpty` for atomic conditional completion.
 
+SubFlows are normal, independently addressable Flows used as durable Conditions:
+
+```go
+func (ParentStep) WaitFor(_ dex.Context, input ChargeInput) (*dex.Wait, error) {
+	return dex.Until(dex.SubFlow(ChargeFlow{}, input)), nil
+}
+
+func (ParentStep) Execute(ctx dex.Context, _ ChargeInput) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var receipt Receipt
+	if err := result.DecodeSingleOutput(&receipt); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(receipt), nil
+}
+```
+
+`SubFlowID(ctx, index...)` returns the generated identity, including for a running
+`AnyOf` loser. `SubFlowOptions` configures timing, retry, initial target Attributes,
+Flow config, Condition ID, and reuse. Parent completion does not cancel an
+unfinished SubFlow.
+
 ## Registration
 
 Registration uses pointer-stripped package-qualified Go types by default:
@@ -312,10 +337,9 @@ failures return `WorkerInvocationError`; its `Worker` field preserves the
 original Worker code, type, and detail. Concurrent locking RPCs return
 `RPCLockConflictError` separately.
 
-`WaitForFlow` returns `FlowUncompletedError` when a Flow closes as failed,
-timed out, terminated, canceled, or continued-as-new. The error exposes
-`FlowID`, `RunID`, `Status`, `ErrorType`, `ErrorMessage`, and any requested
-`Completions`.
+`WaitForFlow` returns `FlowResult` for every terminal status. Inspect `Status`,
+`ErrorType`, `ErrorMessage`, and any requested `Completions`; transport and
+long-poll failures remain errors.
 
 Every specific service error unwraps to `*dex.ServiceError` and then to the
 original gRPC error. `ServiceError` exposes `Op`, `FlowID`, `Code`, `SubStatus`,

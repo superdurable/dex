@@ -6,9 +6,9 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-use dex_protocol::dex::Value as ProtoValue;
+use dex_protocol::dex::{FlowResult as ProtoFlowResult, Value as ProtoValue};
 
-use crate::{SdkError, SdkResult, Value, value_mapper};
+use crate::{FlowErrorType, FlowStatus, SdkError, SdkResult, Value, value_mapper};
 
 #[derive(Clone, Debug)]
 /// Contains one output-bearing Step completion returned by [`crate::Client::wait_for_flow`].
@@ -40,14 +40,78 @@ impl StepCompletion {
 }
 
 #[derive(Clone, Debug)]
-/// Contains every output-bearing completion from a successfully completed Flow.
-pub struct WaitForFlowResult {
+/// Describes an observed Flow status and its output-bearing completions.
+///
+/// Client waits return terminal results. A SubFlow AnyOf loser can return a Running snapshot,
+/// which does not guarantee that the independently running Flow remains active at read time.
+pub struct FlowResult {
+    status: FlowStatus,
+    error_type: Option<FlowErrorType>,
+    error_message: Option<String>,
     completions: Vec<StepCompletion>,
 }
 
-impl WaitForFlowResult {
-    pub(crate) fn new(completions: Vec<StepCompletion>) -> Self {
-        Self { completions }
+impl FlowResult {
+    pub(crate) fn new(
+        status: FlowStatus,
+        error_type: Option<FlowErrorType>,
+        error_message: Option<String>,
+        completions: Vec<StepCompletion>,
+    ) -> Self {
+        Self {
+            status,
+            error_type,
+            error_message,
+            completions,
+        }
+    }
+
+    pub(crate) fn from_proto(result: &ProtoFlowResult) -> SdkResult<Self> {
+        let status = crate::client::map_flow_status(result.flow_status)?;
+        let completions = result
+            .results
+            .iter()
+            .map(|completion| {
+                Ok(StepCompletion::new(
+                    completion.completed_step_type.clone(),
+                    completion.completed_step_execution_id.clone(),
+                    completion.completed_step_output.clone().ok_or_else(|| {
+                        SdkError::ValueMapping {
+                            message: "Step completion output is required".to_string(),
+                        }
+                    })?,
+                ))
+            })
+            .collect::<SdkResult<Vec<_>>>()?;
+        Ok(Self::new(
+            status,
+            crate::client::map_flow_error_type(result.error_type),
+            (!result.error_message.is_empty()).then(|| result.error_message.clone()),
+            completions,
+        ))
+    }
+
+    /// Returns the observed Flow lifecycle state.
+    pub fn status(&self) -> FlowStatus {
+        self.status
+    }
+
+    /// Returns the Dex failure category when one was reported.
+    pub fn error_type(&self) -> Option<FlowErrorType> {
+        self.error_type
+    }
+
+    /// Returns the server failure detail when one was reported.
+    pub fn error_message(&self) -> Option<&str> {
+        self.error_message.as_deref()
+    }
+
+    /// Returns whether the observed run can no longer execute.
+    pub fn is_terminal(&self) -> bool {
+        !matches!(
+            self.status,
+            FlowStatus::Running | FlowStatus::ContinuedAsNew
+        )
     }
 
     /// Returns output-bearing completions in server collection order.
@@ -61,9 +125,14 @@ impl WaitForFlowResult {
     ///
     /// # Errors
     ///
-    /// Returns [`SdkError::InvalidArgument`] for zero or multiple outputs and
+    /// Returns [`SdkError::InvalidArgument`] for a nonterminal result or zero or multiple outputs and
     /// [`SdkError::ValueMapping`] when the output is incompatible with `Output`.
     pub fn single_output<Output: Value>(&self) -> SdkResult<Output> {
+        if !self.is_terminal() {
+            return Err(SdkError::InvalidArgument {
+                message: "Flow result is not terminal".to_string(),
+            });
+        }
         if self.completions().len() != 1 {
             return Err(SdkError::InvalidArgument {
                 message: format!(
@@ -84,14 +153,19 @@ mod tests {
 
     #[test]
     fn preserves_heterogeneous_completions_and_rejects_ambiguous_single_output() {
-        let result = WaitForFlowResult::new(vec![
-            completion(
-                "First",
-                "First-1",
-                value::Kind::StringValue("one".to_string()),
-            ),
-            completion("Second", "Second-2", value::Kind::BoolValue(true)),
-        ]);
+        let result = FlowResult::new(
+            crate::FlowStatus::Completed,
+            None,
+            None,
+            vec![
+                completion(
+                    "First",
+                    "First-1",
+                    value::Kind::StringValue("one".to_string()),
+                ),
+                completion("Second", "Second-2", value::Kind::BoolValue(true)),
+            ],
+        );
 
         assert_eq!(result.completions()[0].step_type, "First");
         assert_eq!(result.completions()[1].step_execution_id, "Second-2");
@@ -105,37 +179,19 @@ mod tests {
 
     #[test]
     fn single_output_requires_exactly_one_completion() {
-        let single =
-            WaitForFlowResult::new(vec![completion("Only", "Only-1", value::Kind::IntValue(7))]);
+        let single = FlowResult::new(
+            crate::FlowStatus::Completed,
+            None,
+            None,
+            vec![completion("Only", "Only-1", value::Kind::IntValue(7))],
+        );
         assert_eq!(single.single_output::<i64>().unwrap(), 7);
 
-        let empty = WaitForFlowResult::new(Vec::new());
+        let empty = FlowResult::new(crate::FlowStatus::Completed, None, None, Vec::new());
         assert!(matches!(
             empty.single_output::<String>(),
             Err(SdkError::InvalidArgument { .. })
         ));
-    }
-
-    #[test]
-    fn uncompleted_error_retains_completion_identity_and_output() {
-        let error = SdkError::FlowUncompleted {
-            run_id: "run-failed".to_string(),
-            status: crate::FlowStatus::Failed,
-            error_type: None,
-            message: Some("failed by test".to_string()),
-            completions: vec![completion(
-                "Partial",
-                "Partial-3",
-                value::Kind::StringValue("partial".to_string()),
-            )],
-        };
-
-        let SdkError::FlowUncompleted { completions, .. } = error else {
-            panic!("expected FlowUncompleted");
-        };
-        assert_eq!(completions[0].step_type, "Partial");
-        assert_eq!(completions[0].step_execution_id, "Partial-3");
-        assert_eq!(completions[0].decode::<String>().unwrap(), "partial");
     }
 
     fn completion(step_type: &str, step_execution_id: &str, kind: value::Kind) -> StepCompletion {

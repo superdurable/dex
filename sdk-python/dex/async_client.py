@@ -40,8 +40,8 @@ from dex.flow_options import (
     StopFlowOptions,
     StopType,
 )
-from dex.flow_result import StepCompletion, WaitForFlowResult
-from dex.runtime_errors import FlowErrorType, FlowUncompletedError
+from dex.flow_result import FlowResult, flow_result_from_proto
+from dex.runtime_errors import FlowErrorType
 from dex.step import RetryPolicy, StepDurability
 from dex.step_execution import StepExecutionId, TimerId
 
@@ -502,8 +502,8 @@ class AsyncClient:
         self,
         flow_id: str,
         timeout: timedelta | None = None,
-    ) -> WaitForFlowResult:
-        """Await Flow closure and return all output-bearing completions.
+    ) -> FlowResult:
+        """Await Flow closure and return its terminal result.
 
         ``timeout`` is a server-side long-poll duration, not a local task deadline.
         A LongPollTimeoutError is retryable by awaiting this method again. Parallel
@@ -514,27 +514,25 @@ class AsyncClient:
             timeout: Optional non-negative server-side wait duration.
 
         Returns:
-            An immutable snapshot of every output-bearing Step completion.
+            The terminal status, failure detail, and output-bearing completions.
 
         Raises:
             LongPollTimeoutError: If the Flow remains open when the wait expires.
-            FlowUncompletedError: If the Flow closes without successful completion.
             FlowNotFoundError: If ``flow_id`` does not exist.
             ValueMappingError: If Dex returns a malformed or incompatible hydrated value.
             DexServiceError: If FlowService cannot perform the wait.
         """
         response = await self._wait_for_flow_response(flow_id, timeout)
         hydrated = await self._hydrator.step_outputs(list(response.results))
-        return WaitForFlowResult(
-            [
-                StepCompletion(
-                    result,
-                    lambda value, output_type: self._values.decode(
-                        value, self._values.codec(output_type)
-                    ),
-                )
-                for result in hydrated
-            ]
+        mapped = pb.FlowResult()
+        mapped.CopyFrom(response)
+        del mapped.results[:]
+        mapped.results.extend(hydrated)
+        return flow_result_from_proto(
+            mapped,
+            lambda value, output_type: self._values.decode(
+                value, self._values.codec(output_type)
+            ),
         )
 
     async def stop_flow(
@@ -997,25 +995,6 @@ class AsyncClient:
                 "existing",
             ),
         )
-        if response.flow_status != pb.FLOW_STATUS_COMPLETED:
-            info = await self.describe_flow(flow_id)
-            results = await self._hydrator.step_outputs(list(response.results))
-            completions = [
-                StepCompletion(
-                    result,
-                    lambda value, output_type: self._values.decode(
-                        value, self._values.codec(output_type)
-                    ),
-                )
-                for result in results
-            ]
-            raise FlowUncompletedError(
-                info.run_id,
-                self._map_flow_status(response.flow_status),
-                self._map_flow_error_type(response.error_type),
-                response.error_message or None,
-                completions,
-            )
         return response
 
     def _map_start_options(self, options: StartFlowOptions) -> pb.FlowStartOptions:

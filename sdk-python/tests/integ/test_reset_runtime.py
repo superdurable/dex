@@ -14,7 +14,6 @@ import pytest
 
 from dex import (
     FlowStatus,
-    FlowUncompletedError,
     ResetFlowOptions,
     ResetType,
     StartFlowOptions,
@@ -45,17 +44,14 @@ def test_reset_can_skip_rpc_or_channel_reapply(locking: bool) -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = start_and_invoke(environment, flow, locking)
         assert_completed_with_attributes(environment, flow, flow_id)
-        reset_run_id = environment.client.reset_flow(
+        environment.client.reset_flow(
             flow_id,
             reset_options(skip_writes=True),
         )
-        with pytest.raises(FlowUncompletedError) as captured:
-            environment.client.wait_for_flow(
-                flow_id,
-                timedelta(seconds=10),
-            )
-        failure = captured.value
-        assert failure.run_id == reset_run_id
+        failure = environment.client.wait_for_flow(
+            flow_id,
+            timedelta(seconds=10),
+        )
         assert failure.status is FlowStatus.TIMED_OUT
         assert len(failure.completions) == 0
         assert environment.client.get_attribute(flow_id, flow.data) is None

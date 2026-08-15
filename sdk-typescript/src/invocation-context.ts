@@ -22,6 +22,7 @@ import {
   type Value,
 } from "./gen/dex.js";
 import type { RegisteredFlow } from "./flow.js";
+import { createFlowResultFromProto, type FlowResult } from "./flow-result.js";
 import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
 import { decodeValue, deletionValue, encodeValue } from "./value-mapper.js";
 import { requireName } from "./validation.js";
@@ -83,6 +84,30 @@ export class InvocationContext implements Context {
 
   public waitForMethodFailed(): boolean {
     return this.conditionResults?.waitForFailed ?? false;
+  }
+
+  public subFlowResult(index = 0): FlowResult {
+    if (this.method !== "execute") {
+      throw new TypeError("SubFlow results are available only during execute");
+    }
+    const result = this.conditionResults?.subFlowResults[index];
+    if (index < 0 || result === undefined) {
+      throw new RangeError(`SubFlow result index is unavailable: ${index}`);
+    }
+    return createFlowResultFromProto(
+      result,
+      result.results.map((completion) => {
+        if (completion.completedStepOutput === undefined) {
+          throw new TypeError("SubFlow Step completion output is required");
+        }
+        return completion.completedStepOutput;
+      }),
+    );
+  }
+
+  public subFlowId(index = 0): string {
+    this.subFlowResult(index);
+    return `SubFlow:${this.flowId}-${this.stepExecutionId}-${index}`;
   }
 
   public setStepExecutionLocal<T>(key: string, value: T, codec: Codec<T>): void {

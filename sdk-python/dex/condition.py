@@ -12,12 +12,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from dex._utils import validate_condition_id
 
 if TYPE_CHECKING:
     from dex.channel import Channel, ChannelMap
+    from dex.flow import Flow
+    from dex.flow_options import SubFlowOptions
 
 ValueT = TypeVar("ValueT")
 
@@ -63,6 +65,24 @@ class ChannelCondition(Condition, Generic[ValueT]):
             and self.at_most < self.at_least
         ):
             raise ValueError("at_most must not be below at_least")
+
+
+@dataclass(frozen=True)
+class SubFlowCondition(Condition):
+    """Describe one independently running Flow as a durable Condition.
+
+    Applications create this value through :meth:`dex.SubFlow.run`; the Worker
+    validates that the target Flow instance is registered and has a starting Step.
+    """
+
+    flow: Flow[Any] | None = None
+    input: object = None
+    options: SubFlowOptions | None = None
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.flow is None:
+            raise ValueError("SubFlow condition requires a Flow")
 
 
 @dataclass(frozen=True)

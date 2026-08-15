@@ -95,6 +95,10 @@ mod state_recovery_no_wait_workflow;
 mod state_recovery_test;
 #[path = "integ/state_recovery_workflow.rs"]
 mod state_recovery_workflow;
+#[path = "integ/subflow_test.rs"]
+mod subflow_test;
+#[path = "integ/subflow_workflow.rs"]
+mod subflow_workflow;
 #[path = "integ/timer_test.rs"]
 mod timer_test;
 #[path = "integ/timer_workflow.rs"]

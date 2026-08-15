@@ -49,10 +49,12 @@ from dex.flow_options import (
     ResetFlowOptions,
     ResetType,
     StartFlowOptions,
+    SubFlowOptions,
+    SubFlowReusePolicy,
     StopFlowOptions,
     StopType,
 )
-from dex.flow_result import StepCompletion, WaitForFlowResult
+from dex.flow_result import FlowResult, StepCompletion
 from dex.runtime_errors import (
     DexServiceError,
     ErrorSubStatus,
@@ -61,7 +63,6 @@ from dex.runtime_errors import (
     FlowErrorType,
     FlowNotActiveError,
     FlowNotFoundError,
-    FlowUncompletedError,
     InvalidStepResultError,
     LongPollTimeoutError,
     RpcLockConflictError,
@@ -87,6 +88,7 @@ from dex.step import (
 )
 from dex.step_execution import StepExecutionId, TimerId
 from dex.timer import Timer
+from dex.subflow import SubFlow
 from dex.wait import Wait
 from dex.worker import Worker
 from dex.worker_options import WorkerOptions, WorkerTarget
@@ -122,10 +124,10 @@ __all__ = [
     "FlowDefinitionError",
     "FlowErrorType",
     "FlowInfo",
+    "FlowResult",
     "FlowNotActiveError",
     "FlowNotFoundError",
     "FlowStatus",
-    "FlowUncompletedError",
     "HealthInfo",
     "IdReusePolicy",
     "InvalidStepResultError",
@@ -143,6 +145,9 @@ __all__ = [
     "SearchFlowsPage",
     "StepCompletion",
     "StartFlowOptions",
+    "SubFlow",
+    "SubFlowOptions",
+    "SubFlowReusePolicy",
     "StepExecutionId",
     "StepDecision",
     "Step",
@@ -158,7 +163,6 @@ __all__ = [
     "ValueMappingError",
     "Wait",
     "WaitForFailurePolicy",
-    "WaitForFlowResult",
     "WireKind",
     "Worker",
     "WorkerInvocationError",

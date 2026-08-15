@@ -58,8 +58,8 @@ func AnyComboOf(combinations ...ConditionCombination) *Wait {
 	return &Wait{kind: waitAnyComboOf, combinations: combinations}
 }
 
-// Condition represents one durable Timer or Channel predicate.
-// Create values through Timer, Channel, or ChannelMap; custom implementations are not supported.
+// Condition represents one durable Timer, Channel, or SubFlow predicate.
+// Create values through Timer, SubFlow, Channel, or ChannelMap; custom implementations are not supported.
 type Condition interface {
 	condition()
 }
@@ -73,6 +73,85 @@ func Timer(duration time.Duration, options ...ConditionOption) Condition {
 	}
 	applyConditionOptions(condition, options)
 	return condition
+}
+
+// SubFlow returns a Condition satisfied when target reaches a terminal state.
+//
+// target must be registered by the Worker and define a starting Step whose input accepts input.
+// Dex generates the SubFlow Flow ID. Omit options to use the default abnormal-restart policy, or
+// pass exactly one value to configure reuse, timing, Attributes, Flow configuration, and ID.
+//
+//	return dex.Until(dex.SubFlow(ChargeFlow{}, chargeInput)), nil
+func SubFlow(target Flow, input any, options ...SubFlowOptions) Condition {
+	condition := &conditionImpl{
+		kind:           conditionSubFlow,
+		subFlow:        target,
+		subFlowInput:   input,
+		subFlowOptions: defaultSubFlowOptions(),
+	}
+	if len(options) > 1 {
+		condition.err = fmt.Errorf("dex: SubFlow accepts at most one options value")
+		return condition
+	}
+	if len(options) == 1 {
+		condition.subFlowOptions = options[0]
+	}
+	condition.conditionID = condition.subFlowOptions.ConditionID
+	condition.idSet = condition.conditionID != ""
+	return condition
+}
+
+// SubFlowResult returns one SubFlow result from the current Execute invocation.
+//
+// Omit index to read the first SubFlow Condition. Indexes are zero-based in the stable SubFlow
+// order within the surrounding Wait. AnyOf losers return a nonterminal running snapshot.
+func SubFlowResult(ctx Context, index ...int) (FlowResult, error) {
+	invocation, ok := ctx.(*invocationContext)
+	if !ok || invocation == nil {
+		return FlowResult{}, fmt.Errorf("dex: SubFlow results require a Dex invocation Context")
+	}
+	resolvedIndex, err := resolveSubFlowIndex(index)
+	if err != nil {
+		return FlowResult{}, err
+	}
+	return invocation.subFlowResult(resolvedIndex)
+}
+
+// SubFlowID returns one server-generated SubFlow Flow ID from the current Execute invocation.
+//
+// Omit index for the first SubFlow. The ID remains addressable after AnyOf completes and can be
+// passed to Client.StopFlow to stop a still-running loser.
+func SubFlowID(ctx Context, index ...int) (string, error) {
+	invocation, ok := ctx.(*invocationContext)
+	if !ok || invocation == nil {
+		return "", fmt.Errorf("dex: SubFlow IDs require a Dex invocation Context")
+	}
+	resolvedIndex, err := resolveSubFlowIndex(index)
+	if err != nil {
+		return "", err
+	}
+	if _, err := invocation.subFlowResult(resolvedIndex); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(
+		"SubFlow:%s-%s-%d",
+		invocation.flowID,
+		invocation.stepExecutionID,
+		resolvedIndex,
+	), nil
+}
+
+func resolveSubFlowIndex(indexes []int) (int, error) {
+	if len(indexes) > 1 {
+		return 0, fmt.Errorf("dex: SubFlow accepts at most one result index")
+	}
+	if len(indexes) == 0 {
+		return 0, nil
+	}
+	if indexes[0] < 0 {
+		return 0, fmt.Errorf("dex: SubFlow result index must not be negative")
+	}
+	return indexes[0], nil
 }
 
 // ConditionOption configures a Condition. Use WithConditionID to create an option.
@@ -109,19 +188,23 @@ type conditionKind uint8
 const (
 	conditionChannel conditionKind = iota + 1
 	conditionTimer
+	conditionSubFlow
 )
 
 type conditionImpl struct {
-	kind        conditionKind
-	conditionID string
-	idSet       bool
-	channelName string
-	instance    string
-	isMap       bool
-	atLeast     *int
-	atMost      *int
-	duration    time.Duration
-	err         error
+	kind           conditionKind
+	conditionID    string
+	idSet          bool
+	channelName    string
+	instance       string
+	isMap          bool
+	atLeast        *int
+	atMost         *int
+	duration       time.Duration
+	subFlow        Flow
+	subFlowInput   any
+	subFlowOptions SubFlowOptions
+	err            error
 }
 
 func newChannelCondition(

@@ -10,9 +10,7 @@
 
 from datetime import timedelta
 
-import pytest
-
-from dex import FlowErrorType, FlowStatus, FlowUncompletedError
+from dex import FlowErrorType, FlowStatus
 
 from .any_combination_fail_flow import AnyCombinationFailFlow
 from .environment import DexDevTestEnvironment
@@ -24,15 +22,11 @@ def test_unknown_condition_id_fails_flow() -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("any-combination-fail")
         run_id = environment.client.start_flow(flow, flow_id, 5)
-        with pytest.raises(FlowUncompletedError) as captured:
-            environment.client.wait_for_flow(
-                flow_id, timedelta(seconds=30)
-            ).single_output(int)
-        failure = captured.value
-        assert failure.run_id == run_id
+        failure = environment.client.wait_for_flow(flow_id, timedelta(seconds=30))
         assert failure.status is FlowStatus.FAILED
         assert failure.error_type is FlowErrorType.WORKER_API_FAILED
-        assert "unknown condition ID" in str(failure)
+        assert failure.error_message is not None
+        assert "unknown condition ID" in failure.error_message
         info = environment.client.describe_flow(flow_id)
         assert info.run_id == run_id
         assert info.status is FlowStatus.FAILED

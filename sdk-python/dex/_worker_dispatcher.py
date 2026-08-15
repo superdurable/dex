@@ -15,11 +15,13 @@ from typing import Any, cast
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._value_hydrator import ValueHydrator
 from dex._value_mapper import ValueMapper
-from dex.attribute import AttributeLock
+from dex.attribute import AttributeLock, AttributeMap, _apply_attribute_store_sync
 from dex.channel import Channel, ChannelMap
-from dex.condition import ChannelCondition, Condition, TimerCondition
+from dex.condition import ChannelCondition, Condition, SubFlowCondition, TimerCondition
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, RPCResult, _RegisteredFlow, _RegisteredStep
+from dex.flow_config import ActiveStepSearchMode, FlowConfig
+from dex.flow_options import SubFlowOptions, SubFlowReusePolicy
 from dex.runtime_errors import InvalidStepResultError, ValueMappingError
 from dex.step import (
     DecisionKind,
@@ -242,7 +244,7 @@ class WorkerDispatcher:
     ) -> pb.WaitingCondition | None:
         if wait.kind is WaitKind.SKIP_IMMEDIATELY:
             return None
-        mapper = _ConditionMapper(flow)
+        mapper = _ConditionMapper(self, flow)
         waiting = pb.WaitingCondition()
         if wait.kind is WaitKind.ALL_OF:
             waiting.waiting_condition_type = pb.WAITING_CONDITION_TYPE_ALL_COMPLETED
@@ -265,7 +267,113 @@ class WorkerDispatcher:
             raise ValueError("unsupported Wait kind")
         waiting.timer_conditions.extend(mapper.timers)
         waiting.channel_conditions.extend(mapper.channels)
+        waiting.sub_flow_conditions.extend(mapper.sub_flows)
         return waiting
+
+    def _map_sub_flow_options(
+        self,
+        target: _RegisteredFlow,
+        options: SubFlowOptions,
+    ) -> pb.SubFlowOptions:
+        mapped = pb.SubFlowOptions(
+            reuse_policy={
+                SubFlowReusePolicy.ATTACH: pb.SUB_FLOW_REUSE_POLICY_ATTACH,
+                SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY: (
+                    pb.SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY
+                ),
+                SubFlowReusePolicy.ALWAYS_RESTART: (
+                    pb.SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART
+                ),
+            }[options.reuse_policy]
+        )
+        if options.timeout is not None:
+            mapped.flow_timeout_seconds = self._seconds32(options.timeout)
+        if options.start_delay is not None:
+            mapped.flow_start_delay_seconds = self._seconds32(options.start_delay)
+        if options.retry_policy is not None:
+            mapped.retry_policy.CopyFrom(self._map_flow_retry(options.retry_policy))
+        for initialization in options._attribute_initializations:
+            definition = initialization.definition
+            if target.persistence.get(definition.name) is not definition:
+                raise ValueError(
+                    f"SubFlow Attribute does not belong to {target.name}: {definition.name}"
+                )
+            key = (
+                Registry.physical_name(definition.name, initialization.instance)
+                if isinstance(definition, AttributeMap)
+                and initialization.instance is not None
+                else definition.name
+            )
+            write = pb.AttributeWrite(
+                key=key,
+                value=self._values.encode(
+                    initialization.value,
+                    self._values.codec(definition.value_type),
+                ),
+            )
+            index = self._values.index_config(
+                definition.index, isinstance(definition, AttributeMap)
+            )
+            if index is not None:
+                write.index_config.CopyFrom(index)
+            _apply_attribute_store_sync(write, definition)
+            mapped.attributes.append(write)
+        if options.config_override is not None:
+            mapped.flow_config_override.CopyFrom(
+                self._map_sub_flow_config(options.config_override)
+            )
+        return mapped
+
+    @staticmethod
+    def _map_flow_retry(retry: RetryPolicy) -> pb.FlowRetryPolicy:
+        mapped = pb.FlowRetryPolicy(
+            backoff_coefficient=retry.backoff_coefficient,
+            maximum_attempts=retry.maximum_attempts,
+        )
+        if retry.initial_interval is not None:
+            mapped.initial_interval_seconds = WorkerDispatcher._seconds32(
+                retry.initial_interval
+            )
+        if retry.maximum_interval is not None:
+            mapped.maximum_interval_seconds = WorkerDispatcher._seconds32(
+                retry.maximum_interval
+            )
+        return mapped
+
+    @staticmethod
+    def _map_sub_flow_config(config: FlowConfig) -> pb.FlowConfig:
+        mapped = pb.FlowConfig()
+        if config.active_step_search_mode is not None:
+            mapped.active_step_search_mode = {
+                ActiveStepSearchMode.DEFAULT: pb.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED,
+                ActiveStepSearchMode.ALL: pb.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL,
+                ActiveStepSearchMode.WITH_WAIT_FOR: (
+                    pb.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR
+                ),
+                ActiveStepSearchMode.DISABLED: pb.ACTIVE_STEP_SEARCH_MODE_DISABLED,
+            }[config.active_step_search_mode]
+        if config.continue_as_new_threshold is not None:
+            mapped.continue_as_new_threshold = config.continue_as_new_threshold
+        if config.continue_as_new_page_size_bytes is not None:
+            mapped.continue_as_new_page_size_in_bytes = (
+                config.continue_as_new_page_size_bytes
+            )
+        if config.step_durability is not None:
+            mapped.step_durability = {
+                StepDurability.DEFAULT: pb.STEP_DURABILITY_UNSPECIFIED,
+                StepDurability.SYNC: pb.STEP_DURABILITY_SYNC,
+                StepDurability.ASYNC: pb.STEP_DURABILITY_ASYNC,
+            }[config.step_durability]
+        if config.worker_target is not None:
+            mapped.worker_target.CopyFrom(
+                pb.WorkerTarget(
+                    address=config.worker_target.address,
+                    is_headless_address=config.worker_target.headless,
+                )
+            )
+        if config.attribute_store_name is not None:
+            mapped.attribute_sync_config_name = config.attribute_store_name
+        return mapped
 
     def _map_decision(
         self,
@@ -425,12 +533,14 @@ class WorkerDispatcher:
 
 
 class _ConditionMapper:
-    def __init__(self, flow: _RegisteredFlow) -> None:
+    def __init__(self, dispatcher: WorkerDispatcher, flow: _RegisteredFlow) -> None:
+        self._dispatcher = dispatcher
         self._flow = flow
         self._ids: dict[int, str] = {}
         self._used: set[str] = set()
         self.timers: list[pb.TimerCondition] = []
         self.channels: list[pb.ChannelCondition] = []
+        self.sub_flows: list[pb.SubFlowCondition] = []
 
     def add_all(self, conditions: tuple[Condition, ...]) -> None:
         if not conditions:
@@ -489,6 +599,34 @@ class _ConditionMapper:
             if condition.at_most is not None:
                 mapped.at_most = condition.at_most
             self.channels.append(mapped)
+        elif isinstance(condition, SubFlowCondition):
+            if condition.flow is None:
+                raise ValueError("SubFlow requires a target Flow")
+            target = self._dispatcher._registry._flow_for_instance(condition.flow)
+            if target.start_step is None:
+                raise ValueError(f"SubFlow {target.name} has no starting Step")
+            options = condition.options or SubFlowOptions()
+            mapped_sub_flow = pb.SubFlowCondition(
+                condition_id=condition_id,
+                sub_flow_type=target.name,
+                start_step_type=target.start_step.name,
+                step_input=self._dispatcher._values.encode(
+                    condition.input, target.start_step.input_codec
+                ),
+                sub_flow_index=len(self.sub_flows),
+            )
+            step_options = self._dispatcher.map_step_options(
+                target, target.start_step.step.get_step_options()
+            )
+            if step_options is not None:
+                mapped_sub_flow.step_options.CopyFrom(step_options)
+            mapped_sub_flow.step_options.skip_wait_for = (
+                target.start_step.skips_wait_for
+            )
+            mapped_sub_flow.options.CopyFrom(
+                self._dispatcher._map_sub_flow_options(target, options)
+            )
+            self.sub_flows.append(mapped_sub_flow)
         else:
             raise TypeError("unsupported Condition")
         self._ids[identity] = condition_id
