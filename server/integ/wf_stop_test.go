@@ -148,7 +148,9 @@ func doTestWorkflowCancelWaitsForProducer(
 		StopType: dexpb.StopType_STOP_TYPE_CANCEL,
 	})
 	require.NoError(t, err)
-	close(workerHandler.releaseExecute)
+	if flowConfig != nil {
+		close(workerHandler.releaseExecute)
+	}
 
 	response, err := flowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
 	require.NoError(t, err)

@@ -11,12 +11,12 @@ package interpreter
 import "github.com/superdurable/dex/service/interpreter/interfaces"
 
 type TerminalCoordinator struct {
-	provider          interfaces.WorkflowProvider
-	continueAsNewer   *ContinueAsNewer
-	attributeSyncer   *AttributeSynchronizer
-	signalReceiver    *SignalReceiver
-	forceComplete     *bool
-	startedFinalizing bool
+	provider              interfaces.WorkflowProvider
+	continueAsNewer       *ContinueAsNewer
+	attributeSyncer       *AttributeSynchronizer
+	signalReceiver        *SignalReceiver
+	stepExecutionRegistry *StepExecutionRegistry
+	startedFinalizing     bool
 }
 
 func NewTerminalCoordinator(
@@ -24,17 +24,18 @@ func NewTerminalCoordinator(
 	continueAsNewer *ContinueAsNewer,
 	attributeSyncer *AttributeSynchronizer,
 	signalReceiver *SignalReceiver,
-	forceComplete *bool,
+	stepExecutionRegistry *StepExecutionRegistry,
 ) *TerminalCoordinator {
-	if provider == nil || continueAsNewer == nil || attributeSyncer == nil || signalReceiver == nil || forceComplete == nil {
+	if provider == nil || continueAsNewer == nil || attributeSyncer == nil ||
+		signalReceiver == nil || stepExecutionRegistry == nil {
 		panic("TerminalCoordinator requires non-nil dependencies")
 	}
 	return &TerminalCoordinator{
-		provider:        provider,
-		continueAsNewer: continueAsNewer,
-		attributeSyncer: attributeSyncer,
-		signalReceiver:  signalReceiver,
-		forceComplete:   forceComplete,
+		provider:              provider,
+		continueAsNewer:       continueAsNewer,
+		attributeSyncer:       attributeSyncer,
+		signalReceiver:        signalReceiver,
+		stepExecutionRegistry: stepExecutionRegistry,
 	}
 }
 
@@ -46,9 +47,11 @@ func (c *TerminalCoordinator) CoordinateAndFinalizeError(
 		return retErr
 	}
 	c.startedFinalizing = true
+	if err := c.stepExecutionRegistry.CancelAll(ctx); err != nil {
+		return err
+	}
 	if err := c.provider.Await(ctx, func() bool {
-		return *c.forceComplete ||
-			(c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0)
+		return c.attributeSyncer.ProducersDrained() && c.continueAsNewer.inflightUpdateOperations == 0
 	}); err != nil {
 		return err
 	}
