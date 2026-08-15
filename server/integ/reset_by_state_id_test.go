@@ -29,6 +29,7 @@ func TestResetByStateIdWorkflowTemporal(t *testing.T) {
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestResetByStatIdWorkflow(t, service.BackendTypeTemporal, nil)
+		doTestResetByStatIdWorkflow(t, service.BackendTypeTemporal, asyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -39,6 +40,7 @@ func TestResetByStateIdWorkflowCadence(t *testing.T) {
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
 		doTestResetByStatIdWorkflow(t, service.BackendTypeCadence, nil)
+		doTestResetByStatIdWorkflow(t, service.BackendTypeCadence, asyncDurabilityConfig())
 		smallWaitForFastTest()
 	}
 }
@@ -110,10 +112,14 @@ func doTestResetByStatIdWorkflow(
 	require.NoError(t, err)
 
 	resetHistory := workerHandler.GetTestResult().InvokeHistory
-	assertions.Equalf(map[string]int64{
+	expectedResetHistory := map[string]int64{
 		"S1_execute": 1,
 		"S2_execute": 10,
-	}, resetHistory, "reset test fail, %v", resetHistory)
+	}
+	if flowConfig.GetStepDurability() == dexpb.StepDurability_STEP_DURABILITY_ASYNC {
+		expectedResetHistory["S1_execute"] = 2
+	}
+	assertions.Equalf(expectedResetHistory, resetHistory, "reset test fail, %v", resetHistory)
 
 	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
 	require.Len(t, response.GetResults(), 1)
@@ -137,10 +143,15 @@ func doTestResetByStatIdWorkflow(
 	require.NoError(t, err)
 
 	reset2History := workerHandler.GetTestResult().InvokeHistory
-	assertions.Equalf(map[string]int64{
+	expectedReset2History := map[string]int64{
 		"S1_execute": 1,
 		"S2_execute": 12,
-	}, reset2History, "reset test fail, %v", reset2History)
+	}
+	if flowConfig.GetStepDurability() == dexpb.StepDurability_STEP_DURABILITY_ASYNC {
+		expectedReset2History["S1_execute"] = 3
+		expectedReset2History["S2_execute"] = 15
+	}
+	assertions.Equalf(expectedReset2History, reset2History, "reset test fail, %v", reset2History)
 
 	assertions.Equal(dexpb.FlowStatus_FLOW_STATUS_COMPLETED, response.GetFlowStatus())
 	require.Len(t, response.GetResults(), 1)
