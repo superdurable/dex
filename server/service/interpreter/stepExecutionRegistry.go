@@ -80,6 +80,10 @@ func (r *StepExecutionRegistry) Unregister(stepExecutionID string) {
 	delete(r.canceledExecutionIDs, stepExecutionID)
 }
 
+func (r *StepExecutionRegistry) CancelAll(ctx interfaces.UnifiedContext) error {
+	return r.doCancel(ctx, newAllStepCancellationSelector())
+}
+
 func (r *StepExecutionRegistry) CancelByStepTypesAndSiblingStepTypes(
 	ctx interfaces.UnifiedContext,
 	decision *dexpb.StepDecision,
@@ -191,9 +195,14 @@ func (r *StepExecutionRegistry) cancelActive(
 }
 
 type stepCancellationSelector struct {
+	matchesAllSteps     bool
 	globalStepTypes     map[string]bool
 	siblingStepTypes    map[string]bool
 	fromStepExecutionID string
+}
+
+func newAllStepCancellationSelector() *stepCancellationSelector {
+	return &stepCancellationSelector{matchesAllSteps: true}
 }
 
 func newStepCancellationSelector(
@@ -222,14 +231,15 @@ func newStepCancellationSelector(
 }
 
 func (s *stepCancellationSelector) isEmpty() bool {
-	return len(s.globalStepTypes) == 0 && len(s.siblingStepTypes) == 0
+	return !s.matchesAllSteps && len(s.globalStepTypes) == 0 && len(s.siblingStepTypes) == 0
 }
 
 func (s *stepCancellationSelector) matches(
 	movement *dexpb.StepMovement,
 ) bool {
 	stepType := movement.GetStepType()
-	return s.globalStepTypes[stepType] ||
+	return s.matchesAllSteps ||
+		s.globalStepTypes[stepType] ||
 		(s.siblingStepTypes[stepType] &&
 			movement.GetFromStepExecutionIdInternalOnly() == s.fromStepExecutionID)
 }

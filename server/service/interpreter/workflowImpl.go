@@ -220,7 +220,7 @@ func (i *Interpreter) StartEngineFlow(
 		continueAsNewer,
 		attributeSynchronizer,
 		signalReceiver,
-		&forceCompleteWf,
+		stepExecutionRegistry,
 	)
 	updateErr := NewWorkflowUpdater(
 		&i.sharedConfig.Api,
