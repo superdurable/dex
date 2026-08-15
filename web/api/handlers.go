@@ -398,8 +398,17 @@ func writeGRPCError(response http.ResponseWriter, err error, operation string) {
 	if message == "" {
 		message = operation + " failed"
 	}
+	message = flowRunNotFoundMessage(statusError.Code(), message)
 	grpcCode := int32(statusError.Code())
 	WriteError(response, httpStatus, message, &grpcCode)
+}
+
+func flowRunNotFoundMessage(code codes.Code, message string) string {
+	const temporalPrefix = "workflow execution not found for workflow ID "
+	if code != codes.NotFound || !strings.HasPrefix(message, temporalPrefix) {
+		return message
+	}
+	return "Flow run is not found for flow ID " + strings.TrimPrefix(message, temporalPrefix)
 }
 
 func WriteError(response http.ResponseWriter, statusCode int, message string, grpcCode *int32) {

@@ -88,7 +88,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   const [state, setState] = useState<FlowState | null>(null);
   const [nextPageToken, setNextPageToken] = useState('');
   const [nextInternalEventId, setNextInternalEventId] = useState(0);
-  const [tab, setTab] = useState<RunTab>('timeline');
+  const [tab, setTab] = useState<RunTab>('steps');
   const [selectedEvent, setSelectedEvent] = useState<FlowHistoryEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);

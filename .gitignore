@@ -17,6 +17,8 @@ dex-server
 examples/go/dex-samples
 examples/go/deepverify
 cli/dexcli
+web/large-step-graph
+web/fan-out-90
 .bin/
 .build/
 vendor/

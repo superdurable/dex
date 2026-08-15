@@ -125,13 +125,29 @@ a {
 }
 
 .brand-name {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   color: var(--brand-dark);
   font-size: 14px;
   font-weight: 790;
   letter-spacing: 0.055em;
   line-height: 1.1;
+}
+
+.brand-name > span {
   text-transform: uppercase;
+}
+
+.brand-name > i {
+  color: #8da09b;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.brand-name > b {
+  font-size: 15px;
+  letter-spacing: -0.015em;
 }
 
 .header-nav {
@@ -188,12 +204,6 @@ a {
   padding: 34px 0 60px;
 }
 
-.page-heading {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
 h1,
 h2,
 h3,
@@ -219,7 +229,6 @@ h3 {
   font-size: 15px;
 }
 
-.page-heading p,
 .view-toolbar p,
 .modal > p {
   margin-bottom: 0;
@@ -2090,7 +2099,7 @@ pre {
 }
 
 .graph-canvas {
-  height: 650px;
+  min-height: 650px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2108,6 +2117,7 @@ pre {
 .graph-minimap-shell.expanded {
   width: 200px;
   height: 150px;
+  pointer-events: auto;
 }
 
 .graph-canvas .react-flow__minimap.graph-minimap {
@@ -2146,13 +2156,24 @@ pre {
 
 .graph-minimap-shell.expanded .graph-minimap-toggle {
   position: absolute;
+  z-index: 6;
   top: 7px;
   right: 7px;
-  min-width: 30px;
+  min-width: 66px;
   min-height: 30px;
-  padding: 0;
-  font-size: 18px;
+  padding: 0 9px;
+  border-color: #244b2a;
+  color: white;
+  background: #365f2b;
+  box-shadow: 0 3px 12px rgba(28, 51, 45, 0.34);
+  font-size: 11px;
   line-height: 1;
+}
+
+.graph-minimap-shell.expanded .graph-minimap-toggle:hover {
+  border-color: #173a1e;
+  color: white;
+  background: #244b2a;
 }
 
 .react-flow__node.step-flow-node {
@@ -2198,11 +2219,6 @@ pre {
   background: #f5f1fb;
 }
 
-.react-flow__node.node-terminal {
-  border-color: #4e81a9;
-  background: #eef5f9;
-}
-
 .react-flow__node.node-subflow {
   border-color: #4f7ba7;
   background: #f2f7fb;
@@ -2214,6 +2230,35 @@ pre {
 .react-flow__node.node-subflow.node-terminated {
   border-color: #c95252;
   background: #fff5f4;
+}
+
+.react-flow__node.step-flow-node.graph-node-previous {
+  border-width: 2px;
+  border-color: #3f78a8;
+  background: linear-gradient(90deg, #e9f4fb, #fff 48%);
+  box-shadow: 0 0 0 3px rgba(63, 120, 168, 0.2), 0 11px 25px rgba(38, 88, 130, 0.14);
+}
+
+.react-flow__node.step-flow-node.graph-node-next {
+  border-width: 2px;
+  border-color: #c16f24;
+  background: linear-gradient(90deg, #fff0df, #fff 48%);
+  box-shadow: 0 0 0 3px rgba(193, 111, 36, 0.2), 0 11px 25px rgba(128, 76, 28, 0.14);
+}
+
+.react-flow__node.step-flow-node.graph-node-current {
+  border-width: 2px;
+  border-color: var(--brand);
+  background: linear-gradient(90deg, #e8f4da, #fff 48%);
+  box-shadow: inset 5px 0 0 var(--brand-bright), 0 0 0 5px rgba(111, 160, 54, 0.24), 0 14px 30px rgba(79, 129, 39, 0.2);
+}
+
+.react-flow__edge.graph-edge-incoming .react-flow__edge-path {
+  filter: drop-shadow(0 1px 2px rgba(38, 88, 130, 0.28));
+}
+
+.react-flow__edge.graph-edge-outgoing .react-flow__edge-path {
+  filter: drop-shadow(0 1px 2px rgba(128, 76, 28, 0.28));
 }
 
 .graph-sub-flow-link {
@@ -2295,6 +2340,14 @@ pre {
 
 .graph-step-label {
   min-height: 136px;
+}
+
+.graph-step-label--execute-only {
+  min-height: 114px;
+}
+
+.graph-step-label--execute-only .graph-method {
+  min-height: 58px;
 }
 
 .graph-step-heading {
@@ -2674,7 +2727,7 @@ pre {
   }
 
   .graph-canvas {
-    height: 520px;
+    min-height: 520px;
   }
 
   .load-more {

@@ -23,9 +23,11 @@ export function AppHeader() {
             height={72}
           />
         </Link>
-        <div>
-          <Link to="/" className="brand-name">Super Durable</Link>
-        </div>
+        <Link to="/" className="brand-name">
+          <span>Super Durable</span>
+          <i aria-hidden="true">·</i>
+          <b>Dex</b>
+        </Link>
       </div>
       <nav className="header-nav" aria-label="Primary navigation">
         <Link to="/">Flows</Link>
