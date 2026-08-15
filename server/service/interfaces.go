@@ -29,6 +29,7 @@ const StepExecutionStatusFailedNoProceed StepExecutionStatus = "Failure"
 const StepExecutionStatusInternalError StepExecutionStatus = "InternalError"
 const StepExecutionStatusWaitingAborted StepExecutionStatus = "WaitingConditions"
 const StepExecutionStatusFailedAndProceed StepExecutionStatus = "ExecuteMethodFailedAndProceed"
+const StepExecutionStatusFlowTimeout StepExecutionStatus = "FlowTimeout"
 
 // ValidateTimerSkipRequest validates a pending timer by condition ID or index.
 func ValidateTimerSkipRequest(

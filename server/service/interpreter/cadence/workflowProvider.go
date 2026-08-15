@@ -256,11 +256,10 @@ func (w *workflowProvider) GetWorkflowInfo(ctx interfaces.UnifiedContext) interf
 			ID:    info.WorkflowExecution.ID,
 			RunID: info.WorkflowExecution.RunID,
 		},
-		WorkflowStartTime:        time.UnixMilli(0), // TODO need support from Cadence client: https://github.com/uber-go/cadence-client/issues/1204
-		WorkflowExecutionTimeout: time.Duration(info.ExecutionStartToCloseTimeoutSeconds) * time.Second,
-		FirstRunID:               info.WorkflowExecution.RunID, // Cadence does not provide FirstRunID TODO https://github.com/uber-go/cadence-client/issues/1371 use firstRunID when available
-		CurrentRunID:             info.WorkflowExecution.RunID,
-		Attempt:                  info.Attempt + 1,
+		WorkflowStartTime: time.UnixMilli(0),            // TODO need support from Cadence client: https://github.com/uber-go/cadence-client/issues/1204
+		FirstRunID:        info.WorkflowExecution.RunID, // Cadence does not provide FirstRunID TODO https://github.com/uber-go/cadence-client/issues/1371 use firstRunID when available
+		CurrentRunID:      info.WorkflowExecution.RunID,
+		Attempt:           info.Attempt + 1,
 	}
 	if info.RetryPolicy != nil {
 		workflowInfo.RetryMaximumAttempts = ptr.Any(info.RetryPolicy.GetMaximumAttempts())

@@ -29,12 +29,11 @@ The timeout budget begins when each actual workflow run starts. Backend retry
 and cron runs receive a new budget. Continue-as-new preserves the absolute
 deadline and the same timeout-handler Step execution.
 
-The handler is represented internally as the execute-only
-`sys:timeout_handler` Step. Its timer appears in active-Step and debug data and
-can be fired early through `SkipTimer`. Dex creates its wait directly; Worker
-code receives only the Execute call. The `sys:` namespace is reserved for Dex,
-and application Step types cannot contain `:`.
+Every positive timeout is represented by one internal `sys:timeout_handler`
+Step. Dex creates its single timer directly, and `SkipTimer` can fire it early
+by index. `FAIL` and `CANCEL` terminate inside the interpreter; only `HANDLER`
+calls Worker Execute. The `sys:` namespace is reserved for Dex, and application
+Step types cannot contain `:`.
 
-Graceful completion considers only application Steps. When they have all
-dead-ended or requested graceful completion, Dex cancels a waiting or executing
-timeout handler and completes the Flow.
+Graceful completion considers only application Steps. Once requested, it
+cancels a waiting or executing timeout Step after all application work ends.

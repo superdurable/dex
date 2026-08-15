@@ -1682,12 +1682,10 @@ class ContinueAsNewDump(_message.Message):
     def __init__(self, steps_to_start_from_beginning: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., step_executions_to_resume: _Optional[_Iterable[_Union[StepExecutionResumeInfo, _Mapping]]] = ..., channel_received: _Optional[_Mapping[str, ChannelValues]] = ..., counter_info: _Optional[_Union[StepExecutionCounterInfo, _Mapping]] = ..., step_outputs: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ..., stale_skip_timers: _Optional[_Iterable[_Union[StaleSkipTimer, _Mapping]]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., pending_attribute_sync_items: _Optional[_Iterable[_Union[AttributeSyncItem, _Mapping]]] = ...) -> None: ...
 
 class ContinueAsNewInput(_message.Message):
-    __slots__ = ("previous_internal_run_id", "flow_timeout_deadline_unix_timestamp_seconds")
+    __slots__ = ("previous_internal_run_id",)
     PREVIOUS_INTERNAL_RUN_ID_FIELD_NUMBER: _ClassVar[int]
-    FLOW_TIMEOUT_DEADLINE_UNIX_TIMESTAMP_SECONDS_FIELD_NUMBER: _ClassVar[int]
     previous_internal_run_id: str
-    flow_timeout_deadline_unix_timestamp_seconds: int
-    def __init__(self, previous_internal_run_id: _Optional[str] = ..., flow_timeout_deadline_unix_timestamp_seconds: _Optional[int] = ...) -> None: ...
+    def __init__(self, previous_internal_run_id: _Optional[str] = ...) -> None: ...
 
 class InterpreterWorkflowInput(_message.Message):
     __slots__ = ("flow_type", "configured_flow_timeout_seconds", "flow_timeout_policy", "start_step_type", "step_input", "step_options", "init_attributes", "config", "is_resume_from_continue_as_new", "continue_as_new_input")

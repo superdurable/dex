@@ -39,9 +39,9 @@ execution timeout for interpreter Flows, and Cadence uses its maximum value as
 an implementation detail. A continue-as-new run retains the original absolute
 deadline; retries and cron runs start with a fresh budget.
 
-For handler policy, the internal `sys:timeout_handler` timer is visible in
-active-Step diagnostics and may be fired early with `SkipTimer`. Mitigate a
-failed timeout with reset only after fixing the underlying cause.
+Every positive timeout uses one internal `sys:timeout_handler` timer visible in
+active-Step diagnostics. `SkipTimer` can fire it early by timer index. Mitigate
+a failed timeout with reset only after fixing the underlying cause.
 
 ## How to operate
 

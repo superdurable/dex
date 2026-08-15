@@ -59,13 +59,12 @@ type WorkflowExecution struct {
 
 // WorkflowInfo information about currently executing workflow
 type WorkflowInfo struct {
-	WorkflowExecution        WorkflowExecution
-	WorkflowStartTime        time.Time
-	WorkflowExecutionTimeout time.Duration
-	FirstRunID               string
-	CurrentRunID             string
-	Attempt                  int32
-	RetryMaximumAttempts     *int32
+	WorkflowExecution    WorkflowExecution
+	WorkflowStartTime    time.Time
+	FirstRunID           string
+	CurrentRunID         string
+	Attempt              int32
+	RetryMaximumAttempts *int32
 }
 
 type ActivityOptions struct {

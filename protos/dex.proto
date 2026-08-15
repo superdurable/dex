@@ -1108,7 +1108,6 @@ enum UpdateErrorType {
 
 message ContinueAsNewInput {
   string previous_internal_run_id = 1;
-  int64 flow_timeout_deadline_unix_timestamp_seconds = 2;
 }
 
 message InterpreterWorkflowInput {

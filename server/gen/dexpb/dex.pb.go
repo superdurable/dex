@@ -9051,11 +9051,10 @@ func (x *ContinueAsNewDump) GetPendingAttributeSyncItems() []*AttributeSyncItem 
 }
 
 type ContinueAsNewInput struct {
-	state                                   protoimpl.MessageState `protogen:"open.v1"`
-	PreviousInternalRunId                   string                 `protobuf:"bytes,1,opt,name=previous_internal_run_id,json=previousInternalRunId,proto3" json:"previous_internal_run_id,omitempty"`
-	FlowTimeoutDeadlineUnixTimestampSeconds int64                  `protobuf:"varint,2,opt,name=flow_timeout_deadline_unix_timestamp_seconds,json=flowTimeoutDeadlineUnixTimestampSeconds,proto3" json:"flow_timeout_deadline_unix_timestamp_seconds,omitempty"`
-	unknownFields                           protoimpl.UnknownFields
-	sizeCache                               protoimpl.SizeCache
+	state                 protoimpl.MessageState `protogen:"open.v1"`
+	PreviousInternalRunId string                 `protobuf:"bytes,1,opt,name=previous_internal_run_id,json=previousInternalRunId,proto3" json:"previous_internal_run_id,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ContinueAsNewInput) Reset() {
@@ -9093,13 +9092,6 @@ func (x *ContinueAsNewInput) GetPreviousInternalRunId() string {
 		return x.PreviousInternalRunId
 	}
 	return ""
-}
-
-func (x *ContinueAsNewInput) GetFlowTimeoutDeadlineUnixTimestampSeconds() int64 {
-	if x != nil {
-		return x.FlowTimeoutDeadlineUnixTimestampSeconds
-	}
-	return 0
 }
 
 type InterpreterWorkflowInput struct {
@@ -11807,10 +11799,9 @@ const file_dex_proto_rawDesc = "" +
 	"\x1cpending_attribute_sync_items\x18\b \x03(\v2\x16.dex.AttributeSyncItemR\x19pendingAttributeSyncItems\x1aV\n" +
 	"\x14ChannelReceivedEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
-	"\x05value\x18\x02 \x01(\v2\x12.dex.ChannelValuesR\x05value:\x028\x01\"\xac\x01\n" +
+	"\x05value\x18\x02 \x01(\v2\x12.dex.ChannelValuesR\x05value:\x028\x01\"M\n" +
 	"\x12ContinueAsNewInput\x127\n" +
-	"\x18previous_internal_run_id\x18\x01 \x01(\tR\x15previousInternalRunId\x12]\n" +
-	",flow_timeout_deadline_unix_timestamp_seconds\x18\x02 \x01(\x03R'flowTimeoutDeadlineUnixTimestampSeconds\"\xc4\x04\n" +
+	"\x18previous_internal_run_id\x18\x01 \x01(\tR\x15previousInternalRunId\"\xc4\x04\n" +
 	"\x18InterpreterWorkflowInput\x12\x1b\n" +
 	"\tflow_type\x18\x01 \x01(\tR\bflowType\x12E\n" +
 	"\x1fconfigured_flow_timeout_seconds\x18\x02 \x01(\x05R\x1cconfiguredFlowTimeoutSeconds\x12F\n" +

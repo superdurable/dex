@@ -237,8 +237,8 @@ func (service *workerService) invokeTimeoutHandler(
 			fmt.Errorf("dex: timeout handler request has invalid flow or input"),
 		)
 	}
-	flow, found := service.registry.lookupFlow(request.FlowType)
-	if !found {
+	flow, isRegistered := service.registry.lookupFlow(request.FlowType)
+	if !isRegistered {
 		return nil, newWorkerFailure(
 			codes.NotFound,
 			fmt.Errorf("dex: flow %q is not registered", request.FlowType),

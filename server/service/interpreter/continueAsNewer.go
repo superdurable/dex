@@ -169,7 +169,7 @@ func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
 		StepExecutionsToResume:    stepExecutionsToResume,
 		StepOutputs:               c.outputCollector.GetAll(),
 		StaleSkipTimers: c.timerProcessor.Dump(
-			c.stepExecutionCounter.IsStepExecutionActive,
+			c.IsStepExecutionActive,
 		),
 		PendingAttributeSyncItems: c.attributeSynchronizer.PendingItems(),
 	}
@@ -178,20 +178,46 @@ func (c *ContinueAsNewer) GetSnapshot() *dexpb.ContinueAsNewDump {
 func (c *ContinueAsNewer) GetActiveStepExecutionStates() []*dexpb.ActiveStepExecutionState {
 	queuedResumeRequests := c.stepRequestQueue.GetAllStepResumeRequests()
 	timerInfos := c.timerProcessor.GetTimerInfos()
-	var states []*dexpb.ActiveStepExecutionState
-	for _, stepType := range DeterministicKeys(c.stepExecutionCounter.stepActiveExecutionNums) {
-		for _, executionNumber := range c.stepExecutionCounter.stepActiveExecutionNums[stepType] {
+	stepTypesByExecutionID := map[string]string{}
+	if _, isActive := c.activeStepMovements[service.FlowTimeoutStepExecutionID]; isActive {
+		stepTypesByExecutionID[service.FlowTimeoutStepExecutionID] = service.FlowTimeoutStepType
+	}
+	for stepType, executionNumbers := range c.stepExecutionCounter.stepActiveExecutionNums {
+		for _, executionNumber := range executionNumbers {
 			stepExecutionID := formatStepExecutionId(stepType, executionNumber)
-			if _, queued := queuedResumeRequests[stepExecutionID]; queued {
-				continue
-			}
-			states = append(
-				states,
-				c.activeStepExecutionState(stepExecutionID, stepType, timerInfos[stepExecutionID]),
-			)
+			stepTypesByExecutionID[stepExecutionID] = stepType
 		}
 	}
+	var states []*dexpb.ActiveStepExecutionState
+	for _, stepExecutionID := range DeterministicKeys(stepTypesByExecutionID) {
+		if _, isQueued := queuedResumeRequests[stepExecutionID]; isQueued {
+			continue
+		}
+		states = append(
+			states,
+			c.activeStepExecutionState(
+				stepExecutionID,
+				stepTypesByExecutionID[stepExecutionID],
+				timerInfos[stepExecutionID],
+			),
+		)
+	}
 	return states
+}
+
+// IsStepExecutionActive reports whether an execution should retain stale timer skips.
+func (c *ContinueAsNewer) IsStepExecutionActive(stepExecutionID string) bool {
+	if stepExecutionID != service.FlowTimeoutStepExecutionID {
+		return c.stepExecutionCounter.IsStepExecutionActive(stepExecutionID)
+	}
+	if _, isActive := c.activeStepMovements[stepExecutionID]; isActive {
+		return true
+	}
+	if _, isWaiting := c.StepExecutionToResumeMap[stepExecutionID]; isWaiting {
+		return true
+	}
+	_, isQueued := c.stepRequestQueue.GetAllStepResumeRequests()[stepExecutionID]
+	return isQueued
 }
 
 func (c *ContinueAsNewer) activeStepExecutionState(
@@ -304,21 +330,16 @@ func (c *ContinueAsNewer) RemoveStepExecutionToResume(executionId string) {
 	delete(c.StepExecutionToResumeMap, executionId)
 }
 
-func (c *ContinueAsNewer) DrainThreads(
-	ctx interfaces.UnifiedContext,
-	shouldInterrupt func() bool,
-) (bool, error) {
+func (c *ContinueAsNewer) DrainThreads(ctx interfaces.UnifiedContext) error {
 	// TODO: add metric for before and after Await to monitor stuck
 	// NOTE: consider using AwaitWithTimeout to get an alert when workflow stuck due to a bug in the draining logic for continueAsNew
 
-	if err := c.provider.Await(ctx, func() bool {
-		return c.allThreadsDrained(ctx) || shouldInterrupt()
-	}); err != nil {
-		return false, err
-	}
-	c.provider.GetLogger(ctx).Info("done waiting for continueAsNew threads")
+	errWait := c.provider.Await(ctx, func() bool {
+		return c.allThreadsDrained(ctx)
+	})
+	c.provider.GetLogger(ctx).Info("done draining threads for continueAsNew", errWait)
 
-	return shouldInterrupt(), nil
+	return errWait
 }
 
 func (c *ContinueAsNewer) IncreaseInflightOperation() {

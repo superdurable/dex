@@ -13,52 +13,30 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
 )
 
-// FlowTimeout enforces a durable soft timeout without closing the backend workflow early.
+// FlowTimeout defines one execution's soft timeout behavior.
 type FlowTimeout struct {
-	provider            interfaces.WorkflowProvider
-	policy              dexpb.FlowTimeoutPolicy
-	timeoutSeconds      int32
-	deadlineUnixSeconds int64
-	timer               interfaces.Future
+	policy         dexpb.FlowTimeoutPolicy
+	timeoutSeconds int32
 }
 
-// NewFlowTimeout restores or initializes one execution's timeout deadline.
-func NewFlowTimeout(
-	ctx interfaces.UnifiedContext,
-	provider interfaces.WorkflowProvider,
-	input *dexpb.InterpreterWorkflowInput,
-) *FlowTimeout {
-	if provider == nil || input == nil {
-		panic("flow timeout requires non-nil dependencies")
-	}
-	deadlineUnixSeconds := int64(0)
-	if input.GetIsResumeFromContinueAsNew() {
-		deadlineUnixSeconds = input.GetContinueAsNewInput().GetFlowTimeoutDeadlineUnixTimestampSeconds()
+// NewFlowTimeout validates one execution's configured timeout.
+func NewFlowTimeout(input *dexpb.InterpreterWorkflowInput) *FlowTimeout {
+	if input == nil {
+		panic("flow timeout requires workflow input")
 	}
 	timeout := &FlowTimeout{
-		provider:            provider,
-		policy:              input.GetFlowTimeoutPolicy(),
-		timeoutSeconds:      input.GetConfiguredFlowTimeoutSeconds(),
-		deadlineUnixSeconds: deadlineUnixSeconds,
+		policy:         input.GetFlowTimeoutPolicy(),
+		timeoutSeconds: input.GetConfiguredFlowTimeoutSeconds(),
 	}
 	if timeout.timeoutSeconds == 0 {
 		if timeout.policy != dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED {
 			panic("disabled Flow timeout has a policy")
 		}
 		return timeout
-	}
-	if timeout.deadlineUnixSeconds == 0 {
-		if input.GetIsResumeFromContinueAsNew() {
-			panic("continued Flow timeout has no deadline")
-		}
-		deadline := provider.Now(ctx).Add(time.Duration(timeout.timeoutSeconds) * time.Second)
-		timeout.deadlineUnixSeconds = deadline.Unix()
-		if deadline.Nanosecond() != 0 {
-			timeout.deadlineUnixSeconds++
-		}
 	}
 	switch timeout.policy {
 	case dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL,
@@ -70,43 +48,64 @@ func NewFlowTimeout(
 	}
 }
 
-// Start begins the fail or cancel policy timer.
-func (t *FlowTimeout) Start(ctx interfaces.UnifiedContext) {
-	if t.timeoutSeconds == 0 || t.IsHandler() {
-		return
-	}
-	remaining := time.Unix(t.deadlineUnixSeconds, 0).Sub(t.provider.Now(ctx))
-	if remaining < 0 {
-		remaining = 0
-	}
-	t.timer = t.provider.NewTimer(ctx, remaining)
+// IsEnabled reports whether this execution has a soft timeout.
+func (t *FlowTimeout) IsEnabled() bool {
+	return t.timeoutSeconds > 0
 }
 
-// IsHandler reports whether the timeout uses the system Step execution.
-func (t *FlowTimeout) IsHandler() bool {
+// UsesHandler reports whether timeout expiry invokes the Worker hook.
+func (t *FlowTimeout) UsesHandler() bool {
 	return t.policy == dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER
 }
 
-// DeadlineUnixSeconds returns the deadline carried across continue-as-new.
-func (t *FlowTimeout) DeadlineUnixSeconds() int64 {
-	return t.deadlineUnixSeconds
+// NewStepExecutionResumeInfo creates the system Step in its waiting phase.
+func (t *FlowTimeout) NewStepExecutionResumeInfo(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+) *dexpb.StepExecutionResumeInfo {
+	if !t.IsEnabled() || provider == nil {
+		panic("enabled Flow timeout and provider are required")
+	}
+	return &dexpb.StepExecutionResumeInfo{
+		StepExecutionId: service.FlowTimeoutStepExecutionID,
+		Step: &dexpb.StepMovement{
+			StepType:                        service.FlowTimeoutStepType,
+			StepOptions:                     &dexpb.StepOptions{},
+			FromStepExecutionIdInternalOnly: service.StartingStepFromStepExecutionId,
+		},
+		WaitingCondition: t.newWaitingCondition(ctx, provider),
+	}
 }
 
-// IsTriggered reports whether the fail or cancel timer fired.
-func (t *FlowTimeout) IsTriggered() bool {
-	return t.timer != nil && t.timer.IsReady()
+func (t *FlowTimeout) newWaitingCondition(
+	ctx interfaces.UnifiedContext,
+	provider interfaces.WorkflowProvider,
+) *dexpb.WaitingConditionState {
+	deadline := provider.Now(ctx).Add(
+		time.Duration(t.timeoutSeconds) * time.Second,
+	)
+	deadlineUnixSeconds := deadline.Unix()
+	if deadline.Nanosecond() != 0 {
+		deadlineUnixSeconds++
+	}
+	return &dexpb.WaitingConditionState{
+		WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ANY_COMPLETED,
+		TimerConditions: []*dexpb.TimerCondition{
+			{FiringUnixTimestampSeconds: deadlineUnixSeconds},
+		},
+	}
 }
 
-// Error returns the timeout's terminal error after it fires.
-func (t *FlowTimeout) Error() error {
-	if !t.IsTriggered() {
-		panic("Flow timeout error requested before timeout")
+// NewTerminalError returns the FAIL or CANCEL policy result.
+func (t *FlowTimeout) NewTerminalError(provider interfaces.WorkflowProvider) error {
+	if provider == nil || !t.IsEnabled() || t.UsesHandler() {
+		panic("terminal Flow timeout requires FAIL or CANCEL policy")
 	}
 	reason := fmt.Sprintf("Flow timed out after %d seconds", t.timeoutSeconds)
 	if t.policy == dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL {
-		return t.provider.NewCanceledError(reason)
+		return provider.NewCanceledError(reason)
 	}
-	return t.provider.NewFlowError(
+	return provider.NewFlowError(
 		dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT,
 		reason,
 	)

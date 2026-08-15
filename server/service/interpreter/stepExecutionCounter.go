@@ -29,15 +29,15 @@ type StepExecutionCounter struct {
 	configer             *config.FlowConfiger
 	continueAsNewCounter *cont.ContinueAsNewCounter
 
-	// For creating stepExecutionId: count the stepId for how many times that have been started
+	// For creating stepExecutionId: count the user stepId for how many times that have been started
 	stepTypeStartedCounts map[string]int32
-	// For system search attribute ActiveStepTypes: keep counting the step types that are executing based on ActiveStepSearchMode
+	// For system search attribute ActiveStepTypes: keep counting the user step types that are executing based on ActiveStepSearchMode
 	stepTypeActiveCounts map[string]int32
 	// For waitForStepExecution features, works together with stepTypeStartedCounts:
 	// 1. if waitForStepExecutionId number > startedCount, it means that the step is not started yet
 	// 2. if <= or not existing in stepTypeStartedCounts, meaning it hasn't started, then check if the number existing in stepActiveExecutionNums
 	stepActiveExecutionNums map[string][]int32
-	// For "dead ends": count the total pending states
+	// For "dead ends": count the total pending user states
 	totalActiveCount int32
 }
 
@@ -116,6 +116,9 @@ func stepActiveExecutionNumsToProto(
 }
 
 func (e *StepExecutionCounter) CreateNextExecutionId(stepType string) string {
+	if stepType == service.FlowTimeoutStepType {
+		return service.FlowTimeoutStepExecutionID
+	}
 	e.stepTypeStartedCounts[stepType]++
 	executionNumber := e.stepTypeStartedCounts[stepType]
 	e.stepActiveExecutionNums[stepType] = append(
@@ -132,6 +135,9 @@ func (e *StepExecutionCounter) MarkQueuedStepExecutionCanceled(
 	step *dexpb.StepMovement,
 ) {
 	stepType := step.GetStepType()
+	if stepType == service.FlowTimeoutStepType {
+		return
+	}
 	e.stepTypeStartedCounts[stepType]++
 	e.continueAsNewCounter.IncExecutedStepExecution(step.GetStepOptions().GetSkipWaitFor())
 }
@@ -150,6 +156,9 @@ func (e *StepExecutionCounter) MarkStepTypeActiveIfNotYet(
 			continue
 		}
 		step := request.GetStepStartRequest()
+		if step.GetStepType() == service.FlowTimeoutStepType {
+			continue
+		}
 		if e.shouldTrackActiveStep(step) {
 			if e.increaseStepIdActiveCounts(step) {
 				needsUpdateSA = true
@@ -174,6 +183,9 @@ func (e *StepExecutionCounter) MarkStepExecutionCompleted(
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if currentStep.GetStepType() == service.FlowTimeoutStepType {
+		return nil
 	}
 	e.totalActiveCount--
 	e.removeStepActiveExecutionNum(
@@ -286,11 +298,6 @@ func (e *StepExecutionCounter) shouldTrackActiveStep(step *dexpb.StepMovement) b
 
 func (e *StepExecutionCounter) GetTotalCurrentlyExecutingCount() int32 {
 	return e.totalActiveCount
-}
-
-// HasCurrentlyExecutingUserSteps excludes the internal timeout handler.
-func (e *StepExecutionCounter) HasCurrentlyExecutingUserSteps() bool {
-	return e.totalActiveCount > int32(len(e.stepActiveExecutionNums[service.TimeoutHandlerStepType]))
 }
 
 func (e *StepExecutionCounter) refreshActiveStepTypeSearchAttribute(

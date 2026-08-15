@@ -88,17 +88,6 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int FLOW_TIMEOUT_DEADLINE_UNIX_TIMESTAMP_SECONDS_FIELD_NUMBER = 2;
-  private long flowTimeoutDeadlineUnixTimestampSeconds_ = 0L;
-  /**
-   * <code>int64 flow_timeout_deadline_unix_timestamp_seconds = 2;</code>
-   * @return The flowTimeoutDeadlineUnixTimestampSeconds.
-   */
-  @java.lang.Override
-  public long getFlowTimeoutDeadlineUnixTimestampSeconds() {
-    return flowTimeoutDeadlineUnixTimestampSeconds_;
-  }
-
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -116,19 +105,12 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(previousInternalRunId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 1, previousInternalRunId_);
     }
-    if (flowTimeoutDeadlineUnixTimestampSeconds_ != 0L) {
-      output.writeInt64(2, flowTimeoutDeadlineUnixTimestampSeconds_);
-    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
     int size = 0;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(previousInternalRunId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(1, previousInternalRunId_);
-    }
-    if (flowTimeoutDeadlineUnixTimestampSeconds_ != 0L) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeInt64Size(2, flowTimeoutDeadlineUnixTimestampSeconds_);
     }
     return size;
   }
@@ -156,8 +138,6 @@ private static final long serialVersionUID = 0L;
 
     if (!getPreviousInternalRunId()
         .equals(other.getPreviousInternalRunId())) return false;
-    if (getFlowTimeoutDeadlineUnixTimestampSeconds()
-        != other.getFlowTimeoutDeadlineUnixTimestampSeconds()) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -171,9 +151,6 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + PREVIOUS_INTERNAL_RUN_ID_FIELD_NUMBER;
     hash = (53 * hash) + getPreviousInternalRunId().hashCode();
-    hash = (37 * hash) + FLOW_TIMEOUT_DEADLINE_UNIX_TIMESTAMP_SECONDS_FIELD_NUMBER;
-    hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-        getFlowTimeoutDeadlineUnixTimestampSeconds());
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -306,7 +283,6 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       previousInternalRunId_ = "";
-      flowTimeoutDeadlineUnixTimestampSeconds_ = 0L;
       return this;
     }
 
@@ -343,9 +319,6 @@ private static final long serialVersionUID = 0L;
       if (((from_bitField0_ & 0x00000001) != 0)) {
         result.previousInternalRunId_ = previousInternalRunId_;
       }
-      if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.flowTimeoutDeadlineUnixTimestampSeconds_ = flowTimeoutDeadlineUnixTimestampSeconds_;
-      }
     }
 
     @java.lang.Override
@@ -364,9 +337,6 @@ private static final long serialVersionUID = 0L;
         previousInternalRunId_ = other.previousInternalRunId_;
         bitField0_ |= 0x00000001;
         onChanged();
-      }
-      if (other.getFlowTimeoutDeadlineUnixTimestampSeconds() != 0L) {
-        setFlowTimeoutDeadlineUnixTimestampSeconds(other.getFlowTimeoutDeadlineUnixTimestampSeconds());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -399,11 +369,6 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 10
-            case 16: {
-              flowTimeoutDeadlineUnixTimestampSeconds_ = input.readInt64();
-              bitField0_ |= 0x00000002;
-              break;
-            } // case 16
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -489,38 +454,6 @@ private static final long serialVersionUID = 0L;
       checkByteStringIsUtf8(value);
       previousInternalRunId_ = value;
       bitField0_ |= 0x00000001;
-      onChanged();
-      return this;
-    }
-
-    private long flowTimeoutDeadlineUnixTimestampSeconds_ ;
-    /**
-     * <code>int64 flow_timeout_deadline_unix_timestamp_seconds = 2;</code>
-     * @return The flowTimeoutDeadlineUnixTimestampSeconds.
-     */
-    @java.lang.Override
-    public long getFlowTimeoutDeadlineUnixTimestampSeconds() {
-      return flowTimeoutDeadlineUnixTimestampSeconds_;
-    }
-    /**
-     * <code>int64 flow_timeout_deadline_unix_timestamp_seconds = 2;</code>
-     * @param value The flowTimeoutDeadlineUnixTimestampSeconds to set.
-     * @return This builder for chaining.
-     */
-    public Builder setFlowTimeoutDeadlineUnixTimestampSeconds(long value) {
-
-      flowTimeoutDeadlineUnixTimestampSeconds_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>int64 flow_timeout_deadline_unix_timestamp_seconds = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearFlowTimeoutDeadlineUnixTimestampSeconds() {
-      bitField0_ = (bitField0_ & ~0x00000002);
-      flowTimeoutDeadlineUnixTimestampSeconds_ = 0L;
       onChanged();
       return this;
     }

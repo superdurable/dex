@@ -55,8 +55,8 @@ const (
 )
 
 const (
-	TimeoutHandlerStepType         = "sys:timeout_handler"
-	TimeoutHandlerTimerConditionID = "sys:flow_timeout"
+	FlowTimeoutStepType        = "sys:timeout_handler"
+	FlowTimeoutStepExecutionID = FlowTimeoutStepType + "-1"
 )
 
 // SubFlowID returns the durable child identity for one parent Step condition.

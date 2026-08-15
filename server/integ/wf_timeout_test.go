@@ -25,6 +25,7 @@ import (
 	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/common/ptr"
 )
 
 func TestFlowTimeoutTemporal(t *testing.T) {
@@ -222,25 +223,39 @@ func doTestFlowTimeoutHandler(t *testing.T, backendType service.BackendType) {
 	defer cancel()
 
 	flowID := "wf-timeout-handler-test-" + uuid.NewString()
-	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             flowID,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 3600,
 		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
 		StartStepType:      signal.State1,
-		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
-			FlowConfigOverride: minimumContinueAsNewSyncDurabilityConfig(),
-		}, workerTarget),
+		FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
 	})
 	require.NoError(t, err)
 
 	waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
+	assertFlowTimeoutDebugState(t, ctx, runtime, flowID)
+	deadline := flowTimeoutDeadline(t, ctx, runtime, flowID)
+	_, err = runtime.FlowClient.TriggerContinueAsNew(
+		ctx,
+		&dexpb.TriggerContinueAsNewRequest{
+			FlowId: flowID,
+			RunId:  startResponse.GetRunId(),
+		},
+	)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		currentRunID, queryErr := currentFlowRunID(ctx, runtime, flowID)
+		return queryErr == nil && currentRunID != startResponse.GetRunId()
+	}, 10*time.Second, 100*time.Millisecond)
+	waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
+	require.Equal(t, deadline, flowTimeoutDeadline(t, ctx, runtime, flowID))
 
 	_, err = runtime.FlowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
-		FlowId:           flowID,
-		StepExecutionId:  service.TimeoutHandlerStepType + "-1",
-		TimerConditionId: service.TimeoutHandlerTimerConditionID,
+		FlowId:              flowID,
+		StepExecutionId:     service.FlowTimeoutStepExecutionID,
+		TimerConditionIndex: ptr.Any(int32(0)),
 	})
 	require.NoError(t, err)
 	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
@@ -251,7 +266,7 @@ func doTestFlowTimeoutHandler(t *testing.T, backendType service.BackendType) {
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus())
 	require.Len(t, result.GetResults(), 1)
-	require.Equal(t, service.TimeoutHandlerStepType, result.GetResults()[0].GetCompletedStepType())
+	require.Equal(t, service.FlowTimeoutStepType, result.GetResults()[0].GetCompletedStepType())
 	require.Equal(t, int64(42), result.GetResults()[0].GetCompletedStepOutput().GetIntValue())
 	require.Equal(t, int32(0), workerHandler.timeoutWaitForCalls.Load())
 	require.Equal(t, int32(1), workerHandler.timeoutExecuteCalls.Load())
@@ -304,9 +319,9 @@ func doTestFlowTimeoutHandlerDecisions(t *testing.T, backendType service.Backend
 
 			executeCalls := workerHandler.timeoutExecuteCalls.Load()
 			_, err = runtime.FlowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
-				FlowId:           flowID,
-				StepExecutionId:  service.TimeoutHandlerStepType + "-1",
-				TimerConditionId: service.TimeoutHandlerTimerConditionID,
+				FlowId:              flowID,
+				StepExecutionId:     service.FlowTimeoutStepExecutionID,
+				TimerConditionIndex: ptr.Any(int32(0)),
 			})
 			require.NoError(t, err)
 			require.Eventually(t, func() bool {
@@ -405,9 +420,9 @@ func doTestFlowTimeoutHandlerGraceful(
 
 	if isHandlerExecuting {
 		_, err = runtime.FlowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
-			FlowId:           flowID,
-			StepExecutionId:  service.TimeoutHandlerStepType + "-1",
-			TimerConditionId: service.TimeoutHandlerTimerConditionID,
+			FlowId:              flowID,
+			StepExecutionId:     service.FlowTimeoutStepExecutionID,
+			TimerConditionIndex: ptr.Any(int32(0)),
 		})
 		require.NoError(t, err)
 		require.Eventually(t, func() bool {
@@ -452,6 +467,78 @@ func waitForTimeoutHandlerTimer(
 	require.Eventually(t, probe.isReady, 10*time.Second, 100*time.Millisecond)
 }
 
+func flowTimeoutDeadline(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+) int64 {
+	t.Helper()
+	timerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{}
+	require.NoError(t, runtime.UnifiedClient.QueryWorkflow(
+		ctx,
+		timerInfos,
+		flowID,
+		"",
+		service.GetCurrentTimerInfosQueryType,
+	))
+	timers := timerInfos.GetStepExecutionCurrentTimerInfos()[service.FlowTimeoutStepExecutionID]
+	require.NotNil(t, timers)
+	require.Len(t, timers.GetTimers(), 1)
+	return timers.GetTimers()[0].GetFiringUnixTimestampSeconds()
+}
+
+func currentFlowRunID(
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+) (string, error) {
+	preparation := &dexpb.PrepareRpcQueryResponse{}
+	if err := runtime.UnifiedClient.QueryWorkflow(
+		ctx,
+		preparation,
+		flowID,
+		"",
+		service.PrepareRpcQueryType,
+		&dexpb.PrepareRpcQueryRequest{},
+	); err != nil {
+		return "", err
+	}
+	return preparation.GetRunId(), nil
+}
+
+func assertFlowTimeoutDebugState(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+) {
+	t.Helper()
+	debugDump := &dexpb.DebugDumpResponse{}
+	require.NoError(t, runtime.UnifiedClient.QueryWorkflow(
+		ctx,
+		debugDump,
+		flowID,
+		"",
+		service.DebugDumpQueryType,
+	))
+	counterInfo := debugDump.GetSnapshot().GetCounterInfo()
+	require.NotContains(t, counterInfo.GetStepTypeStartedCount(), service.FlowTimeoutStepType)
+	require.NotContains(t, counterInfo.GetStepTypeCurrentlyExecutingCount(), service.FlowTimeoutStepType)
+	require.NotContains(t, counterInfo.GetStepActiveExecutionNums(), service.FlowTimeoutStepType)
+
+	for _, activeStep := range debugDump.GetActiveStepExecutions() {
+		if activeStep.GetStepExecutionId() != service.FlowTimeoutStepExecutionID {
+			continue
+		}
+		require.Equal(t, service.FlowTimeoutStepType, activeStep.GetStepType())
+		require.Len(t, activeStep.GetTimers(), 1)
+		require.Empty(t, activeStep.GetTimers()[0].GetConditionId())
+		return
+	}
+	require.Fail(t, "Flow timeout Step missing from debug state")
+}
+
 func (p timeoutHandlerTimerProbe) isReady() bool {
 	timerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{}
 	queryErr := p.runtime.UnifiedClient.QueryWorkflow(
@@ -464,9 +551,9 @@ func (p timeoutHandlerTimerProbe) isReady() bool {
 	if queryErr != nil {
 		return false
 	}
-	timers := timerInfos.GetStepExecutionCurrentTimerInfos()[service.TimeoutHandlerStepType+"-1"]
+	timers := timerInfos.GetStepExecutionCurrentTimerInfos()[service.FlowTimeoutStepExecutionID]
 	return timers != nil && len(timers.GetTimers()) == 1 &&
-		timers.GetTimers()[0].GetConditionId() == service.TimeoutHandlerTimerConditionID
+		timers.GetTimers()[0].GetConditionId() == ""
 }
 
 type softTimeoutHandler struct {
@@ -481,7 +568,7 @@ func (h *softTimeoutHandler) InvokeWaitForMethod(
 	_ context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
-	if request.GetStepType() == service.TimeoutHandlerStepType {
+	if request.GetStepType() == service.FlowTimeoutStepType {
 		h.timeoutWaitForCalls.Add(1)
 	}
 	return &dexpb.InvokeWaitForMethodResponse{
@@ -498,7 +585,7 @@ func (h *softTimeoutHandler) InvokeExecuteMethod(
 	ctx context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
-	if request.GetStepType() != service.TimeoutHandlerStepType {
+	if request.GetStepType() != service.FlowTimeoutStepType {
 		closeDecision := common.GracefulCompleteDecision(nil)
 		if request.GetStepType() == timeoutRecoveryStep {
 			closeDecision = common.ForceCompleteDecision(intValue(84))

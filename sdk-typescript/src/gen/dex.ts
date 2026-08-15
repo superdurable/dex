@@ -1119,7 +1119,6 @@ export interface ContinueAsNewDump_ChannelReceivedEntry {
 
 export interface ContinueAsNewInput {
   previousInternalRunId: string;
-  flowTimeoutDeadlineUnixTimestampSeconds: bigint;
 }
 
 export interface InterpreterWorkflowInput {
@@ -12031,24 +12030,13 @@ export const ContinueAsNewDump_ChannelReceivedEntry: MessageFns<ContinueAsNewDum
 };
 
 function createBaseContinueAsNewInput(): ContinueAsNewInput {
-  return { previousInternalRunId: "", flowTimeoutDeadlineUnixTimestampSeconds: 0n };
+  return { previousInternalRunId: "" };
 }
 
 export const ContinueAsNewInput: MessageFns<ContinueAsNewInput> = {
   encode(message: ContinueAsNewInput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.previousInternalRunId !== "") {
       writer.uint32(10).string(message.previousInternalRunId);
-    }
-    if (message.flowTimeoutDeadlineUnixTimestampSeconds !== 0n) {
-      if (
-        BigInt.asIntN(64, message.flowTimeoutDeadlineUnixTimestampSeconds) !==
-          message.flowTimeoutDeadlineUnixTimestampSeconds
-      ) {
-        throw new globalThis.Error(
-          "value provided for field message.flowTimeoutDeadlineUnixTimestampSeconds of type int64 too large",
-        );
-      }
-      writer.uint32(16).int64(message.flowTimeoutDeadlineUnixTimestampSeconds);
     }
     return writer;
   },
@@ -12068,14 +12056,6 @@ export const ContinueAsNewInput: MessageFns<ContinueAsNewInput> = {
           message.previousInternalRunId = reader.string();
           continue;
         }
-        case 2: {
-          if (tag !== 16) {
-            break;
-          }
-
-          message.flowTimeoutDeadlineUnixTimestampSeconds = reader.int64() as bigint;
-          continue;
-        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -12091,11 +12071,6 @@ export const ContinueAsNewInput: MessageFns<ContinueAsNewInput> = {
   fromPartial<I extends Exact<DeepPartial<ContinueAsNewInput>, I>>(object: I): ContinueAsNewInput {
     const message = createBaseContinueAsNewInput();
     message.previousInternalRunId = object.previousInternalRunId ?? "";
-    message.flowTimeoutDeadlineUnixTimestampSeconds =
-      (object.flowTimeoutDeadlineUnixTimestampSeconds !== undefined &&
-          object.flowTimeoutDeadlineUnixTimestampSeconds !== null)
-        ? BigInt(object.flowTimeoutDeadlineUnixTimestampSeconds)
-        : 0n;
     return message;
   },
 };
