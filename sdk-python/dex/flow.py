@@ -11,7 +11,7 @@
 from __future__ import annotations
 
 from abc import ABC
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from inspect import iscoroutinefunction, signature
 from types import MappingProxyType
@@ -118,15 +118,36 @@ def rpc(
 
 @dataclass(frozen=True)
 class RPCResult(Generic[OutputT]):
-    """Return a typed RPC output and optional next-Step movements.
+    """Return typed RPC output, next-Step movements, and Step cancellation.
 
     Attributes:
         output: The value decoded into the Client caller's expected output type.
         next_steps: Step movements applied atomically with handler persistence writes.
+        canceling_steps: Flow-wide Step types canceled before next Steps are queued.
     """
 
     output: OutputT
     next_steps: tuple[StepMovement[Any], ...] = ()
+    canceling_steps: tuple[Step[Any], ...] = ()
+
+    def with_canceling_steps(self, *steps: Step[Any]) -> RPCResult[OutputT]:
+        """Return a result canceling all current executions of selected Step types.
+
+        Dex resolves the selection after RPC persistence commits and before ``next_steps``.
+        Finished, already-canceled, and absent executions are no-ops. RPCs cannot select
+        siblings because an RPC has no Step execution lineage.
+
+        Args:
+            *steps: Exact Step instances registered with the current Flow.
+
+        Returns:
+            A new RPCResult containing the combined cancellation selectors.
+        """
+        combined = list(self.canceling_steps)
+        for step in steps:
+            if all(step is not current for current in combined):
+                combined.append(step)
+        return replace(self, canceling_steps=tuple(combined))
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Sequence, TypeVar, cast
+from typing import Any, Callable, Sequence, TypeVar, cast
 from urllib.parse import unquote
 
 from dex._utils import require_name
@@ -42,6 +42,7 @@ class InvocationContext:
         locals: Sequence[pb.KV] = (),
         condition_results: pb.ConditionResults | None = None,
         channel_infos: dict[str, pb.ChannelInfo] | None = None,
+        is_active: Callable[[], bool] | None = None,
     ) -> None:
         self._method = method
         self._flow = flow
@@ -51,6 +52,7 @@ class InvocationContext:
         self._locals = self._map_values("step-execution local", locals)
         self._condition_results = condition_results
         self._channel_infos = dict(channel_infos or {})
+        self._is_active = is_active or _always_active
         self.attribute_writes: dict[str, pb.AttributeWrite] = {}
         self.local_writes: dict[str, pb.KV] = {}
         self.events: list[pb.KV] = []
@@ -116,6 +118,9 @@ class InvocationContext:
     def sub_flow_id(self, index: int = 0) -> str:
         self.sub_flow_result(index)
         return f"SubFlow:{self.flow_id}-{self.step_execution_id}-{index}"
+
+    def is_cancellation_requested(self) -> bool:
+        return not self._is_active()
 
     def set_step_execution_local(self, key: str, value: object) -> None:
         require_name(key)
@@ -323,3 +328,7 @@ class InvocationContext:
         if value_type is float:
             return 0.0
         return None
+
+
+def _always_active() -> bool:
+    return True

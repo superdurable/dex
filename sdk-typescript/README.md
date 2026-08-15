@@ -67,6 +67,46 @@ failure or the default 120-second deadline aborts startup. An indexed
 `StepOptions.waitForMethodTimeoutMs` and `executeMethodTimeoutMs` bound the two
 handler calls. Timer and channel conditions determine how long a Step waits.
 
+### Canceling Step executions
+
+A successful Step can cancel queued or active executions while continuing with
+its normal decision:
+
+```typescript
+return withCancelingSteps(
+  withCancelingSiblingSteps(
+    goTo(this.recordQuote, quote),
+    this.carrierA,
+    this.carrierB,
+  ),
+  this.globalQuoteTimeout,
+);
+```
+
+`withCancelingSteps` selects every current execution of each registered Step
+type. `withCancelingSiblingSteps` selects only executions whose
+`Context.fromStepExecutionId` matches the current execution. Both helpers return
+a new decision; repeated calls form a union, and Flow-wide selection wins for
+the same Step object. Unregistered selectors produce an invalid Step result.
+
+Dex resolves one snapshot after the current execution succeeds. Completed,
+already-canceled, and absent targets are no-ops. Next Steps created by that
+decision are outside the snapshot. Dex immediately applies the next or close
+action; late decisions, writes, retries, and recovery Steps are discarded.
+
+Set `StepOptions.heartbeatTimeoutMs` on long-running regular Steps so
+cancellation reaches the Worker promptly. The value is milliseconds but must
+represent whole seconds in the signed int32 range. Zero disables heartbeats.
+Local activities ignore the setting, while an ASYNC fallback uses it. The
+Worker aborts `Context.cancellationSignal`; pass it to abort-aware APIs:
+
+```typescript
+const response = await fetch(url, { signal: context.cancellationSignal });
+```
+
+An RPC result may set `cancelingSteps` for Flow-wide selection. RPCs do not
+support sibling selection because they have no Step execution lineage.
+
 Opt an Attribute or AttributeMap into Attribute Store synchronization, then
 select the Server-configured Store for the Flow:
 

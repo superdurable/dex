@@ -58,6 +58,7 @@ import { SubFlowReusePolicy, type SubFlowOptions } from "./subflow.js";
 import type { RegisteredRPC } from "./rpc.js";
 import type {
   RetryPolicy,
+  Step,
   StepDecision,
   StepMovement,
   StepOptions,
@@ -79,11 +80,22 @@ export class WorkerDispatcher {
 
   public async invokeWaitFor(
     original: InvokeWaitForMethodRequest,
+    cancellationSignal: AbortSignal = new AbortController().signal,
   ): Promise<InvokeWaitForMethodResponse> {
     const request = await this.hydrateWaitFor(original);
+    cancellationSignal.throwIfAborted();
     const flow = registeredFlowByName(this.registry, request.flowType);
     const step = registeredStep(flow, request.stepType);
-    const context = new InvocationContext("waitFor", flow, request.context, request.attributes);
+    const context = new InvocationContext(
+      "waitFor",
+      flow,
+      request.context,
+      request.attributes,
+      [],
+      undefined,
+      {},
+      cancellationSignal,
+    );
     const input = decodeValue(step.step.inputCodec, requireValue(request.stepInput, "Step input"));
     if (step.step.waitFor === undefined) {
       throw new TypeError(`Step ${step.name} does not implement waitFor`);
@@ -104,8 +116,10 @@ export class WorkerDispatcher {
 
   public async invokeExecute(
     original: InvokeExecuteMethodRequest,
+    cancellationSignal: AbortSignal = new AbortController().signal,
   ): Promise<InvokeExecuteMethodResponse> {
     const request = await this.hydrateExecute(original);
+    cancellationSignal.throwIfAborted();
     const flow = registeredFlowByName(this.registry, request.flowType);
     const step = registeredStep(flow, request.stepType);
     const context = new InvocationContext(
@@ -115,6 +129,8 @@ export class WorkerDispatcher {
       request.attributes,
       request.stepExeLocals,
       request.conditionResults,
+      {},
+      cancellationSignal,
     );
     const input = decodeValue(step.step.inputCodec, requireValue(request.stepInput, "Step input"));
     const decision = await step.step.execute(context, input);
@@ -131,8 +147,12 @@ export class WorkerDispatcher {
     }
   }
 
-  public async invokeRPC(original: InvokeWorkerRPCRequest): Promise<InvokeWorkerRPCResponse> {
+  public async invokeRPC(
+    original: InvokeWorkerRPCRequest,
+    cancellationSignal: AbortSignal = new AbortController().signal,
+  ): Promise<InvokeWorkerRPCResponse> {
     const request = await this.hydrateRPC(original);
+    cancellationSignal.throwIfAborted();
     const flow = registeredFlowByName(this.registry, request.flowType);
     const rpc = registeredRPCByName(flow, request.rpcName);
     const context = new InvocationContext(
@@ -143,6 +163,7 @@ export class WorkerDispatcher {
       [],
       undefined,
       request.channelInfos,
+      cancellationSignal,
     );
     const returned = await invokeRPC(flow, rpc, context, request.input);
     try {
@@ -152,10 +173,7 @@ export class WorkerDispatcher {
           rpc.options.outputCodec === undefined
             ? encodeUnknown(undefined)
             : encodeValue(rpc.options.outputCodec, result?.output),
-        stepDecision:
-          result?.nextSteps === undefined || result.nextSteps.length === 0
-            ? undefined
-            : ProtoStepDecision.create({ nextSteps: mapMovements(flow, result.nextSteps) }),
+        stepDecision: rpcDecision(flow, result),
         upsertAttributes: [...context.getAttributeWrites()],
         recordEvents: [...context.getEvents()],
         publishToChannel: [...context.getPublications()],
@@ -310,14 +328,18 @@ function mapDecision(flow: RegisteredFlow, decision: StepDecision | undefined): 
     if (decision.movements.length === 0) {
       throw new TypeError("goToMulti requires a movement");
     }
-    return ProtoStepDecision.create({ nextSteps: mapMovements(flow, decision.movements) });
+    return withCancellationSelection(
+      flow,
+      decision,
+      ProtoStepDecision.create({ nextSteps: mapMovements(flow, decision.movements) }),
+    );
   }
   if (decision.kind === "deadEnd") {
-    return ProtoStepDecision.create({
+    return withCancellationSelection(flow, decision, ProtoStepDecision.create({
       closeDecision: CloseDecision.create({
         closeDecisionType: CloseDecisionType.CLOSE_DECISION_TYPE_DEAD_END,
       }),
-    });
+    }));
   }
   if (decision.kind === "forceCompleteIfChannelsEmpty") {
     const channels = decision.channels.map((channel) => {
@@ -326,7 +348,7 @@ function mapDecision(flow: RegisteredFlow, decision: StepDecision | undefined): 
       }
       return channel.name;
     });
-    return ProtoStepDecision.create({
+    return withCancellationSelection(flow, decision, ProtoStepDecision.create({
       nextSteps: [mapMovement(flow, decision.fallback)],
       closeDecision: CloseDecision.create({
         closeDecisionType:
@@ -334,7 +356,7 @@ function mapDecision(flow: RegisteredFlow, decision: StepDecision | undefined): 
         conditionalChannelNames: channels,
         closeInput: encodeUnknown(decision.output),
       }),
-    });
+    }));
   }
   const closeTypes = {
     gracefulComplete: CloseDecisionType.CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
@@ -346,12 +368,62 @@ function mapDecision(flow: RegisteredFlow, decision: StepDecision | undefined): 
     : decision.output === undefined
       ? undefined
       : encodeUnknown(decision.output);
-  return ProtoStepDecision.create({
+  return withCancellationSelection(flow, decision, ProtoStepDecision.create({
     closeDecision: CloseDecision.create({
       closeDecisionType: closeTypes[decision.kind],
       closeInput,
     }),
-  });
+  }));
+}
+
+function withCancellationSelection(
+  flow: RegisteredFlow,
+  decision: StepDecision,
+  mapped: ProtoStepDecision,
+): ProtoStepDecision {
+  mapped.cancelStepTypes = mapCancellationSteps(flow, decision.cancelingSteps);
+  const globalTypes = new Set(mapped.cancelStepTypes);
+  mapped.cancelSiblingStepTypes = mapCancellationSteps(
+    flow,
+    decision.cancelingSiblingSteps,
+  ).filter((stepType) => !globalTypes.has(stepType));
+  return mapped;
+}
+
+function mapCancellationSteps(
+  flow: RegisteredFlow,
+  steps: readonly Step<any>[] | undefined,
+): string[] {
+  const stepTypes: string[] = [];
+  const seen = new Set<string>();
+  for (const step of steps ?? []) {
+    const target = flow.steps.find((candidate) => candidate.step === step);
+    if (target === undefined) {
+      throw new TypeError("cancellation Step must belong to the Flow");
+    }
+    if (seen.has(target.name)) {
+      continue;
+    }
+    seen.add(target.name);
+    stepTypes.push(target.name);
+  }
+  return stepTypes;
+}
+
+function rpcDecision(
+  flow: RegisteredFlow,
+  result: { nextSteps?: readonly StepMovement<unknown>[]; cancelingSteps?: readonly Step<any>[] }
+    | undefined,
+): ProtoStepDecision | undefined {
+  if (result === undefined) {
+    return undefined;
+  }
+  const nextSteps = mapMovements(flow, result.nextSteps ?? []);
+  const cancelStepTypes = mapCancellationSteps(flow, result.cancelingSteps);
+  if (nextSteps.length === 0 && cancelStepTypes.length === 0) {
+    return undefined;
+  }
+  return ProtoStepDecision.create({ nextSteps, cancelStepTypes });
 }
 
 function mapMovements(
@@ -394,6 +466,7 @@ function mapStepOptions(
   return ProtoStepOptions.create({
     waitForTimeoutSeconds: seconds(options?.waitForMethodTimeoutMs),
     executeTimeoutSeconds: seconds(options?.executeMethodTimeoutMs),
+    heartbeatTimeoutSeconds: heartbeatSeconds(options?.heartbeatTimeoutMs),
     waitForRetryPolicy: mapRetry(options?.waitForRetry),
     executeRetryPolicy: mapRetry(options?.executeRetry),
     waitForFailurePolicy:
@@ -693,6 +766,14 @@ function seconds(milliseconds: number | undefined): number {
     throw new RangeError("duration must be a non-negative whole number of seconds");
   }
   return milliseconds / 1_000;
+}
+
+function heartbeatSeconds(milliseconds: number | undefined): number {
+  const value = seconds(milliseconds);
+  if (value > 2_147_483_647) {
+    throw new RangeError("heartbeat timeout exceeds int32 seconds");
+  }
+  return value;
 }
 
 function invalidStepResult(

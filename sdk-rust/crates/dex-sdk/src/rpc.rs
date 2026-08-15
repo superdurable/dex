@@ -222,6 +222,7 @@ where
 pub struct RpcResult<Output> {
     output: Output,
     next_steps: Vec<StepMovement>,
+    cancel_step_types: Vec<&'static str>,
 }
 
 impl<Output: Value> RpcResult<Output> {
@@ -230,12 +231,28 @@ impl<Output: Value> RpcResult<Output> {
         Self {
             output,
             next_steps: Vec::new(),
+            cancel_step_types: Vec::new(),
         }
     }
 
     /// Appends one Step movement executed after the RPC succeeds.
     pub fn then(mut self, movement: StepMovement) -> Self {
         self.next_steps.push(movement);
+        self
+    }
+
+    /// Selects every queued or active execution of one registered Step type.
+    ///
+    /// Dex resolves cancellation after RPC persistence commits and before next Steps are queued.
+    /// Finished, already-canceled, and absent executions are no-ops. RPCs cannot select siblings.
+    pub fn cancel_step<SelectedStep>(mut self, step: &SelectedStep) -> Self
+    where
+        SelectedStep: crate::Step,
+    {
+        let step_type = step.step_type();
+        if !self.cancel_step_types.contains(&step_type) {
+            self.cancel_step_types.push(step_type);
+        }
         self
     }
 
@@ -253,6 +270,7 @@ impl<Output: Value> RpcResult<Output> {
 pub(crate) struct ErasedRpcResult {
     pub(crate) output: Box<dyn ErasedValue>,
     pub(crate) next_steps: Vec<StepMovement>,
+    pub(crate) cancel_step_types: Vec<&'static str>,
 }
 
 #[derive(Clone)]
@@ -309,6 +327,7 @@ where
         Ok(ErasedRpcResult {
             output: Box::new(TypedValue(result.output)),
             next_steps: result.next_steps,
+            cancel_step_types: result.cancel_step_types,
         })
     }
 }
@@ -349,6 +368,7 @@ where
         Ok(ErasedRpcResult {
             output: Box::new(TypedValue(result.output)),
             next_steps: result.next_steps,
+            cancel_step_types: result.cancel_step_types,
         })
     }
 }
@@ -441,6 +461,7 @@ fn empty_rpc_result() -> ErasedRpcResult {
     ErasedRpcResult {
         output: Box::new(TypedValue(())),
         next_steps: Vec::new(),
+        cancel_step_types: Vec::new(),
     }
 }
 

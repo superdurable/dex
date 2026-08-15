@@ -92,6 +92,18 @@ class Context(Protocol):
         """
         ...
 
+    def is_cancellation_requested(self) -> bool:
+        """Report whether Dex canceled the active handler call.
+
+        Async handlers are normally canceled by their task. Synchronous handlers cannot be
+        forcefully interrupted by Python; long CPU-bound work may check this at natural
+        boundaries. External effects still require idempotency or compensation.
+
+        Returns:
+            ``True`` after the Worker gRPC call has been canceled.
+        """
+        ...
+
     def set_step_execution_local(self, key: str, value: object) -> None:
         """Store process-local data for this Step execution.
 

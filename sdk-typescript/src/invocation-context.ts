@@ -38,6 +38,7 @@ export class InvocationContext implements Context {
   public readonly fromStepExecutionId: string;
   public readonly firstAttemptAt: Date;
   public readonly attempt: number;
+  public readonly cancellationSignal: AbortSignal;
 
   private readonly attributes: Map<string, Value>;
   private readonly locals: Map<string, Value>;
@@ -56,6 +57,7 @@ export class InvocationContext implements Context {
     locals: readonly KV[] = [],
     private readonly conditionResults?: ConditionResults,
     channelInfos: Readonly<Record<string, ChannelInfo>> = {},
+    cancellationSignal: AbortSignal = new AbortController().signal,
   ) {
     if (metadata === undefined) {
       throw new TypeError("Worker request Context is required");
@@ -67,6 +69,7 @@ export class InvocationContext implements Context {
     this.fromStepExecutionId = metadata.fromStepExecutionId;
     this.firstAttemptAt = secondsDate(metadata.firstAttemptTimestamp);
     this.attempt = metadata.attempt;
+    this.cancellationSignal = cancellationSignal;
     this.attributes = mapValues("Attribute", attributes);
     this.locals = mapValues("step-execution local", locals);
     this.channelInfos = new Map(Object.entries(channelInfos));

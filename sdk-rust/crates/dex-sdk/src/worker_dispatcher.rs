@@ -171,7 +171,8 @@ impl WorkerDispatcher {
         run_handler(cancellation, move || {
             let result = rpc.handler.invoke(&mut context, &input)?;
             let output = encode_rpc_output(result.output.as_ref()).map_err(handler_error)?;
-            let decision = if result.next_steps.is_empty() {
+            let cancel_step_types = map_cancellation_step_types(&flow, result.cancel_step_types)?;
+            let decision = if result.next_steps.is_empty() && cancel_step_types.is_empty() {
                 None
             } else {
                 Some(ProtoStepDecision {
@@ -179,7 +180,7 @@ impl WorkerDispatcher {
                         HandlerError::invalid_step_result(flow.name, None, "rpc", error)
                     })?,
                     close_decision: None,
-                    cancel_step_types: Vec::new(),
+                    cancel_step_types,
                     cancel_sibling_step_types: Vec::new(),
                 })
             };
@@ -356,6 +357,7 @@ fn map_step_options_without_recovery(
     Ok(ProtoStepOptions {
         wait_for_timeout_seconds: optional_seconds(options.wait_for_method_timeout)?,
         execute_timeout_seconds: optional_seconds(options.execute_method_timeout)?,
+        heartbeat_timeout_seconds: optional_seconds(options.heartbeat_timeout)?,
         wait_for_retry_policy: options.wait_for_retry.map(map_retry).transpose()?,
         execute_retry_policy: options.execute_retry.map(map_retry).transpose()?,
         wait_for_failure_policy: match options.wait_for_failure {
@@ -378,7 +380,6 @@ fn map_step_options_without_recovery(
             .iter()
             .map(|lock| lock.physical_name())
             .collect(),
-        heartbeat_timeout_seconds: 0,
     })
 }
 
@@ -454,7 +455,14 @@ fn map_decision(
     flow: &RegisteredFlow,
     decision: crate::StepDecision,
 ) -> HandlerResult<ProtoStepDecision> {
-    match decision.kind {
+    let cancel_step_types = map_cancellation_step_types(flow, decision.cancel_step_types)?;
+    let global_types: HashSet<&str> = cancel_step_types.iter().map(String::as_str).collect();
+    let cancel_sibling_step_types =
+        map_cancellation_step_types(flow, decision.cancel_sibling_step_types)?
+            .into_iter()
+            .filter(|step_type| !global_types.contains(step_type.as_str()))
+            .collect();
+    let mut mapped = match decision.kind {
         StepDecisionKind::Next(movements) => {
             if movements.is_empty() {
                 return Err(HandlerError::new("go_to_many requires a movement"));
@@ -505,7 +513,30 @@ fn map_decision(
             cancel_step_types: Vec::new(),
             cancel_sibling_step_types: Vec::new(),
         }),
+    }?;
+    mapped.cancel_step_types = cancel_step_types;
+    mapped.cancel_sibling_step_types = cancel_sibling_step_types;
+    Ok(mapped)
+}
+
+fn map_cancellation_step_types(
+    flow: &RegisteredFlow,
+    selected: Vec<&'static str>,
+) -> HandlerResult<Vec<String>> {
+    let mut step_types = Vec::with_capacity(selected.len());
+    let mut seen = HashSet::with_capacity(selected.len());
+    for step_type in selected {
+        if !flow.steps.contains_key(step_type) {
+            return Err(HandlerError::new(
+                "cancellation Step does not belong to Flow",
+            ));
+        }
+        if !seen.insert(step_type) {
+            continue;
+        }
+        step_types.push(step_type.to_string());
     }
+    Ok(step_types)
 }
 
 fn close_decision(

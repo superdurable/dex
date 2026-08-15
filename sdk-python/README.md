@@ -121,6 +121,42 @@ attempts, total duration, and 1-based attempt numbers. Fallback starts
 immediately; later regular retries continue the backoff sequence at the
 cumulative attempt.
 
+### Canceling Step executions
+
+A successful Step can cancel queued or active executions while continuing with
+its normal decision:
+
+```python
+return (
+    dex.go_to(self.record_quote, quote)
+    .with_canceling_sibling_steps(self.carrier_a, self.carrier_b)
+    .with_canceling_steps(self.global_quote_timeout)
+)
+```
+
+`with_canceling_steps` selects every current execution of each registered Step
+type. `with_canceling_sibling_steps` selects only executions with the same
+`Context.from_step_execution_id` as the current execution. Decisions are
+immutable; repeated calls form a union, and Flow-wide selection wins for the
+same Step type. Unregistered selectors produce an invalid Step result.
+
+Dex resolves one snapshot after the current execution succeeds. Completed,
+already-canceled, and absent targets are no-ops. Next Steps created by the same
+decision are outside the snapshot. Dex immediately applies the next or close
+action; late decisions, writes, retries, and recovery Steps are discarded.
+
+Set `StepOptions.heartbeat_timeout` on long-running regular Steps so
+cancellation reaches the Worker promptly. It applies to `wait_for` and
+`execute`; local activities ignore it, while an ASYNC fallback uses it. `None`
+and zero disable heartbeats, and positive values must be whole seconds in the
+signed int32 range. `AsyncWorker` cancels the handler's asyncio task. A handler
+may catch `asyncio.CancelledError` for cleanup; synchronous CPU-bound handlers
+may check `Context.is_cancellation_requested()` at natural boundaries.
+
+`RPCResult.with_canceling_steps` provides the Flow-wide selector for RPCs.
+RPCs do not support sibling selection because they have no Step execution
+lineage.
+
 `Registry` validates every Flow, Step, RPC signature, durable name, lock, and
 codec before Client or Worker startup. `Client` methods use these typed objects
 instead of raw Flow, Step, or RPC strings.

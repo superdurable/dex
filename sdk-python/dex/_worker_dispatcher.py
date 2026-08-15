@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from inspect import isawaitable
-from typing import Any, cast
+from typing import Any, Callable, cast
 
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._value_hydrator import ValueHydrator
@@ -26,6 +26,7 @@ from dex.runtime_errors import InvalidStepResultError, ValueMappingError
 from dex.step import (
     DecisionKind,
     RetryPolicy,
+    Step,
     StepDecision,
     StepDurability,
     StepMovement,
@@ -49,6 +50,7 @@ class WorkerDispatcher:
     def invoke_wait_for(
         self,
         original: pb.InvokeWaitForMethodRequest,
+        is_active: Callable[[], bool] | None = None,
     ) -> pb.InvokeWaitForMethodResponse:
         request = self._hydrator.wait_for_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -59,6 +61,7 @@ class WorkerDispatcher:
             request.context,
             self._values,
             request.attributes,
+            is_active=is_active,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         wait = step.step.wait_for(context, input)
@@ -87,6 +90,7 @@ class WorkerDispatcher:
     def invoke_execute(
         self,
         original: pb.InvokeExecuteMethodRequest,
+        is_active: Callable[[], bool] | None = None,
     ) -> pb.InvokeExecuteMethodResponse:
         request = self._hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -102,6 +106,7 @@ class WorkerDispatcher:
             request.attributes,
             request.step_exe_locals,
             condition_results,
+            is_active=is_active,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         decision = step.step.execute(context, input)
@@ -127,6 +132,7 @@ class WorkerDispatcher:
     def invoke_rpc(
         self,
         original: pb.InvokeWorkerRPCRequest,
+        is_active: Callable[[], bool] | None = None,
     ) -> pb.InvokeWorkerRPCResponse:
         request = self._hydrator.rpc_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -138,6 +144,7 @@ class WorkerDispatcher:
             self._values,
             request.attributes,
             channel_infos=dict(request.channel_infos),
+            is_active=is_active,
         )
         arguments: list[object] = [context]
         if rpc.input_codec is not None:
@@ -163,6 +170,11 @@ class WorkerDispatcher:
                     response.step_decision.next_steps.extend(
                         self._map_movements(flow, returned.next_steps)
                     )
+                response.step_decision.cancel_step_types.extend(
+                    self._map_cancellation_steps(flow, returned.canceling_steps)
+                )
+                if not returned.next_steps and not returned.canceling_steps:
+                    response.ClearField("step_decision")
             elif returned is None and rpc.output_codec is None:
                 response.output.CopyFrom(self._values.encode_dynamic(None))
             else:
@@ -206,6 +218,10 @@ class WorkerDispatcher:
         if options.execute_method_timeout is not None:
             mapped.execute_timeout_seconds = self._seconds32(
                 options.execute_method_timeout
+            )
+        if options.heartbeat_timeout is not None:
+            mapped.heartbeat_timeout_seconds = self._seconds32(
+                options.heartbeat_timeout
             )
         if options.wait_for_retry is not None:
             mapped.wait_for_retry_policy.CopyFrom(
@@ -428,7 +444,33 @@ class WorkerDispatcher:
             mapped.next_steps.append(self._map_movement(flow, decision.fallback))
         else:
             raise ValueError("unsupported StepDecision kind")
+        mapped.cancel_step_types.extend(
+            self._map_cancellation_steps(flow, decision.canceling_steps)
+        )
+        global_types = set(mapped.cancel_step_types)
+        mapped.cancel_sibling_step_types.extend(
+            step_type
+            for step_type in self._map_cancellation_steps(
+                flow, decision.canceling_sibling_steps
+            )
+            if step_type not in global_types
+        )
         return mapped
+
+    def _map_cancellation_steps(
+        self,
+        flow: _RegisteredFlow,
+        steps: tuple[Step[Any], ...],
+    ) -> list[str]:
+        step_types: list[str] = []
+        seen: set[str] = set()
+        for step in steps:
+            step_type = self._registered_movement_target(flow, step).name
+            if step_type in seen:
+                continue
+            seen.add(step_type)
+            step_types.append(step_type)
+        return step_types
 
     def _close(
         self,

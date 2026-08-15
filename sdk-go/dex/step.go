@@ -20,6 +20,21 @@ type none struct{}
 // None is the nil-only SDK payload, rejecting arbitrary values unlike any and clarifying struct{} intent.
 type None = *none
 
+// StepSelector identifies a registered Step type for cancellation decisions.
+//
+// Every Step implements StepSelector through GetStepType and GetStepOptions. This
+// non-generic view lets one cancellation request select Steps with different input types.
+type StepSelector interface {
+	// GetStepType overrides the default package-qualified Go type name.
+	// Embed DefaultStepType to use the default.
+	GetStepType() string
+
+	// GetStepOptions returns immutable defaults applied whenever this Step is
+	// scheduled. Return nil (e.g. by embedding StepDefaults) to use server
+	// defaults. A movement may override individual fields when transitioning.
+	GetStepOptions() *StepOptions
+}
+
 // Step is one node in a Flow's durable state machine. IN is the typed input
 // passed into WaitFor and Execute for this step.
 //
@@ -70,14 +85,8 @@ type None = *none
 //
 //	var ShipOrder = ShipOrderStep{}
 type Step[IN any] interface {
-	// GetStepType overrides the default package-qualified Go type name.
-	// Embed DefaultStepType to use the default.
-	GetStepType() string
-
-	// GetStepOptions returns immutable defaults applied whenever this step is
-	// scheduled. Return nil (e.g. by embedding StepDefaults) to use server
-	// defaults. A movement may override individual fields when transitioning.
-	GetStepOptions() *StepOptions
+	// StepSelector supplies this Step's durable type and static options.
+	StepSelector
 
 	// WaitFor sets up the conditions this step waits on before Execute runs.
 	//

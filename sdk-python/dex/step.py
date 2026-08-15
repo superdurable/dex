@@ -87,6 +87,7 @@ class StepOptions:
     Attributes:
         wait_for_method_timeout: Maximum duration of one ``wait_for`` attempt.
         execute_method_timeout: Maximum duration of one ``execute`` attempt.
+        heartbeat_timeout: Cooperative cancellation heartbeat for regular activities.
         wait_for_retry: Optional retry policy for ``wait_for``.
         execute_retry: Optional retry policy for ``execute``.
         wait_for_failure: Behavior after all ``wait_for`` attempts fail.
@@ -98,6 +99,7 @@ class StepOptions:
 
     wait_for_method_timeout: timedelta | None = None
     execute_method_timeout: timedelta | None = None
+    heartbeat_timeout: timedelta | None = None
     wait_for_retry: RetryPolicy | None = None
     execute_retry: RetryPolicy | None = None
     wait_for_failure: WaitForFailurePolicy = WaitForFailurePolicy.FAIL_FLOW
@@ -330,6 +332,8 @@ class StepDecision:
         reason: Human-readable force-failure reason.
         empty_channels: Channels that must be empty for conditional completion.
         fallback: Movement used when conditional completion cannot proceed.
+        canceling_steps: Flow-wide Step type cancellation selectors.
+        canceling_sibling_steps: Same-source Step type cancellation selectors.
     """
 
     kind: DecisionKind
@@ -338,9 +342,68 @@ class StepDecision:
     reason: str = ""
     empty_channels: tuple[Channel[Any] | ChannelMap[Any], ...] = ()
     fallback: StepMovement[Any] | None = None
+    canceling_steps: tuple[Step[Any], ...] = ()
+    canceling_sibling_steps: tuple[Step[Any], ...] = ()
 
     def _has_output(self) -> bool:
         return self.output is not _NO_OUTPUT
+
+    def with_canceling_steps(self, *steps: Step[Any]) -> StepDecision:
+        """Return a decision canceling all current executions of selected Step types.
+
+        Dex resolves one snapshot after this Execute succeeds. Finished, already-canceled,
+        and absent executions are no-ops. Steps scheduled by this decision are excluded.
+        Repeated calls take the union, and Flow-wide selection supersedes sibling selection.
+
+        Args:
+            *steps: Exact Step instances registered with the current Flow.
+
+        Returns:
+            A new decision containing the combined Flow-wide selectors.
+        """
+        global_steps = _union_steps(self.canceling_steps, steps)
+        sibling_steps = tuple(
+            step
+            for step in self.canceling_sibling_steps
+            if all(step is not global_step for global_step in global_steps)
+        )
+        return replace(
+            self,
+            canceling_steps=global_steps,
+            canceling_sibling_steps=sibling_steps,
+        )
+
+    def with_canceling_sibling_steps(self, *steps: Step[Any]) -> StepDecision:
+        """Return a decision canceling selected same-source Step executions.
+
+        A sibling has the same ``Context.from_step_execution_id`` as the execution
+        returning this decision. Snapshot and no-op behavior match
+        ``with_canceling_steps``. Flow-wide selection wins for the same Step type.
+
+        Args:
+            *steps: Exact Step instances registered with the current Flow.
+
+        Returns:
+            A new decision containing the combined sibling selectors.
+        """
+        siblings = _union_steps(self.canceling_sibling_steps, steps)
+        siblings = tuple(
+            step
+            for step in siblings
+            if all(step is not global_step for global_step in self.canceling_steps)
+        )
+        return replace(self, canceling_sibling_steps=siblings)
+
+
+def _union_steps(
+    existing: tuple[Step[Any], ...],
+    added: tuple[Step[Any], ...],
+) -> tuple[Step[Any], ...]:
+    combined = list(existing)
+    for step in added:
+        if all(step is not current for current in combined):
+            combined.append(step)
+    return tuple(combined)
 
 
 def go_to(step: Step[InputT], input: InputT) -> StepDecision:

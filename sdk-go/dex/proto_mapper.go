@@ -174,6 +174,10 @@ func mapStepOptionsRecursive(
 	if err != nil {
 		return nil, fmt.Errorf("dex: Execute method timeout: %w", err)
 	}
+	heartbeatTimeout, err := exactDurationSeconds32(options.HeartbeatTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("dex: heartbeat timeout: %w", err)
+	}
 	waitForRetry, err := mapRetryPolicy(options.WaitForRetry)
 	if err != nil {
 		return nil, fmt.Errorf("dex: WaitFor retry: %w", err)
@@ -210,6 +214,7 @@ func mapStepOptionsRecursive(
 	return &dexpb.StepOptions{
 		WaitForTimeoutSeconds:            waitForMethodTimeout,
 		ExecuteTimeoutSeconds:            executeMethodTimeout,
+		HeartbeatTimeoutSeconds:          heartbeatTimeout,
 		WaitForRetryPolicy:               waitForRetry,
 		ExecuteRetryPolicy:               executeRetry,
 		WaitForFailurePolicy:             waitForFailure,
@@ -1140,6 +1145,9 @@ func mergeStepOptions(defaults *StepOptions, overrides *StepOptions) *StepOption
 	if overrides.ExecuteMethodTimeout != 0 {
 		merged.ExecuteMethodTimeout = overrides.ExecuteMethodTimeout
 	}
+	if overrides.HeartbeatTimeout != 0 {
+		merged.HeartbeatTimeout = overrides.HeartbeatTimeout
+	}
 	if overrides.WaitForRetry != nil {
 		merged.WaitForRetry = overrides.WaitForRetry
 	}
@@ -1360,6 +1368,20 @@ func durationSeconds32(duration time.Duration) (int32, error) {
 	if err != nil {
 		return 0, err
 	}
+	if seconds > math.MaxInt32 {
+		return 0, fmt.Errorf("duration %s exceeds int32 seconds", duration)
+	}
+	return int32(seconds), nil
+}
+
+func exactDurationSeconds32(duration time.Duration) (int32, error) {
+	if duration < 0 {
+		return 0, fmt.Errorf("duration must not be negative")
+	}
+	if duration%time.Second != 0 {
+		return 0, fmt.Errorf("duration must use whole seconds")
+	}
+	seconds := duration / time.Second
 	if seconds > math.MaxInt32 {
 		return 0, fmt.Errorf("duration %s exceeds int32 seconds", duration)
 	}
