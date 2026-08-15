@@ -22,6 +22,8 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    StartFlowOptions,
+    force_complete,
     go_to,
     graceful_complete,
 )
@@ -67,6 +69,38 @@ async def _async_client_concurrent_start_and_wait() -> None:
 
         results = await asyncio.gather(*(one(index) for index in range(3)))
         assert results == [2, 2, 2]
+
+
+class AsyncTimeoutHandlerFlow(Flow[None]):
+    async def handle_timeout(  # type: ignore[override]
+        self,
+        context: Context,
+    ) -> StepDecision:
+        del context
+        await asyncio.sleep(0)
+        return force_complete("expired")
+
+
+def test_async_flow_timeout_handler() -> None:
+    asyncio.run(_async_flow_timeout_handler())
+
+
+async def _async_flow_timeout_handler() -> None:
+    flow = AsyncTimeoutHandlerFlow()
+    async with AsyncDexDevTestEnvironment(
+        flow,
+        allow_async_handlers=True,
+    ) as environment:
+        flow_id = unique_id("async-timeout-handler")
+        await environment.client.start_flow(
+            flow,
+            flow_id,
+            None,
+            StartFlowOptions(timeout=timedelta(seconds=1)),
+        )
+        assert (
+            await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+        ).single_output(str) == "expired"
 
 
 def test_async_worker_async_execute_starts_child() -> None:

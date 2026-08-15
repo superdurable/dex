@@ -10,6 +10,7 @@
 
 import {
   SubFlow,
+  FlowTimeoutPolicy,
   Timer,
   Wait,
   doubleCodec,
@@ -55,7 +56,11 @@ export class SingleSubFlowParent implements Flow<number> {
   public constructor(target: Flow<number>, reusePolicy?: SubFlowReusePolicy) {
     this.start = new SingleSubFlowStep(
       target,
-      reusePolicy === undefined ? {} : { reusePolicy },
+      {
+        timeoutMs: 60 * 60_000,
+        timeoutPolicy: FlowTimeoutPolicy.CANCEL,
+        ...(reusePolicy === undefined ? {} : { reusePolicy }),
+      },
     );
   }
 

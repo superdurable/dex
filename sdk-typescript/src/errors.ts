@@ -41,6 +41,8 @@ export const FlowErrorType = Object.freeze({
   INVALID_USER_FLOW_CODE: "invalidUserFlowCode",
   /** Dex encountered an internal invariant or infrastructure failure. */
   INTERNAL: "internal",
+  /** A Dex soft Flow timeout expired under the fail policy. */
+  FLOW_TIMEOUT: "flowTimeout",
 } as const);
 
 /** Represents a value from {@link FlowErrorType}. */

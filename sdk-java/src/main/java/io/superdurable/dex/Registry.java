@@ -162,7 +162,20 @@ public final class Registry {
         final Map<String, PersistenceDefinition> persistence =
                 assemblePersistence(flowType, schema, attributeIndexes);
         final Map<String, RegisteredRpc> rpcs = assembleRpcs(flowType, flow, persistence);
-        return new RegisteredFlow(flowType, flow, steps, startStep, rpcs, persistence);
+        return new RegisteredFlow(
+                flowType, flow, overridesTimeoutHandler(flow), steps, startStep, rpcs, persistence);
+    }
+
+    private static boolean overridesTimeoutHandler(final Flow<?> flow) {
+        try {
+            return flow.getClass()
+                    .getMethod("handleTimeout", Context.class)
+                    .getDeclaringClass() != Flow.class;
+        } catch (NoSuchMethodException exception) {
+            throw new FlowDefinitionException(
+                    "Flow " + flow.getFlowType() + " timeout handler cannot be inspected",
+                    exception);
+        }
     }
 
     private static Map<String, PersistenceDefinition> assemblePersistence(
@@ -452,6 +465,7 @@ public final class Registry {
     static final class RegisteredFlow {
         private final String name;
         private final Flow<?> flow;
+        private final boolean hasTimeoutHandler;
         private final Map<String, RegisteredStep> steps;
         private final RegisteredStep startStep;
         private final Map<String, RegisteredRpc> rpcs;
@@ -460,12 +474,14 @@ public final class Registry {
         RegisteredFlow(
                 final String name,
                 final Flow<?> flow,
+                final boolean hasTimeoutHandler,
                 final Map<String, RegisteredStep> steps,
                 final RegisteredStep startStep,
                 final Map<String, RegisteredRpc> rpcs,
                 final Map<String, PersistenceDefinition> persistence) {
             this.name = name;
             this.flow = flow;
+            this.hasTimeoutHandler = hasTimeoutHandler;
             this.steps = Collections.unmodifiableMap(steps);
             this.startStep = startStep;
             this.rpcs = Collections.unmodifiableMap(rpcs);
@@ -474,6 +490,7 @@ public final class Registry {
 
         String getName() { return name; }
         Flow<?> getFlow() { return flow; }
+        boolean hasTimeoutHandler() { return hasTimeoutHandler; }
         Map<String, RegisteredStep> getSteps() { return steps; }
         RegisteredStep getStartStep() { return startStep; }
         Map<String, RegisteredRpc> getRpcs() { return rpcs; }

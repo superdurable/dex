@@ -138,6 +138,30 @@ An RPC may call `RPCResult.CancelSteps` for Flow-wide selection while also
 returning output and scheduling Next Steps. RPCs do not support sibling
 selection because an RPC invocation has no Step execution lineage.
 
+### Soft Flow timeout
+
+`StartFlowOptions.Timeout` starts a durable Dex timer rather than a backend
+execution timeout. A Flow implementing `FlowTimeoutHandler` defaults to
+`TimeoutHandler`; other Flows default to `TimeoutFail`. Override either default
+with `TimeoutFail` or `TimeoutCancel`:
+
+```go
+func (OrderFlow) HandleTimeout(ctx dex.Context) (*dex.StepDecision, error) {
+	return dex.ForceComplete("expired"), nil
+}
+
+timeout := 30 * time.Minute
+options := dex.StartFlowOptions{
+	Timeout:       &timeout,
+	TimeoutPolicy: dex.TimeoutHandler,
+}
+```
+
+The hook is Execute-only, receives no input, and runs at most once after its
+durable timer fires or is skipped. It may use `Context` normally and return any
+`StepDecision`. Continue-as-new preserves its deadline; retry and cron runs get
+a fresh timeout budget. Zero or nil timeout disables the feature.
+
 Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass
 `nil` at every call site. It rejects accidental values unlike `any` and makes
 the absence of a payload explicit.
@@ -189,8 +213,8 @@ func (ParentStep) Execute(ctx dex.Context, _ ChargeInput) (*dex.StepDecision, er
 ```
 
 `SubFlowID(ctx, index...)` returns the generated identity, including for a running
-`AnyOf` loser. `SubFlowOptions` configures timing, retry, initial target Attributes,
-Flow config, Condition ID, and reuse. Parent completion does not cancel an
+`AnyOf` loser. `SubFlowOptions` configures timing, timeout policy, retry, initial
+target Attributes, Flow config, Condition ID, and reuse. Parent completion does not cancel an
 unfinished SubFlow.
 
 ## Registration

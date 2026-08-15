@@ -14,6 +14,7 @@
 
 package io.superdurable.dex;
 
+import io.superdurable.dex.exceptions.FlowDefinitionException;
 import io.superdurable.dex.exceptions.InvalidStepResultException;
 import io.superdurable.gen.ChannelCondition;
 import io.superdurable.gen.AttributeWrite;
@@ -45,6 +46,7 @@ import java.util.Map;
 import java.util.Set;
 
 final class WorkerDispatcher {
+    private static final String TIMEOUT_HANDLER_STEP_TYPE = "sys:timeout_handler";
 
     private final Registry registry;
     private final ValueMapper values;
@@ -91,6 +93,9 @@ final class WorkerDispatcher {
     InvokeExecuteMethodResponse invokeExecute(final InvokeExecuteMethodRequest original) {
         final InvokeExecuteMethodRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
+        if (TIMEOUT_HANDLER_STEP_TYPE.equals(request.getStepType())) {
+            return invokeTimeoutHandler(request, flow);
+        }
         final Registry.RegisteredStep step = flow.getStep(request.getStepType());
         final InvocationContext context = new InvocationContext(
                 InvocationContext.Method.EXECUTE,
@@ -105,6 +110,38 @@ final class WorkerDispatcher {
         final StepDecision decision = callExecute(step.getStep(), context, input);
         return InvokeExecuteMethodResponse.newBuilder()
                 .setStepDecision(mapDecision(flow, step, decision))
+                .addAllUpsertAttributes(context.getAttributeWrites())
+                .addAllRecordEvents(context.getEvents())
+                .addAllUpsertStepExeLocals(context.getLocalWrites())
+                .addAllPublishToChannel(context.getPublications())
+                .build();
+    }
+
+    private InvokeExecuteMethodResponse invokeTimeoutHandler(
+            final InvokeExecuteMethodRequest request,
+            final Registry.RegisteredFlow flow) {
+        if (request.hasStepInput()) {
+            throw new InvalidStepResultException("Flow timeout handler must not receive input");
+        }
+        if (!flow.hasTimeoutHandler()) {
+            throw new FlowDefinitionException(
+                    "Flow " + flow.getName() + " does not override handleTimeout");
+        }
+        final InvocationContext context = new InvocationContext(
+                InvocationContext.Method.EXECUTE,
+                flow,
+                request.getContext(),
+                values,
+                request.getAttributesList(),
+                request.getStepExeLocalsList(),
+                request.hasConditionResults() ? request.getConditionResults() : null,
+                null);
+        final StepDecision decision = flow.getFlow().handleTimeout(context);
+        return InvokeExecuteMethodResponse.newBuilder()
+                .setStepDecision(mapDecision(
+                        flow,
+                        "Flow " + flow.getName() + " timeout handler",
+                        decision))
                 .addAllUpsertAttributes(context.getAttributeWrites())
                 .addAllRecordEvents(context.getEvents())
                 .addAllUpsertStepExeLocals(context.getLocalWrites())
@@ -247,6 +284,13 @@ final class WorkerDispatcher {
             final Registry.RegisteredStep step,
             final StepDecision decision) {
         final String source = "Flow " + flow.getName() + " Step " + step.getName();
+        return mapDecision(flow, source, decision);
+    }
+
+    private io.superdurable.gen.StepDecision mapDecision(
+            final Registry.RegisteredFlow flow,
+            final String source,
+            final StepDecision decision) {
         if (decision == null) {
             throw new InvalidStepResultException(source + " execute returned null");
         }
@@ -576,6 +620,11 @@ final class WorkerDispatcher {
                             .setReusePolicy(mapSubFlowReuse(options.getReusePolicy()));
             if (options.getTimeout() != null) {
                 mappedOptions.setFlowTimeoutSeconds(seconds32(options.getTimeout()));
+            }
+            final FlowTimeoutPolicy timeoutPolicy = Client.resolveTimeoutPolicy(
+                    target, options.getTimeout(), options.getTimeoutPolicy());
+            if (timeoutPolicy != FlowTimeoutPolicy.DEFAULT) {
+                mappedOptions.setFlowTimeoutPolicy(Client.mapFlowTimeoutPolicy(timeoutPolicy));
             }
             if (options.getStartDelay() != null) {
                 mappedOptions.setFlowStartDelaySeconds(seconds32(options.getStartDelay()));

@@ -41,6 +41,41 @@ class IdReusePolicy(Enum):
     DISALLOW = "disallow"
 
 
+class FlowTimeoutPolicy(Enum):
+    """Control how Dex responds when a positive soft Flow timeout expires.
+
+    Attributes:
+        DEFAULT: Invoke ``Flow.handle_timeout`` when overridden; otherwise fail.
+        FAIL: Fail with ``FlowErrorType.FLOW_TIMEOUT`` and permit Flow retries.
+        CANCEL: Cancel without retrying the Flow.
+        HANDLER: Invoke ``Flow.handle_timeout`` once after its durable timer fires.
+    """
+
+    DEFAULT = "default"
+    FAIL = "fail"
+    CANCEL = "cancel"
+    HANDLER = "handler"
+
+
+def _resolve_flow_timeout_policy(
+    flow_name: str,
+    has_timeout_handler: bool,
+    timeout: timedelta | None,
+    policy: FlowTimeoutPolicy,
+) -> FlowTimeoutPolicy:
+    if timeout is None or timeout.total_seconds() <= 0:
+        if policy is not FlowTimeoutPolicy.DEFAULT:
+            raise ValueError("Flow timeout policy requires a positive timeout")
+        return FlowTimeoutPolicy.DEFAULT
+    if policy is FlowTimeoutPolicy.DEFAULT:
+        return (
+            FlowTimeoutPolicy.HANDLER if has_timeout_handler else FlowTimeoutPolicy.FAIL
+        )
+    if policy is FlowTimeoutPolicy.HANDLER and not has_timeout_handler:
+        raise ValueError(f"Flow {flow_name} has no handle_timeout override")
+    return policy
+
+
 @dataclass(frozen=True)
 class _AttributeInitialization:
     definition: Attribute[Any] | AttributeMap[Any]
@@ -56,7 +91,8 @@ class StartFlowOptions:
     Flow or server default. Use :meth:`with_attribute` to add initial Attribute writes.
 
     Attributes:
-        timeout: Optional maximum lifetime of the Flow.
+        timeout: Optional durable soft timeout. ``None`` or zero disables it.
+        timeout_policy: Action taken when a positive timeout expires.
         start_delay: Optional delay before the starting Step becomes eligible.
         id_reuse_policy: Flow ID reuse policy; defaults to ``DEFAULT``.
         cron_schedule: Optional server-supported cron expression for recurring runs.
@@ -75,6 +111,7 @@ class StartFlowOptions:
     """
 
     timeout: timedelta | None = None
+    timeout_policy: FlowTimeoutPolicy = FlowTimeoutPolicy.DEFAULT
     start_delay: timedelta | None = None
     id_reuse_policy: IdReusePolicy = IdReusePolicy.DEFAULT
     cron_schedule: str | None = None
@@ -164,6 +201,7 @@ class SubFlowOptions:
 
     Attributes:
         timeout: Optional maximum SubFlow lifetime.
+        timeout_policy: Action taken when a positive timeout expires.
         start_delay: Optional delay before its starting Step.
         retry_policy: Optional whole-Flow retry policy.
         config_override: Fields applied over the inherited parent configuration.
@@ -172,6 +210,7 @@ class SubFlowOptions:
     """
 
     timeout: timedelta | None = None
+    timeout_policy: FlowTimeoutPolicy = FlowTimeoutPolicy.DEFAULT
     start_delay: timedelta | None = None
     retry_policy: RetryPolicy | None = None
     _attribute_initializations: tuple[_AttributeInitialization, ...] = ()

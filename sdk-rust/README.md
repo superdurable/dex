@@ -84,8 +84,8 @@ fn execute(&self, context: &mut Context, _input: ChargeInput) -> HandlerResult<S
 ```
 
 `SubFlow::flow_id_at(context, index)` remains available for a running `any_of` loser.
-`SubFlowOptions` configures timing, retry, initial target Attributes, Flow config,
-Condition ID, and reuse. Parent completion does not cancel an unfinished SubFlow.
+`SubFlowOptions` configures timing, timeout policy, retry, initial target Attributes,
+Flow config, Condition ID, and reuse. Parent completion does not cancel an unfinished SubFlow.
 
 Existing-Flow reads (`get_attribute`, `describe_flow`, `wait_for_flow`, and
 `reset_flow`) use `FlowNotFound`; operations requiring a running Flow use
@@ -106,6 +106,31 @@ match client.publish(flow_id, &orders.approved, order_id) {
 `Registry::register` reports invalid definitions as `SdkError::FlowDefinition`.
 Value conversion and invalid Step results use `ValueMapping` and
 `InvalidStepResult`.
+
+### Soft Flow timeout
+
+A Flow registers its optional handler through `timeout_handler`. Its presence
+makes a positive timeout use handler policy by default:
+
+```rust
+fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
+    notify_expiration(context)?;
+    Ok(StepDecision::force_complete("expired".to_string()))
+}
+
+fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
+    Some(Self::handle_timeout)
+}
+
+let options = StartFlowOptions::new()
+    .timeout(Duration::from_secs(30 * 60))
+    .timeout_policy(FlowTimeoutPolicy::Handler);
+```
+
+`Fail` produces `FlowErrorType::FlowTimeout` and permits Flow retry; `Cancel`
+cancels without retry. Continue-as-new preserves the deadline and handler
+execution, while retry and cron runs receive a fresh budget. An absent or zero
+timeout disables the feature.
 
 ## Rust SDK runtime
 

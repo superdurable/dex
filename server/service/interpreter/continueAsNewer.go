@@ -304,16 +304,21 @@ func (c *ContinueAsNewer) RemoveStepExecutionToResume(executionId string) {
 	delete(c.StepExecutionToResumeMap, executionId)
 }
 
-func (c *ContinueAsNewer) DrainThreads(ctx interfaces.UnifiedContext) error {
+func (c *ContinueAsNewer) DrainThreads(
+	ctx interfaces.UnifiedContext,
+	shouldInterrupt func() bool,
+) (bool, error) {
 	// TODO: add metric for before and after Await to monitor stuck
 	// NOTE: consider using AwaitWithTimeout to get an alert when workflow stuck due to a bug in the draining logic for continueAsNew
 
-	errWait := c.provider.Await(ctx, func() bool {
-		return c.allThreadsDrained(ctx)
-	})
-	c.provider.GetLogger(ctx).Info("done draining threads for continueAsNew", errWait)
+	if err := c.provider.Await(ctx, func() bool {
+		return c.allThreadsDrained(ctx) || shouldInterrupt()
+	}); err != nil {
+		return false, err
+	}
+	c.provider.GetLogger(ctx).Info("done waiting for continueAsNew threads")
 
-	return errWait
+	return shouldInterrupt(), nil
 }
 
 func (c *ContinueAsNewer) IncreaseInflightOperation() {

@@ -10,7 +10,7 @@ import type { Context } from "./context.js";
 import type { Flow } from "./flow.js";
 import type { FlowResult } from "./flow-result.js";
 import { InvocationContext } from "./invocation-context.js";
-import type { FlowConfig, InitialAttribute } from "./options.js";
+import type { FlowConfig, FlowTimeoutPolicy, InitialAttribute } from "./options.js";
 import type { RetryPolicy } from "./step.js";
 import type { Condition } from "./wait.js";
 
@@ -32,6 +32,8 @@ export type SubFlowReusePolicy =
 export interface SubFlowOptions {
   /** Maximum SubFlow lifetime; normal Flow defaults apply when omitted. */
   readonly timeoutMs?: number;
+  /** Action taken when a positive timeout expires; defaults from the target Flow's hook. */
+  readonly timeoutPolicy?: FlowTimeoutPolicy;
   /** Delay before the SubFlow starting Step, in milliseconds. */
   readonly startDelayMs?: number;
   /** Whole-Flow retry behavior after abnormal completion. */

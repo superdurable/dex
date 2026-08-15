@@ -10,7 +10,10 @@
 
 package interpreter
 
-import "github.com/superdurable/dex/gen/dexpb"
+import (
+	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/service"
+)
 
 type StepRequestQueue struct {
 	queue []StepRequest
@@ -46,6 +49,16 @@ func NewStepRequestQueueWithResumeRequests(
 
 func (srq *StepRequestQueue) IsEmpty() bool {
 	return len(srq.queue) == 0
+}
+
+// HasUserRequests excludes the internal timeout handler.
+func (srq *StepRequestQueue) HasUserRequests() bool {
+	for _, request := range srq.queue {
+		if request.GetStepType() != service.TimeoutHandlerStepType {
+			return true
+		}
+	}
+	return false
 }
 
 func (srq *StepRequestQueue) TakeAll() []StepRequest {

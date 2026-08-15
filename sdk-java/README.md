@@ -76,6 +76,30 @@ activities share maximum attempts, total duration, and 1-based attempt numbers.
 Fallback starts immediately; later regular retries continue the backoff
 sequence at the cumulative attempt.
 
+### Soft Flow timeout
+
+Override `Flow.handleTimeout` to make a positive timeout use handler policy by
+default. Dex invokes it as an Execute-only system Step after its durable timer
+fires or is skipped:
+
+```java
+@Override
+public StepDecision handleTimeout(Context context) {
+    return StepDecision.forceComplete("expired");
+}
+
+StartFlowOptions options = StartFlowOptions.newBuilder()
+        .timeout(Duration.ofMinutes(30))
+        .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
+        .build();
+```
+
+`FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow retry; `CANCEL`
+cancels without retry. `SubFlowOptions` exposes the same `timeoutPolicy(...)`
+override. Continue-as-new preserves the deadline and handler execution, while
+retry and cron runs receive a fresh budget. A zero or absent timeout disables
+the feature.
+
 ### Canceling Step executions
 
 A successful Step can cancel queued or active executions by registered Step

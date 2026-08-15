@@ -33,5 +33,8 @@ See [Durable SubFlows](/capabilities/advanced/subflows) for reuse behavior, life
 options, and cleanup. The runnable Java sample is under
 `examples/java/src/main/java/io/superdurable/dex/patterns/workflow/parentchild`.
 
-Other SDKs can continue using explicit start plus completion Channel or client long polling until
-their native SubFlow API is available.
+Every SDK exposes the same timeout and timeout-policy fields on `SubFlowOptions`.
+Use fail, cancel, or handler to override the child Flow's registered default. The
+child completes terminal coordination and reports its failed, canceled, or
+handler-produced result to the parent before closing. Continue-as-new preserves
+the child's deadline; a child retry receives a fresh timeout budget.

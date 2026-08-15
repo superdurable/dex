@@ -74,15 +74,17 @@ func (b *Builder) RecordStart(
 	eventID int64,
 	eventTime time.Time,
 	input *dexpb.InterpreterWorkflowInput,
-	flowTimeout time.Duration,
 ) {
 	payload := &dexpb.FlowStartedOrContinuedHistoryEvent{
-		FlowExecutionId: &dexpb.FlowExecutionID{FlowId: b.flowID, RunId: b.runID},
-		FlowType:        input.GetFlowType(),
-		FlowConfig:      input.GetConfig(),
+		FlowExecutionId:   &dexpb.FlowExecutionID{FlowId: b.flowID, RunId: b.runID},
+		FlowType:          input.GetFlowType(),
+		FlowConfig:        input.GetConfig(),
+		FlowTimeoutPolicy: input.GetFlowTimeoutPolicy(),
 	}
-	if flowTimeout > 0 {
-		payload.FlowTimeout = durationpb.New(flowTimeout)
+	if input.GetConfiguredFlowTimeoutSeconds() > 0 {
+		payload.FlowTimeout = durationpb.New(
+			time.Duration(input.GetConfiguredFlowTimeoutSeconds()) * time.Second,
+		)
 	}
 	if input.GetIsResumeFromContinueAsNew() {
 		payload.StartOrContinue = &dexpb.FlowStartedOrContinuedHistoryEvent_ContinuedStart{
@@ -507,7 +509,7 @@ func shouldIncludeCanceledActivities(flowStatus dexpb.FlowStatus) bool {
 	switch flowStatus {
 	case dexpb.FlowStatus_FLOW_STATUS_CANCELED,
 		dexpb.FlowStatus_FLOW_STATUS_TERMINATED,
-		dexpb.FlowStatus_FLOW_STATUS_TIMEOUT:
+		dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY:
 		return true
 	default:
 		return false

@@ -19,6 +19,8 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+const timeoutHandlerStepType = "sys:timeout_handler"
+
 type workerService struct {
 	dexpb.UnimplementedWorkerServiceServer
 	registry *Registry
@@ -156,6 +158,9 @@ func (service *workerService) invokeExecuteMethod(
 			fmt.Errorf("dex: Worker request is nil"),
 		)
 	}
+	if request.StepType == timeoutHandlerStepType {
+		return service.invokeTimeoutHandler(ctx, request)
+	}
 	if err := validateStepWorkerRequest(
 		request.Context,
 		request.FlowType,
@@ -216,6 +221,80 @@ func (service *workerService) invokeExecuteMethod(
 		UpsertAttributes: invocation.mappedAttributeWrites(),
 		RecordEvents:     invocation.recordedEvents,
 		PublishToChannel: invocation.publications,
+	}, nil
+}
+
+func (service *workerService) invokeTimeoutHandler(
+	ctx context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if err := validateWorkerContext(request.Context, true); err != nil {
+		return nil, newWorkerFailure(codes.InvalidArgument, err)
+	}
+	if request.FlowType == "" || request.StepInput != nil {
+		return nil, newWorkerFailure(
+			codes.InvalidArgument,
+			fmt.Errorf("dex: timeout handler request has invalid flow or input"),
+		)
+	}
+	flow, found := service.registry.lookupFlow(request.FlowType)
+	if !found {
+		return nil, newWorkerFailure(
+			codes.NotFound,
+			fmt.Errorf("dex: flow %q is not registered", request.FlowType),
+		)
+	}
+	if flow.timeoutHandler == nil {
+		return nil, newWorkerFailure(
+			codes.FailedPrecondition,
+			fmt.Errorf("dex: flow %q has no timeout handler", request.FlowType),
+		)
+	}
+	if err := validateKVEnvelopes("attribute", request.Attributes); err != nil {
+		return nil, newWorkerFailure(codes.InvalidArgument, err)
+	}
+	if err := validateKVEnvelopes("step-execution local", request.StepExeLocals); err != nil {
+		return nil, newWorkerFailure(codes.InvalidArgument, err)
+	}
+	valuePointers, err := executeRequestValuePointers(request)
+	if err != nil {
+		return nil, newWorkerFailure(codes.InvalidArgument, err)
+	}
+	if err := service.hydrator.HydrateValuesInPlace(ctx, valuePointers); err != nil {
+		return nil, err
+	}
+	invocation, err := newInvocationContext(
+		ctx,
+		invocationExecute,
+		flow,
+		request.Context,
+		request.Attributes,
+		request.StepExeLocals,
+		request.ConditionResults,
+		nil,
+	)
+	if err != nil {
+		return nil, newWorkerFailure(codes.InvalidArgument, err)
+	}
+	decision, err := callFlowTimeoutHandler(flow.timeoutHandler, invocation)
+	if err != nil {
+		return nil, err
+	}
+	mapped, err := mapRegisteredDecision(flow, decision)
+	if err != nil {
+		return nil, newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
+			FlowType: flow.flowType,
+			StepType: timeoutHandlerStepType,
+			Method:   "Execute",
+			Err:      err,
+		})
+	}
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision:        mapped,
+		UpsertAttributes:    invocation.mappedAttributeWrites(),
+		UpsertStepExeLocals: invocation.mappedLocalWrites(),
+		RecordEvents:        invocation.recordedEvents,
+		PublishToChannel:    invocation.publications,
 	}, nil
 }
 
@@ -336,6 +415,14 @@ func callExecuteHandler(
 	return step.handler.execute(invocation, input)
 }
 
+func callFlowTimeoutHandler(
+	handler FlowTimeoutHandler,
+	invocation *invocationContext,
+) (*StepDecision, error) {
+	defer invocation.finish()
+	return handler.HandleTimeout(invocation)
+}
+
 func callRPCHandler(
 	rpc *registeredRPC,
 	invocation *invocationContext,
@@ -417,7 +504,13 @@ func stepRequestValuePointers(
 func executeRequestValuePointers(
 	request *dexpb.InvokeExecuteMethodRequest,
 ) ([]**dexpb.Value, error) {
-	valuePointers := stepRequestValuePointers(&request.StepInput, request.Attributes)
+	valuePointers := make([]**dexpb.Value, 0, 1+len(request.Attributes)+len(request.StepExeLocals))
+	if request.StepInput != nil {
+		valuePointers = append(valuePointers, &request.StepInput)
+	}
+	for _, attribute := range request.Attributes {
+		valuePointers = append(valuePointers, &attribute.Value)
+	}
 	for _, local := range request.StepExeLocals {
 		valuePointers = append(valuePointers, &local.Value)
 	}

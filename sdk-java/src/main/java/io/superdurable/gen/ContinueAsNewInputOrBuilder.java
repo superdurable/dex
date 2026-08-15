@@ -21,4 +21,10 @@ public interface ContinueAsNewInputOrBuilder extends
    */
   com.google.protobuf.ByteString
       getPreviousInternalRunIdBytes();
+
+  /**
+   * <code>int64 flow_timeout_deadline_unix_timestamp_seconds = 2;</code>
+   * @return The flowTimeoutDeadlineUnixTimestampSeconds.
+   */
+  long getFlowTimeoutDeadlineUnixTimestampSeconds();
 }

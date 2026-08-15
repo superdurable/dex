@@ -226,6 +226,25 @@ class Flow(Generic[StartT], ABC):
         """
         return PersistenceSchema.of()
 
+    def handle_timeout(self, context: Context) -> StepDecision:
+        """Handle expiration of this Flow's durable soft-timeout timer.
+
+        Override this method to make a positive timeout default to ``HANDLER``.
+        Async Flow implementations may use ``async def`` with the same annotations.
+        The returned StepDecision uses ordinary Execute validation and may transition,
+        dead-end, complete, fail, or request graceful completion.
+
+        Args:
+            context: The timeout-handler invocation Context; do not retain it.
+
+        Returns:
+            The decision applied after the timeout timer completes or is skipped.
+
+        Raises:
+            NotImplementedError: If called without an application override.
+        """
+        raise NotImplementedError("Flow has no timeout handler")
+
 
 @dataclass(frozen=True)
 class _RegisteredStep:
@@ -250,6 +269,7 @@ class _RegisteredRPC:
 class _RegisteredFlow:
     name: str
     flow: Flow[Any]
+    has_timeout_handler: bool
     steps: MappingProxyType[str, _RegisteredStep]
     start_step: _RegisteredStep | None
     rpcs: MappingProxyType[str, _RegisteredRPC]
@@ -465,11 +485,33 @@ class Registry:
         return _RegisteredFlow(
             flow_name,
             flow,
+            Registry._validate_timeout_handler(
+                flow, allow_async_handlers=allow_async_handlers
+            ),
             MappingProxyType(registered_steps),
             start_step,
             MappingProxyType(registered_rpcs),
             MappingProxyType(persistence),
         )
+
+    @staticmethod
+    def _validate_timeout_handler(
+        flow: Flow[Any],
+        *,
+        allow_async_handlers: bool,
+    ) -> bool:
+        if type(flow).handle_timeout is Flow.handle_timeout:
+            return False
+        handler = flow.handle_timeout
+        if iscoroutinefunction(handler) and not allow_async_handlers:
+            raise TypeError("Flow handle_timeout must be synchronous")
+        parameters = tuple(signature(handler).parameters.values())
+        hints = get_type_hints(handler)
+        if len(parameters) != 1 or hints.get(parameters[0].name) is not Context:
+            raise TypeError("Flow handle_timeout must accept Context")
+        if hints.get("return") is not StepDecision:
+            raise TypeError("Flow handle_timeout must return StepDecision")
+        return True
 
     @staticmethod
     def _assemble_persistence(

@@ -28,7 +28,20 @@ Mitigation after a fix: [reset](/references/client-apis) failed Flows when appro
 
 ### Flow timeout
 
-Timeouts are set at start (0 can mean infinite depending on API). Inspect start options / history for the configured timeout. Mitigate with reset after fixing root causes.
+Flow timeouts are durable Dex timers configured at start; zero disables them.
+Choose `FAIL`, `CANCEL`, or a Flow timeout handler. A fail timeout records
+`FLOW_ERROR_TYPE_FLOW_TIMEOUT`, while cancel produces a canceled Flow. Both
+paths finish Dex terminal coordination before the backend execution closes.
+
+Inspect Dex start history for the configured timeout and resolved policy. Do
+not infer it from Temporal or Cadence execution settings: Temporal has no
+execution timeout for interpreter Flows, and Cadence uses its maximum value as
+an implementation detail. A continue-as-new run retains the original absolute
+deadline; retries and cron runs start with a fresh budget.
+
+For handler policy, the internal `sys:timeout_handler` timer is visible in
+active-Step diagnostics and may be fired early with `SkipTimer`. Mitigate a
+failed timeout with reset only after fixing the underlying cause.
 
 ## How to operate
 

@@ -31,6 +31,19 @@ pub enum IdReusePolicy {
     TerminateIfRunning,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Controls how Dex responds when a positive soft Flow timeout expires.
+pub enum FlowTimeoutPolicy {
+    /// Uses the Flow's registered timeout handler when present, and fails otherwise.
+    Default,
+    /// Fails with [`crate::FlowErrorType::FlowTimeout`] and permits Flow retries.
+    Fail,
+    /// Cancels without retrying the Flow.
+    Cancel,
+    /// Invokes the registered [`crate::FlowTimeoutHandler`] once.
+    Handler,
+}
+
 #[derive(Clone)]
 /// Configures a new Flow execution.
 ///
@@ -52,6 +65,7 @@ pub enum IdReusePolicy {
 /// ```
 pub struct StartFlowOptions {
     pub(crate) timeout: Option<Duration>,
+    pub(crate) timeout_policy: FlowTimeoutPolicy,
     pub(crate) start_delay: Option<Duration>,
     pub(crate) id_reuse_policy: IdReusePolicy,
     pub(crate) cron_schedule: Option<String>,
@@ -99,6 +113,7 @@ impl StartFlowOptions {
     pub fn new() -> Self {
         Self {
             timeout: None,
+            timeout_policy: FlowTimeoutPolicy::Default,
             start_delay: None,
             id_reuse_policy: IdReusePolicy::Default,
             cron_schedule: None,
@@ -110,9 +125,17 @@ impl StartFlowOptions {
         }
     }
 
-    /// Sets the maximum total Flow execution duration.
+    /// Sets Dex's durable soft timeout. A zero duration disables it.
     pub fn timeout(mut self, value: Duration) -> Self {
         self.timeout = Some(value);
+        self
+    }
+
+    /// Sets the action taken when the positive Flow timeout expires.
+    ///
+    /// Handler is rejected before start when the registered Flow has no timeout handler.
+    pub fn timeout_policy(mut self, value: FlowTimeoutPolicy) -> Self {
+        self.timeout_policy = value;
         self
     }
 

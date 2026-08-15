@@ -283,8 +283,8 @@ func flowStatusLabel(status dexpb.FlowStatus) string {
 		return "Completed"
 	case dexpb.FlowStatus_FLOW_STATUS_FAILED:
 		return "Failed"
-	case dexpb.FlowStatus_FLOW_STATUS_TIMEOUT:
-		return "Timed out"
+	case dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY:
+		return "Server-side timeout (internal only)"
 	case dexpb.FlowStatus_FLOW_STATUS_TERMINATED:
 		return "Terminated"
 	case dexpb.FlowStatus_FLOW_STATUS_CANCELED:

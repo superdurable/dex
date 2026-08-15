@@ -18,8 +18,8 @@ pub enum FlowStatus {
     Completed,
     /// The Flow ended because a Step, RPC, or user-code failure was not recovered.
     Failed,
-    /// The Flow exceeded its configured timeout.
-    TimedOut,
+    /// Reserved for backend hard-timeout reporting. Applications must not depend on this status.
+    ServerSideTimeoutInternalOnly,
     /// An operator terminated the Flow immediately.
     Terminated,
     /// The Flow completed cooperative cancellation.
@@ -41,6 +41,8 @@ pub enum FlowErrorType {
     InvalidUserFlowCode,
     /// Dex encountered an internal failure.
     Internal,
+    /// A Dex soft Flow timeout expired under the fail policy.
+    FlowTimeout,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

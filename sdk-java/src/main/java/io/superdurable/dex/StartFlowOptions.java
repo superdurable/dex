@@ -40,6 +40,7 @@ import java.util.Objects;
  */
 public final class StartFlowOptions {
     private final Duration timeout;
+    private final FlowTimeoutPolicy timeoutPolicy;
     private final Duration startDelay;
     private final IdReusePolicy idReusePolicy;
     private final String cronSchedule;
@@ -56,6 +57,7 @@ public final class StartFlowOptions {
 
     private StartFlowOptions(final Builder builder) {
         this.timeout = builder.timeout;
+        this.timeoutPolicy = builder.timeoutPolicy;
         this.startDelay = builder.startDelay;
         this.idReusePolicy = builder.idReusePolicy;
         this.cronSchedule = builder.cronSchedule;
@@ -78,6 +80,10 @@ public final class StartFlowOptions {
 
     Duration getTimeout() {
         return timeout;
+    }
+
+    FlowTimeoutPolicy getTimeoutPolicy() {
+        return timeoutPolicy;
     }
 
     Duration getStartDelay() {
@@ -115,6 +121,7 @@ public final class StartFlowOptions {
     /** Builds immutable {@link StartFlowOptions} values. */
     public static final class Builder {
         private Duration timeout;
+        private FlowTimeoutPolicy timeoutPolicy = FlowTimeoutPolicy.DEFAULT;
         private Duration startDelay;
         private IdReusePolicy idReusePolicy = IdReusePolicy.DEFAULT;
         private String cronSchedule;
@@ -129,13 +136,28 @@ public final class StartFlowOptions {
         }
 
         /**
-         * Sets the maximum Flow execution duration.
+         * Sets Dex's durable soft timeout for the Flow execution.
          *
-         * @param value a nonnegative whole-second timeout, or {@code null} for the server default
+         * @param value a nonnegative whole-second timeout, or {@code null} to disable it
          * @return this builder
          */
         public Builder timeout(final Duration value) {
             timeout = value;
+            return this;
+        }
+
+        /**
+         * Sets the action taken when the positive Flow timeout expires.
+         *
+         * <p>The default invokes an overridden {@link Flow#handleTimeout}; otherwise it fails the
+         * Flow. HANDLER is rejected before start when the target Flow has no override.
+         *
+         * @param value the non-null timeout policy
+         * @return this builder
+         * @throws NullPointerException if {@code value} is {@code null}
+         */
+        public Builder timeoutPolicy(final FlowTimeoutPolicy value) {
+            timeoutPolicy = Objects.requireNonNull(value, "timeoutPolicy");
             return this;
         }
 

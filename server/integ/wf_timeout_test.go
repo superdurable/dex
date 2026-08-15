@@ -12,14 +12,19 @@ package integ
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/gen/dexpb"
+	"github.com/superdurable/dex/integ/workflow/common"
 	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/service"
+	"github.com/superdurable/dex/service/common/event"
 )
 
 func TestFlowTimeoutTemporal(t *testing.T) {
@@ -27,9 +32,25 @@ func TestFlowTimeoutTemporal(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestFlowTimeout(t, service.BackendTypeTemporal, nil)
+		doTestFlowTimeoutValidation(t, service.BackendTypeTemporal)
 		smallWaitForFastTest()
-		doTestFlowTimeout(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig())
+		doTestFlowTimeout(t, service.BackendTypeTemporal, nil, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED)
+		smallWaitForFastTest()
+		doTestFlowTimeout(t, service.BackendTypeTemporal, minimumContinueAsNewSyncDurabilityConfig(), dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL)
+		smallWaitForFastTest()
+		doTestFlowTimeout(t, service.BackendTypeTemporal, nil, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL)
+		smallWaitForFastTest()
+		doTestFlowTimeoutRetry(t, service.BackendTypeTemporal)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandler(t, service.BackendTypeTemporal)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerDecisions(t, service.BackendTypeTemporal)
+		smallWaitForFastTest()
+		doTestFlowTimeoutSubFlowReport(t, service.BackendTypeTemporal)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerGraceful(t, service.BackendTypeTemporal, false)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerGraceful(t, service.BackendTypeTemporal, true)
 		smallWaitForFastTest()
 	}
 }
@@ -39,17 +60,57 @@ func TestFlowTimeoutCadence(t *testing.T) {
 		t.Skip()
 	}
 	for i := 0; i < *repeatIntegTest; i++ {
-		doTestFlowTimeout(t, service.BackendTypeCadence, nil)
+		doTestFlowTimeoutValidation(t, service.BackendTypeCadence)
 		smallWaitForFastTest()
-		doTestFlowTimeout(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig())
+		doTestFlowTimeout(t, service.BackendTypeCadence, nil, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_UNSPECIFIED)
+		smallWaitForFastTest()
+		doTestFlowTimeout(t, service.BackendTypeCadence, minimumContinueAsNewSyncDurabilityConfig(), dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL)
+		smallWaitForFastTest()
+		doTestFlowTimeout(t, service.BackendTypeCadence, nil, dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL)
+		smallWaitForFastTest()
+		doTestFlowTimeoutRetry(t, service.BackendTypeCadence)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandler(t, service.BackendTypeCadence)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerDecisions(t, service.BackendTypeCadence)
+		smallWaitForFastTest()
+		doTestFlowTimeoutSubFlowReport(t, service.BackendTypeCadence)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerGraceful(t, service.BackendTypeCadence, false)
+		smallWaitForFastTest()
+		doTestFlowTimeoutHandlerGraceful(t, service.BackendTypeCadence, true)
 		smallWaitForFastTest()
 	}
+}
+
+func doTestFlowTimeoutValidation(t *testing.T, backendType service.BackendType) {
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:         newRequestID(),
+		FlowId:            "wf-timeout-invalid-test-" + uuid.NewString(),
+		FlowType:          signal.WorkflowType,
+		FlowTimeoutPolicy: dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL,
+	})
+	require.ErrorContains(t, err, "flow timeout policy requires a positive timeout")
+
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             "wf-timeout-unknown-policy-test-" + uuid.NewString(),
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 1,
+		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy(100),
+	})
+	require.ErrorContains(t, err, "unknown flow timeout policy")
 }
 
 func doTestFlowTimeout(
 	t *testing.T,
 	backendType service.BackendType,
 	flowConfig *dexpb.FlowConfig,
+	timeoutPolicy dexpb.FlowTimeoutPolicy,
 ) {
 	workerHandler := signal.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
@@ -59,12 +120,23 @@ func doTestFlowTimeout(
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	flowId := "wf-timeout-test-" + uuid.NewString()
+	flowID := "wf-timeout-test-" + uuid.NewString()
+	terminalEvents := make(chan event.Event, 1)
+	previousEventHandler := event.Handle
+	event.SetHandleEventFunc(func(observed event.Event) {
+		if observed.FlowId == flowID &&
+			(observed.EventType == event.EventTypeFlowFail ||
+				observed.EventType == event.EventTypeFlowCancel) {
+			terminalEvents <- observed
+		}
+	})
+	defer event.SetHandleEventFunc(previousEventHandler)
 	startResp, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
-		FlowId:             flowId,
+		FlowId:             flowID,
 		FlowType:           signal.WorkflowType,
 		FlowTimeoutSeconds: 1,
+		FlowTimeoutPolicy:  timeoutPolicy,
 
 		StartStepType: signal.State1,
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
@@ -74,10 +146,10 @@ func doTestFlowTimeout(
 	require.NoError(t, err)
 
 	waitReq := &dexpb.WaitForFlowRequest{
-		FlowId:          flowId,
+		FlowId:          flowID,
 		WaitTimeSeconds: 20,
 	}
-	// Cadence GetWorkflow with empty runId is unreliable for timed-out closed runs.
+	// Cadence GetWorkflow with empty runId is unreliable for some closed runs.
 	// TODO: debug and remove this once Cadence is fixed.
 	if backendType == service.BackendTypeCadence {
 		waitReq.RunId = startResp.GetRunId()
@@ -85,7 +157,492 @@ func doTestFlowTimeout(
 	resp, err := flowClient.WaitForFlow(ctx, waitReq)
 	require.NoError(t, err)
 
-	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_TIMEOUT, resp.GetFlowStatus())
-	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, resp.GetErrorType())
-	require.Empty(t, resp.GetErrorMessage())
+	expectedEventType := event.EventTypeFlowFail
+	if timeoutPolicy == dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL {
+		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, resp.GetFlowStatus())
+		require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED, resp.GetErrorType())
+		expectedEventType = event.EventTypeFlowCancel
+	} else {
+		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
+		require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT, resp.GetErrorType())
+		require.Contains(t, resp.GetErrorMessage(), "timed out after 1 seconds")
+	}
+	select {
+	case terminalEvent := <-terminalEvents:
+		require.Equal(t, expectedEventType, terminalEvent.EventType)
+	case <-ctx.Done():
+		require.FailNow(t, "terminal metric was not reported", ctx.Err())
+	}
+}
+
+func doTestFlowTimeoutRetry(t *testing.T, backendType service.BackendType) {
+	workerHandler := &softTimeoutRetryHandler{}
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowID := "wf-timeout-retry-test-" + uuid.NewString()
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 1,
+		StartStepType:      signal.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			RetryPolicy: &dexpb.FlowRetryPolicy{
+				InitialIntervalSeconds: 1,
+				BackoffCoefficient:     1,
+				MaximumIntervalSeconds: 1,
+				MaximumAttempts:        2,
+			},
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	waitRequest := &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		WaitTimeSeconds: 20,
+	}
+	if backendType == service.BackendTypeCadence {
+		waitRequest.RunId = startResponse.GetRunId()
+	}
+	result, err := runtime.FlowClient.WaitForFlow(ctx, waitRequest)
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, result.GetFlowStatus())
+	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT, result.GetErrorType())
+	require.Equal(t, int32(2), workerHandler.waitForCalls.Load())
+}
+
+func doTestFlowTimeoutHandler(t *testing.T, backendType service.BackendType) {
+	workerHandler := &softTimeoutHandler{}
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowID := "wf-timeout-handler-test-" + uuid.NewString()
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 3600,
+		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
+		StartStepType:      signal.State1,
+		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
+			FlowConfigOverride: minimumContinueAsNewSyncDurabilityConfig(),
+		}, workerTarget),
+	})
+	require.NoError(t, err)
+
+	waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
+
+	_, err = runtime.FlowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
+		FlowId:           flowID,
+		StepExecutionId:  service.TimeoutHandlerStepType + "-1",
+		TimerConditionId: service.TimeoutHandlerTimerConditionID,
+	})
+	require.NoError(t, err)
+	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		NeedsResults:    true,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus())
+	require.Len(t, result.GetResults(), 1)
+	require.Equal(t, service.TimeoutHandlerStepType, result.GetResults()[0].GetCompletedStepType())
+	require.Equal(t, int64(42), result.GetResults()[0].GetCompletedStepOutput().GetIntValue())
+	require.Equal(t, int32(0), workerHandler.timeoutWaitForCalls.Load())
+	require.Equal(t, int32(1), workerHandler.timeoutExecuteCalls.Load())
+}
+
+func doTestFlowTimeoutHandlerDecisions(t *testing.T, backendType service.BackendType) {
+	workerHandler := &softTimeoutHandler{}
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	testCases := []struct {
+		name              string
+		startStepType     string
+		expectedStatus    dexpb.FlowStatus
+		expectedErrorType dexpb.FlowErrorType
+		expectedOutput    int64
+	}{
+		{
+			name:              "force-fail",
+			expectedStatus:    dexpb.FlowStatus_FLOW_STATUS_FAILED,
+			expectedErrorType: dexpb.FlowErrorType_FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW,
+		},
+		{
+			name:           "go-to",
+			expectedStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+			expectedOutput: 84,
+		},
+		{
+			name:           "dead-end",
+			startStepType:  signal.State1,
+			expectedStatus: dexpb.FlowStatus_FLOW_STATUS_COMPLETED,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			flowID := "wf-timeout-handler-" + testCase.name + "-" + uuid.NewString()
+			_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+				RequestId:          newRequestID(),
+				FlowId:             flowID,
+				FlowType:           signal.WorkflowType,
+				FlowTimeoutSeconds: 3600,
+				FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
+				StartStepType:      testCase.startStepType,
+				FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
+			})
+			require.NoError(t, err)
+			waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
+
+			executeCalls := workerHandler.timeoutExecuteCalls.Load()
+			_, err = runtime.FlowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
+				FlowId:           flowID,
+				StepExecutionId:  service.TimeoutHandlerStepType + "-1",
+				TimerConditionId: service.TimeoutHandlerTimerConditionID,
+			})
+			require.NoError(t, err)
+			require.Eventually(t, func() bool {
+				return workerHandler.timeoutExecuteCalls.Load() == executeCalls+1
+			}, 10*time.Second, 100*time.Millisecond)
+
+			if testCase.name == "dead-end" {
+				_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+					FlowId: flowID,
+					Messages: []*dexpb.ChannelMessage{
+						{ChannelName: signal.SignalName, Value: stringValue("complete")},
+					},
+				})
+				require.NoError(t, err)
+			}
+			result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+				FlowId:          flowID,
+				NeedsResults:    testCase.expectedOutput != 0,
+				WaitTimeSeconds: 20,
+			})
+			require.NoError(t, err)
+			require.Equal(t, testCase.expectedStatus, result.GetFlowStatus())
+			require.Equal(t, testCase.expectedErrorType, result.GetErrorType())
+			if testCase.expectedOutput != 0 {
+				require.Len(t, result.GetResults(), 1)
+				require.Equal(
+					t,
+					testCase.expectedOutput,
+					result.GetResults()[0].GetCompletedStepOutput().GetIntValue(),
+				)
+			}
+		})
+	}
+}
+
+func doTestFlowTimeoutSubFlowReport(t *testing.T, backendType service.BackendType) {
+	workerHandler := &softTimeoutSubFlowHandler{}
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	for _, timeoutPolicy := range []dexpb.FlowTimeoutPolicy{
+		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL,
+		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL,
+	} {
+		flowID := "wf-timeout-subflow-report-" + timeoutPolicy.String() + "-" + uuid.NewString()
+		_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+			RequestId:          newRequestID(),
+			FlowId:             flowID,
+			FlowType:           timeoutSubFlowParentType,
+			FlowTimeoutSeconds: 30,
+			StartStepType:      timeoutSubFlowParentStep,
+			StepInput:          intValue(int64(timeoutPolicy)),
+			FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
+		})
+		require.NoError(t, err)
+		result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+			FlowId:          flowID,
+			WaitTimeSeconds: 20,
+		})
+		require.NoError(t, err)
+		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus())
+	}
+}
+
+func doTestFlowTimeoutHandlerGraceful(
+	t *testing.T,
+	backendType service.BackendType,
+	isHandlerExecuting bool,
+) {
+	workerHandler := &softTimeoutHandler{
+		timeoutExecuteRelease: make(chan struct{}),
+	}
+	workerHandler.blockTimeoutExecute.Store(isHandlerExecuting)
+	if isHandlerExecuting {
+		defer close(workerHandler.timeoutExecuteRelease)
+	}
+	workerTarget := startWorker(t, workerHandler)
+	runtime := startDexService(t, DexServiceTestConfig{BackendType: backendType})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	flowID := "wf-timeout-handler-graceful-test-" + uuid.NewString()
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           signal.WorkflowType,
+		FlowTimeoutSeconds: 3600,
+		FlowTimeoutPolicy:  dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_HANDLER,
+		StartStepType:      signal.State1,
+		FlowStartOptions:   withWorkerTarget(&dexpb.FlowStartOptions{}, workerTarget),
+	})
+	require.NoError(t, err)
+	waitForTimeoutHandlerTimer(t, ctx, runtime, flowID)
+
+	if isHandlerExecuting {
+		_, err = runtime.FlowClient.SkipTimer(ctx, &dexpb.SkipTimerRequest{
+			FlowId:           flowID,
+			StepExecutionId:  service.TimeoutHandlerStepType + "-1",
+			TimerConditionId: service.TimeoutHandlerTimerConditionID,
+		})
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			return workerHandler.timeoutExecuteCalls.Load() == 1
+		}, 10*time.Second, 100*time.Millisecond)
+	}
+
+	_, err = runtime.FlowClient.PublishToChannel(ctx, &dexpb.PublishToChannelRequest{
+		FlowId: flowID,
+		Messages: []*dexpb.ChannelMessage{
+			{ChannelName: signal.SignalName, Value: stringValue("complete")},
+		},
+	})
+	require.NoError(t, err)
+	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		WaitTimeSeconds: 20,
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus())
+	if isHandlerExecuting {
+		require.Equal(t, int32(1), workerHandler.timeoutExecuteCalls.Load())
+	} else {
+		require.Equal(t, int32(0), workerHandler.timeoutExecuteCalls.Load())
+	}
+}
+
+type timeoutHandlerTimerProbe struct {
+	ctx     context.Context
+	runtime *integRuntime
+	flowID  string
+}
+
+func waitForTimeoutHandlerTimer(
+	t *testing.T,
+	ctx context.Context,
+	runtime *integRuntime,
+	flowID string,
+) {
+	t.Helper()
+	probe := timeoutHandlerTimerProbe{ctx: ctx, runtime: runtime, flowID: flowID}
+	require.Eventually(t, probe.isReady, 10*time.Second, 100*time.Millisecond)
+}
+
+func (p timeoutHandlerTimerProbe) isReady() bool {
+	timerInfos := &dexpb.GetCurrentTimerInfosQueryResponse{}
+	queryErr := p.runtime.UnifiedClient.QueryWorkflow(
+		p.ctx,
+		timerInfos,
+		p.flowID,
+		"",
+		service.GetCurrentTimerInfosQueryType,
+	)
+	if queryErr != nil {
+		return false
+	}
+	timers := timerInfos.GetStepExecutionCurrentTimerInfos()[service.TimeoutHandlerStepType+"-1"]
+	return timers != nil && len(timers.GetTimers()) == 1 &&
+		timers.GetTimers()[0].GetConditionId() == service.TimeoutHandlerTimerConditionID
+}
+
+type softTimeoutHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	timeoutWaitForCalls   atomic.Int32
+	timeoutExecuteCalls   atomic.Int32
+	blockTimeoutExecute   atomic.Bool
+	timeoutExecuteRelease chan struct{}
+}
+
+func (h *softTimeoutHandler) InvokeWaitForMethod(
+	_ context.Context,
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	if request.GetStepType() == service.TimeoutHandlerStepType {
+		h.timeoutWaitForCalls.Add(1)
+	}
+	return &dexpb.InvokeWaitForMethodResponse{
+		WaitingCondition: &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
+				{ChannelName: signal.SignalName},
+			},
+		},
+	}, nil
+}
+
+func (h *softTimeoutHandler) InvokeExecuteMethod(
+	ctx context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetStepType() != service.TimeoutHandlerStepType {
+		closeDecision := common.GracefulCompleteDecision(nil)
+		if request.GetStepType() == timeoutRecoveryStep {
+			closeDecision = common.ForceCompleteDecision(intValue(84))
+		}
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				CloseDecision: closeDecision,
+			},
+		}, nil
+	}
+	h.timeoutExecuteCalls.Add(1)
+	if h.blockTimeoutExecute.Load() {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("timeout handler canceled: %w", ctx.Err())
+		case <-h.timeoutExecuteRelease:
+		}
+	}
+	flowID := request.GetContext().GetFlowId()
+	switch {
+	case strings.Contains(flowID, "-force-fail-"):
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				CloseDecision: common.ForceFailDecision(stringValue("timeout handler failed")),
+			},
+		}, nil
+	case strings.Contains(flowID, "-go-to-"):
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				NextSteps: []*dexpb.StepMovement{{
+					StepType:    timeoutRecoveryStep,
+					StepOptions: &dexpb.StepOptions{SkipWaitFor: true},
+				}},
+			},
+		}, nil
+	case strings.Contains(flowID, "-dead-end-"):
+		return &dexpb.InvokeExecuteMethodResponse{
+			StepDecision: &dexpb.StepDecision{
+				CloseDecision: common.DeadEndDecision(),
+			},
+		}, nil
+	}
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			CloseDecision: common.ForceCompleteDecision(intValue(42)),
+		},
+	}, nil
+}
+
+type softTimeoutRetryHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	waitForCalls atomic.Int32
+}
+
+func (h *softTimeoutRetryHandler) InvokeWaitForMethod(
+	_ context.Context,
+	_ *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	h.waitForCalls.Add(1)
+	return &dexpb.InvokeWaitForMethodResponse{
+		WaitingCondition: &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
+				{ChannelName: "never-published"},
+			},
+		},
+	}, nil
+}
+
+const (
+	timeoutRecoveryStep      = "TimeoutRecovery"
+	timeoutSubFlowParentType = "timeout-subflow-parent"
+	timeoutSubFlowChildType  = "timeout-subflow-child"
+	timeoutSubFlowParentStep = "TimeoutParent"
+	timeoutSubFlowChildStep  = "TimeoutChild"
+)
+
+type softTimeoutSubFlowHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+}
+
+func (h *softTimeoutSubFlowHandler) InvokeWaitForMethod(
+	_ context.Context,
+	request *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	switch request.GetFlowType() {
+	case timeoutSubFlowParentType:
+		timeoutPolicy := dexpb.FlowTimeoutPolicy(request.GetStepInput().GetIntValue())
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				SubFlowConditions: []*dexpb.SubFlowCondition{{
+					SubFlowType:   timeoutSubFlowChildType,
+					StartStepType: timeoutSubFlowChildStep,
+					Options: &dexpb.SubFlowOptions{
+						FlowTimeoutSeconds: 1,
+						FlowTimeoutPolicy:  timeoutPolicy,
+					},
+				}},
+			},
+		}, nil
+	case timeoutSubFlowChildType:
+		return &dexpb.InvokeWaitForMethodResponse{
+			WaitingCondition: &dexpb.WaitingCondition{
+				WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+				ChannelConditions: []*dexpb.ChannelCondition{
+					{ChannelName: "never-published"},
+				},
+			},
+		}, nil
+	default:
+		return nil, fmt.Errorf("unexpected timeout SubFlow type %q", request.GetFlowType())
+	}
+}
+
+func (h *softTimeoutSubFlowHandler) InvokeExecuteMethod(
+	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	if request.GetFlowType() != timeoutSubFlowParentType {
+		return nil, fmt.Errorf("unexpected timeout SubFlow Execute type %q", request.GetFlowType())
+	}
+	results := request.GetConditionResults().GetSubFlowResults()
+	if len(results) != 1 {
+		return nil, fmt.Errorf("expected one timeout SubFlow result")
+	}
+	timeoutPolicy := dexpb.FlowTimeoutPolicy(request.GetStepInput().GetIntValue())
+	expectedStatus := dexpb.FlowStatus_FLOW_STATUS_FAILED
+	expectedErrorType := dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT
+	if timeoutPolicy == dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_CANCEL {
+		expectedStatus = dexpb.FlowStatus_FLOW_STATUS_CANCELED
+		expectedErrorType = dexpb.FlowErrorType_FLOW_ERROR_TYPE_UNSPECIFIED
+	}
+	if results[0].GetFlowStatus() != expectedStatus ||
+		results[0].GetErrorType() != expectedErrorType {
+		return nil, fmt.Errorf(
+			"unexpected timeout SubFlow result: status=%s error=%s",
+			results[0].GetFlowStatus(),
+			results[0].GetErrorType(),
+		)
+	}
+	return &dexpb.InvokeExecuteMethodResponse{
+		StepDecision: &dexpb.StepDecision{
+			CloseDecision: common.ForceCompleteDecision(nil),
+		},
+	}, nil
 }

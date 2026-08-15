@@ -11,8 +11,8 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Context, Flow, FlowConfig, HandlerError, HandlerResult, Step, StepDecision, StepList, SubFlow,
-    SubFlowOptions, SubFlowReusePolicy, Timer, Wait,
+    Context, Flow, FlowConfig, FlowTimeoutPolicy, HandlerError, HandlerResult, Step, StepDecision,
+    StepList, SubFlow, SubFlowOptions, SubFlowReusePolicy, Timer, Wait,
 };
 
 use crate::basic_abnormal_exit_workflow::BasicAbnormalExitWorkflow;
@@ -47,11 +47,13 @@ impl Step for SingleSubFlowStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, input: i32) -> HandlerResult<Wait> {
-        let options = self
-            .reuse_policy
-            .map_or_else(SubFlowOptions::new, |policy| {
-                SubFlowOptions::new().reuse_policy(policy)
-            });
+        let options = SubFlowOptions::new()
+            .timeout(Duration::from_secs(3_600))
+            .timeout_policy(FlowTimeoutPolicy::Cancel);
+        let options = match self.reuse_policy {
+            Some(policy) => options.reuse_policy(policy),
+            None => options,
+        };
         Ok(Wait::until(sub_flow_with_options(
             &BasicWorkflow::new(),
             input,

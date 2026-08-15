@@ -102,7 +102,9 @@ final class ValueHydrator {
 
     InvokeExecuteMethodRequest hydrate(final InvokeExecuteMethodRequest request) {
         final List<Value> source = new ArrayList<Value>();
-        source.add(request.getStepInput());
+        if (request.hasStepInput()) {
+            source.add(request.getStepInput());
+        }
         addValues(source, request.getAttributesList());
         addValues(source, request.getStepExeLocalsList());
         if (request.hasConditionResults()) {
@@ -113,9 +115,11 @@ final class ValueHydrator {
         final List<Value> hydrated = hydrateAll(source);
         int index = 0;
         final InvokeExecuteMethodRequest.Builder builder = request.toBuilder()
-                .setStepInput(hydrated.get(index++))
                 .clearAttributes()
                 .clearStepExeLocals();
+        if (request.hasStepInput()) {
+            builder.setStepInput(hydrated.get(index++));
+        }
         for (KV entry : request.getAttributesList()) {
             builder.addAttributes(entry.toBuilder().setValue(hydrated.get(index++)));
         }

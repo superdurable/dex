@@ -6,27 +6,27 @@
 package io.superdurable.gen;
 
 /**
- * Protobuf enum {@code dex.StopType}
+ * Protobuf enum {@code dex.FlowTimeoutPolicy}
  */
 @com.google.protobuf.Generated
-public enum StopType
+public enum FlowTimeoutPolicy
     implements com.google.protobuf.ProtocolMessageEnum {
   /**
-   * <code>STOP_TYPE_UNSPECIFIED = 0;</code>
+   * <code>FLOW_TIMEOUT_POLICY_UNSPECIFIED = 0;</code>
    */
-  STOP_TYPE_UNSPECIFIED(0),
+  FLOW_TIMEOUT_POLICY_UNSPECIFIED(0),
   /**
-   * <code>STOP_TYPE_CANCEL = 1;</code>
+   * <code>FLOW_TIMEOUT_POLICY_FAIL = 1;</code>
    */
-  STOP_TYPE_CANCEL(1),
+  FLOW_TIMEOUT_POLICY_FAIL(1),
   /**
-   * <code>STOP_TYPE_TERMINATE = 2;</code>
+   * <code>FLOW_TIMEOUT_POLICY_CANCEL = 2;</code>
    */
-  STOP_TYPE_TERMINATE(2),
+  FLOW_TIMEOUT_POLICY_CANCEL(2),
   /**
-   * <code>STOP_TYPE_FAIL = 3;</code>
+   * <code>FLOW_TIMEOUT_POLICY_HANDLER = 3;</code>
    */
-  STOP_TYPE_FAIL(3),
+  FLOW_TIMEOUT_POLICY_HANDLER(3),
   UNRECOGNIZED(-1),
   ;
 
@@ -37,24 +37,24 @@ public enum StopType
       /* minor= */ 35,
       /* patch= */ 1,
       /* suffix= */ "",
-      "StopType");
+      "FlowTimeoutPolicy");
   }
   /**
-   * <code>STOP_TYPE_UNSPECIFIED = 0;</code>
+   * <code>FLOW_TIMEOUT_POLICY_UNSPECIFIED = 0;</code>
    */
-  public static final int STOP_TYPE_UNSPECIFIED_VALUE = 0;
+  public static final int FLOW_TIMEOUT_POLICY_UNSPECIFIED_VALUE = 0;
   /**
-   * <code>STOP_TYPE_CANCEL = 1;</code>
+   * <code>FLOW_TIMEOUT_POLICY_FAIL = 1;</code>
    */
-  public static final int STOP_TYPE_CANCEL_VALUE = 1;
+  public static final int FLOW_TIMEOUT_POLICY_FAIL_VALUE = 1;
   /**
-   * <code>STOP_TYPE_TERMINATE = 2;</code>
+   * <code>FLOW_TIMEOUT_POLICY_CANCEL = 2;</code>
    */
-  public static final int STOP_TYPE_TERMINATE_VALUE = 2;
+  public static final int FLOW_TIMEOUT_POLICY_CANCEL_VALUE = 2;
   /**
-   * <code>STOP_TYPE_FAIL = 3;</code>
+   * <code>FLOW_TIMEOUT_POLICY_HANDLER = 3;</code>
    */
-  public static final int STOP_TYPE_FAIL_VALUE = 3;
+  public static final int FLOW_TIMEOUT_POLICY_HANDLER_VALUE = 3;
 
 
   public final int getNumber() {
@@ -71,7 +71,7 @@ public enum StopType
    * @deprecated Use {@link #forNumber(int)} instead.
    */
   @java.lang.Deprecated
-  public static StopType valueOf(int value) {
+  public static FlowTimeoutPolicy valueOf(int value) {
     return forNumber(value);
   }
 
@@ -79,25 +79,25 @@ public enum StopType
    * @param value The numeric wire value of the corresponding enum entry.
    * @return The enum associated with the given numeric wire value.
    */
-  public static StopType forNumber(int value) {
+  public static FlowTimeoutPolicy forNumber(int value) {
     switch (value) {
-      case 0: return STOP_TYPE_UNSPECIFIED;
-      case 1: return STOP_TYPE_CANCEL;
-      case 2: return STOP_TYPE_TERMINATE;
-      case 3: return STOP_TYPE_FAIL;
+      case 0: return FLOW_TIMEOUT_POLICY_UNSPECIFIED;
+      case 1: return FLOW_TIMEOUT_POLICY_FAIL;
+      case 2: return FLOW_TIMEOUT_POLICY_CANCEL;
+      case 3: return FLOW_TIMEOUT_POLICY_HANDLER;
       default: return null;
     }
   }
 
-  public static com.google.protobuf.Internal.EnumLiteMap<StopType>
+  public static com.google.protobuf.Internal.EnumLiteMap<FlowTimeoutPolicy>
       internalGetValueMap() {
     return internalValueMap;
   }
   private static final com.google.protobuf.Internal.EnumLiteMap<
-      StopType> internalValueMap =
-        new com.google.protobuf.Internal.EnumLiteMap<StopType>() {
-          public StopType findValueByNumber(int number) {
-            return StopType.forNumber(number);
+      FlowTimeoutPolicy> internalValueMap =
+        new com.google.protobuf.Internal.EnumLiteMap<FlowTimeoutPolicy>() {
+          public FlowTimeoutPolicy findValueByNumber(int number) {
+            return FlowTimeoutPolicy.forNumber(number);
           }
         };
 
@@ -115,12 +115,12 @@ public enum StopType
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(7);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(6);
   }
 
-  private static final StopType[] VALUES = values();
+  private static final FlowTimeoutPolicy[] VALUES = values();
 
-  public static StopType valueOf(
+  public static FlowTimeoutPolicy valueOf(
       com.google.protobuf.Descriptors.EnumValueDescriptor desc) {
     if (desc.getType() != getDescriptor()) {
       throw new java.lang.IllegalArgumentException(
@@ -134,10 +134,10 @@ public enum StopType
 
   private final int value;
 
-  private StopType(int value) {
+  private FlowTimeoutPolicy(int value) {
     this.value = value;
   }
 
-  // @@protoc_insertion_point(enum_scope:dex.StopType)
+  // @@protoc_insertion_point(enum_scope:dex.FlowTimeoutPolicy)
 }
 

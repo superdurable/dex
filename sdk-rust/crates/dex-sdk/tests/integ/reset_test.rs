@@ -170,8 +170,8 @@ fn assert_reset_times_out_without_attributes(
     let result = environment
         .client
         .wait_for_flow_with_timeout(flow_id, Duration::from_secs(10))
-        .expect("wait for timed-out Flow result");
-    assert_eq!(FlowStatus::TimedOut, result.status());
+        .expect("wait for failed Flow result");
+    assert_eq!(FlowStatus::Failed, result.status());
     assert_eq!(0, result.completions().len());
     assert_eq!(
         None,

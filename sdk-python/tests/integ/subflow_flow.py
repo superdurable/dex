@@ -14,6 +14,7 @@ from dex import (
     Context,
     Flow,
     FlowConfig,
+    FlowTimeoutPolicy,
     Step,
     StepDecision,
     StepList,
@@ -34,8 +35,10 @@ class _SingleSubFlowStep(Step[int]):
     ) -> None:
         self.target = target
         self.options = SubFlowOptions(
+            timeout=timedelta(hours=1),
+            timeout_policy=FlowTimeoutPolicy.CANCEL,
             reuse_policy=reuse_policy
-            or SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY
+            or SubFlowReusePolicy.RESTART_IF_PREVIOUS_EXITS_ABNORMALLY,
         )
 
     def wait_for(self, context: Context, input: int) -> Wait:

@@ -107,6 +107,28 @@ const response = await fetch(url, { signal: context.cancellationSignal });
 An RPC result may set `cancelingSteps` for Flow-wide selection. RPCs do not
 support sibling selection because they have no Step execution lineage.
 
+### Soft Flow timeout
+
+An optional `Flow.handleTimeout` makes a positive timeout use handler policy by
+default. It may be synchronous or async and returns a normal `StepDecision`:
+
+```typescript
+async handleTimeout(context: Context): Promise<StepDecision> {
+  await notifyExpiration(context);
+  return forceComplete("expired");
+}
+
+await client.startFlow(orders, "order-42", input, {
+  timeoutMs: 30 * 60_000,
+  timeoutPolicy: FlowTimeoutPolicy.HANDLER,
+});
+```
+
+`FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow retry; `CANCEL`
+cancels without retry. Continue-as-new preserves the durable timer's deadline;
+retry and cron runs get a fresh budget. A zero or omitted timeout disables the
+feature.
+
 Opt an Attribute or AttributeMap into Attribute Store synchronization, then
 select the Server-configured Store for the Flow:
 
@@ -197,8 +219,8 @@ public execute(context: Context, _input: ChargeInput): StepDecision {
 ```
 
 `SubFlow.getFlowId(context, index)` remains available for a running `anyOf` loser.
-`SubFlowOptions` configures timing, retry, initial target Attributes, Flow config,
-Condition ID, and reuse. Parent completion does not cancel an unfinished SubFlow.
+`SubFlowOptions` configures timing, timeout policy, retry, initial target Attributes,
+Flow config, Condition ID, and reuse. Parent completion does not cancel an unfinished SubFlow.
 
 ## Errors
 

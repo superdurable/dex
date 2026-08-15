@@ -15,6 +15,7 @@ import type { Context } from "./context.js";
 import {
   ActiveStepSearchMode as ProtoActiveStepSearchMode,
   FlowErrorType as ProtoFlowErrorType,
+  FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
   FlowResetType as ProtoFlowResetType,
   FlowServiceClient,
   FlowStatus as ProtoFlowStatus,
@@ -59,6 +60,7 @@ import {
 import { translateServiceError } from "./grpc-status.js";
 import {
   ActiveStepSearchMode,
+  FlowTimeoutPolicy,
   IdReusePolicy,
   ResetType,
   StopType,
@@ -139,10 +141,16 @@ export class Client {
     options: StartFlowOptions = {},
   ): Promise<string> {
     const registered = registeredFlow(this.registry, flow);
+    const flowTimeoutSeconds = seconds(options.timeoutMs);
     const request = StartFlowRequest.create({
       flowId: requireName(flowId),
       flowType: registered.name,
-      flowTimeoutSeconds: seconds(options.timeoutMs),
+      flowTimeoutSeconds,
+      flowTimeoutPolicy: resolveFlowTimeoutPolicy(
+        registered,
+        flowTimeoutSeconds,
+        options.timeoutPolicy,
+      ),
       requestId: options.requestId ?? crypto.randomUUID(),
       flowStartOptions: {
         idReusePolicy: mapIdReusePolicy(options.idReusePolicy),
@@ -1001,8 +1009,8 @@ function mapFlowStatus(status: ProtoFlowStatus): FlowStatus {
       return "completed";
     case ProtoFlowStatus.FLOW_STATUS_FAILED:
       return "failed";
-    case ProtoFlowStatus.FLOW_STATUS_TIMEOUT:
-      return "timedOut";
+    case ProtoFlowStatus.FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY:
+      return "serverSideTimeoutInternalOnly";
     case ProtoFlowStatus.FLOW_STATUS_TERMINATED:
       return "terminated";
     case ProtoFlowStatus.FLOW_STATUS_CANCELED:
@@ -1026,9 +1034,39 @@ function mapFlowErrorType(type: ProtoFlowErrorType): FlowErrorTypeValue | undefi
       return FlowErrorType.INVALID_USER_FLOW_CODE;
     case ProtoFlowErrorType.FLOW_ERROR_TYPE_INTERNAL:
       return FlowErrorType.INTERNAL;
+    case ProtoFlowErrorType.FLOW_ERROR_TYPE_FLOW_TIMEOUT:
+      return FlowErrorType.FLOW_TIMEOUT;
     default:
       return undefined;
   }
+}
+
+function resolveFlowTimeoutPolicy(
+  flow: RegisteredFlow,
+  timeoutSeconds: number,
+  policy: FlowTimeoutPolicy | undefined,
+): ProtoFlowTimeoutPolicy {
+  const requested = policy ?? FlowTimeoutPolicy.DEFAULT;
+  if (timeoutSeconds === 0) {
+    if (requested !== FlowTimeoutPolicy.DEFAULT) {
+      throw new RangeError("Flow timeout policy requires a positive timeout");
+    }
+    return ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED;
+  }
+  const resolved = requested === FlowTimeoutPolicy.DEFAULT
+    ? flow.hasTimeoutHandler
+      ? FlowTimeoutPolicy.HANDLER
+      : FlowTimeoutPolicy.FAIL
+    : requested;
+  if (resolved === FlowTimeoutPolicy.HANDLER && !flow.hasTimeoutHandler) {
+    throw new TypeError(`Flow ${flow.name} does not implement handleTimeout`);
+  }
+  return {
+    [FlowTimeoutPolicy.DEFAULT]: ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED,
+    [FlowTimeoutPolicy.FAIL]: ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_FAIL,
+    [FlowTimeoutPolicy.CANCEL]: ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_CANCEL,
+    [FlowTimeoutPolicy.HANDLER]: ProtoFlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_HANDLER,
+  }[resolved];
 }
 
 function physicalName(name: string, instance?: string): string {

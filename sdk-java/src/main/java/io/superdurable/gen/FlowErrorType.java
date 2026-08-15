@@ -36,6 +36,10 @@ public enum FlowErrorType
    */
   FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE(4),
   /**
+   * <code>FLOW_ERROR_TYPE_FLOW_TIMEOUT = 5;</code>
+   */
+  FLOW_ERROR_TYPE_FLOW_TIMEOUT(5),
+  /**
    * <pre>
    * either bug in sdk or server
    * </pre>
@@ -80,6 +84,10 @@ public enum FlowErrorType
    */
   public static final int FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE_VALUE = 4;
   /**
+   * <code>FLOW_ERROR_TYPE_FLOW_TIMEOUT = 5;</code>
+   */
+  public static final int FLOW_ERROR_TYPE_FLOW_TIMEOUT_VALUE = 5;
+  /**
    * <pre>
    * either bug in sdk or server
    * </pre>
@@ -118,6 +126,7 @@ public enum FlowErrorType
       case 2: return FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW;
       case 3: return FLOW_ERROR_TYPE_WORKER_API_FAIL;
       case 4: return FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE;
+      case 5: return FLOW_ERROR_TYPE_FLOW_TIMEOUT;
       case 6: return FLOW_ERROR_TYPE_INTERNAL;
       default: return null;
     }
@@ -149,7 +158,7 @@ public enum FlowErrorType
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(8);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(9);
   }
 
   private static final FlowErrorType[] VALUES = values();

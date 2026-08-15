@@ -199,7 +199,7 @@ public final class ResetTest {
             final String flowId) {
         final FlowResult failure =
                 environment.client().waitForFlow(flowId, Duration.ofSeconds(10));
-        assertEquals(FlowStatus.TIMED_OUT, failure.getStatus());
+        assertEquals(FlowStatus.FAILED, failure.getStatus());
         assertEquals(0, failure.getCompletions().size());
         assertNull(environment.client().getAttribute(flowId, WORKFLOW.data));
         assertNull(environment.client().getAttribute(flowId, WORKFLOW.keyword));

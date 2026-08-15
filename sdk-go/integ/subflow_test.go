@@ -30,7 +30,10 @@ func (subFlowParentFlow) GetSteps() []dex.StepDef {
 type subFlowParentStep struct{ dex.StepDefaults }
 
 func (subFlowParentStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
-	return dex.Until(dex.SubFlow(basicFlow{}, input)), nil
+	return dex.Until(dex.SubFlow(basicFlow{}, input, dex.SubFlowOptions{
+		Timeout:       ptr.Any(time.Hour),
+		TimeoutPolicy: dex.TimeoutCancel,
+	})), nil
 }
 
 func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {

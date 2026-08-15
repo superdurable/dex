@@ -29,5 +29,8 @@ public enum FlowErrorType {
     INVALID_USER_FLOW_CODE,
 
     /** Dex encountered an internal failure. */
-    INTERNAL
+    INTERNAL,
+
+    /** A Dex soft Flow timeout expired under {@link FlowTimeoutPolicy#FAIL}. */
+    FLOW_TIMEOUT
 }

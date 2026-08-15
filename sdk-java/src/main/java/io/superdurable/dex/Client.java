@@ -209,6 +209,8 @@ public final class Client implements AutoCloseable {
                         ? UUID.randomUUID().toString()
                         : startOptions.getRequestId())
                 .setFlowStartOptions(mapStartOptions(startOptions));
+        final FlowTimeoutPolicy timeoutPolicy = resolveTimeoutPolicy(
+                registered, startOptions.getTimeout(), startOptions.getTimeoutPolicy());
         if (registered.getStartStep() != null) {
             final Class<?> inputType = registered.getStartStep().getStep().getInputType();
             if (input != null && !inputType.isInstance(input)) {
@@ -231,7 +233,48 @@ public final class Client implements AutoCloseable {
         if (startOptions.getTimeout() != null) {
             request.setFlowTimeoutSeconds(seconds32(startOptions.getTimeout()));
         }
+        if (timeoutPolicy != FlowTimeoutPolicy.DEFAULT) {
+            request.setFlowTimeoutPolicy(mapFlowTimeoutPolicy(timeoutPolicy));
+        }
         return call(() -> service.startFlow(request.build())).getRunId();
+    }
+
+    static FlowTimeoutPolicy resolveTimeoutPolicy(
+            final Registry.RegisteredFlow flow,
+            final Duration timeout,
+            final FlowTimeoutPolicy policy) {
+        final boolean hasPositiveTimeout = timeout != null
+                && !timeout.isZero()
+                && !timeout.isNegative();
+        if (!hasPositiveTimeout) {
+            if (policy != FlowTimeoutPolicy.DEFAULT) {
+                throw new IllegalArgumentException(
+                        "Flow timeout policy requires a positive timeout");
+            }
+            return FlowTimeoutPolicy.DEFAULT;
+        }
+        final FlowTimeoutPolicy resolved = policy == FlowTimeoutPolicy.DEFAULT
+                ? (flow.hasTimeoutHandler() ? FlowTimeoutPolicy.HANDLER : FlowTimeoutPolicy.FAIL)
+                : policy;
+        if (resolved == FlowTimeoutPolicy.HANDLER && !flow.hasTimeoutHandler()) {
+            throw new IllegalArgumentException(
+                    "Flow " + flow.getName() + " does not override handleTimeout");
+        }
+        return resolved;
+    }
+
+    static io.superdurable.gen.FlowTimeoutPolicy mapFlowTimeoutPolicy(
+            final FlowTimeoutPolicy policy) {
+        switch (policy) {
+            case FAIL:
+                return io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_FAIL;
+            case CANCEL:
+                return io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_CANCEL;
+            case HANDLER:
+                return io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_HANDLER;
+            default:
+                return io.superdurable.gen.FlowTimeoutPolicy.FLOW_TIMEOUT_POLICY_UNSPECIFIED;
+        }
     }
 
     /**
@@ -1188,8 +1231,8 @@ public final class Client implements AutoCloseable {
                 return FlowStatus.COMPLETED;
             case FLOW_STATUS_FAILED:
                 return FlowStatus.FAILED;
-            case FLOW_STATUS_TIMEOUT:
-                return FlowStatus.TIMED_OUT;
+            case FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY:
+                return FlowStatus.SERVER_SIDE_TIMEOUT_INTERNAL_ONLY;
             case FLOW_STATUS_TERMINATED:
                 return FlowStatus.TERMINATED;
             case FLOW_STATUS_CANCELED:
@@ -1214,6 +1257,8 @@ public final class Client implements AutoCloseable {
                 return FlowErrorType.INVALID_USER_FLOW_CODE;
             case FLOW_ERROR_TYPE_INTERNAL:
                 return FlowErrorType.INTERNAL;
+            case FLOW_ERROR_TYPE_FLOW_TIMEOUT:
+                return FlowErrorType.FLOW_TIMEOUT;
             default:
                 return null;
         }

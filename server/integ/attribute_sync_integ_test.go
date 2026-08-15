@@ -42,6 +42,20 @@ func TestAttributeSyncCadence(t *testing.T) {
 	doTestAttributeSync(t, service.BackendTypeCadence)
 }
 
+func TestAttributeSyncFlowTimeoutTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	doTestAttributeSyncFlowTimeout(t, service.BackendTypeTemporal)
+}
+
+func TestAttributeSyncFlowTimeoutCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	doTestAttributeSyncFlowTimeout(t, service.BackendTypeCadence)
+}
+
 func TestAttributeSyncRetryExhaustionTemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
@@ -242,6 +256,144 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 	require.NoError(t, err)
 	require.Equal(t, "terminal-signal", message)
 	require.JSONEq(t, `{"source":"blob-cache"}`, document)
+}
+
+func doTestAttributeSyncFlowTimeout(t *testing.T, backendType service.BackendType) {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	postgresDSN := os.Getenv("DEX_ATTRIBUTE_STORE_POSTGRES_DSN")
+	if postgresDSN == "" {
+		postgresDSN = "postgres://dex:dex@127.0.0.1:55432/dex?sslmode=disable"
+	}
+	database, err := sql.Open("pgx", postgresDSN)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+	tableName := "flow_attributes_timeout_" + strings.ReplaceAll(newRequestID(), "-", "")
+	_, err = database.ExecContext(ctx, fmt.Sprintf(
+		`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT)`,
+		tableName,
+	))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
+		require.NoError(t, dropErr)
+	})
+
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType: backendType,
+		AttributeStore: config.AttributeStoreConfig{
+			Stores: map[string]config.AttributeStoreConfigEntry{
+				"reporting": {
+					Type:      config.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + tableName,
+				},
+			},
+		},
+	})
+	handler := &timeoutAttributeSyncHandler{started: make(chan struct{}, 1)}
+	workerTarget := startWorker(t, handler)
+	lockTransaction, err := database.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	lockReleased := false
+	t.Cleanup(func() {
+		if !lockReleased {
+			require.NoError(t, lockTransaction.Rollback())
+		}
+	})
+	_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
+	require.NoError(t, err)
+
+	flowID := "attribute-sync-timeout-" + newRequestID()
+	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           "attribute-sync-timeout",
+		FlowTimeoutSeconds: 10,
+		StartStepType:      signal.State1,
+		FlowStartOptions: &dexpb.FlowStartOptions{
+			Attributes: []*dexpb.AttributeWrite{
+				syncedStringAttribute("message", "persisted-after-timeout"),
+			},
+			FlowConfigOverride: &dexpb.FlowConfig{
+				AttributeSyncConfigName: ptr.Any("reporting"),
+				WorkerTarget:            workerTarget,
+			},
+		},
+	})
+	require.NoError(t, err)
+	select {
+	case <-handler.started:
+	case <-ctx.Done():
+		require.FailNow(t, "Flow Step did not start", ctx.Err())
+	}
+	probe := timeoutAttributeSyncProbe{ctx: ctx, runtime: runtime, flowID: flowID}
+	require.Eventually(t, probe.isStepCanceled, 15*time.Second, 50*time.Millisecond)
+	require.NoError(t, lockTransaction.Commit())
+	lockReleased = true
+
+	response, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, response.GetFlowStatus())
+	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT, response.GetErrorType())
+	var message string
+	err = database.QueryRowContext(
+		ctx,
+		"SELECT message FROM public."+tableName+" WHERE flow_id = $1",
+		flowID,
+	).Scan(&message)
+	require.NoError(t, err)
+	require.Equal(t, "persisted-after-timeout", message)
+}
+
+type timeoutAttributeSyncHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+	started chan struct{}
+}
+
+func (h *timeoutAttributeSyncHandler) InvokeWaitForMethod(
+	ctx context.Context,
+	_ *dexpb.InvokeWaitForMethodRequest,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	select {
+	case h.started <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &dexpb.InvokeWaitForMethodResponse{
+		WaitingCondition: &dexpb.WaitingCondition{
+			WaitingConditionType: dexpb.WaitingConditionType_WAITING_CONDITION_TYPE_ALL_COMPLETED,
+			ChannelConditions: []*dexpb.ChannelCondition{
+				{ChannelName: "never-published"},
+			},
+		},
+	}, nil
+}
+
+type timeoutAttributeSyncProbe struct {
+	ctx     context.Context
+	runtime *integRuntime
+	flowID  string
+}
+
+func (p timeoutAttributeSyncProbe) isStepCanceled() bool {
+	var dump dexpb.DebugDumpResponse
+	if err := p.runtime.UnifiedClient.QueryWorkflow(
+		p.ctx,
+		&dump,
+		p.flowID,
+		"",
+		service.DebugDumpQueryType,
+	); err != nil {
+		return false
+	}
+	for _, execution := range dump.GetActiveStepExecutions() {
+		if execution.GetStepType() == signal.State1 {
+			return false
+		}
+	}
+	return true
 }
 
 func doTestAttributeSyncRetryExhaustion(t *testing.T, backendType service.BackendType) {

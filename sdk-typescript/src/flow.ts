@@ -10,9 +10,10 @@ import { AttributeMap, IndexType, type Attribute, type PersistenceSchema } from 
 import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
 import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
-import { StepList, type Step } from "./step.js";
+import { StepList, type Step, type StepDecision } from "./step.js";
 import { requireName } from "./validation.js";
 import type { Channel, ChannelMap } from "./wait.js";
+import type { Context } from "./context.js";
 
 /**
  * Defines one durable application Flow and its registered API surface.
@@ -34,6 +35,16 @@ export interface Flow<StartInput = void> {
    * @returns Attributes and Channels owned by this Flow. Flows without this method have none.
    */
   getPersistenceSchema?(): PersistenceSchema;
+  /**
+   * Handles expiration of this Flow's durable soft-timeout timer.
+   *
+   * When present, a positive timeout defaults to the handler policy. Dex awaits the result and
+   * applies it with normal Step Execute validation. The hook runs at most once and may transition,
+   * dead-end, complete, fail, or request graceful completion.
+   * @param context - Timeout invocation Context; it must not be retained.
+   * @returns A StepDecision, synchronously or asynchronously.
+   */
+  handleTimeout?(context: Context): StepDecision | Promise<StepDecision>;
 }
 
 /**
@@ -92,6 +103,7 @@ export interface RegisteredStep {
 export interface RegisteredFlow {
   readonly name: string;
   readonly flow: Flow<any>;
+  readonly hasTimeoutHandler: boolean;
   readonly steps: readonly RegisteredStep[];
   readonly startStep?: RegisteredStep;
   readonly rpcs: readonly RegisteredRPC[];
@@ -270,6 +282,7 @@ function doRegisterFlow(
   return Object.freeze({
     name,
     flow,
+    hasTimeoutHandler: typeof flow.handleTimeout === "function",
     steps: Object.freeze(steps),
     ...(startStep === undefined ? {} : { startStep }),
     rpcs,

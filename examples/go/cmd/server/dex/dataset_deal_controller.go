@@ -518,7 +518,7 @@ func datasetDealStatus(status sdk.FlowStatus) (string, error) {
 		return "COMPLETED", nil
 	case sdk.FlowFailed:
 		return "FAILED", nil
-	case sdk.FlowTimedOut:
+	case sdk.FlowServerSideTimeoutInternalOnly:
 		return "TIMED_OUT", nil
 	case sdk.FlowTerminated:
 		return "TERMINATED", nil

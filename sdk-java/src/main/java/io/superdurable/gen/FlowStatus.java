@@ -28,9 +28,13 @@ public enum FlowStatus
    */
   FLOW_STATUS_FAILED(3),
   /**
-   * <code>FLOW_STATUS_TIMEOUT = 4;</code>
+   * <pre>
+   * Reserved for reporting a backend hard timeout; applications must not depend on this status.
+   * </pre>
+   *
+   * <code>FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY = 4;</code>
    */
-  FLOW_STATUS_TIMEOUT(4),
+  FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY(4),
   /**
    * <code>FLOW_STATUS_TERMINATED = 5;</code>
    */
@@ -72,9 +76,13 @@ public enum FlowStatus
    */
   public static final int FLOW_STATUS_FAILED_VALUE = 3;
   /**
-   * <code>FLOW_STATUS_TIMEOUT = 4;</code>
+   * <pre>
+   * Reserved for reporting a backend hard timeout; applications must not depend on this status.
+   * </pre>
+   *
+   * <code>FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY = 4;</code>
    */
-  public static final int FLOW_STATUS_TIMEOUT_VALUE = 4;
+  public static final int FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY_VALUE = 4;
   /**
    * <code>FLOW_STATUS_TERMINATED = 5;</code>
    */
@@ -117,7 +125,7 @@ public enum FlowStatus
       case 1: return FLOW_STATUS_RUNNING;
       case 2: return FLOW_STATUS_COMPLETED;
       case 3: return FLOW_STATUS_FAILED;
-      case 4: return FLOW_STATUS_TIMEOUT;
+      case 4: return FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY;
       case 5: return FLOW_STATUS_TERMINATED;
       case 6: return FLOW_STATUS_CANCELED;
       case 7: return FLOW_STATUS_CONTINUED_AS_NEW;
@@ -151,7 +159,7 @@ public enum FlowStatus
   }
   public static com.google.protobuf.Descriptors.EnumDescriptor
       getDescriptor() {
-    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(7);
+    return io.superdurable.gen.DexProto.getDescriptor().getEnumType(8);
   }
 
   private static final FlowStatus[] VALUES = values();

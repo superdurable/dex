@@ -103,6 +103,18 @@ func (waitForMethodTimeoutStep) Execute(
 	return dex.ForceFail("must not execute"), nil
 }
 
+type timeoutHandlerFlow struct {
+	emptyFlowSchema
+}
+
+func (timeoutHandlerFlow) GetSteps() []dex.StepDef {
+	return nil
+}
+
+func (timeoutHandlerFlow) HandleTimeout(dex.Context) (*dex.StepDecision, error) {
+	return dex.ForceComplete("expired"), nil
+}
+
 func TestFlowTimeout(t *testing.T) {
 	flowID := newFlowID(t, "flow-timeout")
 	timeout := time.Second
@@ -115,7 +127,68 @@ func TestFlowTimeout(t *testing.T) {
 	)
 	require.NoError(t, err)
 	result := waitForUncompletedFlow(t, flowID, false)
-	require.Equal(t, dex.FlowTimedOut, result.Status)
+	require.Equal(t, dex.FlowFailed, result.Status)
+	require.Equal(t, dex.FlowErrorTimeout, result.ErrorType)
+}
+
+func TestFlowTimeoutHandler(t *testing.T) {
+	flowID := newFlowID(t, "flow-timeout-handler")
+	timeout := time.Second
+	_, err := integClient.StartFlow(
+		integrationContext(t),
+		timeoutHandlerFlow{},
+		flowID,
+		nil,
+		dex.StartFlowOptions{Timeout: &timeout},
+	)
+	require.NoError(t, err)
+	result := waitForFlow(t, flowID, true)
+	require.Equal(t, dex.FlowCompleted, result.Status)
+	var output string
+	require.NoError(t, result.DecodeSingleOutput(&output))
+	require.Equal(t, "expired", output)
+}
+
+func TestFlowTimeoutHandlerCancelOverride(t *testing.T) {
+	flowID := newFlowID(t, "flow-timeout-handler-cancel")
+	timeout := time.Second
+	_, err := integClient.StartFlow(
+		integrationContext(t),
+		timeoutHandlerFlow{},
+		flowID,
+		nil,
+		dex.StartFlowOptions{
+			Timeout:       &timeout,
+			TimeoutPolicy: dex.TimeoutCancel,
+		},
+	)
+	require.NoError(t, err)
+	result := waitForUncompletedFlow(t, flowID, false)
+	require.Equal(t, dex.FlowCanceled, result.Status)
+}
+
+func TestFlowTimeoutHandlerRequiresCapability(t *testing.T) {
+	timeout := time.Second
+	_, err := integClient.StartFlow(
+		integrationContext(t),
+		channelFlow{},
+		newFlowID(t, "flow-timeout-policy-without-timeout"),
+		struct{}{},
+		dex.StartFlowOptions{TimeoutPolicy: dex.TimeoutCancel},
+	)
+	require.ErrorContains(t, err, "flow timeout policy requires a positive timeout")
+
+	_, err = integClient.StartFlow(
+		integrationContext(t),
+		channelFlow{},
+		newFlowID(t, "flow-timeout-handler-missing"),
+		struct{}{},
+		dex.StartFlowOptions{
+			Timeout:       &timeout,
+			TimeoutPolicy: dex.TimeoutHandler,
+		},
+	)
+	require.ErrorContains(t, err, "does not implement FlowTimeoutHandler")
 }
 
 func TestFlowCancel(t *testing.T) {

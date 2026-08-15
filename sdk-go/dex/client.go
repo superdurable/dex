@@ -223,8 +223,9 @@ const (
 	FlowCompleted
 	// FlowFailed means an unrecovered Step, RPC, or user-code error ended the Flow.
 	FlowFailed
-	// FlowTimedOut means the Flow exceeded its configured timeout.
-	FlowTimedOut
+	// FlowServerSideTimeoutInternalOnly is reserved for backend hard-timeout reporting.
+	// Applications must not depend on this status.
+	FlowServerSideTimeoutInternalOnly
 	// FlowTerminated means an operator ended the Flow immediately.
 	FlowTerminated
 	// FlowCanceled means the Flow completed cooperative cancellation.
@@ -242,8 +243,8 @@ func (status FlowStatus) String() string {
 		return "completed"
 	case FlowFailed:
 		return "failed"
-	case FlowTimedOut:
-		return "timed out"
+	case FlowServerSideTimeoutInternalOnly:
+		return "server-side timeout (internal only)"
 	case FlowTerminated:
 		return "terminated"
 	case FlowCanceled:
@@ -269,6 +270,8 @@ const (
 	FlowErrorInvalidUserCode
 	// FlowErrorInternal identifies an internal Dex failure.
 	FlowErrorInternal
+	// FlowErrorTimeout identifies expiration of a Dex soft Flow timeout.
+	FlowErrorTimeout
 )
 
 // StepCompletion contains one hydrated output from a completed Step.
@@ -388,7 +391,7 @@ func (client *Client) StartFlow(
 	if err != nil {
 		return "", err
 	}
-	timeout, flowOptions, err := mapStartFlowOptions(resolvedOptions)
+	timeout, timeoutPolicy, flowOptions, err := mapStartFlowOptions(resolvedOptions)
 	if err != nil {
 		return "", err
 	}
@@ -400,6 +403,7 @@ func (client *Client) StartFlow(
 		FlowId:             flowID,
 		FlowType:           registered.flowType,
 		FlowTimeoutSeconds: timeout,
+		FlowTimeoutPolicy:  timeoutPolicy,
 		StartStepType:      startStepType,
 		StepInput:          stepInput,
 		StepOptions:        stepOptions,
@@ -452,6 +456,15 @@ func (client *Client) resolveStartFlowOptions(
 	options StartFlowOptions,
 ) (StartFlowOptions, error) {
 	resolved := options
+	timeoutPolicy, err := resolveFlowTimeoutPolicy(
+		flow,
+		options.Timeout,
+		options.TimeoutPolicy,
+	)
+	if err != nil {
+		return StartFlowOptions{}, err
+	}
+	resolved.TimeoutPolicy = timeoutPolicy
 	attributes, err := validateInitialAttributes(flow, options.Attributes)
 	if err != nil {
 		return StartFlowOptions{}, err
@@ -463,6 +476,33 @@ func (client *Client) resolveStartFlowOptions(
 	}
 	resolved.ConfigOverride = config
 	return resolved, nil
+}
+
+func resolveFlowTimeoutPolicy(
+	flow *registeredFlow,
+	timeout *time.Duration,
+	policy FlowTimeoutPolicy,
+) (FlowTimeoutPolicy, error) {
+	hasPositiveTimeout := timeout != nil && *timeout > 0
+	if !hasPositiveTimeout {
+		if policy != TimeoutDefault {
+			return TimeoutDefault,
+				fmt.Errorf("dex: flow timeout policy requires a positive timeout")
+		}
+		return TimeoutDefault, nil
+	}
+	if policy == TimeoutDefault {
+		if flow.timeoutHandler != nil {
+			policy = TimeoutHandler
+		} else {
+			policy = TimeoutFail
+		}
+	}
+	if policy == TimeoutHandler && flow.timeoutHandler == nil {
+		return TimeoutDefault,
+			fmt.Errorf("dex: flow %q does not implement FlowTimeoutHandler", flow.flowType)
+	}
+	return policy, nil
 }
 
 func validateInitialAttributes(

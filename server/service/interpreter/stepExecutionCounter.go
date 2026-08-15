@@ -288,6 +288,11 @@ func (e *StepExecutionCounter) GetTotalCurrentlyExecutingCount() int32 {
 	return e.totalActiveCount
 }
 
+// HasCurrentlyExecutingUserSteps excludes the internal timeout handler.
+func (e *StepExecutionCounter) HasCurrentlyExecutingUserSteps() bool {
+	return e.totalActiveCount > int32(len(e.stepActiveExecutionNums[service.TimeoutHandlerStepType]))
+}
+
 func (e *StepExecutionCounter) refreshActiveStepTypeSearchAttribute(
 	ctx interfaces.UnifiedContext,
 ) error {

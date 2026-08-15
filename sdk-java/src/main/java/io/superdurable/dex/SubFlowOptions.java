@@ -36,6 +36,7 @@ import java.util.Objects;
  */
 public final class SubFlowOptions {
     private final Duration timeout;
+    private final FlowTimeoutPolicy timeoutPolicy;
     private final Duration startDelay;
     private final RetryPolicy retryPolicy;
     private final List<AttributeInitialization> attributes;
@@ -45,6 +46,7 @@ public final class SubFlowOptions {
 
     private SubFlowOptions(final Builder builder) {
         timeout = builder.timeout;
+        timeoutPolicy = builder.timeoutPolicy;
         startDelay = builder.startDelay;
         retryPolicy = builder.retryPolicy;
         attributes = Collections.unmodifiableList(
@@ -65,6 +67,10 @@ public final class SubFlowOptions {
 
     Duration getTimeout() {
         return timeout;
+    }
+
+    FlowTimeoutPolicy getTimeoutPolicy() {
+        return timeoutPolicy;
     }
 
     Duration getStartDelay() {
@@ -99,6 +105,7 @@ public final class SubFlowOptions {
      */
     public static final class Builder {
         private Duration timeout;
+        private FlowTimeoutPolicy timeoutPolicy = FlowTimeoutPolicy.DEFAULT;
         private Duration startDelay;
         private RetryPolicy retryPolicy;
         private final List<AttributeInitialization> attributes =
@@ -112,7 +119,7 @@ public final class SubFlowOptions {
         }
 
         /**
-         * Sets the maximum SubFlow execution duration.
+         * Sets Dex's durable soft timeout for the SubFlow execution.
          *
          * @param value a nonnegative whole-second duration, or {@code null} for no explicit timeout
          * @return this builder
@@ -120,6 +127,21 @@ public final class SubFlowOptions {
          */
         public Builder timeout(final Duration value) {
             timeout = value;
+            return this;
+        }
+
+        /**
+         * Sets the action taken when the positive SubFlow timeout expires.
+         *
+         * <p>The default invokes the target Flow's overridden {@link Flow#handleTimeout}; otherwise
+         * it fails the SubFlow. HANDLER requires that override.
+         *
+         * @param value the non-null timeout policy
+         * @return this builder
+         * @throws NullPointerException if {@code value} is {@code null}
+         */
+        public Builder timeoutPolicy(final FlowTimeoutPolicy value) {
+            timeoutPolicy = Objects.requireNonNull(value, "timeoutPolicy");
             return this;
         }
 

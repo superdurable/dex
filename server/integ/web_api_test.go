@@ -1127,15 +1127,8 @@ func testWebConditionResults(
 	executeInput := executeEvent.GetInput()
 	require.NotNil(t, waitForInput)
 	require.NotNil(t, executeInput)
-	waitForTotalDuration := int32(60)
-	executeTotalDuration := int32(70)
-	if durability == dexpb.StepDurability_STEP_DURABILITY_SYNC &&
-		backendType == service.BackendTypeTemporal {
-		waitForTotalDuration = 20
-		executeTotalDuration = 20
-	}
-	assertStepMethodOptions(t, waitForEvent.GetContext().GetMethodOptions(), 11, 2, 3, 4, 5, waitForTotalDuration)
-	assertStepMethodOptions(t, executeEvent.GetContext().GetMethodOptions(), 13, 3, 4, 5, 6, executeTotalDuration)
+	assertStepMethodOptions(t, waitForEvent.GetContext().GetMethodOptions(), 11, 2, 3, 4, 5, 60)
+	assertStepMethodOptions(t, executeEvent.GetContext().GetMethodOptions(), 13, 3, 4, 5, 6, 70)
 	require.Nil(t, waitForEvent.GetContext().GetLastFailureInfo())
 	require.Nil(t, executeEvent.GetContext().GetLastFailureInfo())
 	require.Len(t, waitForInput.GetAttributes(), 1)
@@ -1345,6 +1338,11 @@ func testWebHistoryAndSummary(
 	require.NotEmpty(t, firstRunEvents)
 	flowStarted := firstRunEvents[0].GetFlowStartedOrContinued()
 	require.Equal(t, time.Minute, flowStarted.GetFlowTimeout().AsDuration())
+	require.Equal(
+		t,
+		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL,
+		flowStarted.GetFlowTimeoutPolicy(),
+	)
 	initialStart := flowStarted.GetInitialStart()
 	require.NotNil(t, initialStart)
 	require.NotEmpty(t, initialStart.GetStepInput().GetInternalBlobIdForStringValue())
@@ -1397,7 +1395,14 @@ func testWebHistoryAndSummary(
 		continuedToRunID,
 	)
 	require.NotEmpty(t, continuedEvents)
-	continuedStart := continuedEvents[0].GetFlowStartedOrContinued().GetContinuedStart()
+	continuedFlowStarted := continuedEvents[0].GetFlowStartedOrContinued()
+	require.Equal(t, time.Minute, continuedFlowStarted.GetFlowTimeout().AsDuration())
+	require.Equal(
+		t,
+		dexpb.FlowTimeoutPolicy_FLOW_TIMEOUT_POLICY_FAIL,
+		continuedFlowStarted.GetFlowTimeoutPolicy(),
+	)
+	continuedStart := continuedFlowStarted.GetContinuedStart()
 	require.NotNil(t, continuedStart)
 	require.Equal(t, startResponse.GetRunId(), continuedStart.GetPreviousRunId())
 	require.True(

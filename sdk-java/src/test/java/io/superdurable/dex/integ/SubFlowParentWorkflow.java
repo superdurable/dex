@@ -16,6 +16,7 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.FlowResult;
+import io.superdurable.dex.FlowTimeoutPolicy;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -157,7 +158,11 @@ abstract class TimerSubFlowParentWorkflow implements Flow<Integer> {
         private final SubFlowOptions options;
 
         ParentStep(final SubFlowReusePolicy reusePolicy) {
-            options = SubFlowOptions.newBuilder().reusePolicy(reusePolicy).build();
+            options = SubFlowOptions.newBuilder()
+                    .timeout(Duration.ofHours(1))
+                    .timeoutPolicy(FlowTimeoutPolicy.CANCEL)
+                    .reusePolicy(reusePolicy)
+                    .build();
         }
 
         @Override

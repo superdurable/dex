@@ -32,8 +32,8 @@ public enum FlowStatus {
     /** The Flow was forcibly terminated. */
     TERMINATED,
 
-    /** The Flow exceeded its configured timeout. */
-    TIMED_OUT,
+    /** Reserved for backend hard-timeout reporting. Applications must not depend on this status. */
+    SERVER_SIDE_TIMEOUT_INTERNAL_ONLY,
 
     /** The Flow continued as a new execution. */
     CONTINUED_AS_NEW

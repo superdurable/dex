@@ -254,15 +254,10 @@ func mapToCadenceIndexedValueType(indexType dexpb.IndexType) cadenceapi.IndexedV
 func (t *cadenceClient) StartInterpreterWorkflow(
 	ctx context.Context, options uclient.StartWorkflowOptions, args ...interface{},
 ) (runId string, err error) {
-	executionTimeout := options.WorkflowExecutionTimeout
-	if executionTimeout == 0 {
-		// Cadence requires a positive int32 timeout; its maximum represents Dex's unbounded timeout.
-		executionTimeout = time.Duration(math.MaxInt32) * time.Second
-	}
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                           options.ID,
 		TaskList:                     options.TaskQueue,
-		ExecutionStartToCloseTimeout: executionTimeout,
+		ExecutionStartToCloseTimeout: time.Duration(math.MaxInt32) * time.Second,
 		SearchAttributes:             options.SearchAttributes,
 		Memo:                         options.Memo,
 	}
@@ -631,12 +626,7 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 		); err != nil {
 			return err
 		}
-		flowTimeoutSeconds := attributes.GetExecutionStartToCloseTimeoutSeconds()
-		flowTimeout := time.Duration(flowTimeoutSeconds) * time.Second
-		if flowTimeoutSeconds == math.MaxInt32 {
-			flowTimeout = 0
-		}
-		builder.RecordStart(event.GetEventId(), eventTime, &input, flowTimeout)
+		builder.RecordStart(event.GetEventId(), eventTime, &input)
 	case shared.EventTypeActivityTaskScheduled:
 		attributes := event.GetActivityTaskScheduledEventAttributes()
 		scheduledEventIDsByActivityID[attributes.GetActivityId()] = event.GetEventId()
@@ -745,7 +735,7 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 		})
 	case shared.EventTypeWorkflowExecutionTimedOut:
 		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
-			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_TIMEOUT,
+			FlowStatus: dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY,
 		})
 	case shared.EventTypeWorkflowExecutionTerminated:
 		attributes := event.GetWorkflowExecutionTerminatedEventAttributes()
@@ -1133,7 +1123,7 @@ func mapToDexWorkflowStatus(status *shared.WorkflowExecutionCloseStatus) (dexpb.
 	case shared.WorkflowExecutionCloseStatusFailed:
 		return dexpb.FlowStatus_FLOW_STATUS_FAILED, nil
 	case shared.WorkflowExecutionCloseStatusTimedOut:
-		return dexpb.FlowStatus_FLOW_STATUS_TIMEOUT, nil
+		return dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY, nil
 	case shared.WorkflowExecutionCloseStatusTerminated:
 		return dexpb.FlowStatus_FLOW_STATUS_TERMINATED, nil
 	case shared.WorkflowExecutionCloseStatusCompleted:
@@ -1154,7 +1144,7 @@ func (t *cadenceClient) GetWorkflowResult(
 	case realcadence.IsCanceledError(err):
 		status = dexpb.FlowStatus_FLOW_STATUS_CANCELED
 	case realcadence.IsTimeoutError(err):
-		status = dexpb.FlowStatus_FLOW_STATUS_TIMEOUT
+		status = dexpb.FlowStatus_FLOW_STATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY
 	case realcadence.IsTerminatedError(err):
 		status = dexpb.FlowStatus_FLOW_STATUS_TERMINATED
 	case client.IsWorkflowError(err):

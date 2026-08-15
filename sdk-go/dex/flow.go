@@ -73,6 +73,23 @@ type Flow interface {
 	GetPersistenceSchema() PersistenceSchema
 }
 
+// FlowTimeoutHandler lets a Flow execute application code when its soft timeout expires.
+//
+// Implement this capability on the same Flow value registered with NewRegistry. A positive
+// StartFlowOptions.Timeout defaults to TimeoutHandler when this capability is present. The
+// returned StepDecision has the same validation and terminal behavior as a Step Execute result.
+// Context exposes the timed-out Flow execution and permits normal Attribute and Channel writes.
+//
+// HandleTimeout may return GoTo, DeadEnd, ForceComplete, ForceFail, or GracefulComplete. It runs
+// at most once for an execution, after Dex's durable timeout timer completes or is skipped.
+type FlowTimeoutHandler interface {
+	// HandleTimeout executes the Flow's soft-timeout hook.
+	//
+	// ctx belongs to this invocation and must not be retained. A non-nil error applies normal
+	// Execute retry and failure policy behavior; a nil decision is rejected as invalid.
+	HandleTimeout(ctx Context) (*StepDecision, error)
+}
+
 // FlowDefaults uses the package-qualified Go type as the durable flow type.
 type FlowDefaults struct{}
 
