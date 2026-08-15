@@ -9,29 +9,128 @@
 import dagre from 'dagre';
 import type { Edge, Node } from '@xyflow/react';
 
+const horizontalGap = 36;
+const verticalGap = 64;
+const horizontalMargin = 32;
+const verticalMargin = 32;
+const maximumNodesPerRow = 2;
+
+interface LayoutNode<NodeData extends Record<string, unknown>> {
+  height: number;
+  node: Node<NodeData>;
+  order: number;
+  width: number;
+}
+
+function logicalRanks<NodeData extends Record<string, unknown>>(
+  nodes: Array<Node<NodeData>>,
+  edges: Edge[],
+): Map<string, number> {
+  const nodeIDs = new Set(nodes.map((node) => node.id));
+  const incomingCounts = new Map(nodes.map((node) => [node.id, 0]));
+  const outgoing = new Map(nodes.map((node) => [node.id, [] as string[]]));
+  for (const edge of edges) {
+    if (!nodeIDs.has(edge.source) || !nodeIDs.has(edge.target)) continue;
+    incomingCounts.set(edge.target, (incomingCounts.get(edge.target) ?? 0) + 1);
+    outgoing.get(edge.source)?.push(edge.target);
+  }
+  const ranks = new Map(nodes.map((node) => [node.id, 0]));
+  const ready = nodes
+    .filter((node) => incomingCounts.get(node.id) === 0)
+    .map((node) => node.id);
+  for (let index = 0; index < ready.length; index += 1) {
+    const source = ready[index];
+    const nextRank = (ranks.get(source) ?? 0) + 1;
+    for (const target of outgoing.get(source) ?? []) {
+      ranks.set(target, Math.max(ranks.get(target) ?? 0, nextRank));
+      const incomingCount = (incomingCounts.get(target) ?? 0) - 1;
+      incomingCounts.set(target, incomingCount);
+      if (incomingCount === 0) ready.push(target);
+    }
+  }
+  return ranks;
+}
+
+function nodeWidth<NodeData extends Record<string, unknown>>(node: Node<NodeData>): number {
+  return typeof node.style?.width === 'number' ? node.style.width : 220;
+}
+
+function nodeHeight<NodeData extends Record<string, unknown>>(node: Node<NodeData>): number {
+  if (typeof node.style?.height === 'number') return node.style.height;
+  return node.data.model && typeof node.data.model === 'object'
+    && (node.data.model as { kind?: string }).kind === 'step' ? 158 : 90;
+}
+
 export function layoutGraph<NodeData extends Record<string, unknown>>(
   nodes: Array<Node<NodeData>>,
   edges: Edge[],
-  direction: 'TB' | 'LR' = 'TB',
 ): Array<Node<NodeData>> {
+  if (nodes.length === 0) return [];
   const graph = new dagre.graphlib.Graph();
   graph.setDefaultEdgeLabel(() => ({}));
-  graph.setGraph({ rankdir: direction, ranksep: 80, nodesep: 44, marginx: 30, marginy: 30 });
+  graph.setGraph({ rankdir: 'TB', ranksep: verticalGap, nodesep: horizontalGap });
   nodes.forEach((node) => graph.setNode(node.id, {
-    width: typeof node.style?.width === 'number' ? node.style.width : 220,
-    height: node.data.model && typeof node.data.model === 'object'
-      && (node.data.model as { kind?: string }).kind === 'step' ? 158 : 90,
+    width: nodeWidth(node),
+    height: nodeHeight(node),
   }));
   edges.forEach((edge) => graph.setEdge(edge.source, edge.target));
   dagre.layout(graph);
-  return nodes.map((node) => {
+
+  const nodeRanks = logicalRanks(nodes, edges);
+  const rankMembers = new Map<number, Array<LayoutNode<NodeData>>>();
+  for (const node of nodes) {
     const position = graph.node(node.id);
-    const width = typeof node.style?.width === 'number' ? node.style.width : 220;
-    const height = node.data.model && typeof node.data.model === 'object'
-      && (node.data.model as { kind?: string }).kind === 'step' ? 158 : 90;
-    return {
-      ...node,
-      position: { x: position.x - width / 2, y: position.y - height / 2 },
-    };
-  });
+    const rank = nodeRanks.get(node.id)
+      ?? Math.round(position.y);
+    const members = rankMembers.get(rank) ?? [];
+    members.push({
+      height: nodeHeight(node),
+      node,
+      order: position.x,
+      width: nodeWidth(node),
+    });
+    rankMembers.set(rank, members);
+  }
+
+  const rows = [...rankMembers.entries()]
+    .sort(([left], [right]) => left - right)
+    .flatMap(([, members]) => {
+      const ordered = members.sort((left, right) => left.order - right.order);
+      const chunks: Array<Array<LayoutNode<NodeData>>> = [];
+      for (let index = 0; index < ordered.length; index += maximumNodesPerRow) {
+        chunks.push(ordered.slice(index, index + maximumNodesPerRow));
+      }
+      return chunks;
+    });
+  const contentWidth = Math.max(...rows.map((row) => (
+    row.reduce((width, member) => width + member.width, 0)
+      + horizontalGap * Math.max(0, row.length - 1)
+  )));
+  const positions = new Map<string, { x: number; y: number }>();
+  let rowTop = verticalMargin;
+  for (const row of rows) {
+    const rowHeight = Math.max(...row.map((member) => member.height));
+    const rowWidth = row.reduce((width, member) => width + member.width, 0)
+      + horizontalGap * Math.max(0, row.length - 1);
+    let nodeLeft = horizontalMargin + (contentWidth - rowWidth) / 2;
+    for (const member of row) {
+      positions.set(member.node.id, {
+        x: nodeLeft,
+        y: rowTop + (rowHeight - member.height) / 2,
+      });
+      nodeLeft += member.width + horizontalGap;
+    }
+    rowTop += rowHeight + verticalGap;
+  }
+
+  return nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position }));
+}
+
+export function graphBounds<NodeData extends Record<string, unknown>>(
+  nodes: Array<Node<NodeData>>,
+): { height: number; width: number } {
+  return {
+    height: Math.max(0, ...nodes.map((node) => node.position.y + nodeHeight(node))) + verticalMargin,
+    width: Math.max(0, ...nodes.map((node) => node.position.x + nodeWidth(node))) + horizontalMargin,
+  };
 }

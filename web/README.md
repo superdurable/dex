@@ -66,8 +66,8 @@ The Flows page provides Basic and Advanced visibility queries, pagination,
 saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
 
-The Run page provides Overview (Live Flow State beside Selected event, then
-Run input beside Identity), Step graph, Timeline, attributes, timers, queued
+The Run page opens on Step graph and also provides Overview (Live Flow State
+beside Selected event, then Run input beside Identity), Timeline, attributes, timers, queued
 steps, channels, completed outputs, stop, and reset. Timeline and Step graph keep
 Selected event in the sidebar.
 Continued runs link to their previous run from Timeline and Step graph.
@@ -76,6 +76,8 @@ Flow continued, RPC, Step decision, or recovery event that scheduled it.
 Selecting the first event reveals that source link; selecting a
 WaitFor event also reveals its outgoing WaitFor-to-Execute link.
 Step graph nodes separate WaitFor and Execute with distinct colors, channel names, condition icons, and individual event details.
+Large Step graphs extend down the page at readable size. Parallel ranks wrap to
+two nodes per row so fan-out and fan-in topologies do not require wide horizontal panning.
 Persisted Step decisions add planned graph branches. A selector-matched branch without a Step event appears Canceled with no execution ID.
 SubFlow conditions appear as linked leaf nodes and compact WaitFor cards. Running
 and terminal nodes display and link by their generated Flow ID. Original WaitFor

@@ -2041,7 +2041,7 @@ pre {
 }
 
 .graph-canvas {
-  height: 650px;
+  min-height: 650px;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -2246,6 +2246,14 @@ pre {
 
 .graph-step-label {
   min-height: 136px;
+}
+
+.graph-step-label--execute-only {
+  min-height: 114px;
+}
+
+.graph-step-label--execute-only .graph-method {
+  min-height: 58px;
 }
 
 .graph-step-heading {
@@ -2625,7 +2633,7 @@ pre {
   }
 
   .graph-canvas {
-    height: 520px;
+    min-height: 520px;
   }
 
   .load-more {
