@@ -970,8 +970,52 @@ pre {
 }
 
 .selected-event-time-travel {
-  width: 100%;
+  display: grid;
+  gap: 10px;
   margin-top: 10px;
+  padding: 11px;
+  border: 1px solid rgba(182, 59, 59, 0.35);
+  border-radius: 10px;
+  background: var(--danger-soft);
+}
+
+.selected-event-time-travel-copy {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  color: #862929;
+}
+
+.selected-event-time-travel-copy svg {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.selected-event-time-travel-copy div {
+  display: grid;
+  gap: 2px;
+}
+
+.selected-event-time-travel-copy strong {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.selected-event-time-travel-copy span {
+  color: #783737;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.selected-event-time-travel .button {
+  width: 100%;
 }
 
 .selected-event-body .event-details {

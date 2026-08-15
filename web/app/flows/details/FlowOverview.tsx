@@ -12,6 +12,7 @@ import { displayEventNumber } from '@/lib/timeline';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { JsonView } from '../../components/JsonView';
 import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from './EventDetails';
+import { TimeTravelEventAction } from './TimeTravelEventAction';
 
 const sectionExpandByKey = new Map<string, boolean>();
 
@@ -280,12 +281,7 @@ export function FlowOverview({
                   <span>{selectedEvent.eventTime || 'No timestamp'}</span>
                 </div>
                 {eventTimeTravelTarget(selectedEvent) && (
-                  <button
-                    className="button ghost selected-event-time-travel"
-                    onClick={() => onTimeTravel(selectedEvent)}
-                  >
-                    Time travel here
-                  </button>
+                  <TimeTravelEventAction onClick={() => onTimeTravel(selectedEvent)} />
                 )}
               </header>
               <div className="overview-selected-event-body">

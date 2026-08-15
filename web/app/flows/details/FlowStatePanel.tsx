@@ -11,6 +11,7 @@ import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import { displayEventNumber } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { EventDetails, eventTitle } from './EventDetails';
+import { TimeTravelEventAction } from './TimeTravelEventAction';
 
 function canScroll(element: HTMLElement, deltaY: number): boolean {
   if (deltaY < 0) return element.scrollTop > 0;
@@ -68,12 +69,7 @@ export function FlowStatePanel({
               <span>{selectedEvent.eventTime || 'No timestamp'}</span>
             </div>
             {eventTimeTravelTarget(selectedEvent) && (
-              <button
-                className="button ghost selected-event-time-travel"
-                onClick={() => onTimeTravel(selectedEvent)}
-              >
-                Time travel here
-              </button>
+              <TimeTravelEventAction onClick={() => onTimeTravel(selectedEvent)} />
             )}
           </header>
           <section className="sidebar-section selected-event-body">

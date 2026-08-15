@@ -69,9 +69,10 @@ preferences.
 The Run page provides Overview (Live Flow State beside Selected event, then
 Run input beside Identity), Step graph, Timeline, attributes, timers, queued
 steps, channels, completed outputs, stop, and time travel. Timeline and Step graph keep
-Selected event in the sidebar, where **Time travel here** opens the operation with
-that Step execution and its WaitFor or Execute method already selected. Backend
-history IDs remain internal pagination and correlation details.
+Selected event in the sidebar, where the critical-action **Review time travel**
+entry opens the operation with that Step execution and its WaitFor or Execute
+method already selected. Backend history IDs remain internal pagination and
+correlation details.
 Continued runs link to their previous run from Timeline and Step graph.
 Timeline connects each Step execution's first method event to the Flow start,
 Flow continued, RPC, Step decision, or recovery event that scheduled it.
