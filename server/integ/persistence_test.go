@@ -125,7 +125,6 @@ func doTestPersistenceWorkflow(
 	nowTime := time.Now().Add(
 		time.Duration(persistenceSearchTimeSequence.Add(1)) * time.Hour,
 	)
-	notTimeNanoStr := fmt.Sprintf("%v", nowTime.UnixNano())
 	nowTimeStr := nowTime.Format(timeparser.DateTimeFormat)
 
 	expectedDataAttribute := dataObjectAttribute("TestKey", `"TestValue"`)
@@ -324,21 +323,21 @@ func doTestPersistenceWorkflow(
 
 		startMore(firstFlowId+"-1", []*dexpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
-			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
+			indexedDatetimeAttribute("CustomDatetimeField", nowTimeStr),
 		})
 		startMore(firstFlowId+"-2", []*dexpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
-			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
+			indexedDatetimeAttribute("CustomDatetimeField", nowTimeStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
 		})
 		attrs3 := []*dexpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
-			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
+			indexedDatetimeAttribute("CustomDatetimeField", nowTimeStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
 		}
 		attrs4 := []*dexpb.AttributeWrite{
 			indexedBoolAttribute("CustomBoolField", true),
-			indexedDatetimeAttribute("CustomDatetimeField", notTimeNanoStr),
+			indexedDatetimeAttribute("CustomDatetimeField", nowTimeStr),
 			indexedDoubleAttribute("CustomDoubleField", 0.01),
 		}
 		expectedExtraSearchAttributes := []*dexpb.AttributeWrite{
