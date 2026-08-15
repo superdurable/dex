@@ -80,7 +80,6 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 	defer cancel()
 
 	flowId := "any_cmd_can_test_" + uuid.NewString()
-	startTime := time.Now()
 	_, err := flowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
 		FlowId:             flowId,
@@ -128,7 +127,6 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 	}
 	require.NoError(t, err)
 
-	elapsedTime := time.Since(startTime)
 	result := workerHandler.GetTestResult()
 	history := result.InvokeHistory
 	data := result.InvokeData
@@ -145,8 +143,9 @@ func doTestAnyCommandCompleted(t *testing.T, backendType service.BackendType) {
 	signalReceived, ok := data["any_cmd_signal_received"].(bool)
 	assertions.True(ok, "any_cmd_signal_received data should be present")
 	assertions.True(signalReceived)
-	assertions.Less(elapsedTime, 5*time.Second,
-		"Workflow took %v, which suggests we waited for the long timer.", elapsedTime)
+	timerFired, ok := data["any_cmd_timer_fired"].(bool)
+	assertions.True(ok, "any_cmd_timer_fired data should be present")
+	assertions.False(timerFired, "long timer should not fire after the signal completes the wait")
 }
 
 func doTestCommandThreadCompletion(

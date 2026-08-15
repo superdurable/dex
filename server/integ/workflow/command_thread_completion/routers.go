@@ -295,6 +295,7 @@ func (h *handler) InvokeExecuteMethod(
 				timerFired = true
 			}
 		}
+		h.recordData("any_cmd_timer_fired", timerFired)
 
 		if !signalReceived {
 			log.Println("ERROR: Signal should have been received in StateAnyCmd (ANY_COMPLETED)")
