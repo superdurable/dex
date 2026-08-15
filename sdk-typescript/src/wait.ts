@@ -8,16 +8,18 @@
 
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
+import type { Flow } from "./flow.js";
+import type { SubFlowOptions } from "./subflow.js";
 import {
   requireConditionId,
   requireName,
   validateChannelBounds,
 } from "./validation.js";
 
-/** Describes one durable Timer or Channel readiness condition. */
+/** Describes one durable Timer, Channel, or SubFlow readiness condition. */
 export interface Condition {
   /** Condition family interpreted by Dex. */
-  readonly kind: "timer" | "channel";
+  readonly kind: "timer" | "channel" | "subFlow";
   /** Optional stable ID unique within the Wait tree. */
   readonly conditionId?: string;
   /** Timer delay in non-negative milliseconds. */
@@ -30,6 +32,12 @@ export interface Condition {
   readonly atLeast?: number;
   /** Inclusive upper queued-value bound. */
   readonly atMost?: number;
+  /** Exact registered Flow instance targeted by a SubFlow condition. */
+  readonly subFlow?: Flow<any>;
+  /** Starting Step input for a SubFlow condition. */
+  readonly subFlowInput?: unknown;
+  /** Start, reuse, and condition options for a SubFlow condition. */
+  readonly subFlowOptions?: SubFlowOptions;
 }
 
 /** Groups Conditions that must become ready together. */

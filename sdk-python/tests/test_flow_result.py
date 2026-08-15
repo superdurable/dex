@@ -20,7 +20,7 @@ from dex import (
     BlobCacheConfig,
     Client,
     ClientOptions,
-    FlowUncompletedError,
+    FlowStatus,
     Registry,
 )
 from dex.dexpb import dex_pb2 as pb
@@ -172,10 +172,8 @@ async def _test_async_wait_for_flow_and_failure_preserve_completions() -> None:
         result = await client.wait_for_flow("multi")
         assert result.completions[0].decode(str) == "one"
         assert result.completions[1].decode(bytes) == b"done"
-        with pytest.raises(FlowUncompletedError) as captured:
-            await client.wait_for_flow("failed")
-        failure = captured.value
-        assert failure.run_id == "run-failed"
+        failure = await client.wait_for_flow("failed")
+        assert failure.status is FlowStatus.FAILED
         assert [completion.step_execution_id for completion in failure.completions] == [
             "First-1",
             "Second-2",

@@ -8,16 +8,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from enum import Enum
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 import grpc
-
-from dex.flow_info import FlowStatus
-
-if TYPE_CHECKING:
-    from dex.flow_result import StepCompletion
 
 
 class ErrorSubStatus(Enum):
@@ -226,40 +220,3 @@ class ValueMappingError(RuntimeError):
         super().__init__(f"Cannot {operation} Dex Value: {detail}")
         self.operation = operation
         self.detail = detail
-
-
-class FlowUncompletedError(RuntimeError):
-    """Report that ``wait_for_flow`` observed a non-successful terminal status.
-
-    Completed Step outputs remain available through ``completions`` with their Step
-    identities and hydrated values.
-
-    Attributes:
-        run_id: The terminal server-assigned run ID.
-        status: The non-completed terminal Flow status.
-        error_type: The terminal failure category, if Dex returned one.
-        completions: The ordered, output-bearing Step completions.
-    """
-
-    def __init__(
-        self,
-        run_id: str,
-        status: FlowStatus,
-        error_type: FlowErrorType | None,
-        message: str | None,
-        completions: Sequence[StepCompletion],
-    ) -> None:
-        """Create an uncompleted-Flow error with lazy result decoding.
-
-        Args:
-            run_id: The terminal server-assigned run ID.
-            status: The non-completed terminal status.
-            error_type: The failure category, if available.
-            message: Optional human-readable terminal message.
-            completions: Hydrated Step completions in server order.
-        """
-        super().__init__(message)
-        self.run_id = run_id
-        self.status = status
-        self.error_type = error_type
-        self.completions = tuple(completions)

@@ -29,6 +29,72 @@ public StepDecision execute(Context context, Order input) {
 }
 ```
 
+The same durable condition is available in every SDK:
+
+```go
+func (ParentStep) WaitFor(_ dex.Context, input Order) (*dex.Wait, error) {
+	return dex.AllOf(
+		dex.SubFlow(ReserveInventoryFlow{}, input),
+		dex.SubFlow(ChargePaymentFlow{}, input),
+	), nil
+}
+
+func (ParentStep) Execute(ctx dex.Context, _ Order) (*dex.StepDecision, error) {
+	inventory, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	payment, err := dex.SubFlowResult(ctx, 1)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(OrderResult{/* decode both results */}), nil
+}
+```
+
+```python
+def wait_for(self, context: Context, input: Order) -> Wait:
+    return Wait.all_of(
+        SubFlow.run(self.inventory_flow, input),
+        SubFlow.run(self.payment_flow, input),
+    )
+
+def execute(self, context: Context, input: Order) -> StepDecision:
+    inventory = SubFlow.get_condition_results(context)
+    payment = SubFlow.get_condition_results(context, 1)
+    return graceful_complete(OrderResult(inventory, payment))
+```
+
+```typescript
+public waitFor(_context: Context, input: Order): Wait {
+  return Wait.allOf(
+    SubFlow.run(this.inventoryFlow, input),
+    SubFlow.run(this.paymentFlow, input),
+  );
+}
+
+public execute(context: Context, _input: Order): StepDecision {
+  const inventory = SubFlow.getConditionResults(context);
+  const payment = SubFlow.getConditionResults(context, 1);
+  return gracefulComplete({ inventory, payment });
+}
+```
+
+```rust
+fn wait_for(&self, _context: &mut Context, input: Order) -> HandlerResult<Wait> {
+    Ok(Wait::all_of([
+        SubFlow::run(&InventoryFlow::new(), input.clone()).map_err(handler_error)?,
+        SubFlow::run(&PaymentFlow::new(), input).map_err(handler_error)?,
+    ]))
+}
+
+fn execute(&self, context: &mut Context, _input: Order) -> HandlerResult<StepDecision> {
+    let inventory = SubFlow::condition_result(context)?;
+    let payment = SubFlow::condition_result_at(context, 1)?;
+    Ok(StepDecision::graceful_complete(OrderResult::new(inventory, payment)))
+}
+```
+
 The zero-based result index is the stable order of SubFlow conditions in the current `Wait`. An
 `allOf` result is terminal. If another condition wins an `anyOf`, the unfinished SubFlow result has
 status `RUNNING` and no outputs. `RUNNING` is the parent’s durable snapshot, not a fresh backend

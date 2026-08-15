@@ -42,7 +42,6 @@ import {
 import type { Empty } from "./gen/google/protobuf/empty.js";
 import {
   FlowErrorType,
-  FlowUncompletedError,
   ValueMappingError,
   type FlowErrorType as FlowErrorTypeValue,
 } from "./errors.js";
@@ -54,9 +53,8 @@ import {
   type Registry,
 } from "./flow.js";
 import {
-  createStepCompletions,
-  createWaitForFlowResult,
-  type WaitForFlowResult,
+  createFlowResultFromProto,
+  type FlowResult,
 } from "./flow-result.js";
 import { translateServiceError } from "./grpc-status.js";
 import {
@@ -494,13 +492,12 @@ export class Client {
    * @param timeoutMs - Optional server-side long-poll duration in milliseconds.
    * @returns Immutable Step completions in server collection order.
    * @throws {@link LongPollTimeoutError} when the Flow remains open at timeout.
-   * @throws {@link FlowUncompletedError} for a non-successful terminal status.
    * @throws {@link ValueMappingError} when Dex returns malformed blob-backed output.
    */
   public async waitForFlow(
     flowId: string,
     timeoutMs?: number,
-  ): Promise<WaitForFlowResult> {
+  ): Promise<FlowResult> {
     const response = await unary<ProtoFlowResult>(
       { operation: "waitForFlow", flowId, requirement: "existing" },
       (callback) =>
@@ -514,24 +511,10 @@ export class Client {
           callback,
         ),
     );
-    if (response.flowStatus !== ProtoFlowStatus.FLOW_STATUS_COMPLETED) {
-      const summary = await this.describeFlow(flowId);
-      const values = await this.hydrator.hydrateAll(
-        response.results.map((result) => result.completedStepOutput),
-      );
-      const completions = createStepCompletions(response.results, values);
-      throw new FlowUncompletedError(
-        summary.runId,
-        mapFlowStatus(response.flowStatus),
-        mapFlowErrorType(response.errorType),
-        response.errorMessage || undefined,
-        completions,
-      );
-    }
     const values = await this.hydrator.hydrateAll(
       response.results.map((result) => result.completedStepOutput),
     );
-    return createWaitForFlowResult(createStepCompletions(response.results, values));
+    return createFlowResultFromProto(response, values);
   }
 
   /**

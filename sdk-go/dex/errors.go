@@ -245,34 +245,6 @@ func (e *LongPollTimeoutError) Unwrap() error {
 	return e.ServiceError
 }
 
-// FlowUncompletedError reports a Flow that closed without completing.
-type FlowUncompletedError struct {
-	// FlowID is the application-assigned Flow ID.
-	FlowID string
-	// RunID is the server-assigned terminal run ID.
-	RunID string
-	// Status is the terminal non-completed status.
-	Status FlowStatus
-	// ErrorType is Dex's Flow failure category when available.
-	ErrorType FlowErrorType
-	// ErrorMessage is the server completion detail when available.
-	ErrorMessage string
-	// Completions contains completed Step outputs returned by Dex.
-	Completions []StepCompletion
-}
-
-// Error formats the terminal Flow status and optional failure detail.
-func (e *FlowUncompletedError) Error() string {
-	if e == nil {
-		return "<nil>"
-	}
-	prefix := fmt.Sprintf("dex: flow %q did not complete: %s", e.FlowID, e.Status)
-	if e.ErrorMessage == "" {
-		return prefix
-	}
-	return prefix + ": " + e.ErrorMessage
-}
-
 // WorkerError preserves the original WorkerService failure.
 type WorkerError struct {
 	// Code is the original Worker gRPC status.

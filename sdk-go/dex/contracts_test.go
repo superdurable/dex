@@ -310,14 +310,8 @@ func TestLocalErrorContracts(t *testing.T) {
 		t.Fatalf("mapping error is not ValueMappingError: %v", err)
 	}
 
-	uncompletedErr := error(&dex.FlowUncompletedError{
-		FlowID: "flow-id",
-		RunID:  "run-id",
-		Status: dex.FlowFailed,
-	})
-	var uncompleted *dex.FlowUncompletedError
-	if !errors.As(uncompletedErr, &uncompleted) {
-		t.Fatalf("Flow uncompleted error does not support errors.As: %v", uncompletedErr)
+	if (dex.FlowResult{Status: dex.FlowRunning}).IsTerminal() {
+		t.Fatal("running Flow result must not be terminal")
 	}
 }
 

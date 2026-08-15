@@ -169,6 +169,16 @@ func integrationFlows() []dex.Flow {
 		waitForFailureFlow{},
 		waitForMethodTimeoutFlow{},
 		timerFlow{},
+		subFlowParentFlow{},
+		subFlowAllParentFlow{},
+		subFlowAnyParentFlow{},
+		subFlowAttachParentFlow{},
+		subFlowAlwaysRestartParentFlow{},
+		subFlowAbnormalParentFlow{},
+		subFlowContinueAsNewParentFlow{},
+		subFlowTimerFlow{},
+		subFlowFailingFlow{},
+		subFlowImmediateFlow{},
 	}
 }
 
@@ -184,7 +194,7 @@ func newFlowID(t *testing.T, prefix string) string {
 	return prefix + "-" + uuid.NewString()
 }
 
-func waitForFlow(t *testing.T, flowID string, needsResults bool) dex.WaitForFlowResult {
+func waitForFlow(t *testing.T, flowID string, needsResults bool) dex.FlowResult {
 	t.Helper()
 	result, err := integClient.WaitForFlow(
 		integrationContext(t),
@@ -199,18 +209,17 @@ func waitForUncompletedFlow(
 	t *testing.T,
 	flowID string,
 	needsResults bool,
-) *dex.FlowUncompletedError {
+) dex.FlowResult {
 	t.Helper()
-	_, err := integClient.WaitForFlow(
+	result, err := integClient.WaitForFlow(
 		integrationContext(t),
 		flowID,
 		dex.WaitForFlowOptions{NeedsResults: needsResults, Timeout: 45 * time.Second},
 	)
-	var uncompleted *dex.FlowUncompletedError
-	require.ErrorAs(t, err, &uncompleted)
-	require.Equal(t, flowID, uncompleted.FlowID)
-	require.NotEmpty(t, uncompleted.RunID)
-	return uncompleted
+	require.NoError(t, err)
+	require.True(t, result.IsTerminal())
+	require.NotEqual(t, dex.FlowCompleted, result.Status)
+	return result
 }
 
 func availablePort() (string, error) {

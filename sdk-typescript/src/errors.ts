@@ -8,8 +8,6 @@
 
 import type { status } from "@grpc/grpc-js";
 
-import type { StepCompletion } from "./flow-result.js";
-import type { FlowStatus } from "./options.js";
 
 /** Indicates that an API is intentionally unavailable in the current SDK phase. */
 export class PhaseNotImplementedError extends Error {}
@@ -167,28 +165,6 @@ export class ValueMappingError extends Error {
     super(`Cannot ${operation} Dex Value: ${detail}`, options);
     this.name = new.target.name;
   }
-}
-
-/** Reports that `waitForFlow` observed a non-successful terminal status. */
-export class FlowUncompletedError extends Error {
-  /**
-   * Creates an error that keeps completed Step outputs for typed decoding.
-   * @param runId - Terminal server-assigned run ID.
-   * @param status - Non-completed terminal status.
-   * @param errorType - Terminal failure category, when available.
-   * @param message - Human-readable terminal detail.
-   * @param completions - Hydrated Step completions in server order.
-   */
-  public constructor(
-    public readonly runId: string,
-    public readonly status: FlowStatus,
-    public readonly errorType: FlowErrorType | undefined,
-    message: string | undefined,
-    public readonly completions: readonly StepCompletion[],
-  ) {
-    super(message);
-  }
-
 }
 
 /**

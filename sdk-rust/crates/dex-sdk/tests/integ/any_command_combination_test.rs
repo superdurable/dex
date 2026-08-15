@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use dex_sdk::{Client, FlowErrorType, FlowStatus, Registry, SdkError, SdkResult, StartFlowOptions};
+use dex_sdk::{Client, FlowErrorType, FlowStatus, Registry, SdkResult, StartFlowOptions};
 
 use crate::any_command_combination_workflow::AnyCommandCombinationWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id};
@@ -27,31 +27,18 @@ fn test_state_api_fail_workflow() {
         .client
         .start_flow(&workflow, &flow_id, 5)
         .expect("start invalid-combination Flow");
-    match environment
+    let result = environment
         .client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .and_then(|result| result.single_output::<i32>())
-        .expect_err("invalid condition combination must fail")
-    {
-        SdkError::FlowUncompleted {
-            run_id: failed_run,
-            status,
-            error_type,
-            message,
-            completions,
-        } => {
-            assert_eq!(run_id, failed_run);
-            assert_eq!(FlowStatus::Failed, status);
-            assert_eq!(Some(FlowErrorType::WorkerApiFailed), error_type);
-            assert!(
-                message
-                    .as_deref()
-                    .is_some_and(|value| value.contains("unknown condition ID"))
-            );
-            assert_eq!(0, completions.len());
-        }
-        error => panic!("expected FlowUncompleted, got {error:?}"),
-    }
+        .expect("wait for failed Flow result");
+    assert_eq!(FlowStatus::Failed, result.status());
+    assert_eq!(Some(FlowErrorType::WorkerApiFailed), result.error_type());
+    assert!(
+        result
+            .error_message()
+            .is_some_and(|value| value.contains("unknown condition ID"))
+    );
+    assert_eq!(0, result.completions().len());
     let info = environment
         .client
         .describe_flow(&flow_id)

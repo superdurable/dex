@@ -131,16 +131,21 @@ SDKs. Rust newtypes are reserved for IDs whose APIs benefit from distinct types.
 ## Flow completion outputs
 
 `Client::wait_for_flow` and `wait_for_flow_with_timeout` return
-`SdkResult<WaitForFlowResult>` without an output type parameter. The result
+`SdkResult<FlowResult>` without an output type parameter. The result
 exposes `completions() -> &[StepCompletion]`; each completion retains
 `step_type`, `step_execution_id`, and an already hydrated value decoded with
 `completion.decode::<T>()`.
 
-`WaitForFlowResult::single_output::<T>()` requires exactly one completion.
+`FlowResult::single_output::<T>()` requires exactly one terminal completion.
 Zero or multiple completions return `SdkError::InvalidArgument`. The completion
 slice keeps server collection order, which is not a business ordering contract
-for parallel Steps. `SdkError::FlowUncompleted` carries the same completion
-model for partial outputs.
+for parallel Steps. Every terminal Flow status returns `FlowResult`; service and
+long-poll failures remain `SdkError` values.
+
+`SubFlow::run` and `run_with_options` create durable Conditions targeting another
+registered Flow. `SubFlow::condition_result` reads the first terminal or running snapshot;
+the `_at` variants use a stable index. `SubFlow::flow_id` exposes the generated identity
+for lifecycle operations such as stopping an `any_of` loser.
 
 ## Errors
 

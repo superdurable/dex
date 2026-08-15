@@ -6,8 +6,13 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+use std::any::TypeId;
 use std::sync::Arc;
 use std::time::Duration;
+
+use dex_protocol::dex::Value as ProtoValue;
+
+use crate::SubFlowOptions;
 
 /// Describes when Dex may invoke a Step's `execute` handler.
 ///
@@ -77,7 +82,7 @@ impl Wait {
     }
 }
 
-/// Represents one durable timer or Channel predicate.
+/// Represents one durable timer, Channel, or SubFlow predicate.
 ///
 /// Conditions are created by [`crate::Timer`], [`crate::Channel`], or [`crate::ChannelMap`]. Assign
 /// an ID when identifying a timer independently or using [`Wait::any_combination_of`].
@@ -99,6 +104,15 @@ pub(crate) enum ConditionKind {
         at_least: Option<usize>,
         at_most: Option<usize>,
     },
+    SubFlow(Box<SubFlowDefinition>),
+}
+
+#[derive(Clone)]
+pub(crate) struct SubFlowDefinition {
+    pub(crate) flow_type: &'static str,
+    pub(crate) type_id: TypeId,
+    pub(crate) input: ProtoValue,
+    pub(crate) options: SubFlowOptions,
 }
 
 impl Condition {
@@ -125,6 +139,15 @@ impl Condition {
                 at_least,
                 at_most,
             },
+        }
+    }
+
+    pub(crate) fn sub_flow(definition: SubFlowDefinition) -> Self {
+        let id = definition.options.condition_id.clone();
+        Self {
+            identity: Arc::new(ConditionIdentity),
+            id,
+            kind: ConditionKind::SubFlow(Box::new(definition)),
         }
     }
 

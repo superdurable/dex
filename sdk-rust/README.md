@@ -46,7 +46,7 @@ sorted. Conditional completion is
 `StepDecision::force_complete_if_channels_empty`.
 
 `Client::wait_for_flow` and `wait_for_flow_with_timeout` return a
-`WaitForFlowResult` after hydrating every output-bearing completion. Use the
+`FlowResult` after hydrating every output-bearing completion. Use the
 strict helper for a single-output Flow:
 
 ```rust
@@ -63,8 +63,29 @@ for completion in result.completions() {
 The completion slice preserves server collection order, but parallel branch
 order is not deterministic. No-output Flows return an empty slice;
 `single_output` returns `SdkError::InvalidArgument` for zero or multiple
-completions. `SdkError::FlowUncompleted` carries the same hydrated completion
-metadata for partial outputs.
+completions. Every terminal status returns a `FlowResult`; inspect `status`,
+`error_type`, and `error_message` for unsuccessful completion.
+
+SubFlows are normal, independently addressable Flows used as durable Conditions:
+
+```rust
+fn wait_for(&self, _context: &mut Context, input: ChargeInput) -> HandlerResult<Wait> {
+    let condition = SubFlow::run(&ChargeFlow::new(), input)
+        .map_err(|error| HandlerError::new(error.to_string()))?;
+    Ok(Wait::until(condition))
+}
+
+fn execute(&self, context: &mut Context, _input: ChargeInput) -> HandlerResult<StepDecision> {
+    let receipt: Receipt = SubFlow::condition_result(context)?
+        .single_output()
+        .map_err(|error| HandlerError::new(error.to_string()))?;
+    Ok(StepDecision::graceful_complete(receipt))
+}
+```
+
+`SubFlow::flow_id_at(context, index)` remains available for a running `any_of` loser.
+`SubFlowOptions` configures timing, retry, initial target Attributes, Flow config,
+Condition ID, and reuse. Parent completion does not cancel an unfinished SubFlow.
 
 Existing-Flow reads (`get_attribute`, `describe_flow`, `wait_for_flow`, and
 `reset_flow`) use `FlowNotFound`; operations requiring a running Flow use

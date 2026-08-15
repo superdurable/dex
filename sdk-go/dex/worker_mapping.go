@@ -17,6 +17,7 @@ import (
 )
 
 func mapRegisteredWait(
+	registry *Registry,
 	flow *registeredFlow,
 	wait *Wait,
 ) (*dexpb.WaitingCondition, error) {
@@ -26,7 +27,7 @@ func mapRegisteredWait(
 	if err := validateRegisteredWait(flow, wait); err != nil {
 		return nil, err
 	}
-	return mapWait(wait)
+	return mapWaitWithRegistry(registry, flow, wait)
 }
 
 func validateRegisteredWait(flow *registeredFlow, wait *Wait) error {
@@ -65,6 +66,28 @@ func validateRegisteredCondition(flow *registeredFlow, condition Condition) erro
 	}
 	_, err := physicalName(concrete.channelName, concrete.instance, concrete.isMap)
 	return err
+}
+
+func flowRegistryTarget(condition *conditionImpl, registry *Registry) (*registeredFlow, error) {
+	if registry == nil {
+		return nil, nil
+	}
+	target, err := registry.resolveFlow(condition.subFlow)
+	if err != nil {
+		return nil, err
+	}
+	if target.startingStep == nil {
+		return nil, fmt.Errorf("dex: SubFlow %q has no starting Step", target.flowType)
+	}
+	if !assignableValue(condition.subFlowInput, target.startingStep.inputType) {
+		return nil, fmt.Errorf(
+			"dex: SubFlow %q input %T does not match %s",
+			target.flowType,
+			condition.subFlowInput,
+			target.startingStep.inputType,
+		)
+	}
+	return target, nil
 }
 
 func mapRegisteredDecision(

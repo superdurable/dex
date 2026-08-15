@@ -1310,9 +1310,9 @@ WaitForFlow leaves zero timeout as the server-configured maximum long poll. A
 successful response maps status and error metadata, then hydrates every
 requested completion output before returning. `NeedsResults=false` never
 requires result decoding. A long-poll timeout returns
-`*dex.LongPollTimeoutError` with `DeadlineExceeded` and the Flow ID. A closed
-Flow whose status is not completed returns `*dex.FlowUncompletedError` with its
-Flow ID, current run ID, status, error metadata, and requested completions.
+`*dex.LongPollTimeoutError` with `DeadlineExceeded` and the Flow ID. Every closed
+Flow returns `dex.FlowResult` with its status, error metadata, and requested
+completions.
 `DecodeSingleOutput` decodes only when exactly one completion exists; zero or
 multiple completions return a local contract error. Callers handling parallel
 branches select by `StepType` or `StepExecutionID`, not slice position.
@@ -2408,23 +2408,15 @@ type StepCompletion struct {
 	Output          Value
 }
 
-type WaitForFlowResult struct {
+type FlowResult struct {
 	Status       FlowStatus
 	Completions  []StepCompletion
 	ErrorType    FlowErrorType
 	ErrorMessage string
 }
 
-func (result WaitForFlowResult) DecodeSingleOutput(target any) error
-
-type FlowUncompletedError struct {
-	FlowID       string
-	RunID        string
-	Status       FlowStatus
-	ErrorType    FlowErrorType
-	ErrorMessage string
-	Completions  []StepCompletion
-}
+func (result FlowResult) IsTerminal() bool
+func (result FlowResult) DecodeSingleOutput(target any) error
 
 type SearchFlowEntry struct {
 	FlowID           string
@@ -2660,9 +2652,8 @@ Applications use `errors.As` with `FlowAlreadyStartedError`,
 `ServiceError` to the original gRPC status. `ErrorSubStatus` remains diagnostic
 metadata.
 
-`FlowUncompletedError` is a local terminal-state error rather than a
-`ServiceError`. It exposes `FlowID`, `RunID`, `Status`, `ErrorType`,
-`ErrorMessage`, and `Completions` from the wait response.
+`WaitForFlow` returns `FlowResult` for every terminal status. Transport,
+long-poll, hydration, and invalid-input failures remain errors.
 
 GetAttribute, GetAttributes, WaitForFlow, and ResetFlow require an existing
 Flow. Mutations, RPC, publish, stop, timer, config, and step or attribute wait

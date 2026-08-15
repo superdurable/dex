@@ -139,8 +139,26 @@ const receipt = result.completions
 
 The completion array is read-only and keeps server collection order. Parallel
 branch order is not deterministic. A no-output Flow returns an empty array;
-`singleOutput` throws for zero or multiple completions. `FlowUncompletedError`
-retains the same hydrated `StepCompletion` metadata for partial outputs.
+`singleOutput` throws for zero or multiple completions. Every terminal status returns
+a `FlowResult`; inspect `status`, `errorType`, and `errorMessage` for unsuccessful
+completion.
+
+SubFlows are normal, independently addressable Flows used as durable Conditions:
+
+```typescript
+public waitFor(_context: Context, input: ChargeInput): Wait {
+  return Wait.until(SubFlow.run(this.chargeFlow, input));
+}
+
+public execute(context: Context, _input: ChargeInput): StepDecision {
+  const receipt = SubFlow.getConditionResults(context).singleOutput(receiptCodec);
+  return gracefulComplete(receipt);
+}
+```
+
+`SubFlow.getFlowId(context, index)` remains available for a running `anyOf` loser.
+`SubFlowOptions` configures timing, retry, initial target Attributes, Flow config,
+Condition ID, and reuse. Parent completion does not cancel an unfinished SubFlow.
 
 ## Errors
 

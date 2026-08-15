@@ -15,7 +15,6 @@ import {
   FlowAlreadyStartedError,
   FlowErrorType,
   FlowNotFoundError,
-  FlowUncompletedError,
   IdReusePolicy,
   StepExecutionId,
   doubleCodec,
@@ -68,11 +67,7 @@ test("failed workflow ID can be reused", async () => {
     const id = flowId("abnormal-exit-reuse");
     const options = { idReusePolicy: IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED };
     const failedRun = await client.startFlow(failed, id, 0, options);
-    const failure = await expectError(
-      client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)),
-      FlowUncompletedError,
-    );
-    assert.equal(failure.runId, failedRun);
+    const failure = await client.waitForFlow(id, 30_000);
     assert.equal(failure.status, "failed");
     await client.startFlow(succeeding, id, 0, options);
     assert.equal(await client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)), 2);
@@ -180,12 +175,9 @@ test("movement options do not mutate Step defaults", async () => {
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("immutable-options");
     await client.startFlow(flow, id, 0);
-    const failure = await expectError(
-      client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)),
-      FlowUncompletedError,
-    );
+    const failure = await client.waitForFlow(id, 30_000);
     assert.equal(failure.status, "failed");
     assert.equal(failure.errorType, FlowErrorType.WORKER_API_FAILED);
-    assert.equal(failure.message, "expected wait failure 2");
+    assert.equal(failure.errorMessage, "expected wait failure 2");
   });
 });

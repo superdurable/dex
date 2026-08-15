@@ -183,6 +183,14 @@ func validateConditionResults(results *dexpb.ConditionResults) error {
 			}
 		}
 	}
+	for index, result := range results.SubFlowResults {
+		if result == nil {
+			return fmt.Errorf("dex: invalid SubFlow result at index %d", index)
+		}
+		if _, err := mapFlowResult(result); err != nil {
+			return fmt.Errorf("dex: invalid SubFlow result at index %d: %w", index, err)
+		}
+	}
 	return nil
 }
 
@@ -246,6 +254,15 @@ func (invocation *invocationContext) WaitForMethodFailed() bool {
 	return invocation.active && invocation.method == invocationExecute &&
 		invocation.conditionResults != nil &&
 		invocation.conditionResults.WaitForFailed
+}
+
+func (invocation *invocationContext) subFlowResult(index int) (FlowResult, error) {
+	if !invocation.active || invocation.method != invocationExecute ||
+		invocation.conditionResults == nil ||
+		index < 0 || index >= len(invocation.conditionResults.SubFlowResults) {
+		return FlowResult{}, fmt.Errorf("dex: SubFlow result index %d is unavailable", index)
+	}
+	return mapFlowResult(invocation.conditionResults.SubFlowResults[index])
 }
 
 func (invocation *invocationContext) SetStepExecutionLocal(

@@ -14,7 +14,7 @@ use prost::Message;
 use prost_types::Any;
 use tonic::Status;
 
-use crate::{FlowErrorType, FlowStatus, GrpcCode};
+use crate::GrpcCode;
 
 /// Result returned by fallible Dex SDK operations.
 pub type SdkResult<T> = Result<T, SdkError>;
@@ -164,19 +164,6 @@ pub enum SdkError {
         /// Structured timeout failure.
         service: ServiceError,
     },
-    /// A waited Flow reached a terminal status other than Completed.
-    FlowUncompleted {
-        /// Run ID that reached the terminal status.
-        run_id: String,
-        /// Terminal Flow status.
-        status: FlowStatus,
-        /// Dex failure category, when available.
-        error_type: Option<FlowErrorType>,
-        /// Server completion detail, when available.
-        message: Option<String>,
-        /// Output-bearing Step completions returned with the failure.
-        completions: Vec<crate::StepCompletion>,
-    },
     /// A registered Flow, Step, RPC, or persistence definition is invalid.
     FlowDefinition {
         /// Developer-actionable contract violation.
@@ -214,9 +201,6 @@ impl Display for SdkError {
             | Self::LongPollTimeout { service } => Display::fmt(service, formatter),
             Self::WorkerInvocation { service, .. } => Display::fmt(service, formatter),
             Self::InvalidStepResult { detail, .. } => formatter.write_str(detail),
-            Self::FlowUncompleted { message, .. } => {
-                formatter.write_str(message.as_deref().unwrap_or("Flow did not complete"))
-            }
             Self::FlowDefinition { message }
             | Self::InvalidArgument { message }
             | Self::ValueMapping { message } => formatter.write_str(message),
@@ -234,8 +218,7 @@ impl Error for SdkError {
 impl SdkError {
     /// Returns shared service metadata for service-backed variants.
     ///
-    /// Local definition, argument, mapping, invalid-result, and uncompleted-Flow errors return
-    /// `None`.
+    /// Local definition, argument, mapping, and invalid-result errors return `None`.
     pub fn service_error(&self) -> Option<&ServiceError> {
         match self {
             Self::Service { service }

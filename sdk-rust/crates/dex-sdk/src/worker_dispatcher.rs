@@ -17,8 +17,9 @@ use dex_protocol::dex::{
     InvokeWaitForMethodResponse, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, Kv,
     RetryPolicy as ProtoRetryPolicy, StepDecision as ProtoStepDecision,
     StepDurability as ProtoStepDurability, StepMovement as ProtoStepMovement,
-    StepOptions as ProtoStepOptions, TimerCondition, WaitForMethodFailurePolicy, WaitingCondition,
-    WaitingConditionType,
+    StepOptions as ProtoStepOptions, SubFlowCondition as ProtoSubFlowCondition,
+    SubFlowOptions as ProtoSubFlowOptions, SubFlowReusePolicy as ProtoSubFlowReusePolicy,
+    TimerCondition, WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType,
 };
 
 use crate::context::{Context, InvocationCancellation, InvocationMethod};
@@ -31,7 +32,8 @@ use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::wait::{Condition, ConditionKind, Wait, WaitKind};
 use crate::{
-    HandlerError, HandlerResult, Registry, RetryPolicy, StepDurability, WaitForFailurePolicy,
+    HandlerError, HandlerResult, Registry, RetryPolicy, StepDurability, SubFlowReusePolicy,
+    WaitForFailurePolicy,
 };
 
 #[derive(Clone)]
@@ -73,9 +75,10 @@ impl WorkerDispatcher {
             .step_input
             .ok_or_else(|| HandlerError::new("Step input is required"))?;
         let cancellation = context.cancellation();
+        let registry = self.registry.clone();
         run_handler(cancellation, move || {
             let wait = flow.handler.wait_for(step.name, &mut context, &input)?;
-            let waiting_condition = map_wait(&flow, wait).map_err(|error| {
+            let waiting_condition = map_wait(&registry, &flow, wait).map_err(|error| {
                 HandlerError::invalid_step_result(flow.name, Some(step.name), "wait_for", error)
             })?;
             let (attributes, locals, events, publications) = context.take_outputs();
@@ -229,9 +232,27 @@ impl WorkerDispatcher {
                     .collect()
             })
             .unwrap_or_default();
+        let sub_flow_counts: Vec<usize> = request
+            .condition_results
+            .as_ref()
+            .map(|conditions| {
+                conditions
+                    .sub_flow_results
+                    .iter()
+                    .map(|result| result.results.len())
+                    .collect()
+            })
+            .unwrap_or_default();
         if let Some(conditions) = request.condition_results.as_mut() {
             for channel in &mut conditions.channel_results {
                 values.append(&mut channel.values);
+            }
+            for flow_result in &mut conditions.sub_flow_results {
+                for completion in &mut flow_result.results {
+                    values.push(completion.completed_step_output.take().ok_or_else(|| {
+                        HandlerError::new("SubFlow Step completion output is required")
+                    })?);
+                }
             }
         }
         let mut hydrated = self
@@ -246,6 +267,12 @@ impl WorkerDispatcher {
         if let Some(conditions) = request.condition_results.as_mut() {
             for (channel, count) in conditions.channel_results.iter_mut().zip(channel_counts) {
                 channel.values = hydrated.by_ref().take(count).collect();
+            }
+            for (flow_result, count) in conditions.sub_flow_results.iter_mut().zip(sub_flow_counts)
+            {
+                for completion in flow_result.results.iter_mut().take(count) {
+                    completion.completed_step_output = hydrated.next();
+                }
             }
         }
         Ok(request)
@@ -374,8 +401,12 @@ fn map_durability(durability: StepDurability) -> i32 {
     }
 }
 
-fn map_wait(flow: &RegisteredFlow, wait: Wait) -> HandlerResult<Option<WaitingCondition>> {
-    let mut mapper = ConditionMapper::new(flow);
+fn map_wait(
+    registry: &Registry,
+    flow: &RegisteredFlow,
+    wait: Wait,
+) -> HandlerResult<Option<WaitingCondition>> {
+    let mut mapper = ConditionMapper::new(registry, flow);
     let (waiting_type, combinations) = match wait.kind {
         WaitKind::SkipImmediately => return Ok(None),
         WaitKind::AllOf(conditions) => {
@@ -414,7 +445,7 @@ fn map_wait(flow: &RegisteredFlow, wait: Wait) -> HandlerResult<Option<WaitingCo
         waiting_condition_type: waiting_type as i32,
         timer_conditions: mapper.timers,
         channel_conditions: mapper.channels,
-        sub_flow_conditions: Vec::new(),
+        sub_flow_conditions: mapper.sub_flows,
         condition_combinations: combinations,
     }))
 }
@@ -522,21 +553,25 @@ fn map_movement(flow: &RegisteredFlow, movement: StepMovement) -> HandlerResult<
 }
 
 struct ConditionMapper<'a> {
+    registry: &'a Registry,
     flow: &'a RegisteredFlow,
     used_ids: HashSet<String>,
     ids_by_condition: HashMap<usize, String>,
     timers: Vec<TimerCondition>,
     channels: Vec<ChannelCondition>,
+    sub_flows: Vec<ProtoSubFlowCondition>,
 }
 
 impl<'a> ConditionMapper<'a> {
-    fn new(flow: &'a RegisteredFlow) -> Self {
+    fn new(registry: &'a Registry, flow: &'a RegisteredFlow) -> Self {
         Self {
+            registry,
             flow,
             used_ids: HashSet::new(),
             ids_by_condition: HashMap::new(),
             timers: Vec::new(),
             channels: Vec::new(),
+            sub_flows: Vec::new(),
         }
     }
 
@@ -598,9 +633,89 @@ impl<'a> ConditionMapper<'a> {
                     at_most: optional_count(at_most)?,
                 });
             }
+            ConditionKind::SubFlow(definition) => {
+                let target = self
+                    .registry
+                    .flow(definition.flow_type)
+                    .map_err(handler_error)?;
+                if target.type_id != definition.type_id {
+                    return Err(HandlerError::new(format!(
+                        "SubFlow {} does not match the registered Rust type",
+                        definition.flow_type
+                    )));
+                }
+                let start = target.start_step.as_ref().ok_or_else(|| {
+                    HandlerError::new(format!(
+                        "SubFlow {} has no starting Step",
+                        definition.flow_type
+                    ))
+                })?;
+                let step_options =
+                    map_step_options(target, target.handler.step_options(start.name)?)?;
+                let options = map_sub_flow_options(target, &definition.options)?;
+                self.sub_flows.push(ProtoSubFlowCondition {
+                    condition_id: id.clone(),
+                    sub_flow_type: target.name.to_string(),
+                    start_step_type: start.name.to_string(),
+                    step_input: Some(definition.input),
+                    step_options: Some(step_options),
+                    options: Some(options),
+                    sub_flow_index: i32::try_from(self.sub_flows.len())
+                        .map_err(|_| HandlerError::new("too many SubFlow Conditions"))?,
+                });
+            }
         }
         Ok(id)
     }
+}
+
+fn map_sub_flow_options(
+    target: &RegisteredFlow,
+    options: &crate::SubFlowOptions,
+) -> HandlerResult<ProtoSubFlowOptions> {
+    let attributes = options
+        .attributes
+        .iter()
+        .map(|attribute| {
+            let logical_name = attribute.key.split('/').next().unwrap_or(&attribute.key);
+            if !target.persistence.contains_key(logical_name) {
+                return Err(HandlerError::new(format!(
+                    "SubFlow Attribute is not registered: {}",
+                    attribute.key
+                )));
+            }
+            Ok(AttributeWrite {
+                key: attribute.key.clone(),
+                value: Some(attribute.value.encode().map_err(handler_error)?),
+                index_config: attribute.index_config.clone(),
+                sync_config: attribute.sync_config,
+            })
+        })
+        .collect::<HandlerResult<Vec<_>>>()?;
+    Ok(ProtoSubFlowOptions {
+        reuse_policy: match options.reuse_policy {
+            SubFlowReusePolicy::Attach => ProtoSubFlowReusePolicy::Attach,
+            SubFlowReusePolicy::RestartIfPreviousExitsAbnormally => {
+                ProtoSubFlowReusePolicy::RestartIfPreviousExitsAbnormally
+            }
+            SubFlowReusePolicy::AlwaysRestart => ProtoSubFlowReusePolicy::AlwaysRestart,
+        } as i32,
+        flow_timeout_seconds: optional_seconds(options.timeout)?,
+        flow_start_delay_seconds: optional_seconds(options.start_delay)?,
+        retry_policy: options
+            .retry_policy
+            .clone()
+            .map(crate::client::map_flow_retry)
+            .transpose()
+            .map_err(handler_error)?,
+        attributes,
+        flow_config_override: options
+            .config_override
+            .as_ref()
+            .map(|config| crate::client::map_flow_config(Some(config), None))
+            .transpose()
+            .map_err(handler_error)?,
+    })
 }
 
 fn take_entry_values(entries: &mut [Kv]) -> HandlerResult<Vec<dex_protocol::dex::Value>> {
@@ -732,6 +847,7 @@ mod tests {
         let channel = Channel::<()>::new("commands");
 
         let unnamed = map_wait(
+            &registry,
             flow,
             Wait::any_of([
                 Timer::by_duration(Duration::from_secs(1)),
@@ -745,6 +861,7 @@ mod tests {
 
         let reused = channel.for_one().with_id("__dex_internal_condition_0");
         let reused_wait = map_wait(
+            &registry,
             flow,
             Wait::any_combination_of([
                 ConditionCombination::all_of([reused.clone()]),
@@ -764,6 +881,7 @@ mod tests {
         );
 
         let missing = map_wait(
+            &registry,
             flow,
             Wait::any_combination_of([ConditionCombination::all_of([channel.for_one()])]),
         )
@@ -771,6 +889,7 @@ mod tests {
         assert!(missing.to_string().contains("requires every Condition"));
 
         let duplicate = map_wait(
+            &registry,
             flow,
             Wait::any_combination_of([ConditionCombination::all_of([
                 channel.for_one().with_id("same"),
@@ -780,8 +899,12 @@ mod tests {
         .expect_err("duplicate IDs must fail");
         assert!(duplicate.to_string().contains("duplicate Condition ID"));
 
-        let empty = map_wait(flow, Wait::all_of([channel.for_one().with_id("")]))
-            .expect_err("empty ID must fail");
+        let empty = map_wait(
+            &registry,
+            flow,
+            Wait::all_of([channel.for_one().with_id("")]),
+        )
+        .expect_err("empty ID must fail");
         assert!(empty.to_string().contains("empty Condition ID"));
     }
 }

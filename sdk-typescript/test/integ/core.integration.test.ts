@@ -14,7 +14,6 @@ import test from "node:test";
 import {
   FlowErrorType,
   FlowNotActiveError,
-  FlowUncompletedError,
   StepExecutionId,
   TimerId,
   doubleCodec,
@@ -42,14 +41,10 @@ test("unknown any-combination condition fails the Flow", async () => {
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("any-combination-fail");
     const runId = await client.startFlow(flow, id, 5);
-    const failure = await expectError(
-      client.waitForFlow(id, 30_000).then((result) => result.singleOutput(doubleCodec)),
-      FlowUncompletedError,
-    );
-    assert.equal(failure.runId, runId);
+    const failure = await client.waitForFlow(id, 30_000);
     assert.equal(failure.status, "failed");
     assert.equal(failure.errorType, FlowErrorType.WORKER_API_FAILED);
-    assert.match(failure.message, /unknown condition ID/i);
+    assert.match(failure.errorMessage ?? "", /unknown condition ID/i);
     const summary = await client.describeFlow(id);
     assert.equal(summary.runId, runId);
     assert.equal(summary.status, "failed");

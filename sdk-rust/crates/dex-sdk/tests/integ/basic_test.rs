@@ -70,22 +70,15 @@ fn test_basic_workflow_abnormal_exit_reuse() {
     let workflow = BasicWorkflow::new();
     let flow_id = flow_id("abnormal-exit-reuse");
     let options = StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfPreviousFailed);
-    let failed_run = environment
+    environment
         .client
         .start_flow_with_options(&abnormal, &flow_id, 0, options.clone())
         .expect("start abnormal-exit Flow");
-    match environment
+    let failed = environment
         .client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .and_then(|result| result.single_output::<i32>())
-        .expect_err("abnormal-exit Flow must fail")
-    {
-        SdkError::FlowUncompleted { run_id, status, .. } => {
-            assert_eq!(failed_run, run_id);
-            assert_eq!(FlowStatus::Failed, status);
-        }
-        error => panic!("expected FlowUncompleted, got {error:?}"),
-    }
+        .expect("wait for failed Flow result");
+    assert_eq!(FlowStatus::Failed, failed.status());
     environment
         .client
         .start_flow_with_options(&workflow, &flow_id, 0, options)
@@ -335,24 +328,13 @@ fn test_movement_options_do_not_mutate_step_defaults() {
         .client
         .start_flow(&workflow, &flow_id, 0)
         .expect("start immutable-options Flow");
-    match environment
+    let failure = environment
         .client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .and_then(|result| result.single_output::<i32>())
-        .expect_err("second wait failure must fail the Flow")
-    {
-        SdkError::FlowUncompleted {
-            status,
-            error_type,
-            message,
-            ..
-        } => {
-            assert_eq!(FlowStatus::Failed, status);
-            assert_eq!(Some(FlowErrorType::WorkerApiFailed), error_type);
-            assert_eq!(Some("expected wait failure 2".to_string()), message);
-        }
-        error => panic!("expected FlowUncompleted, got {error:?}"),
-    }
+        .expect("wait for failed Flow result");
+    assert_eq!(FlowStatus::Failed, failure.status());
+    assert_eq!(Some(FlowErrorType::WorkerApiFailed), failure.error_type());
+    assert_eq!(Some("expected wait failure 2"), failure.error_message());
 }
 
 #[allow(dead_code)]

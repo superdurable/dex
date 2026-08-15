@@ -93,6 +93,10 @@ class ValueHydrator:
         values.extend(entry.value for entry in request.step_exe_locals)
         for channel_result in request.condition_results.channel_results:
             values.extend(channel_result.values)
+        for flow_result in request.condition_results.sub_flow_results:
+            values.extend(
+                completion.completed_step_output for completion in flow_result.results
+            )
         hydrated = iter(self.hydrate_all(values))
         result.step_input.CopyFrom(next(hydrated))
         for entry in result.attributes:
@@ -102,6 +106,9 @@ class ValueHydrator:
         for channel_result in result.condition_results.channel_results:
             for value in channel_result.values:
                 value.CopyFrom(next(hydrated))
+        for flow_result in result.condition_results.sub_flow_results:
+            for completion in flow_result.results:
+                completion.completed_step_output.CopyFrom(next(hydrated))
         return result
 
     def rpc_request(

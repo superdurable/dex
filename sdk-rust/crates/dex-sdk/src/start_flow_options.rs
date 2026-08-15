@@ -70,6 +70,30 @@ pub(crate) struct InitialAttribute {
     pub(crate) sync_config: Option<AttributeSyncConfig>,
 }
 
+impl InitialAttribute {
+    pub(crate) fn for_attribute<T: Value>(attribute: &Attribute<T>, value: T) -> Self {
+        Self {
+            key: attribute.name().to_string(),
+            value: Arc::new(TypedValue(value)),
+            index_config: attribute.index().map(|index| index.proto_config(false)),
+            sync_config: attribute.sync_config(),
+        }
+    }
+
+    pub(crate) fn for_attribute_map<T: Value>(
+        attribute: &AttributeMap<T>,
+        instance: &str,
+        value: T,
+    ) -> Self {
+        Self {
+            key: physical_name(attribute.name(), instance),
+            value: Arc::new(TypedValue(value)),
+            index_config: attribute.index().map(|index| index.proto_config(true)),
+            sync_config: attribute.sync_config(),
+        }
+    }
+}
+
 impl StartFlowOptions {
     /// Creates start options that preserve all server defaults.
     pub fn new() -> Self {
@@ -118,12 +142,8 @@ impl StartFlowOptions {
 
     /// Adds an initial value for a declared Attribute.
     pub fn initial_attribute<T: Value>(mut self, attribute: &Attribute<T>, value: T) -> Self {
-        self.attributes.push(InitialAttribute {
-            key: attribute.name().to_string(),
-            value: Arc::new(TypedValue(value)),
-            index_config: attribute.index().map(|index| index.proto_config(false)),
-            sync_config: attribute.sync_config(),
-        });
+        self.attributes
+            .push(InitialAttribute::for_attribute(attribute, value));
         self
     }
 
@@ -134,12 +154,9 @@ impl StartFlowOptions {
         instance: &str,
         value: T,
     ) -> Self {
-        self.attributes.push(InitialAttribute {
-            key: physical_name(attribute.name(), instance),
-            value: Arc::new(TypedValue(value)),
-            index_config: attribute.index().map(|index| index.proto_config(true)),
-            sync_config: attribute.sync_config(),
-        });
+        self.attributes.push(InitialAttribute::for_attribute_map(
+            attribute, instance, value,
+        ));
         self
     }
 

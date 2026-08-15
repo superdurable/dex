@@ -46,7 +46,8 @@ Full integration verification:
 | Worker handler failure | `WorkerInvocationError` |
 | Locking RPC contention | `RpcLockConflictError` |
 | Long-poll expiry | `LongPollTimeoutError` |
-| Non-completed Flow result | `FlowUncompletedError` |
+| Terminal Flow result | `FlowResult` for every terminal status |
+| Durable SubFlow condition | Identity, all/any, reuse, reset, and continue-as-new |
 
 Local contract tests also cover malformed rich details, registration failures,
 value mapping, and invalid Step results.

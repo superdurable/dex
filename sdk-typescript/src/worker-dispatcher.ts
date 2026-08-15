@@ -19,6 +19,14 @@ import {
   StepMovement as ProtoStepMovement,
   StepOptions as ProtoStepOptions,
   TimerCondition,
+  SubFlowCondition as ProtoSubFlowCondition,
+  SubFlowOptions as ProtoSubFlowOptions,
+  SubFlowReusePolicy as ProtoSubFlowReusePolicy,
+  FlowRetryPolicy,
+  FlowConfig as ProtoFlowConfig,
+  ActiveStepSearchMode as ProtoActiveStepSearchMode,
+  StepDurability as ProtoStepDurability,
+  IndexType as ProtoIndexType,
   WaitForMethodFailurePolicy,
   WaitingCondition,
   WaitingConditionType,
@@ -35,6 +43,7 @@ import {
 import { InvalidStepResultError, ValueMappingError } from "./errors.js";
 import {
   registeredFlowByName,
+  registeredFlow,
   registeredRPCByName,
   registeredStep,
   type RegisteredFlow,
@@ -42,7 +51,10 @@ import {
   type Registry,
 } from "./flow.js";
 import { InvocationContext } from "./invocation-context.js";
-import { AttributeMap } from "./persistence.js";
+import { Attribute, AttributeMap, IndexType } from "./persistence.js";
+import { mapAttributeStoreName, mapAttributeStoreSync } from "./attribute-store-sync.js";
+import { ActiveStepSearchMode, type FlowConfig } from "./options.js";
+import { SubFlowReusePolicy, type SubFlowOptions } from "./subflow.js";
 import type { RegisteredRPC } from "./rpc.js";
 import type {
   RetryPolicy,
@@ -80,7 +92,7 @@ export class WorkerDispatcher {
     try {
       return InvokeWaitForMethodResponse.create({
         upsertAttributes: [...context.getAttributeWrites()],
-        waitingCondition: mapWait(flow, wait),
+        waitingCondition: mapWait(this.registry, flow, wait),
         upsertStepExeLocals: [...context.getLocalWrites()],
         recordEvents: [...context.getEvents()],
         publishToChannel: [...context.getPublications()],
@@ -173,11 +185,15 @@ export class WorkerDispatcher {
     const channelValues = request.conditionResults?.channelResults.flatMap(
       (result) => result.values,
     ) ?? [];
+    const subFlowValues = request.conditionResults?.subFlowResults.flatMap(
+      (result) => result.results.map((completion) => completion.completedStepOutput),
+    ) ?? [];
     const values = await this.hydrator.hydrateAll([
       request.stepInput,
       ...request.attributes.map((entry) => entry.value),
       ...request.stepExeLocals.map((entry) => entry.value),
       ...channelValues,
+      ...subFlowValues,
     ]);
     let offset = 1;
     const attributes = replaceEntryValues(
@@ -241,14 +257,18 @@ function rpcResult(
   return returned as { output: unknown; nextSteps?: readonly StepMovement<unknown>[] };
 }
 
-function mapWait(flow: RegisteredFlow, wait: Wait | undefined): WaitingCondition | undefined {
+function mapWait(
+  registry: Registry,
+  flow: RegisteredFlow,
+  wait: Wait | undefined,
+): WaitingCondition | undefined {
   if (wait === undefined) {
     throw new TypeError("waitFor returned undefined");
   }
   if (wait.kind === "skipImmediately") {
     return undefined;
   }
-  const mapper = new ConditionMapper(flow);
+  const mapper = new ConditionMapper(registry, flow);
   let waitingConditionType: WaitingConditionType;
   const combinations: ProtoConditionCombination[] = [];
   if (wait.kind === "allOf" || wait.kind === "anyOf") {
@@ -277,6 +297,7 @@ function mapWait(flow: RegisteredFlow, wait: Wait | undefined): WaitingCondition
     waitingConditionType,
     timerConditions: mapper.timers,
     channelConditions: mapper.channels,
+    subFlowConditions: mapper.subFlows,
     conditionCombinations: combinations,
   });
 }
@@ -436,10 +457,14 @@ function mapRetry(retry: RetryPolicy | undefined): ProtoRetryPolicy | undefined 
 class ConditionMapper {
   public readonly timers: TimerCondition[] = [];
   public readonly channels: ChannelCondition[] = [];
+  public readonly subFlows: ProtoSubFlowCondition[] = [];
   private readonly ids = new Map<Condition, string>();
   private readonly used = new Set<string>();
 
-  public constructor(private readonly flow: RegisteredFlow) {}
+  public constructor(
+    private readonly registry: Registry,
+    private readonly flow: RegisteredFlow,
+  ) {}
 
   public add(condition: Condition, idRequired: boolean): string {
     const existing = this.ids.get(condition);
@@ -466,7 +491,7 @@ class ConditionMapper {
           durationSeconds: BigInt(seconds(condition.durationMs)),
         }),
       );
-    } else {
+    } else if (condition.kind === "channel") {
       const registered = this.flow.persistence.get(condition.channelName ?? "");
       if (!(registered instanceof Channel) && !(registered instanceof ChannelMap)) {
         throw new TypeError(`Channel is not registered: ${condition.channelName ?? ""}`);
@@ -483,10 +508,128 @@ class ConditionMapper {
           atMost: condition.atMost,
         }),
       );
+    } else {
+      const targetFlow = condition.subFlow;
+      if (targetFlow === undefined) {
+        throw new TypeError("SubFlow requires a target Flow");
+      }
+      const target = registeredFlow(this.registry, targetFlow);
+      const start = target.startStep;
+      if (start === undefined) {
+        throw new TypeError(`SubFlow ${target.name} has no starting Step`);
+      }
+      const options = condition.subFlowOptions ?? {};
+      this.subFlows.push(
+        ProtoSubFlowCondition.create({
+          conditionId: id,
+          subFlowType: target.name,
+          startStepType: start.name,
+          stepInput: encodeValue(start.step.inputCodec, condition.subFlowInput),
+          stepOptions: mapStepOptions(
+            target,
+            start.step.getStepOptions?.(),
+            start.step.waitFor === undefined,
+          ),
+          options: mapSubFlowOptions(target, options),
+          subFlowIndex: this.subFlows.length,
+        }),
+      );
     }
     this.ids.set(condition, id);
     return id;
   }
+}
+
+function mapSubFlowOptions(
+  target: RegisteredFlow,
+  options: SubFlowOptions,
+): ProtoSubFlowOptions {
+  const attributes = (options.attributes ?? []).map((initial) => {
+    if (target.persistence.get(initial.attribute.name) !== initial.attribute) {
+      throw new TypeError(`SubFlow Attribute does not belong to ${target.name}`);
+    }
+    let key: string;
+    if (initial.attribute instanceof AttributeMap) {
+      key = physicalName(initial.attribute.name, initial.instance);
+    } else {
+      if (initial.instance !== undefined) {
+        throw new TypeError("static Attribute cannot use an instance");
+      }
+      key = initial.attribute.name;
+    }
+    return {
+      key,
+      value: encodeValue(initial.attribute.codec, initial.value),
+      indexConfig: mapIndex(initial.attribute.index),
+      syncConfig: mapAttributeStoreSync(initial.attribute),
+    };
+  });
+  const reusePolicy =
+    options.reusePolicy === SubFlowReusePolicy.ATTACH
+      ? ProtoSubFlowReusePolicy.SUB_FLOW_REUSE_POLICY_ATTACH
+      : options.reusePolicy === SubFlowReusePolicy.ALWAYS_RESTART
+        ? ProtoSubFlowReusePolicy.SUB_FLOW_REUSE_POLICY_ALWAYS_RESTART
+        : ProtoSubFlowReusePolicy.SUB_FLOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS_ABNORMALLY;
+  return ProtoSubFlowOptions.create({
+    reusePolicy,
+    flowTimeoutSeconds: seconds(options.timeoutMs),
+    flowStartDelaySeconds: seconds(options.startDelayMs),
+    retryPolicy: mapFlowRetry(options.retryPolicy),
+    attributes,
+    flowConfigOverride: mapSubFlowConfig(options.configOverride),
+  });
+}
+
+function mapFlowRetry(retry: RetryPolicy | undefined): FlowRetryPolicy | undefined {
+  if (retry === undefined) return undefined;
+  return FlowRetryPolicy.create({
+    initialIntervalSeconds: seconds(retry.initialIntervalMs),
+    backoffCoefficient: retry.backoffCoefficient ?? 0,
+    maximumIntervalSeconds: seconds(retry.maximumIntervalMs),
+    maximumAttempts: retry.maximumAttempts ?? 0,
+  });
+}
+
+function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig | undefined {
+  if (config === undefined) return undefined;
+  return ProtoFlowConfig.create({
+    activeStepSearchMode:
+      config.activeStepSearchMode === ActiveStepSearchMode.ALL
+        ? ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL
+        : config.activeStepSearchMode === undefined
+          ? undefined
+          : ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED,
+    attributeSyncConfigName: mapAttributeStoreName(config),
+    continueAsNewThreshold: config.continueAsNewThreshold,
+    continueAsNewPageSizeInBytes: config.continueAsNewPageSizeBytes,
+    stepDurability:
+      config.stepDurability === "sync"
+        ? ProtoStepDurability.STEP_DURABILITY_SYNC
+        : config.stepDurability === "async"
+          ? ProtoStepDurability.STEP_DURABILITY_ASYNC
+          : undefined,
+    workerTarget:
+      config.workerTarget === undefined
+        ? undefined
+        : {
+            address: config.workerTarget.address,
+            isHeadlessAddress: config.workerTarget.headless ?? false,
+          },
+  });
+}
+
+function mapIndex(index: Attribute<unknown>["index"] | undefined) {
+  if (index === undefined) return undefined;
+  const types: Record<IndexType, ProtoIndexType> = {
+    [IndexType.KEYWORD]: ProtoIndexType.INDEX_TYPE_KEYWORD,
+    [IndexType.FULL_TEXT]: ProtoIndexType.INDEX_TYPE_TEXT,
+    [IndexType.KEYWORD_ARRAY]: ProtoIndexType.INDEX_TYPE_KEYWORD_ARRAY,
+    [IndexType.INT]: ProtoIndexType.INDEX_TYPE_INT,
+    [IndexType.DOUBLE]: ProtoIndexType.INDEX_TYPE_DOUBLE,
+    [IndexType.BOOL]: ProtoIndexType.INDEX_TYPE_BOOL,
+    [IndexType.DATETIME]: ProtoIndexType.INDEX_TYPE_DATETIME,
+  };
+  return { enable: true, type: types[index.type], indexKey: index.indexKey ?? "" };
 }
 
 function replaceEntryValues(entries: readonly KV[], values: readonly Value[]): KV[] {
@@ -513,10 +656,17 @@ function replaceConditionValues(
     offset = next;
     return replaced;
   });
+  const subFlowResults = results.subFlowResults.map((result) => ({
+    ...result,
+    results: result.results.map((completion) => ({
+      ...completion,
+      completedStepOutput: values[offset++],
+    })),
+  }));
   if (offset !== values.length) {
     throw new TypeError("hydrated Condition value count does not match request");
   }
-  return { ...results, channelResults };
+  return { ...results, channelResults, subFlowResults };
 }
 
 function requireValue(value: Value | undefined, kind: string): Value {

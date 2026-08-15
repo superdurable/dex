@@ -51,7 +51,7 @@ fn test_flow_timeout() {
     let environment = DexDevTestEnvironment::start(Registry::new().register(SignalWorkflow::new()));
     let workflow = SignalWorkflow::new();
     let flow_id = flow_id("flow-timeout");
-    let run_id = environment
+    environment
         .client
         .start_flow_with_options(
             &workflow,
@@ -62,7 +62,6 @@ fn test_flow_timeout() {
         .expect("start timed Flow");
     assert_failure(
         wait_for_failure(&environment, &flow_id),
-        &run_id,
         FlowStatus::TimedOut,
         None,
         None,
@@ -106,13 +105,12 @@ fn test_force_fail_flow() {
     );
     let workflow = WorkflowUncompletedForceFailWorkflow::new();
     let flow_id = flow_id("force-fail");
-    let run_id = environment
+    environment
         .client
         .start_flow(&workflow, &flow_id, 5)
         .expect("start force-fail Flow");
     assert_failure(
         wait_for_failure(&environment, &flow_id),
-        &run_id,
         FlowStatus::Failed,
         Some(FlowErrorType::StepDecisionFailed),
         Some("a failing message"),
@@ -128,31 +126,19 @@ fn test_worker_api_failure() {
     );
     let workflow = WorkflowUncompletedStateFailureWorkflow::new();
     let flow_id = flow_id("worker-api-failure");
-    let run_id = environment
+    environment
         .client
         .start_flow(&workflow, &flow_id, 5)
         .expect("start worker-failure Flow");
-    match wait_for_failure(&environment, &flow_id) {
-        SdkError::FlowUncompleted {
-            run_id: failed_run_id,
-            status,
-            error_type,
-            message,
-            completions,
-        } => {
-            assert_eq!(run_id, failed_run_id);
-            assert_eq!(FlowStatus::Failed, status);
-            assert_eq!(Some(FlowErrorType::WorkerApiFailed), error_type);
-            assert!(
-                message
-                    .as_deref()
-                    .is_some_and(|value| value.contains("test api failing")),
-                "{message:?}"
-            );
-            assert_eq!(0, completions.len());
-        }
-        error => panic!("expected FlowUncompleted, got {error:?}"),
-    }
+    let result = wait_for_failure(&environment, &flow_id);
+    assert_eq!(FlowStatus::Failed, result.status());
+    assert_eq!(Some(FlowErrorType::WorkerApiFailed), result.error_type());
+    assert!(
+        result
+            .error_message()
+            .is_some_and(|value| value.contains("test api failing"))
+    );
+    assert_eq!(0, result.completions().len());
 }
 
 #[test]
@@ -163,31 +149,19 @@ fn test_worker_api_timeout() {
     );
     let workflow = WorkflowUncompletedStateTimeoutWorkflow::new();
     let flow_id = flow_id("worker-api-timeout");
-    let run_id = environment
+    environment
         .client
         .start_flow(&workflow, &flow_id, 5)
         .expect("start worker-timeout Flow");
-    match wait_for_failure(&environment, &flow_id) {
-        SdkError::FlowUncompleted {
-            run_id: failed_run_id,
-            status,
-            error_type,
-            message,
-            completions,
-        } => {
-            assert_eq!(run_id, failed_run_id);
-            assert_eq!(FlowStatus::Failed, status);
-            assert_eq!(Some(FlowErrorType::WorkerApiFailed), error_type);
-            assert!(
-                message
-                    .as_deref()
-                    .is_some_and(|value| value.to_lowercase().contains("timeout")),
-                "{message:?}"
-            );
-            assert_eq!(0, completions.len());
-        }
-        error => panic!("expected FlowUncompleted, got {error:?}"),
-    }
+    let result = wait_for_failure(&environment, &flow_id);
+    assert_eq!(FlowStatus::Failed, result.status());
+    assert_eq!(Some(FlowErrorType::WorkerApiFailed), result.error_type());
+    assert!(
+        result
+            .error_message()
+            .is_some_and(|value| value.to_lowercase().contains("timeout"))
+    );
+    assert_eq!(0, result.completions().len());
 }
 
 #[test]
@@ -198,31 +172,19 @@ fn test_empty_decision_fails_flow() {
     );
     let workflow = WorkflowUncompletedEmptyDecisionWorkflow::new();
     let flow_id = flow_id("empty-decision");
-    let run_id = environment
+    environment
         .client
         .start_flow(&workflow, &flow_id, 5)
         .expect("start empty-decision Flow");
-    match wait_for_failure(&environment, &flow_id) {
-        SdkError::FlowUncompleted {
-            run_id: failed_run_id,
-            status,
-            error_type,
-            message,
-            completions,
-        } => {
-            assert_eq!(run_id, failed_run_id);
-            assert_eq!(FlowStatus::Failed, status);
-            assert_eq!(Some(FlowErrorType::WorkerApiFailed), error_type);
-            assert!(
-                message
-                    .as_deref()
-                    .is_some_and(|value| value.contains("go_to_many requires a movement")),
-                "{message:?}"
-            );
-            assert_eq!(0, completions.len());
-        }
-        error => panic!("expected FlowUncompleted, got {error:?}"),
-    }
+    let result = wait_for_failure(&environment, &flow_id);
+    assert_eq!(FlowStatus::Failed, result.status());
+    assert_eq!(Some(FlowErrorType::WorkerApiFailed), result.error_type());
+    assert!(
+        result
+            .error_message()
+            .is_some_and(|value| value.contains("go_to_many requires a movement"))
+    );
+    assert_eq!(0, result.completions().len());
 }
 
 fn assert_stopped_flow(
@@ -234,7 +196,7 @@ fn assert_stopped_flow(
     let environment = DexDevTestEnvironment::start(Registry::new().register(SignalWorkflow::new()));
     let workflow = SignalWorkflow::new();
     let flow_id = flow_id("stopped");
-    let run_id = environment
+    environment
         .client
         .start_flow(&workflow, &flow_id, 1)
         .expect("start stoppable Flow");
@@ -244,7 +206,6 @@ fn assert_stopped_flow(
         .expect("stop Flow");
     assert_failure(
         wait_for_failure(&environment, &flow_id),
-        &run_id,
         expected_status,
         expected_error_type,
         expected_message,
@@ -252,38 +213,24 @@ fn assert_stopped_flow(
     );
 }
 
-fn wait_for_failure(environment: &DexDevTestEnvironment, flow_id: &str) -> SdkError {
+fn wait_for_failure(environment: &DexDevTestEnvironment, flow_id: &str) -> dex_sdk::FlowResult {
     environment
         .client
         .wait_for_flow_with_timeout(flow_id, Duration::from_secs(15))
-        .and_then(|result| result.single_output::<i32>())
-        .expect_err("Flow must not complete")
+        .expect("wait for terminal Flow result")
 }
 
 fn assert_failure(
-    failure: SdkError,
-    run_id: &str,
+    failure: dex_sdk::FlowResult,
     expected_status: FlowStatus,
     expected_error_type: Option<FlowErrorType>,
     expected_message: Option<&str>,
     expected_result_count: usize,
 ) {
-    match failure {
-        SdkError::FlowUncompleted {
-            run_id: failed_run_id,
-            status,
-            error_type,
-            message,
-            completions,
-        } => {
-            assert_eq!(run_id, failed_run_id);
-            assert_eq!(expected_status, status);
-            assert_eq!(expected_error_type, error_type);
-            assert_eq!(expected_message, message.as_deref());
-            assert_eq!(expected_result_count, completions.len());
-        }
-        error => panic!("expected FlowUncompleted, got {error:?}"),
-    }
+    assert_eq!(expected_status, failure.status());
+    assert_eq!(expected_error_type, failure.error_type());
+    assert_eq!(expected_message, failure.error_message());
+    assert_eq!(expected_result_count, failure.completions().len());
 }
 
 #[allow(dead_code)]

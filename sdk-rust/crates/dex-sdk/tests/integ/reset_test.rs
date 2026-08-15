@@ -10,9 +10,7 @@
 
 use std::time::Duration;
 
-use dex_sdk::{
-    Client, FlowStatus, Registry, ResetFlowOptions, SdkError, SdkResult, StartFlowOptions,
-};
+use dex_sdk::{Client, FlowStatus, Registry, ResetFlowOptions, SdkResult, StartFlowOptions};
 
 use crate::reset_workflow::ResetWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id};
@@ -167,26 +165,14 @@ fn assert_reset_times_out_without_attributes(
     environment: &DexDevTestEnvironment,
     workflow: &ResetWorkflow,
     flow_id: &str,
-    reset_run_id: &str,
+    _reset_run_id: &str,
 ) {
-    match environment
+    let result = environment
         .client
         .wait_for_flow_with_timeout(flow_id, Duration::from_secs(10))
-        .and_then(|result| result.single_output::<i32>())
-        .expect_err("reset Flow without reapplied input must time out")
-    {
-        SdkError::FlowUncompleted {
-            run_id,
-            status,
-            completions,
-            ..
-        } => {
-            assert_eq!(reset_run_id, run_id);
-            assert_eq!(FlowStatus::TimedOut, status);
-            assert_eq!(0, completions.len());
-        }
-        error => panic!("expected FlowUncompleted, got {error:?}"),
-    }
+        .expect("wait for timed-out Flow result");
+    assert_eq!(FlowStatus::TimedOut, result.status());
+    assert_eq!(0, result.completions().len());
     assert_eq!(
         None,
         environment

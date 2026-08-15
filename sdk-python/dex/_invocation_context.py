@@ -19,6 +19,7 @@ from dex.channel import Channel, ChannelMap
 from dex.codec import Codec
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, _RegisteredFlow
+from dex.flow_result import FlowResult, flow_result_from_proto
 
 ValueT = TypeVar("ValueT")
 _Definition = Attribute[Any] | AttributeMap[Any] | Channel[Any] | ChannelMap[Any]
@@ -95,6 +96,26 @@ class InvocationContext:
             self._condition_results is not None
             and self._condition_results.wait_for_failed
         )
+
+    def sub_flow_result(self, index: int = 0) -> FlowResult:
+        if self._method is not InvocationMethod.EXECUTE:
+            raise ValueError("SubFlow results are available only during execute")
+        if (
+            self._condition_results is None
+            or index < 0
+            or index >= len(self._condition_results.sub_flow_results)
+        ):
+            raise ValueError(f"SubFlow result index is unavailable: {index}")
+        return flow_result_from_proto(
+            self._condition_results.sub_flow_results[index],
+            lambda value, output_type: self._values.decode(
+                value, self._values.codec(output_type)
+            ),
+        )
+
+    def sub_flow_id(self, index: int = 0) -> str:
+        self.sub_flow_result(index)
+        return f"SubFlow:{self.flow_id}-{self.step_execution_id}-{index}"
 
     def set_step_execution_local(self, key: str, value: object) -> None:
         require_name(key)
