@@ -125,13 +125,29 @@ a {
 }
 
 .brand-name {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   color: var(--brand-dark);
   font-size: 14px;
   font-weight: 790;
   letter-spacing: 0.055em;
   line-height: 1.1;
+}
+
+.brand-name > span {
   text-transform: uppercase;
+}
+
+.brand-name > i {
+  color: #8da09b;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.brand-name > b {
+  font-size: 15px;
+  letter-spacing: -0.015em;
 }
 
 .header-nav {
@@ -188,12 +204,6 @@ a {
   padding: 34px 0 60px;
 }
 
-.page-heading {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 20px;
-}
-
 h1,
 h2,
 h3,
@@ -219,7 +229,6 @@ h3 {
   font-size: 15px;
 }
 
-.page-heading p,
 .view-toolbar p,
 .modal > p {
   margin-bottom: 0;

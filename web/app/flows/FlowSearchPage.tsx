@@ -264,13 +264,6 @@ export function FlowSearchPage() {
 
   return (
     <div className="page-shell">
-      <section className="page-heading">
-        <div>
-          <h1>Dex</h1>
-          <p>Redefine Durable Execution. Dead Simple. More Power.</p>
-        </div>
-      </section>
-
       <section className="card query-card">
         <div className="query-toolbar">
           <div className="segmented" role="tablist" aria-label="Query mode">
