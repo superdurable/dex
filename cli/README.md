@@ -26,20 +26,25 @@ The default endpoints are:
 | Dex Web | `http://127.0.0.1:8802` |
 | Dex Server | `127.0.0.1:8801` |
 
+If a default port is already in use, `dexcli dev` binds the next free port and
+prints the addresses it selected. Running several `dexcli dev` processes on the
+same machine therefore starts isolated stacks: distinct Dex ports, a distinct
+local Temporal server, and a distinct SQLite database. Point later CLI commands
+at a non-default stack with `--server` or `DEX_FLOW_SERVICE_ADDRESS`.
+
 Use `--open` to open Dex Web after every component becomes ready. Ctrl+C stops
 Dex Web, Dex Server, and all internal processes owned by `dexcli`.
 
-Persist local Dex executions in SQLite:
+Local state persists in `$HOME/.dex/dev/<temporal-port>/dex.sqlite.db`.
+Dex Web step inputs and values larger than 1 KB persist next to that database
+in `dex.blobs`, so execution history and its blobs share a lifecycle. Override
+the database path with:
 
 ```bash
-dexcli dev --temporal-db-filename ./temporal.db
+dexcli dev --temporal-db-filename ./dex.sqlite.db
 ```
 
-Dex Web step inputs and values larger than 1 KB use the bundled local blob
-store. By default they persist across `dexcli` restarts in `$HOME/.dex/blobs`.
-With the command above they instead persist in `./temporal.db.dex-blobs`, so
-execution history and its blobs share a lifecycle. Choose another directory
-with:
+Choose another blob directory with:
 
 ```bash
 dexcli dev --blob-store-dir ./dex-blobs
@@ -47,6 +52,13 @@ dexcli dev --blob-store-dir ./dex-blobs
 
 `--blob-store-dir` takes precedence over the directory derived from
 `--temporal-db-filename`.
+
+Capture local Temporal server and Web logs, including the bound Temporal ports
+and SQLite directory, with:
+
+```bash
+dexcli dev --temporal-log-file ./temporal.log
+```
 
 Configure local Attribute Store projection with the same YAML section accepted
 by Dex Server:
@@ -74,8 +86,9 @@ must exist and be reachable before startup.
 --bind-address string          local bind IP (default 127.0.0.1)
 --dex-port int                 Dex gRPC port (default 8801)
 --web-port int                 Dex Web port (default 8802)
---temporal-db-filename string  local Temporal SQLite file
---blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/blobs)
+--temporal-db-filename string  local Temporal SQLite file (default $HOME/.dex/dev/<temporal-port>/dex.sqlite.db)
+--temporal-log-file string     write local Temporal server and Web logs to this file
+--blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/dev/<temporal-port>/dex.blobs)
 --attribute-store-config string  Dex YAML file supplying Attribute Store settings
 --open                         open Dex Web after readiness
 ```
@@ -172,7 +185,9 @@ binary does not read `web/`, `node_modules`, or the source tree.
 ## Troubleshooting
 
 - “workflow backend CLI was not found”: reinstall `dexcli` with Homebrew.
-- “address is already in use”: stop the listed service or select another port.
+- “address is already in use”: an explicit `--dex-port`, `--web-port`,
+  `--temporal-port`, or `--temporal-ui-port` is taken. Stop that process or pass
+  another port. Unspecified ports are assigned automatically.
 - “attribute index synchronization failed”: operators should verify that Dex
   can list and add backend visibility indexes. Workers never require a manual
   registration command.

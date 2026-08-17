@@ -31,6 +31,8 @@ const (
 	defaultTemporalPort      = 7233
 	defaultTemporalUIPort    = 8233
 	defaultTemporalNamespace = "default"
+	localSQLiteFileName      = "dex.sqlite.db"
+	localBlobStoreName       = "dex.blobs"
 )
 
 type Config struct {
@@ -48,9 +50,13 @@ type Config struct {
 	TemporalPort int
 	// TemporalUIPort defaults to 8233 in local mode.
 	TemporalUIPort int
-	// TemporalDBFilename defaults to in-memory storage.
+	// TemporalDBFilename defaults to $HOME/.dex/dev/<temporal-port>/dex.sqlite.db in local mode.
 	TemporalDBFilename string
-	// BlobStoreDirectory defaults to $HOME/.dex/blobs unless TemporalDBFilename selects its adjacent store.
+	// TemporalLogFile defaults empty and discards local Temporal process logs.
+	TemporalLogFile string
+	// StateDirectory defaults to $HOME/.dex and stores auto-assigned Temporal SQLite files.
+	StateDirectory string
+	// BlobStoreDirectory defaults to $HOME/.dex/blobs unless TemporalDBFilename selects its adjacent dex.blobs store.
 	BlobStoreDirectory string
 	// AttributeStoreConfigPath defaults empty and loads Attribute Store settings from standard Dex YAML when set.
 	AttributeStoreConfigPath string
@@ -80,7 +86,18 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	flags.StringVar(&cfg.TemporalNamespace, "temporal-namespace", cfg.TemporalNamespace, "Temporal namespace")
 	flags.IntVar(&cfg.TemporalPort, "temporal-port", cfg.TemporalPort, "local Temporal gRPC port")
 	flags.IntVar(&cfg.TemporalUIPort, "temporal-ui-port", cfg.TemporalUIPort, "local Temporal Web port")
-	flags.StringVar(&cfg.TemporalDBFilename, "temporal-db-filename", "", "local Temporal SQLite file")
+	flags.StringVar(
+		&cfg.TemporalDBFilename,
+		"temporal-db-filename",
+		"",
+		"local Temporal SQLite file (default $HOME/.dex/dev/<temporal-port>/dex.sqlite.db)",
+	)
+	flags.StringVar(
+		&cfg.TemporalLogFile,
+		"temporal-log-file",
+		"",
+		"write local Temporal server and Web logs to this file",
+	)
 	flags.StringVar(
 		&cfg.BlobStoreDirectory,
 		"blob-store-dir",
@@ -107,7 +124,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
-		case "temporal-port", "temporal-ui-port", "temporal-db-filename":
+		case "dex-port", "web-port", "temporal-port", "temporal-ui-port", "temporal-db-filename", "temporal-log-file":
 			cfg.explicitLocalFlags[item.Name] = true
 		case "blob-store-dir":
 			cfg.blobStoreDirectoryDefault = false
@@ -120,7 +137,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 }
 
 func defaultConfig() (*Config, error) {
-	blobStoreDirectory, err := defaultBlobStoreDirectory()
+	stateDirectory, err := defaultStateDirectory()
 	if err != nil {
 		return nil, err
 	}
@@ -131,19 +148,29 @@ func defaultConfig() (*Config, error) {
 		TemporalNamespace:         defaultTemporalNamespace,
 		TemporalPort:              defaultTemporalPort,
 		TemporalUIPort:            defaultTemporalUIPort,
-		BlobStoreDirectory:        blobStoreDirectory,
+		StateDirectory:            stateDirectory,
+		BlobStoreDirectory:        filepath.Join(stateDirectory, "blobs"),
 		StartupTimeout:            45 * time.Second,
 		ShutdownTimeout:           10 * time.Second,
+		explicitLocalFlags:        make(map[string]bool),
 		blobStoreDirectoryDefault: true,
 	}, nil
 }
 
-func defaultBlobStoreDirectory() (string, error) {
+func defaultStateDirectory() (string, error) {
 	homeDirectory, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("resolve home directory for Dex blob storage: %w", err)
+		return "", fmt.Errorf("resolve home directory for Dex state: %w", err)
 	}
-	return filepath.Join(homeDirectory, ".dex", "blobs"), nil
+	return filepath.Join(homeDirectory, ".dex"), nil
+}
+
+func defaultBlobStoreDirectory() (string, error) {
+	stateDirectory, err := defaultStateDirectory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(stateDirectory, "blobs"), nil
 }
 
 func (c *Config) validate() error {
@@ -173,10 +200,16 @@ func (c *Config) validate() error {
 		if _, _, err := net.SplitHostPort(c.TemporalAddress); err != nil {
 			return fmt.Errorf("temporal address must be host:port: %w", err)
 		}
-		for _, name := range []string{"temporal-port", "temporal-ui-port", "temporal-db-filename"} {
+		for _, name := range []string{"temporal-port", "temporal-ui-port", "temporal-db-filename", "temporal-log-file"} {
 			if c.explicitLocalFlags[name] {
 				return fmt.Errorf("--%s cannot be used with --temporal-address", name)
 			}
+		}
+	}
+	if c.TemporalLogFile != "" {
+		c.TemporalLogFile = strings.TrimSpace(c.TemporalLogFile)
+		if c.TemporalLogFile == "" {
+			return fmt.Errorf("temporal log file is required")
 		}
 	}
 	return validateDistinctAddresses(c.ownedAddresses())
@@ -227,4 +260,38 @@ func validateDistinctAddresses(addresses map[string]string) error {
 		owners[address] = name
 	}
 	return nil
+}
+
+func (c *Config) isExplicit(flagName string) bool {
+	return c.explicitLocalFlags[flagName]
+}
+
+func (c *Config) autoTemporalDBFilename() string {
+	return filepath.Join(c.StateDirectory, "dev", strconv.Itoa(c.TemporalPort), localSQLiteFileName)
+}
+
+func (c *Config) adjacentBlobStoreDirectory() string {
+	return filepath.Join(filepath.Dir(c.TemporalDBFilename), localBlobStoreName)
+}
+
+func (c *Config) writeTemporalStartupRecord(logs io.Writer) error {
+	database := c.temporalDBDirectory()
+	if database == "" {
+		database = "in-memory"
+	}
+	_, err := fmt.Fprintf(
+		logs,
+		"Temporal:     %s\nTemporal Web: %s\nTemporal DB:  %s\n",
+		c.temporalAddress(),
+		"http://"+net.JoinHostPort(c.BindAddress, strconv.Itoa(c.TemporalUIPort)),
+		database,
+	)
+	return err
+}
+
+func (c *Config) temporalDBDirectory() string {
+	if c.TemporalDBFilename == "" {
+		return ""
+	}
+	return filepath.Dir(c.TemporalDBFilename)
 }

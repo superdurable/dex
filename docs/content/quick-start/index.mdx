@@ -23,14 +23,18 @@ brew upgrade superdurable/tap/dexcli   # when you want the latest
 dexcli dev --open
 ```
 
-`dexcli` starts Dex Server, Dex Web, and the internal workflow backend. Defaults:
+`dexcli` starts Dex Server, Dex Web, and the internal workflow backend. Defaults
+when those ports are free:
 
 | Service | Address |
 | --- | --- |
 | Dex Web | `http://127.0.0.1:8802` |
 | Dex Server | `127.0.0.1:8801` |
 
-See the [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md) for flags and persistence options.
+A second `dexcli dev` on the same machine binds other free ports and uses its
+own SQLite database. Use the printed Dex Server address with
+`--server`. See the [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)
+for flags and persistence options.
 
 ## 2. Hello Flow design
 
