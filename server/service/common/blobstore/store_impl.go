@@ -515,23 +515,16 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 		return fmt.Errorf("%w for %s", errStoreNotFound, storeId)
 	}
 	if storeConfig.StorageType == config.StorageTypeLocal {
-		deletedPaths, err := deleteLocalWorkflowObjects(
+		if err := deleteLocalWorkflowObjects(
 			ctx,
 			storeConfig.LocalDirectory,
 			b.pathPrefix+workflowPath,
-		)
-		if err != nil {
+		); err != nil {
 			return err
-		}
-		for _, path := range deletedPaths {
-			b.logger.Info("Blob object deleted",
-				tag.StoreID(storeId),
-				tag.Path(path))
 		}
 		b.logger.Info("DeleteWorkflowObjects completed",
 			tag.StoreID(storeId),
-			tag.WorkflowPath(workflowPath),
-			tag.TotalDeleted(len(deletedPaths)))
+			tag.WorkflowPath(workflowPath))
 		return nil
 	}
 	if b.s3Client == nil {
