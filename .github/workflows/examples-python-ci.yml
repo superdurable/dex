@@ -43,10 +43,11 @@ jobs:
           import tomllib
           from pathlib import Path
 
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
           declared = next(
               (
                   dependency.removeprefix("dex-python-sdk==")
-                  for dependency in tomllib.loads(Path("pyproject.toml").read_bytes())["project"]["dependencies"]
+                  for dependency in pyproject["project"]["dependencies"]
                   if dependency.startswith("dex-python-sdk==")
               ),
               None,
@@ -56,7 +57,7 @@ jobs:
 
           package = next(
               package
-              for package in tomllib.loads(Path("uv.lock").read_bytes())["package"]
+              for package in tomllib.loads(Path("uv.lock").read_text())["package"]
               if package["name"] == "dex-python-sdk"
           )
           if "registry" not in package.get("source", {}):
