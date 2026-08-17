@@ -1044,19 +1044,18 @@ func verifyRecovery(ctx context.Context, client *dex.Client, stamp string) resul
 	if err != nil {
 		return fail(name, "", err)
 	}
-	_, err = client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
+	result, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
 		NeedsResults: true,
 		Timeout:      90 * time.Second,
 	})
-	var uncompleted *dex.FlowUncompletedError
-	if !errors.As(err, &uncompleted) {
+	if err != nil {
 		return fail(name, "", err)
 	}
-	if uncompleted.Status != dex.FlowFailed {
-		return fail(name, fmt.Sprintf("expected FlowFailed got %v msg=%s", uncompleted.Status, uncompleted.ErrorMessage), nil)
+	if result.Status != dex.FlowFailed {
+		return fail(name, fmt.Sprintf("expected FlowFailed got %v msg=%s", result.Status, result.ErrorMessage), nil)
 	}
-	if !strings.Contains(uncompleted.ErrorMessage, "Failed to process transaction") {
-		return fail(name, "msg="+uncompleted.ErrorMessage, nil)
+	if !strings.Contains(result.ErrorMessage, "Failed to process transaction") {
+		return fail(name, "msg="+result.ErrorMessage, nil)
 	}
 	return pass(name, "payment fail → void → ForceFail as designed")
 }
@@ -1241,19 +1240,18 @@ func verifyTimeoutFail(ctx context.Context, client *dex.Client, stamp string) re
 		return fail(name, "", err)
 	}
 	// 1m ForceFail + worker backlog under reminder load needs headroom.
-	_, err = client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
+	result, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
 		NeedsResults: true,
 		Timeout:      3 * time.Minute,
 	})
-	var uncompleted *dex.FlowUncompletedError
-	if !errors.As(err, &uncompleted) {
+	if err != nil {
 		return fail(name, "", err)
 	}
-	if uncompleted.Status != dex.FlowFailed {
-		return fail(name, fmt.Sprintf("expected failed got %v msg=%s", uncompleted.Status, uncompleted.ErrorMessage), nil)
+	if result.Status != dex.FlowFailed {
+		return fail(name, fmt.Sprintf("expected failed got %v msg=%s", result.Status, result.ErrorMessage), nil)
 	}
-	if !strings.Contains(uncompleted.ErrorMessage, "did not finish the task in time") {
-		return fail(name, "msg="+uncompleted.ErrorMessage, nil)
+	if !strings.Contains(result.ErrorMessage, "did not finish the task in time") {
+		return fail(name, "msg="+result.ErrorMessage, nil)
 	}
 	return pass(name, "1m timeout ForceFail as designed")
 }
@@ -1279,12 +1277,11 @@ func verifyCron(ctx context.Context, client *dex.Client) result {
 		NeedsResults: true,
 		Timeout:      60 * time.Second,
 	})
-	outcome := "completed"
 	if err != nil {
-		var uncompleted *dex.FlowUncompletedError
-		if !errors.As(err, &uncompleted) || uncompleted.Status != dex.FlowContinuedAsNew {
-			return fail(name, "WaitForFlow "+tickID, err)
-		}
+		return fail(name, "WaitForFlow "+tickID, err)
+	}
+	outcome := "completed"
+	if wait.Status == dex.FlowContinuedAsNew {
 		outcome = "continued as new"
 	} else if wait.Status != dex.FlowCompleted {
 		return fail(name, fmt.Sprintf("status=%v msg=%s", wait.Status, wait.ErrorMessage), nil)
@@ -1339,7 +1336,7 @@ func waitCompleted(
 	client *dex.Client,
 	flowID string,
 	timeout time.Duration,
-) (dex.WaitForFlowResult, error) {
+) (dex.FlowResult, error) {
 	wait, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
 		NeedsResults: true,
 		Timeout:      timeout,
@@ -1355,7 +1352,7 @@ func waitCompleted(
 	return wait, nil
 }
 
-func decodeStringCompletion(wait dex.WaitForFlowResult) (string, error) {
+func decodeStringCompletion(wait dex.FlowResult) (string, error) {
 	if len(wait.Completions) == 0 {
 		return "", fmt.Errorf("no completions")
 	}

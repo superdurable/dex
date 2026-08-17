@@ -81,6 +81,8 @@ test("engagementStartChannelRpcAndStatus", async () => {
     "engagement status not Accepted",
   );
 
-  const output = await environment.client.waitForFlow(flowId, stringCodec, 45_000);
+  const output = await environment.client.waitForFlow(flowId, 45_000).then((result) =>
+    result.singleOutput(stringCodec),
+  );
   assert.equal(output, "done");
 });

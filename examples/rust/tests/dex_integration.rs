@@ -157,7 +157,9 @@ fn money_transfer_completes_with_released_sdk() {
     let output: TransferRequest = environment
         .client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .expect("complete Rust Money Transfer Flow");
+        .expect("complete Rust Money Transfer Flow")
+        .single_output()
+        .expect("decode Rust Money Transfer output");
     assert_eq!(output.from_account, "released-sdk-source");
     assert_eq!(output.to_account, "released-sdk-destination");
     assert_eq!(output.amount_cents, 4_200);
@@ -202,7 +204,7 @@ fn engagement_invokes_rpcs_and_completes() {
         .expect("accept Rust Engagement Flow");
     environment
         .client
-        .wait_for_flow_with_timeout::<()>(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
         .expect("complete Rust Engagement Flow");
     assert_eq!(
         environment
@@ -256,7 +258,7 @@ fn microservice_swaps_data_and_completes_when_ready() {
         .expect("release Rust Microservice Flow");
     environment
         .client
-        .wait_for_flow_with_timeout::<()>(&flow_id, Duration::from_secs(30))
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
         .expect("complete Rust Microservice Flow");
 }
 
@@ -283,7 +285,9 @@ fn polling_completes_all_tasks() {
     let output: String = environment
         .client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .expect("complete Rust Polling Flow");
+        .expect("complete Rust Polling Flow")
+        .single_output()
+        .expect("decode Rust Polling output");
     assert_eq!(output, "task-c");
     assert_eq!(
         environment
@@ -332,7 +336,9 @@ fn subscription_updates_charge_and_cancels() {
     let output: SubscriptionState = environment
         .client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .expect("complete Rust Subscription Flow");
+        .expect("complete Rust Subscription Flow")
+        .single_output()
+        .expect("decode Rust Subscription output");
     assert_eq!(output.charge_cents, 250);
     assert_eq!(output.periods_charged, 0);
     assert!(output.cancelled);
@@ -353,7 +359,9 @@ fn failure_recovery_retries_and_compensates() {
     let output: String = environment
         .client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .expect("complete Rust Failure Recovery Flow");
+        .expect("complete Rust Failure Recovery Flow")
+        .single_output()
+        .expect("decode Rust Failure Recovery output");
     assert_eq!(output, "compensated");
     assert_eq!(
         environment
