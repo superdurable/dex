@@ -437,7 +437,12 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
             >
               Stop
             </button>
-            <button className="button danger" onClick={() => openTimeTravel(null)}>Time Travel</button>
+            <button
+              className="button danger"
+              onClick={() => openTimeTravel(selectedEvent ? selected : null)}
+            >
+              Time Travel
+            </button>
           </div>
         </div>
         {summary && (
@@ -492,7 +497,6 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
               events={displayedHistory}
               state={state}
               selectedEvent={selected}
-              onTimeTravel={openTimeTravel}
             />
           )}
           {tab === 'steps' && (
@@ -549,7 +553,6 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
               selectedEvent={selected}
               history={displayedHistory}
               parentFlowId={flowId}
-              onTimeTravel={openTimeTravel}
             />
           </aside>
         )}

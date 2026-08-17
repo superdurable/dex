@@ -7,12 +7,10 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { useState } from 'react';
-import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import { displayEventNumber } from '@/lib/timeline';
 import type { FlowHistoryEvent, FlowState, FlowSummary } from '@/lib/types';
 import { JsonView } from '../../components/JsonView';
 import { EventDetails, eventTitle, FailureContent, SemanticEventDetails } from './EventDetails';
-import { TimeTravelEventAction } from './TimeTravelEventAction';
 
 const sectionExpandByKey = new Map<string, boolean>();
 
@@ -57,13 +55,11 @@ export function FlowOverview({
   events,
   state,
   selectedEvent,
-  onTimeTravel,
 }: {
   summary: FlowSummary;
   events: FlowHistoryEvent[];
   state: FlowState | null;
   selectedEvent: FlowHistoryEvent | null;
-  onTimeTravel: (event: FlowHistoryEvent) => void;
 }) {
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const closed = events.findLast((event) => event.type === 'FlowClosed');
@@ -280,9 +276,6 @@ export function FlowOverview({
                   <span>Event {displayEventNumber(events, selectedEvent)}</span>
                   <span>{selectedEvent.eventTime || 'No timestamp'}</span>
                 </div>
-                {eventTimeTravelTarget(selectedEvent) && (
-                  <TimeTravelEventAction onClick={() => onTimeTravel(selectedEvent)} />
-                )}
               </header>
               <div className="overview-selected-event-body">
                 <EventDetails

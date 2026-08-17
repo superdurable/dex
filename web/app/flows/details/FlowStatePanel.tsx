@@ -7,11 +7,9 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { useEffect, useRef } from 'react';
-import { eventTimeTravelTarget } from '@/lib/timeTravel';
 import { displayEventNumber } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { EventDetails, eventTitle } from './EventDetails';
-import { TimeTravelEventAction } from './TimeTravelEventAction';
 
 function canScroll(element: HTMLElement, deltaY: number): boolean {
   if (deltaY < 0) return element.scrollTop > 0;
@@ -41,12 +39,10 @@ export function FlowStatePanel({
   selectedEvent,
   history,
   parentFlowId,
-  onTimeTravel,
 }: {
   selectedEvent: FlowHistoryEvent | null;
   history: FlowHistoryEvent[];
   parentFlowId: string;
-  onTimeTravel: (event: FlowHistoryEvent) => void;
 }) {
   const sidebar = useRef<HTMLDivElement>(null);
 
@@ -68,9 +64,6 @@ export function FlowStatePanel({
               <span>Event {displayEventNumber(history, selectedEvent)}</span>
               <span>{selectedEvent.eventTime || 'No timestamp'}</span>
             </div>
-            {eventTimeTravelTarget(selectedEvent) && (
-              <TimeTravelEventAction onClick={() => onTimeTravel(selectedEvent)} />
-            )}
           </header>
           <section className="sidebar-section selected-event-body">
             <EventDetails

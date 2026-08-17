@@ -34,22 +34,19 @@ const summary: FlowSummary = {
 };
 
 describe('selected event time travel', () => {
-  it('offers a direct action on the selected event', () => {
+  it('does not duplicate the toolbar action in the selected event panel', () => {
     const markup = renderToStaticMarkup(
       <PreferencesProvider>
         <FlowStatePanel
           selectedEvent={event}
           history={[event]}
           parentFlowId="order-1"
-          onTimeTravel={() => {}}
         />
       </PreferencesProvider>,
     );
 
-    expect(markup).toContain('Critical action');
-    expect(markup).toContain('Creates a new run from this event.');
-    expect(markup).toContain('Review time travel');
-    expect(markup).toContain('aria-label="Critical action: time travel from selected event"');
+    expect(markup).not.toContain('Critical action');
+    expect(markup).not.toContain('Review time travel');
   });
 
   it('opens with the selected Step execution and method prefilled', () => {

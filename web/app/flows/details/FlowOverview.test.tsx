@@ -56,7 +56,6 @@ describe('live Flow state failures', () => {
         events={[]}
         state={state}
         selectedEvent={null}
-        onTimeTravel={() => {}}
       />,
     );
 
