@@ -106,7 +106,6 @@ export interface StepGraphNode {
   kind: 'source' | 'step' | 'subflow';
   status: 'Source' | 'Active' | 'Waiting' | 'Pending' | 'Completed' | 'Failed' | 'Canceled';
   previousRunId?: string;
-  previousRunKind?: 'continued' | 'time-travel';
   stepType?: string;
   fromStepExecutionId?: string;
   movement?: Record<string, unknown>;

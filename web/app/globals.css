@@ -2270,10 +2270,11 @@ pre {
 }
 
 .react-flow__node.step-flow-node.graph-node-current {
-  border-width: 2px;
   border-color: var(--brand);
+  outline: 2px solid var(--brand);
+  outline-offset: 0;
   background: linear-gradient(90deg, #e8f4da, #fff 48%);
-  box-shadow: inset 5px 0 0 var(--brand-bright), 0 0 0 5px rgba(111, 160, 54, 0.24), 0 14px 30px rgba(79, 129, 39, 0.2);
+  box-shadow: 0 0 0 6px rgba(111, 160, 54, 0.24), 0 14px 30px rgba(79, 129, 39, 0.2);
 }
 
 .react-flow__edge.graph-edge-incoming .react-flow__edge-path {
@@ -2407,7 +2408,11 @@ pre {
 
 .graph-methods {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  padding: 9px 10px 10px;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: stretch;
+  gap: 16px;
+  background: white;
 }
 
 .graph-methods > .graph-method:only-child {
@@ -2417,12 +2422,13 @@ pre {
 .graph-method {
   display: flex;
   min-width: 0;
-  min-height: 70px;
+  min-height: 78px;
   padding: 9px 11px;
   flex-direction: column;
   align-items: flex-start;
   gap: 3px;
-  border: 0;
+  border: 1px solid #cfdad6;
+  border-radius: 8px;
   color: inherit;
   text-align: left;
   background: #fbfcfc;
@@ -2430,18 +2436,39 @@ pre {
 }
 
 .graph-method-waitfor {
+  position: relative;
+  isolation: isolate;
+  padding-right: 20px;
+  border: 0;
+  border-radius: 0;
+  background: #d7ad59;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%);
+}
+
+.graph-method-waitfor::before {
+  position: absolute;
+  z-index: 0;
+  inset: 1px;
+  content: '';
   background: #fff8e7;
+  clip-path: inherit;
+}
+
+.graph-method-waitfor > * {
+  position: relative;
+  z-index: 1;
 }
 
 .graph-method-execute {
+  border-color: #c3d9c1;
   background: #eef8ed;
 }
 
 .graph-method + .graph-method {
-  border-left: 1px solid var(--line);
+  border-left-width: 1px;
 }
 
-.graph-method-waitfor:hover:not(:disabled) {
+.graph-method-waitfor:hover:not(:disabled)::before {
   background: #fff0c9;
 }
 
@@ -2453,6 +2480,10 @@ pre {
   z-index: 1;
   outline: 2px solid var(--brand);
   outline-offset: -2px;
+}
+
+.graph-method-waitfor:focus-visible {
+  outline-offset: -4px;
 }
 
 .graph-method:disabled {

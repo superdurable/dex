@@ -232,6 +232,14 @@ function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
   );
 }
 
+function graphNodeDimensions(node: StepGraphNode): { height: number; width: number } {
+  if (node.kind !== 'step') return { height: 90, width: 220 };
+  return {
+    height: node.execute && !node.waitFor && !node.pendingWaitFor ? 126 : 158,
+    width: 300,
+  };
+}
+
 export function StepGraph({
   flowId,
   events,
@@ -271,51 +279,50 @@ export function StepGraph({
     };
   }), [graph.edges, selection]);
   const nodes = useMemo(() => {
-    const raw: Array<Node<StepNodeData>> = graph.nodes.map((node) => ({
-      id: node.id,
-      position: { x: 0, y: 0 },
-      className: [
-        'step-flow-node',
-        `node-${node.kind}`,
-        `node-${node.status.toLowerCase()}`,
-        node.id === selection.selectedStepExecutionID ? 'graph-node-current' : '',
-        selection.previousStepExecutionIDs.has(node.id) ? 'graph-node-previous' : '',
-        selection.nextStepExecutionIDs.has(node.id) ? 'graph-node-next' : '',
-      ].filter(Boolean).join(' '),
-      style: {
-        width: node.kind === 'step' ? 300 : 220,
-        height: node.kind === 'step' && node.execute && !node.waitFor && !node.pendingWaitFor
-          ? 116 : node.kind === 'step' ? 158 : 90,
-      },
-      data: {
-        model: node,
-        label: node.kind === 'step' ? (
-          <StepNodeLabel node={node} onSelect={onSelectEvent} />
-        ) : node.kind === 'subflow' ? (
-          <SubFlowNodeLabel flow={node} />
-        ) : (
-          <div className="graph-node-label">
-            <span>{node.kind === 'source' ? 'Source' : node.status}</span>
-            {node.previousRunId ? (
-              <>
-                <b>
-                  <Link
-                    className="graph-run-link nodrag nopan"
-                    title={node.previousRunId}
-                    to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(node.previousRunId)}`}
-                  >
-                    {node.previousRunKind === 'time-travel'
-                      ? 'Time traveled from previous run'
-                      : 'Continued from previous run'}
-                  </Link>
-                </b>
-                <code title={node.previousRunId}>{node.previousRunId}</code>
-              </>
-            ) : <b>{node.label}</b>}
-          </div>
-        ),
-      },
-    }));
+    const raw: Array<Node<StepNodeData>> = graph.nodes.map((node) => {
+      const dimensions = graphNodeDimensions(node);
+      return {
+        id: node.id,
+        position: { x: 0, y: 0 },
+        className: [
+          'step-flow-node',
+          `node-${node.kind}`,
+          `node-${node.status.toLowerCase()}`,
+          node.id === selection.selectedStepExecutionID ? 'graph-node-current' : '',
+          selection.previousStepExecutionIDs.has(node.id) ? 'graph-node-previous' : '',
+          selection.nextStepExecutionIDs.has(node.id) ? 'graph-node-next' : '',
+        ].filter(Boolean).join(' '),
+        width: dimensions.width,
+        height: dimensions.height,
+        style: dimensions,
+        data: {
+          model: node,
+          label: node.kind === 'step' ? (
+            <StepNodeLabel node={node} onSelect={onSelectEvent} />
+          ) : node.kind === 'subflow' ? (
+            <SubFlowNodeLabel flow={node} />
+          ) : (
+            <div className="graph-node-label">
+              <span>{node.kind === 'source' ? 'Source' : node.status}</span>
+              {node.previousRunId ? (
+                <>
+                  <b>
+                    <Link
+                      className="graph-run-link nodrag nopan"
+                      title={node.previousRunId}
+                      to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(node.previousRunId)}`}
+                    >
+                      Continued from previous run
+                    </Link>
+                  </b>
+                  <code title={node.previousRunId}>{node.previousRunId}</code>
+                </>
+              ) : <b>{node.label}</b>}
+            </div>
+          ),
+        },
+      };
+    });
     return layoutGraph(raw, edges);
   }, [edges, graph.nodes, onSelectEvent, selection]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
