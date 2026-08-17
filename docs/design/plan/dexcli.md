@@ -266,8 +266,10 @@ Local `dexcli dev` 构造 typed `config.Config`，不生成临时 YAML：
 - internal service target 指向本次 Dex API listener。
 
 `--blob-store-dir` 指定持久目录；`--temporal-db-filename <db>` 默认使用
-`<db>.dex-blobs`。两者都未设置时使用固定的 `$HOME/.dex/blobs`，退出
-`dexcli dev` 不会删除。显式 `--blob-store-dir` 优先于 `<db>.dex-blobs`。
+`<db>.dex-blobs`。local mode 未指定数据库时使用
+`$HOME/.dex/dev/<temporal-port>/temporal.db`，blob 目录为
+`<db>.dex-blobs`。退出 `dexcli dev` 不会删除这些目录。显式
+`--blob-store-dir` 优先于 `<db>.dex-blobs`。
 
 高级 server 配置继续由现有 server binary/YAML 提供，不把所有 production config 暴露成 `dexcli dev` flags。
 
@@ -283,8 +285,8 @@ dexcli dev [flags]
 --temporal-namespace string    default default
 --temporal-port int            default 7233; local mode only
 --temporal-ui-port int         default 8233; local mode only
---temporal-db-filename string  empty uses in-memory SQLite
---blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/blobs)
+--temporal-db-filename string  default $HOME/.dex/dev/<temporal-port>/temporal.db
+--blob-store-dir string        persistent Dex blob storage directory (default <temporal-db-filename>.dex-blobs)
 --open                         open Dex Web after readiness
 ```
 
@@ -309,14 +311,17 @@ temporal server start-dev \
   --ip 127.0.0.1 \
   --port 7233 \
   --ui-ip 127.0.0.1 \
-  --ui-port 8233
+  --ui-port 8233 \
+  --db-filename "$HOME/.dex/dev/7233/temporal.db"
 ```
 
 默认 namespace 已由 Temporal Dev Server 创建。只有用户传入非 `default` namespace 时才增加 namespace 参数。
 
 Process manager 必须：
 
-- 启动前验证 Temporal、Temporal UI、Dex 和 Dex Web owned ports；
+- 为每个 `dexcli dev` 进程分配互不冲突的 Dex、Dex Web、Temporal 和 Temporal UI 端口；未占用时使用默认值，已被占用且未显式指定时选择下一个空闲端口；
+- 为每个 local Temporal 使用独立 SQLite 文件（默认 `$HOME/.dex/dev/<temporal-port>/temporal.db`）；
+- 启动前预占 Dex 与 Dex Web listeners，并确认 Temporal 端口可绑定；
 - 丢弃 backend 子进程 stdout/stderr，避免向普通启动输出泄露内部 endpoint；
 - 通过 Temporal API readiness 检查，不根据日志文本判断 ready；
 - Dex Server 启动时注册并验证系统 Indexed Attributes；
@@ -335,7 +340,7 @@ Process manager 必须：
 
 ```text
 1. 解析并验证 flags
-2. 预占/检查所有 owned listeners
+2. 为 owned ports 分配空闲端口，预占 Dex 与 Dex Web listeners，并分配独立 Temporal SQLite 文件
 3. 启动 local Temporal，或检查 external Temporal
 4. 等待 Temporal ready
 5. 启动 Dex runtime
@@ -390,6 +395,8 @@ cannot start Dex Web: 127.0.0.1:8802 is already in use
 external Temporal is missing search attribute FlowType (Keyword)
 Temporal CLI was not found; reinstall dexcli with Homebrew
 ```
+
+显式 `--*-port` 被占用时返回 already in use。未指定的端口自动改绑到下一个空闲端口。
 
 ## 11. 实施阶段
 

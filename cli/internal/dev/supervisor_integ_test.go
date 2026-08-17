@@ -34,12 +34,14 @@ import (
 func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	ports := freePorts(t, 4)
 	cfg := testConfig(t)
-	blobStoreDirectory := filepath.Join(t.TempDir(), "blobs")
-	cfg.BlobStoreDirectory = blobStoreDirectory
 	cfg.TemporalPort = ports[0]
 	cfg.TemporalUIPort = ports[1]
 	cfg.DexPort = ports[2]
 	cfg.WebPort = ports[3]
+	cfg.explicitLocalFlags["temporal-port"] = true
+	cfg.explicitLocalFlags["temporal-ui-port"] = true
+	cfg.explicitLocalFlags["dex-port"] = true
+	cfg.explicitLocalFlags["web-port"] = true
 	output := &synchronizedBuffer{}
 	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -126,7 +128,13 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		strings.Contains(output.String(), strconv.Itoa(cfg.TemporalUIPort)) {
 		t.Fatalf("workflow backend endpoint leaked in output: %s", output.String())
 	}
-	if _, err := os.Stat(blobStoreDirectory); err != nil {
+	if cfg.TemporalDBFilename == "" {
+		t.Fatal("missing Temporal database")
+	}
+	if _, err := os.Stat(cfg.TemporalDBFilename); err != nil {
+		t.Fatalf("Temporal database was not retained after shutdown: %v", err)
+	}
+	if _, err := os.Stat(cfg.TemporalDBFilename + ".dex-blobs"); err != nil {
 		t.Fatalf("blob store was not retained after shutdown: %v", err)
 	}
 	for _, port := range ports {
@@ -145,6 +153,8 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	localConfig := testConfig(t)
 	localConfig.TemporalPort = ports[0]
 	localConfig.TemporalUIPort = ports[1]
+	localConfig.explicitLocalFlags["temporal-port"] = true
+	localConfig.explicitLocalFlags["temporal-ui-port"] = true
 	output := &synchronizedBuffer{}
 	temporal, err := startTemporalProcess(localConfig)
 	if err != nil {
@@ -169,6 +179,8 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	externalConfig.TemporalAddress = localConfig.temporalAddress()
 	externalConfig.DexPort = ports[2]
 	externalConfig.WebPort = ports[3]
+	externalConfig.explicitLocalFlags["dex-port"] = true
+	externalConfig.explicitLocalFlags["web-port"] = true
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()
 	runFinished := make(chan error, 1)
@@ -200,6 +212,67 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	cancelHealth()
 	if strings.Contains(output.String(), localConfig.temporalAddress()) {
 		t.Fatalf("external workflow backend endpoint leaked in output: %s", output.String())
+	}
+}
+
+func TestConcurrentLocalStacksUseDistinctPortsAndDatabases(t *testing.T) {
+	stateDirectory := t.TempDir()
+	cfg1 := testConfig(t)
+	cfg1.StateDirectory = stateDirectory
+	cfg2 := testConfig(t)
+	cfg2.StateDirectory = stateDirectory
+	output1 := &synchronizedBuffer{}
+	output2 := &synchronizedBuffer{}
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+	finished1 := make(chan error, 1)
+	finished2 := make(chan error, 1)
+	go func() {
+		finished1 <- newSupervisor(cfg1, output1, output1).Run(ctx1)
+	}()
+	go func() {
+		finished2 <- newSupervisor(cfg2, output2, output2).Run(ctx2)
+	}()
+
+	waitForReadyStack(t, output1, finished1)
+	waitForReadyStack(t, output2, finished2)
+	if cfg1.DexPort == cfg2.DexPort ||
+		cfg1.WebPort == cfg2.WebPort ||
+		cfg1.TemporalPort == cfg2.TemporalPort ||
+		cfg1.TemporalUIPort == cfg2.TemporalUIPort {
+		cancel1()
+		cancel2()
+		t.Fatalf("stacks reused ports: %+v vs %+v", cfg1, cfg2)
+	}
+	if cfg1.TemporalDBFilename == "" || cfg1.TemporalDBFilename == cfg2.TemporalDBFilename {
+		cancel1()
+		cancel2()
+		t.Fatalf("stacks reused Temporal databases: %q vs %q", cfg1.TemporalDBFilename, cfg2.TemporalDBFilename)
+	}
+	if _, err := os.Stat(cfg1.TemporalDBFilename); err != nil {
+		cancel1()
+		cancel2()
+		t.Fatalf("first Temporal database missing: %v", err)
+	}
+	if _, err := os.Stat(cfg2.TemporalDBFilename); err != nil {
+		cancel1()
+		cancel2()
+		t.Fatalf("second Temporal database missing: %v", err)
+	}
+
+	cancel1()
+	cancel2()
+	for _, finished := range []<-chan error{finished1, finished2} {
+		select {
+		case err := <-finished:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(20 * time.Second):
+			t.Fatal("local stack did not stop")
+		}
 	}
 }
 
@@ -254,13 +327,25 @@ func TestBlobStoreDirectorySelection(t *testing.T) {
 	}
 }
 
-func testConfig(t *testing.T) *Config {
+func waitForReadyStack(t *testing.T, output *synchronizedBuffer, runFinished <-chan error) {
 	t.Helper()
-	cfg, err := defaultConfig()
-	if err != nil {
-		t.Fatal(err)
+	deadline := time.NewTimer(60 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		text := output.String()
+		if strings.Contains(text, "Dex development environment is ready") {
+			return
+		}
+		select {
+		case err := <-runFinished:
+			t.Fatalf("local stack exited before readiness: %v\n%s", err, text)
+		case <-deadline.C:
+			t.Fatalf("local stack did not become ready: %s", text)
+		case <-ticker.C:
+		}
 	}
-	return cfg
 }
 
 func waitForHealthyWeb(t *testing.T, url string, runFinished <-chan error) {

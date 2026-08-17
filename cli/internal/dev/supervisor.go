@@ -43,8 +43,10 @@ type supervisor struct {
 }
 
 type ownedListeners struct {
-	dex net.Listener
-	web net.Listener
+	dex        net.Listener
+	web        net.Listener
+	temporal   net.Listener
+	temporalUI net.Listener
 }
 
 type componentExit struct {
@@ -63,10 +65,6 @@ func newSupervisor(cfg *Config, stdout io.Writer, stderr io.Writer) *supervisor 
 }
 
 func (s *supervisor) Run(ctx context.Context) (runErr error) {
-	blobStoreDirectory, err := s.prepareBlobStoreDirectory()
-	if err != nil {
-		return err
-	}
 	listeners, err := reserveOwnedListeners(s.cfg)
 	if err != nil {
 		return err
@@ -74,26 +72,37 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	defer func() {
 		runErr = errors.Join(runErr, listeners.Close())
 	}()
+	blobStoreDirectory, err := s.prepareBlobStoreDirectory()
+	if err != nil {
+		return err
+	}
 
+	startupCtx, cancelStartup := context.WithTimeout(ctx, s.cfg.StartupTimeout)
+	defer cancelStartup()
 	var temporal *temporalProcess
+	var temporalClient temporalclient.Client
 	if s.cfg.TemporalAddress == "" {
-		temporal, err = startTemporalProcess(s.cfg)
+		if err := listeners.releaseTemporalPorts(); err != nil {
+			return err
+		}
+		temporal, temporalClient, err = s.startLocalTemporal(startupCtx)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
 			return err
 		}
 		defer func() {
 			runErr = errors.Join(runErr, temporal.Stop(s.cfg.ShutdownTimeout))
 		}()
-	}
-
-	startupCtx, cancelStartup := context.WithTimeout(ctx, s.cfg.StartupTimeout)
-	defer cancelStartup()
-	temporalClient, err := waitForTemporal(startupCtx, s.cfg, temporal)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil
+	} else {
+		temporalClient, err = waitForTemporal(startupCtx, s.cfg, nil)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
 		}
-		return err
 	}
 	if temporal != nil {
 		temporalWebURL := "http://" + net.JoinHostPort(s.cfg.BindAddress, strconv.Itoa(s.cfg.TemporalUIPort))
@@ -168,6 +177,43 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		}
 	}
 	return s.shutdown(runCtx, cancelRun, webServer, dexRuntime, runErr)
+}
+
+func (s *supervisor) startLocalTemporal(ctx context.Context) (*temporalProcess, temporalclient.Client, error) {
+	const maxAttempts = 5
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			if s.cfg.isExplicit("temporal-port") || s.cfg.isExplicit("temporal-ui-port") {
+				return nil, nil, lastErr
+			}
+			if err := rebindTemporalPorts(s.cfg); err != nil {
+				return nil, nil, err
+			}
+			if err := assignTemporalDBFilename(s.cfg); err != nil {
+				return nil, nil, err
+			}
+		}
+		process, err := startTemporalProcess(s.cfg)
+		if err != nil {
+			return nil, nil, err
+		}
+		client, err := waitForTemporal(ctx, s.cfg, process)
+		if err == nil {
+			return process, client, nil
+		}
+		exited := false
+		select {
+		case <-process.Done():
+			exited = true
+		default:
+		}
+		lastErr = errors.Join(err, process.Stop(s.cfg.ShutdownTimeout))
+		if ctx.Err() != nil || !exited {
+			return nil, nil, lastErr
+		}
+	}
+	return nil, nil, lastErr
 }
 
 func (s *supervisor) prepareBlobStoreDirectory() (string, error) {
@@ -272,51 +318,138 @@ func (s *supervisor) printReady(webURL string, dexAddress string) {
 }
 
 func reserveOwnedListeners(cfg *Config) (*ownedListeners, error) {
-	dexListener, err := listenFor("Dex Server", cfg.ownedAddresses()["Dex Server"])
+	allocated := make(map[string]string)
+	dexListener, err := bindServicePort("Dex Server", "dex-port", cfg, &cfg.DexPort, allocated)
 	if err != nil {
 		return nil, err
 	}
 	listeners := &ownedListeners{dex: dexListener}
-	webListener, err := listenFor("Dex Web", cfg.ownedAddresses()["Dex Web"])
+	webListener, err := bindServicePort("Dex Web", "web-port", cfg, &cfg.WebPort, allocated)
 	if err != nil {
-		closeErr := listeners.Close()
-		return nil, errors.Join(err, closeErr)
+		return nil, errors.Join(err, listeners.Close())
 	}
 	listeners.web = webListener
 	if cfg.TemporalAddress != "" {
 		return listeners, nil
 	}
-	for _, name := range []string{"Temporal", "Temporal Web"} {
-		probe, err := listenFor(name, cfg.ownedAddresses()[name])
-		if err != nil {
-			return nil, errors.Join(err, listeners.Close())
-		}
-		if err := probe.Close(); err != nil {
-			return nil, errors.Join(fmt.Errorf("release %s port: %w", name, err), listeners.Close())
-		}
+	temporalListener, err := bindServicePort("Temporal", "temporal-port", cfg, &cfg.TemporalPort, allocated)
+	if err != nil {
+		return nil, errors.Join(err, listeners.Close())
+	}
+	listeners.temporal = temporalListener
+	uiListener, err := bindServicePort("Temporal Web", "temporal-ui-port", cfg, &cfg.TemporalUIPort, allocated)
+	if err != nil {
+		return nil, errors.Join(err, listeners.Close())
+	}
+	listeners.temporalUI = uiListener
+	if err := assignTemporalDBFilename(cfg); err != nil {
+		return nil, errors.Join(err, listeners.Close())
 	}
 	return listeners, nil
 }
 
-func listenFor(name string, address string) (net.Listener, error) {
-	listener, err := net.Listen("tcp", address)
-	if err != nil {
-		return nil, fmt.Errorf("cannot start %s: %s is already in use: %w", name, address, err)
+func rebindTemporalPorts(cfg *Config) error {
+	if cfg.TemporalPort < 65535 {
+		cfg.TemporalPort++
 	}
-	return listener, nil
+	if cfg.TemporalUIPort < 65535 {
+		cfg.TemporalUIPort++
+	}
+	allocated := map[string]string{
+		net.JoinHostPort(cfg.BindAddress, strconv.Itoa(cfg.DexPort)): "Dex Server",
+		net.JoinHostPort(cfg.BindAddress, strconv.Itoa(cfg.WebPort)): "Dex Web",
+	}
+	temporalListener, err := bindServicePort("Temporal", "temporal-port", cfg, &cfg.TemporalPort, allocated)
+	if err != nil {
+		return err
+	}
+	uiListener, err := bindServicePort("Temporal Web", "temporal-ui-port", cfg, &cfg.TemporalUIPort, allocated)
+	if err != nil {
+		return errors.Join(err, closeListener(temporalListener))
+	}
+	return errors.Join(closeListener(temporalListener), closeListener(uiListener))
+}
+
+func bindServicePort(
+	name string,
+	flagName string,
+	cfg *Config,
+	port *int,
+	allocated map[string]string,
+) (net.Listener, error) {
+	explicit := cfg.isExplicit(flagName)
+	for candidate := *port; candidate <= 65535; candidate++ {
+		address := net.JoinHostPort(cfg.BindAddress, strconv.Itoa(candidate))
+		if owner, exists := allocated[address]; exists {
+			if explicit {
+				return nil, fmt.Errorf("%s and %s cannot both use %s", owner, name, address)
+			}
+			continue
+		}
+		if isAddressReachable(address) {
+			if explicit {
+				return nil, fmt.Errorf("cannot start %s: %s is already in use", name, address)
+			}
+			continue
+		}
+		listener, err := net.Listen("tcp", address)
+		if err != nil {
+			if explicit {
+				return nil, fmt.Errorf("cannot start %s: %s is already in use: %w", name, address, err)
+			}
+			continue
+		}
+		*port = candidate
+		allocated[address] = name
+		return listener, nil
+	}
+	return nil, fmt.Errorf("cannot start %s: no available port from %d", name, *port)
+}
+
+func assignTemporalDBFilename(cfg *Config) error {
+	if cfg.TemporalAddress != "" || cfg.isExplicit("temporal-db-filename") {
+		return nil
+	}
+	if cfg.StateDirectory == "" {
+		return fmt.Errorf("Dex state directory is required")
+	}
+	filename := cfg.autoTemporalDBFilename()
+	if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+		return fmt.Errorf("create Temporal database directory: %w", err)
+	}
+	cfg.TemporalDBFilename = filename
+	return nil
+}
+
+func isAddressReachable(address string) bool {
+	connection, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	// Closing the probe does not change that the port accepted a connection.
+	_ = connection.Close()
+	return true
+}
+
+func closeListener(listener net.Listener) error {
+	if listener == nil {
+		return nil
+	}
+	if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	return nil
+}
+
+func (l *ownedListeners) releaseTemporalPorts() error {
+	err := errors.Join(closeListener(l.temporal), closeListener(l.temporalUI))
+	l.temporal = nil
+	l.temporalUI = nil
+	return err
 }
 
 func (l *ownedListeners) Close() error {
-	var closeErr error
-	for _, listener := range []net.Listener{l.web, l.dex} {
-		if listener == nil {
-			continue
-		}
-		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			closeErr = errors.Join(closeErr, err)
-		}
-	}
-	return closeErr
+	return errors.Join(l.releaseTemporalPorts(), closeListener(l.web), closeListener(l.dex))
 }
 
 func waitForTemporal(
