@@ -77,18 +77,38 @@ func readLocalObject(ctx context.Context, root string, key string) ([]byte, erro
 	return data, ctx.Err()
 }
 
-func deleteLocalWorkflowObjects(ctx context.Context, root string, key string) error {
+func deleteLocalWorkflowObjects(ctx context.Context, root string, key string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
 	path, err := localObjectPath(root, key)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	var objectPaths []string
+	if err := filepath.WalkDir(path, func(objectPath string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relativePath, relativeErr := filepath.Rel(root, objectPath)
+		if relativeErr != nil {
+			return relativeErr
+		}
+		objectPaths = append(objectPaths, filepath.ToSlash(relativePath))
+		return nil
+	}); err != nil && !os.IsNotExist(err) {
+		return nil, fmt.Errorf("list local workflow blobs for deletion: %w", err)
 	}
 	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("delete local workflow blobs: %w", err)
+		return nil, fmt.Errorf("delete local workflow blobs: %w", err)
 	}
-	return nil
+	return objectPaths, nil
 }
 
 func listLocalWorkflowPaths(

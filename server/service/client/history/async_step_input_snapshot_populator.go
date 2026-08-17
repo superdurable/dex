@@ -11,6 +11,7 @@ package history
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/superdurable/dex/config"
@@ -20,11 +21,18 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const snapshotOriginHistoryPageSize int32 = 1000
+
 // AsyncStepInputSnapshotPopulator enriches local activity events from blob storage.
 type AsyncStepInputSnapshotPopulator struct {
 	cfg    *config.BlobStoreConfig
 	client uclient.UnifiedClient
 	store  blobstore.BlobStore
+}
+
+type timeTravelFork struct {
+	eventID       int64
+	previousRunID string
 }
 
 // NewAsyncStepInputSnapshotPopulator creates a post-processor for semantic history.
@@ -52,6 +60,8 @@ func (p *AsyncStepInputSnapshotPopulator) Populate(
 	flowID string,
 	runID string,
 	events []*dexpb.FlowHistoryEvent,
+	nextInternalEventID int64,
+	nextPageToken []byte,
 ) error {
 	if !hasMissingStepEventInput(events) {
 		return nil
@@ -64,16 +74,46 @@ func (p *AsyncStepInputSnapshotPopulator) Populate(
 	if err != nil {
 		return err
 	}
+	timeTravelForks, err := p.loadTimeTravelForks(
+		ctx,
+		flowID,
+		runID,
+		events,
+		nextInternalEventID,
+		nextPageToken,
+	)
+	if err != nil {
+		return err
+	}
+	runStartTimes := map[string]time.Time{runID: description.StartTime}
 	for _, event := range events {
 		stepExecutionID, method := missingStepEventInputKey(event)
 		if stepExecutionID == "" {
 			continue
 		}
+		originRunID, err := stepEventOriginRunID(event.GetEventId(), runID, timeTravelForks)
+		if err != nil {
+			return err
+		}
+		runStarted, ok := runStartTimes[originRunID]
+		if !ok {
+			originDescription, describeErr := p.client.DescribeWorkflowExecution(
+				ctx,
+				flowID,
+				originRunID,
+				nil,
+			)
+			if describeErr != nil {
+				return describeErr
+			}
+			runStarted = originDescription.StartTime
+			runStartTimes[originRunID] = runStarted
+		}
 		input, found, loadErr := p.load(
 			ctx,
-			description.StartTime,
+			runStarted,
 			flowID,
-			runID,
+			originRunID,
 			stepExecutionID,
 			method,
 		)
@@ -93,6 +133,73 @@ func (p *AsyncStepInputSnapshotPopulator) Populate(
 		}
 	}
 	return nil
+}
+
+func (p *AsyncStepInputSnapshotPopulator) loadTimeTravelForks(
+	ctx context.Context,
+	flowID string,
+	runID string,
+	events []*dexpb.FlowHistoryEvent,
+	nextInternalEventID int64,
+	nextPageToken []byte,
+) ([]timeTravelFork, error) {
+	timeTravelForks, err := collectTimeTravelForks(events)
+	if err != nil {
+		return nil, err
+	}
+	for len(nextPageToken) > 0 {
+		history, historyErr := p.client.GetWorkflowHistory(ctx, &uclient.GetWorkflowHistoryRequest{
+			WorkflowID:           flowID,
+			RunID:                runID,
+			StartInternalEventID: nextInternalEventID,
+			EstimatePageSize:     snapshotOriginHistoryPageSize,
+			NextPageToken:        nextPageToken,
+		})
+		if historyErr != nil {
+			return nil, historyErr
+		}
+		pageForks, collectErr := collectTimeTravelForks(history.Events)
+		if collectErr != nil {
+			return nil, collectErr
+		}
+		timeTravelForks = append(timeTravelForks, pageForks...)
+		nextInternalEventID = history.NextInternalEventID
+		nextPageToken = history.NextPageToken
+	}
+	sort.Slice(timeTravelForks, func(left int, right int) bool {
+		return timeTravelForks[left].eventID < timeTravelForks[right].eventID
+	})
+	return timeTravelForks, nil
+}
+
+func collectTimeTravelForks(events []*dexpb.FlowHistoryEvent) ([]timeTravelFork, error) {
+	var timeTravelForks []timeTravelFork
+	for _, event := range events {
+		fork := event.GetTimeTravelFork()
+		if fork == nil {
+			continue
+		}
+		if fork.GetPreviousRunId() == "" {
+			return nil, fmt.Errorf("time travel fork event %d is missing its previous run ID", event.GetEventId())
+		}
+		timeTravelForks = append(timeTravelForks, timeTravelFork{
+			eventID:       event.GetEventId(),
+			previousRunID: fork.GetPreviousRunId(),
+		})
+	}
+	return timeTravelForks, nil
+}
+
+func stepEventOriginRunID(eventID int64, currentRunID string, timeTravelForks []timeTravelFork) (string, error) {
+	for _, fork := range timeTravelForks {
+		if eventID < fork.eventID {
+			return fork.previousRunID, nil
+		}
+	}
+	if currentRunID == "" {
+		return "", fmt.Errorf("step event %d is missing its current run ID", eventID)
+	}
+	return currentRunID, nil
 }
 
 func (p *AsyncStepInputSnapshotPopulator) load(

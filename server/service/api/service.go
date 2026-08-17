@@ -860,6 +860,8 @@ func (s *serviceImpl) GetHistoryEvents(
 		req.GetFlowId(),
 		req.GetRunId(),
 		history.Events,
+		history.NextInternalEventID,
+		history.NextPageToken,
 	); err != nil {
 		return nil, s.handleError(err)
 	}
