@@ -125,9 +125,15 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		t.Fatalf("missing readiness output: %s", output.String())
 	}
 	if strings.Contains(output.String(), "Temporal") ||
-		strings.Contains(output.String(), strconv.Itoa(cfg.TemporalPort)) ||
-		strings.Contains(output.String(), strconv.Itoa(cfg.TemporalUIPort)) {
+		strings.Contains(output.String(), cfg.temporalAddress()) ||
+		strings.Contains(output.String(), ":"+strconv.Itoa(cfg.TemporalUIPort)) {
 		t.Fatalf("workflow backend endpoint leaked in output: %s", output.String())
+	}
+	if !strings.Contains(output.String(), "Local DB:      "+cfg.TemporalDBFilename) {
+		t.Fatalf("missing Local DB path: %s", output.String())
+	}
+	if !strings.Contains(output.String(), "Blob store:    "+cfg.adjacentBlobStoreDirectory()) {
+		t.Fatalf("missing blob store path: %s", output.String())
 	}
 	logContents, err := os.ReadFile(cfg.TemporalLogFile)
 	if err != nil {
@@ -149,7 +155,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	if _, err := os.Stat(cfg.TemporalDBFilename); err != nil {
 		t.Fatalf("Temporal database was not retained after shutdown: %v", err)
 	}
-	if _, err := os.Stat(cfg.TemporalDBFilename + ".dex-blobs"); err != nil {
+	if _, err := os.Stat(cfg.adjacentBlobStoreDirectory()); err != nil {
 		t.Fatalf("blob store was not retained after shutdown: %v", err)
 	}
 	for _, port := range ports {
@@ -202,11 +208,7 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	go func() {
 		runFinished <- newSupervisor(externalConfig, output, output).Run(runCtx)
 	}()
-	waitForHealthyWeb(
-		t,
-		"http://127.0.0.1:"+strconv.Itoa(externalConfig.WebPort)+"/healthz",
-		runFinished,
-	)
+	waitForReadyStack(t, output, runFinished)
 	cancelRun()
 	select {
 	case err := <-runFinished:
@@ -227,6 +229,12 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	cancelHealth()
 	if strings.Contains(output.String(), localConfig.temporalAddress()) {
 		t.Fatalf("external workflow backend endpoint leaked in output: %s", output.String())
+	}
+	if strings.Contains(output.String(), "Local DB:") {
+		t.Fatalf("external mode printed Local DB: %s", output.String())
+	}
+	if !strings.Contains(output.String(), "Blob store:") {
+		t.Fatalf("missing blob store path: %s", output.String())
 	}
 }
 
@@ -317,7 +325,7 @@ func TestBlobStoreDirectorySelection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if directory != databaseConfig.TemporalDBFilename+".dex-blobs" {
+	if directory != filepath.Join(root, localBlobStoreName) {
 		t.Fatalf("unexpected database directory: %q", directory)
 	}
 

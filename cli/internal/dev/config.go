@@ -31,6 +31,8 @@ const (
 	defaultTemporalPort      = 7233
 	defaultTemporalUIPort    = 8233
 	defaultTemporalNamespace = "default"
+	localSQLiteFileName      = "dex.sqlite.db"
+	localBlobStoreName       = "dex.blobs"
 )
 
 type Config struct {
@@ -48,13 +50,13 @@ type Config struct {
 	TemporalPort int
 	// TemporalUIPort defaults to 8233 in local mode.
 	TemporalUIPort int
-	// TemporalDBFilename defaults to $HOME/.dex/dev/<temporal-port>/temporal.db in local mode.
+	// TemporalDBFilename defaults to $HOME/.dex/dev/<temporal-port>/dex.sqlite.db in local mode.
 	TemporalDBFilename string
 	// TemporalLogFile defaults empty and discards local Temporal process logs.
 	TemporalLogFile string
 	// StateDirectory defaults to $HOME/.dex and stores auto-assigned Temporal SQLite files.
 	StateDirectory string
-	// BlobStoreDirectory defaults to $HOME/.dex/blobs unless TemporalDBFilename selects its adjacent store.
+	// BlobStoreDirectory defaults to $HOME/.dex/blobs unless TemporalDBFilename selects its adjacent dex.blobs store.
 	BlobStoreDirectory string
 	// AttributeStoreConfigPath defaults empty and loads Attribute Store settings from standard Dex YAML when set.
 	AttributeStoreConfigPath string
@@ -88,7 +90,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		&cfg.TemporalDBFilename,
 		"temporal-db-filename",
 		"",
-		"local Temporal SQLite file (default $HOME/.dex/dev/<temporal-port>/temporal.db)",
+		"local Temporal SQLite file (default $HOME/.dex/dev/<temporal-port>/dex.sqlite.db)",
 	)
 	flags.StringVar(
 		&cfg.TemporalLogFile,
@@ -265,7 +267,11 @@ func (c *Config) isExplicit(flagName string) bool {
 }
 
 func (c *Config) autoTemporalDBFilename() string {
-	return filepath.Join(c.StateDirectory, "dev", strconv.Itoa(c.TemporalPort), "temporal.db")
+	return filepath.Join(c.StateDirectory, "dev", strconv.Itoa(c.TemporalPort), localSQLiteFileName)
+}
+
+func (c *Config) adjacentBlobStoreDirectory() string {
+	return filepath.Join(filepath.Dir(c.TemporalDBFilename), localBlobStoreName)
 }
 
 func (c *Config) writeTemporalStartupRecord(logs io.Writer) error {

@@ -74,7 +74,7 @@ func TestReserveOwnedListenersSkipsWildcardOccupiedPort(t *testing.T) {
 	if cfg.TemporalPort == occupiedPort {
 		t.Fatalf("allocated wildcard-occupied Temporal port %d", occupiedPort)
 	}
-	if cfg.TemporalDBFilename != filepath.Join(cfg.StateDirectory, "dev", strconv.Itoa(cfg.TemporalPort), "temporal.db") {
+	if cfg.TemporalDBFilename != filepath.Join(cfg.StateDirectory, "dev", strconv.Itoa(cfg.TemporalPort), localSQLiteFileName) {
 		t.Fatalf("unexpected Temporal database: %q", cfg.TemporalDBFilename)
 	}
 }

@@ -35,14 +35,13 @@ at a non-default stack with `--server` or `DEX_FLOW_SERVICE_ADDRESS`.
 Use `--open` to open Dex Web after every component becomes ready. Ctrl+C stops
 Dex Web, Dex Server, and all internal processes owned by `dexcli`.
 
-Local Temporal state persists in
-`$HOME/.dex/dev/<temporal-port>/temporal.db`. Dex Web step inputs and values
-larger than 1 KB persist next to that database in `temporal.db.dex-blobs`, so
-execution history and its blobs share a lifecycle. Override the database path
-with:
+Local state persists in `$HOME/.dex/dev/<temporal-port>/dex.sqlite.db`.
+Dex Web step inputs and values larger than 1 KB persist next to that database
+in `dex.blobs`, so execution history and its blobs share a lifecycle. Override
+the database path with:
 
 ```bash
-dexcli dev --temporal-db-filename ./temporal.db
+dexcli dev --temporal-db-filename ./dex.sqlite.db
 ```
 
 Choose another blob directory with:
@@ -87,9 +86,9 @@ must exist and be reachable before startup.
 --bind-address string          local bind IP (default 127.0.0.1)
 --dex-port int                 Dex gRPC port (default 8801)
 --web-port int                 Dex Web port (default 8802)
---temporal-db-filename string  local Temporal SQLite file (default $HOME/.dex/dev/<temporal-port>/temporal.db)
+--temporal-db-filename string  local Temporal SQLite file (default $HOME/.dex/dev/<temporal-port>/dex.sqlite.db)
 --temporal-log-file string     write local Temporal server and Web logs to this file
---blob-store-dir string        persistent Dex blob storage directory (default <temporal-db-filename>.dex-blobs)
+--blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/dev/<temporal-port>/dex.blobs)
 --attribute-store-config string  Dex YAML file supplying Attribute Store settings
 --open                         open Dex Web after readiness
 ```

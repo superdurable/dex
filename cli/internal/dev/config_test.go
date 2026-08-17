@@ -97,7 +97,7 @@ func TestWriteTemporalStartupRecordIncludesPortsAndDatabase(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.TemporalPort = 7234
 	cfg.TemporalUIPort = 8234
-	cfg.TemporalDBFilename = filepath.Join(cfg.StateDirectory, "dev", "7234", "temporal.db")
+	cfg.TemporalDBFilename = filepath.Join(cfg.StateDirectory, "dev", "7234", localSQLiteFileName)
 	var output bytes.Buffer
 	if err := cfg.writeTemporalStartupRecord(&output); err != nil {
 		t.Fatal(err)

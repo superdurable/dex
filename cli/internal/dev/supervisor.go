@@ -82,9 +82,6 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	var temporal *temporalProcess
 	var temporalClient temporalclient.Client
 	if s.cfg.TemporalAddress == "" {
-		if err := listeners.releaseTemporalPorts(); err != nil {
-			return err
-		}
 		var temporalLogs io.Writer
 		logFile, err := openTemporalLogFile(s.cfg.TemporalLogFile)
 		if err != nil {
@@ -95,6 +92,9 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 				runErr = errors.Join(runErr, logFile.Close())
 			}()
 			temporalLogs = logFile
+		}
+		if err := listeners.releaseTemporalPorts(); err != nil {
+			return err
 		}
 		temporal, temporalClient, err = s.startLocalTemporal(startupCtx, temporalLogs)
 		if err != nil {
@@ -164,7 +164,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		return s.shutdown(runCtx, cancelRun, webServer, dexRuntime, err)
 	}
 
-	s.printReady(webURL, listeners.dex.Addr().String())
+	s.printReady(webURL, listeners.dex.Addr().String(), blobStoreDirectory)
 	if s.cfg.OpenBrowser {
 		if err := openBrowser(webURL); err != nil {
 			return s.shutdown(runCtx, cancelRun, webServer, dexRuntime, err)
@@ -235,7 +235,7 @@ func (s *supervisor) startLocalTemporal(ctx context.Context, logs io.Writer) (*t
 func (s *supervisor) prepareBlobStoreDirectory() (string, error) {
 	directory := s.cfg.BlobStoreDirectory
 	if s.cfg.TemporalDBFilename != "" && s.cfg.blobStoreDirectoryDefault {
-		directory = s.cfg.TemporalDBFilename + ".dex-blobs"
+		directory = s.cfg.adjacentBlobStoreDirectory()
 	}
 	directory, err := filepath.Abs(directory)
 	if err != nil {
@@ -323,12 +323,16 @@ func (s *supervisor) shutdown(
 	return runErr
 }
 
-func (s *supervisor) printReady(webURL string, dexAddress string) {
+func (s *supervisor) printReady(webURL string, dexAddress string, blobStoreDirectory string) {
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Dex development environment is ready")
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintf(s.stdout, "Dex Web:       %s\n", webURL)
 	fmt.Fprintf(s.stdout, "Dex Server:    %s\n", dexAddress)
+	if s.cfg.TemporalDBFilename != "" {
+		fmt.Fprintf(s.stdout, "Local DB:      %s\n", s.cfg.TemporalDBFilename)
+	}
+	fmt.Fprintf(s.stdout, "Blob store:    %s\n", blobStoreDirectory)
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Press Ctrl+C to stop.")
 }

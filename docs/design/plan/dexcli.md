@@ -265,11 +265,11 @@ Local `dexcli dev` 构造 typed `config.Config`，不生成临时 YAML：
 - external storage 默认使用 local filesystem backend，threshold 为 1 KB；
 - internal service target 指向本次 Dex API listener。
 
-`--blob-store-dir` 指定持久目录；`--temporal-db-filename <db>` 默认使用
-`<db>.dex-blobs`。local mode 未指定数据库时使用
-`$HOME/.dex/dev/<temporal-port>/temporal.db`，blob 目录为
-`<db>.dex-blobs`。退出 `dexcli dev` 不会删除这些目录。显式
-`--blob-store-dir` 优先于 `<db>.dex-blobs`。
+`--blob-store-dir` 指定持久目录；未指定时使用数据库文件同目录下的
+`dex.blobs`。local mode 未指定数据库时使用
+`$HOME/.dex/dev/<temporal-port>/dex.sqlite.db` 与
+`$HOME/.dex/dev/<temporal-port>/dex.blobs`。退出 `dexcli dev` 不会删除这些目录。显式
+`--blob-store-dir` 优先于相邻的 `dex.blobs`。
 
 高级 server 配置继续由现有 server binary/YAML 提供，不把所有 production config 暴露成 `dexcli dev` flags。
 
@@ -285,9 +285,9 @@ dexcli dev [flags]
 --temporal-namespace string    default default
 --temporal-port int            default 7233; local mode only
 --temporal-ui-port int         default 8233; local mode only
---temporal-db-filename string  default $HOME/.dex/dev/<temporal-port>/temporal.db
+--temporal-db-filename string  default $HOME/.dex/dev/<temporal-port>/dex.sqlite.db
 --temporal-log-file string     write local Temporal server and Web logs to this file
---blob-store-dir string        persistent Dex blob storage directory (default <temporal-db-filename>.dex-blobs)
+--blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/dev/<temporal-port>/dex.blobs)
 --open                         open Dex Web after readiness
 ```
 
@@ -313,7 +313,7 @@ temporal server start-dev \
   --port 7233 \
   --ui-ip 127.0.0.1 \
   --ui-port 8233 \
-  --db-filename "$HOME/.dex/dev/7233/temporal.db"
+  --db-filename "$HOME/.dex/dev/7233/dex.sqlite.db"
 ```
 
 默认 namespace 已由 Temporal Dev Server 创建。只有用户传入非 `default` namespace 时才增加 namespace 参数。
@@ -321,7 +321,7 @@ temporal server start-dev \
 Process manager 必须：
 
 - 为每个 `dexcli dev` 进程分配互不冲突的 Dex、Dex Web、Temporal 和 Temporal UI 端口；未占用时使用默认值，已被占用且未显式指定时选择下一个空闲端口；
-- 为每个 local Temporal 使用独立 SQLite 文件（默认 `$HOME/.dex/dev/<temporal-port>/temporal.db`）；
+- 为每个 local Temporal 使用独立 SQLite 文件（默认 `$HOME/.dex/dev/<temporal-port>/dex.sqlite.db`）；
 - `--temporal-log-file` 将 Temporal server 与 Web 的 stdout/stderr 写入指定文件，并记录实际 Temporal 端口和 SQLite 目录；默认丢弃这些日志，不向 `dexcli` 就绪输出泄露 Temporal endpoint；
 - 启动前预占 Dex 与 Dex Web listeners，并确认 Temporal 端口可绑定；
 - 丢弃 backend 子进程 stdout/stderr，避免向普通启动输出泄露内部 endpoint；
@@ -379,16 +379,13 @@ Dex development environment is ready
 
 Dex Web:       http://127.0.0.1:8802
 Dex Server:    127.0.0.1:8801
+Local DB:      $HOME/.dex/dev/7233/dex.sqlite.db
+Blob store:    $HOME/.dex/dev/7233/dex.blobs
 
 Press Ctrl+C to stop.
 ```
 
-External Temporal mode 使用相同输出，不展示 backend 类型或 endpoint：
-
-```text
-Dex Web:       http://127.0.0.1:8802
-Dex Server:    127.0.0.1:8801
-```
+Local mode 打印 SQLite 与 blob 路径，但不展示 Temporal 类型或 endpoint。External Temporal mode 省略 Local DB 行，仍打印 blob store，且不展示 backend 类型或 endpoint。
 
 错误必须指出 component 和修复方法，例如：
 
@@ -462,7 +459,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 - local Temporal 自动包含 `default` namespace 和 `FlowType=Keyword`。
 - `--temporal-db-filename` 重启后保留 Temporal executions。
 - local blob backend 使用安全路径编码和 atomic rename。
-- 默认 `$HOME/.dex/blobs`、`--blob-store-dir` 或 `<db>.dex-blobs` 重启后保留 step inputs 和大 Value。
+- 默认 `$HOME/.dex/blobs`、`--blob-store-dir` 或相邻的 `dex.blobs` 重启后保留 step inputs 和大 Value。
 - external mode 连接预先启动的 Temporal，不创建第二个 Temporal process。
 - 退出 external mode 后 external Temporal 仍然可用。
 - occupied 7233、8233、8801、8802 分别在部分启动前返回明确错误。
