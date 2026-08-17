@@ -54,6 +54,13 @@ dexcli dev --blob-store-dir ./dex-blobs
 `--blob-store-dir` takes precedence over the directory derived from
 `--temporal-db-filename`.
 
+Capture local Temporal server and Web logs, including the bound Temporal ports
+and SQLite directory, with:
+
+```bash
+dexcli dev --temporal-log-file ./temporal.log
+```
+
 Configure local Attribute Store projection with the same YAML section accepted
 by Dex Server:
 
@@ -81,6 +88,7 @@ must exist and be reachable before startup.
 --dex-port int                 Dex gRPC port (default 8801)
 --web-port int                 Dex Web port (default 8802)
 --temporal-db-filename string  local Temporal SQLite file (default $HOME/.dex/dev/<temporal-port>/temporal.db)
+--temporal-log-file string     write local Temporal server and Web logs to this file
 --blob-store-dir string        persistent Dex blob storage directory (default <temporal-db-filename>.dex-blobs)
 --attribute-store-config string  Dex YAML file supplying Attribute Store settings
 --open                         open Dex Web after readiness

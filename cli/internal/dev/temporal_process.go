@@ -13,7 +13,9 @@ package dev
 import (
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"syscall"
@@ -27,7 +29,7 @@ type temporalProcess struct {
 	waitErr error
 }
 
-func startTemporalProcess(cfg *Config) (*temporalProcess, error) {
+func startTemporalProcess(cfg *Config, logs io.Writer) (*temporalProcess, error) {
 	temporalPath, err := exec.LookPath("temporal")
 	if err != nil {
 		return nil, fmt.Errorf("Temporal CLI was not found; reinstall dexcli with Homebrew: %w", err)
@@ -45,9 +47,12 @@ func startTemporalProcess(cfg *Config) (*temporalProcess, error) {
 	if cfg.TemporalDBFilename != "" {
 		arguments = append(arguments, "--db-filename", cfg.TemporalDBFilename)
 	}
+	if logs == nil {
+		logs = io.Discard
+	}
 	command := exec.Command(temporalPath, arguments...)
-	command.Stdout = io.Discard
-	command.Stderr = io.Discard
+	command.Stdout = logs
+	command.Stderr = logs
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("start workflow backend: %w", err)
 	}
@@ -108,4 +113,22 @@ func (p *temporalProcess) Stop(timeout time.Duration) error {
 		<-p.done
 		return nil
 	}
+}
+
+func openTemporalLogFile(path string) (*os.File, error) {
+	if path == "" {
+		return nil, nil
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Temporal log file: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create Temporal log directory: %w", err)
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open Temporal log file: %w", err)
+	}
+	return file, nil
 }

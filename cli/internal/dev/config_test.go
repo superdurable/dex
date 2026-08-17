@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/superdurable/dex/config"
@@ -68,5 +69,47 @@ func TestAttributeStoreConfigRequiresStore(t *testing.T) {
 	cliConfig := &Config{AttributeStoreConfigPath: configPath}
 	if _, err := cliConfig.loadAttributeStoreConfig(); err == nil {
 		t.Fatal("expected empty Attribute Store config to fail")
+	}
+}
+
+func TestTemporalLogFileFlag(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "logs", "temporal.log")
+	cfg, err := parseConfig([]string{"--temporal-log-file", logFile}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TemporalLogFile != logFile {
+		t.Fatalf("unexpected Temporal log file: %q", cfg.TemporalLogFile)
+	}
+}
+
+func TestTemporalLogFileRejectedWithExternalAddress(t *testing.T) {
+	_, err := parseConfig([]string{
+		"--temporal-address", "127.0.0.1:7233",
+		"--temporal-log-file", "temporal.log",
+	}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected --temporal-log-file to fail with --temporal-address")
+	}
+}
+
+func TestWriteTemporalStartupRecordIncludesPortsAndDatabase(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.TemporalPort = 7234
+	cfg.TemporalUIPort = 8234
+	cfg.TemporalDBFilename = filepath.Join(cfg.StateDirectory, "dev", "7234", "temporal.db")
+	var output bytes.Buffer
+	if err := cfg.writeTemporalStartupRecord(&output); err != nil {
+		t.Fatal(err)
+	}
+	text := output.String()
+	if !strings.Contains(text, "127.0.0.1:7234") {
+		t.Fatalf("missing Temporal gRPC address: %s", text)
+	}
+	if !strings.Contains(text, "http://127.0.0.1:8234") {
+		t.Fatalf("missing Temporal Web address: %s", text)
+	}
+	if !strings.Contains(text, filepath.Join(cfg.StateDirectory, "dev", "7234")) {
+		t.Fatalf("missing Temporal DB directory: %s", text)
 	}
 }

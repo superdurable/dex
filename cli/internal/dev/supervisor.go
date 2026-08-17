@@ -85,7 +85,18 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		if err := listeners.releaseTemporalPorts(); err != nil {
 			return err
 		}
-		temporal, temporalClient, err = s.startLocalTemporal(startupCtx)
+		var temporalLogs io.Writer
+		logFile, err := openTemporalLogFile(s.cfg.TemporalLogFile)
+		if err != nil {
+			return err
+		}
+		if logFile != nil {
+			defer func() {
+				runErr = errors.Join(runErr, logFile.Close())
+			}()
+			temporalLogs = logFile
+		}
+		temporal, temporalClient, err = s.startLocalTemporal(startupCtx, temporalLogs)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -179,7 +190,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	return s.shutdown(runCtx, cancelRun, webServer, dexRuntime, runErr)
 }
 
-func (s *supervisor) startLocalTemporal(ctx context.Context) (*temporalProcess, temporalclient.Client, error) {
+func (s *supervisor) startLocalTemporal(ctx context.Context, logs io.Writer) (*temporalProcess, temporalclient.Client, error) {
 	const maxAttempts = 5
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -194,7 +205,12 @@ func (s *supervisor) startLocalTemporal(ctx context.Context) (*temporalProcess, 
 				return nil, nil, err
 			}
 		}
-		process, err := startTemporalProcess(s.cfg)
+		if logs != nil {
+			if err := s.cfg.writeTemporalStartupRecord(logs); err != nil {
+				return nil, nil, fmt.Errorf("write Temporal log header: %w", err)
+			}
+		}
+		process, err := startTemporalProcess(s.cfg, logs)
 		if err != nil {
 			return nil, nil, err
 		}

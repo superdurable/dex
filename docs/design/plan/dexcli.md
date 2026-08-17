@@ -286,6 +286,7 @@ dexcli dev [flags]
 --temporal-port int            default 7233; local mode only
 --temporal-ui-port int         default 8233; local mode only
 --temporal-db-filename string  default $HOME/.dex/dev/<temporal-port>/temporal.db
+--temporal-log-file string     write local Temporal server and Web logs to this file
 --blob-store-dir string        persistent Dex blob storage directory (default <temporal-db-filename>.dex-blobs)
 --open                         open Dex Web after readiness
 ```
@@ -321,6 +322,7 @@ Process manager 必须：
 
 - 为每个 `dexcli dev` 进程分配互不冲突的 Dex、Dex Web、Temporal 和 Temporal UI 端口；未占用时使用默认值，已被占用且未显式指定时选择下一个空闲端口；
 - 为每个 local Temporal 使用独立 SQLite 文件（默认 `$HOME/.dex/dev/<temporal-port>/temporal.db`）；
+- `--temporal-log-file` 将 Temporal server 与 Web 的 stdout/stderr 写入指定文件，并记录实际 Temporal 端口和 SQLite 目录；默认丢弃这些日志，不向 `dexcli` 就绪输出泄露 Temporal endpoint；
 - 启动前预占 Dex 与 Dex Web listeners，并确认 Temporal 端口可绑定；
 - 丢弃 backend 子进程 stdout/stderr，避免向普通启动输出泄露内部 endpoint；
 - 通过 Temporal API readiness 检查，不根据日志文本判断 ready；

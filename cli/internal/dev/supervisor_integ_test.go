@@ -42,6 +42,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	cfg.explicitLocalFlags["temporal-ui-port"] = true
 	cfg.explicitLocalFlags["dex-port"] = true
 	cfg.explicitLocalFlags["web-port"] = true
+	cfg.TemporalLogFile = filepath.Join(t.TempDir(), "temporal.log")
 	output := &synchronizedBuffer{}
 	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -128,6 +129,20 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		strings.Contains(output.String(), strconv.Itoa(cfg.TemporalUIPort)) {
 		t.Fatalf("workflow backend endpoint leaked in output: %s", output.String())
 	}
+	logContents, err := os.ReadFile(cfg.TemporalLogFile)
+	if err != nil {
+		t.Fatalf("read Temporal log file: %v", err)
+	}
+	logText := string(logContents)
+	if !strings.Contains(logText, cfg.temporalAddress()) {
+		t.Fatalf("Temporal log missing gRPC address: %s", logText)
+	}
+	if !strings.Contains(logText, strconv.Itoa(cfg.TemporalUIPort)) {
+		t.Fatalf("Temporal log missing Web port: %s", logText)
+	}
+	if !strings.Contains(logText, cfg.temporalDBDirectory()) {
+		t.Fatalf("Temporal log missing DB directory: %s", logText)
+	}
 	if cfg.TemporalDBFilename == "" {
 		t.Fatal("missing Temporal database")
 	}
@@ -156,7 +171,7 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	localConfig.explicitLocalFlags["temporal-port"] = true
 	localConfig.explicitLocalFlags["temporal-ui-port"] = true
 	output := &synchronizedBuffer{}
-	temporal, err := startTemporalProcess(localConfig)
+	temporal, err := startTemporalProcess(localConfig, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
