@@ -543,7 +543,14 @@ export interface FlowHistoryEvent {
     | { $case: "channelExternalPublish"; value: ChannelExternalPublishEvent }
     | { $case: "stepWaitForPending"; value: StepMethodPendingEvent }
     | { $case: "stepExecutePending"; value: StepMethodPendingEvent }
+    | { $case: "timeTravelFork"; value: TimeTravelForkHistoryEvent }
     | undefined;
+}
+
+/** TimeTravelForkHistoryEvent identifies the preserved run whose history Time Travel forked. */
+export interface TimeTravelForkHistoryEvent {
+  /** Previous run containing the original history branch. */
+  previousRunId: string;
 }
 
 export interface FlowStartedOrContinuedHistoryEvent {
@@ -4872,6 +4879,9 @@ export const FlowHistoryEvent: MessageFns<FlowHistoryEvent> = {
       case "stepExecutePending":
         StepMethodPendingEvent.encode(message.payload.value, writer.uint32(234).fork()).join();
         break;
+      case "timeTravelFork":
+        TimeTravelForkHistoryEvent.encode(message.payload.value, writer.uint32(242).fork()).join();
+        break;
     }
     return writer;
   },
@@ -5006,6 +5016,17 @@ export const FlowHistoryEvent: MessageFns<FlowHistoryEvent> = {
           };
           continue;
         }
+        case 30: {
+          if (tag !== 242) {
+            break;
+          }
+
+          message.payload = {
+            $case: "timeTravelFork",
+            value: TimeTravelForkHistoryEvent.decode(reader, reader.uint32()),
+          };
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5110,7 +5131,62 @@ export const FlowHistoryEvent: MessageFns<FlowHistoryEvent> = {
         }
         break;
       }
+      case "timeTravelFork": {
+        if (object.payload?.value !== undefined && object.payload?.value !== null) {
+          message.payload = {
+            $case: "timeTravelFork",
+            value: TimeTravelForkHistoryEvent.fromPartial(object.payload.value),
+          };
+        }
+        break;
+      }
     }
+    return message;
+  },
+};
+
+function createBaseTimeTravelForkHistoryEvent(): TimeTravelForkHistoryEvent {
+  return { previousRunId: "" };
+}
+
+export const TimeTravelForkHistoryEvent: MessageFns<TimeTravelForkHistoryEvent> = {
+  encode(message: TimeTravelForkHistoryEvent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.previousRunId !== "") {
+      writer.uint32(10).string(message.previousRunId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TimeTravelForkHistoryEvent {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTimeTravelForkHistoryEvent();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.previousRunId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<TimeTravelForkHistoryEvent>, I>>(base?: I): TimeTravelForkHistoryEvent {
+    return TimeTravelForkHistoryEvent.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TimeTravelForkHistoryEvent>, I>>(object: I): TimeTravelForkHistoryEvent {
+    const message = createBaseTimeTravelForkHistoryEvent();
+    message.previousRunId = object.previousRunId ?? "";
     return message;
   },
 };

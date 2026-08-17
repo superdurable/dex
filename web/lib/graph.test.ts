@@ -111,6 +111,18 @@ describe('step graph', () => {
     expect(graph.nodes.find((node) => node.id === 'S2-1')?.fromStepExecutionId).toBe('S1-1');
   });
 
+  it('marks the Flow start as forked from the Time Travel source run', () => {
+    const graph = buildStepGraph([
+      event(1, 'FlowStartedOrContinued'),
+      event(7, 'TimeTravelFork', {}, { previousRunId: 'source-run-id' }),
+    ]);
+
+    expect(graph.nodes.find((node) => node.id === '__start__')).toMatchObject({
+      previousRunId: 'source-run-id',
+      previousRunKind: 'time-travel',
+    });
+  });
+
   it('creates RPC sources and overlays waiting state', () => {
     const graph = buildStepGraph([], [{
       stepExecutionId: 'Approval-1',

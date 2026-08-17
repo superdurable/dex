@@ -41,11 +41,24 @@ function stringField(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-function previousRunID(events: FlowHistoryEvent[]): string {
+function previousRun(events: FlowHistoryEvent[]): {
+  id: string;
+  kind: 'continued' | 'time-travel' | undefined;
+} {
+  const fork = events.find((event) => event.type === 'TimeTravelFork');
+  if (fork) {
+    return {
+      id: stringField(fork.payload.previousRunId),
+      kind: 'time-travel',
+    };
+  }
   const started = events.find((event) => event.type === 'FlowStartedOrContinued');
   const continued = started?.payload.continuedStart;
-  if (!continued || typeof continued !== 'object') return '';
-  return stringField((continued as Record<string, unknown>).previousRunId);
+  if (!continued || typeof continued !== 'object') return { id: '', kind: undefined };
+  return {
+    id: stringField((continued as Record<string, unknown>).previousRunId),
+    kind: 'continued',
+  };
 }
 
 export function buildStepGraph(
@@ -55,12 +68,14 @@ export function buildStepGraph(
 ): { nodes: StepGraphNode[]; edges: StepGraphEdge[] } {
   const nodes = new Map<string, StepGraphNode>();
   const plannedNodesByLineage = new Map<string, string[]>();
+  const priorRun = previousRun(events);
   nodes.set(START_NODE_ID, {
     id: START_NODE_ID,
     label: 'Flow start',
     kind: 'source',
     status: 'Source',
-    previousRunId: previousRunID(events),
+    previousRunId: priorRun.id,
+    previousRunKind: priorRun.kind,
   });
 
   for (const event of events) {

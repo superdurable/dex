@@ -748,7 +748,7 @@ class GetHistoryEventsResponse(_message.Message):
     def __init__(self, events: _Optional[_Iterable[_Union[FlowHistoryEvent, _Mapping]]] = ..., next_page_token: _Optional[bytes] = ..., next_internal_event_id: _Optional[int] = ...) -> None: ...
 
 class FlowHistoryEvent(_message.Message):
-    __slots__ = ("event_id", "event_time", "flow_started_or_continued", "flow_closed", "step_wait_for_completed", "step_wait_for_failed", "step_execute_completed", "step_execute_failed", "rpc_execution_completed", "channel_external_publish", "step_wait_for_pending", "step_execute_pending")
+    __slots__ = ("event_id", "event_time", "flow_started_or_continued", "flow_closed", "step_wait_for_completed", "step_wait_for_failed", "step_execute_completed", "step_execute_failed", "rpc_execution_completed", "channel_external_publish", "step_wait_for_pending", "step_execute_pending", "time_travel_fork")
     EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     EVENT_TIME_FIELD_NUMBER: _ClassVar[int]
     FLOW_STARTED_OR_CONTINUED_FIELD_NUMBER: _ClassVar[int]
@@ -761,6 +761,7 @@ class FlowHistoryEvent(_message.Message):
     CHANNEL_EXTERNAL_PUBLISH_FIELD_NUMBER: _ClassVar[int]
     STEP_WAIT_FOR_PENDING_FIELD_NUMBER: _ClassVar[int]
     STEP_EXECUTE_PENDING_FIELD_NUMBER: _ClassVar[int]
+    TIME_TRAVEL_FORK_FIELD_NUMBER: _ClassVar[int]
     event_id: int
     event_time: _timestamp_pb2.Timestamp
     flow_started_or_continued: FlowStartedOrContinuedHistoryEvent
@@ -773,7 +774,14 @@ class FlowHistoryEvent(_message.Message):
     channel_external_publish: ChannelExternalPublishEvent
     step_wait_for_pending: StepMethodPendingEvent
     step_execute_pending: StepMethodPendingEvent
-    def __init__(self, event_id: _Optional[int] = ..., event_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., flow_started_or_continued: _Optional[_Union[FlowStartedOrContinuedHistoryEvent, _Mapping]] = ..., flow_closed: _Optional[_Union[FlowClosedHistoryEvent, _Mapping]] = ..., step_wait_for_completed: _Optional[_Union[StepWaitForCompletedEvent, _Mapping]] = ..., step_wait_for_failed: _Optional[_Union[StepWaitForFailedEvent, _Mapping]] = ..., step_execute_completed: _Optional[_Union[StepExecuteCompletedEvent, _Mapping]] = ..., step_execute_failed: _Optional[_Union[StepExecuteFailedEvent, _Mapping]] = ..., rpc_execution_completed: _Optional[_Union[RpcExecutionCompletedEvent, _Mapping]] = ..., channel_external_publish: _Optional[_Union[ChannelExternalPublishEvent, _Mapping]] = ..., step_wait_for_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., step_execute_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ...) -> None: ...
+    time_travel_fork: TimeTravelForkHistoryEvent
+    def __init__(self, event_id: _Optional[int] = ..., event_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., flow_started_or_continued: _Optional[_Union[FlowStartedOrContinuedHistoryEvent, _Mapping]] = ..., flow_closed: _Optional[_Union[FlowClosedHistoryEvent, _Mapping]] = ..., step_wait_for_completed: _Optional[_Union[StepWaitForCompletedEvent, _Mapping]] = ..., step_wait_for_failed: _Optional[_Union[StepWaitForFailedEvent, _Mapping]] = ..., step_execute_completed: _Optional[_Union[StepExecuteCompletedEvent, _Mapping]] = ..., step_execute_failed: _Optional[_Union[StepExecuteFailedEvent, _Mapping]] = ..., rpc_execution_completed: _Optional[_Union[RpcExecutionCompletedEvent, _Mapping]] = ..., channel_external_publish: _Optional[_Union[ChannelExternalPublishEvent, _Mapping]] = ..., step_wait_for_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., step_execute_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., time_travel_fork: _Optional[_Union[TimeTravelForkHistoryEvent, _Mapping]] = ...) -> None: ...
+
+class TimeTravelForkHistoryEvent(_message.Message):
+    __slots__ = ("previous_run_id",)
+    PREVIOUS_RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    previous_run_id: str
+    def __init__(self, previous_run_id: _Optional[str] = ...) -> None: ...
 
 class FlowStartedOrContinuedHistoryEvent(_message.Message):
     __slots__ = ("flow_execution_id", "flow_type", "flow_config", "flow_timeout", "flow_timeout_policy", "initial_start", "continued_start")

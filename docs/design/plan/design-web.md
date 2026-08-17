@@ -199,11 +199,19 @@ message FlowHistoryEvent {
     StepExecuteFailedEvent step_execute_failed = 25;
     RpcExecutionCompletedEvent rpc_execution_completed = 26;
     ChannelExternalPublishEvent channel_external_publish = 27;
+    StepMethodPendingEvent step_wait_for_pending = 28;
+    StepMethodPendingEvent step_execute_pending = 29;
+    TimeTravelForkHistoryEvent time_travel_fork = 30;
   }
+}
+
+message TimeTravelForkHistoryEvent {
+  string previous_run_id = 1;
 }
 ```
 
 不返回 unknown engine event。遇到新 engine event type 时忽略；已识别的 Dex payload 无法解码时返回 internal error。
+只有 backend reset marker 会映射为 `TimeTravelForkHistoryEvent`；`previous_run_id` 指向保留的原 history run。
 
 ### 6.3 Flow events
 

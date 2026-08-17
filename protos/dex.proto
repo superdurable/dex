@@ -495,7 +495,14 @@ message FlowHistoryEvent {
     ChannelExternalPublishEvent channel_external_publish = 27;
     StepMethodPendingEvent step_wait_for_pending = 28;
     StepMethodPendingEvent step_execute_pending = 29;
+    TimeTravelForkHistoryEvent time_travel_fork = 30;
   }
+}
+
+// TimeTravelForkHistoryEvent identifies the preserved run whose history Time Travel forked.
+message TimeTravelForkHistoryEvent {
+  // Previous run containing the original history branch.
+  string previous_run_id = 1;
 }
 
 message FlowStartedOrContinuedHistoryEvent {

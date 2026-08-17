@@ -43,6 +43,7 @@ interface StepLinkLayout {
 }
 
 function eventTone(event: FlowHistoryEvent) {
+  if (event.type === 'TimeTravelFork') return 'fork';
   if (event.type.endsWith('Pending')) return 'pending';
   if (event.type.endsWith('Failed')) return 'failed';
   if (event.type === 'StepWaitForCompleted') return 'waiting';
@@ -72,6 +73,9 @@ function pendingPhase(event: FlowHistoryEvent): string {
 }
 
 function previousRunID(event: FlowHistoryEvent): string {
+  if (event.type === 'TimeTravelFork') {
+    return typeof event.payload.previousRunId === 'string' ? event.payload.previousRunId : '';
+  }
   if (event.type !== 'FlowStartedOrContinued') return '';
   const continued = event.payload.continuedStart;
   if (!continued || typeof continued !== 'object') return '';
@@ -305,7 +309,7 @@ export function Timeline({
                           title={previousRunId}
                           to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(previousRunId)}`}
                         >
-                          Flow continued
+                          {event.type === 'TimeTravelFork' ? 'Time Travel fork' : 'Flow continued'}
                         </Link>
                       ) : eventTitle(event)}
                     </h3>

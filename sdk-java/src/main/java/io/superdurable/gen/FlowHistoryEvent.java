@@ -65,6 +65,7 @@ private static final long serialVersionUID = 0L;
     CHANNEL_EXTERNAL_PUBLISH(27),
     STEP_WAIT_FOR_PENDING(28),
     STEP_EXECUTE_PENDING(29),
+    TIME_TRAVEL_FORK(30),
     PAYLOAD_NOT_SET(0);
     private final int value;
     private PayloadCase(int value) {
@@ -92,6 +93,7 @@ private static final long serialVersionUID = 0L;
         case 27: return CHANNEL_EXTERNAL_PUBLISH;
         case 28: return STEP_WAIT_FOR_PENDING;
         case 29: return STEP_EXECUTE_PENDING;
+        case 30: return TIME_TRAVEL_FORK;
         case 0: return PAYLOAD_NOT_SET;
         default: return null;
       }
@@ -454,6 +456,37 @@ private static final long serialVersionUID = 0L;
     return io.superdurable.gen.StepMethodPendingEvent.getDefaultInstance();
   }
 
+  public static final int TIME_TRAVEL_FORK_FIELD_NUMBER = 30;
+  /**
+   * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+   * @return Whether the timeTravelFork field is set.
+   */
+  @java.lang.Override
+  public boolean hasTimeTravelFork() {
+    return payloadCase_ == 30;
+  }
+  /**
+   * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+   * @return The timeTravelFork.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.TimeTravelForkHistoryEvent getTimeTravelFork() {
+    if (payloadCase_ == 30) {
+       return (io.superdurable.gen.TimeTravelForkHistoryEvent) payload_;
+    }
+    return io.superdurable.gen.TimeTravelForkHistoryEvent.getDefaultInstance();
+  }
+  /**
+   * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.TimeTravelForkHistoryEventOrBuilder getTimeTravelForkOrBuilder() {
+    if (payloadCase_ == 30) {
+       return (io.superdurable.gen.TimeTravelForkHistoryEvent) payload_;
+    }
+    return io.superdurable.gen.TimeTravelForkHistoryEvent.getDefaultInstance();
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -503,6 +536,9 @@ private static final long serialVersionUID = 0L;
     }
     if (payloadCase_ == 29) {
       output.writeMessage(29, (io.superdurable.gen.StepMethodPendingEvent) payload_);
+    }
+    if (payloadCase_ == 30) {
+      output.writeMessage(30, (io.superdurable.gen.TimeTravelForkHistoryEvent) payload_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -555,6 +591,10 @@ private static final long serialVersionUID = 0L;
     if (payloadCase_ == 29) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(29, (io.superdurable.gen.StepMethodPendingEvent) payload_);
+    }
+    if (payloadCase_ == 30) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(30, (io.superdurable.gen.TimeTravelForkHistoryEvent) payload_);
     }
     return size;
   }
@@ -629,6 +669,10 @@ private static final long serialVersionUID = 0L;
         if (!getStepExecutePending()
             .equals(other.getStepExecutePending())) return false;
         break;
+      case 30:
+        if (!getTimeTravelFork()
+            .equals(other.getTimeTravelFork())) return false;
+        break;
       case 0:
       default:
     }
@@ -690,6 +734,10 @@ private static final long serialVersionUID = 0L;
       case 29:
         hash = (37 * hash) + STEP_EXECUTE_PENDING_FIELD_NUMBER;
         hash = (53 * hash) + getStepExecutePending().hashCode();
+        break;
+      case 30:
+        hash = (37 * hash) + TIME_TRAVEL_FORK_FIELD_NUMBER;
+        hash = (53 * hash) + getTimeTravelFork().hashCode();
         break;
       case 0:
       default:
@@ -867,6 +915,9 @@ private static final long serialVersionUID = 0L;
       if (stepExecutePendingBuilder_ != null) {
         stepExecutePendingBuilder_.clear();
       }
+      if (timeTravelForkBuilder_ != null) {
+        timeTravelForkBuilder_.clear();
+      }
       payloadCase_ = 0;
       payload_ = null;
       return this;
@@ -959,6 +1010,10 @@ private static final long serialVersionUID = 0L;
           stepExecutePendingBuilder_ != null) {
         result.payload_ = stepExecutePendingBuilder_.build();
       }
+      if (payloadCase_ == 30 &&
+          timeTravelForkBuilder_ != null) {
+        result.payload_ = timeTravelForkBuilder_.build();
+      }
     }
 
     @java.lang.Override
@@ -1018,6 +1073,10 @@ private static final long serialVersionUID = 0L;
         }
         case STEP_EXECUTE_PENDING: {
           mergeStepExecutePending(other.getStepExecutePending());
+          break;
+        }
+        case TIME_TRAVEL_FORK: {
+          mergeTimeTravelFork(other.getTimeTravelFork());
           break;
         }
         case PAYLOAD_NOT_SET: {
@@ -1132,6 +1191,13 @@ private static final long serialVersionUID = 0L;
               payloadCase_ = 29;
               break;
             } // case 234
+            case 242: {
+              input.readMessage(
+                  internalGetTimeTravelForkFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              payloadCase_ = 30;
+              break;
+            } // case 242
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -2735,6 +2801,148 @@ private static final long serialVersionUID = 0L;
       payloadCase_ = 29;
       onChanged();
       return stepExecutePendingBuilder_;
+    }
+
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.TimeTravelForkHistoryEvent, io.superdurable.gen.TimeTravelForkHistoryEvent.Builder, io.superdurable.gen.TimeTravelForkHistoryEventOrBuilder> timeTravelForkBuilder_;
+    /**
+     * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+     * @return Whether the timeTravelFork field is set.
+     */
+    @java.lang.Override
+    public boolean hasTimeTravelFork() {
+      return payloadCase_ == 30;
+    }
+    /**
+     * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+     * @return The timeTravelFork.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.TimeTravelForkHistoryEvent getTimeTravelFork() {
+      if (timeTravelForkBuilder_ == null) {
+        if (payloadCase_ == 30) {
+          return (io.superdurable.gen.TimeTravelForkHistoryEvent) payload_;
+        }
+        return io.superdurable.gen.TimeTravelForkHistoryEvent.getDefaultInstance();
+      } else {
+        if (payloadCase_ == 30) {
+          return timeTravelForkBuilder_.getMessage();
+        }
+        return io.superdurable.gen.TimeTravelForkHistoryEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+     */
+    public Builder setTimeTravelFork(io.superdurable.gen.TimeTravelForkHistoryEvent value) {
+      if (timeTravelForkBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        payload_ = value;
+        onChanged();
+      } else {
+        timeTravelForkBuilder_.setMessage(value);
+      }
+      payloadCase_ = 30;
+      return this;
+    }
+    /**
+     * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+     */
+    public Builder setTimeTravelFork(
+        io.superdurable.gen.TimeTravelForkHistoryEvent.Builder builderForValue) {
+      if (timeTravelForkBuilder_ == null) {
+        payload_ = builderForValue.build();
+        onChanged();
+      } else {
+        timeTravelForkBuilder_.setMessage(builderForValue.build());
+      }
+      payloadCase_ = 30;
+      return this;
+    }
+    /**
+     * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+     */
+    public Builder mergeTimeTravelFork(io.superdurable.gen.TimeTravelForkHistoryEvent value) {
+      if (timeTravelForkBuilder_ == null) {
+        if (payloadCase_ == 30 &&
+            payload_ != io.superdurable.gen.TimeTravelForkHistoryEvent.getDefaultInstance()) {
+          payload_ = io.superdurable.gen.TimeTravelForkHistoryEvent.newBuilder((io.superdurable.gen.TimeTravelForkHistoryEvent) payload_)
+              .mergeFrom(value).buildPartial();
+        } else {
+          payload_ = value;
+        }
+        onChanged();
+      } else {
+        if (payloadCase_ == 30) {
+          timeTravelForkBuilder_.mergeFrom(value);
+        } else {
+          timeTravelForkBuilder_.setMessage(value);
+        }
+      }
+      payloadCase_ = 30;
+      return this;
+    }
+    /**
+     * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+     */
+    public Builder clearTimeTravelFork() {
+      if (timeTravelForkBuilder_ == null) {
+        if (payloadCase_ == 30) {
+          payloadCase_ = 0;
+          payload_ = null;
+          onChanged();
+        }
+      } else {
+        if (payloadCase_ == 30) {
+          payloadCase_ = 0;
+          payload_ = null;
+        }
+        timeTravelForkBuilder_.clear();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+     */
+    public io.superdurable.gen.TimeTravelForkHistoryEvent.Builder getTimeTravelForkBuilder() {
+      return internalGetTimeTravelForkFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+     */
+    @java.lang.Override
+    public io.superdurable.gen.TimeTravelForkHistoryEventOrBuilder getTimeTravelForkOrBuilder() {
+      if ((payloadCase_ == 30) && (timeTravelForkBuilder_ != null)) {
+        return timeTravelForkBuilder_.getMessageOrBuilder();
+      } else {
+        if (payloadCase_ == 30) {
+          return (io.superdurable.gen.TimeTravelForkHistoryEvent) payload_;
+        }
+        return io.superdurable.gen.TimeTravelForkHistoryEvent.getDefaultInstance();
+      }
+    }
+    /**
+     * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.TimeTravelForkHistoryEvent, io.superdurable.gen.TimeTravelForkHistoryEvent.Builder, io.superdurable.gen.TimeTravelForkHistoryEventOrBuilder> 
+        internalGetTimeTravelForkFieldBuilder() {
+      if (timeTravelForkBuilder_ == null) {
+        if (!(payloadCase_ == 30)) {
+          payload_ = io.superdurable.gen.TimeTravelForkHistoryEvent.getDefaultInstance();
+        }
+        timeTravelForkBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.TimeTravelForkHistoryEvent, io.superdurable.gen.TimeTravelForkHistoryEvent.Builder, io.superdurable.gen.TimeTravelForkHistoryEventOrBuilder>(
+                (io.superdurable.gen.TimeTravelForkHistoryEvent) payload_,
+                getParentForChildren(),
+                isClean());
+        payload_ = null;
+      }
+      payloadCase_ = 30;
+      onChanged();
+      return timeTravelForkBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.FlowHistoryEvent)

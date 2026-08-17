@@ -1848,6 +1848,11 @@ pre {
   box-shadow: 0 0 0 1px #7c5ad6;
 }
 
+.timeline-dot.tone-fork {
+  background: #8a4f9f;
+  box-shadow: 0 0 0 1px #8a4f9f;
+}
+
 .event-card {
   margin-bottom: 15px;
   padding: 13px;
@@ -1917,6 +1922,24 @@ pre {
 .event-type.tone-pending {
   color: #59409b;
   background: #eee9fb;
+}
+
+.event-type.tone-fork {
+  color: #6d347f;
+  background: #f4e8f7;
+}
+
+.semantic-run-link-row {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.semantic-run-link-row > span:first-child {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 750;
+  text-transform: uppercase;
 }
 
 .timeline-dot.tone-waiting {

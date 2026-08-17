@@ -304,7 +304,9 @@ export function StepGraph({
                     title={node.previousRunId}
                     to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(node.previousRunId)}`}
                   >
-                    Continued from previous run
+                    {node.previousRunKind === 'time-travel'
+                      ? 'Time traveled from previous run'
+                      : 'Continued from previous run'}
                   </Link>
                 </b>
                 <code title={node.previousRunId}>{node.previousRunId}</code>

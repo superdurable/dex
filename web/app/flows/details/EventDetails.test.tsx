@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { PreferencesProvider } from '@/app/providers';
 import type { FlowHistoryEvent } from '@/lib/types';
@@ -57,13 +58,32 @@ function renderDetails(
   history: FlowHistoryEvent[] = [event],
 ): string {
   return renderToStaticMarkup(
-    <PreferencesProvider>
-      <SemanticEventDetails event={event} history={history} parentFlowId="parent" />
-    </PreferencesProvider>,
+    <MemoryRouter>
+      <PreferencesProvider>
+        <SemanticEventDetails event={event} history={history} parentFlowId="parent" />
+      </PreferencesProvider>
+    </MemoryRouter>,
   );
 }
 
 describe('selected step event details', () => {
+  it('links a Time Travel fork to its previous run', () => {
+    const fork: FlowHistoryEvent = {
+      eventId: 9,
+      eventTime: '2026-08-05T23:44:30Z',
+      type: 'TimeTravelFork',
+      payload: { previousRunId: 'previous-run-id' },
+    };
+
+    const markup = renderDetails(fork);
+
+    expect(eventTitle(fork)).toBe('Time Travel fork');
+    expect(eventTypeLabel(fork)).toBe('TimeTravelFork');
+    expect(markup).toContain('Fork origin');
+    expect(markup).toContain('/flows/parent/previous-run-id');
+    expect(markup).toContain('previous-run-id');
+  });
+
   it.each([
     ['sync', 1],
     ['async', 2],

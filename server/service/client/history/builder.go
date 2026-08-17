@@ -109,6 +109,20 @@ func (b *Builder) RecordStart(
 	)
 }
 
+func (b *Builder) RecordTimeTravelFork(
+	eventID int64,
+	eventTime time.Time,
+	previousRunID string,
+) {
+	b.events = append(b.events, newEvent(
+		eventID,
+		eventTime,
+		&dexpb.FlowHistoryEvent_TimeTravelFork{
+			TimeTravelFork: &dexpb.TimeTravelForkHistoryEvent{PreviousRunId: previousRunID},
+		},
+	))
+}
+
 func attributeWritesToKVs(writes []*dexpb.AttributeWrite) []*dexpb.KV {
 	attributes := make([]*dexpb.KV, 0, len(writes))
 	for _, write := range writes {
@@ -766,6 +780,8 @@ func newEvent(
 	case *dexpb.FlowHistoryEvent_RpcExecutionCompleted:
 		event.Payload = payload
 	case *dexpb.FlowHistoryEvent_ChannelExternalPublish:
+		event.Payload = payload
+	case *dexpb.FlowHistoryEvent_TimeTravelFork:
 		event.Payload = payload
 	default:
 		panic("unsupported flow history payload")

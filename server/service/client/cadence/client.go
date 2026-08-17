@@ -627,6 +627,11 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 			return err
 		}
 		builder.RecordStart(event.GetEventId(), eventTime, &input)
+	case shared.EventTypeDecisionTaskFailed:
+		attributes := event.GetDecisionTaskFailedEventAttributes()
+		if attributes.GetCause() == shared.DecisionTaskFailedCauseResetWorkflow {
+			builder.RecordTimeTravelFork(event.GetEventId(), eventTime, attributes.GetBaseRunId())
+		}
 	case shared.EventTypeActivityTaskScheduled:
 		attributes := event.GetActivityTaskScheduledEventAttributes()
 		scheduledEventIDsByActivityID[attributes.GetActivityId()] = event.GetEventId()

@@ -97,7 +97,7 @@ func doTestResetByStatIdWorkflow(
 	assertions.Equal("S2-5", response.GetResults()[0].GetCompletedStepExecutionId())
 	assertions.Equal("5", string(response.GetResults()[0].GetCompletedStepOutput().GetObjValue().GetPayload()))
 
-	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
+	timeTravelResponse, err := flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
 		RunId:     startResponse.GetRunId(),
 		FlowId:    flowId,
 		ResetType: dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_TYPE,
@@ -126,6 +126,22 @@ func doTestResetByStatIdWorkflow(
 	assertions.Equal("S2", response.GetResults()[0].GetCompletedStepType())
 	assertions.Equal("S2-5", response.GetResults()[0].GetCompletedStepExecutionId())
 	assertions.Equal("5", string(response.GetResults()[0].GetCompletedStepOutput().GetObjValue().GetPayload()))
+
+	timeTravelHistory, err := flowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+		FlowId:           flowId,
+		RunId:            timeTravelResponse.GetRunId(),
+		EstimatePageSize: 1000,
+	})
+	require.NoError(t, err)
+	var timeTravelFork *dexpb.TimeTravelForkHistoryEvent
+	for _, event := range timeTravelHistory.GetEvents() {
+		if event.GetTimeTravelFork() != nil {
+			timeTravelFork = event.GetTimeTravelFork()
+			break
+		}
+	}
+	require.NotNil(t, timeTravelFork)
+	assertions.Equal(startResponse.GetRunId(), timeTravelFork.GetPreviousRunId())
 
 	_, err = flowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
 		RunId:           startResponse.GetRunId(),
