@@ -282,11 +282,16 @@ fn polling_completes_all_tasks() {
         .invoke_rpc(&flow_id, POLLING_COMPLETE_TASK, "b".to_string())
         .expect("complete Rust Polling task b");
 
-    let output: String = environment
+    let result = environment
         .client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .expect("complete Rust Polling Flow")
-        .single_output()
+        .expect("complete Rust Polling Flow");
+    assert_eq!(result.status(), FlowStatus::Completed);
+    let output: String = result
+        .completions()
+        .last()
+        .expect("polling Flow has completions")
+        .decode()
         .expect("decode Rust Polling output");
     assert_eq!(output, "task-c");
     assert_eq!(
