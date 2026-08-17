@@ -4,8 +4,48 @@ title: Parent–child Flows
 
 # Parent–child Flows
 
-Use a durable SubFlow when a Java parent Flow must start and wait for another Flow. SubFlows are
+Use a durable SubFlow when a parent Flow must start and wait for another Flow. SubFlows are
 normal Temporal or Cadence Workflows with their own Flow IDs, history, retries, and lifecycle.
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+class ProcessInvoice(Step[Invoice]):
+    def wait_for(self, context: Context, invoice: Invoice) -> Wait:
+        return Wait.until(SubFlow.run(self.invoice_flow, invoice))
+
+    def execute(self, context: Context, invoice: Invoice) -> StepDecision:
+        result = SubFlow.get_condition_results(context)
+        receipt = result.single_output(Receipt)
+        return graceful_complete(receipt)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (ProcessInvoice) WaitFor(_ dex.Context, invoice Invoice) (*dex.Wait, error) {
+	return dex.Until(dex.SubFlow(InvoiceFlow{}, invoice)), nil
+}
+
+func (ProcessInvoice) Execute(ctx dex.Context, _ Invoice) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var receipt Receipt
+	if err := result.DecodeSingleOutput(&receipt); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(receipt), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
 
 ```java
 final class ProcessInvoice implements Step<Invoice> {
@@ -21,6 +61,25 @@ final class ProcessInvoice implements Step<Invoice> {
 }
 ```
 
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+class ProcessInvoice implements Step<Invoice> {
+  waitFor(_context: Context, invoice: Invoice): Wait {
+    return Wait.until(SubFlow.run(this.invoiceFlow, invoice));
+  }
+
+  execute(context: Context, _invoice: Invoice): StepDecision {
+    const result = SubFlow.getConditionResults(context);
+    return gracefulComplete(result.singleOutput(receiptCodec));
+  }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
 `Wait.allOf` provides fan-out/fan-in without manual dynamic Channels. `Wait.anyOf` returns a
 `RUNNING` snapshot for an unfinished loser; its generated Flow ID lets application code inspect or
 stop that independent execution.
@@ -29,7 +88,7 @@ Dex resolves an existing execution using `SubFlowReusePolicy`, safely survives l
 retries, and carries partial results across continue-as-new. Parent completion does not cancel
 SubFlows.
 
-See [Durable SubFlows](/capabilities/advanced/subflows) for reuse behavior, lifecycle limitations,
+See [SubFlow](/primitives/subflow) for reuse behavior, lifecycle limitations,
 options, and cleanup. The runnable Java sample is under
 `examples/java/src/main/java/io/superdurable/dex/patterns/workflow/parentchild`.
 

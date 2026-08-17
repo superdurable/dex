@@ -1,0 +1,21 @@
+---
+description: Product docs must use language-selectable SDK snippets
+globs: docs/**/*.mdx
+alwaysApply: false
+---
+
+# Product docs snippets
+
+Application code in `docs/content/` must be language-selectable with
+`<SdkTabs>` and `<SdkSnippet lang="python|go|java|typescript">`. Preference is
+sticky in the browser; default Python.
+
+Required shape: one `<SdkTabs>` wrapping four `<SdkSnippet>` children, each
+containing a fenced block in that language. Copy the pattern from an existing
+page such as `docs/content/primitives/step.mdx`.
+
+Do not use `### Java` / `### Go` headings, stacked fenced blocks per language,
+or a single-language sample when the same API exists in other SDKs.
+
+Exempt: `bash` / `text` fences, tables of API names, and IDL excerpts.
+Use the exact SDK nouns and call sites; do not invent APIs.

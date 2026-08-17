@@ -1,0 +1,70 @@
+---
+title: Timer
+slug: /primitives/timer
+---
+
+# Timer
+
+A **Timer** is a durable sleep Condition that resumes a waiting Step. Sleep for seconds or months without holding a worker thread or paying for an idle container.
+
+## Why you need it
+
+Reminders, trials, timeouts, and delayed work all need a clock that survives process death. A Timer is that clock, expressed as a `WaitFor` Condition.
+
+## Wait on a duration
+
+Use `Timer.by_duration` (or calendar APIs) inside `WaitFor`.
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+def wait_for(self, context, input):
+    return Wait.any_of(Timer.by_duration(timedelta(hours=24)))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (StepA) WaitFor(_ dex.Context, _ Input) (*dex.Wait, error) {
+	return dex.AnyOf(dex.Timer(24 * time.Hour)), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public Wait waitFor(Context context, Void input) {
+    return Wait.anyOf(Timer.byDuration(Duration.ofHours(24)));
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+waitFor(_context: Context, _input: void): Wait {
+  return Wait.anyOf(Timer.byDuration(24 * 60 * 60 * 1000)); // ms
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Combine a Timer with a Channel or SubFlow in `Wait.any_of` / `all_of` so a Step can proceed on the first of several events. See [Step waiting](/primitives/step#waitfor-and-execute).
+
+Clients can skip a pending Timer with `SkipTimer`. See [Client APIs](/primitives/client-apis) and the [resettable timer](/design-patterns/resettable-timer) pattern.
+
+An ASYNC Step's local activity can delay a sibling from starting its Timer, or delay processing a Timer that already elapsed, until the Workflow Task resumes. Use SYNC durability when timer precision is required. See [Step cancellation](/primitives/step#async-local-activities-and-timers).
+
+## How Dex implements it
+
+Timers are persisted as durable conditions. When a timer fires, Dex resumes the waiting Step. Workers are not blocked while waiting.
+
+## Traditional workarounds
+
+Classic workarounds: delayed queue messages, cron “wakeups”, or sleeping threads that evaporate on restart.

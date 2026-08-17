@@ -13,7 +13,7 @@ Step's regular wait-for and execute activities. `null` or zero disables it;
 positive values must be whole seconds within the signed int32 range. Local
 activities ignore the option, while ASYNC fallback to regular execution uses
 it. Heartbeats let a running handler observe
-[Step execution cancellation](/capabilities/advanced/step-execution-cancellation)
+[Step execution cancellation](/primitives/step#cancellation)
 promptly.
 
 An ASYNC local activity can delay a sibling Step from starting a durable timer,

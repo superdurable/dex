@@ -1,0 +1,86 @@
+---
+title: Channel
+slug: /primitives/channel
+---
+
+# Channel
+
+A **Channel** is a durable message pipe. Publish from clients, RPCs, or Steps; wait with Conditions (`for_one`, `for_n`, combinations).
+
+## Why you need it
+
+Flows need durable messages from the outside world and between concurrent Steps — without Kafka topics, consumer offsets, and correlation IDs for every handshake.
+
+## Declare, wait, and publish
+
+Define Channels on the Flow; wait with `channel.for_one()` / `for_n`; publish from an RPC or another Step.
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+unblock = Channel("unblock", str)
+
+def wait_for(self, context, input):
+    return Wait.any_of(self.unblock.for_one())
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+var unblock = dex.DefineChannel[string]("unblock")
+
+func (s StepA) WaitFor(_ dex.Context, _ Input) (*dex.Wait, error) {
+	return dex.AnyOf(unblock.ForOne()), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+private final Channel<String> unblock = Channel.define("unblock", String.class);
+
+public Wait waitFor(Context context, Void input) {
+    return Wait.anyOf(unblock.forOne());
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+readonly unblock = new Channel("unblock", stringCodec);
+
+waitFor(_context: Context, _input: void): Wait {
+  return Wait.anyOf(this.unblock.forOne());
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+ChannelMap introspection is available during RPC handlers. Its map-size and
+all-instance-keys methods include buffered publishes, omit empty instances, and
+return decoded keys in sorted order. Per-instance message count remains on the
+existing `size` method.
+
+Flat all/any waits do not require Condition IDs. Every Condition referenced by
+an any-combination wait must have a non-empty user ID. Dex does not generate an
+internal ID.
+
+Conditional completion when channels are empty uses the SDK's
+`forceCompleteIfChannelsEmpty` spelling (language-native casing applies).
+
+Clients publish with `PublishToChannel`. See [Client APIs](/primitives/client-apis) and the [Channels reference](/references/channels).
+
+## How Dex implements it
+
+Channel messages are persisted. Waiting Steps subscribe via Conditions; PublishToChannel completes matching waits.
+
+## Traditional workarounds
+
+Workarounds: Kafka topics + consumer offsets + correlation IDs, or DB outboxes polled by workers.

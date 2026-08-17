@@ -17,13 +17,13 @@ Most systems already have durable *storage* — databases that persist data. Dur
 | Durable storage | Data |
 | Durable Execution | Data **+** Actions (as execution) |
 
-A Dex **Flow** is ordinary application code structured as **Steps**, **Attributes**, **Channels**, timers, and RPCs. Dex keeps those control-flow decisions durable so you write business logic, not a second orchestration framework.
+A Dex **Flow** is ordinary application code structured as **Steps**, **Attributes**, **Channels**, **Timers**, **RPCs**, and **SubFlows**. Dex keeps those control-flow decisions durable so you write business logic, not a second orchestration framework.
 
-## Abstractions as a set of capabilities
+## Abstractions as a set of primitives
 
-Durable Execution is not one feature. It is a set of distributed-system abstractions — durable variables, timers, waiting, channels, RPC, locking, retries, and more.
+Durable Execution is not one feature. It is a set of distributed-system primitives — Step, Attribute, RPC, Channel, Timer, SubFlow, and Client APIs.
 
-See the [Capabilities Overview](/capabilities) for a breakdown of each abstraction, with why it exists, how to use it, how Dex implements it, and what teams traditionally build by hand.
+See [Durable Primitives](/primitives) for a breakdown of each primitive, with why it exists, how to use it, how Dex implements it, and what teams traditionally build by hand.
 
 ## Next steps
 
