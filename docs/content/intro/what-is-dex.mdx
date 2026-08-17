@@ -1,32 +1,173 @@
 ---
 id: what-is-dex
 title: What is Dex?
-sidebar_label: Intro
+sidebar_label: What is Dex?
 ---
+
+import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
 
 # What is Dex?
 
-Dex is **Durable Execution**: an abstraction over distributed systems for backend engineering.
+Dex is an open-source **Durable Execution** engine. You run it yourself with `dexcli`, Dex Server, Dex Web, and the SDKs for Go, Java, Python, and TypeScript.
 
-Most systems already have durable *storage* — databases that persist data. Durable Execution persists **data and actions together as an execution**. When a process dies, a network blips, or a dependency is slow, the program resumes from where it left off instead of being reconstructed from queues, cron jobs, and custom recovery code.
+If you have not read [What is Durable Execution?](/intro/what-is-durable-execution), start there — this page shows how Dex applies those ideas to real code.
 
-## The core idea
+## Structural, not replay-based
 
-| Layer | What it persists |
+Dex programs are **Flows**: ordinary application objects made of **Steps**, **Attributes**, **Channels**, **Timers**, and **RPCs**. A Worker hosts your Step and RPC handlers as normal code. Dex Server keeps control-flow decisions durable on Temporal or Cadence — without forcing you to write event-sourced workflow functions.
+
+| | Temporal / Cadence workflow code | Dex |
+| --- | --- | --- |
+| Shape | Event-sourced functions + activities | Structural Steps, Attributes, Channels, RPCs |
+| App code | Must replay history | Worker handlers are plain code |
+| Waits, RPC, locking | Composed from SDK primitives | Built into the Flow model |
+| Engine | Workflow runtime | Dex interpreter on Temporal or Cadence |
+
+## Charge → approval → ship in Dex
+
+Same order flow from the previous page — charge, wait for seller approval (with reminders), then ship with rollback on failure.
+
+<ExecutionApproachDiagram approach="dex" />
+
+### Flow shape
+
+```text
+Start → ChargeStep → ApprovalStep → ShipStep → complete
+                      ↑ timer / seller RPC
+```
+
+- **ChargeStep** calls the payment API with Step-level retry. On success, move to ApprovalStep.
+- **ApprovalStep** waits for a seller **Channel** message or a **Timer**. If the timer fires first, send a reminder and keep waiting.
+- **ShipStep** calls fulfillment. If retries exhaust, move to **RefundStep** (compensation).
+- **RPC `waitUntilCharged`** lets the storefront API block until ChargeStep completes.
+- **Attribute `orderStatus`** is indexed so support can search stuck orders.
+
+### Code
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+from datetime import timedelta
+from dex import Attribute, AttributeIndex, Channel, Context, Flow, IndexType, PersistenceSchema, RPCResult
+from dex import Step, StepDecision, StepList, Timer, Wait, go_to, graceful_complete, rpc
+
+class ChargeStep(Step[str]):
+    def execute(self, context: Context, order_id: str) -> StepDecision:
+        charge(order_id)
+        OrderFlow.order_status.set(context, "charged")
+        return go_to(ApprovalStep(OrderFlow.seller_ok, OrderFlow.reminder), order_id)
+
+class ApprovalStep(Step[str]):
+    def __init__(self, seller_ok: Channel[str], reminder: Channel[str]):
+        self.seller_ok = seller_ok
+        self.reminder = reminder
+
+    def wait_for(self, context: Context, order_id: str) -> Wait:
+        return Wait.any_of(
+            self.seller_ok.for_one(),
+            Timer.by_duration(timedelta(hours=24)),
+        )
+
+    def execute(self, context: Context, order_id: str) -> StepDecision:
+        if context.has_timer_fired():
+            self.reminder.publish(context, "approve-shipment")
+            return go_to(self, order_id)
+        return go_to(ShipStep(), order_id)
+
+class ShipStep(Step[str]):
+    def execute(self, context: Context, order_id: str) -> StepDecision:
+        ship(order_id)
+        OrderFlow.order_status.set(context, "shipped")
+        return graceful_complete(order_id)
+
+class RefundStep(Step[str]):
+    def execute(self, context: Context, order_id: str) -> StepDecision:
+        refund(order_id)
+        return graceful_complete(f"refunded:{order_id}")
+
+class OrderFlow(Flow[str]):
+    order_status = Attribute(
+        "order-status",
+        str,
+        index=AttributeIndex(type=IndexType.KEYWORD),
+    )
+    seller_ok = Channel("seller-ok", str)
+    reminder = Channel("reminder", str)
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(ChargeStep()).other_steps(
+            ApprovalStep(self.seller_ok, self.reminder),
+            ShipStep(),
+            RefundStep(),
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.attributes(self.order_status).channels(
+            self.seller_ok, self.reminder
+        )
+
+    @rpc
+    def approve_shipment(self, context: Context, _note: str) -> RPCResult:
+        self.seller_ok.publish(context, "approved")
+        return RPCResult(output="ok")
+
+    @rpc
+    def wait_until_charged(self, context: Context, _input: str) -> RPCResult:
+        # Client API: block until ChargeStep completes, then return status.
+        return RPCResult(output=self.order_status.get(context))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// ChargeStep → ApprovalStep (channel + timer) → ShipStep → RefundStep on failure.
+// Attribute order-status, Channels seller-ok / reminder.
+// RPC ApproveShipment publishes seller-ok; Client waits on Step 1 via RPC or Client API.
+// See sdk-go/README.md and examples/go for Registry + Worker wiring.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// Same Flow: ChargeStep, ApprovalStep with Wait.anyOf(channel, timer),
+// ShipStep, RefundStep; @RPC approveShipment; indexed Attribute order-status.
+// See sdk-java and examples/java for Worker registration.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// Same Flow with @superdurable/dex ^0.1.3+.
+// waitFor / execute / RPC may be async; Client calls can await on one Worker.
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Step transitions are atomic. Timers and channel waits survive Worker restarts. Retries and compensation are declared on the Step, not scattered across queues and cron jobs. Dex Web shows each Step's inputs, outputs, and errors.
+
+## Primitives map to the hard parts
+
+| Problem from the storage-only approach | Dex primitive |
 | --- | --- |
-| Durable storage | Data |
-| Durable Execution | Data **+** Actions (as execution) |
+| Durable state between Steps | [Attribute](/primitives/attribute) |
+| Atomic move to the next Step | [Step](/primitives/step) movement |
+| Retry / timeout per Step | Step options |
+| Wait for approval or timer | [Channel](/primitives/channel) + [Timer](/primitives/timer) |
+| External read/write while running | [RPC](/primitives/rpc) |
+| Refund after ship failure | Failure movement to a compensation Step |
+| Frontend waits for charge | Client / RPC wait APIs |
+| Search stuck orders | Indexed Attributes + Client search |
 
-A Dex **Flow** is ordinary application code structured as **Steps**, **Attributes**, **Channels**, **Timers**, **RPCs**, and **SubFlows**. Dex keeps those control-flow decisions durable so you write business logic, not a second orchestration framework.
-
-## Abstractions as a set of primitives
-
-Durable Execution is not one feature. It is a set of distributed-system primitives — Step, Attribute, RPC, Channel, Timer, SubFlow, and Client APIs.
-
-See [Durable Primitives](/primitives) for a breakdown of each primitive, with why it exists, how to use it, how Dex implements it, and what teams traditionally build by hand.
+See [Durable Primitives](/primitives) for each building block — why it exists, how to use it, and what teams usually build by hand.
 
 ## Next steps
 
-- [Quick Start](/quick-start) — install `dexcli`, write a Hello Flow, and watch it in Dex Web
+- [Quick Start](/quick-start) — install `dexcli`, run a Hello Flow, inspect it in Dex Web
 - [Design Patterns](/design-patterns) — reusable Flow shapes
-- [Use Cases](/use-cases) — product examples
+- [Use Cases](/use-cases) — fuller product examples
+- [Compare with Temporal/Cadence](/references/compare-with-temporal) — if you already run that stack

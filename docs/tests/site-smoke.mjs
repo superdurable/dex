@@ -36,6 +36,7 @@ assert.match(cloud, /Explore Dex OSS Docs/);
 assert.match(cloud, /https:\/\/superdurable\.io\/byoc/);
 
 await Promise.all([
+  access(join(root, 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'quick-start', 'index.html')),
   access(join(root, 'primitives', 'index.html')),

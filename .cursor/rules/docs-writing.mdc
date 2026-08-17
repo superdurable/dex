@@ -1,0 +1,20 @@
+---
+description: Natural, concise product documentation voice
+globs: docs/content/**/*.mdx
+alwaysApply: false
+---
+
+# Documentation Voice
+
+Write docs in plain, direct English. Sound like an engineer explaining the
+system to a peer — not like marketing copy or a chatbot summary.
+
+- Prefer short sentences and concrete nouns. Cut filler ("In today's world",
+  "It's important to note", "This powerful platform").
+- State the problem, then the mechanism. Do not stack synonyms or repeat the
+  same idea in three forms.
+- Use Dex terms exactly: Flow, Step, Attribute, Channel, RPC, Timer.
+- Diagrams and examples should carry structure; prose should not over-explain
+  what the diagram already shows.
+- Avoid bullet lists when a paragraph reads better. Avoid numbered lists unless
+  order matters.

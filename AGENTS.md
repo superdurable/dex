@@ -28,6 +28,8 @@ only when a section genuinely doesn't apply.
   `<SdkSnippet>` so readers can switch Python, Go, Java, and TypeScript.
   Do not use per-language headings (`### Java`) or stacked fenced blocks.
   `bash` / `text` fences are exempt.
+- Product docs should read naturally: plain English, short sentences, no
+  chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
 
 ### UI/UX
 
@@ -37,8 +39,9 @@ only when a section genuinely doesn't apply.
 
 ### Commit Every Changing Turn
 
-End every turn that changes repository files with one commit. Do not create
-empty commits for discussion-only turns.
+End every agent turn that changes repository files with one commit on the
+current branch. Leave a clean working tree. Do not create empty commits for
+discussion-only turns.
 
 ### Regenerate the Entire Repository After Proto Changes
 

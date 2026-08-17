@@ -4,6 +4,12 @@ Dex is a durable workflow framework with a Go server (`server/`), OpenAPI IDL
 (`protos/`), and SDKs/samples for Go, Java, and Python. See `README.md` for the
 module map.
 
+## Commits
+
+End every agent turn that changes repository files with one commit on the
+current branch. Leave a clean working tree. Do not create empty commits for
+discussion-only turns.
+
 ## Compatibility
 
 - The project has not launched. Remove dead config fields immediately.
@@ -288,6 +294,8 @@ Every implementation plan must include all three sections below. Use
 - Application code snippets in `docs/content/` must use `<SdkTabs>` /
   `<SdkSnippet>` (Python, Go, Java, TypeScript). Do not use per-language
   headings or stacked fenced blocks. `bash` / `text` fences are exempt.
+- Product docs should read naturally: plain English, short sentences, no
+  chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
 
 ## UI/UX
 
