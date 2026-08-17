@@ -21,7 +21,11 @@ npm run serve
 Published pages live under [`content/`](content/). Site config:
 `docusaurus.config.ts`, `sidebars.ts`, `src/`.
 
-Feature guides include [durable SubFlows](content/capabilities/advanced/subflows.mdx).
+Application code samples must use `<SdkTabs>` / `<SdkSnippet>` so readers can
+switch Python, Go, Java, and TypeScript. Do not use per-language headings or
+stacked fenced blocks. `bash` / `text` fences are exempt.
+
+Feature guides include [durable SubFlows](content/primitives/subflow.mdx).
 
 ## Contributor design notes
 

@@ -1,0 +1,22 @@
+---
+id: index
+title: Durable Primitives
+sidebar_label: Overview
+slug: /primitives
+---
+
+# Durable Primitives
+
+Each Dex **primitive** is a distributed-system abstraction. Durable Execution is not a single feature — it is these primitives working together so backend engineers can persist both data and actions without rebuilding orchestration by hand.
+
+A Flow is ordinary application code structured from these primitives:
+
+- [Step](/primitives/step) — durable control flow: `WaitFor`, `Execute`, movements, retries, concurrency, and cancellation
+- [Attribute](/primitives/attribute) — durable typed variables, locking, and optional storage sync
+- [RPC](/primitives/rpc) — external read/write against a running Flow
+- [Channel](/primitives/channel) — durable messages from callers and between concurrent Steps
+- [Timer](/primitives/timer) — durable sleep that resumes a waiting Step
+- [SubFlow](/primitives/subflow) — start another Flow and wait for it as a Condition
+- [Client APIs](/primitives/client-apis) — start, search, wait, stop, time-travel, and operate Flows from outside a Worker
+
+Each page covers why the primitive exists, how to use it, how Dex implements it, and what teams traditionally build by hand.

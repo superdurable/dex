@@ -1,14 +1,19 @@
 ---
-title: RPC for external read + write
+title: RPC
+slug: /primitives/rpc
 ---
 
-# RPC for external read + write
+# RPC
+
+An **RPC** is a Worker handler for external read/write against a running Flow. Callers read durable state, mutate it, publish Channels, cancel Steps, and optionally move the Flow — atomically from the caller’s point of view.
 
 ## Why you need it
 
-External callers need to read durable state, mutate it, and optionally move the Flow — atomically from the caller’s point of view.
+External callers need a single request that can inspect and change a live Flow without a separate read API, write API, and “signal” endpoint.
 
-## Code examples
+## Declare and invoke
+
+Declare `@rpc` / RPC methods on the Flow; invoke via client `InvokeRPC`.
 
 Choose an SDK (preference is sticky in this browser; default Python).
 
@@ -27,14 +32,27 @@ def nudge(self, context, message: str) -> RPCResult:
   <SdkSnippet lang="go">
 
 ```go
-// Same idea in Go — see examples/go and sdk-go.
+func (f *MyFlow) Nudge(ctx dex.Context, message string) (*dex.RPCResult[string], error) {
+	if err := status.Set(ctx, "nudged"); err != nil {
+		return nil, err
+	}
+	if err := unblock.Publish(ctx, message); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: "ok"}, nil
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-// Same idea in Java — see examples/java and sdk-java.
+@RPC(name = "nudge")
+public RPCResult<String> nudge(Context context, String message) {
+    status.set(context, "nudged");
+    unblock.publish(context, message);
+    return RPCResult.of("ok");
+}
 ```
 
 </SdkSnippet>
@@ -55,7 +73,9 @@ await client.invokeRPC(flow.nudge, flowId, "hello");
 </SdkSnippet>
 </SdkTabs>
 
-Declare `@rpc` / RPC methods on the Flow; invoke via client `InvokeRPC`.
+RPCs run through the server to the Worker (`InvokeRPC` → Worker `InvokeWorkerRPC`). They are not Step executions; they do not upsert Step locals.
+
+An RPC can also cancel Step executions and start next Steps. See [Step cancellation](/primitives/step#cancellation). For serializing Attribute access from RPCs, see [Attribute locking](/primitives/attribute#locking) and [RPC locking](/references/rpc-locking).
 
 ## How Dex implements it
 
@@ -67,6 +87,11 @@ Update validator rejects new RPCs. Large input and output values are stored in
 the configured Blob Store and hydrated when displayed or returned through an SDK.
 Keep the default signal path when Temporal Update concurrency is more important
 than validator rejection and atomic effect commits.
+
+Successful Updates always contain RPC input and output. Signal history includes
+them only when `api.includeRPCInputOutputIntoHistory` is enabled.
+
+See the [RPC reference](/references/rpc).
 
 ## Traditional workarounds
 

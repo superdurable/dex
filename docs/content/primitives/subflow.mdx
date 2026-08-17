@@ -1,35 +1,36 @@
 ---
-title: Durable SubFlows
-sidebar_position: 4
+title: SubFlow
+slug: /primitives/subflow
 ---
 
-# Durable SubFlows
+# SubFlow
 
-A SubFlow is an independently addressable Dex Flow used as a durable `Wait` condition. Dex starts
-it as a normal Temporal or Cadence Workflow and resumes the parent Step only when the declared
-condition is satisfied.
+A **SubFlow** is an independently addressable Dex Flow used as a durable `Wait` Condition. Dex starts it as a normal Temporal or Cadence Workflow and resumes the parent Step only when the declared condition is satisfied.
 
-```java
-public Wait waitFor(Context context, Order input) {
-    return Wait.allOf(
-        SubFlow.run(ReserveInventoryFlow.class, input),
-        SubFlow.run(ChargePaymentFlow.class, input)
-    );
-}
+## Why you need it
 
-public StepDecision execute(Context context, Order input) {
-    FlowResult inventory = SubFlow.getConditionResults(context);
-    FlowResult payment = SubFlow.getConditionResults(context, 1);
-    return StepDecision.gracefulComplete(
-        new OrderResult(
-            inventory.getSingleOutput(Reservation.class),
-            payment.getSingleOutput(Receipt.class)
-        )
-    );
-}
+Fan-out work, child billing, or a nested durable process should be its own Flow — with its own ID, history, retries, and lifecycle — while the parent waits without polling.
+
+Choose an SDK (preference is sticky in this browser; default Python).
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+def wait_for(self, context: Context, input: Order) -> Wait:
+    return Wait.all_of(
+        SubFlow.run(self.inventory_flow, input),
+        SubFlow.run(self.payment_flow, input),
+    )
+
+def execute(self, context: Context, input: Order) -> StepDecision:
+    inventory = SubFlow.get_condition_results(context)
+    payment = SubFlow.get_condition_results(context, 1)
+    return graceful_complete(OrderResult(inventory, payment))
 ```
 
-The same durable condition is available in every SDK:
+</SdkSnippet>
+  <SdkSnippet lang="go">
 
 ```go
 func (ParentStep) WaitFor(_ dex.Context, input Order) (*dex.Wait, error) {
@@ -52,18 +53,31 @@ func (ParentStep) Execute(ctx dex.Context, _ Order) (*dex.StepDecision, error) {
 }
 ```
 
-```python
-def wait_for(self, context: Context, input: Order) -> Wait:
-    return Wait.all_of(
-        SubFlow.run(self.inventory_flow, input),
-        SubFlow.run(self.payment_flow, input),
-    )
+</SdkSnippet>
+  <SdkSnippet lang="java">
 
-def execute(self, context: Context, input: Order) -> StepDecision:
-    inventory = SubFlow.get_condition_results(context)
-    payment = SubFlow.get_condition_results(context, 1)
-    return graceful_complete(OrderResult(inventory, payment))
+```java
+public Wait waitFor(Context context, Order input) {
+    return Wait.allOf(
+        SubFlow.run(ReserveInventoryFlow.class, input),
+        SubFlow.run(ChargePaymentFlow.class, input)
+    );
+}
+
+public StepDecision execute(Context context, Order input) {
+    FlowResult inventory = SubFlow.getConditionResults(context);
+    FlowResult payment = SubFlow.getConditionResults(context, 1);
+    return StepDecision.gracefulComplete(
+        new OrderResult(
+            inventory.getSingleOutput(Reservation.class),
+            payment.getSingleOutput(Receipt.class)
+        )
+    );
+}
 ```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
 
 ```typescript
 public waitFor(_context: Context, input: Order): Wait {
@@ -80,25 +94,15 @@ public execute(context: Context, _input: Order): StepDecision {
 }
 ```
 
-```rust
-fn wait_for(&self, _context: &mut Context, input: Order) -> HandlerResult<Wait> {
-    Ok(Wait::all_of([
-        SubFlow::run(&InventoryFlow::new(), input.clone()).map_err(handler_error)?,
-        SubFlow::run(&PaymentFlow::new(), input).map_err(handler_error)?,
-    ]))
-}
-
-fn execute(&self, context: &mut Context, _input: Order) -> HandlerResult<StepDecision> {
-    let inventory = SubFlow::condition_result(context)?;
-    let payment = SubFlow::condition_result_at(context, 1)?;
-    Ok(StepDecision::graceful_complete(OrderResult::new(inventory, payment)))
-}
-```
+</SdkSnippet>
+</SdkTabs>
 
 The zero-based result index is the stable order of SubFlow conditions in the current `Wait`. An
 `allOf` result is terminal. If another condition wins an `anyOf`, the unfinished SubFlow result has
 status `RUNNING` and no outputs. `RUNNING` is the parent’s durable snapshot, not a fresh backend
 query.
+
+See the [parent–child](/design-patterns/parent-child) pattern for a smaller example.
 
 ## Identity and stopping an `anyOf` loser
 
@@ -113,12 +117,56 @@ request ID {parentRunID}{stepExecutionID}
 from the current execution context when the application needs its identity. A losing SubFlow
 continues independently; stop it explicitly when that is the application’s desired cleanup policy:
 
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+loser = SubFlow.get_condition_results(context, 1)
+if not loser.is_terminal:
+    cleanup_requests.publish(context, SubFlow.get_flow_id(context, 1))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+loser, err := dex.SubFlowResult(ctx, 1)
+if err != nil {
+    return nil, err
+}
+if !loser.IsTerminal() {
+    id, err := dex.SubFlowID(ctx, 1)
+    if err != nil {
+        return nil, err
+    }
+    if err := cleanupRequests.Publish(ctx, id); err != nil {
+        return nil, err
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
 ```java
 FlowResult loser = SubFlow.getConditionResults(context, 1);
 if (!loser.isTerminal()) {
     cleanupRequests.publish(context, SubFlow.getFlowId(context, 1));
 }
 ```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const loser = SubFlow.getConditionResults(context, 1);
+if (!loser.isTerminal) {
+  cleanupRequests.publish(context, SubFlow.getFlowId(context, 1));
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 An external worker or service can consume that ID and call `Client.stopFlow`. Completion can race
 with the stop request, so callers should treat an already-closed Flow as a successful cleanup.
@@ -149,6 +197,39 @@ safe when the backend accepted a start but the local activity response was lost.
 policies provide only the atomic start operation; Dex describes and resolves the existing execution
 before invoking it.
 
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+options = SubFlowOptions(
+    reuse_policy=SubFlowReusePolicy.ATTACH,
+    timeout=timedelta(minutes=20),
+    timeout_policy=FlowTimeoutPolicy.CANCEL,
+    start_delay=timedelta(seconds=5),
+    retry_policy=retry,
+    config_override=child_config,
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+timeout := 20 * time.Minute
+startDelay := 5 * time.Second
+options := dex.SubFlowOptions{
+    ReusePolicy:    dex.AttachSubFlow,
+    Timeout:        &timeout,
+    TimeoutPolicy:  dex.TimeoutCancel,
+    StartDelay:     &startDelay,
+    RetryPolicy:    retry,
+    ConfigOverride: childConfig,
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
 ```java
 SubFlowOptions options = SubFlowOptions.newBuilder()
     .reusePolicy(SubFlowReusePolicy.ATTACH)
@@ -159,6 +240,23 @@ SubFlowOptions options = SubFlowOptions.newBuilder()
     .configOverride(childConfig)
     .build();
 ```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const options: SubFlowOptions = {
+  reusePolicy: SubFlowReusePolicy.ATTACH,
+  timeoutMs: 20 * 60 * 1000,
+  timeoutPolicy: FlowTimeoutPolicy.CANCEL,
+  startDelayMs: 5_000,
+  retryPolicy: retry,
+  configOverride: childConfig,
+};
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 Options also support initial Attributes. Flow ID, request ID, and already-started suppression are
 intentionally server-owned.

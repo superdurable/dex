@@ -9,15 +9,15 @@ slug: /glossary
 
 Short Dex vocabulary. Prefer these terms over legacy Workflow/State names.
 
-#### [Attribute](/capabilities/basic/durable-variables)
+#### [Attribute](/primitives/attribute)
 
 Durable typed variable on a Flow (optionally indexed for search).
 
-#### [Channel](/capabilities/advanced/channels)
+#### [Channel](/primitives/channel)
 
 Durable message pipe for external or internal communication.
 
-#### [Condition](/capabilities/advanced/waiting)
+#### [Condition](/primitives/step#waitfor-and-execute)
 
 A wait unit (timer, channel, combinations) returned from WaitFor.
 
@@ -29,7 +29,7 @@ Start a fresh run carrying state forward so history stays bounded.
 
 Homebrew-installed CLI that runs local Temporal + Dex Server + Dex Web.
 
-#### [Execute](/capabilities)
+#### [Execute](/primitives/step)
 
 Step method that runs after WaitFor completes (or immediately if there is no wait).
 
@@ -37,19 +37,19 @@ Step method that runs after WaitFor completes (or immediately if there is no wai
 
 Durable Execution program: Steps + Attributes + Channels + RPCs.
 
-#### [Flow ID](/references/client-apis)
+#### [Flow ID](/primitives/client-apis)
 
 Application-assigned identity for a Flow execution.
 
-#### [InvokeRPC](/capabilities/advanced/rpc)
+#### [InvokeRPC](/primitives/rpc)
 
 Client API to call a Flow RPC handler on the Worker.
 
-#### [Locking](/capabilities/advanced/locking)
+#### [Locking](/primitives/attribute#locking)
 
 Serializing access to Attributes for Steps/RPCs.
 
-#### [Movement](/capabilities/basic/branch-and-loop)
+#### [Movement](/primitives/step#branch-and-loop)
 
 Decision to go to another Step (or complete/fail).
 
@@ -57,15 +57,15 @@ Decision to go to another Step (or complete/fail).
 
 Create a new Flow run from an earlier Step after a fix.
 
-#### [RPC](/capabilities/advanced/rpc)
+#### [RPC](/primitives/rpc)
 
 Worker handler for external read/write against a running Flow.
 
-#### [Run ID](/references/client-apis)
+#### [Run ID](/primitives/client-apis)
 
 Engine-assigned ID for a particular Flow run.
 
-#### [Step](/intro/what-is-dex)
+#### [Step](/primitives/step)
 
 Unit of durable control flow with optional WaitFor + Execute.
 
@@ -73,11 +73,11 @@ Unit of durable control flow with optional WaitFor + Execute.
 
 One invocation instance of a Step type (`step_type` + number).
 
-#### [Timer](/capabilities/basic/durable-timer)
+#### [Timer](/primitives/timer)
 
 Durable sleep condition that resumes a waiting Step.
 
-#### [WaitFor](/capabilities/advanced/waiting)
+#### [WaitFor](/primitives/step#waitfor-and-execute)
 
 Step method that registers durable wait Conditions before Execute.
 
