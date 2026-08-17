@@ -29,8 +29,9 @@ jobs:
         run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt,clippy
       - name: Verify published SDK dependency
         run: |
+          set -euo pipefail
           cargo tree --locked -p dex-sdk | tee /tmp/dex-examples-rust-sdk-tree.txt
-          grep -q '^dex-sdk v0\.0\.2$' /tmp/dex-examples-rust-sdk-tree.txt
+          grep -qE '^dex-sdk v[0-9]' /tmp/dex-examples-rust-sdk-tree.txt
           if grep -q '(/' /tmp/dex-examples-rust-sdk-tree.txt; then
             echo "examples/rust must depend on published dex-sdk, not a path dependency"
             exit 1

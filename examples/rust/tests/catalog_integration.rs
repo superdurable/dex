@@ -111,6 +111,16 @@ fn catalog_matches_every_cross_language_example() {
 #[test]
 fn manifest_uses_the_published_sdk_only() {
     let manifest = include_str!("../Cargo.toml");
-    assert!(manifest.contains("dex-sdk = \"=0.0.2\""));
-    assert!(!manifest.contains("path ="));
+    let dex_sdk = manifest
+        .lines()
+        .find(|line| line.trim_start().starts_with("dex-sdk ="))
+        .expect("examples/rust must depend on dex-sdk");
+    assert!(
+        dex_sdk.contains("\"="),
+        "examples/rust must pin a published dex-sdk version: {dex_sdk}"
+    );
+    assert!(
+        !dex_sdk.contains("path"),
+        "examples/rust must depend on published dex-sdk, not a path dependency"
+    );
 }

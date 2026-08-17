@@ -17,8 +17,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { FlowUncompletedError, voidCodec } from "@superdurable/dex";
-
 import {
   acquireIntegEnvironment,
   releaseIntegEnvironment,
@@ -46,15 +44,9 @@ test("failureRecoveryRetriesCompensatesAndFails", async () => {
   );
   assert.ok(runId.length > 0);
 
-  await assert.rejects(
-    environment.client.waitForFlow(flowId, voidCodec, 45_000),
-    (error: unknown) => {
-      assert.ok(error instanceof FlowUncompletedError);
-      assert.equal(error.status, "failed");
-      assert.match(error.message, /Failed to process transaction/);
-      return true;
-    },
-  );
+  const result = await environment.client.waitForFlow(flowId, 45_000);
+  assert.equal(result.status, "failed");
+  assert.match(result.errorMessage ?? "", /Failed to process transaction/);
 
   const summary = await environment.client.describeFlow(flowId);
   assert.equal(summary.status, "failed");

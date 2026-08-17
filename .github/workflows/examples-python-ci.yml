@@ -37,7 +37,39 @@ jobs:
         run: uv sync --locked
       - name: Verify published package
         run: |
-          uv run --frozen python -c "import dex, importlib.metadata as m; print(m.version('dex-python-sdk')); assert m.version('dex-python-sdk') == '0.1.4'"
+          set -euo pipefail
+          uv run --frozen python - <<'PY'
+          import importlib.metadata as metadata
+          import tomllib
+          from pathlib import Path
+
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          declared = next(
+              (
+                  dependency.removeprefix("dex-python-sdk==")
+                  for dependency in pyproject["project"]["dependencies"]
+                  if dependency.startswith("dex-python-sdk==")
+              ),
+              None,
+          )
+          if declared is None:
+              raise SystemExit("examples/python must depend on dex-python-sdk")
+
+          package = next(
+              package
+              for package in tomllib.loads(Path("uv.lock").read_text())["package"]
+              if package["name"] == "dex-python-sdk"
+          )
+          if "registry" not in package.get("source", {}):
+              raise SystemExit("examples/python must depend on published dex-python-sdk, not a path dependency")
+
+          installed = metadata.version("dex-python-sdk")
+          print(f"dex-python-sdk {installed}")
+          if installed != declared or installed != package["version"]:
+              raise SystemExit(
+                  f"installed {installed}, pyproject.toml {declared}, uv.lock {package['version']}"
+              )
+          PY
       - name: Integ tests with dexcli dev
         run: ./run-integ-tests.sh
       - name: Upload service logs

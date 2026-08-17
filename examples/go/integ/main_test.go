@@ -221,7 +221,7 @@ func newFlowID(t *testing.T, prefix string) string {
 	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "-" + strconv.FormatInt(sequence, 10)
 }
 
-func waitForFlow(t *testing.T, flowID string) dex.WaitForFlowResult {
+func waitForFlow(t *testing.T, flowID string) dex.FlowResult {
 	t.Helper()
 	result, err := integClient.WaitForFlow(
 		integrationContext(t),

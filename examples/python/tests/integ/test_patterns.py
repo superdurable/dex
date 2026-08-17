@@ -170,8 +170,6 @@ async def test_failure_recovery(
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    from dex import FlowStatus, FlowUncompletedError
-
     flow_id = new_flow_id("recovery")
     await client.start_flow(
         app.failure_recovery,
@@ -179,10 +177,9 @@ async def test_failure_recovery(
         FailureRecoveryWorkflowInput("widget", 2),
         start_options(),
     )
-    with pytest.raises(FlowUncompletedError) as captured:
-        await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
-    assert captured.value.status is FlowStatus.FAILED
-    assert "Failed to process transaction" in str(captured.value)
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status is FlowStatus.FAILED
+    assert "Failed to process transaction" in (result.error_message or "")
 
 
 async def test_reminder_accept(

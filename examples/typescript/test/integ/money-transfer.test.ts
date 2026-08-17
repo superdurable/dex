@@ -47,7 +47,9 @@ test("moneyTransferStart", async () => {
     environment.startOptions(),
   );
   assert.ok(runId.length > 0);
-  const output = await environment.client.waitForFlow(flowId, stringCodec, 45_000);
+  const output = await environment.client.waitForFlow(flowId, 45_000).then((result) =>
+    result.singleOutput(stringCodec),
+  );
   assert.match(output, /transfer is done/);
   assert.match(output, /from-ci/);
   assert.match(output, /to-ci/);
