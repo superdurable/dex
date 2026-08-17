@@ -30,6 +30,8 @@ only when a section genuinely doesn't apply.
   `bash` / `text` fences are exempt.
 - Product docs should read naturally: plain English, short sentences, no
   chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
+- Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both
+  locales in sync. See `.cursor/rules/docs-i18n.mdc`.
 
 ### UI/UX
 

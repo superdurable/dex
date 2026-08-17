@@ -80,6 +80,8 @@ discussion-only turns.
   are exempt.
 - Product docs should read naturally: plain English, short sentences, no
   chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
+- Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both
+  locales in sync. See `.cursor/rules/docs-i18n.mdc`.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 - Boolean variables and constants, and methods returning booleans, must use

@@ -25,6 +25,11 @@ Application code samples must use `<SdkTabs>` / `<SdkSnippet>` so readers can
 switch Python, Go, Java, and TypeScript. Do not use per-language headings or
 stacked fenced blocks. `bash` / `text` fences are exempt.
 
+Product docs ship in **English** and **Simplified Chinese** (`zh-Hans`). The
+navbar language switcher (top right) persists the choice in the browser. When you
+change a page in `content/`, update the matching file under
+`i18n/zh-Hans/docusaurus-plugin-content-docs/current/`.
+
 Runnable application samples live under [`examples/`](../examples/); see
 [`examples/README.md`](../examples/README.md) and the playground
 ([`examples/playground/`](../examples/playground/)).

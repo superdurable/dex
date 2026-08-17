@@ -1,0 +1,96 @@
+---
+id: what-is-durable-execution
+title: 什么是 Durable Execution？
+sidebar_label: 什么是 Durable Execution？
+---
+
+import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
+
+# 什么是 Durable Execution？
+
+Dex 是面向后端工程的 **Durable Execution**：把常见的分布式系统做法抽象出来，让你用更简单的架构和运维，做出可靠的后端系统。
+
+## Storage 存的是数据。Execution 存的是进展。
+
+大多数团队已经有 durable storage——PostgreSQL、MySQL、MongoDB、S3。这些系统提供的是 **被动 API**：你的代码去 `insert` 或 `update`，重启之后行还在。数据存储这件事，它解决了。
+
+它解决不了的是 **execution state**：系统当时在干什么、在等什么、下一步该做什么。
+
+一个可靠的后端几乎总是跑在多台机器上，为了可用性、吞吐和规模。一个 API handler 也很少等于一次数据库调用。更常见的是：
+
+1. 串行或并行地调多个 API
+2. 安排未来的事——提醒、超时、重试
+3. 每一步失败的处理不一样——retry、回滚、进 DLQ、人工介入
+4. 等别的系统——审批、webhook、人工输入
+5. 要能排查——每一步的输入、错误、做到一半的工作
+6. 量大时还要线性扩展、成本可控、延迟过得去
+
+被动 storage 能把结果存下来。执行图还是工程师自己拼。
+
+## 一个小例子：先扣款，再发货
+
+最简单、又已经不 trivial 的订单流程：**先扣买家的钱，再发货**。
+
+做 demo 可以写成：
+
+```text
+charge(order)
+ship(order)
+```
+
+进程在扣款成功后崩溃、网络超时、或者重试把同一步跑了两遍，这就不够了。生产上需要一条 durable 记录：「扣款完成，下一步是发货」——以及发货一直失败时怎么回滚。
+
+### 做法 1 —— handler 里直接调
+
+<ExecutionApproachDiagram approach="naive" />
+
+一个线程，两次 API 调用，中间没有 durable 状态。
+
+### 做法 2 —— 数据库行 + Worker 轮询
+
+下一步通常是插入一行（`status = pending`），先返回给客户端，后台 Worker 再来领任务。
+
+<ExecutionApproachDiagram approach="table-poll" />
+
+最低限度的可靠性有了，但抢任务、卡住的行、状态枚举、每加一步再写一套恢复，都变成你的问题。
+
+### 做法 3 —— 步骤之间用消息队列
+
+队列能去掉一部分轮询：写入 `charge-requests`，消费完再写入 `ship-requests`。
+
+<ExecutionApproachDiagram approach="message-queue" />
+
+两套队列画起来简单，跑起来麻烦：
+
+- 大多数队列没法原子地提交「扣款完成」和「入队发货」。第二个队列成功、第一个超时，两步就会并发跑。
+- 第三步意味着第三套队列和另一批 consumer。
+- Backoff retry 和 DLQ 常常还要更多队列，或者再加 cron。
+- 前端如果要在扣款成功后返回（「已付款，订单处理中」），就得再轮询数据库里的状态。
+- SAGA 回滚（发货失败一小时后退款）变成计时逻辑，外加又一个队列。
+- 发货前要卖家审批，还要提醒，队列也没把这种等待建模清楚。
+
+每一招都眼熟。每个服务都会再做一遍：outbox 表、幂等键、saga 协调器、状态列。
+
+## Durable Execution 补上的是什么
+
+Durable Execution 把这些做法收到平台里。你用代码描述业务流；运行时把 **数据和 action 一起**持久化：
+
+| | Durable storage | Durable Execution |
+| --- | --- | --- |
+| 持久化什么 | 数据 | 数据 **以及** 程序在流程里走到哪 |
+| API 形态 | 被动（`put`、`get`） | 主动执行（Step、等待、retry） |
+| 崩溃之后 | 你自己把状态拼回来 | 从断点继续执行 |
+
+扣款 → 审批 → 发货，代码大概是：
+
+1. **Step 1 — Charge**，有自己的 retry。成功后 **原子地** 进入 Step 2。
+2. **Step 2 — Wait**，等卖家批准 **或** 一个 durable timer。Timer 到了就发提醒，然后继续等。
+3. **Step 3 — Ship**，带 retry；用尽后走补偿的退款 Step。
+4. **Client API** 让前端等到 Step 1 完成，再返回「已付款」。
+5. 平台记下每一步的输入、输出和错误；运维可以看、可以重放。
+
+这还只是玩具例子。真实系统还有并行分支、fan-out、locking、跨服务协作——同一类问题，抽象一次，而不是每个项目重做。
+
+## 接下来
+
+看 [什么是 Dex？](/intro/what-is-dex)：Dex 怎样用 Step、Attribute、Channel、RPC 写这条流程，以及它和手写队列、表轮询有什么不同。

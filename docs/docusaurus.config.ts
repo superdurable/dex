@@ -41,13 +41,29 @@ const config: Config = {
         (shared ? '; Domain=.superdurable.io; Secure' : '');
     }
   } catch (_) {}
+})();
+(function () {
+  try {
+    var stored = window.localStorage.getItem('docs-locale');
+    var cookieMatch = document.cookie.match(/(?:^|; )superdurable-docs-locale=(en|zh-Hans)(?:;|$)/);
+    var preferred = stored === 'en' || stored === 'zh-Hans' ? stored : (cookieMatch ? cookieMatch[1] : null);
+    if (preferred !== 'zh-Hans') return;
+    var path = location.pathname;
+    if (path === '/zh-Hans' || path === '/zh-Hans/' || path.indexOf('/zh-Hans/') === 0) return;
+    var next = path === '/' ? '/zh-Hans/' : '/zh-Hans' + path;
+    location.replace(next + location.search + location.hash);
+  } catch (_) {}
 })();`,
     },
   ],
 
   i18n: {
     defaultLocale: 'en',
-    locales: ['en'],
+    locales: ['en', 'zh-Hans'],
+    localeConfigs: {
+      en: {label: 'English', htmlLang: 'en'},
+      'zh-Hans': {label: '中文', htmlLang: 'zh-Hans'},
+    },
   },
 
   presets: [

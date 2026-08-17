@@ -430,6 +430,39 @@ summary:focus-visible {
   transform: translateY(-2px);
 }
 
+.locale-switcher {
+  display: inline-flex;
+  min-height: 38px;
+  padding: 3px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  align-items: center;
+  gap: 2px;
+  background: var(--surface);
+}
+
+.locale-switcher-option {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-strong);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.locale-switcher-option.is-active {
+  background: var(--lime-soft);
+  color: var(--forest);
+}
+
+.locale-switcher-option:hover:not(.is-active) {
+  color: var(--forest);
+}
+
 .theme-toggle-icon {
   display: inline-grid;
   width: 17px;
@@ -865,6 +898,15 @@ code {
   .navbar-sidebar .header-booking-link {
     width: 100%;
     margin-top: 8px;
+    justify-content: center;
+  }
+
+  .locale-switcher-mobile {
+    padding: 12px 4px;
+  }
+
+  .locale-switcher-mobile .locale-switcher {
+    width: 100%;
     justify-content: center;
   }
 

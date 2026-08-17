@@ -1,0 +1,173 @@
+---
+id: what-is-dex
+title: 什么是 Dex？
+sidebar_label: 什么是 Dex？
+---
+
+import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
+
+# 什么是 Dex？
+
+Dex 是开源的 **Durable Execution** 引擎。你自己跑：`dexcli`、Dex Server、Dex Web，以及 Go、Java、Python、TypeScript SDK。
+
+还没看过 [什么是 Durable Execution？](/intro/what-is-durable-execution) 的话，先看那一页。这一页用代码说明 Dex 怎么落地。
+
+## 结构化，而不是靠 replay
+
+Dex 程序是 **Flow**：普通的应用对象，由 **Step**、**Attribute**、**Channel**、**Timer**、**RPC** 组成。Worker 托管你的 Step 和 RPC handler，就是普通代码。Dex Server 把控制流决策持久化在 Temporal 或 Cadence 上——你不用写 event-sourced 的 workflow 函数。
+
+| | Temporal / Cadence workflow 代码 | Dex |
+| --- | --- | --- |
+| 形态 | Event-sourced 函数 + activity | 结构化的 Step、Attribute、Channel、RPC |
+| 应用代码 | 必须能 replay history | Worker handler 就是普通代码 |
+| 等待、RPC、locking | 用 SDK primitive 自己拼 | 写在 Flow 模型里 |
+| 引擎 | Workflow runtime | Temporal / Cadence 上的 Dex interpreter |
+
+## 扣款 → 审批 → 发货，用 Dex 怎么写
+
+和上一页同一条订单流：扣款，等卖家批准（带提醒），再发货；失败则回滚。
+
+<ExecutionApproachDiagram approach="dex" />
+
+### Flow 形状
+
+```text
+Start → ChargeStep → ApprovalStep → ShipStep → complete
+                      ↑ timer / seller RPC
+```
+
+- **ChargeStep** 调支付 API，Step 级 retry。成功后进入 ApprovalStep。
+- **ApprovalStep** 等待卖家的 **Channel** 消息或一个 **Timer**。Timer 先到就发提醒，然后继续等。
+- **ShipStep** 调履约。Retry 用尽则进入 **RefundStep**（补偿）。
+- **RPC `waitUntilCharged`** 让店面 API 阻塞到 ChargeStep 完成。
+- **Attribute `orderStatus`** 可检索，客服能搜卡住的订单。
+
+### 代码
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```python
+from datetime import timedelta
+from dex import Attribute, AttributeIndex, Channel, Context, Flow, IndexType, PersistenceSchema, RPCResult
+from dex import Step, StepDecision, StepList, Timer, Wait, go_to, graceful_complete, rpc
+
+class ChargeStep(Step[str]):
+    def execute(self, context: Context, order_id: str) -> StepDecision:
+        charge(order_id)
+        OrderFlow.order_status.set(context, "charged")
+        return go_to(ApprovalStep(OrderFlow.seller_ok, OrderFlow.reminder), order_id)
+
+class ApprovalStep(Step[str]):
+    def __init__(self, seller_ok: Channel[str], reminder: Channel[str]):
+        self.seller_ok = seller_ok
+        self.reminder = reminder
+
+    def wait_for(self, context: Context, order_id: str) -> Wait:
+        return Wait.any_of(
+            self.seller_ok.for_one(),
+            Timer.by_duration(timedelta(hours=24)),
+        )
+
+    def execute(self, context: Context, order_id: str) -> StepDecision:
+        if context.has_timer_fired():
+            self.reminder.publish(context, "approve-shipment")
+            return go_to(self, order_id)
+        return go_to(ShipStep(), order_id)
+
+class ShipStep(Step[str]):
+    def execute(self, context: Context, order_id: str) -> StepDecision:
+        ship(order_id)
+        OrderFlow.order_status.set(context, "shipped")
+        return graceful_complete(order_id)
+
+class RefundStep(Step[str]):
+    def execute(self, context: Context, order_id: str) -> StepDecision:
+        refund(order_id)
+        return graceful_complete(f"refunded:{order_id}")
+
+class OrderFlow(Flow[str]):
+    order_status = Attribute(
+        "order-status",
+        str,
+        index=AttributeIndex(type=IndexType.KEYWORD),
+    )
+    seller_ok = Channel("seller-ok", str)
+    reminder = Channel("reminder", str)
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(ChargeStep()).other_steps(
+            ApprovalStep(self.seller_ok, self.reminder),
+            ShipStep(),
+            RefundStep(),
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.attributes(self.order_status).channels(
+            self.seller_ok, self.reminder
+        )
+
+    @rpc
+    def approve_shipment(self, context: Context, _note: str) -> RPCResult:
+        self.seller_ok.publish(context, "approved")
+        return RPCResult(output="ok")
+
+    @rpc
+    def wait_until_charged(self, context: Context, _input: str) -> RPCResult:
+        # Client API: block until ChargeStep completes, then return status.
+        return RPCResult(output=self.order_status.get(context))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+// ChargeStep → ApprovalStep (channel + timer) → ShipStep → RefundStep on failure.
+// Attribute order-status, Channels seller-ok / reminder.
+// RPC ApproveShipment publishes seller-ok; Client waits on Step 1 via RPC or Client API.
+// See sdk-go/README.md and examples/go for Registry + Worker wiring.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+// Same Flow: ChargeStep, ApprovalStep with Wait.anyOf(channel, timer),
+// ShipStep, RefundStep; @RPC approveShipment; indexed Attribute order-status.
+// See sdk-java and examples/java for Worker registration.
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+// Same Flow with @superdurable/dex ^0.1.3+.
+// waitFor / execute / RPC may be async; Client calls can await on one Worker.
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Step 切换是原子的。Timer 和 Channel 等待能挺过 Worker 重启。Retry 和补偿写在 Step 上，而不是散落在队列和 cron 里。Dex Web 能看到每一步的输入、输出和错误。
+
+## Primitive 对应那些难点
+
+| 只用 storage 时的问题 | Dex primitive |
+| --- | --- |
+| Step 之间的 durable 状态 | [Attribute](/primitives/attribute) |
+| 原子切到下一步 | [Step](/primitives/step) movement |
+| 每个 Step 的 retry / timeout | Step options |
+| 等审批或 timer | [Channel](/primitives/channel) + [Timer](/primitives/timer) |
+| 运行中对外读写 | [RPC](/primitives/rpc) |
+| 发货失败后退款 | 失败后走到补偿 Step |
+| 前端等到扣款完成 | Client / RPC wait API |
+| 搜索卡住的订单 | 带索引的 Attribute + Client search |
+
+每个积木块的用意、用法、以及团队通常手写的替代方案，见 [Durable Primitives](/primitives)。
+
+## 接下来
+
+- [Quick Start](/quick-start) — 安装 `dexcli`，跑一个 Hello Flow，在 Dex Web 里看
+- [Design Patterns](/design-patterns) — 可复用的 Flow 形状
+- [Use Cases](/use-cases) — 更完整的产品例子
+- [Compare with Temporal/Cadence](/references/compare-with-temporal) — 如果你已经在跑那套
