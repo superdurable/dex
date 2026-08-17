@@ -111,6 +111,6 @@ fn catalog_matches_every_cross_language_example() {
 #[test]
 fn manifest_uses_the_published_sdk_only() {
     let manifest = include_str!("../Cargo.toml");
-    assert!(manifest.contains("dex-sdk = \"=0.0.2\""));
+    assert!(manifest.contains("dex-sdk = \"=0.1.10\""));
     assert!(!manifest.contains("path ="));
 }

@@ -37,7 +37,7 @@ jobs:
         run: uv sync --locked
       - name: Verify published package
         run: |
-          uv run --frozen python -c "import dex, importlib.metadata as m; print(m.version('dex-python-sdk')); assert m.version('dex-python-sdk') == '0.1.4'"
+          uv run --frozen python -c "import dex, importlib.metadata as m; print(m.version('dex-python-sdk')); assert m.version('dex-python-sdk') == '0.1.10'"
       - name: Integ tests with dexcli dev
         run: ./run-integ-tests.sh
       - name: Upload service logs

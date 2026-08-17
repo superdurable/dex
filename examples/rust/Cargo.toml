@@ -6,7 +6,7 @@ publish = false
 rust-version = "1.97"
 
 [dependencies]
-dex-sdk = "=0.0.2"
+dex-sdk = "=0.1.10"
 serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
