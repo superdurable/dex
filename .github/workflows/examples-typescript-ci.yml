@@ -29,11 +29,21 @@ jobs:
         run: npm ci
       - name: Verify published SDK dependency
         run: |
+          set -euo pipefail
           declared_version="$(node -p "require('./package.json').dependencies['@superdurable/dex']")"
           resolved_version="$(npm ls --json --depth=0 @superdurable/dex | jq -r '.dependencies["@superdurable/dex"].version')"
           resolved_source="$(node -p "require('./package-lock.json').packages['node_modules/@superdurable/dex'].resolved")"
-          if [[ "$declared_version" != "0.1.10" || "$resolved_version" != "0.1.10" || "$resolved_source" != "https://registry.npmjs.org/@superdurable/dex/-/dex-0.1.10.tgz" ]]; then
-            echo "examples/typescript must use published @superdurable/dex 0.1.10"
+          if [[ -z "$declared_version" || "$declared_version" == "undefined" ]]; then
+            echo "examples/typescript must depend on @superdurable/dex"
+            exit 1
+          fi
+          if [[ "$resolved_version" != "$declared_version" ]]; then
+            echo "examples/typescript resolves @superdurable/dex $resolved_version, expected $declared_version"
+            exit 1
+          fi
+          expected_source="https://registry.npmjs.org/@superdurable/dex/-/dex-${declared_version}.tgz"
+          if [[ "$resolved_source" != "$expected_source" ]]; then
+            echo "examples/typescript must use published @superdurable/dex, not $resolved_source"
             exit 1
           fi
       - name: Typecheck
