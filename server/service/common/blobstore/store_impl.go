@@ -205,6 +205,13 @@ func (b *blobStoreImpl) WriteStepEventInput(
 		return fmt.Errorf("write step event input: %w", err)
 	}
 	b.writeObjectSuccessHistogram.Record(time.Duration(len(data)))
+	b.logger.Info("Step event input snapshot written",
+		tag.StoreID(b.activeStorage.StorageId),
+		tag.Path(b.pathPrefix+path),
+		tag.WorkflowID(flowID),
+		tag.WorkflowRunID(runID),
+		tag.StepExecutionID(stepExecutionID),
+		tag.StepEventInputMethod(method))
 	return nil
 }
 
@@ -508,7 +515,17 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 		return fmt.Errorf("%w for %s", errStoreNotFound, storeId)
 	}
 	if storeConfig.StorageType == config.StorageTypeLocal {
-		return deleteLocalWorkflowObjects(ctx, storeConfig.LocalDirectory, b.pathPrefix+workflowPath)
+		if err := deleteLocalWorkflowObjects(
+			ctx,
+			storeConfig.LocalDirectory,
+			b.pathPrefix+workflowPath,
+		); err != nil {
+			return err
+		}
+		b.logger.Info("DeleteWorkflowObjects completed",
+			tag.StoreID(storeId),
+			tag.WorkflowPath(workflowPath))
+		return nil
 	}
 	if b.s3Client == nil {
 		return errors.New("S3 client is not configured")
@@ -602,6 +619,11 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 					tag.ResultMetadata(resultMetadata))
 				return fmt.Errorf("some objects failed to delete (resultMetadata=%s): %s", resultMetadata, strings.Join(errorMsgs, "; "))
 			}
+			for _, deletedObject := range objectsToDelete {
+				b.logger.Info("Blob object deleted",
+					tag.StoreID(storeId),
+					tag.Path(aws.ToString(deletedObject.Key)))
+			}
 
 			totalDeleted += len(objectsToDelete)
 		}
@@ -614,6 +636,7 @@ func (b *blobStoreImpl) DeleteWorkflowObjects(ctx context.Context, storeId, work
 	}
 
 	b.logger.Info("DeleteWorkflowObjects completed",
+		tag.StoreID(storeId),
 		tag.Bucket(storeConfig.S3Bucket),
 		tag.WorkflowPath(workflowPath),
 		tag.TotalDeleted(totalDeleted))

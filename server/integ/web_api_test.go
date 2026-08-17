@@ -85,6 +85,9 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 	t.Run("async-local-fallback", func(t *testing.T) {
 		testWebAsyncLocalFallback(t, backendType)
 	})
+	t.Run("time-travel-snapshot-origin", func(t *testing.T) {
+		testWebTimeTravelSnapshotOrigin(t, backendType)
+	})
 	t.Run("parallel-attribute-snapshots", func(t *testing.T) {
 		testWebParallelAttributeSnapshots(t, backendType)
 	})
@@ -116,6 +119,91 @@ func testWebAPI(t *testing.T, backendType service.BackendType) {
 			testWebStepInputWithoutStorage(t, backendType, durability)
 		})
 	}
+}
+
+func testWebTimeTravelSnapshotOrigin(t *testing.T, backendType service.BackendType) {
+	flowType := "web-time-travel-snapshot-origin"
+	stepType := "condition-step"
+	stepExecutionID := stepType + "-1"
+	workerTarget := startWorker(t, &webStepInputHandler{
+		flowType:      flowType,
+		conditionType: "all",
+	})
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType:        backendType,
+		LocalBlobDirectory: t.TempDir(),
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	flowID := flowType + "-" + uuid.NewString()
+	stepInput := "time-travel-input"
+	startResponse, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           flowType,
+		FlowTimeoutSeconds: 30,
+		StartStepType:      stepType,
+		StepInput:          stringValue(stepInput),
+		FlowStartOptions: &dexpb.FlowStartOptions{FlowConfigOverride: &dexpb.FlowConfig{
+			StepDurability: ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+			WorkerTarget:   workerTarget,
+		}},
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	firstTimeTravel, err := runtime.FlowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
+		FlowId:          flowID,
+		RunId:           startResponse.GetRunId(),
+		ResetType:       dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+		StepExecutionId: stepExecutionID,
+		StepMethod:      dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR,
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	secondTimeTravel, err := runtime.FlowClient.ResetFlow(ctx, &dexpb.ResetFlowRequest{
+		FlowId:          flowID,
+		RunId:           firstTimeTravel.GetRunId(),
+		ResetType:       dexpb.FlowResetType_FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+		StepExecutionId: stepExecutionID,
+		StepMethod:      dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE,
+	})
+	require.NoError(t, err)
+	_, err = runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{FlowId: flowID})
+	require.NoError(t, err)
+
+	events, _ := getAllWebHistoryEvents(
+		t,
+		ctx,
+		runtime.FlowClient,
+		flowID,
+		secondTimeTravel.GetRunId(),
+	)
+	var forkEventIDs []int64
+	for _, event := range events {
+		if event.GetTimeTravelFork() != nil {
+			forkEventIDs = append(forkEventIDs, event.GetEventId())
+		}
+	}
+	require.Len(t, forkEventIDs, 2)
+	var inheritedWaitFor *dexpb.StepWaitForCompletedEvent
+	for _, event := range events {
+		waitFor := event.GetStepWaitForCompleted()
+		if waitFor == nil ||
+			event.GetEventId() <= forkEventIDs[0] ||
+			event.GetEventId() >= forkEventIDs[1] {
+			continue
+		}
+		inheritedWaitFor = waitFor
+		break
+	}
+	require.NotNil(t, inheritedWaitFor)
+	require.False(t, inheritedWaitFor.GetInput().GetUnavailable())
+	require.Equal(t, stepInput, inheritedWaitFor.GetInput().GetStepInput().GetStringValue())
 }
 
 func testWebForceClosedPendingStep(t *testing.T, backendType service.BackendType) {

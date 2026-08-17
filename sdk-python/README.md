@@ -237,7 +237,7 @@ SubFlow.
 ### Errors
 
 Client calls raise concrete `DexServiceError` subclasses. Existing-Flow reads
-(`get_attribute`, `describe_flow`, `wait_for_flow`, and `reset_flow`) raise
+(`get_attribute`, `describe_flow`, `wait_for_flow`, and `time_travel`) raise
 `FlowNotFoundError` when the Flow does not exist. Mutations, RPCs, timer/Step
 waits, config updates, and continue-as-new triggers raise
 `FlowNotActiveError` when no running Flow can accept the operation.

@@ -107,11 +107,16 @@ class ActiveStepPhase(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 class FlowResetType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     FLOW_RESET_TYPE_UNSPECIFIED: _ClassVar[FlowResetType]
-    FLOW_RESET_TYPE_HISTORY_EVENT_ID: _ClassVar[FlowResetType]
     FLOW_RESET_TYPE_BEGINNING: _ClassVar[FlowResetType]
     FLOW_RESET_TYPE_HISTORY_EVENT_TIME: _ClassVar[FlowResetType]
     FLOW_RESET_TYPE_STEP_TYPE: _ClassVar[FlowResetType]
     FLOW_RESET_TYPE_STEP_EXECUTION_ID: _ClassVar[FlowResetType]
+
+class FlowResetStepMethod(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    FLOW_RESET_STEP_METHOD_UNSPECIFIED: _ClassVar[FlowResetStepMethod]
+    FLOW_RESET_STEP_METHOD_WAIT_FOR: _ClassVar[FlowResetStepMethod]
+    FLOW_RESET_STEP_METHOD_EXECUTE: _ClassVar[FlowResetStepMethod]
 
 class ErrorSubStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -229,11 +234,13 @@ ACTIVE_STEP_PHASE_UNSPECIFIED: ActiveStepPhase
 ACTIVE_STEP_PHASE_ACTIVE: ActiveStepPhase
 ACTIVE_STEP_PHASE_WAITING: ActiveStepPhase
 FLOW_RESET_TYPE_UNSPECIFIED: FlowResetType
-FLOW_RESET_TYPE_HISTORY_EVENT_ID: FlowResetType
 FLOW_RESET_TYPE_BEGINNING: FlowResetType
 FLOW_RESET_TYPE_HISTORY_EVENT_TIME: FlowResetType
 FLOW_RESET_TYPE_STEP_TYPE: FlowResetType
 FLOW_RESET_TYPE_STEP_EXECUTION_ID: FlowResetType
+FLOW_RESET_STEP_METHOD_UNSPECIFIED: FlowResetStepMethod
+FLOW_RESET_STEP_METHOD_WAIT_FOR: FlowResetStepMethod
+FLOW_RESET_STEP_METHOD_EXECUTE: FlowResetStepMethod
 ERROR_SUB_STATUS_UNSPECIFIED: ErrorSubStatus
 ERROR_SUB_STATUS_UNCATEGORIZED: ErrorSubStatus
 ERROR_SUB_STATUS_FLOW_ALREADY_STARTED: ErrorSubStatus
@@ -741,7 +748,7 @@ class GetHistoryEventsResponse(_message.Message):
     def __init__(self, events: _Optional[_Iterable[_Union[FlowHistoryEvent, _Mapping]]] = ..., next_page_token: _Optional[bytes] = ..., next_internal_event_id: _Optional[int] = ...) -> None: ...
 
 class FlowHistoryEvent(_message.Message):
-    __slots__ = ("event_id", "event_time", "flow_started_or_continued", "flow_closed", "step_wait_for_completed", "step_wait_for_failed", "step_execute_completed", "step_execute_failed", "rpc_execution_completed", "channel_external_publish", "step_wait_for_pending", "step_execute_pending")
+    __slots__ = ("event_id", "event_time", "flow_started_or_continued", "flow_closed", "step_wait_for_completed", "step_wait_for_failed", "step_execute_completed", "step_execute_failed", "rpc_execution_completed", "channel_external_publish", "step_wait_for_pending", "step_execute_pending", "time_travel_fork")
     EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     EVENT_TIME_FIELD_NUMBER: _ClassVar[int]
     FLOW_STARTED_OR_CONTINUED_FIELD_NUMBER: _ClassVar[int]
@@ -754,6 +761,7 @@ class FlowHistoryEvent(_message.Message):
     CHANNEL_EXTERNAL_PUBLISH_FIELD_NUMBER: _ClassVar[int]
     STEP_WAIT_FOR_PENDING_FIELD_NUMBER: _ClassVar[int]
     STEP_EXECUTE_PENDING_FIELD_NUMBER: _ClassVar[int]
+    TIME_TRAVEL_FORK_FIELD_NUMBER: _ClassVar[int]
     event_id: int
     event_time: _timestamp_pb2.Timestamp
     flow_started_or_continued: FlowStartedOrContinuedHistoryEvent
@@ -766,7 +774,14 @@ class FlowHistoryEvent(_message.Message):
     channel_external_publish: ChannelExternalPublishEvent
     step_wait_for_pending: StepMethodPendingEvent
     step_execute_pending: StepMethodPendingEvent
-    def __init__(self, event_id: _Optional[int] = ..., event_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., flow_started_or_continued: _Optional[_Union[FlowStartedOrContinuedHistoryEvent, _Mapping]] = ..., flow_closed: _Optional[_Union[FlowClosedHistoryEvent, _Mapping]] = ..., step_wait_for_completed: _Optional[_Union[StepWaitForCompletedEvent, _Mapping]] = ..., step_wait_for_failed: _Optional[_Union[StepWaitForFailedEvent, _Mapping]] = ..., step_execute_completed: _Optional[_Union[StepExecuteCompletedEvent, _Mapping]] = ..., step_execute_failed: _Optional[_Union[StepExecuteFailedEvent, _Mapping]] = ..., rpc_execution_completed: _Optional[_Union[RpcExecutionCompletedEvent, _Mapping]] = ..., channel_external_publish: _Optional[_Union[ChannelExternalPublishEvent, _Mapping]] = ..., step_wait_for_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., step_execute_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ...) -> None: ...
+    time_travel_fork: TimeTravelForkHistoryEvent
+    def __init__(self, event_id: _Optional[int] = ..., event_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., flow_started_or_continued: _Optional[_Union[FlowStartedOrContinuedHistoryEvent, _Mapping]] = ..., flow_closed: _Optional[_Union[FlowClosedHistoryEvent, _Mapping]] = ..., step_wait_for_completed: _Optional[_Union[StepWaitForCompletedEvent, _Mapping]] = ..., step_wait_for_failed: _Optional[_Union[StepWaitForFailedEvent, _Mapping]] = ..., step_execute_completed: _Optional[_Union[StepExecuteCompletedEvent, _Mapping]] = ..., step_execute_failed: _Optional[_Union[StepExecuteFailedEvent, _Mapping]] = ..., rpc_execution_completed: _Optional[_Union[RpcExecutionCompletedEvent, _Mapping]] = ..., channel_external_publish: _Optional[_Union[ChannelExternalPublishEvent, _Mapping]] = ..., step_wait_for_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., step_execute_pending: _Optional[_Union[StepMethodPendingEvent, _Mapping]] = ..., time_travel_fork: _Optional[_Union[TimeTravelForkHistoryEvent, _Mapping]] = ...) -> None: ...
+
+class TimeTravelForkHistoryEvent(_message.Message):
+    __slots__ = ("previous_run_id",)
+    PREVIOUS_RUN_ID_FIELD_NUMBER: _ClassVar[int]
+    previous_run_id: str
+    def __init__(self, previous_run_id: _Optional[str] = ...) -> None: ...
 
 class FlowStartedOrContinuedHistoryEvent(_message.Message):
     __slots__ = ("flow_execution_id", "flow_type", "flow_config", "flow_timeout", "flow_timeout_policy", "initial_start", "continued_start")
@@ -1077,26 +1092,26 @@ class GetFlowStateResponse(_message.Message):
     def __init__(self, flow_config: _Optional[_Union[FlowConfig, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., active_step_executions: _Optional[_Iterable[_Union[ActiveStepExecutionState, _Mapping]]] = ..., queued_steps: _Optional[_Iterable[_Union[StepMovement, _Mapping]]] = ..., pending_channel_messages: _Optional[_Mapping[str, ChannelValues]] = ..., completed_steps: _Optional[_Iterable[_Union[StepCompletionOutput, _Mapping]]] = ...) -> None: ...
 
 class ResetFlowRequest(_message.Message):
-    __slots__ = ("flow_id", "run_id", "reset_type", "history_event_id", "reason", "history_event_time", "step_type", "step_execution_id", "skip_writes_reapply")
+    __slots__ = ("flow_id", "run_id", "reset_type", "reason", "history_event_time", "step_type", "step_execution_id", "skip_writes_reapply", "step_method")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     RESET_TYPE_FIELD_NUMBER: _ClassVar[int]
-    HISTORY_EVENT_ID_FIELD_NUMBER: _ClassVar[int]
     REASON_FIELD_NUMBER: _ClassVar[int]
     HISTORY_EVENT_TIME_FIELD_NUMBER: _ClassVar[int]
     STEP_TYPE_FIELD_NUMBER: _ClassVar[int]
     STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     SKIP_WRITES_REAPPLY_FIELD_NUMBER: _ClassVar[int]
+    STEP_METHOD_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
     reset_type: FlowResetType
-    history_event_id: int
     reason: str
     history_event_time: str
     step_type: str
     step_execution_id: str
     skip_writes_reapply: bool
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., reset_type: _Optional[_Union[FlowResetType, str]] = ..., history_event_id: _Optional[int] = ..., reason: _Optional[str] = ..., history_event_time: _Optional[str] = ..., step_type: _Optional[str] = ..., step_execution_id: _Optional[str] = ..., skip_writes_reapply: _Optional[bool] = ...) -> None: ...
+    step_method: FlowResetStepMethod
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., reset_type: _Optional[_Union[FlowResetType, str]] = ..., reason: _Optional[str] = ..., history_event_time: _Optional[str] = ..., step_type: _Optional[str] = ..., step_execution_id: _Optional[str] = ..., skip_writes_reapply: _Optional[bool] = ..., step_method: _Optional[_Union[FlowResetStepMethod, str]] = ...) -> None: ...
 
 class ResetFlowResponse(_message.Message):
     __slots__ = ("run_id",)

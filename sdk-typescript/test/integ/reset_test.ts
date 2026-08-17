@@ -8,7 +8,7 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
-import { ResetType, type Client } from "../../src/index.js";
+import { TimeTravelStepMethod, TimeTravelType, type Client } from "../../src/index.js";
 
 import * as flows from "./iwf_flows.js";
 
@@ -17,8 +17,8 @@ export async function compileLockingRpcReapply(client: Client): Promise<void> {
   await client.startFlow(flow, "reset-locking", undefined);
   await client.invokeRPC(flow.withLocking, "reset-locking");
   await client.invokeRPC(flow.withAttributeMapLock, "reset-locking");
-  const runId: string = await client.resetFlow("reset-locking", {
-    type: ResetType.BEGINNING,
+  const runId: string = await client.timeTravel("reset-locking", {
+    type: TimeTravelType.BEGINNING,
     reason: "replay locking RPC",
     skipWritesReapply: false,
   });
@@ -26,10 +26,17 @@ export async function compileLockingRpcReapply(client: Client): Promise<void> {
 }
 
 export async function compileSkipWritesReapply(client: Client): Promise<void> {
-  const runId: string = await client.resetFlow("reset-locking", {
-    type: ResetType.STEP_TYPE,
+  const runId: string = await client.timeTravel("reset-locking", {
+    type: TimeTravelType.STEP_TYPE,
     stepType: "LockWaitStep",
     skipWritesReapply: true,
   });
   void runId;
+
+  const stepExecutionRunId: string = await client.timeTravel("reset-locking", {
+    type: TimeTravelType.STEP_EXECUTION_ID,
+    stepExecutionId: "LockWaitStep-1",
+    stepMethod: TimeTravelStepMethod.EXECUTE,
+  });
+  void stepExecutionRunId;
 }

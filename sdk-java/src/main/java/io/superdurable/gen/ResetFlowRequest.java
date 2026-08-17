@@ -35,6 +35,7 @@ private static final long serialVersionUID = 0L;
     historyEventTime_ = "";
     stepType_ = "";
     stepExecutionId_ = "";
+    stepMethod_ = 0;
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -151,22 +152,11 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.FlowResetType.UNRECOGNIZED : result;
   }
 
-  public static final int HISTORY_EVENT_ID_FIELD_NUMBER = 4;
-  private int historyEventId_ = 0;
-  /**
-   * <code>int32 history_event_id = 4;</code>
-   * @return The historyEventId.
-   */
-  @java.lang.Override
-  public int getHistoryEventId() {
-    return historyEventId_;
-  }
-
-  public static final int REASON_FIELD_NUMBER = 5;
+  public static final int REASON_FIELD_NUMBER = 4;
   @SuppressWarnings("serial")
   private volatile java.lang.Object reason_ = "";
   /**
-   * <code>string reason = 5;</code>
+   * <code>string reason = 4;</code>
    * @return The reason.
    */
   @java.lang.Override
@@ -183,7 +173,7 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>string reason = 5;</code>
+   * <code>string reason = 4;</code>
    * @return The bytes for reason.
    */
   @java.lang.Override
@@ -201,11 +191,11 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int HISTORY_EVENT_TIME_FIELD_NUMBER = 6;
+  public static final int HISTORY_EVENT_TIME_FIELD_NUMBER = 5;
   @SuppressWarnings("serial")
   private volatile java.lang.Object historyEventTime_ = "";
   /**
-   * <code>string history_event_time = 6;</code>
+   * <code>string history_event_time = 5;</code>
    * @return The historyEventTime.
    */
   @java.lang.Override
@@ -222,7 +212,7 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>string history_event_time = 6;</code>
+   * <code>string history_event_time = 5;</code>
    * @return The bytes for historyEventTime.
    */
   @java.lang.Override
@@ -240,11 +230,11 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int STEP_TYPE_FIELD_NUMBER = 7;
+  public static final int STEP_TYPE_FIELD_NUMBER = 6;
   @SuppressWarnings("serial")
   private volatile java.lang.Object stepType_ = "";
   /**
-   * <code>string step_type = 7;</code>
+   * <code>string step_type = 6;</code>
    * @return The stepType.
    */
   @java.lang.Override
@@ -261,7 +251,7 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>string step_type = 7;</code>
+   * <code>string step_type = 6;</code>
    * @return The bytes for stepType.
    */
   @java.lang.Override
@@ -279,11 +269,11 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int STEP_EXECUTION_ID_FIELD_NUMBER = 8;
+  public static final int STEP_EXECUTION_ID_FIELD_NUMBER = 7;
   @SuppressWarnings("serial")
   private volatile java.lang.Object stepExecutionId_ = "";
   /**
-   * <code>string step_execution_id = 8;</code>
+   * <code>string step_execution_id = 7;</code>
    * @return The stepExecutionId.
    */
   @java.lang.Override
@@ -300,7 +290,7 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>string step_execution_id = 8;</code>
+   * <code>string step_execution_id = 7;</code>
    * @return The bytes for stepExecutionId.
    */
   @java.lang.Override
@@ -318,19 +308,37 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int SKIP_WRITES_REAPPLY_FIELD_NUMBER = 9;
+  public static final int SKIP_WRITES_REAPPLY_FIELD_NUMBER = 8;
   private boolean skipWritesReapply_ = false;
   /**
    * <pre>
    * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
    * </pre>
    *
-   * <code>bool skip_writes_reapply = 9;</code>
+   * <code>bool skip_writes_reapply = 8;</code>
    * @return The skipWritesReapply.
    */
   @java.lang.Override
   public boolean getSkipWritesReapply() {
     return skipWritesReapply_;
+  }
+
+  public static final int STEP_METHOD_FIELD_NUMBER = 9;
+  private int stepMethod_ = 0;
+  /**
+   * <code>.dex.FlowResetStepMethod step_method = 9;</code>
+   * @return The enum numeric value on the wire for stepMethod.
+   */
+  @java.lang.Override public int getStepMethodValue() {
+    return stepMethod_;
+  }
+  /**
+   * <code>.dex.FlowResetStepMethod step_method = 9;</code>
+   * @return The stepMethod.
+   */
+  @java.lang.Override public io.superdurable.gen.FlowResetStepMethod getStepMethod() {
+    io.superdurable.gen.FlowResetStepMethod result = io.superdurable.gen.FlowResetStepMethod.forNumber(stepMethod_);
+    return result == null ? io.superdurable.gen.FlowResetStepMethod.UNRECOGNIZED : result;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -356,23 +364,23 @@ private static final long serialVersionUID = 0L;
     if (resetType_ != io.superdurable.gen.FlowResetType.FLOW_RESET_TYPE_UNSPECIFIED.getNumber()) {
       output.writeEnum(3, resetType_);
     }
-    if (historyEventId_ != 0) {
-      output.writeInt32(4, historyEventId_);
-    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(reason_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 5, reason_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 4, reason_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(historyEventTime_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 6, historyEventTime_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 5, historyEventTime_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepType_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 7, stepType_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 6, stepType_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepExecutionId_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 8, stepExecutionId_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 7, stepExecutionId_);
     }
     if (skipWritesReapply_ != false) {
-      output.writeBool(9, skipWritesReapply_);
+      output.writeBool(8, skipWritesReapply_);
+    }
+    if (stepMethod_ != io.superdurable.gen.FlowResetStepMethod.FLOW_RESET_STEP_METHOD_UNSPECIFIED.getNumber()) {
+      output.writeEnum(9, stepMethod_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -388,25 +396,25 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeEnumSize(3, resetType_);
     }
-    if (historyEventId_ != 0) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(4, historyEventId_);
-    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(reason_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, reason_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, reason_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(historyEventTime_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, historyEventTime_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, historyEventTime_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepType_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(7, stepType_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, stepType_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(stepExecutionId_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(8, stepExecutionId_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(7, stepExecutionId_);
     }
     if (skipWritesReapply_ != false) {
       size += com.google.protobuf.CodedOutputStream
-        .computeBoolSize(9, skipWritesReapply_);
+        .computeBoolSize(8, skipWritesReapply_);
+    }
+    if (stepMethod_ != io.superdurable.gen.FlowResetStepMethod.FLOW_RESET_STEP_METHOD_UNSPECIFIED.getNumber()) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeEnumSize(9, stepMethod_);
     }
     return size;
   }
@@ -437,8 +445,6 @@ private static final long serialVersionUID = 0L;
     if (!getRunId()
         .equals(other.getRunId())) return false;
     if (resetType_ != other.resetType_) return false;
-    if (getHistoryEventId()
-        != other.getHistoryEventId()) return false;
     if (!getReason()
         .equals(other.getReason())) return false;
     if (!getHistoryEventTime()
@@ -449,6 +455,7 @@ private static final long serialVersionUID = 0L;
         .equals(other.getStepExecutionId())) return false;
     if (getSkipWritesReapply()
         != other.getSkipWritesReapply()) return false;
+    if (stepMethod_ != other.stepMethod_) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -466,8 +473,6 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getRunId().hashCode();
     hash = (37 * hash) + RESET_TYPE_FIELD_NUMBER;
     hash = (53 * hash) + resetType_;
-    hash = (37 * hash) + HISTORY_EVENT_ID_FIELD_NUMBER;
-    hash = (53 * hash) + getHistoryEventId();
     hash = (37 * hash) + REASON_FIELD_NUMBER;
     hash = (53 * hash) + getReason().hashCode();
     hash = (37 * hash) + HISTORY_EVENT_TIME_FIELD_NUMBER;
@@ -479,6 +484,8 @@ private static final long serialVersionUID = 0L;
     hash = (37 * hash) + SKIP_WRITES_REAPPLY_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
         getSkipWritesReapply());
+    hash = (37 * hash) + STEP_METHOD_FIELD_NUMBER;
+    hash = (53 * hash) + stepMethod_;
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -613,12 +620,12 @@ private static final long serialVersionUID = 0L;
       flowId_ = "";
       runId_ = "";
       resetType_ = 0;
-      historyEventId_ = 0;
       reason_ = "";
       historyEventTime_ = "";
       stepType_ = "";
       stepExecutionId_ = "";
       skipWritesReapply_ = false;
+      stepMethod_ = 0;
       return this;
     }
 
@@ -662,22 +669,22 @@ private static final long serialVersionUID = 0L;
         result.resetType_ = resetType_;
       }
       if (((from_bitField0_ & 0x00000008) != 0)) {
-        result.historyEventId_ = historyEventId_;
-      }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.reason_ = reason_;
       }
-      if (((from_bitField0_ & 0x00000020) != 0)) {
+      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.historyEventTime_ = historyEventTime_;
       }
-      if (((from_bitField0_ & 0x00000040) != 0)) {
+      if (((from_bitField0_ & 0x00000020) != 0)) {
         result.stepType_ = stepType_;
       }
-      if (((from_bitField0_ & 0x00000080) != 0)) {
+      if (((from_bitField0_ & 0x00000040) != 0)) {
         result.stepExecutionId_ = stepExecutionId_;
       }
-      if (((from_bitField0_ & 0x00000100) != 0)) {
+      if (((from_bitField0_ & 0x00000080) != 0)) {
         result.skipWritesReapply_ = skipWritesReapply_;
+      }
+      if (((from_bitField0_ & 0x00000100) != 0)) {
+        result.stepMethod_ = stepMethod_;
       }
     }
 
@@ -706,31 +713,31 @@ private static final long serialVersionUID = 0L;
       if (other.resetType_ != 0) {
         setResetTypeValue(other.getResetTypeValue());
       }
-      if (other.getHistoryEventId() != 0) {
-        setHistoryEventId(other.getHistoryEventId());
-      }
       if (!other.getReason().isEmpty()) {
         reason_ = other.reason_;
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000008;
         onChanged();
       }
       if (!other.getHistoryEventTime().isEmpty()) {
         historyEventTime_ = other.historyEventTime_;
-        bitField0_ |= 0x00000020;
+        bitField0_ |= 0x00000010;
         onChanged();
       }
       if (!other.getStepType().isEmpty()) {
         stepType_ = other.stepType_;
-        bitField0_ |= 0x00000040;
+        bitField0_ |= 0x00000020;
         onChanged();
       }
       if (!other.getStepExecutionId().isEmpty()) {
         stepExecutionId_ = other.stepExecutionId_;
-        bitField0_ |= 0x00000080;
+        bitField0_ |= 0x00000040;
         onChanged();
       }
       if (other.getSkipWritesReapply() != false) {
         setSkipWritesReapply(other.getSkipWritesReapply());
+      }
+      if (other.stepMethod_ != 0) {
+        setStepMethodValue(other.getStepMethodValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -773,33 +780,33 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000004;
               break;
             } // case 24
-            case 32: {
-              historyEventId_ = input.readInt32();
+            case 34: {
+              reason_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000008;
               break;
-            } // case 32
+            } // case 34
             case 42: {
-              reason_ = input.readStringRequireUtf8();
+              historyEventTime_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000010;
               break;
             } // case 42
             case 50: {
-              historyEventTime_ = input.readStringRequireUtf8();
+              stepType_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000020;
               break;
             } // case 50
             case 58: {
-              stepType_ = input.readStringRequireUtf8();
+              stepExecutionId_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000040;
               break;
             } // case 58
-            case 66: {
-              stepExecutionId_ = input.readStringRequireUtf8();
+            case 64: {
+              skipWritesReapply_ = input.readBool();
               bitField0_ |= 0x00000080;
               break;
-            } // case 66
+            } // case 64
             case 72: {
-              skipWritesReapply_ = input.readBool();
+              stepMethod_ = input.readEnum();
               bitField0_ |= 0x00000100;
               break;
             } // case 72
@@ -1016,41 +1023,9 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private int historyEventId_ ;
-    /**
-     * <code>int32 history_event_id = 4;</code>
-     * @return The historyEventId.
-     */
-    @java.lang.Override
-    public int getHistoryEventId() {
-      return historyEventId_;
-    }
-    /**
-     * <code>int32 history_event_id = 4;</code>
-     * @param value The historyEventId to set.
-     * @return This builder for chaining.
-     */
-    public Builder setHistoryEventId(int value) {
-
-      historyEventId_ = value;
-      bitField0_ |= 0x00000008;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>int32 history_event_id = 4;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearHistoryEventId() {
-      bitField0_ = (bitField0_ & ~0x00000008);
-      historyEventId_ = 0;
-      onChanged();
-      return this;
-    }
-
     private java.lang.Object reason_ = "";
     /**
-     * <code>string reason = 5;</code>
+     * <code>string reason = 4;</code>
      * @return The reason.
      */
     public java.lang.String getReason() {
@@ -1066,7 +1041,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string reason = 5;</code>
+     * <code>string reason = 4;</code>
      * @return The bytes for reason.
      */
     public com.google.protobuf.ByteString
@@ -1083,7 +1058,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string reason = 5;</code>
+     * <code>string reason = 4;</code>
      * @param value The reason to set.
      * @return This builder for chaining.
      */
@@ -1091,22 +1066,22 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       reason_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
     /**
-     * <code>string reason = 5;</code>
+     * <code>string reason = 4;</code>
      * @return This builder for chaining.
      */
     public Builder clearReason() {
       reason_ = getDefaultInstance().getReason();
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       onChanged();
       return this;
     }
     /**
-     * <code>string reason = 5;</code>
+     * <code>string reason = 4;</code>
      * @param value The bytes for reason to set.
      * @return This builder for chaining.
      */
@@ -1115,14 +1090,14 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       reason_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
 
     private java.lang.Object historyEventTime_ = "";
     /**
-     * <code>string history_event_time = 6;</code>
+     * <code>string history_event_time = 5;</code>
      * @return The historyEventTime.
      */
     public java.lang.String getHistoryEventTime() {
@@ -1138,7 +1113,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string history_event_time = 6;</code>
+     * <code>string history_event_time = 5;</code>
      * @return The bytes for historyEventTime.
      */
     public com.google.protobuf.ByteString
@@ -1155,7 +1130,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string history_event_time = 6;</code>
+     * <code>string history_event_time = 5;</code>
      * @param value The historyEventTime to set.
      * @return This builder for chaining.
      */
@@ -1163,22 +1138,22 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       historyEventTime_ = value;
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
     /**
-     * <code>string history_event_time = 6;</code>
+     * <code>string history_event_time = 5;</code>
      * @return This builder for chaining.
      */
     public Builder clearHistoryEventTime() {
       historyEventTime_ = getDefaultInstance().getHistoryEventTime();
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000010);
       onChanged();
       return this;
     }
     /**
-     * <code>string history_event_time = 6;</code>
+     * <code>string history_event_time = 5;</code>
      * @param value The bytes for historyEventTime to set.
      * @return This builder for chaining.
      */
@@ -1187,14 +1162,14 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       historyEventTime_ = value;
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
 
     private java.lang.Object stepType_ = "";
     /**
-     * <code>string step_type = 7;</code>
+     * <code>string step_type = 6;</code>
      * @return The stepType.
      */
     public java.lang.String getStepType() {
@@ -1210,7 +1185,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string step_type = 7;</code>
+     * <code>string step_type = 6;</code>
      * @return The bytes for stepType.
      */
     public com.google.protobuf.ByteString
@@ -1227,7 +1202,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string step_type = 7;</code>
+     * <code>string step_type = 6;</code>
      * @param value The stepType to set.
      * @return This builder for chaining.
      */
@@ -1235,22 +1210,22 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       stepType_ = value;
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
     /**
-     * <code>string step_type = 7;</code>
+     * <code>string step_type = 6;</code>
      * @return This builder for chaining.
      */
     public Builder clearStepType() {
       stepType_ = getDefaultInstance().getStepType();
-      bitField0_ = (bitField0_ & ~0x00000040);
+      bitField0_ = (bitField0_ & ~0x00000020);
       onChanged();
       return this;
     }
     /**
-     * <code>string step_type = 7;</code>
+     * <code>string step_type = 6;</code>
      * @param value The bytes for stepType to set.
      * @return This builder for chaining.
      */
@@ -1259,14 +1234,14 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       stepType_ = value;
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
 
     private java.lang.Object stepExecutionId_ = "";
     /**
-     * <code>string step_execution_id = 8;</code>
+     * <code>string step_execution_id = 7;</code>
      * @return The stepExecutionId.
      */
     public java.lang.String getStepExecutionId() {
@@ -1282,7 +1257,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string step_execution_id = 8;</code>
+     * <code>string step_execution_id = 7;</code>
      * @return The bytes for stepExecutionId.
      */
     public com.google.protobuf.ByteString
@@ -1299,7 +1274,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string step_execution_id = 8;</code>
+     * <code>string step_execution_id = 7;</code>
      * @param value The stepExecutionId to set.
      * @return This builder for chaining.
      */
@@ -1307,22 +1282,22 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       stepExecutionId_ = value;
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
     /**
-     * <code>string step_execution_id = 8;</code>
+     * <code>string step_execution_id = 7;</code>
      * @return This builder for chaining.
      */
     public Builder clearStepExecutionId() {
       stepExecutionId_ = getDefaultInstance().getStepExecutionId();
-      bitField0_ = (bitField0_ & ~0x00000080);
+      bitField0_ = (bitField0_ & ~0x00000040);
       onChanged();
       return this;
     }
     /**
-     * <code>string step_execution_id = 8;</code>
+     * <code>string step_execution_id = 7;</code>
      * @param value The bytes for stepExecutionId to set.
      * @return This builder for chaining.
      */
@@ -1331,7 +1306,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       stepExecutionId_ = value;
-      bitField0_ |= 0x00000080;
+      bitField0_ |= 0x00000040;
       onChanged();
       return this;
     }
@@ -1342,7 +1317,7 @@ private static final long serialVersionUID = 0L;
      * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
      * </pre>
      *
-     * <code>bool skip_writes_reapply = 9;</code>
+     * <code>bool skip_writes_reapply = 8;</code>
      * @return The skipWritesReapply.
      */
     @java.lang.Override
@@ -1354,14 +1329,14 @@ private static final long serialVersionUID = 0L;
      * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
      * </pre>
      *
-     * <code>bool skip_writes_reapply = 9;</code>
+     * <code>bool skip_writes_reapply = 8;</code>
      * @param value The skipWritesReapply to set.
      * @return This builder for chaining.
      */
     public Builder setSkipWritesReapply(boolean value) {
 
       skipWritesReapply_ = value;
-      bitField0_ |= 0x00000100;
+      bitField0_ |= 0x00000080;
       onChanged();
       return this;
     }
@@ -1370,12 +1345,64 @@ private static final long serialVersionUID = 0L;
      * Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point.
      * </pre>
      *
-     * <code>bool skip_writes_reapply = 9;</code>
+     * <code>bool skip_writes_reapply = 8;</code>
      * @return This builder for chaining.
      */
     public Builder clearSkipWritesReapply() {
-      bitField0_ = (bitField0_ & ~0x00000100);
+      bitField0_ = (bitField0_ & ~0x00000080);
       skipWritesReapply_ = false;
+      onChanged();
+      return this;
+    }
+
+    private int stepMethod_ = 0;
+    /**
+     * <code>.dex.FlowResetStepMethod step_method = 9;</code>
+     * @return The enum numeric value on the wire for stepMethod.
+     */
+    @java.lang.Override public int getStepMethodValue() {
+      return stepMethod_;
+    }
+    /**
+     * <code>.dex.FlowResetStepMethod step_method = 9;</code>
+     * @param value The enum numeric value on the wire for stepMethod to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStepMethodValue(int value) {
+      stepMethod_ = value;
+      bitField0_ |= 0x00000100;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowResetStepMethod step_method = 9;</code>
+     * @return The stepMethod.
+     */
+    @java.lang.Override
+    public io.superdurable.gen.FlowResetStepMethod getStepMethod() {
+      io.superdurable.gen.FlowResetStepMethod result = io.superdurable.gen.FlowResetStepMethod.forNumber(stepMethod_);
+      return result == null ? io.superdurable.gen.FlowResetStepMethod.UNRECOGNIZED : result;
+    }
+    /**
+     * <code>.dex.FlowResetStepMethod step_method = 9;</code>
+     * @param value The stepMethod to set.
+     * @throws IllegalArgumentException if UNRECOGNIZED is provided.
+     * @return This builder for chaining.
+     */
+    public Builder setStepMethod(io.superdurable.gen.FlowResetStepMethod value) {
+      if (value == null) { throw new NullPointerException(); }
+      bitField0_ |= 0x00000100;
+      stepMethod_ = value.getNumber();
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.FlowResetStepMethod step_method = 9;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStepMethod() {
+      bitField0_ = (bitField0_ & ~0x00000100);
+      stepMethod_ = 0;
       onChanged();
       return this;
     }

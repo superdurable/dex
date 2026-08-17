@@ -640,13 +640,26 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 
 	require.NoError(t, client.StopFlow(ctx, "order-1", StopOptions{}))
 	require.Equal(t, dexpb.StopType_STOP_TYPE_CANCEL, service.stopRequest.StopType)
-	newRunID, err := client.ResetFlow(ctx, "order-1", ResetOptions{
-		Type:              ResetToBeginning,
+	newRunID, err := client.TimeTravel(ctx, "order-1", TimeTravelOptions{
+		Type:              TimeTravelToBeginning,
 		SkipWritesReapply: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "run-2", newRunID)
 	require.True(t, service.resetRequest.GetSkipWritesReapply())
+	newRunID, err = client.TimeTravel(ctx, "order-1", TimeTravelOptions{
+		Type:            TimeTravelByStepExecutionID,
+		StepExecutionID: "dex.clientTestStep-1",
+		StepMethod:      TimeTravelStepExecute,
+	})
+	require.NoError(t, err)
+	require.Equal(t, "run-2", newRunID)
+	require.Equal(t, "dex.clientTestStep-1", service.resetRequest.GetStepExecutionId())
+	require.Equal(
+		t,
+		dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE,
+		service.resetRequest.GetStepMethod(),
+	)
 	require.NoError(t, client.SkipTimer(
 		ctx,
 		"order-1",
@@ -710,7 +723,7 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 	require.Equal(t, "GetAttribute", missing.Op)
 	_, err = client.WaitForFlow(ctx, "missing-read", WaitForFlowOptions{})
 	require.ErrorAs(t, err, &missing)
-	_, err = client.ResetFlow(ctx, "missing-read", ResetOptions{Type: ResetToBeginning})
+	_, err = client.TimeTravel(ctx, "missing-read", TimeTravelOptions{Type: TimeTravelToBeginning})
 	require.ErrorAs(t, err, &missing)
 
 	activeCalls := []struct {

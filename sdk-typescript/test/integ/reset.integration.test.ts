@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  ResetType,
+  TimeTravelType,
   stringCodec,
   type Client,
 } from "../../src/index.js";
@@ -25,8 +25,8 @@ for (const locking of [true, false]) {
     await withEnvironment([flow], async ({ client }) => {
       const id = await startAndInvoke(client, flow, locking);
       await assertCompletedWithAttributes(client, flow, id);
-      const resetRunId = await client.resetFlow(id, {
-        type: ResetType.BEGINNING,
+      const resetRunId = await client.timeTravel(id, {
+        type: TimeTravelType.BEGINNING,
         reason: "testing reset",
         skipWritesReapply: false,
       });
@@ -40,8 +40,8 @@ for (const locking of [true, false]) {
     await withEnvironment([flow], async ({ client }) => {
       const id = await startAndInvoke(client, flow, locking);
       await assertCompletedWithAttributes(client, flow, id);
-      await client.resetFlow(id, {
-        type: ResetType.BEGINNING,
+      await client.timeTravel(id, {
+        type: TimeTravelType.BEGINNING,
         reason: "testing reset",
         skipWritesReapply: true,
       });

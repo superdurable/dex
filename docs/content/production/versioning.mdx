@@ -13,7 +13,7 @@ Running Flows continue after you deploy new Worker code. Change code carefully s
 2. **Do not remove or rename Step types** still referenced by open Flows
 3. **Keep WaitFor/Execute contracts stable** for existing Step types (inputs/outputs)
 4. **Use new Step types** for incompatible logic; route only *new* executions there
-5. When a bug leaves Flows stuck, **fix forward** then **reset** from a safe point
+5. When a bug leaves Flows stuck, **fix forward** then **time travel** from a safe point
 
 ## Safe patterns
 
@@ -27,6 +27,6 @@ Running Flows continue after you deploy new Worker code. Change code carefully s
 - Changing the meaning of an Attribute without migration
 - Assuming no long-running executions exist
 
-## Continues and resets
+## Continues and time travel
 
-Very long Flows may continue-as-new. Resets jump execution to an earlier Step after a code fix. Combine with monitoring from [Application operations](/production/application-operations).
+Very long Flows may continue-as-new. Time travel resumes execution from an earlier Step after a code fix. Combine with monitoring from [Application operations](/production/application-operations).

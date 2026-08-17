@@ -17,7 +17,7 @@ Phase 1 确定：
 
 1. 定稿 public history event 和 internal async snapshot proto。
 2. 实现 Temporal/Cadence history converter、local snapshot persistence 和 server tests。
-3. 将 Timeline、Step Graph、Reset 和 Selected Event 迁移到统一 `input/output/context`。
+3. 将 Timeline、Step Graph、Time Travel 和 Selected Event 迁移到统一 `input/output/context`。
 4. 完成 Web blob hydration tests、E2E、文档和发布验证。
 
 ## 2. 核心原则
@@ -186,7 +186,7 @@ message GetHistoryEventsResponse {
 
 ```proto
 message FlowHistoryEvent {
-  // Terminal or anchor raw-history event ID.
+  // Internal pagination and correlation key; Web renders contiguous Dex event numbers.
   int64 event_id = 1;
   google.protobuf.Timestamp event_time = 2;
 
@@ -199,11 +199,19 @@ message FlowHistoryEvent {
     StepExecuteFailedEvent step_execute_failed = 25;
     RpcExecutionCompletedEvent rpc_execution_completed = 26;
     ChannelExternalPublishEvent channel_external_publish = 27;
+    StepMethodPendingEvent step_wait_for_pending = 28;
+    StepMethodPendingEvent step_execute_pending = 29;
+    TimeTravelForkHistoryEvent time_travel_fork = 30;
   }
+}
+
+message TimeTravelForkHistoryEvent {
+  string previous_run_id = 1;
 }
 ```
 
 不返回 unknown engine event。遇到新 engine event type 时忽略；已识别的 Dex payload 无法解码时返回 internal error。
+只有 backend reset marker 会映射为 `TimeTravelForkHistoryEvent`；`previous_run_id` 指向保留的原 history run。
 
 ### 6.3 Flow events
 
@@ -739,7 +747,7 @@ Web Vitest：
 
 - 递归发现和替换 step input、attributes、channels、continued state 和 condition results。
 - batch cache 避免切换 tab 后重复加载。
-- timeline、step graph、reset dialog 和 selected event 不再读取旧的 execution/request/response。
+- timeline、step graph、time travel dialog 和 selected event 不再读取旧的 execution/request/response。
 - Input 按 step input、condition results、attributes、locals 排列；Output 和 Context 使用新结构。
 - terminal ASYNC failure 缺少 snapshot 时解释 short retry 行为；单个 Value blob unavailable 仍使用数据提示。
 - 加载失败显示 unavailable，结构化 details 和 Raw JSON 都不泄露 blob ID。

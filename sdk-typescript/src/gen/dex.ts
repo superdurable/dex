@@ -137,11 +137,17 @@ export enum ActiveStepPhase {
 
 export enum FlowResetType {
   FLOW_RESET_TYPE_UNSPECIFIED = 0,
-  FLOW_RESET_TYPE_HISTORY_EVENT_ID = 1,
-  FLOW_RESET_TYPE_BEGINNING = 2,
-  FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 3,
-  FLOW_RESET_TYPE_STEP_TYPE = 4,
-  FLOW_RESET_TYPE_STEP_EXECUTION_ID = 5,
+  FLOW_RESET_TYPE_BEGINNING = 1,
+  FLOW_RESET_TYPE_HISTORY_EVENT_TIME = 2,
+  FLOW_RESET_TYPE_STEP_TYPE = 3,
+  FLOW_RESET_TYPE_STEP_EXECUTION_ID = 4,
+  UNRECOGNIZED = -1,
+}
+
+export enum FlowResetStepMethod {
+  FLOW_RESET_STEP_METHOD_UNSPECIFIED = 0,
+  FLOW_RESET_STEP_METHOD_WAIT_FOR = 1,
+  FLOW_RESET_STEP_METHOD_EXECUTE = 2,
   UNRECOGNIZED = -1,
 }
 
@@ -537,7 +543,14 @@ export interface FlowHistoryEvent {
     | { $case: "channelExternalPublish"; value: ChannelExternalPublishEvent }
     | { $case: "stepWaitForPending"; value: StepMethodPendingEvent }
     | { $case: "stepExecutePending"; value: StepMethodPendingEvent }
+    | { $case: "timeTravelFork"; value: TimeTravelForkHistoryEvent }
     | undefined;
+}
+
+/** TimeTravelForkHistoryEvent identifies the preserved run whose history Time Travel forked. */
+export interface TimeTravelForkHistoryEvent {
+  /** Previous run containing the original history branch. */
+  previousRunId: string;
 }
 
 export interface FlowStartedOrContinuedHistoryEvent {
@@ -731,13 +744,13 @@ export interface ResetFlowRequest {
   flowId: string;
   runId: string;
   resetType: FlowResetType;
-  historyEventId: number;
   reason: string;
   historyEventTime: string;
   stepType: string;
   stepExecutionId: string;
   /** Skips reapplying RPCs, Channel publications, and Attribute writes after the reset point. */
   skipWritesReapply: boolean;
+  stepMethod: FlowResetStepMethod;
 }
 
 export interface ResetFlowResponse {
@@ -4866,6 +4879,9 @@ export const FlowHistoryEvent: MessageFns<FlowHistoryEvent> = {
       case "stepExecutePending":
         StepMethodPendingEvent.encode(message.payload.value, writer.uint32(234).fork()).join();
         break;
+      case "timeTravelFork":
+        TimeTravelForkHistoryEvent.encode(message.payload.value, writer.uint32(242).fork()).join();
+        break;
     }
     return writer;
   },
@@ -5000,6 +5016,17 @@ export const FlowHistoryEvent: MessageFns<FlowHistoryEvent> = {
           };
           continue;
         }
+        case 30: {
+          if (tag !== 242) {
+            break;
+          }
+
+          message.payload = {
+            $case: "timeTravelFork",
+            value: TimeTravelForkHistoryEvent.decode(reader, reader.uint32()),
+          };
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -5104,7 +5131,62 @@ export const FlowHistoryEvent: MessageFns<FlowHistoryEvent> = {
         }
         break;
       }
+      case "timeTravelFork": {
+        if (object.payload?.value !== undefined && object.payload?.value !== null) {
+          message.payload = {
+            $case: "timeTravelFork",
+            value: TimeTravelForkHistoryEvent.fromPartial(object.payload.value),
+          };
+        }
+        break;
+      }
     }
+    return message;
+  },
+};
+
+function createBaseTimeTravelForkHistoryEvent(): TimeTravelForkHistoryEvent {
+  return { previousRunId: "" };
+}
+
+export const TimeTravelForkHistoryEvent: MessageFns<TimeTravelForkHistoryEvent> = {
+  encode(message: TimeTravelForkHistoryEvent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.previousRunId !== "") {
+      writer.uint32(10).string(message.previousRunId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TimeTravelForkHistoryEvent {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTimeTravelForkHistoryEvent();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.previousRunId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<TimeTravelForkHistoryEvent>, I>>(base?: I): TimeTravelForkHistoryEvent {
+    return TimeTravelForkHistoryEvent.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<TimeTravelForkHistoryEvent>, I>>(object: I): TimeTravelForkHistoryEvent {
+    const message = createBaseTimeTravelForkHistoryEvent();
+    message.previousRunId = object.previousRunId ?? "";
     return message;
   },
 };
@@ -7452,12 +7534,12 @@ function createBaseResetFlowRequest(): ResetFlowRequest {
     flowId: "",
     runId: "",
     resetType: 0,
-    historyEventId: 0,
     reason: "",
     historyEventTime: "",
     stepType: "",
     stepExecutionId: "",
     skipWritesReapply: false,
+    stepMethod: 0,
   };
 }
 
@@ -7472,23 +7554,23 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
     if (message.resetType !== 0) {
       writer.uint32(24).int32(message.resetType);
     }
-    if (message.historyEventId !== 0) {
-      writer.uint32(32).int32(message.historyEventId);
-    }
     if (message.reason !== "") {
-      writer.uint32(42).string(message.reason);
+      writer.uint32(34).string(message.reason);
     }
     if (message.historyEventTime !== "") {
-      writer.uint32(50).string(message.historyEventTime);
+      writer.uint32(42).string(message.historyEventTime);
     }
     if (message.stepType !== "") {
-      writer.uint32(58).string(message.stepType);
+      writer.uint32(50).string(message.stepType);
     }
     if (message.stepExecutionId !== "") {
-      writer.uint32(66).string(message.stepExecutionId);
+      writer.uint32(58).string(message.stepExecutionId);
     }
     if (message.skipWritesReapply !== false) {
-      writer.uint32(72).bool(message.skipWritesReapply);
+      writer.uint32(64).bool(message.skipWritesReapply);
+    }
+    if (message.stepMethod !== 0) {
+      writer.uint32(72).int32(message.stepMethod);
     }
     return writer;
   },
@@ -7525,11 +7607,11 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
           continue;
         }
         case 4: {
-          if (tag !== 32) {
+          if (tag !== 34) {
             break;
           }
 
-          message.historyEventId = reader.int32();
+          message.reason = reader.string();
           continue;
         }
         case 5: {
@@ -7537,7 +7619,7 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
             break;
           }
 
-          message.reason = reader.string();
+          message.historyEventTime = reader.string();
           continue;
         }
         case 6: {
@@ -7545,7 +7627,7 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
             break;
           }
 
-          message.historyEventTime = reader.string();
+          message.stepType = reader.string();
           continue;
         }
         case 7: {
@@ -7553,15 +7635,15 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
             break;
           }
 
-          message.stepType = reader.string();
+          message.stepExecutionId = reader.string();
           continue;
         }
         case 8: {
-          if (tag !== 66) {
+          if (tag !== 64) {
             break;
           }
 
-          message.stepExecutionId = reader.string();
+          message.skipWritesReapply = reader.bool();
           continue;
         }
         case 9: {
@@ -7569,7 +7651,7 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
             break;
           }
 
-          message.skipWritesReapply = reader.bool();
+          message.stepMethod = reader.int32() as any;
           continue;
         }
       }
@@ -7589,12 +7671,12 @@ export const ResetFlowRequest: MessageFns<ResetFlowRequest> = {
     message.flowId = object.flowId ?? "";
     message.runId = object.runId ?? "";
     message.resetType = object.resetType ?? 0;
-    message.historyEventId = object.historyEventId ?? 0;
     message.reason = object.reason ?? "";
     message.historyEventTime = object.historyEventTime ?? "";
     message.stepType = object.stepType ?? "";
     message.stepExecutionId = object.stepExecutionId ?? "";
     message.skipWritesReapply = object.skipWritesReapply ?? false;
+    message.stepMethod = object.stepMethod ?? 0;
     return message;
   },
 };

@@ -240,6 +240,7 @@ func doTestLockingWorkflow(
 		resetRequest.RunId = resetSourceRunID
 		resetRequest.StepType = ""
 		resetRequest.StepExecutionId = fmt.Sprintf("%s-%d", locking.State2, s2StartsDecides)
+		resetRequest.StepMethod = dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_WAIT_FOR
 		expectedRPCInvokes = int32(rpcIncrease)
 		expectedS2Invokes = int64(s2StartsDecides + 1)
 		expectedStateWaitingWaitForInvokes = 1

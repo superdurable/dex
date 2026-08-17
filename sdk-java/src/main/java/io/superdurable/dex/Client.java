@@ -32,6 +32,7 @@ import io.superdurable.gen.AttributeSyncConfig;
 import io.superdurable.gen.AttributeWrite;
 import io.superdurable.gen.FlowAlreadyStartedOptions;
 import io.superdurable.gen.FlowExecutionID;
+import io.superdurable.gen.FlowResetStepMethod;
 import io.superdurable.gen.FlowResetType;
 import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.FlowStartOptions;
@@ -720,23 +721,20 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Resets a Flow and returns the new run ID.
+     * Creates a new run from a selected point in an existing Flow's history.
      *
      * @param flowId the target Flow ID
-     * @param options the reset point and replay behavior
-     * @return the server-assigned run ID of the reset execution
+     * @param options the time travel point and replay behavior
+     * @return the server-assigned run ID of the new execution
      * @throws FlowNotFoundException if no matching Flow execution exists
-     * @throws DexServiceException if Dex otherwise rejects or cannot perform the reset
+     * @throws DexServiceException if Dex otherwise rejects or cannot perform time travel
      */
-    public String resetFlow(final String flowId, final ResetFlowOptions options) {
+    public String timeTravel(final String flowId, final TimeTravelOptions options) {
         final ResetFlowRequest.Builder request = ResetFlowRequest.newBuilder()
                 .setFlowId(flowId)
-                .setResetType(mapResetType(options.getType()))
+                .setResetType(mapTimeTravelType(options.getType()))
                 .setReason(options.getReason() == null ? "" : options.getReason())
                 .setSkipWritesReapply(options.isSkipWritesReapply());
-        if (options.getHistoryEventId() != null) {
-            request.setHistoryEventId(Math.toIntExact(options.getHistoryEventId()));
-        }
         if (options.getHistoryEventTime() != null) {
             request.setHistoryEventTime(options.getHistoryEventTime().toString());
         }
@@ -745,6 +743,9 @@ public final class Client implements AutoCloseable {
         }
         if (options.getStepExecutionId() != null) {
             request.setStepExecutionId(options.getStepExecutionId());
+        }
+        if (options.getStepMethod() != null) {
+            request.setStepMethod(mapTimeTravelStepMethod(options.getStepMethod()));
         }
         return call(
                 () -> service.resetFlow(request.build()),
@@ -1206,10 +1207,8 @@ public final class Client implements AutoCloseable {
         }
     }
 
-    private static FlowResetType mapResetType(final ResetType type) {
+    private static FlowResetType mapTimeTravelType(final TimeTravelType type) {
         switch (type) {
-            case HISTORY_EVENT_ID:
-                return FlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_ID;
             case BEGINNING:
                 return FlowResetType.FLOW_RESET_TYPE_BEGINNING;
             case HISTORY_EVENT_TIME:
@@ -1220,6 +1219,17 @@ public final class Client implements AutoCloseable {
                 return FlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID;
             default:
                 return FlowResetType.FLOW_RESET_TYPE_UNSPECIFIED;
+        }
+    }
+
+    private static FlowResetStepMethod mapTimeTravelStepMethod(final TimeTravelStepMethod method) {
+        switch (method) {
+            case WAIT_FOR:
+                return FlowResetStepMethod.FLOW_RESET_STEP_METHOD_WAIT_FOR;
+            case EXECUTE:
+                return FlowResetStepMethod.FLOW_RESET_STEP_METHOD_EXECUTE;
+            default:
+                return FlowResetStepMethod.FLOW_RESET_STEP_METHOD_UNSPECIFIED;
         }
     }
 

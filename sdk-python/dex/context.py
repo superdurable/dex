@@ -42,7 +42,7 @@ class Context(Protocol):
         """Return the current server-assigned run ID.
 
         Returns:
-            The run ID, which changes after reset or continue-as-new.
+            The run ID, which changes after time travel or continue-as-new.
         """
         ...
 

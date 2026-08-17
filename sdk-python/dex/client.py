@@ -35,8 +35,9 @@ from dex.flow_info import FlowInfo, FlowStatus, SearchFlowEntry, SearchFlowsPage
 from dex.flow_options import (
     FlowTimeoutPolicy,
     IdReusePolicy,
-    ResetFlowOptions,
-    ResetType,
+    TimeTravelOptions,
+    TimeTravelStepMethod,
+    TimeTravelType,
     StartFlowOptions,
     StopFlowOptions,
     StopType,
@@ -664,47 +665,49 @@ class Client:
             attributes,
         )
 
-    def reset_flow(self, flow_id: str, options: ResetFlowOptions) -> str:
+    def time_travel(self, flow_id: str, options: TimeTravelOptions) -> str:
         """Create a new run from a selected point in existing Flow history.
 
         Args:
-            flow_id: The non-empty Flow ID whose history is reset.
-            options: Reset selector, reason, and replay controls.
+            flow_id: The non-empty Flow ID whose history supplies the new run.
+            options: Time travel selector, reason, and replay controls.
 
         Returns:
             The new server-assigned run ID; the Flow ID is unchanged.
 
         Raises:
             FlowNotFoundError: If ``flow_id`` does not exist.
-            ValueError: If reset selector fields are invalid.
-            DexServiceError: If FlowService cannot reset the Flow.
+            ValueError: If time travel selector fields are invalid.
+            DexServiceError: If FlowService cannot create the new run.
         """
         request = pb.ResetFlowRequest(
             flow_id=require_name(flow_id),
             reset_type={
-                ResetType.BEGINNING: pb.FLOW_RESET_TYPE_BEGINNING,
-                ResetType.HISTORY_EVENT_ID: pb.FLOW_RESET_TYPE_HISTORY_EVENT_ID,
-                ResetType.HISTORY_EVENT_TIME: pb.FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
-                ResetType.STEP_TYPE: pb.FLOW_RESET_TYPE_STEP_TYPE,
-                ResetType.STEP_EXECUTION_ID: pb.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+                TimeTravelType.BEGINNING: pb.FLOW_RESET_TYPE_BEGINNING,
+                TimeTravelType.HISTORY_EVENT_TIME: pb.FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
+                TimeTravelType.STEP_TYPE: pb.FLOW_RESET_TYPE_STEP_TYPE,
+                TimeTravelType.STEP_EXECUTION_ID: pb.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
             }[options.type],
             reason=options.reason or "",
             skip_writes_reapply=options.skip_writes_reapply,
         )
-        if options.history_event_id is not None:
-            request.history_event_id = options.history_event_id
         if options.history_event_time is not None:
             request.history_event_time = options.history_event_time.isoformat()
         if options.step_type is not None:
             request.step_type = options.step_type
         if options.step_execution_id is not None:
             request.step_execution_id = options.step_execution_id
+        if options.step_method is not None:
+            request.step_method = {
+                TimeTravelStepMethod.WAIT_FOR: pb.FLOW_RESET_STEP_METHOD_WAIT_FOR,
+                TimeTravelStepMethod.EXECUTE: pb.FLOW_RESET_STEP_METHOD_EXECUTE,
+            }[options.step_method]
         response = cast(
             pb.ResetFlowResponse,
             self._call(
                 self._service.ResetFlow,
                 request,
-                "reset_flow",
+                "time_travel",
                 flow_id,
                 "existing",
             ),

@@ -13,7 +13,7 @@ import test from "node:test";
 
 import {
   FlowNotFoundError,
-  ResetType,
+  TimeTravelType,
   StepExecutionId,
   SubFlowReusePolicy,
   TimerId,
@@ -89,7 +89,7 @@ test("SubFlow default reuse restarts a failed execution across parent reset", as
     await client.startFlow(parent, id, 1);
     assert.equal((await client.waitForFlow(id, 30_000)).singleOutput(stringCodec).split("|")[1], "failed");
     const firstChildRunId = (await client.describeFlow(childId)).runId;
-    await client.resetFlow(id, { type: ResetType.BEGINNING, reason: "verify SubFlow abnormal reuse" });
+    await client.timeTravel(id, { type: TimeTravelType.BEGINNING, reason: "verify SubFlow abnormal reuse" });
     assert.equal((await client.waitForFlow(id, 30_000)).singleOutput(stringCodec).split("|")[1], "failed");
     assert.notEqual((await client.describeFlow(childId)).runId, firstChildRunId);
   });
@@ -130,7 +130,7 @@ async function assertRunningReuse(
     const childId = `SubFlow:${id}-ParentStep-1-0`;
     await client.startFlow(parent, id, 300);
     const firstRunId = await awaitRunning(client, childId);
-    await client.resetFlow(id, { type: ResetType.BEGINNING, reason: "verify SubFlow running reuse" });
+    await client.timeTravel(id, { type: TimeTravelType.BEGINNING, reason: "verify SubFlow running reuse" });
     const activeRunId = await awaitRunning(client, childId, expectsRestart ? firstRunId : undefined);
     assert.equal(activeRunId !== firstRunId, expectsRestart);
     await client.skipTimer(

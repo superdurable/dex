@@ -111,6 +111,30 @@ describe('step graph', () => {
     expect(graph.nodes.find((node) => node.id === 'S2-1')?.fromStepExecutionId).toBe('S1-1');
   });
 
+  it('does not add Time Travel lineage to the business topology', () => {
+    const graph = buildStepGraph([
+      event(1, 'FlowStartedOrContinued'),
+      event(7, 'TimeTravelFork', {}, { previousRunId: 'source-run-id' }),
+    ]);
+
+    expect(graph.nodes.find((node) => node.id === '__start__')).toMatchObject({
+      label: 'Flow start',
+      previousRunId: '',
+    });
+  });
+
+  it('shows Continue-As-New lineage at the business topology source', () => {
+    const graph = buildStepGraph([
+      event(1, 'FlowStartedOrContinued', {}, {
+        continuedStart: { previousRunId: 'continued-run-id' },
+      }),
+    ]);
+
+    expect(graph.nodes.find((node) => node.id === '__start__')).toMatchObject({
+      previousRunId: 'continued-run-id',
+    });
+  });
+
   it('creates RPC sources and overlays waiting state', () => {
     const graph = buildStepGraph([], [{
       stepExecutionId: 'Approval-1',

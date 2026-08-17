@@ -354,8 +354,8 @@ func TestSubFlowDefaultReuseRestartsFailedExecutionAcrossParentReset(t *testing.
 	require.NoError(t, err)
 	waitForFlow(t, flowID, true)
 	firstRunID := getSubFlowRunID(t, childID)
-	_, err = integClient.ResetFlow(integrationContext(t), flowID, dex.ResetOptions{
-		Type: dex.ResetToBeginning, Reason: "verify SubFlow abnormal reuse",
+	_, err = integClient.TimeTravel(integrationContext(t), flowID, dex.TimeTravelOptions{
+		Type: dex.TimeTravelToBeginning, Reason: "verify SubFlow abnormal reuse",
 	})
 	require.NoError(t, err)
 	waitForFlow(t, flowID, true)
@@ -428,8 +428,8 @@ func assertSubFlowRunningReuse[Input any](
 	)
 	require.NoError(t, err)
 	firstRunID := awaitSubFlowRunID(t, childID, "")
-	_, err = integClient.ResetFlow(integrationContext(t), flowID, dex.ResetOptions{
-		Type: dex.ResetToBeginning, Reason: "verify SubFlow running reuse",
+	_, err = integClient.TimeTravel(integrationContext(t), flowID, dex.TimeTravelOptions{
+		Type: dex.TimeTravelToBeginning, Reason: "verify SubFlow running reuse",
 	})
 	require.NoError(t, err)
 	activeRunID := firstRunID

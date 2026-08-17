@@ -62,7 +62,8 @@ export type HistoryEventType =
   | 'StepExecuteFailed'
   | 'StepExecutePending'
   | 'RpcExecutionCompleted'
-  | 'ChannelExternalPublish';
+  | 'ChannelExternalPublish'
+  | 'TimeTravelFork';
 
 export interface FlowHistoryEvent {
   eventId: number;

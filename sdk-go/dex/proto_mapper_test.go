@@ -297,8 +297,8 @@ func TestFlowConfigRejectsUnknownEnums(t *testing.T) {
 	_, _, err = mapStopOptions(StopOptions{Type: StopType(99)})
 	require.ErrorContains(t, err, "unsupported stop type")
 
-	_, err = mapResetOptions(ResetOptions{Type: ResetType(99)})
-	require.ErrorContains(t, err, "unsupported reset type")
+	_, err = mapTimeTravelOptions(TimeTravelOptions{Type: TimeTravelType(99)})
+	require.ErrorContains(t, err, "unsupported time travel type")
 
 	_, err = mapSearchFlowsOptions("", -1, "")
 	require.ErrorContains(t, err, "must not be negative")

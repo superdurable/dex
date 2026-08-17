@@ -16,6 +16,7 @@ import {
   ActiveStepSearchMode as ProtoActiveStepSearchMode,
   FlowErrorType as ProtoFlowErrorType,
   FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
+  FlowResetStepMethod as ProtoFlowResetStepMethod,
   FlowResetType as ProtoFlowResetType,
   FlowServiceClient,
   FlowStatus as ProtoFlowStatus,
@@ -62,13 +63,14 @@ import {
   ActiveStepSearchMode,
   FlowTimeoutPolicy,
   IdReusePolicy,
-  ResetType,
+  TimeTravelStepMethod,
+  TimeTravelType,
   StopType,
   type ClientOptions,
   type FlowConfig,
   type FlowInfo,
   type FlowStatus,
-  type ResetFlowOptions,
+  type TimeTravelOptions,
   type SearchFlowEntry,
   type SearchFlowsPage,
   type StartFlowOptions,
@@ -615,25 +617,25 @@ export class Client {
 
   /**
    * Creates a new run from a selected point in existing Flow history.
-   * @param flowId - Non-empty Flow ID whose history is reset.
-   * @param options - Reset selector, reason, and replay controls.
+   * @param flowId - Non-empty Flow ID whose history supplies the new run.
+   * @param options - Time travel selector, reason, and replay controls.
    * @returns The new server-assigned run ID; the Flow ID remains unchanged.
    */
-  public async resetFlow(flowId: string, options: ResetFlowOptions): Promise<string> {
+  public async timeTravel(flowId: string, options: TimeTravelOptions): Promise<string> {
     const response = await unary<ResetFlowResponse>(
-      { operation: "resetFlow", flowId, requirement: "existing" },
+      { operation: "timeTravel", flowId, requirement: "existing" },
       (callback) =>
       this.service.resetFlow(
         {
           flowId: requireName(flowId),
           runId: "",
-          resetType: mapResetType(options.type),
-          historyEventId: number64(options.historyEventId),
+          resetType: mapTimeTravelType(options.type),
           reason: options.reason ?? "",
           historyEventTime: options.historyEventTime?.toISOString() ?? "",
           stepType: options.stepType ?? "",
           stepExecutionId: options.stepExecutionId ?? "",
           skipWritesReapply: options.skipWritesReapply ?? false,
+          stepMethod: mapTimeTravelStepMethod(options.stepMethod),
         },
         callback,
       ),
@@ -980,15 +982,27 @@ function mapStopType(type: StopType | undefined): ProtoStopType {
   }
 }
 
-function mapResetType(type: ResetType): ProtoFlowResetType {
-  const types: Record<ResetType, ProtoFlowResetType> = {
-    [ResetType.BEGINNING]: ProtoFlowResetType.FLOW_RESET_TYPE_BEGINNING,
-    [ResetType.HISTORY_EVENT_ID]: ProtoFlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_ID,
-    [ResetType.HISTORY_EVENT_TIME]: ProtoFlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
-    [ResetType.STEP_TYPE]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_TYPE,
-    [ResetType.STEP_EXECUTION_ID]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
+function mapTimeTravelType(type: TimeTravelType): ProtoFlowResetType {
+  const types: Record<TimeTravelType, ProtoFlowResetType> = {
+    [TimeTravelType.BEGINNING]: ProtoFlowResetType.FLOW_RESET_TYPE_BEGINNING,
+    [TimeTravelType.HISTORY_EVENT_TIME]: ProtoFlowResetType.FLOW_RESET_TYPE_HISTORY_EVENT_TIME,
+    [TimeTravelType.STEP_TYPE]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_TYPE,
+    [TimeTravelType.STEP_EXECUTION_ID]: ProtoFlowResetType.FLOW_RESET_TYPE_STEP_EXECUTION_ID,
   };
   return types[type];
+}
+
+function mapTimeTravelStepMethod(
+  method: TimeTravelStepMethod | undefined,
+): ProtoFlowResetStepMethod {
+  switch (method) {
+    case TimeTravelStepMethod.WAIT_FOR:
+      return ProtoFlowResetStepMethod.FLOW_RESET_STEP_METHOD_WAIT_FOR;
+    case TimeTravelStepMethod.EXECUTE:
+      return ProtoFlowResetStepMethod.FLOW_RESET_STEP_METHOD_EXECUTE;
+    default:
+      return ProtoFlowResetStepMethod.FLOW_RESET_STEP_METHOD_UNSPECIFIED;
+  }
 }
 
 function mapDurability(value: "sync" | "async" | undefined): ProtoStepDurability {

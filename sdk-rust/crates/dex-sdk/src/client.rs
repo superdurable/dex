@@ -14,8 +14,8 @@ use std::time::{Duration, SystemTime};
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use dex_protocol::dex::{
     ActiveStepSearchMode as ProtoSearchMode, AttributeWrite, FlowAlreadyStartedOptions,
-    FlowConfig as ProtoFlowConfig, FlowResetType, FlowRetryPolicy, FlowStartOptions,
-    FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
+    FlowConfig as ProtoFlowConfig, FlowResetStepMethod, FlowResetType, FlowRetryPolicy,
+    FlowStartOptions, FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
     GetAttributesRequest, GetFlowSummaryRequest, IdReusePolicy as ProtoIdReusePolicy,
     InvokeRpcRequest, PublishToChannelRequest, ResetFlowRequest, SearchFlowsRequest,
     SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
@@ -28,18 +28,18 @@ use tokio::runtime::Runtime;
 use tonic::transport::Endpoint;
 use uuid::Uuid;
 
-use crate::reset_flow_options::ResetPoint;
 use crate::sdk_error::{FlowTargetRequirement, ServiceError};
 use crate::stop_flow_options::StopType;
+use crate::time_travel_options::{TimeTravelPoint, TimeTravelStepMethod};
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::worker_dispatcher::map_step_options;
 use crate::{
     ActiveStepSearchMode, Attribute, AttributeMap, BlobCache, Channel, ChannelMap, ClientOptions,
     Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, FlowTimeoutPolicy,
-    IdReusePolicy, Registry, ResetFlowOptions, RetryPolicy, Rpc, SdkError, SdkResult,
-    SearchFlowEntry, SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability,
-    StepExecutionId, StopFlowOptions, TimerId, Value, WorkerTarget,
+    IdReusePolicy, Registry, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry,
+    SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability, StepExecutionId,
+    StopFlowOptions, TimeTravelOptions, TimerId, Value, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -499,39 +499,38 @@ impl Client {
     ///
     /// # Errors
     ///
-    /// Returns InvalidArgument for an unrepresentable history ID or time, FlowNotFound for an
-    /// unknown ID, or another service error.
-    pub fn reset_flow(&self, flow_id: &str, options: ResetFlowOptions) -> SdkResult<String> {
+    /// Returns InvalidArgument for an unrepresentable time, FlowNotFound for an unknown ID, or
+    /// another service error.
+    pub fn time_travel(&self, flow_id: &str, options: TimeTravelOptions) -> SdkResult<String> {
         let mut request = ResetFlowRequest {
             flow_id: flow_id.to_string(),
             run_id: String::new(),
             reset_type: FlowResetType::Unspecified as i32,
-            history_event_id: 0,
             reason: options.reason.unwrap_or_default(),
             history_event_time: String::new(),
             step_type: String::new(),
             step_execution_id: String::new(),
             skip_writes_reapply: options.skip_writes_reapply,
+            step_method: FlowResetStepMethod::Unspecified as i32,
         };
         match options.point {
-            ResetPoint::Beginning => request.reset_type = FlowResetType::Beginning as i32,
-            ResetPoint::HistoryEventId(event_id) => {
-                request.reset_type = FlowResetType::HistoryEventId as i32;
-                request.history_event_id = i32::try_from(event_id)
-                    .map_err(|_| invalid("history event ID exceeds int32"))?;
-            }
-            ResetPoint::HistoryEventTime(time) => {
+            TimeTravelPoint::Beginning => request.reset_type = FlowResetType::Beginning as i32,
+            TimeTravelPoint::HistoryEventTime(time) => {
                 request.reset_type = FlowResetType::HistoryEventTime as i32;
                 request.history_event_time = rfc3339(time)?;
             }
-            ResetPoint::StepType(step_type) => {
+            TimeTravelPoint::StepType(step_type) => {
                 request.reset_type = FlowResetType::StepType as i32;
                 request.step_type = step_type.to_string();
             }
-            ResetPoint::StepExecution(execution) => {
+            TimeTravelPoint::StepExecution(execution, method) => {
                 request.reset_type = FlowResetType::StepExecutionId as i32;
                 request.step_execution_id =
                     format!("{}-{}", execution.step_type, execution.execution_number);
+                request.step_method = match method {
+                    TimeTravelStepMethod::WaitFor => FlowResetStepMethod::WaitFor as i32,
+                    TimeTravelStepMethod::Execute => FlowResetStepMethod::Execute as i32,
+                };
             }
         }
         let mut service = self.service.clone();
@@ -543,7 +542,7 @@ impl Client {
                 .map_err(|status| {
                     SdkError::from_status(
                         status,
-                        "reset_flow",
+                        "time_travel",
                         Some(flow_id),
                         FlowTargetRequirement::Existing,
                     )

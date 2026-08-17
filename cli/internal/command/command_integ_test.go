@@ -29,11 +29,13 @@ import (
 type testFlowService struct {
 	dexpb.UnimplementedFlowServiceServer
 
-	mu          sync.Mutex
-	loadCalls   int
-	stopCalls   int
-	waitStarted chan struct{}
-	waitOnce    sync.Once
+	mu                sync.Mutex
+	loadCalls         int
+	stopCalls         int
+	timeTravelCalls   int
+	timeTravelRequest *dexpb.ResetFlowRequest
+	waitStarted       chan struct{}
+	waitOnce          sync.Once
 }
 
 func (s *testFlowService) HealthCheck(context.Context, *emptypb.Empty) (*dexpb.HealthInfo, error) {
@@ -76,6 +78,17 @@ func (s *testFlowService) StopFlow(
 	s.stopCalls++
 	s.mu.Unlock()
 	return &emptypb.Empty{}, nil
+}
+
+func (s *testFlowService) ResetFlow(
+	_ context.Context,
+	request *dexpb.ResetFlowRequest,
+) (*dexpb.ResetFlowResponse, error) {
+	s.mu.Lock()
+	s.timeTravelCalls++
+	s.timeTravelRequest = request
+	s.mu.Unlock()
+	return &dexpb.ResetFlowResponse{RunId: "run-2"}, nil
 }
 
 func (s *testFlowService) GetFlowSummary(
@@ -197,6 +210,41 @@ func TestMutationRequiresYesBeforeSendingRequest(t *testing.T) {
 	)
 	if result["stopped"] != true {
 		t.Fatalf("unexpected stop result: %#v", result)
+	}
+}
+
+func TestTimeTravelRequiresConfirmationAndMapsStepMethod(t *testing.T) {
+	service, address := startTestFlowService(t)
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	app := NewApp(bytes.NewReader(nil), stdout, stderr)
+	err := app.Execute(context.Background(), []string{
+		"flow", "time-travel", "flow-1", "--run-id", "run-1", "--type", "step-execution-id",
+		"--target", "ChargeOrder-2", "--step-method", "execute", "--reason", "retry fixed code", "--server", address,
+	})
+	if err == nil || ExitCode(err) != 2 {
+		t.Fatalf("expected confirmation error, got %v", err)
+	}
+	service.mu.Lock()
+	if service.timeTravelCalls != 0 {
+		service.mu.Unlock()
+		t.Fatal("time travel was called without confirmation")
+	}
+	service.mu.Unlock()
+
+	result := executeTestCommand(t, nil,
+		"flow", "time-travel", "flow-1", "--run-id", "run-1", "--type", "step-execution-id",
+		"--target", "ChargeOrder-2", "--step-method", "execute", "--reason", "retry fixed code", "--yes", "--server", address,
+	)
+	if result["previousRunId"] != "run-1" || result["runId"] != "run-2" {
+		t.Fatalf("unexpected time travel result: %#v", result)
+	}
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.timeTravelCalls != 1 ||
+		service.timeTravelRequest.GetStepExecutionId() != "ChargeOrder-2" ||
+		service.timeTravelRequest.GetStepMethod() != dexpb.FlowResetStepMethod_FLOW_RESET_STEP_METHOD_EXECUTE {
+		t.Fatalf("unexpected time travel request: %#v", service.timeTravelRequest)
 	}
 }
 

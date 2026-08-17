@@ -718,31 +718,41 @@ func searchFlowValuePointers(response *dexpb.SearchFlowsResponse) []**dexpb.Valu
 	return pointers
 }
 
-// ResetFlow creates a new run of an existing Flow and returns the new run ID.
+// TimeTravel creates a new run from a selected point in an existing Flow's history.
 //
-// options selects the reset point, optional Step input, and reset reason. The server
-// keeps the Flow ID and starts a new run. ResetFlow returns validation or
-// serialization errors before the request, and context, transport, not-found, or
-// server errors after it is sent.
-func (client *Client) ResetFlow(
+// The new run keeps the Flow ID. Writes after the selected point are reapplied unless
+// SkipWritesReapply is true. The returned run ID identifies the new execution.
+//
+// Example:
+//
+//	newRunID, err := client.TimeTravel(ctx, "order-123", dex.TimeTravelOptions{
+//		Type:            dex.TimeTravelByStepExecutionID,
+//		StepExecutionID: "ChargeOrder-2",
+//		StepMethod:      dex.TimeTravelStepExecute,
+//		Reason:          "retry after operator review",
+//	})
+//
+// TimeTravel returns validation errors before sending the request. It returns context,
+// transport, Flow-not-found, or server errors after the request is sent.
+func (client *Client) TimeTravel(
 	ctx context.Context,
 	flowID string,
-	options ResetOptions,
+	options TimeTravelOptions,
 ) (newRunID string, err error) {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return "", err
 	}
-	request, err := mapResetOptions(options)
+	request, err := mapTimeTravelOptions(options)
 	if err != nil {
 		return "", err
 	}
 	request.FlowId = flowID
 	response, err := client.service.ResetFlow(ctx, request)
 	if err != nil {
-		return "", translateRPCError(err, "ResetFlow", flowID, flowTargetExisting)
+		return "", translateRPCError(err, "TimeTravel", flowID, flowTargetExisting)
 	}
 	if response == nil || response.RunId == "" {
-		return "", fmt.Errorf("dex: ResetFlow response has no run ID")
+		return "", fmt.Errorf("dex: TimeTravel response has no run ID")
 	}
 	return response.RunId, nil
 }

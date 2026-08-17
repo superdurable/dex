@@ -314,36 +314,44 @@ type TimerID struct {
 	Index *int32
 }
 
-// ResetType identifies the historical point selector used by ResetFlow.
-type ResetType uint8
+// TimeTravelType identifies the historical point selector used by Client.TimeTravel.
+type TimeTravelType uint8
 
 const (
-	// ResetByHistoryEventID resets at a workflow-history event ID.
-	ResetByHistoryEventID ResetType = iota + 1
-	// ResetToBeginning resets before the first history event.
-	ResetToBeginning
-	// ResetByHistoryEventTime resets at the last eligible event by time.
-	ResetByHistoryEventTime
-	// ResetByStepType resets before the first execution of a Step type.
-	ResetByStepType
-	// ResetByStepExecutionID resets before an exact Step execution.
-	ResetByStepExecutionID
+	// TimeTravelToBeginning resumes before the first history event.
+	TimeTravelToBeginning TimeTravelType = iota + 1
+	// TimeTravelByHistoryEventTime resumes at the last eligible event by time.
+	TimeTravelByHistoryEventTime
+	// TimeTravelByStepType resumes before the first execution of a Step type.
+	TimeTravelByStepType
+	// TimeTravelByStepExecutionID resumes before an exact Step execution.
+	TimeTravelByStepExecutionID
 )
 
-// ResetOptions configures Client.ResetFlow and one reset-point selector.
-type ResetOptions struct {
-	// Type selects which reset-point field Dex reads.
-	Type ResetType
-	// HistoryEventID supplies the event ID for ResetByHistoryEventID.
-	HistoryEventID int32
-	// Reason is recorded with the reset operation.
+// TimeTravelStepMethod selects the Step method used as a time travel boundary.
+type TimeTravelStepMethod uint8
+
+const (
+	// TimeTravelStepWaitFor resumes before the selected Step execution's WaitFor method.
+	TimeTravelStepWaitFor TimeTravelStepMethod = iota + 1
+	// TimeTravelStepExecute resumes before the selected Step execution's Execute method.
+	TimeTravelStepExecute
+)
+
+// TimeTravelOptions configures Client.TimeTravel with exactly one historical point.
+type TimeTravelOptions struct {
+	// Type selects which time travel point field Dex reads.
+	Type TimeTravelType
+	// Reason is recorded with the time travel operation; empty leaves it unspecified.
 	Reason string
-	// HistoryEventTime supplies the time for ResetByHistoryEventTime.
+	// HistoryEventTime supplies the time for TimeTravelByHistoryEventTime.
 	HistoryEventTime time.Time
-	// StepType supplies the stable Step type for ResetByStepType.
+	// StepType supplies the stable Step type for TimeTravelByStepType.
 	StepType string
-	// StepExecutionID supplies the exact execution for ResetByStepExecutionID.
+	// StepExecutionID supplies the exact execution for TimeTravelByStepExecutionID.
 	StepExecutionID string
-	// SkipWritesReapply prevents replay of post-reset RPCs, Channel publications, and Attribute writes.
+	// StepMethod selects WaitFor or Execute when Type is TimeTravelByStepExecutionID.
+	StepMethod TimeTravelStepMethod
+	// SkipWritesReapply prevents replay of later RPCs, Channel publications, and Attribute writes; false reapplies them.
 	SkipWritesReapply bool
 }

@@ -116,6 +116,16 @@ func WorkflowPath(workflowPath string) Tag {
 	return newStringTag("workflow-path", workflowPath)
 }
 
+// StepExecutionID returns the Step execution ID tag.
+func StepExecutionID(stepExecutionID string) Tag {
+	return newStringTag("step-execution-id", stepExecutionID)
+}
+
+// StepEventInputMethod returns the Step method snapshot tag.
+func StepEventInputMethod(method string) Tag {
+	return newStringTag("step-event-input-method", method)
+}
+
 // ResultMetadata returns storage response metadata.
 func ResultMetadata(metadata string) Tag {
 	return newStringTag("result-metadata", metadata)

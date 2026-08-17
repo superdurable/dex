@@ -181,5 +181,20 @@ public interface FlowHistoryEventOrBuilder extends
    */
   io.superdurable.gen.StepMethodPendingEventOrBuilder getStepExecutePendingOrBuilder();
 
+  /**
+   * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+   * @return Whether the timeTravelFork field is set.
+   */
+  boolean hasTimeTravelFork();
+  /**
+   * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+   * @return The timeTravelFork.
+   */
+  io.superdurable.gen.TimeTravelForkHistoryEvent getTimeTravelFork();
+  /**
+   * <code>.dex.TimeTravelForkHistoryEvent time_travel_fork = 30;</code>
+   */
+  io.superdurable.gen.TimeTravelForkHistoryEventOrBuilder getTimeTravelForkOrBuilder();
+
   io.superdurable.gen.FlowHistoryEvent.PayloadCase getPayloadCase();
 }

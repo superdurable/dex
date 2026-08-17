@@ -9,6 +9,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   isBlobReferenceValue,
   isStoredValueUnavailable,
@@ -53,6 +54,7 @@ const eventTitles: Record<FlowHistoryEvent['type'], string> = {
   StepExecutePending: 'Execute pending',
   RpcExecutionCompleted: 'RPC completed',
   ChannelExternalPublish: 'Channel published',
+  TimeTravelFork: 'Time Travel fork',
 };
 
 export function eventTitle(event: FlowHistoryEvent): string {
@@ -1003,6 +1005,26 @@ function FlowClosedDetails({ payload }: { payload: Data }) {
   );
 }
 
+function TimeTravelForkDetails({ payload, parentFlowId }: { payload: Data; parentFlowId: string }) {
+  const previousRunId = typeof payload.previousRunId === 'string' ? payload.previousRunId : '';
+  return (
+    <DetailSection title="Fork origin">
+      <p className="semantic-run-link-row">
+        <span>Previous run</span>
+        {previousRunId ? (
+          <Link
+            className="event-run-link"
+            title={previousRunId}
+            to={`/flows/${encodeURIComponent(parentFlowId)}/${encodeURIComponent(previousRunId)}`}
+          >
+            <code>{previousRunId}</code>
+          </Link>
+        ) : <span>—</span>}
+      </p>
+    </DetailSection>
+  );
+}
+
 function pendingPhaseLabel(value: unknown): string {
   if (value === 1) return 'Scheduled';
   if (value === 2) return 'Started';
@@ -1055,6 +1077,9 @@ export function SemanticEventDetails({
       : <InitialStartDetails payload={event.payload} showHeading={showStartHeading} />;
   }
   if (event.type === 'FlowClosed') return <FlowClosedDetails payload={event.payload} />;
+  if (event.type === 'TimeTravelFork') {
+    return <TimeTravelForkDetails payload={event.payload} parentFlowId={parentFlowId} />;
+  }
   if (isSetAttributesEvent(event)) return <SetAttributesDetails payload={event.payload} />;
   if (event.type === 'RpcExecutionCompleted') return <RPCDetails payload={event.payload} />;
   return (

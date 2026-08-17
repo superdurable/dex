@@ -627,6 +627,11 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 			return err
 		}
 		builder.RecordStart(event.GetEventId(), eventTime, &input)
+	case shared.EventTypeDecisionTaskFailed:
+		attributes := event.GetDecisionTaskFailedEventAttributes()
+		if attributes.GetCause() == shared.DecisionTaskFailedCauseResetWorkflow {
+			builder.RecordTimeTravelFork(event.GetEventId(), eventTime, attributes.GetBaseRunId())
+		}
 	case shared.EventTypeActivityTaskScheduled:
 		attributes := event.GetActivityTaskScheduledEventAttributes()
 		scheduledEventIDsByActivityID[attributes.GetActivityId()] = event.GetEventId()
@@ -1179,7 +1184,7 @@ func (t *cadenceClient) ResetWorkflow(
 
 	resetType := request.GetResetType()
 	resetBaseRunID, decisionFinishID, err := getResetIDsByType(ctx, resetType, t.domain, request.GetFlowId(),
-		reqRunId, t.serviceClient, t.converter, request.GetHistoryEventId(), request.GetHistoryEventTime(), request.GetStepType(), request.GetStepExecutionId())
+		reqRunId, t.serviceClient, t.converter, request.GetHistoryEventTime(), request.GetStepType(), request.GetStepExecutionId(), request.GetStepMethod())
 
 	if err != nil {
 		return "", err

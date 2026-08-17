@@ -14,8 +14,8 @@ import pytest
 
 from dex import (
     FlowStatus,
-    ResetFlowOptions,
-    ResetType,
+    TimeTravelOptions,
+    TimeTravelType,
     StartFlowOptions,
 )
 
@@ -30,7 +30,7 @@ def test_reset_reapplies_rpc_or_channel(locking: bool) -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = start_and_invoke(environment, flow, locking)
         assert_completed_with_attributes(environment, flow, flow_id)
-        reset_run_id = environment.client.reset_flow(
+        reset_run_id = environment.client.time_travel(
             flow_id,
             reset_options(skip_writes=False),
         )
@@ -44,7 +44,7 @@ def test_reset_can_skip_rpc_or_channel_reapply(locking: bool) -> None:
     with DexDevTestEnvironment(flow) as environment:
         flow_id = start_and_invoke(environment, flow, locking)
         assert_completed_with_attributes(environment, flow, flow_id)
-        environment.client.reset_flow(
+        environment.client.time_travel(
             flow_id,
             reset_options(skip_writes=True),
         )
@@ -79,9 +79,9 @@ def start_and_invoke(
 def reset_options(
     *,
     skip_writes: bool,
-) -> ResetFlowOptions:
-    return ResetFlowOptions(
-        ResetType.BEGINNING,
+) -> TimeTravelOptions:
+    return TimeTravelOptions(
+        TimeTravelType.BEGINNING,
         reason="testing reset",
         skip_writes_reapply=skip_writes,
     )

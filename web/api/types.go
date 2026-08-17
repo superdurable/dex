@@ -100,18 +100,18 @@ type activeStepExecution struct {
 	LastFailureInfo     map[string]interface{} `json:"lastFailureInfo,omitempty"`
 }
 
-type resetFlowRequest struct {
+type timeTravelFlowRequest struct {
 	FlowID           string `json:"flowId"`
 	RunID            string `json:"runId"`
-	ResetType        int32  `json:"resetType"`
-	HistoryEventID   int32  `json:"historyEventId"`
+	TimeTravelType   int32  `json:"timeTravelType"`
 	Reason           string `json:"reason"`
 	StepType         string `json:"stepType"`
 	StepExecutionID  string `json:"stepExecutionId"`
 	HistoryEventTime string `json:"historyEventTime"`
+	StepMethod       int32  `json:"stepMethod"`
 }
 
-type resetFlowResponse struct {
+type timeTravelFlowResponse struct {
 	RunID string `json:"runId"`
 }
 

@@ -109,7 +109,7 @@ func (a *App) printUsage() {
 	fmt.Fprintln(a.stdout)
 	fmt.Fprintln(a.stdout, "Commands:")
 	fmt.Fprintln(a.stdout, "  health    Check Dex FlowService health")
-	fmt.Fprintln(a.stdout, "  flow      Search, inspect, watch, stop, or reset Flows")
+	fmt.Fprintln(a.stdout, "  flow      Search, inspect, watch, stop, or time travel Flows")
 	fmt.Fprintln(a.stdout, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(a.stdout)
 	fmt.Fprintln(a.stdout, "Global flags:")

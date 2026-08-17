@@ -1127,7 +1127,7 @@ Every public method follows the same transport boundary:
 8. map and decode only after the complete response is valid.
 
 All methods other than StartFlow target the current run for `flowID`. An empty
-wire `run_id` lets the server follow Continue-as-New. ResetFlow returns the new
+wire `run_id` lets the server follow Continue-as-New. TimeTravel returns the new
 run ID, while StartFlow returns the created or matched run ID. The public Client
 does not add a run-specific variant in Phase 5.
 
@@ -1330,14 +1330,14 @@ The remaining calls map as follows:
 |---|---|
 | `StopFlow` | zero type cancels; terminate/fail preserve the optional reason |
 | `SearchFlows` | validates non-negative page size and maps full flow metadata |
-| `ResetFlow` | validates the field required by the selected reset type and returns a non-empty new run ID |
+| `TimeTravel` | validates the field required by the selected time travel type and returns a non-empty new run ID |
 | `UpdateFlowConfig` | maps a partial config and preserves pointer presence |
 | `TriggerContinueAsNew` | signals the current run |
 | `HealthCheck` | maps the returned health record; it is also the explicit readiness check |
 
-Reset validation is mutually exclusive: history ID must be positive, history
+Time travel validation is mutually exclusive: history ID must be positive, history
 time must be non-zero, and step type or step execution ID must be non-empty for
-their respective modes. Fields unrelated to the selected reset mode must be
+their respective modes. Fields unrelated to the selected time travel mode must be
 zero so impossible proto combinations fail before transport.
 
 SearchFlows passes query text and page token through unchanged. Page size zero
@@ -1466,7 +1466,7 @@ FlowService. These exercise transport branches that do not need Temporal:
 5. Direct bound RPC identity, IN/OUT validation, locking and non-locking request
    IDs, lock mapping, output hydration, and Worker error conversion.
 6. Wait time rounding, immediate checks, default execution number, existing
-   SkipTimer mapping, reset-mode validation, cancel default, config updates,
+   SkipTimer mapping, time-travel-mode validation, cancel default, config updates,
    SearchFlows metadata, and HealthCheck.
 7. gRPC status with and without Dex details, caller cancellation, long-poll
    timeout, malformed responses, and local errors that remain unwrapped.
@@ -2378,7 +2378,7 @@ The remaining FlowService operations use non-generic public types:
 | `StopFlow` | `Client.StopFlow(ctx, flowID, StopOptions)` |
 | `WaitForFlow` | `Client.WaitForFlow(ctx, flowID, WaitForFlowOptions)` |
 | `SearchFlows` | `Client.SearchFlows(ctx, query, pageSize, nextPageToken)` |
-| `ResetFlow` | `Client.ResetFlow(ctx, flowID, ResetOptions)` |
+| `TimeTravel` | `Client.TimeTravel(ctx, flowID, TimeTravelOptions)` |
 | `SkipTimer` | `Client.SkipTimer(ctx, flowID, StepExecutionID, TimerID)` |
 | `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, flowID, FlowConfig)` |
 | `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionID, WaitOptions)` |
@@ -2603,23 +2603,29 @@ type TimerID struct {
 	Index       *int32
 }
 
-type ResetType uint8
+type TimeTravelType uint8
 
 const (
-	ResetByHistoryEventID ResetType = iota + 1
-	ResetToBeginning
-	ResetByHistoryEventTime
-	ResetByStepType
-	ResetByStepExecutionID
+	TimeTravelToBeginning TimeTravelType = iota + 1
+	TimeTravelByHistoryEventTime
+	TimeTravelByStepType
+	TimeTravelByStepExecutionID
 )
 
-type ResetOptions struct {
-	Type                       ResetType
-	HistoryEventID             int32
+type TimeTravelStepMethod uint8
+
+const (
+	TimeTravelStepWaitFor TimeTravelStepMethod = iota + 1
+	TimeTravelStepExecute
+)
+
+type TimeTravelOptions struct {
+	Type                       TimeTravelType
 	Reason                     string
 	HistoryEventTime           time.Time
 	StepType                   string
 	StepExecutionID            string
+	StepMethod                 TimeTravelStepMethod
 	SkipWritesReapply          bool
 }
 ```
@@ -2667,7 +2673,7 @@ func InitialAttributeMapValue[T any](
 ) (InitialAttributeDef, error)
 ```
 
-No old reset, memo, loading-policy, or worker-URL fields are retained.
+No legacy time-travel, memo, loading-policy, or worker-URL fields are retained.
 
 ### Public errors
 
@@ -2721,7 +2727,7 @@ metadata.
 `WaitForFlow` returns `FlowResult` for every terminal status. Transport,
 long-poll, hydration, and invalid-input failures remain errors.
 
-GetAttribute, GetAttributes, WaitForFlow, and ResetFlow require an existing
+GetAttribute, GetAttributes, WaitForFlow, and TimeTravel require an existing
 Flow. Mutations, RPC, publish, stop, timer, config, and step or attribute wait
 operations require an active Flow. The shared server `FLOW_NOT_EXISTS`
 sub-status maps to the corresponding concrete error using that endpoint

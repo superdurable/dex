@@ -294,16 +294,16 @@ func searchOrders(
 	)
 }
 
-func resetOrder(
+func timeTravelOrder(
 	ctx context.Context,
 	client *dex.Client,
 	flowID string,
 ) (string, error) {
-	return client.ResetFlow(
+	return client.TimeTravel(
 		ctx,
 		flowID,
-		dex.ResetOptions{
-			Type:   dex.ResetToBeginning,
+		dex.TimeTravelOptions{
+			Type:   dex.TimeTravelToBeginning,
 			Reason: "reprocess order",
 		},
 	)

@@ -75,6 +75,8 @@ func mapHistoryEvent(event *dexpb.FlowHistoryEvent) (historyEvent, error) {
 		eventType, payload = "RpcExecutionCompleted", value.RpcExecutionCompleted
 	case *dexpb.FlowHistoryEvent_ChannelExternalPublish:
 		eventType, payload = "ChannelExternalPublish", value.ChannelExternalPublish
+	case *dexpb.FlowHistoryEvent_TimeTravelFork:
+		eventType, payload = "TimeTravelFork", value.TimeTravelFork
 	default:
 		return historyEvent{}, fmt.Errorf("history event %d has no Dex payload", event.GetEventId())
 	}

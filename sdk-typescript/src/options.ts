@@ -268,12 +268,10 @@ export const TimerId = Object.freeze({
   },
 });
 
-/** Selects the history point from which a Flow reset resumes. */
-export const ResetType = Object.freeze({
+/** Selects the historical point from which time travel creates a new run. */
+export const TimeTravelType = Object.freeze({
   /** Restarts from the beginning of the Flow. */
   BEGINNING: "beginning",
-  /** Resumes at a specific history event ID. */
-  HISTORY_EVENT_ID: "historyEventId",
   /** Resumes at the first event at or after a timestamp. */
   HISTORY_EVENT_TIME: "historyEventTime",
   /** Resumes at the latest execution of a Step type. */
@@ -282,24 +280,35 @@ export const ResetType = Object.freeze({
   STEP_EXECUTION_ID: "stepExecutionId",
 } as const);
 
-/** Represents a value from {@link ResetType}. */
-export type ResetType = (typeof ResetType)[keyof typeof ResetType];
+/** Represents a value from {@link TimeTravelType}. */
+export type TimeTravelType = (typeof TimeTravelType)[keyof typeof TimeTravelType];
+
+/** Selects the Step method used as a Step execution time travel boundary. */
+export const TimeTravelStepMethod = Object.freeze({
+  /** Reruns WaitFor and everything after it. */
+  WAIT_FOR: "waitFor",
+  /** Keeps the WaitFor result and reruns Execute and everything after it. */
+  EXECUTE: "execute",
+} as const);
+
+/** Represents a value from {@link TimeTravelStepMethod}. */
+export type TimeTravelStepMethod = (typeof TimeTravelStepMethod)[keyof typeof TimeTravelStepMethod];
 
 /** Configures creation of a new run from existing Flow history. */
-export interface ResetFlowOptions {
-  /** Reset-point selector kind. */
-  readonly type: ResetType;
-  /** Event ID used with `HISTORY_EVENT_ID`. */
-  readonly historyEventId?: bigint;
+export interface TimeTravelOptions {
+  /** Time travel point selector kind. */
+  readonly type: TimeTravelType;
   /** Timestamp used with `HISTORY_EVENT_TIME`. */
   readonly historyEventTime?: Date;
   /** Registered Step type used with `STEP_TYPE`. */
   readonly stepType?: string;
   /** Exact execution ID used with `STEP_EXECUTION_ID`. */
   readonly stepExecutionId?: string;
-  /** Optional operator-readable reset reason. */
+  /** WaitFor or Execute boundary required with `STEP_EXECUTION_ID`. */
+  readonly stepMethod?: TimeTravelStepMethod;
+  /** Optional operator-readable time travel reason. */
   readonly reason?: string;
-  /** Prevents reapplication of RPCs, Channel publications, and Attribute writes after reset. */
+  /** Prevents reapplication of RPCs, Channel publications, and Attribute writes after the selected point. */
   readonly skipWritesReapply?: boolean;
 }
 

@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { useEffect, useRef } from 'react';
+import { displayEventNumber } from '@/lib/timeline';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { EventDetails, eventTitle } from './EventDetails';
 
@@ -60,7 +61,7 @@ export function FlowStatePanel({
             <p className="eyebrow">Selected event</p>
             <h3>{eventTitle(selectedEvent)}</h3>
             <div className="event-meta">
-              <span>Event {selectedEvent.eventId}</span>
+              <span>Event {displayEventNumber(history, selectedEvent)}</span>
               <span>{selectedEvent.eventTime || 'No timestamp'}</span>
             </div>
           </header>

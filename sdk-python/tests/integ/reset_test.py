@@ -8,7 +8,7 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
-from dex import Client, ResetFlowOptions, ResetType
+from dex import Client, TimeTravelOptions, TimeTravelStepMethod, TimeTravelType
 
 from .rpc_locking_flow import RpcLockingFlow
 
@@ -18,20 +18,28 @@ def compile_locking_rpc_reapply(client: Client) -> None:
     client.start_flow(flow, "reset-locking", None)
     client.invoke_rpc(flow.with_locking, "reset-locking")
     client.invoke_rpc(flow.with_attribute_map_lock, "reset-locking")
-    options = ResetFlowOptions(
-        type=ResetType.BEGINNING,
+    options = TimeTravelOptions(
+        type=TimeTravelType.BEGINNING,
         reason="replay locking RPC",
         skip_writes_reapply=False,
     )
-    run_id: str = client.reset_flow("reset-locking", options)
+    run_id: str = client.time_travel("reset-locking", options)
     del run_id
 
 
 def compile_skip_writes_reapply(client: Client) -> None:
-    options = ResetFlowOptions(
-        type=ResetType.STEP_TYPE,
+    options = TimeTravelOptions(
+        type=TimeTravelType.STEP_TYPE,
         step_type="LockWaitStep",
         skip_writes_reapply=True,
     )
-    run_id: str = client.reset_flow("reset-locking", options)
+    run_id: str = client.time_travel("reset-locking", options)
+    del run_id
+
+    step_execution_options = TimeTravelOptions(
+        type=TimeTravelType.STEP_EXECUTION_ID,
+        step_execution_id="LockWaitStep-1",
+        step_method=TimeTravelStepMethod.EXECUTE,
+    )
+    run_id = client.time_travel("reset-locking", step_execution_options)
     del run_id

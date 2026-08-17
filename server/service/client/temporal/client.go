@@ -655,6 +655,11 @@ func (t *temporalClient) addTemporalHistoryEvent(
 			return err
 		}
 		builder.RecordStart(event.GetEventId(), eventTime, &input)
+	case enums.EVENT_TYPE_WORKFLOW_TASK_FAILED:
+		attributes := event.GetWorkflowTaskFailedEventAttributes()
+		if attributes.GetCause() == enums.WORKFLOW_TASK_FAILED_CAUSE_RESET_WORKFLOW {
+			builder.RecordTimeTravelFork(event.GetEventId(), eventTime, attributes.GetBaseRunId())
+		}
 	case enums.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
 		return t.recordTemporalScheduledActivity(
 			builder,
@@ -1305,7 +1310,7 @@ func (t *temporalClient) ResetWorkflow(
 	resetBaseRunID, resetEventId, err := getResetEventIDByType(ctx, resetType,
 		t.namespace, request.GetFlowId(), reqRunId,
 		t.tClient.WorkflowService(), t.dataConverter,
-		request.GetHistoryEventId(), request.GetHistoryEventTime(), request.GetStepType(), request.GetStepExecutionId())
+		request.GetHistoryEventTime(), request.GetStepType(), request.GetStepExecutionId(), request.GetStepMethod())
 
 	if err != nil {
 		return "", err

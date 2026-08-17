@@ -12,7 +12,12 @@ import { Link } from 'react-router-dom';
 import type { FlowHistoryEvent } from '@/lib/types';
 import { formatDate } from '@/lib/format';
 import { durabilityLabel, flowErrorTypeLabel } from '@/lib/semantic';
-import { buildSelectedTimelineLinks, formatElapsedDuration, newestTimelineEvents } from '@/lib/timeline';
+import {
+  buildSelectedTimelineLinks,
+  displayEventNumber,
+  formatElapsedDuration,
+  newestTimelineEvents,
+} from '@/lib/timeline';
 import { usePreferences } from '../../providers';
 import { eventTitle, eventTypeLabel } from './EventDetails';
 
@@ -38,6 +43,7 @@ interface StepLinkLayout {
 }
 
 function eventTone(event: FlowHistoryEvent) {
+  if (event.type === 'TimeTravelFork') return 'fork';
   if (event.type.endsWith('Pending')) return 'pending';
   if (event.type.endsWith('Failed')) return 'failed';
   if (event.type === 'StepWaitForCompleted') return 'waiting';
@@ -67,6 +73,9 @@ function pendingPhase(event: FlowHistoryEvent): string {
 }
 
 function previousRunID(event: FlowHistoryEvent): string {
+  if (event.type === 'TimeTravelFork') {
+    return typeof event.payload.previousRunId === 'string' ? event.payload.previousRunId : '';
+  }
   if (event.type !== 'FlowStartedOrContinued') return '';
   const continued = event.payload.continuedStart;
   if (!continued || typeof continued !== 'object') return '';
@@ -89,6 +98,9 @@ export function Timeline({
   const timelineRef = useRef<HTMLDivElement>(null);
   const eventCards = useRef(new Map<number, HTMLDivElement>());
   const orderedEvents = useMemo(() => newestTimelineEvents(events), [events]);
+  const eventNumbers = useMemo(() => new Map(
+    events.map((event) => [event.eventId, displayEventNumber(events, event)]),
+  ), [events]);
   const stepLinks = useMemo(
     () => buildSelectedTimelineLinks(events, selectedEvent?.eventId),
     [events, selectedEvent?.eventId],
@@ -289,7 +301,7 @@ export function Timeline({
               >
                 <header>
                   <div>
-                    <span className="event-id">#{event.eventId}</span>
+                    <span className="event-id">#{eventNumbers.get(event.eventId)}</span>
                     <h3>
                       {previousRunId ? (
                         <Link
@@ -297,7 +309,7 @@ export function Timeline({
                           title={previousRunId}
                           to={`/flows/${encodeURIComponent(flowId)}/${encodeURIComponent(previousRunId)}`}
                         >
-                          Flow continued
+                          {event.type === 'TimeTravelFork' ? 'Time Travel fork' : 'Flow continued'}
                         </Link>
                       ) : eventTitle(event)}
                     </h3>
