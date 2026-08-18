@@ -33,10 +33,6 @@ Dex 是结构化编程，只有少数几个概念作为 [durable primitives](/pr
 - 店面 **start** handler 用 Client 的 **wait-for-Step-completion** API 等 ChargeStep 完成——不是自己轮询状态。
 - **Attribute `order-status`** 可检索，客服能搜卡住的订单。
 
-HTTP 前缀 `/products/order-processing/...`。用 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 试（`id: order-processing`）。Rust：[`examples/rust/src/products/order_processing`](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/order_processing)。
-
-下面的片段从这些例子文件里原样拷贝。
-
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/products/order-processing',
