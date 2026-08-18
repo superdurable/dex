@@ -30,7 +30,7 @@ HTTP routes use category prefixes:
 ## Run locally
 
 ```bash
-dexcli dev --sqlite-db-filename /tmp/dex-examples-python.db
+dexcli dev
 uv sync --locked
 uv run --frozen python main.py
 ```

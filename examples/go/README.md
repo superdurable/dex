@@ -32,7 +32,7 @@ Start PostgreSQL and Dex, then build and run the examples:
 
 ```bash
 docker compose -f dataset-deal/docker-compose.yml up -d --wait
-dexcli dev --sqlite-db-filename /tmp/dex-examples.db
+dexcli dev
 make bins
 ./dex-samples
 ```

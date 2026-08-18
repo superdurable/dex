@@ -30,7 +30,7 @@ HTTP routes use category prefixes:
 ## Run locally
 
 ```bash
-dexcli dev --sqlite-db-filename /tmp/dex-examples.db
+dexcli dev
 cd examples/typescript
 npm install
 npm start

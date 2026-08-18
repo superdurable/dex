@@ -57,7 +57,7 @@ Start Dex, then one of the following. Commands match each language README.
 **Go** — from `examples/go/` ([README](go/README.md)):
 
 ```bash
-dexcli dev --temporal-db-filename /tmp/dex-examples.db
+dexcli dev
 make bins
 ./dex-samples
 ```
@@ -67,14 +67,14 @@ Dataset Deal also needs PostgreSQL; see the Go README.
 **Java** — from `examples/java/` ([README](java/README.md)):
 
 ```bash
-dexcli dev --temporal-db-filename /tmp/dex-examples.db
+dexcli dev
 ./gradlew bootRun
 ```
 
 **Python async** — from `examples/python/` ([README](python/README.md)):
 
 ```bash
-dexcli dev --temporal-db-filename /tmp/dex-examples-python.db
+dexcli dev
 uv sync --locked
 uv run --frozen python main.py
 ```
@@ -82,7 +82,7 @@ uv run --frozen python main.py
 **Python sync** — from `examples/python/` ([README](python/sync-python/README.md)):
 
 ```bash
-dexcli dev --temporal-db-filename /tmp/dex-examples-python.db
+dexcli dev
 uv sync --locked
 uv run --frozen python sync-python/main.py
 ```
@@ -90,7 +90,7 @@ uv run --frozen python sync-python/main.py
 **TypeScript** — from `examples/typescript/` ([README](typescript/README.md)):
 
 ```bash
-dexcli dev --temporal-db-filename /tmp/dex-examples.db
+dexcli dev
 npm install
 npm start
 ```
@@ -98,7 +98,7 @@ npm start
 **Rust** — from `examples/rust/` ([README](rust/README.md)):
 
 ```bash
-dexcli dev --temporal-db-filename /tmp/dex-examples-rust.db
+dexcli dev
 cargo run --locked
 ```
 

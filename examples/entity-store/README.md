@@ -12,9 +12,7 @@ From this directory:
 
 ```bash
 docker compose up -d --wait
-dexcli dev \
-  --attribute-store-config ./attribute-store.yaml \
-  --sqlite-db-filename /tmp/dex-entity-store.db
+dexcli dev --attribute-store-config ./attribute-store.yaml
 ```
 
 Compose starts PostgreSQL 17 and creates `public.user_profiles` on

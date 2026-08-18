@@ -28,7 +28,7 @@ the async app on `8803` / `8080`).
 From `examples/python` (shared `uv` project):
 
 ```bash
-dexcli dev --sqlite-db-filename /tmp/dex-examples-python.db
+dexcli dev
 # Indexed Attributes — same as the async README
 
 uv sync --locked

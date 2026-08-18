@@ -25,7 +25,7 @@ HTTP routes use category prefixes:
 ## Run locally
 
 ```bash
-dexcli dev --sqlite-db-filename /tmp/dex-examples.db
+dexcli dev
 ./gradlew bootRun
 ```
 

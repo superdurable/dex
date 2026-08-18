@@ -26,7 +26,7 @@ Rust 1.97 or newer is required. Start Dex, then run the Worker and HTTP server:
 
 ```bash
 cd examples/rust
-dexcli dev --temporal-db-filename /tmp/dex-examples-rust.db
+dexcli dev
 cargo run --locked
 ```
 
