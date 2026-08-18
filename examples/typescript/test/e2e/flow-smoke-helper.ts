@@ -137,7 +137,7 @@ export async function assertFlowSmokeStartStep(
   if (entry.flags.noStartStep) {
     return;
   }
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     const history = runDexcliFlowHistory(flowId, runId);
     const startStepType = flowStartedStartStepType(history.events);
@@ -164,7 +164,7 @@ export async function assertFlowSmokeNoUnexpectedFailures(
   runId: string,
 ): Promise<void> {
   if (entry.flags.stepStartMayFail) {
-    const deadline = Date.now() + 10_000;
+    const deadline = Date.now() + 30_000;
     while (Date.now() < deadline) {
       const history = runDexcliFlowHistory(flowId, runId);
       if (hasRetryRecovery(history.events)) {

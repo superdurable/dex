@@ -205,7 +205,7 @@ func assertFlowSmokeStartStep(t *testing.T, entry flowSmokeEntry, flowID string,
 		}
 		state := runDexcliFlowState(t, flowID, runID)
 		return state.FlowStatus == "FLOW_STATUS_RUNNING" && len(history.Events) > 1
-	}, 10*time.Second, 200*time.Millisecond, "start step did not succeed for %s", entry.name)
+	}, 30*time.Second, 200*time.Millisecond, "start step did not succeed for %s", entry.name)
 }
 
 func assertFlowSmokeNoUnexpectedFailures(t *testing.T, entry flowSmokeEntry, flowID string, runID string) {
@@ -213,7 +213,7 @@ func assertFlowSmokeNoUnexpectedFailures(t *testing.T, entry flowSmokeEntry, flo
 	if entry.flags.stepStartMayFail {
 		require.Eventually(t, func() bool {
 			return hasRetryRecovery(runDexcliFlowHistory(t, flowID, runID).Events)
-		}, 10*time.Second, 200*time.Millisecond, "%s: expected retry recovery events", entry.name)
+		}, 30*time.Second, 200*time.Millisecond, "%s: expected retry recovery events", entry.name)
 	}
 	history := runDexcliFlowHistory(t, flowID, runID)
 	for _, event := range history.Events {

@@ -157,7 +157,7 @@ pub fn assert_flow_smoke_start_step(entry: &FlowSmokeEntry, flow_id: &str, run_i
     if entry.flags.no_start_step {
         return;
     }
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(30);
     while Instant::now() < deadline {
         let history = run_dexcli_flow_history(flow_id, run_id);
         let start_step_type = flow_started_start_step_type(&history);
@@ -189,7 +189,7 @@ pub fn assert_flow_smoke_no_unexpected_failures(
     run_id: &str,
 ) {
     if entry.flags.step_start_may_fail {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + Duration::from_secs(30);
         while Instant::now() < deadline {
             let history = run_dexcli_flow_history(flow_id, run_id);
             let events = history

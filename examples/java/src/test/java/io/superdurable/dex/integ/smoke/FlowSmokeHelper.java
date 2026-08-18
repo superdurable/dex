@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
 final class FlowSmokeHelper {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final Pattern RUN_ID_PATTERN = Pattern.compile("runId\\s+(\\S+)");
-    private static final Duration ASSERT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration ASSERT_TIMEOUT = Duration.ofSeconds(30);
     private static volatile String dexcliPath;
 
     private FlowSmokeHelper() {

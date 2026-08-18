@@ -17,7 +17,7 @@ from __future__ import annotations
 import random
 
 from dex import FlowNotActiveError
-from quart import Blueprint
+from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
@@ -33,7 +33,7 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("resource_control", __name__, url_prefix="/patterns/resource-control")
 
     @blueprint.get("/request")
-    async def enqueue_request() -> str:
+    async def enqueue_request() -> Response:
         request = Request(required_query("id"), optional_query("data", "abcd"))
         # A real deployment would rank instances by usage instead of picking one
         # at random, then check availability before enqueueing.
@@ -56,9 +56,12 @@ def create_resource_control_blueprint(app_state: ExampleApp) -> Blueprint:
                 ),
             )
             accepted = True
-        if accepted:
-            return "request is accepted"
-        return "request is denied because instance is busy. Please retry later"
+        message = (
+            "request is accepted"
+            if accepted
+            else "request is denied because instance is busy. Please retry later"
+        )
+        return jsonify({"flowID": flow_id, "accepted": accepted, "message": message})
 
     @blueprint.get("/shutdown")
     async def shutdown() -> str:
