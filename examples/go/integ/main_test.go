@@ -36,16 +36,18 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	exampleserver "github.com/superdurable/dex/examples/go/cmd/server/dex"
-	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/datasetdeal"
-	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/examples/go/products/dataset-deal"
+	"github.com/superdurable/dex/examples/go/registry"
+	"github.com/superdurable/dex/examples/go/shared/service"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 var (
 	integClient       *dex.Client
 	datasetDealAPIURL string
+	examplesAPIURL    string
 	datasetDealDB     *pgxpool.Pool
+	dexcliPath        string
 	flowCounter       atomic.Int64
 )
 
@@ -68,7 +70,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	dealFlow := datasetdeal.NewDealFlow(dealRepository, nil)
 	var client *dex.Client
 	flows := append(
-		workflows.New(service.NewMyService(), func() *dex.Client { return client }),
+		registry.New(service.NewMyService(), func() *dex.Client { return client }),
 		dealFlow,
 	)
 	registry, err := dex.NewRegistry(flows)
@@ -199,6 +201,7 @@ func TestMain(tests *testing.M) {
 	}
 	integClient = environment.client
 	datasetDealAPIURL = environment.apiServer.URL
+	examplesAPIURL = environment.apiServer.URL
 	datasetDealDB = environment.database
 	exitCode := tests.Run()
 	if err := environment.Close(); err != nil {

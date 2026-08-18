@@ -18,34 +18,41 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package workflows
+package registry
 
 import (
-	"github.com/superdurable/dex/examples/go/workflows/engagement"
-	"github.com/superdurable/dex/examples/go/workflows/jobpost"
-	"github.com/superdurable/dex/examples/go/workflows/microservices"
-	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/cron"
-	draininternal "github.com/superdurable/dex/examples/go/workflows/patterns/drainchannels/draininternal"
-	drainsignal "github.com/superdurable/dex/examples/go/workflows/patterns/drainchannels/signal"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/entitystore"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/interruptible"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/intervention"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/parallel"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/parentchild"
-	patternspolling "github.com/superdurable/dex/examples/go/workflows/patterns/polling"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/recovery"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/reminders"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/resettabletimer"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/scalableparallel"
-	patternsservice "github.com/superdurable/dex/examples/go/workflows/patterns/service"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/timeout"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/waitforstatecompletion"
-	"github.com/superdurable/dex/examples/go/workflows/polling"
-	"github.com/superdurable/dex/examples/go/workflows/service"
-	"github.com/superdurable/dex/examples/go/workflows/shortlistcandidates"
-	"github.com/superdurable/dex/examples/go/workflows/signup"
-	"github.com/superdurable/dex/examples/go/workflows/subscription"
+	"github.com/superdurable/dex/examples/go/patterns/cron"
+	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
+	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
+	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	"github.com/superdurable/dex/examples/go/patterns/interruptible"
+	"github.com/superdurable/dex/examples/go/patterns/intervention"
+	"github.com/superdurable/dex/examples/go/patterns/parallel"
+	"github.com/superdurable/dex/examples/go/patterns/parent-child"
+	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
+	"github.com/superdurable/dex/examples/go/patterns/recovery"
+	"github.com/superdurable/dex/examples/go/patterns/reminders"
+	"github.com/superdurable/dex/examples/go/patterns/resettable-timer"
+	"github.com/superdurable/dex/examples/go/patterns/scalable-parallel"
+	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
+	"github.com/superdurable/dex/examples/go/patterns/timeout"
+	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
+	"github.com/superdurable/dex/examples/go/primitives/attribute"
+	"github.com/superdurable/dex/examples/go/primitives/channel"
+	"github.com/superdurable/dex/examples/go/primitives/client-apis"
+	"github.com/superdurable/dex/examples/go/primitives/rpc"
+	"github.com/superdurable/dex/examples/go/primitives/step"
+	"github.com/superdurable/dex/examples/go/primitives/subflow"
+	"github.com/superdurable/dex/examples/go/primitives/timer"
+	"github.com/superdurable/dex/examples/go/products/engagement"
+	"github.com/superdurable/dex/examples/go/products/job-post"
+	"github.com/superdurable/dex/examples/go/products/microservices"
+	"github.com/superdurable/dex/examples/go/products/money-transfer"
+	"github.com/superdurable/dex/examples/go/products/polling"
+	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
+	"github.com/superdurable/dex/examples/go/products/signup"
+	"github.com/superdurable/dex/examples/go/products/subscription"
+	"github.com/superdurable/dex/examples/go/shared/service"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -86,6 +93,16 @@ var (
 	DrainSignal            *drainsignal.DrainSignalChannelsFlow
 	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
 	GracefulTimeout        *timeout.FlowGracefulTimeout
+
+	Step           *step.StepFlow
+	StepRetry      *step.RetryFlow
+	Attribute      *attribute.AttributeFlow
+	Channel        *channel.ChannelFlow
+	Timer          *timer.TimerFlow
+	Rpc            *rpc.RpcFlow
+	SubFlowChild   *subflow.SubFlowChildFlow
+	SubFlowParent  *subflow.SubFlowParentFlow
+	ClientApis     *clientapis.ClientApisFlow
 )
 
 // New constructs every sample flow. getClient may return nil until the Client
@@ -136,6 +153,16 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	WaitForStateCompletion = waitforstatecompletion.NewWaitForStateCompletionFlow(patternService)
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()
 
+	Step = step.NewStepFlow()
+	StepRetry = step.NewRetryFlow()
+	Attribute = attribute.NewAttributeFlow()
+	Channel = channel.NewChannelFlow()
+	Timer = timer.NewTimerFlow()
+	Rpc = rpc.NewRpcFlow()
+	SubFlowChild = subflow.NewSubFlowChildFlow()
+	SubFlowParent = subflow.NewSubFlowParentFlow(SubFlowChild)
+	ClientApis = clientapis.NewClientApisFlow()
+
 	return Flows()
 }
 
@@ -170,6 +197,15 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		DrainSignal,
 		WaitForStateCompletion,
 		GracefulTimeout,
+		Step,
+		StepRetry,
+		Attribute,
+		Channel,
+		Timer,
+		Rpc,
+		SubFlowChild,
+		SubFlowParent,
+		ClientApis,
 	}
 	return append(flows, additional...)
 }

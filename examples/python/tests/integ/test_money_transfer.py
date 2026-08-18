@@ -19,7 +19,7 @@ from typing import Callable
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.workflow.money.transfer.transfer_request import TransferRequest
+from dex_examples.products.money_transfer.transfer_request import TransferRequest
 from tests.integ.conftest import WAIT_TIMEOUT
 
 from dex import AsyncClient

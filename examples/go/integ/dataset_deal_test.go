@@ -31,7 +31,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/dex/examples/go/workflows/datasetdeal"
+	"github.com/superdurable/dex/examples/go/products/dataset-deal"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -51,7 +51,7 @@ type datasetDealProcessListResponse struct {
 func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	processID := newFlowID(t, "dataset-deal-process")
 	process := comprehensiveDealProcess(processID)
-	requestDatasetDealAPI(t, http.MethodPost, "/api/dataset-deal/processes", process, http.StatusCreated, nil)
+	requestDatasetDealAPI(t, http.MethodPost, "/products/dataset-deal/api/processes", process, http.StatusCreated, nil)
 	assertDatasetDealProcessList(t, process)
 
 	buyerFullID := newFlowID(t, "buyer-full")
@@ -123,7 +123,7 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	requestDatasetDealAPI(
 		t,
 		http.MethodGet,
-		"/api/dataset-deal/executions?buyerID="+buyerRefundID,
+		"/products/dataset-deal/api/executions?buyerID="+buyerRefundID,
 		nil,
 		http.StatusOK,
 		&buyerList,
@@ -135,7 +135,7 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	requestDatasetDealAPI(
 		t,
 		http.MethodGet,
-		"/api/dataset-deal/executions?buyerID="+buyerRefundID+"&processID="+processID,
+		"/products/dataset-deal/api/executions?buyerID="+buyerRefundID+"&processID="+processID,
 		nil,
 		http.StatusOK,
 		&buyerAndProcessList,
@@ -147,7 +147,7 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	requestDatasetDealAPI(
 		t,
 		http.MethodGet,
-		"/api/dataset-deal/executions?processID="+processID,
+		"/products/dataset-deal/api/executions?processID="+processID,
 		nil,
 		http.StatusOK,
 		&processList,
@@ -160,7 +160,7 @@ func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
 	))
 
 	var allList datasetDealListResponse
-	requestDatasetDealAPI(t, http.MethodGet, "/api/dataset-deal/executions", nil, http.StatusOK, &allList)
+	requestDatasetDealAPI(t, http.MethodGet, "/products/dataset-deal/api/executions", nil, http.StatusOK, &allList)
 	require.True(t, containsDatasetDealExecutions(allList.Executions, full.FlowID, refund.FlowID, pending.FlowID))
 	require.True(t, executionsStartedDescending(allList.Executions))
 	require.NotNil(t, fullExecution.ClosedAt)
@@ -194,7 +194,7 @@ func assertDatasetDealProcessList(t *testing.T, process datasetdeal.DealProcess)
 	requestDatasetDealAPI(
 		t,
 		http.MethodGet,
-		"/api/dataset-deal/processes",
+		"/products/dataset-deal/api/processes",
 		nil,
 		http.StatusOK,
 		&response,
@@ -280,7 +280,7 @@ func updateStoredProcessDefinition(t *testing.T, processID string) {
 	requestDatasetDealAPI(
 		t,
 		http.MethodPut,
-		"/api/dataset-deal/processes/"+processID,
+		"/products/dataset-deal/api/processes/"+processID,
 		replacement,
 		http.StatusOK,
 		nil,
@@ -289,7 +289,7 @@ func updateStoredProcessDefinition(t *testing.T, processID string) {
 	requestDatasetDealAPI(
 		t,
 		http.MethodGet,
-		"/api/dataset-deal/processes/"+processID,
+		"/products/dataset-deal/api/processes/"+processID,
 		nil,
 		http.StatusOK,
 		&stored,
@@ -366,7 +366,7 @@ func startDatasetDealExecution(
 ) datasetDealStartResponse {
 	t.Helper()
 	var response datasetDealStartResponse
-	requestDatasetDealAPI(t, http.MethodPost, "/api/dataset-deal/executions", map[string]string{
+	requestDatasetDealAPI(t, http.MethodPost, "/products/dataset-deal/api/executions", map[string]string{
 		"processID": processID,
 		"buyerID":   buyerID,
 	}, http.StatusCreated, &response)
@@ -385,7 +385,7 @@ func sendDatasetDealMessage(
 	requestDatasetDealAPI(
 		t,
 		http.MethodPost,
-		fmt.Sprintf("/api/dataset-deal/executions/%s/channels/%s", flowID, conditionName),
+		fmt.Sprintf("/products/dataset-deal/api/executions/%s/channels/%s", flowID, conditionName),
 		map[string]any{"data": data},
 		http.StatusAccepted,
 		nil,
@@ -404,7 +404,7 @@ func waitForDatasetDealExecution(
 		responseErr = requestDatasetDealAPIWithoutAssertions(
 			t,
 			http.MethodGet,
-			"/api/dataset-deal/executions/"+flowID,
+			"/products/dataset-deal/api/executions/"+flowID,
 			nil,
 			http.StatusOK,
 			&execution,

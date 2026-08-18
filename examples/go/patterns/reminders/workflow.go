@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"time"
 
-	patternsservice "github.com/superdurable/dex/examples/go/workflows/patterns/service"
+	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 

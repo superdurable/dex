@@ -24,8 +24,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/polling"
+	"github.com/superdurable/dex/examples/go/products/polling"
+	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -34,7 +34,7 @@ func TestPollingStartAndChannels(t *testing.T) {
 	flowID := newFlowID(t, "polling")
 	runID, err := integClient.StartFlow(
 		ctx,
-		workflows.Polling,
+		registry.Polling,
 		flowID,
 		1,
 		dex.StartFlowOptions{},

@@ -21,12 +21,12 @@ e2eTests:
 	./run-e2e-tests.sh
 
 fmt:
-	gofmt -s -w ./cmd ./integ ./workflows
+	gofmt -s -w ./cmd ./integ ./products ./patterns ./registry ./server ./shared
 
 tests: unitTests
 
 unitTests:
-	go test -v ./cmd/... ./workflows/...
+	go test -v ./cmd/... ./products/... ./patterns/... ./registry/...
 
 help:
 	@printf "\033[36m%-20s\033[0m %s\n" 'help' 'Prints this help message'

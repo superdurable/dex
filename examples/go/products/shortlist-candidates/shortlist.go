@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/superdurable/dex/examples/go/workflows/service"
+	"github.com/superdurable/dex/examples/go/shared/service"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 

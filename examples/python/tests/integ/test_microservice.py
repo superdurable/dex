@@ -19,7 +19,7 @@ from typing import Callable
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.workflow.microservices.orchestration_flow import OrchestrationFlow
+from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
 from tests.integ.conftest import WAIT_TIMEOUT, attribute_or_none, wait_until
 
 from dex import AsyncClient

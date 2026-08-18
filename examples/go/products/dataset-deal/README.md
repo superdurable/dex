@@ -99,15 +99,15 @@ idempotently at startup.
 
 | Method | Path | Purpose |
 |---|---|---|
-| `POST` | `/api/dataset-deal/processes` | Validate and create a process |
-| `GET` | `/api/dataset-deal/processes` | List seller process definitions |
-| `GET` | `/api/dataset-deal/processes/:processID` | Read a process |
-| `PUT` | `/api/dataset-deal/processes/:processID` | Validate and update a process |
-| `POST` | `/api/dataset-deal/executions` | Start a buyer execution and wait for initialization |
-| `GET` | `/api/dataset-deal/executions?processID=deal-v1` | List one process's executions |
-| `GET` | `/api/dataset-deal/executions?buyerID=buyer1&processID=deal-v1` | List one buyer's matching executions |
-| `GET` | `/api/dataset-deal/executions/:flowID` | Read one execution snapshot |
-| `POST` | `/api/dataset-deal/executions/:flowID/channels/:conditionName` | Merge external condition data |
+| `POST` | `/products/dataset-deal/api/processes` | Validate and create a process |
+| `GET` | `/products/dataset-deal/api/processes` | List seller process definitions |
+| `GET` | `/products/dataset-deal/api/processes/:processID` | Read a process |
+| `PUT` | `/products/dataset-deal/api/processes/:processID` | Validate and update a process |
+| `POST` | `/products/dataset-deal/api/executions` | Start a buyer execution and wait for initialization |
+| `GET` | `/products/dataset-deal/api/executions?processID=deal-v1` | List one process's executions |
+| `GET` | `/products/dataset-deal/api/executions?buyerID=buyer1&processID=deal-v1` | List one buyer's matching executions |
+| `GET` | `/products/dataset-deal/api/executions/:flowID` | Read one execution snapshot |
+| `POST` | `/products/dataset-deal/api/executions/:flowID/channels/:conditionName` | Merge external condition data |
 
 The execution flow ID is `<processID>-<UUID>`. The start API initializes the
 buyer as an indexed attribute and waits for `datasetdeal.initializeStep` to
@@ -159,7 +159,7 @@ WorkerService, FlowService, PostgreSQL, REST handlers, and indexed search.
 ## Documentation
 
 The comprehensive JSON template is
-`cmd/server/dex/ui/dataset-deal/comprehensive-process.json`.
+`products/dataset-deal/ui/dataset-deal/comprehensive-process.json`.
 
 ## UI/UX
 

@@ -19,7 +19,7 @@ package io.superdurable.dex.config;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
-import io.superdurable.dex.patterns.workflow.cron.CronScheduleFlow;
+import io.superdurable.dex.patterns.cron.CronScheduleFlow;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;

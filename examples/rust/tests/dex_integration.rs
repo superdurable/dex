@@ -19,15 +19,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dex_examples_rust::create_example_registry;
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
-use dex_examples_rust::workflow::engagement::{
+use dex_examples_rust::products::engagement::{
     ENGAGEMENT_ACCEPT, ENGAGEMENT_DESCRIBE, EngagementFlow, EngagementRequest, EngagementStatus,
 };
-use dex_examples_rust::workflow::microservices::{
+use dex_examples_rust::products::microservices::{
     ORCHESTRATION_READY, ORCHESTRATION_SWAP, OrchestrationFlow,
 };
-use dex_examples_rust::workflow::money_transfer::{MoneyTransferFlow, TransferRequest};
-use dex_examples_rust::workflow::polling::{POLLING_COMPLETE_TASK, PollingFlow};
-use dex_examples_rust::workflow::subscription::{
+use dex_examples_rust::products::money_transfer::{MoneyTransferFlow, TransferRequest};
+use dex_examples_rust::products::polling::{POLLING_COMPLETE_TASK, PollingFlow};
+use dex_examples_rust::products::subscription::{
     SUBSCRIPTION_CANCEL, SUBSCRIPTION_DESCRIBE, SUBSCRIPTION_UPDATE_CHARGE, SubscriptionFlow,
     SubscriptionRequest, SubscriptionState,
 };

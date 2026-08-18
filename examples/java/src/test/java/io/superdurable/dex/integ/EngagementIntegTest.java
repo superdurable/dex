@@ -16,10 +16,10 @@
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.workflow.engagement.EngagementDescription;
-import io.superdurable.dex.workflow.engagement.EngagementFlow;
-import io.superdurable.dex.workflow.engagement.EngagementInput;
-import io.superdurable.dex.workflow.engagement.Status;
+import io.superdurable.dex.products.engagement.EngagementDescription;
+import io.superdurable.dex.products.engagement.EngagementFlow;
+import io.superdurable.dex.products.engagement.EngagementInput;
+import io.superdurable.dex.products.engagement.Status;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 

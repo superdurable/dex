@@ -21,10 +21,10 @@ from datetime import timedelta
 
 import pytest
 
-from dex_examples.my_dependency_service import MyDependencyService
-from dex_examples.workflow.subscription import subscription_billing
-from dex_examples.workflow.subscription.customer import Customer
-from dex_examples.workflow.subscription.subscription import Subscription
+from dex_examples.shared.my_dependency_service import MyDependencyService
+from dex_examples.products.subscription import subscription_billing
+from dex_examples.products.subscription.customer import Customer
+from dex_examples.products.subscription.subscription import Subscription
 
 
 @dataclass(frozen=True)

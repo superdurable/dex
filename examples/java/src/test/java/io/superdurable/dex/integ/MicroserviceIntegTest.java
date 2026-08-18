@@ -16,7 +16,7 @@
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.workflow.microservices.OrchestrationFlow;
+import io.superdurable.dex.products.microservices.OrchestrationFlow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 

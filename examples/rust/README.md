@@ -4,36 +4,54 @@ This application mirrors the examples shared by the Java, Python, and TypeScript
 applications. It intentionally depends on the published `dex-sdk = "=0.1.10"`
 crate without a repository path override.
 
+## Layout
+
+```
+src/
+├── products/       # real-world business scenarios
+├── patterns/       # design patterns
+├── primitives/     # one minimal example per Dex primitive
+└── server/         # Axum HTTP router
+```
+
+HTTP routes use category prefixes:
+
+- `/products/<kebab>/...` — e.g. `/products/job-post/create`
+- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start/simple`
+- `/primitives/<kebab>/...` — e.g. `/primitives/channel/approve`
+
 ## Run
 
-Rust 1.97 or newer is required. Start Dex, then run the Worker:
+Rust 1.97 or newer is required. Start Dex, then run the Worker and HTTP server:
 
 ```bash
 cd examples/rust
+dexcli dev --temporal-db-filename /tmp/dex-examples-rust.db
 cargo run --locked
 ```
 
-The Worker connects to `127.0.0.1:8801`, listens on `0.0.0.0:8803`, and stores
-large payload blobs under `/tmp/dex-rust-examples-blobs`. Override these with
-`DEX_SERVER_ADDRESS`, `DEX_WORKER_ADDRESS`, and `DEX_BLOB_CACHE_DIR`.
+The Worker connects to `127.0.0.1:8801`, listens on `127.0.0.1:8803`, serves HTTP
+on `127.0.0.1:8080`, and stores large payload blobs under
+`/tmp/dex-rust-examples-blobs`. Override these with `DEX_SERVER_ADDRESS`,
+`DEX_WORKER_BIND_ADDRESS`, `DEX_EXAMPLES_HTTP_ADDRESS`, and `DEX_BLOB_CACHE_DIR`.
 
-## Product examples
+## Products
 
 Every shared product example has a distinct Rust Flow and implementation file.
 
 | Java/Python/TypeScript example | Rust Flow | Demonstrated SDK features |
 |---|---|---|
-| Money transfer | [`MoneyTransferFlow`](src/workflow/money_transfer.rs) | Execute retry and debit compensation |
-| Microservice orchestration | [`OrchestrationFlow`](src/workflow/microservices.rs) | Parallel Steps, Attribute swap RPC, Channel-or-timer wait |
-| Engagement | [`EngagementFlow`](src/workflow/engagement.rs) | Indexed status, decision RPCs, reminders, external notification |
-| Subscription | [`SubscriptionFlow`](src/workflow/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
-| Polling | [`PollingFlow`](src/workflow/polling.rs) | Two external Channels and a timer-driven polling branch |
-| Signup | [`UserSignupFlow`](src/workflow/signup.rs) | Verification Channel and recurring reminder timer |
-| Job post | [`JobPostFlow`](src/workflow/job_post.rs) | Full-text Attributes and read/update/soft-delete RPCs |
-| Shortlist candidates: employer opt-in | [`EmployerOptInFlow`](src/workflow/shortlist_candidates.rs) | Long-running opt-in state and opt-out Channel |
-| Shortlist candidates: shortlist | [`ShortlistFlow`](src/workflow/shortlist_candidates.rs) | Scheduled contact or revoke race |
+| Money transfer | [`MoneyTransferFlow`](src/products/money_transfer.rs) | Execute retry and debit compensation |
+| Microservice orchestration | [`OrchestrationFlow`](src/products/microservices.rs) | Parallel Steps, Attribute swap RPC, Channel-or-timer wait |
+| Engagement | [`EngagementFlow`](src/products/engagement.rs) | Indexed status, decision RPCs, reminders, external notification |
+| Subscription | [`SubscriptionFlow`](src/products/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
+| Polling | [`PollingFlow`](src/products/polling.rs) | Two external Channels and a timer-driven polling branch |
+| Signup | [`UserSignupFlow`](src/products/signup.rs) | Verification Channel and recurring reminder timer |
+| Job post | [`JobPostFlow`](src/products/job_post.rs) | Full-text Attributes and read/update/soft-delete RPCs |
+| Shortlist candidates: employer opt-in | [`EmployerOptInFlow`](src/products/shortlist_candidates.rs) | Long-running opt-in state and opt-out Channel |
+| Shortlist candidates: shortlist | [`ShortlistFlow`](src/products/shortlist_candidates.rs) | Scheduled contact or revoke race |
 
-## Design patterns
+## Patterns
 
 Every shared design-pattern Flow is independently registered; multi-Flow patterns
 remain split so their orchestration boundaries are visible.
@@ -80,3 +98,6 @@ ensures the manifest uses the published crate rather than a local path.
 The integration script starts the current checkout's `dexcli dev`, then starts
 and verifies Money Transfer, Engagement, Microservice, Polling, Subscription,
 and Failure Recovery Flows through the published Rust SDK.
+
+The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
+after E2E tests for manual HTTP exploration.

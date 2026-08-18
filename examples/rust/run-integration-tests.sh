@@ -16,6 +16,19 @@
 
 set -euo pipefail
 
+keep_running=false
+test_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --keep-running)
+      keep_running=true
+      ;;
+    *)
+      test_args+=("$arg")
+      ;;
+  esac
+done
+
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 dex_port="${DEX_RUST_EXAMPLES_DEX_PORT:-19804}"
@@ -29,6 +42,12 @@ dexcli_pid=""
 
 cleanup() {
   status=$?
+  if $keep_running; then
+    if [[ "$status" -ne 0 ]]; then
+      cat "$log_file" >&2
+    fi
+    return
+  fi
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
@@ -80,4 +99,14 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
+export DEXCLI_PATH="$binary_dir/dexcli"
 DEX_SERVER_ADDRESS="$dex_address" make integTests
+DEX_SERVER_ADDRESS="$dex_address" make flowSmokeTests
+
+if $keep_running; then
+  echo ""
+  echo "Dex Web:  http://127.0.0.1:${web_port}"
+  echo "dexcli:   --server ${dex_address}"
+  echo "Press Ctrl+C to stop dexcli dev"
+  wait "$dexcli_pid"
+fi

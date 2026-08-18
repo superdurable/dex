@@ -22,6 +22,19 @@
 
 set -euo pipefail
 
+keep_running=false
+test_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --keep-running)
+      keep_running=true
+      ;;
+    *)
+      test_args+=("$arg")
+      ;;
+  esac
+done
+
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 dex_port="${DEX_EXAMPLES_DEX_PORT:-19801}"
@@ -38,6 +51,12 @@ dexcli_pid=""
 
 cleanup() {
   status=$?
+  if $keep_running; then
+    if [[ "$status" -ne 0 ]]; then
+      cat "$log_file" >&2
+    fi
+    return
+  fi
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
@@ -82,6 +101,8 @@ fi
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 
+export DEXCLI_PATH="$binary_dir/dexcli"
+
 dex_ready=false
 for _ in {1..240}; do
   if grep -q "Dex development environment is ready" "$log_file"; then
@@ -106,4 +127,12 @@ DATASET_DEAL_POSTGRES_URL="$postgres_url" \
 GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
 GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \
 GOWORK=off \
-  go test -count=1 -race -v ./integ
+  go test -count=1 -race -v ./integ "${test_args[@]}"
+
+if $keep_running; then
+  echo ""
+  echo "Dex Web:  http://127.0.0.1:${web_port}"
+  echo "dexcli:   --server ${dex_address}"
+  echo "Press Ctrl+C to stop dexcli dev"
+  wait "$dexcli_pid"
+fi

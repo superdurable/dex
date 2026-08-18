@@ -40,30 +40,30 @@ for command_name in curl jq; do
   fi
 done
 
-curl --fail --silent --show-error "$api_url/api/dataset-deal/actions" >/dev/null
+curl --fail --silent --show-error "$api_url/products/dataset-deal/api/actions" >/dev/null
 
 process_payload="$test_dir/process.json"
 jq --arg process_id "$process_id" '.processID = $process_id' \
-  "$script_dir/cmd/server/dex/ui/dataset-deal/comprehensive-process.json" \
+  "$script_dir/products/dataset-deal/ui/dataset-deal/comprehensive-process.json" \
   >"$process_payload"
 process_response="$test_dir/process-response.json"
 process_status=$(curl --silent --show-error \
   --output "$process_response" \
   --write-out '%{http_code}' \
-  "$api_url/api/dataset-deal/processes/$process_id")
+  "$api_url/products/dataset-deal/api/processes/$process_id")
 case "$process_status" in
   200)
     curl --fail --silent --show-error \
       --request PUT \
       -H 'Content-Type: application/json' \
       --data-binary "@$process_payload" \
-      "$api_url/api/dataset-deal/processes/$process_id" >/dev/null
+      "$api_url/products/dataset-deal/api/processes/$process_id" >/dev/null
     ;;
   404)
     curl --fail --silent --show-error \
       -H 'Content-Type: application/json' \
       --data-binary "@$process_payload" \
-      "$api_url/api/dataset-deal/processes" >/dev/null
+      "$api_url/products/dataset-deal/api/processes" >/dev/null
     ;;
   *)
     cat "$process_response" >&2
@@ -72,7 +72,7 @@ case "$process_status" in
     ;;
 esac
 
-curl --fail --silent --show-error "$api_url/api/dataset-deal/processes" | \
+curl --fail --silent --show-error "$api_url/products/dataset-deal/api/processes" | \
   jq -e --arg process_id "$process_id" \
     '.processes | any(.processID == $process_id)' >/dev/null
 
@@ -82,7 +82,7 @@ start_execution() {
     -H 'Content-Type: application/json' \
     --data "$(jq -cn --arg process_id "$process_id" --arg buyer_id "$buyer_id" \
       '{processID: $process_id, buyerID: $buyer_id}')" \
-    "$api_url/api/dataset-deal/executions"
+    "$api_url/products/dataset-deal/api/executions"
 }
 
 send_message() {
@@ -92,7 +92,7 @@ send_message() {
   curl --fail --silent --show-error \
     -H 'Content-Type: application/json' \
     --data "$(jq -cn --argjson data "$data" '{data: $data}')" \
-    "$api_url/api/dataset-deal/executions/${flow_id}/channels/${condition_name}" \
+    "$api_url/products/dataset-deal/api/executions/${flow_id}/channels/${condition_name}" \
     >/dev/null
 }
 
@@ -102,7 +102,7 @@ wait_for_execution() {
   local response_file="$test_dir/${flow_id}.json"
   for _ in {1..300}; do
     if curl --fail --silent \
-      "$api_url/api/dataset-deal/executions/${flow_id}" \
+      "$api_url/products/dataset-deal/api/executions/${flow_id}" \
       >"$response_file" && jq -e "$expression" "$response_file" >/dev/null; then
       cat "$response_file"
       return
@@ -148,11 +148,11 @@ refund_result=$(wait_for_execution "$refund_flow" \
 
 pending_result=$(wait_for_execution "$pending_flow" \
   '.status == "RUNNING" and .currentState == "buyer-negotiation" and .pendingPreConditionName == ""')
-all_executions=$(curl --fail --silent --show-error "$api_url/api/dataset-deal/executions")
+all_executions=$(curl --fail --silent --show-error "$api_url/products/dataset-deal/api/executions")
 buyer_executions=$(curl --fail --silent --show-error \
-  "$api_url/api/dataset-deal/executions?buyerID=${buyer_refund}&processID=${process_id}")
+  "$api_url/products/dataset-deal/api/executions?buyerID=${buyer_refund}&processID=${process_id}")
 process_executions=$(curl --fail --silent --show-error \
-  "$api_url/api/dataset-deal/executions?processID=${process_id}")
+  "$api_url/products/dataset-deal/api/executions?processID=${process_id}")
 jq -e --arg full "$full_flow" --arg refund "$refund_flow" --arg pending "$pending_flow" \
   '[.executions[].flowID] | contains([$full, $refund, $pending])' <<<"$all_executions" >/dev/null
 jq -e --arg full "$full_flow" --arg refund "$refund_flow" --arg pending "$pending_flow" \
@@ -160,13 +160,13 @@ jq -e --arg full "$full_flow" --arg refund "$refund_flow" --arg pending "$pendin
 jq -e --arg buyer "$buyer_refund" --arg flow "$refund_flow" \
   '.executions | any(.flowID == $flow and .buyerID == $buyer)' <<<"$buyer_executions" >/dev/null
 curl --fail --silent --show-error \
-  "$api_url/dataset-deal/processes/${process_id}" >/dev/null
+  "$api_url/products/dataset-deal/processes/${process_id}" >/dev/null
 curl --fail --silent --show-error \
-  "$api_url/dataset-deal/executions/${full_flow}" >/dev/null
+  "$api_url/products/dataset-deal/executions/${full_flow}" >/dev/null
 
 echo "Dataset Deal DSL executions passed"
 echo "  process: ${process_id}"
 echo "  full:    $(jq -c '{flowID, currentState, status, stateData}' <<<"$full_result")"
 echo "  refund:  $(jq -c '{flowID, currentState, status, stateData}' <<<"$refund_result")"
 echo "  pending: $(jq -c '{flowID, currentState, status, pendingPreConditionName}' <<<"$pending_result")"
-echo "  Deal UI: ${api_url}/dataset-deal"
+echo "  Deal UI: ${api_url}/products/dataset-deal"

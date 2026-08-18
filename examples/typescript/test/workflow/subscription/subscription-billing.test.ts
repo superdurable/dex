@@ -17,9 +17,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MyDependencyService } from "../../../src/workflow/my-dependency-service.js";
-import type { Customer } from "../../../src/workflow/subscription/models.js";
-import { SubscriptionBilling } from "../../../src/workflow/subscription/subscription-billing.js";
+import { MyDependencyService } from "../../../src/shared/my-dependency-service.js";
+import type { Customer } from "../../../src/products/subscription/models.js";
+import { SubscriptionBilling } from "../../../src/products/subscription/subscription-billing.js";
 
 const TEST_CUSTOMER: Customer = {
   firstName: "Quanzheng",

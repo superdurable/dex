@@ -28,16 +28,44 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
-	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/datasetdeal"
-	"github.com/superdurable/dex/examples/go/workflows/service"
+	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
+	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
+	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	"github.com/superdurable/dex/examples/go/patterns/interruptible"
+	"github.com/superdurable/dex/examples/go/patterns/intervention"
+	"github.com/superdurable/dex/examples/go/patterns/parallel"
+	"github.com/superdurable/dex/examples/go/patterns/parent-child"
+	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
+	"github.com/superdurable/dex/examples/go/patterns/recovery"
+	"github.com/superdurable/dex/examples/go/patterns/reminders"
+	"github.com/superdurable/dex/examples/go/patterns/resettable-timer"
+	"github.com/superdurable/dex/examples/go/patterns/scalable-parallel"
+	"github.com/superdurable/dex/examples/go/patterns/timeout"
+	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
+	primitiveattribute "github.com/superdurable/dex/examples/go/primitives/attribute"
+	primitivechannel "github.com/superdurable/dex/examples/go/primitives/channel"
+	primitiveclientapis "github.com/superdurable/dex/examples/go/primitives/client-apis"
+	primitiverpc "github.com/superdurable/dex/examples/go/primitives/rpc"
+	primitivestep "github.com/superdurable/dex/examples/go/primitives/step"
+	primitivesubflow "github.com/superdurable/dex/examples/go/primitives/subflow"
+	primitivetimer "github.com/superdurable/dex/examples/go/primitives/timer"
+	"github.com/superdurable/dex/examples/go/products/dataset-deal"
+	"github.com/superdurable/dex/examples/go/products/engagement"
+	"github.com/superdurable/dex/examples/go/products/job-post"
+	"github.com/superdurable/dex/examples/go/products/microservices"
+	"github.com/superdurable/dex/examples/go/products/money-transfer"
+	productspolling "github.com/superdurable/dex/examples/go/products/polling"
+	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
+	"github.com/superdurable/dex/examples/go/products/signup"
+	"github.com/superdurable/dex/examples/go/products/subscription"
+	"github.com/superdurable/dex/examples/go/registry"
+	"github.com/superdurable/dex/examples/go/shared/service"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -79,10 +107,10 @@ func newSampleServer(ctx context.Context) (*sampleServer, error) {
 	dealFlow := datasetdeal.NewDealFlow(dealRepository, cache.Logger())
 	var client *sdk.Client
 	flows := append(
-		workflows.New(service.NewMyService(), func() *sdk.Client { return client }),
+		registry.New(service.NewMyService(), func() *sdk.Client { return client }),
 		dealFlow,
 	)
-	registry, err := sdk.NewRegistry(flows)
+	flowRegistry, err := sdk.NewRegistry(flows)
 	if err != nil {
 		database.Close()
 		return nil, errors.Join(fmt.Errorf("register example flows: %w", err), cache.Close())
@@ -94,12 +122,12 @@ func newSampleServer(ctx context.Context) (*sampleServer, error) {
 	if target := os.Getenv("DEX_WORKER_TARGET"); target != "" {
 		workerOptions.WorkerTarget.Address = target
 	}
-	worker, err := sdk.NewWorker(registry, cache, workerOptions)
+	worker, err := sdk.NewWorker(flowRegistry, cache, workerOptions)
 	if err != nil {
 		database.Close()
 		return nil, errors.Join(err, cache.Close())
 	}
-	client, err = sdk.NewClient(registry, cache, sdk.ClientOptions{
+	client, err = sdk.NewClient(flowRegistry, cache, sdk.ClientOptions{
 		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
 		WorkerTarget:       worker.WorkerTarget(),
 	})
@@ -167,16 +195,41 @@ func NewRouter(
 	dealRepository datasetdeal.Repository,
 ) http.Handler {
 	router := gin.Default()
-	newSubscriptionController(client).registerRoutes(router)
-	newEngagementController(client).registerRoutes(router)
-	newMicroserviceController(client).registerRoutes(router)
-	newMoneyTransferController(client).registerRoutes(router)
-	newPollingController(client).registerRoutes(router)
-	newSignupController(client).registerRoutes(router)
-	newJobPostController(client).registerRoutes(router)
-	newShortlistController(client).registerRoutes(router)
-	newDesignPatternController(client).registerRoutes(router)
-	newDatasetDealController(client, dealFlow, dealRepository).registerRoutes(router)
+	subscription.RegisterRoutes(router, client, registry.Subscription)
+	engagement.RegisterRoutes(router, client, registry.Engagement)
+	microservices.RegisterRoutes(router, client, registry.Microservices)
+	moneytransfer.RegisterRoutes(router, client, registry.MoneyTransfer)
+	productspolling.RegisterRoutes(router, client, registry.Polling)
+	signup.RegisterRoutes(router, client, registry.Signup)
+	jobpost.RegisterRoutes(router, client, registry.JobPost)
+	shortlistcandidates.RegisterRoutes(
+		router,
+		client,
+		registry.EmployerOptIn,
+		registry.Shortlist,
+	)
+	patternspolling.RegisterRoutes(router, client, registry.SimplePolling, registry.BackoffPolling)
+	interruptible.RegisterRoutes(router, client, registry.InterruptibleExecution)
+	reminders.RegisterRoutes(router, client, registry.Reminder)
+	entitystore.RegisterRoutes(router, client, registry.UserProfile)
+	intervention.RegisterRoutes(router, client, registry.ManualIntervention)
+	resettabletimer.RegisterRoutes(router, client, registry.ResettableTimer)
+	parallel.RegisterRoutes(router, client, registry.SimpleParallel, registry.ParallelWithAwait)
+	recovery.RegisterRoutes(router, client, registry.FailureRecovery)
+	scalableparallel.RegisterRoutes(router, client, registry.RequestReceiver)
+	parentchild.RegisterRoutes(router, client, registry.ParentChild)
+	draininternal.RegisterRoutes(router, client, registry.DrainInternal)
+	drainsignal.RegisterRoutes(router, client, registry.DrainSignal)
+	waitforstatecompletion.RegisterRoutes(router, client, registry.WaitForStateCompletion)
+	timeout.RegisterRoutes(router, client, registry.GracefulTimeout)
+	datasetdeal.RegisterRoutes(router, client, dealFlow, dealRepository)
+	primitivestep.RegisterRoutes(router, client, registry.Step, registry.StepRetry)
+	primitiveattribute.RegisterRoutes(router, client, registry.Attribute)
+	primitivechannel.RegisterRoutes(router, client, registry.Channel)
+	primitivetimer.RegisterRoutes(router, client, registry.Timer)
+	primitiverpc.RegisterRoutes(router, client, registry.Rpc)
+	primitivesubflow.RegisterRoutes(router, client, registry.SubFlowParent)
+	primitiveclientapis.RegisterRoutes(router, client, registry.ClientApis)
 	return router
 }
 
@@ -260,49 +313,11 @@ func (server *sampleServer) close() error {
 	return errors.Join(httpErr, workerErr, clientErr, cacheErr)
 }
 
-func startFlow(
-	request *gin.Context,
-	client *sdk.Client,
-	flow sdk.Flow,
-	flowID string,
-	input any,
-) {
-	runID, err := client.StartFlow(
-		request.Request.Context(),
-		flow,
-		flowID,
-		input,
-		sdk.StartFlowOptions{},
-	)
-	respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
-}
-
-func requiredQuery(request *gin.Context, name string) (string, bool) {
-	value := request.Query(name)
-	if value == "" {
-		request.JSON(http.StatusBadRequest, gin.H{"error": name + " is required"})
-		return "", false
-	}
-	return value, true
-}
-
-func respond(request *gin.Context, value any, err error) {
-	if err != nil {
-		request.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	request.JSON(http.StatusOK, value)
-}
-
-func newFlowID(prefix string) string {
-	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10)
-}
-
 func startCronSchedule(client *sdk.Client) {
 	timeout := time.Hour
 	_, err := client.StartFlow(
 		context.Background(),
-		workflows.CronSchedule,
+		registry.CronSchedule,
 		"cron-schedule-sample",
 		nil,
 		sdk.StartFlowOptions{
@@ -315,7 +330,6 @@ func startCronSchedule(client *sdk.Client) {
 		if errors.As(err, &duplicate) {
 			return
 		}
-		// Temporal Schedule.Create returns no run ID; SDK surfaces that after register.
 		if strings.Contains(err.Error(), "no run ID") {
 			return
 		}

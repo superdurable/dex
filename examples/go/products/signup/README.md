@@ -5,6 +5,6 @@ User signup with email verification reminders. Submit starts the flow; verify co
 With the sample server running:
 
 ```text
-http://localhost:8080/signup/submit?username=<user>&email=<email>
-http://localhost:8080/signup/verify?username=<user>
+http://localhost:8080/products/signup/submit?username=<user>&email=<email>
+http://localhost:8080/products/signup/verify?username=<user>
 ```

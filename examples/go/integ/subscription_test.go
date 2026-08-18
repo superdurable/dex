@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/subscription"
+	"github.com/superdurable/dex/examples/go/products/subscription"
+	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -47,7 +47,7 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 	}
 	runID, err := integClient.StartFlow(
 		ctx,
-		workflows.Subscription,
+		registry.Subscription,
 		flowID,
 		customer,
 		dex.StartFlowOptions{},
@@ -66,7 +66,7 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		workflows.Subscription.Describe,
+		registry.Subscription.Describe,
 		nil,
 		&current,
 		dex.InvokeOptions{},
@@ -82,7 +82,7 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 		err = integClient.InvokeRPC(
 			ctx,
 			flowID,
-			workflows.Subscription.Describe,
+			registry.Subscription.Describe,
 			nil,
 			&current,
 			dex.InvokeOptions{},

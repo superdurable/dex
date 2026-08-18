@@ -16,6 +16,19 @@
 
 set -euo pipefail
 
+keep_running=false
+test_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --keep-running)
+      keep_running=true
+      ;;
+    *)
+      test_args+=("$arg")
+      ;;
+  esac
+done
+
 dex_port="${DEX_EXAMPLES_DEX_PORT:-19811}"
 web_port="${DEX_EXAMPLES_WEB_PORT:-19911}"
 dex_address="127.0.0.1:${dex_port}"
@@ -27,6 +40,12 @@ script_dir=$(cd "$(dirname "$0")" && pwd)
 
 cleanup() {
   status=$?
+  if $keep_running; then
+    if [[ "$status" -ne 0 ]]; then
+      cat "$log_file" >&2
+    fi
+    exit "$status"
+  fi
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
@@ -49,5 +68,14 @@ dexcli_pid=$!
 
 cd "$script_dir"
 uv sync --locked
+export DEXCLI_PATH="$script_dir/../../cli/dexcli"
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen pytest tests/unit tests/integ sync-python/tests/integ -v 2>&1 | tee "$test_log"
+  uv run --frozen pytest tests/unit tests/integ sync-python/sync_tests/integ -v "${test_args[@]}" 2>&1 | tee "$test_log"
+
+if $keep_running; then
+  echo ""
+  echo "Dex Web:  http://127.0.0.1:${web_port}"
+  echo "dexcli:   --server ${dex_address}"
+  echo "Press Ctrl+C to stop dexcli dev"
+  wait "$dexcli_pid"
+fi

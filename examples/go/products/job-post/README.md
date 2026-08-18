@@ -5,9 +5,9 @@ CRUD job post with indexed attributes and external-system updates. Create seeds 
 With the sample server running:
 
 ```text
-http://localhost:8080/jobpost/create?title=<title>&description=<description>
-http://localhost:8080/jobpost/read?workflowId=<flow-id>
-http://localhost:8080/jobpost/update?workflowId=<flow-id>&title=<title>&description=<description>&notes=<notes>
-http://localhost:8080/jobpost/delete?workflowId=<flow-id>
-http://localhost:8080/jobpost/search?query=<query>
+http://localhost:8080/products/job-post/create?title=<title>&description=<description>
+http://localhost:8080/products/job-post/read?workflowId=<flow-id>
+http://localhost:8080/products/job-post/update?workflowId=<flow-id>&title=<title>&description=<description>&notes=<notes>
+http://localhost:8080/products/job-post/delete?workflowId=<flow-id>
+http://localhost:8080/products/job-post/search?query=<query>
 ```

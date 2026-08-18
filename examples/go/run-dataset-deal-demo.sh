@@ -32,8 +32,8 @@ api_address="127.0.0.1:${api_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
 compose_project="dataset-deal-demo-$$"
 test_dir=$(mktemp -d)
-dex_log="/tmp/dataset-deal-dex.log"
-app_log="/tmp/dataset-deal-app.log"
+dex_log="/tmp/products/dataset-deal-dex.log"
+app_log="/tmp/products/dataset-deal-app.log"
 dexcli_pid=""
 app_pid=""
 
@@ -90,7 +90,7 @@ app_pid=$!
 
 api_ready=false
 for _ in {1..240}; do
-  if curl --fail --silent "http://${api_address}/api/dataset-deal/actions" >/dev/null; then
+  if curl --fail --silent "http://${api_address}/products/dataset-deal/api/actions" >/dev/null; then
     api_ready=true
     break
   fi
