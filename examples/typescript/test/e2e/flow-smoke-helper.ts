@@ -105,9 +105,9 @@ export function parseFlowTriggerResponse(
       flowId?: string;
       runId?: string;
     };
-    const flowId = json.flowID ?? json.flowId ?? "";
-    const runId = json.runID ?? json.runId ?? "";
-    if (flowId) {
+    if (json !== null && typeof json === "object" && !Array.isArray(json)) {
+      const flowId = json.flowID ?? json.flowId ?? "";
+      const runId = json.runID ?? json.runId ?? "";
       return { flowId, runId };
     }
   } catch {

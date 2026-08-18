@@ -88,9 +88,7 @@ impl Step for WorkAExecution {
     type Input = WorkJobParametersInput;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_millis(
-            1_500,
-        ))))
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(1))))
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
