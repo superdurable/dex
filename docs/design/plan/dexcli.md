@@ -14,17 +14,12 @@ brew install dexcli
 dexcli dev
 ```
 
-`dexcli dev` 默认启动并管理 Dex Server、Dex Web 和内部 workflow backend。就绪输出只展示：
-
-```text
-Dex Server       127.0.0.1:8801
-Dex Web          http://127.0.0.1:8802
-```
+`dexcli dev` 默认启动并管理 Dex Server、Dex Web 和内部 workflow backend。就绪输出展示 Dex Web、Dex Server、Local DB、blob store 和 server log folder，不展示 Temporal endpoint。
 
 用户也可以连接已有 Temporal：
 
 ```bash
-dexcli dev --temporal-address localhost:7233
+dexcli dev --external-temporal-address localhost:7233
 ```
 
 此时不启动、不关闭 local Temporal；只管理 Dex Server 和 Dex Web。
@@ -267,8 +262,8 @@ Local `dexcli dev` 构造 typed `config.Config`，不生成临时 YAML：
 
 `--blob-store-dir` 指定持久目录；未指定时使用数据库文件同目录下的
 `dex.blobs`。local mode 未指定数据库时使用
-`$HOME/.dex/dev/<temporal-port>/dex.sqlite.db` 与
-`$HOME/.dex/dev/<temporal-port>/dex.blobs`。退出 `dexcli dev` 不会删除这些目录。显式
+`$HOME/.dex/dev/<port>/dex.sqlite.db` 与
+`$HOME/.dex/dev/<port>/dex.blobs`。退出 `dexcli dev` 不会删除这些目录。显式
 `--blob-store-dir` 优先于相邻的 `dex.blobs`。
 
 高级 server 配置继续由现有 server binary/YAML 提供，不把所有 production config 暴露成 `dexcli dev` flags。
@@ -281,17 +276,15 @@ dexcli dev [flags]
 --bind-address string          default 127.0.0.1
 --dex-port int                 default 8801
 --web-port int                 default 8802
---temporal-address string      non-empty selects external Temporal
---temporal-namespace string    default default
---temporal-port int            default 7233; local mode only
---temporal-ui-port int         default 8233; local mode only
---temporal-db-filename string  default $HOME/.dex/dev/<temporal-port>/dex.sqlite.db
---temporal-log-file string     write local Temporal server and Web logs to this file
---blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/dev/<temporal-port>/dex.blobs)
+--blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/blobs)
 --open                         open Dex Web after readiness
+--sqlite-db-filename string    default $HOME/.dex/dev/<port>/dex.sqlite.db
+--server-log-folder string     keep server logs (default temp folder, deleted on exit)
+--external-temporal-address string      non-empty selects external Temporal
+--external-temporal-namespace string    default default; external mode only
 ```
 
-`--temporal-address` 接受 `host:port`，不是 HTTP URL。设置后忽略 local Temporal port、UI port 和 DB flags，并为这些无效组合返回 `InvalidArgument` 风格 CLI error。
+`--external-temporal-address` 接受 `host:port`，不是 HTTP URL。设置后忽略 local SQLite flag，并为该无效组合返回 `InvalidArgument` 风格 CLI error。Local Temporal gRPC 与 Web 端口始终自动分配。
 
 第一阶段 external Temporal 支持 plaintext local/self-hosted endpoint。Temporal Cloud TLS/API key flags 后续单独设计，避免把 secret 放进 process arguments。
 
@@ -316,13 +309,13 @@ temporal server start-dev \
   --db-filename "$HOME/.dex/dev/7233/dex.sqlite.db"
 ```
 
-默认 namespace 已由 Temporal Dev Server 创建。只有用户传入非 `default` namespace 时才增加 namespace 参数。
+默认 namespace 已由 Temporal Dev Server 创建。Local mode 始终使用 `default`；只有 `--external-temporal-namespace` 才会覆盖 namespace。
 
 Process manager 必须：
 
-- 为每个 `dexcli dev` 进程分配互不冲突的 Dex、Dex Web、Temporal 和 Temporal UI 端口；未占用时使用默认值，已被占用且未显式指定时选择下一个空闲端口；
-- 为每个 local Temporal 使用独立 SQLite 文件（默认 `$HOME/.dex/dev/<temporal-port>/dex.sqlite.db`）；
-- `--temporal-log-file` 将 Temporal server 与 Web 的 stdout/stderr 写入指定文件，并记录实际 Temporal 端口和 SQLite 目录；默认丢弃这些日志，不向 `dexcli` 就绪输出泄露 Temporal endpoint；
+- 为每个 `dexcli dev` 进程分配互不冲突的 Dex、Dex Web、Temporal 和 Temporal UI 端口；未占用时使用默认值，Dex/Web 已被占用且未显式指定时选择下一个空闲端口，Local Temporal 端口始终自动分配；
+- 为每个 local Temporal 使用独立 SQLite 文件（默认 `$HOME/.dex/dev/<port>/dex.sqlite.db`）；
+- `--server-log-folder` 将 Dex Server 与 local workflow engine 日志写入同一目录；默认使用系统临时目录，就绪输出只打印 `Server log folder`，正常退出时删除；失败时保留并在错误中给出路径；
 - 启动前预占 Dex 与 Dex Web listeners，并确认 Temporal 端口可绑定；
 - 丢弃 backend 子进程 stdout/stderr，避免向普通启动输出泄露内部 endpoint；
 - 通过 Temporal API readiness 检查，不根据日志文本判断 ready；
@@ -381,11 +374,12 @@ Dex Web:       http://127.0.0.1:8802
 Dex Server:    127.0.0.1:8801
 Local DB:      $HOME/.dex/dev/7233/dex.sqlite.db
 Blob store:    $HOME/.dex/dev/7233/dex.blobs
+Server log folder: /tmp/dexcli-logs-123
 
 Press Ctrl+C to stop.
 ```
 
-Local mode 打印 SQLite 与 blob 路径，但不展示 Temporal 类型或 endpoint。External Temporal mode 省略 Local DB 行，仍打印 blob store，且不展示 backend 类型或 endpoint。
+Local mode 打印 SQLite、blob 与 server log folder，不展示 Temporal endpoint。External Temporal mode 省略 Local DB 行，仍打印 blob store 和 server log folder，且不展示 backend endpoint。
 
 错误必须指出 component 和修复方法，例如：
 
@@ -457,12 +451,12 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 
 - 默认 local mode 启动四个 endpoints，并能通过 Dex Web API 搜索一个实际 flow。
 - local Temporal 自动包含 `default` namespace 和 `FlowType=Keyword`。
-- `--temporal-db-filename` 重启后保留 Temporal executions。
+- `--sqlite-db-filename` 重启后保留 Temporal executions。
 - local blob backend 使用安全路径编码和 atomic rename。
 - 默认 `$HOME/.dex/blobs`、`--blob-store-dir` 或相邻的 `dex.blobs` 重启后保留 step inputs 和大 Value。
 - external mode 连接预先启动的 Temporal，不创建第二个 Temporal process。
 - 退出 external mode 后 external Temporal 仍然可用。
-- occupied 7233、8233、8801、8802 分别在部分启动前返回明确错误。
+- occupied 8801、8802 在显式指定且已被占用时返回明确错误；Local Temporal 端口被占用时自动选择下一个空闲端口。
 - Temporal child 非预期退出会停止 Dex runtime 和 Web server，并返回非零状态。
 - SIGINT/SIGTERM 后所有 owned ports 可立即被下一次启动复用。
 - 在 PATH 中没有 `node`/`npm` 时，release binary 仍可提供完整 Dex Web。
@@ -504,7 +498,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 
 1. `brew install dexcli` 是用户唯一的安装命令。
 2. `dexcli dev` 默认提供 Temporal、Temporal Web、Dex Server 和 Dex Web。
-3. `dexcli dev --temporal-address localhost:7233` 不启动或停止 local Temporal。
+3. `dexcli dev --external-temporal-address localhost:7233` 不启动或停止 local Temporal。
 4. Dex Web 默认运行在 `http://127.0.0.1:8802`。
 5. Release runtime 不依赖 Node.js，不存在 Next.js API server。
 6. `cli` import `web` Go module，不复制 Web API implementation。

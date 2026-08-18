@@ -18,8 +18,6 @@ set -euo pipefail
 
 dex_port="${DEX_EXAMPLES_DEX_PORT:-19811}"
 web_port="${DEX_EXAMPLES_WEB_PORT:-19911}"
-temporal_port="${DEX_EXAMPLES_TEMPORAL_PORT:-19243}"
-temporal_ui_port="${DEX_EXAMPLES_TEMPORAL_UI_PORT:-19343}"
 dex_address="127.0.0.1:${dex_port}"
 log_file="/tmp/test-python-examples-e2e-services.log"
 test_log="/tmp/test-python-examples-e2e.log"
@@ -44,9 +42,7 @@ make -C "$script_dir/../../cli" build
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
-  -temporal-port "$temporal_port" \
-  -temporal-ui-port "$temporal_ui_port" \
-  -temporal-db-filename "$test_dir/temporal.db" \
+  -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 

@@ -20,8 +20,6 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 dex_port="${DEX_JAVA_EXAMPLES_DEX_PORT:-19803}"
 web_port="${DEX_JAVA_EXAMPLES_WEB_PORT:-19903}"
-temporal_port="${DEX_JAVA_EXAMPLES_TEMPORAL_PORT:-19235}"
-temporal_ui_port="${DEX_JAVA_EXAMPLES_TEMPORAL_UI_PORT:-19335}"
 dex_address="127.0.0.1:${dex_port}"
 log_file="/tmp/test-java-examples-integration-services.log"
 test_dir=$(mktemp -d)
@@ -59,9 +57,7 @@ fi
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
-  -temporal-port "$temporal_port" \
-  -temporal-ui-port "$temporal_ui_port" \
-  -temporal-db-filename "$test_dir/temporal.db" \
+  -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 

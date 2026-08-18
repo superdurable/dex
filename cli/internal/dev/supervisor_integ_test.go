@@ -38,11 +38,9 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	cfg.TemporalUIPort = ports[1]
 	cfg.DexPort = ports[2]
 	cfg.WebPort = ports[3]
-	cfg.explicitLocalFlags["temporal-port"] = true
-	cfg.explicitLocalFlags["temporal-ui-port"] = true
 	cfg.explicitLocalFlags["dex-port"] = true
 	cfg.explicitLocalFlags["web-port"] = true
-	cfg.TemporalLogFile = filepath.Join(t.TempDir(), "temporal.log")
+	cfg.LogDirectory = t.TempDir()
 	output := &synchronizedBuffer{}
 	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -127,38 +125,44 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	if strings.Contains(output.String(), "Temporal") ||
 		strings.Contains(output.String(), cfg.temporalAddress()) ||
 		strings.Contains(output.String(), ":"+strconv.Itoa(cfg.TemporalUIPort)) {
-		t.Fatalf("workflow backend endpoint leaked in output: %s", output.String())
+		t.Fatalf("workflow backend leaked in output: %s", output.String())
 	}
-	if !strings.Contains(output.String(), "Local DB:      "+cfg.TemporalDBFilename) {
+	if !strings.Contains(output.String(), "Local DB:      "+cfg.SQLiteDBFilename) {
 		t.Fatalf("missing Local DB path: %s", output.String())
 	}
 	if !strings.Contains(output.String(), "Blob store:    "+cfg.adjacentBlobStoreDirectory()) {
 		t.Fatalf("missing blob store path: %s", output.String())
 	}
-	logContents, err := os.ReadFile(cfg.TemporalLogFile)
+	if !strings.Contains(output.String(), "Server log folder: "+cfg.LogDirectory) {
+		t.Fatalf("missing server log folder: %s", output.String())
+	}
+	logContents, err := os.ReadFile(cfg.temporalEngineLogPath())
 	if err != nil {
-		t.Fatalf("read Temporal log file: %v", err)
+		t.Fatalf("read workflow engine log file: %v", err)
 	}
 	logText := string(logContents)
 	if !strings.Contains(logText, cfg.temporalAddress()) {
-		t.Fatalf("Temporal log missing gRPC address: %s", logText)
+		t.Fatalf("workflow engine log missing gRPC address: %s", logText)
 	}
 	if !strings.Contains(logText, strconv.Itoa(cfg.TemporalUIPort)) {
-		t.Fatalf("Temporal log missing Web port: %s", logText)
+		t.Fatalf("workflow engine log missing Web port: %s", logText)
 	}
-	if !strings.Contains(logText, cfg.temporalDBDirectory()) {
-		t.Fatalf("Temporal log missing DB directory: %s", logText)
+	if !strings.Contains(logText, cfg.sqliteDBDirectory()) {
+		t.Fatalf("workflow engine log missing DB directory: %s", logText)
 	}
-	if cfg.TemporalDBFilename == "" {
+	if _, err := os.Stat(cfg.dexServerLogPath()); err != nil {
+		t.Fatalf("Dex server log file missing: %v", err)
+	}
+	if cfg.SQLiteDBFilename == "" {
 		t.Fatal("missing Temporal database")
 	}
-	if _, err := os.Stat(cfg.TemporalDBFilename); err != nil {
+	if _, err := os.Stat(cfg.SQLiteDBFilename); err != nil {
 		t.Fatalf("Temporal database was not retained after shutdown: %v", err)
 	}
 	if _, err := os.Stat(cfg.adjacentBlobStoreDirectory()); err != nil {
 		t.Fatalf("blob store was not retained after shutdown: %v", err)
 	}
-	for _, port := range ports {
+	for _, port := range []int{cfg.DexPort, cfg.WebPort, cfg.TemporalPort, cfg.TemporalUIPort} {
 		listener, err := net.Listen("tcp", net.JoinHostPort(cfg.BindAddress, strconv.Itoa(port)))
 		if err != nil {
 			t.Fatalf("port %d was not released: %v", port, err)
@@ -174,8 +178,6 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	localConfig := testConfig(t)
 	localConfig.TemporalPort = ports[0]
 	localConfig.TemporalUIPort = ports[1]
-	localConfig.explicitLocalFlags["temporal-port"] = true
-	localConfig.explicitLocalFlags["temporal-ui-port"] = true
 	output := &synchronizedBuffer{}
 	temporal, err := startTemporalProcess(localConfig, nil)
 	if err != nil {
@@ -197,7 +199,7 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 
 	externalConfig := testConfig(t)
 	externalConfig.BlobStoreDirectory = filepath.Join(t.TempDir(), "blobs")
-	externalConfig.TemporalAddress = localConfig.temporalAddress()
+	externalConfig.ExternalTemporalAddress = localConfig.temporalAddress()
 	externalConfig.DexPort = ports[2]
 	externalConfig.WebPort = ports[3]
 	externalConfig.explicitLocalFlags["dex-port"] = true
@@ -227,11 +229,15 @@ func TestExternalTemporalRemainsRunning(t *testing.T) {
 	}
 	temporalClient.Close()
 	cancelHealth()
-	if strings.Contains(output.String(), localConfig.temporalAddress()) {
-		t.Fatalf("external workflow backend endpoint leaked in output: %s", output.String())
+	if strings.Contains(output.String(), "Temporal") ||
+		strings.Contains(output.String(), localConfig.temporalAddress()) {
+		t.Fatalf("external workflow backend leaked in output: %s", output.String())
 	}
 	if strings.Contains(output.String(), "Local DB:") {
 		t.Fatalf("external mode printed Local DB: %s", output.String())
+	}
+	if !strings.Contains(output.String(), "Server log folder:") {
+		t.Fatalf("missing server log folder: %s", output.String())
 	}
 	if !strings.Contains(output.String(), "Blob store:") {
 		t.Fatalf("missing blob store path: %s", output.String())
@@ -261,6 +267,43 @@ func TestConcurrentLocalStacksUseDistinctPortsAndDatabases(t *testing.T) {
 
 	waitForReadyStack(t, output1, finished1)
 	waitForReadyStack(t, output2, finished2)
+	logDir1 := cfg1.LogDirectory
+	logDir2 := cfg2.LogDirectory
+	if logDir1 == "" || logDir1 == logDir2 {
+		cancel1()
+		cancel2()
+		t.Fatalf("stacks reused server log folders: %q vs %q", logDir1, logDir2)
+	}
+	if !strings.Contains(output1.String(), "Server log folder: "+logDir1) {
+		cancel1()
+		cancel2()
+		t.Fatalf("missing first server log folder: %s", output1.String())
+	}
+	if !strings.Contains(output2.String(), "Server log folder: "+logDir2) {
+		cancel1()
+		cancel2()
+		t.Fatalf("missing second server log folder: %s", output2.String())
+	}
+	if _, err := os.Stat(cfg1.temporalEngineLogPath()); err != nil {
+		cancel1()
+		cancel2()
+		t.Fatalf("first workflow engine log missing during run: %v", err)
+	}
+	if _, err := os.Stat(cfg2.temporalEngineLogPath()); err != nil {
+		cancel1()
+		cancel2()
+		t.Fatalf("second workflow engine log missing during run: %v", err)
+	}
+	if _, err := os.Stat(cfg1.dexServerLogPath()); err != nil {
+		cancel1()
+		cancel2()
+		t.Fatalf("first Dex server log missing during run: %v", err)
+	}
+	if _, err := os.Stat(cfg2.dexServerLogPath()); err != nil {
+		cancel1()
+		cancel2()
+		t.Fatalf("second Dex server log missing during run: %v", err)
+	}
 	if cfg1.DexPort == cfg2.DexPort ||
 		cfg1.WebPort == cfg2.WebPort ||
 		cfg1.TemporalPort == cfg2.TemporalPort ||
@@ -269,17 +312,17 @@ func TestConcurrentLocalStacksUseDistinctPortsAndDatabases(t *testing.T) {
 		cancel2()
 		t.Fatalf("stacks reused ports: %+v vs %+v", cfg1, cfg2)
 	}
-	if cfg1.TemporalDBFilename == "" || cfg1.TemporalDBFilename == cfg2.TemporalDBFilename {
+	if cfg1.SQLiteDBFilename == "" || cfg1.SQLiteDBFilename == cfg2.SQLiteDBFilename {
 		cancel1()
 		cancel2()
-		t.Fatalf("stacks reused Temporal databases: %q vs %q", cfg1.TemporalDBFilename, cfg2.TemporalDBFilename)
+		t.Fatalf("stacks reused Temporal databases: %q vs %q", cfg1.SQLiteDBFilename, cfg2.SQLiteDBFilename)
 	}
-	if _, err := os.Stat(cfg1.TemporalDBFilename); err != nil {
+	if _, err := os.Stat(cfg1.SQLiteDBFilename); err != nil {
 		cancel1()
 		cancel2()
 		t.Fatalf("first Temporal database missing: %v", err)
 	}
-	if _, err := os.Stat(cfg2.TemporalDBFilename); err != nil {
+	if _, err := os.Stat(cfg2.SQLiteDBFilename); err != nil {
 		cancel1()
 		cancel2()
 		t.Fatalf("second Temporal database missing: %v", err)
@@ -297,6 +340,12 @@ func TestConcurrentLocalStacksUseDistinctPortsAndDatabases(t *testing.T) {
 			t.Fatal("local stack did not stop")
 		}
 	}
+	if _, err := os.Stat(logDir1); !os.IsNotExist(err) {
+		t.Fatalf("ephemeral server log folder was kept: %s (%v)", logDir1, err)
+	}
+	if _, err := os.Stat(logDir2); !os.IsNotExist(err) {
+		t.Fatalf("ephemeral server log folder was kept: %s (%v)", logDir2, err)
+	}
 }
 
 func TestBlobStoreDirectorySelection(t *testing.T) {
@@ -306,7 +355,7 @@ func TestBlobStoreDirectorySelection(t *testing.T) {
 	explicitDirectory := filepath.Join(root, "explicit")
 	explicitConfig, err := parseConfig([]string{
 		"--blob-store-dir", explicitDirectory,
-		"--temporal-db-filename", filepath.Join(root, "ignored-temporal.db"),
+		"--sqlite-db-filename", filepath.Join(root, "ignored-temporal.db"),
 	}, output)
 	if err != nil {
 		t.Fatal(err)
@@ -320,7 +369,7 @@ func TestBlobStoreDirectorySelection(t *testing.T) {
 	}
 
 	databaseConfig := testConfig(t)
-	databaseConfig.TemporalDBFilename = filepath.Join(root, "temporal.db")
+	databaseConfig.SQLiteDBFilename = filepath.Join(root, "temporal.db")
 	directory, err = newSupervisor(databaseConfig, output, output).prepareBlobStoreDirectory()
 	if err != nil {
 		t.Fatal(err)

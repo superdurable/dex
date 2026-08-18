@@ -27,8 +27,6 @@ dex_port="${DATASET_DEAL_DEX_PORT:-20801}"
 dex_web_port="${DATASET_DEAL_DEX_WEB_PORT:-20802}"
 worker_port="${DATASET_DEAL_WORKER_PORT:-20803}"
 api_port="${DATASET_DEAL_API_PORT:-20804}"
-temporal_port="${DATASET_DEAL_TEMPORAL_PORT:-20233}"
-temporal_ui_port="${DATASET_DEAL_TEMPORAL_UI_PORT:-20333}"
 dex_address="127.0.0.1:${dex_port}"
 api_address="127.0.0.1:${api_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
@@ -76,9 +74,7 @@ make bins
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$dex_web_port" \
-  -temporal-port "$temporal_port" \
-  -temporal-ui-port "$temporal_ui_port" \
-  -temporal-db-filename "$test_dir/temporal.db" \
+  -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$dex_log" 2>&1 &
 dexcli_pid=$!
 
@@ -122,9 +118,8 @@ fi
 
 DATASET_DEAL_API_URL="http://${api_address}" ./trigger-dataset-deal-demo.sh
 
-echo "  Dex UI:  http://127.0.0.1:${dex_web_port}"
-echo "  Temporal: http://127.0.0.1:${temporal_ui_port}"
-echo "  logs:     ${dex_log}, ${app_log}"
+echo "  Dex UI: http://127.0.0.1:${dex_web_port}"
+echo "  logs:   ${dex_log}, ${app_log}"
 if [[ "${KEEP_DATASET_DEAL_DEMO:-0}" == "1" ]]; then
   echo "Services remain running. Press Ctrl+C to stop and clean up."
   wait "$app_pid"

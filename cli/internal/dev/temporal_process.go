@@ -11,12 +11,14 @@
 package dev
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -44,8 +46,8 @@ func startTemporalProcess(cfg *Config, logs io.Writer) (*temporalProcess, error)
 	if cfg.TemporalNamespace != defaultTemporalNamespace {
 		arguments = append(arguments, "--namespace", cfg.TemporalNamespace)
 	}
-	if cfg.TemporalDBFilename != "" {
-		arguments = append(arguments, "--db-filename", cfg.TemporalDBFilename)
+	if cfg.SQLiteDBFilename != "" {
+		arguments = append(arguments, "--db-filename", cfg.SQLiteDBFilename)
 	}
 	if logs == nil {
 		logs = io.Discard
@@ -115,20 +117,52 @@ func (p *temporalProcess) Stop(timeout time.Duration) error {
 	}
 }
 
-func openTemporalLogFile(path string) (*os.File, error) {
-	if path == "" {
-		return nil, nil
+type serverLogDir struct {
+	directory   string
+	engineLog   *os.File
+	isEphemeral bool
+}
+
+func openServerLogDir(cfg *Config) (*serverLogDir, error) {
+	directory := strings.TrimSpace(cfg.LogDirectory)
+	isEphemeral := directory == ""
+	if isEphemeral {
+		created, err := os.MkdirTemp("", "dexcli-logs-*")
+		if err != nil {
+			return nil, fmt.Errorf("create server log directory: %w", err)
+		}
+		directory = created
+	} else {
+		absolute, err := filepath.Abs(directory)
+		if err != nil {
+			return nil, fmt.Errorf("resolve server log directory: %w", err)
+		}
+		if err := os.MkdirAll(absolute, 0o700); err != nil {
+			return nil, fmt.Errorf("create server log directory: %w", err)
+		}
+		directory = absolute
 	}
-	path, err := filepath.Abs(path)
+	cfg.LogDirectory = directory
+	logs := &serverLogDir{directory: directory, isEphemeral: isEphemeral}
+	if cfg.ExternalTemporalAddress != "" {
+		return logs, nil
+	}
+	file, err := os.OpenFile(cfg.temporalEngineLogPath(), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("resolve Temporal log file: %w", err)
+		return nil, errors.Join(fmt.Errorf("open workflow engine log file: %w", err), logs.Close(isEphemeral))
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("create Temporal log directory: %w", err)
+	logs.engineLog = file
+	return logs, nil
+}
+
+func (d *serverLogDir) Close(shouldRemove bool) error {
+	var err error
+	if d.engineLog != nil {
+		err = d.engineLog.Close()
+		d.engineLog = nil
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open Temporal log file: %w", err)
+	if shouldRemove {
+		err = errors.Join(err, os.RemoveAll(d.directory))
 	}
-	return file, nil
+	return err
 }

@@ -94,7 +94,7 @@ fi
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
-  -temporal-address "$temporal_address" \
+  -external-temporal-address "$temporal_address" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 

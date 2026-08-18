@@ -10,6 +10,8 @@ package dev
 
 import (
 	"bytes"
+	"errors"
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,24 +74,80 @@ func TestAttributeStoreConfigRequiresStore(t *testing.T) {
 	}
 }
 
-func TestTemporalLogFileFlag(t *testing.T) {
-	logFile := filepath.Join(t.TempDir(), "logs", "temporal.log")
-	cfg, err := parseConfig([]string{"--temporal-log-file", logFile}, &bytes.Buffer{})
+func TestServerLogFolderFlag(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "logs")
+	cfg, err := parseConfig([]string{"--server-log-folder", directory}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.TemporalLogFile != logFile {
-		t.Fatalf("unexpected Temporal log file: %q", cfg.TemporalLogFile)
+	if cfg.LogDirectory != directory {
+		t.Fatalf("unexpected server log folder: %q", cfg.LogDirectory)
 	}
 }
 
-func TestTemporalLogFileRejectedWithExternalAddress(t *testing.T) {
+func TestSQLiteDBFilenameRejectedWithExternalAddress(t *testing.T) {
 	_, err := parseConfig([]string{
-		"--temporal-address", "127.0.0.1:7233",
-		"--temporal-log-file", "temporal.log",
+		"--external-temporal-address", "127.0.0.1:7233",
+		"--sqlite-db-filename", "dex.sqlite.db",
 	}, &bytes.Buffer{})
 	if err == nil {
-		t.Fatal("expected --temporal-log-file to fail with --temporal-address")
+		t.Fatal("expected --sqlite-db-filename to fail with --external-temporal-address")
+	}
+}
+
+func TestExternalTemporalNamespaceRequiresAddress(t *testing.T) {
+	_, err := parseConfig([]string{"--external-temporal-namespace", "custom"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected --external-temporal-namespace to fail without --external-temporal-address")
+	}
+}
+
+func TestHelpListsFlagsWithTemporalLast(t *testing.T) {
+	var output bytes.Buffer
+	_, err := parseConfig([]string{"-h"}, &output)
+	if err != nil && !errors.Is(err, flag.ErrHelp) {
+		t.Fatal(err)
+	}
+	text := output.String()
+	last := -1
+	for _, name := range flagOrder {
+		idx := strings.Index(text, "-"+name)
+		if idx < 0 {
+			t.Fatalf("missing flag %s in help:\n%s", name, text)
+		}
+		if idx < last {
+			t.Fatalf("flag %s is out of order in help:\n%s", name, text)
+		}
+		last = idx
+	}
+	for _, name := range []string{
+		"-temporal-port",
+		"-temporal-ui-port",
+		"-temporal-address",
+		"-temporal-db-filename",
+		"-temporal-namespace",
+		"-temporal-log-file",
+		"-log-dir",
+	} {
+		if strings.Contains(text, "  "+name+" ") || strings.Contains(text, "  "+name+"\n") {
+			t.Fatalf("removed flag %s still documented:\n%s", name, text)
+		}
+	}
+}
+
+func TestRemovedTemporalPortFlagsAreRejected(t *testing.T) {
+	for _, name := range []string{
+		"temporal-port",
+		"temporal-ui-port",
+		"temporal-address",
+		"temporal-db-filename",
+		"temporal-namespace",
+		"temporal-log-file",
+		"log-dir",
+	} {
+		if _, err := parseConfig([]string{"--" + name, "1"}, &bytes.Buffer{}); err == nil {
+			t.Fatalf("expected unknown flag %s to fail", name)
+		}
 	}
 }
 
@@ -97,7 +155,7 @@ func TestWriteTemporalStartupRecordIncludesPortsAndDatabase(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.TemporalPort = 7234
 	cfg.TemporalUIPort = 8234
-	cfg.TemporalDBFilename = filepath.Join(cfg.StateDirectory, "dev", "7234", localSQLiteFileName)
+	cfg.SQLiteDBFilename = filepath.Join(cfg.StateDirectory, "dev", "7234", localSQLiteFileName)
 	var output bytes.Buffer
 	if err := cfg.writeTemporalStartupRecord(&output); err != nil {
 		t.Fatal(err)

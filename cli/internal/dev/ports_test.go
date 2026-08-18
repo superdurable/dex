@@ -43,8 +43,8 @@ func TestReserveOwnedListenersSkipsOccupiedPorts(t *testing.T) {
 	if cfg.DexPort == occupiedPort {
 		t.Fatalf("allocated occupied Dex port %d", occupiedPort)
 	}
-	if cfg.TemporalDBFilename != cfg.autoTemporalDBFilename() {
-		t.Fatalf("unexpected Temporal database: %q", cfg.TemporalDBFilename)
+	if cfg.SQLiteDBFilename != cfg.autoSQLiteDBFilename() {
+		t.Fatalf("unexpected Temporal database: %q", cfg.SQLiteDBFilename)
 	}
 }
 
@@ -74,8 +74,8 @@ func TestReserveOwnedListenersSkipsWildcardOccupiedPort(t *testing.T) {
 	if cfg.TemporalPort == occupiedPort {
 		t.Fatalf("allocated wildcard-occupied Temporal port %d", occupiedPort)
 	}
-	if cfg.TemporalDBFilename != filepath.Join(cfg.StateDirectory, "dev", strconv.Itoa(cfg.TemporalPort), localSQLiteFileName) {
-		t.Fatalf("unexpected Temporal database: %q", cfg.TemporalDBFilename)
+	if cfg.SQLiteDBFilename != filepath.Join(cfg.StateDirectory, "dev", strconv.Itoa(cfg.TemporalPort), localSQLiteFileName) {
+		t.Fatalf("unexpected Temporal database: %q", cfg.SQLiteDBFilename)
 	}
 }
 
@@ -101,7 +101,7 @@ func TestReserveOwnedListenersExplicitPortFailsWhenOccupied(t *testing.T) {
 
 func TestReserveOwnedListenersKeepsExplicitDatabase(t *testing.T) {
 	database := filepath.Join(t.TempDir(), "custom.db")
-	cfg, err := parseConfig([]string{"--temporal-db-filename", database}, &bytes.Buffer{})
+	cfg, err := parseConfig([]string{"--sqlite-db-filename", database}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,13 +115,13 @@ func TestReserveOwnedListenersKeepsExplicitDatabase(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
-	if cfg.TemporalDBFilename != database {
-		t.Fatalf("explicit Temporal database was replaced: %q", cfg.TemporalDBFilename)
+	if cfg.SQLiteDBFilename != database {
+		t.Fatalf("explicit Temporal database was replaced: %q", cfg.SQLiteDBFilename)
 	}
 }
 
 func TestReserveOwnedListenersExternalModeSkipsTemporalDatabase(t *testing.T) {
-	cfg, err := parseConfig([]string{"--temporal-address", "127.0.0.1:7233"}, &bytes.Buffer{})
+	cfg, err := parseConfig([]string{"--external-temporal-address", "127.0.0.1:7233"}, &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,8 +135,8 @@ func TestReserveOwnedListenersExternalModeSkipsTemporalDatabase(t *testing.T) {
 			t.Fatal(err)
 		}
 	}()
-	if cfg.TemporalDBFilename != "" {
-		t.Fatalf("external mode assigned a Temporal database: %q", cfg.TemporalDBFilename)
+	if cfg.SQLiteDBFilename != "" {
+		t.Fatalf("external mode assigned a Temporal database: %q", cfg.SQLiteDBFilename)
 	}
 }
 
@@ -175,12 +175,12 @@ func TestConcurrentReserveOwnedListenersUsesDistinctPortsAndDatabases(t *testing
 			}
 			ports[address] = i
 		}
-		if cfg.TemporalDBFilename == "" {
+		if cfg.SQLiteDBFilename == "" {
 			t.Fatalf("instance %d missing Temporal database", i)
 		}
-		if owner, exists := databases[cfg.TemporalDBFilename]; exists {
-			t.Fatalf("Temporal database %s reused by instances %d and %d", cfg.TemporalDBFilename, owner, i)
+		if owner, exists := databases[cfg.SQLiteDBFilename]; exists {
+			t.Fatalf("Temporal database %s reused by instances %d and %d", cfg.SQLiteDBFilename, owner, i)
 		}
-		databases[cfg.TemporalDBFilename] = i
+		databases[cfg.SQLiteDBFilename] = i
 	}
 }

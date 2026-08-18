@@ -22,8 +22,6 @@ entity_store_dir="$repo_root/examples/entity-store"
 compose_project="dex-python-examples-$$"
 dex_port="${DEX_EXAMPLES_DEX_PORT:-19802}"
 web_port="${DEX_EXAMPLES_WEB_PORT:-19902}"
-temporal_port="${DEX_EXAMPLES_TEMPORAL_PORT:-19234}"
-temporal_ui_port="${DEX_EXAMPLES_TEMPORAL_UI_PORT:-19334}"
 dex_address="127.0.0.1:${dex_port}"
 log_file="/tmp/test-python-examples-integ-services.log"
 test_dir=$(mktemp -d)
@@ -73,9 +71,7 @@ entity_store_started=true
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
-  -temporal-port "$temporal_port" \
-  -temporal-ui-port "$temporal_ui_port" \
-  -temporal-db-filename "$test_dir/temporal.db" \
+  -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 

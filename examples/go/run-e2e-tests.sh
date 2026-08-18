@@ -26,8 +26,6 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 dex_port="${DEX_EXAMPLES_DEX_PORT:-19801}"
 web_port="${DEX_EXAMPLES_WEB_PORT:-19901}"
-temporal_port="${DEX_EXAMPLES_TEMPORAL_PORT:-19233}"
-temporal_ui_port="${DEX_EXAMPLES_TEMPORAL_UI_PORT:-19333}"
 postgres_port="${DEX_EXAMPLES_POSTGRES_PORT:-19432}"
 dex_address="127.0.0.1:${dex_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
@@ -79,9 +77,7 @@ fi
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
-  -temporal-port "$temporal_port" \
-  -temporal-ui-port "$temporal_ui_port" \
-  -temporal-db-filename "$test_dir/temporal.db" \
+  -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 

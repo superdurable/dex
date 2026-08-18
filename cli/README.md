@@ -35,13 +35,13 @@ at a non-default stack with `--server` or `DEX_FLOW_SERVICE_ADDRESS`.
 Use `--open` to open Dex Web after every component becomes ready. Ctrl+C stops
 Dex Web, Dex Server, and all internal processes owned by `dexcli`.
 
-Local state persists in `$HOME/.dex/dev/<temporal-port>/dex.sqlite.db`.
+Local state persists in `$HOME/.dex/dev/<port>/dex.sqlite.db`.
 Dex Web step inputs and values larger than 1 KB persist next to that database
 in `dex.blobs`, so execution history and its blobs share a lifecycle. Override
 the database path with:
 
 ```bash
-dexcli dev --temporal-db-filename ./dex.sqlite.db
+dexcli dev --sqlite-db-filename ./dex.sqlite.db
 ```
 
 Choose another blob directory with:
@@ -51,13 +51,13 @@ dexcli dev --blob-store-dir ./dex-blobs
 ```
 
 `--blob-store-dir` takes precedence over the directory derived from
-`--temporal-db-filename`.
+`--sqlite-db-filename`.
 
-Capture local Temporal server and Web logs, including the bound Temporal ports
-and SQLite directory, with:
+Server logs go to a temp folder that `dexcli` prints on readiness and deletes
+when it exits. Keep them with:
 
 ```bash
-dexcli dev --temporal-log-file ./temporal.log
+dexcli dev --server-log-folder ./dex-logs
 ```
 
 Configure local Attribute Store projection with the same YAML section accepted
@@ -83,19 +83,22 @@ must exist and be reachable before startup.
 ## Application-facing flags
 
 ```text
---bind-address string          local bind IP (default 127.0.0.1)
---dex-port int                 Dex gRPC port (default 8801)
---web-port int                 Dex Web port (default 8802)
---temporal-db-filename string  local Temporal SQLite file (default $HOME/.dex/dev/<temporal-port>/dex.sqlite.db)
---temporal-log-file string     write local Temporal server and Web logs to this file
---blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/dev/<temporal-port>/dex.blobs)
---attribute-store-config string  Dex YAML file supplying Attribute Store settings
---open                         open Dex Web after readiness
+--attribute-store-config string    Dex YAML file supplying Attribute Store settings
+--bind-address string              local bind IP (default 127.0.0.1)
+--blob-store-dir string            persistent Dex blob storage directory (default $HOME/.dex/blobs)
+--dex-port int                     Dex gRPC port (default 8801)
+--open                             open Dex Web after readiness
+--web-port int                     Dex Web port (default 8802)
+--sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)
+--server-log-folder string         keep server logs (default temp folder, deleted on exit)
+--external-temporal-address string      external Temporal host:port
+--external-temporal-namespace string    external Temporal namespace (default default)
 ```
 
-Operators hosting Dex can use the retained backend compatibility flags for
-external mode, namespaces, and internal ports. Dex does not print those
-endpoints, and application developers do not need them.
+Local Temporal gRPC and Web ports are assigned automatically. Operators can
+point Dex at an existing Temporal with `--external-temporal-address` and
+`--external-temporal-namespace`. Dex does not print those endpoints, and
+application developers do not need them.
 
 ## Operate flows
 
@@ -185,9 +188,9 @@ binary does not read `web/`, `node_modules`, or the source tree.
 ## Troubleshooting
 
 - “workflow backend CLI was not found”: reinstall `dexcli` with Homebrew.
-- “address is already in use”: an explicit `--dex-port`, `--web-port`,
-  `--temporal-port`, or `--temporal-ui-port` is taken. Stop that process or pass
-  another port. Unspecified ports are assigned automatically.
+- “address is already in use”: an explicit `--dex-port` or `--web-port` is
+  taken. Stop that process or pass another port. Unspecified Dex ports and all
+  local Temporal ports are assigned automatically.
 - “attribute index synchronization failed”: operators should verify that Dex
   can list and add backend visibility indexes. Workers never require a manual
   registration command.
