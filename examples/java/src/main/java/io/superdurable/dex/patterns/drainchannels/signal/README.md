@@ -42,7 +42,7 @@ GET /drainchannels/signal/startorsignal?workflowId={workflowId}
 
 1. Start a workflow using the above endpoint. Example:
 ```
-http://localhost:8080/design-pattern/drainchannels/signal/startorsignal?workflowId=signalchanneltest
+http://localhost:8080/patterns/drain-channels/signal/startorsignal?workflowId=signalchanneltest
 ```
 2. Use the same endpoint to signal the workflow. 
 3. If you want to send more signals to the workflow rerun the endpoint from step 1 or send a signal from the Temporal Cloud UI:

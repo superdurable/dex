@@ -2,4 +2,4 @@
 
 ## Endpoints
 
-- `GET /design-pattern/drainchannels/internal/start?workflowId={workflowId}`
+- `GET /patterns/drain-channels/internal/start?workflowId={workflowId}`

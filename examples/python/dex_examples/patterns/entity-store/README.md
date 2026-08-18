@@ -8,10 +8,10 @@ metadata columns.
 
 ## Endpoints
 
-- `POST /design-pattern/entity-store/profile`
-- `POST /design-pattern/entity-store/profile/update`
-- `GET /design-pattern/entity-store/profile?userId=...`
-- `POST /design-pattern/entity-store/profile/clear?userId=...`
+- `POST /patterns/entity-store/profile`
+- `POST /patterns/entity-store/profile/update`
+- `GET /patterns/entity-store/profile?userId=...`
+- `POST /patterns/entity-store/profile/clear?userId=...`
 
 The Flow ID becomes PostgreSQL's `user_id` primary key. Clearing a profile
 deletes the Dex Attributes and asynchronously writes SQL `NULL` to its columns.

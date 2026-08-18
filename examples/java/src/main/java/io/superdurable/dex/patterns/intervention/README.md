@@ -7,7 +7,7 @@ The `ManualInterventionWorkflow` is a pattern for handling scenarios where an AP
 To start the `ManualInterventionWorkflow`, use the following REST endpoint:
 
 ```
-GET /design-pattern/intervention/start?workflowId={workflowId}
+GET /patterns/intervention/start?workflowId={workflowId}
 ```
 
 ## Use Cases

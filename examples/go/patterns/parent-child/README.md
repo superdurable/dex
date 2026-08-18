@@ -2,7 +2,7 @@
 
 ## Endpoints
 
-- `GET /design-pattern/parentchild/start?workflowId={workflowId}&numRequests={n}`
+- `GET /patterns/parent-child/start?workflowId={workflowId}&numRequests={n}`
 
 Concurrency per parent: 3
 

@@ -16,15 +16,15 @@ This is particularly useful in scenarios where user engagement is critical, and 
 The application exposes the following REST endpoints for managing the reminder workflow:
 
 - **Start Reminder Workflow**:
-  - `GET /design-pattern/workflow-with-reminder/start`
+  - `GET /patterns/reminders/start`
   - Starts the Reminder Workflow and returns a `workflowId`.
 
 - **Accept Reminder Workflow**:
-    - `GET /design-pattern/workflow-with-reminder/accept?workflowId={workflowId}`
+    - `GET /patterns/reminders/accept?workflowId={workflowId}`
     - Accepts the workflow, changing its status to ACCEPTED and publishing a completion signal.
 
 - **Opt Out Reminder Workflow**:
-    - `GET /design-pattern/workflow-with-reminder/optout?workflowId={workflowId}`
+    - `GET /patterns/reminders/optout?workflowId={workflowId}`
     - Signals the workflow to opt out of the process without accepting it.
 
 ## Use Cases and Considerations

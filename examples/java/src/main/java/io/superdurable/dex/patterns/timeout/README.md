@@ -19,9 +19,9 @@ The `FlowGracefulTimeout` serves as an example of managing tasks using a timeout
 
 1. Start a workflow using an endpoint. Example:
 ```http request
-http://localhost:8080/design-pattern/timeout/start?workflowId=handleTimeoutWorkflow
+http://localhost:8080/patterns/timeout/start?workflowId=handleTimeoutWorkflow
 ```
 2. If you want the timeout state to be triggered add the parameter `successfulWorkflow=false`
 ```http request
-http://localhost:8080/design-pattern/timeout/start?workflowId=handleTimeoutWorkflow&successfulWorkflow=false
+http://localhost:8080/patterns/timeout/start?workflowId=handleTimeoutWorkflow&successfulWorkflow=false
 ```

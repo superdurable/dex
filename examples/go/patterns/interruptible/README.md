@@ -2,5 +2,5 @@
 
 ## Endpoints
 
-- `GET /design-pattern/interruptible/start?workflowId={workflowId}`
-- `GET /design-pattern/interruptible/cancel?workflowId={workflowId}`
+- `GET /patterns/interruptible/start?workflowId={workflowId}`
+- `GET /patterns/interruptible/cancel?workflowId={workflowId}`

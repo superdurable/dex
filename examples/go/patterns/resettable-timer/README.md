@@ -2,5 +2,5 @@
 
 ## Endpoints
 
-- `GET /design-pattern/resettabletimer/start?workflowId={workflowId}`
-- `GET /design-pattern/resettabletimer/reset?workflowId={workflowId}`
+- `GET /patterns/resettable-timer/start?workflowId={workflowId}`
+- `GET /patterns/resettable-timer/reset?workflowId={workflowId}`

@@ -8,7 +8,7 @@ The state(s) used for the waitForCompletionState feature or the waitForCompletio
 To start the `WaitForStateCompletionWorkflow', use the following REST endpoint:
 
 ```http request
-GET /design-pattern/waitforstatecompletion/start?workflowId={workflowId}
+GET /patterns/wait-for-state-completion/start?workflowId={workflowId}
 ```
 
 ## Use Cases
@@ -48,7 +48,7 @@ The workflow uses a persistence schema to define the data attributes that need t
 To start a `WaitForStateCompletionWorkflow`, use the above endpoint. Example:
 
 ```http request
-http://localhost:8080/design-pattern/waitforstatecompletion/start?workflowId=waitforstatecompletion_1
+http://localhost:8080/patterns/wait-for-state-completion/start?workflowId=waitforstatecompletion_1
 ```
 *NOTE* See the controller for how waitForCompletionState is configured on start. Example:
 

@@ -2,6 +2,6 @@
 
 ## Endpoints
 
-- `GET /design-pattern/waitforstatecompletion/start?workflowId={workflowId}`
+- `GET /patterns/wait-for-state-completion/start?workflowId={workflowId}`
 
 PersistData step type: `PersistData`

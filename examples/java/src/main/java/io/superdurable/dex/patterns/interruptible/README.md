@@ -18,11 +18,11 @@ The Interruptible Workflow Pattern allows a workflow to be interrupted and grace
 The application exposes the following REST endpoints for managing the interruptible workflow:
 
 - **Start Interruptible Workflow**:
-  - `GET /design-pattern/interruptible/start?workflowId={workflowId}`
+  - `GET /patterns/interruptible/start?workflowId={workflowId}`
   - Starts the Interruptible Workflow with the specified `workflowId`.
 
 - **Cancel Interruptible Workflow**:
-  - `GET /design-pattern/interruptible/cancel?workflowId={workflowId}`
+  - `GET /patterns/interruptible/cancel?workflowId={workflowId}`
   - Sends an interrupt signal to the workflow, causing it to terminate gracefully.
 
 ## Use Cases and Considerations

@@ -2,4 +2,4 @@
 
 ## Endpoints
 
-- `GET /design-pattern/intervention/start?workflowId={workflowId}`
+- `GET /patterns/intervention/start?workflowId={workflowId}`

@@ -2,6 +2,6 @@
 
 ## Endpoints
 
-- `GET /design-pattern/workflow-with-reminder/start`
-- `GET /design-pattern/workflow-with-reminder/accept?workflowId={workflowId}`
-- `GET /design-pattern/workflow-with-reminder/optout?workflowId={workflowId}`
+- `GET /patterns/reminders/start`
+- `GET /patterns/reminders/accept?workflowId={workflowId}`
+- `GET /patterns/reminders/optout?workflowId={workflowId}`

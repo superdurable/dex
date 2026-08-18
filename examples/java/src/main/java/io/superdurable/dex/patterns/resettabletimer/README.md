@@ -9,10 +9,10 @@ Here we demonstrate a basic and common design pattern for building workflows wit
 The application exposes the following REST endpoints:
 
 - **Start Resettable Timer Workflow**:
-  - `GET /design-pattern/resettabletimer/start?workflowId={workflowId}`
+  - `GET /patterns/resettable-timer/start?workflowId={workflowId}`
   - Starts the Resettable Timer Workflow with the specified `workflowId`.
 - **Reset the timer**:
-  - `GET /design-pattern/resettabletimer/reset?workflowId={workflowId}`
+  - `GET /patterns/resettable-timer/reset?workflowId={workflowId}`
   - Resets timer for the Resettable Timer Workflow with the specified `workflowId`.
 
 

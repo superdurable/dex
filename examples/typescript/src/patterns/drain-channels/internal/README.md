@@ -6,7 +6,7 @@ This example workflow demonstrates a workflow where one thread (A) is responsibl
 
 To start the `DrainInternalChannelsWorkflow`, use the following REST endpoint:
 ```
-GET /design-pattern/drainchannels/internal/start?workflowId={workflowId}
+GET /patterns/drain-channels/internal/start?workflowId={workflowId}
 ```
 
 ## Use Cases
@@ -38,4 +38,4 @@ The workflow uses internal channels for communication between states:
 
 ### Usage
 
-Start the workflow with this: `http://localhost:8080/design-pattern/drainchannels/internal/start?workflowId=internalchanneltest`
+Start the workflow with this: `http://localhost:8080/patterns/drain-channels/internal/start?workflowId=internalchanneltest`

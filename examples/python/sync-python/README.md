@@ -13,12 +13,12 @@ Six Flows:
 
 | Demo | Route prefix | Notes |
 |------|--------------|--------|
-| Basic | `/basic` | smallest Flow |
-| Money transfer | `/moneytransfer` | saga |
-| Engagement | `/engagement` | channels + RPC |
-| Subscription | `/subscription` | timers |
-| Parent–child | `/design-pattern/parentchild` | sync `Client` inside `Step.execute` |
-| Interruptible | `/design-pattern/interruptible` | interrupt RPC |
+| Basic | `/primitives/step` | smallest Flow |
+| Money transfer | `/products/money-transfer` | saga |
+| Engagement | `/products/engagement` | channels + RPC |
+| Subscription | `/products/subscription` | timers |
+| Parent–child | `/patterns/parent-child` | sync `Client` inside `Step.execute` |
+| Interruptible | `/patterns/interruptible` | interrupt RPC |
 
 Defaults: Worker `127.0.0.1:8804`, HTTP `127.0.0.1:8081` (does not clash with
 the async app on `8803` / `8080`).

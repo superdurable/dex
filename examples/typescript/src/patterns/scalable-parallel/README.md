@@ -38,7 +38,7 @@ The pattern is designed to be scalable in multiple ways. The main variables that
 The application exposes the following REST endpoints:
 
 - **Start Request Workflow**:
-    - `GET /design-pattern/parallelism/start?workflowId={workflowId}&numOfChildWfs={number}`
+    - `GET /patterns/scalable-parallel/start?workflowId={workflowId}&numOfChildWfs={number}`
     - Starts the RequestReceiverWorkflow with the specified `workflowId` by requesting a `number` of tasks to be processed. In a real-world scenario, this endpoint would take an object or a reference to the object (URL path) to be processed.
 
 ## Use Cases and Considerations

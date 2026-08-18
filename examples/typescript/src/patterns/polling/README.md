@@ -11,10 +11,10 @@ Here we demonstrate two basic and common design patterns for building workflows 
 The application exposes the following REST endpoints:
 
 - **Start Simple Polling Workflow**:
-  - `GET /design-pattern/polling/start/simple?workflowId={workflowId}`
+  - `GET /patterns/polling/start/simple?workflowId={workflowId}`
   - Starts the Simple Polling Workflow with the specified `workflowId`.
 - **Start Backoff Polling Workflow**:
-  - `GET /design-pattern/polling/start/backoff?workflowId={workflowId}`
+  - `GET /patterns/polling/start/backoff?workflowId={workflowId}`
   - Starts the Backoff Polling Workflow with the specified `workflowId`.
 
 

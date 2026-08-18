@@ -3,7 +3,7 @@
 Demonstrates starting a Dex flow with a cron schedule so each tick runs the flow
 like a recurring job.
 
-## Endpoints
+## How it starts
 
-- `GET /design-pattern/cron/start` — start flow ID `cron-schedule-sample` with
-  cron `*/1 * * * *`
+The sample process starts flow ID `cron-schedule-sample` with cron `*/1 * * * *`
+at boot. There is no HTTP endpoint.
