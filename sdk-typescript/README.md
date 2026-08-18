@@ -13,28 +13,28 @@ The Client uses `@grpc/grpc-js` directly. Rust is only the implementation
 boundary for the shared BlobCache; TypeScript callbacks and network transport
 stay in Node.
 
-Step input codecs and RPC input/output codecs remain explicit because
-TypeScript erases generic types at runtime. They are serialization metadata,
-not builder arguments.
+Omitted Step input codecs and RPC input/output codecs use JSON
+(`JSON.stringify` / `JSON.parse`, no structural validation). Scalar wire kinds
+still need `stringCodec`, `booleanCodec`, `int64Codec`, `doubleCodec`, or
+`bytesCodec`. A `@rpc()` method with only `Context` and a `void` return stays a
+procedure.
 
 ```typescript
-class ApproveOrder implements Step<string> {
-  readonly inputCodec = stringCodec;
-
+class ApproveOrder implements Step<{ orderId: string }> {
   getStepType(): string {
     return "ApproveOrder";
   }
 
-  waitFor(_context: Context, _orderId: string): Wait {
+  waitFor(_context: Context, _order: { orderId: string }): Wait {
     return Wait.until(Timer.byDuration(1_000));
   }
 
-  execute(_context: Context, orderId: string): StepDecision {
-    return gracefulComplete(orderId);
+  execute(_context: Context, order: { orderId: string }): StepDecision {
+    return gracefulComplete(order);
   }
 }
 
-class Orders implements Flow<string> {
+class Orders implements Flow<{ orderId: string }> {
   readonly approve = new ApproveOrder();
 
   getFlowType(): string {

@@ -65,6 +65,7 @@ import type {
   StepOptions,
 } from "./step.js";
 import {
+  codecOrJson,
   decodeValue,
   encodeUnknown,
   encodeValue,
@@ -98,7 +99,10 @@ export class WorkerDispatcher {
       {},
       cancellationSignal,
     );
-    const input = decodeValue(step.step.inputCodec, requireValue(request.stepInput, "Step input"));
+    const input = decodeValue(
+      codecOrJson(step.step.inputCodec),
+      requireValue(request.stepInput, "Step input"),
+    );
     if (step.step.waitFor === undefined) {
       throw new TypeError(`Step ${step.name} does not implement waitFor`);
     }
@@ -137,7 +141,10 @@ export class WorkerDispatcher {
       {},
       cancellationSignal,
     );
-    const input = decodeValue(step.step.inputCodec, requireValue(request.stepInput, "Step input"));
+    const input = decodeValue(
+      codecOrJson(step.step.inputCodec),
+      requireValue(request.stepInput, "Step input"),
+    );
     const decision = await step.step.execute(context, input);
     try {
       return InvokeExecuteMethodResponse.create({
@@ -210,9 +217,9 @@ export class WorkerDispatcher {
       const result = rpcResult(rpc, returned);
       return InvokeWorkerRPCResponse.create({
         output:
-          rpc.options.outputCodec === undefined
+          result === undefined
             ? encodeUnknown(undefined)
-            : encodeValue(rpc.options.outputCodec, result?.output),
+            : encodeValue(codecOrJson(rpc.options.outputCodec), result.output),
         stepDecision: rpcDecision(flow, result),
         upsertAttributes: [...context.getAttributeWrites()],
         recordEvents: [...context.getEvents()],
@@ -296,13 +303,13 @@ function invokeRPC(
   context: InvocationContext,
   input: Value | undefined,
 ): unknown {
-  if (rpc.options.inputCodec === undefined) {
+  if (!rpc.hasInput) {
     return rpc.method.call(flow.flow, context);
   }
   return rpc.method.call(
     flow.flow,
     context,
-    decodeValue(rpc.options.inputCodec, requireValue(input, "RPC input")),
+    decodeValue(codecOrJson(rpc.options.inputCodec), requireValue(input, "RPC input")),
   );
 }
 
@@ -310,14 +317,18 @@ function rpcResult(
   rpc: RegisteredRPC,
   returned: unknown,
 ): { output: unknown; nextSteps?: readonly StepMovement<unknown>[] } | undefined {
-  if (rpc.options.outputCodec === undefined) {
-    if (returned !== undefined) {
-      throw new TypeError(`procedure RPC ${rpc.name} must not return a value`);
+  if (returned === undefined) {
+    if (rpc.options.outputCodec !== undefined) {
+      throw new TypeError(`function RPC ${rpc.name} must return RPCResult`);
     }
     return undefined;
   }
   if (typeof returned !== "object" || returned === null || !("output" in returned)) {
-    throw new TypeError(`function RPC ${rpc.name} must return RPCResult`);
+    throw new TypeError(
+      rpc.options.outputCodec === undefined && !rpc.hasInput
+        ? `procedure RPC ${rpc.name} must not return a value`
+        : `function RPC ${rpc.name} must return RPCResult`,
+    );
   }
   return returned as { output: unknown; nextSteps?: readonly StepMovement<unknown>[] };
 }
@@ -487,7 +498,7 @@ function mapMovement(flow: RegisteredFlow, movement: StepMovement<unknown>): Pro
   }
   return ProtoStepMovement.create({
     stepType: target.name,
-    stepInput: encodeValue(target.step.inputCodec, movement.input),
+    stepInput: encodeValue(codecOrJson(target.step.inputCodec), movement.input),
     stepOptions: mapStepOptions(
       flow,
       movement.options ?? target.step.getStepOptions?.(),
@@ -644,7 +655,7 @@ class ConditionMapper {
           conditionId: id,
           subFlowType: target.name,
           startStepType: start.name,
-          stepInput: encodeValue(start.step.inputCodec, condition.subFlowInput),
+          stepInput: encodeValue(codecOrJson(start.step.inputCodec), condition.subFlowInput),
           stepOptions: mapStepOptions(
             target,
             start.step.getStepOptions?.(),

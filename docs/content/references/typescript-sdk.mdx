@@ -21,9 +21,10 @@ async execute(_context: Context, childId: string): Promise<StepDecision> {
 ```
 
 `waitForFlow` returns a read-only collection of hydrated Step completions. A
-Flow with one output can use `singleOutput(codec)`. For multiple outputs, match
-`stepType` or `stepExecutionId` and call `completion.decode(codec)`. Do not use
-array position as a parallel-branch contract.
+Flow with one JSON output can use `singleOutput()`. Scalar outputs still pass
+`stringCodec` or `doubleCodec`. For multiple outputs, match `stepType` or
+`stepExecutionId` and call `completion.decode()`. Do not use array position as a
+parallel-branch contract.
 
 Synchronous handlers remain valid. Do **not** block the event loop (`Atomics.wait`, `spawnSync`). Prefer short `waitForFlow` timeouts plus Step retry over one unbounded poll.
 
@@ -34,9 +35,9 @@ Examples under `examples/typescript` use a shared `getClient()` holder set at pr
 | Concern | TypeScript |
 | --- | --- |
 | Timers | `Timer.byDuration(ms)` (milliseconds) |
-| Codecs | Explicit `inputCodec` / `stringCodec` / `jsonCodec` on Steps and RPCs |
+| Codecs | Omit for JSON objects; pass `stringCodec` / `doubleCodec` / … for scalars |
 | Names | Always implement `getFlowType()` / `getStepType()` |
 | Client | Promise-based: `await client.startFlow(...)` |
-| RPC | `@rpc({ name, inputCodec, outputCodec })` → `return { output }` |
+| RPC | `@rpc()` for JSON, or `@rpc({ name, inputCodec, outputCodec })` → `return { output }` |
 
 See also the [sdk-typescript README](https://github.com/superdurable/dex/blob/main/sdk-typescript/README.md) and [parent–child](/design-patterns/parent-child) / [scalable parallel](/design-patterns/scalable-parallel) patterns.
