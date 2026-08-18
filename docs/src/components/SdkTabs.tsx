@@ -8,13 +8,17 @@ import React, {
   useState,
 } from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {
+  DEFAULT_SDK,
+  type SdkLanguage,
+  persistSdkPreference,
+  readSdkPreference,
+  subscribeSdkPreference,
+} from './sdkPreference';
 
 const EXAMPLE_BASE = 'https://github.com/superdurable/dex/tree/main';
 
-export type SdkLanguage = 'python' | 'go' | 'java' | 'typescript';
-
-const STORAGE_KEY = 'dex-docs-preferred-sdk';
-const DEFAULT_SDK: SdkLanguage = 'python';
+export type {SdkLanguage};
 
 const LABELS: Record<SdkLanguage, string> = {
   python: 'Python',
@@ -49,17 +53,6 @@ type SnippetRecord = {
   example?: string;
 };
 
-function readPreference(): SdkLanguage {
-  if (typeof window === 'undefined') {
-    return DEFAULT_SDK;
-  }
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored === 'python' || stored === 'go' || stored === 'java' || stored === 'typescript') {
-    return stored;
-  }
-  return DEFAULT_SDK;
-}
-
 function collectSnippets(props: SdkTabsProps): Partial<Record<SdkLanguage, SnippetRecord>> {
   const snippets: Partial<Record<SdkLanguage, SnippetRecord>> = {};
   for (const language of ORDER) {
@@ -91,13 +84,16 @@ export default function SdkTabs(props: SdkTabsProps): ReactNode {
   const exampleLabel = i18n.currentLocale === 'zh-Hans' ? '例子' : 'Example';
 
   useEffect(() => {
-    const preferred = readPreference();
-    setActive(available.includes(preferred) ? preferred : available[0] ?? DEFAULT_SDK);
+    const apply = (preferred: SdkLanguage) => {
+      setActive(available.includes(preferred) ? preferred : available[0] ?? DEFAULT_SDK);
+    };
+    apply(readSdkPreference());
+    return subscribeSdkPreference(apply);
   }, [available.join(',')]);
 
   const select = (language: SdkLanguage) => {
+    persistSdkPreference(language);
     setActive(language);
-    window.localStorage.setItem(STORAGE_KEY, language);
   };
 
   if (available.length === 0) {
