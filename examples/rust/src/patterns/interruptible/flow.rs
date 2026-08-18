@@ -44,10 +44,6 @@ impl InterruptibleExecutionFlow {
 impl Flow for InterruptibleExecutionFlow {
     type StartInput = ();
 
-    fn flow_type(&self) -> &'static str {
-        "InterruptibleExecutionFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.init)
             .and(&self.work_a_execution)

@@ -52,10 +52,6 @@ impl UserSignupFlow {
 impl Flow for UserSignupFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "UserSignupFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.send_verification).and(&self.await_verification)
     }

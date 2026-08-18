@@ -44,10 +44,6 @@ pub struct FlowGracefulTimeout {
 impl Flow for FlowGracefulTimeout {
     type StartInput = bool;
 
-    fn flow_type(&self) -> &'static str {
-        "FlowGracefulTimeout"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start)
             .and(&self.task)

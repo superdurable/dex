@@ -23,10 +23,6 @@ pub struct StepFlow {
 impl Flow for StepFlow {
     type StartInput = i32;
 
-    fn flow_type(&self) -> &'static str {
-        "StepFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.first).and(&self.second)
     }
