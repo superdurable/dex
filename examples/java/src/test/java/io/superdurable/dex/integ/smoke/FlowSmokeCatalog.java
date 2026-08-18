@@ -18,6 +18,7 @@ package io.superdurable.dex.integ.smoke;
 
 import io.superdurable.dex.products.shortlistcandidates.WorkflowIds;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -73,6 +74,7 @@ final class FlowSmokeCatalog {
                         "/patterns/interruptible/start",
                         Map.of("workflowId", environment.newFlowId("interruptible"))),
                 FlowSmokeEntry.get("patterns/reminders", "/patterns/reminders/start", Map.of()),
+                entityStore(environment),
                 FlowSmokeEntry.get(
                         "patterns/intervention",
                         "/patterns/intervention/start",
@@ -184,6 +186,29 @@ final class FlowSmokeCatalog {
                                             "candidateId", candidateId));
                     return new FlowSmokeTriggerResult(
                             WorkflowIds.shortlist(employerId, candidateId), result.runId);
+                });
+    }
+
+    private static FlowSmokeEntry entityStore(final FlowSmokeEnvironment environment) {
+        return FlowSmokeEntry.custom(
+                "patterns/entity-store",
+                FlowSmokeFlags.noStartStep(),
+                env -> {
+                    final String userId = env.newFlowId("entity-store");
+                    final Map<String, Object> body = new LinkedHashMap<>();
+                    body.put("userId", userId);
+                    body.put("displayName", "Smoke Tester");
+                    body.put("email", userId + "@example.com");
+                    body.put("marketingOptIn", true);
+                    body.put("credits", 120);
+                    body.put("weight", 59.5);
+                    body.put("lastLoggedInTime", "2026-08-11T15:30:00Z");
+                    body.put("metadata", Map.of("source", "smoke", "tags", List.of("example")));
+                    final FlowSmokeTriggerResult result =
+                            env.triggerHttp(
+                                    "POST", "/patterns/entity-store/profile", Map.of(), body);
+                    final String flowId = result.flowId.isEmpty() ? userId : result.flowId;
+                    return new FlowSmokeTriggerResult(flowId, result.runId);
                 });
     }
 }

@@ -31,6 +31,8 @@ done
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
+entity_store_dir="$repo_root/examples/entity-store"
+compose_project="dex-rust-examples-$$"
 dex_port="${DEX_RUST_EXAMPLES_DEX_PORT:-19804}"
 web_port="${DEX_RUST_EXAMPLES_WEB_PORT:-19904}"
 dex_address="127.0.0.1:${dex_port}"
@@ -38,6 +40,7 @@ log_file="/tmp/test-rust-examples-integration-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
 dexcli_pid=""
+entity_store_started=false
 : >"$log_file"
 
 cleanup() {
@@ -51,6 +54,12 @@ cleanup() {
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
+  fi
+  if $entity_store_started; then
+    if ! docker compose -p "$compose_project" \
+      -f "$entity_store_dir/docker-compose.yml" down --volumes >>"$log_file" 2>&1; then
+      echo "failed to stop the Rust examples entity store" >&2
+    fi
   fi
   if [[ "$status" -ne 0 ]]; then
     cat "$log_file" >&2
@@ -72,7 +81,12 @@ fi
   GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
 )
 
+docker compose -p "$compose_project" \
+  -f "$entity_store_dir/docker-compose.yml" up --detach --wait
+entity_store_started=true
+
 "$binary_dir/dexcli" dev \
+  -attribute-store-config "$entity_store_dir/attribute-store.yaml" \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \

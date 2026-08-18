@@ -170,6 +170,24 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "patterns/entity-store",
+      trigger: async () => {
+        const userId = newFlowId("entity-store");
+        const result = await triggerPost(context, "/patterns/entity-store/profile", {
+          userId,
+          displayName: "Smoke Tester",
+          email: `${userId}@example.com`,
+          marketingOptIn: true,
+          credits: 120,
+          weight: 59.5,
+          lastLoggedInTime: "2026-08-11T15:30:00Z",
+          metadata: { source: "smoke", tags: ["example"] },
+        });
+        return { flowId: result.flowId || userId, runId: result.runId };
+      },
+      flags: noStartStepFlags(),
+    },
+    {
       name: "patterns/intervention",
       trigger: () =>
         triggerGet(context, "/patterns/intervention/start", {

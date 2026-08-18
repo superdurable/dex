@@ -37,6 +37,10 @@ test_log="/tmp/test-python-examples-e2e.log"
 test_dir=$(mktemp -d)
 dexcli_pid=""
 script_dir=$(cd "$(dirname "$0")" && pwd)
+repo_root=$(cd "$script_dir/../.." && pwd)
+entity_store_dir="$repo_root/examples/entity-store"
+compose_project="dex-python-examples-e2e-$$"
+entity_store_started=false
 
 cleanup() {
   status=$?
@@ -50,6 +54,12 @@ cleanup() {
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
   fi
+  if $entity_store_started; then
+    if ! docker compose -p "$compose_project" \
+      -f "$entity_store_dir/docker-compose.yml" down --volumes >>"$log_file" 2>&1; then
+      echo "failed to stop the Python examples entity store" >&2
+    fi
+  fi
   rm -r "$test_dir"
   exit "$status"
 }
@@ -57,7 +67,11 @@ trap cleanup EXIT
 
 make -C "$script_dir/../../cli" build
 : >"$log_file"
+docker compose -p "$compose_project" \
+  -f "$entity_store_dir/docker-compose.yml" up --detach --wait
+entity_store_started=true
 "$script_dir/../../cli/dexcli" dev \
+  -attribute-store-config "$entity_store_dir/attribute-store.yaml" \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \

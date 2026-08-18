@@ -43,10 +43,13 @@ postgres_port="${DEX_EXAMPLES_POSTGRES_PORT:-19432}"
 dex_address="127.0.0.1:${dex_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
 compose_project="dataset-deal-e2e-$$"
+entity_store_dir="$repo_root/examples/entity-store"
+entity_store_project="entity-store-e2e-$$"
 log_file="/tmp/test-go-examples-e2e-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
 dexcli_pid=""
+entity_store_started=false
 : >"$log_file"
 
 cleanup() {
@@ -67,6 +70,12 @@ cleanup() {
     down --volumes >>"$log_file" 2>&1; then
     echo "failed to stop the Go examples database" >&2
   fi
+  if $entity_store_started; then
+    if ! docker compose -p "$entity_store_project" \
+      -f "$entity_store_dir/docker-compose.yml" down --volumes >>"$log_file" 2>&1; then
+      echo "failed to stop the Go examples entity store" >&2
+    fi
+  fi
   if [[ "$status" -ne 0 ]]; then
     cat "$log_file" >&2
   fi
@@ -78,6 +87,10 @@ DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
   -p "$compose_project" \
   -f "$script_dir/dataset-deal/docker-compose.yml" \
   up -d --wait
+
+docker compose -p "$entity_store_project" \
+  -f "$entity_store_dir/docker-compose.yml" up --detach --wait
+entity_store_started=true
 
 if [[ ! -f "$repo_root/web/assets/dist/index.html" ]]; then
   (
@@ -93,6 +106,7 @@ fi
 )
 
 "$binary_dir/dexcli" dev \
+  -attribute-store-config "$entity_store_dir/attribute-store.yaml" \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
