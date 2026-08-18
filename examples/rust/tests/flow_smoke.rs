@@ -87,7 +87,7 @@ impl FlowSmokeEnvironment {
         let http_port = available_worker_port();
         let router = build_router(Arc::clone(&client));
         let server_thread = thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
+            let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .expect("create flow smoke HTTP runtime");

@@ -15,6 +15,7 @@
  */
 
 import assert from "node:assert/strict";
+import { createServer } from "node:net";
 import test from "node:test";
 
 import { loadEnv } from "../../src/config/env.js";
@@ -38,9 +39,9 @@ let context: FlowSmokeContext;
 
 test.before(async () => {
   process.env.DEX_EXAMPLES_HTTP_ADDRESS =
-    process.env.DEX_SMOKE_HTTP_ADDRESS ?? "127.0.0.1:0";
+    process.env.DEX_SMOKE_HTTP_ADDRESS ?? `127.0.0.1:${await availablePort()}`;
   process.env.DEX_WORKER_BIND_ADDRESS =
-    process.env.DEX_SMOKE_WORKER_BIND_ADDRESS ?? "127.0.0.1:0";
+    process.env.DEX_SMOKE_WORKER_BIND_ADDRESS ?? `127.0.0.1:${await availablePort()}`;
   server = await startSampleServer();
   const httpAddress = loadEnv().httpAddress;
   context = {
@@ -356,5 +357,27 @@ for (const entry of flowSmokeCatalog()) {
     assert.ok(result.flowId, `${entry.name}: controller response did not include flowID`);
     await assertFlowSmokeStartStep(entry, result.flowId, result.runId);
     await assertFlowSmokeNoUnexpectedFailures(entry, result.flowId, result.runId);
+  });
+}
+
+function availablePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (address === null || typeof address === "string") {
+        server.close();
+        reject(new Error("failed to allocate a smoke test port"));
+        return;
+      }
+      server.close((error) => {
+        if (error !== undefined) {
+          reject(error);
+          return;
+        }
+        resolve(address.port);
+      });
+    });
   });
 }

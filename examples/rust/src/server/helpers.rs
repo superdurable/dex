@@ -67,5 +67,13 @@ where
     F: FnOnce() -> SdkResult<T> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::task::block_in_place(function)
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::CurrentThread => {
+            std::thread::spawn(function)
+                .join()
+                .expect("blocking Dex client call panicked")
+        }
+        Ok(_) => tokio::task::block_in_place(function),
+        Err(_) => function(),
+    }
 }

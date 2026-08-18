@@ -23,13 +23,11 @@ import pytest
 import pytest_asyncio
 
 from dex_examples.app import ExampleApp
-from dex_examples.config import ExamplesConfig
 from dex_examples.http_app import create_app
 from dex_examples.products.shortlist_candidates.workflow_ids import (
     employer_opt_in,
     shortlist,
 )
-from tests.integ.conftest import server_is_ready
 from tests.integ.flow_smoke_helper import (
     FlowSmokeEntry,
     FlowSmokeFlags,
@@ -42,21 +40,8 @@ from tests.integ.flow_smoke_helper import (
 
 @pytest_asyncio.fixture(scope="session")
 async def flow_smoke_http(
-    tmp_path_factory: pytest.TempPathFactory,
+    example_app: ExampleApp,
 ) -> AsyncIterator[FlowSmokeHttpClient]:
-    worker_address = _available_worker_address()
-    config = ExamplesConfig(
-        server_address=_server_address(),
-        worker_bind_address=worker_address,
-        worker_target=None,
-        http_address="127.0.0.1:0",
-        blob_cache_dir=tmp_path_factory.mktemp("dex-flow-smoke-blobs"),
-    )
-    example_app = ExampleApp(config)
-    await example_app.start_worker()
-    if not await server_is_ready(example_app.client):
-        await example_app.close()
-        pytest.skip("Dex server unavailable for flow smoke tests")
     http_port = _available_port()
     quart_app = create_app(example_app)
     server_task = asyncio.create_task(
@@ -71,7 +56,6 @@ async def flow_smoke_http(
         server_task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await server_task
-        await example_app.close()
 
 
 def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
@@ -403,19 +387,6 @@ async def _entity_store_trigger(
 
 def _new_flow_id(prefix: str) -> str:
     return f"{prefix}-{uuid4().hex}"
-
-
-def _server_address() -> str:
-    import os
-
-    return os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
-
-
-def _available_worker_address() -> str:
-    with socket.socket() as worker_socket:
-        worker_socket.bind(("127.0.0.1", 0))
-        host, port = worker_socket.getsockname()
-    return f"{host}:{port}"
 
 
 def _available_port() -> int:

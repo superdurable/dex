@@ -32,7 +32,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
@@ -64,14 +63,11 @@ final class FlowSmokeEnvironment implements AutoCloseable {
         final String workerAddress = "127.0.0.1:" + workerPort;
 
         final SpringApplication application = new SpringApplication(SpringMainApplication.class);
-        final Map<String, Object> properties = new HashMap<>();
-        properties.put("server.port", "0");
-        properties.put("dex.server-address", serverAddress);
-        properties.put("dex.worker-bind-address", workerAddress);
-        properties.put("dex.blob-cache-dir", cacheDirectory.toString());
-        application.setDefaultProperties(properties);
-
-        final ConfigurableApplicationContext context = application.run();
+        final ConfigurableApplicationContext context = application.run(
+                "--server.port=0",
+                "--dex.server-address=" + serverAddress,
+                "--dex.worker-bind-address=" + workerAddress,
+                "--dex.blob-cache-dir=" + cacheDirectory.toString());
         final WebServerApplicationContext webContext = (WebServerApplicationContext) context;
         final int httpPort = webContext.getWebServer().getPort();
         awaitWorker(workerPort);

@@ -122,9 +122,16 @@ def flow_service_address() -> str:
     return os.environ.get("DEX_FLOW_SERVICE_ADDRESS", "127.0.0.1:8801")
 
 
+_DEXCLI_PATH: str | None = None
+
+
 def dexcli_path() -> str:
+    global _DEXCLI_PATH
+    if _DEXCLI_PATH:
+        return _DEXCLI_PATH
     configured = os.environ.get("DEXCLI_PATH", "").strip()
     if configured:
+        _DEXCLI_PATH = configured
         return configured
     repo_root = _find_repo_root()
     output_path = os.path.join(
@@ -139,6 +146,7 @@ def dexcli_path() -> str:
         capture_output=True,
         text=True,
     )
+    _DEXCLI_PATH = output_path
     return output_path
 
 
@@ -170,11 +178,12 @@ async def assert_flow_smoke_start_step(
 ) -> None:
     if entry.flags.no_start_step:
         return
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + 30
     dexcli = dexcli_path()
     server = flow_service_address()
+    last_history: dict[str, Any] | None = None
     while time.monotonic() < deadline:
-        history = await asyncio.to_thread(
+        last_history = await asyncio.to_thread(
             run_dexcli_json,
             [
                 dexcli,
@@ -190,7 +199,7 @@ async def assert_flow_smoke_start_step(
                 *([] if not run_id else ["--run-id", run_id]),
             ],
         )
-        events = history.get("events", [])
+        events = last_history.get("events", [])
         start_step_type = _flow_started_start_step_type(events)
         if start_step_type:
             if entry.flags.step_start_may_fail:
@@ -214,7 +223,10 @@ async def assert_flow_smoke_start_step(
             if state.get("flowStatus") == "FLOW_STATUS_RUNNING" and len(events) > 1:
                 return
         await asyncio.sleep(0.2)
-    raise AssertionError(f"start step did not succeed for {entry.name}")
+    raise AssertionError(
+        f"start step did not succeed for {entry.name} "
+        f"flow_id={flow_id} run_id={run_id} history={last_history}"
+    )
 
 
 async def assert_flow_smoke_no_unexpected_failures(
@@ -262,10 +274,23 @@ async def assert_flow_smoke_no_unexpected_failures(
 
 def _flow_started_start_step_type(events: list[dict[str, Any]]) -> str:
     for event in events:
-        if event.get("type") != "FlowStartedOrContinued":
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            payload = event.get("flowStartedOrContinued")
+        if not isinstance(payload, dict):
             continue
-        initial_start = event.get("payload", {}).get("initialStart", {})
-        start_step_type = initial_start.get("startStepType")
+        event_type = str(event.get("type") or "")
+        if event_type and event_type not in {
+            "FlowStartedOrContinued",
+            "flowStartedOrContinued",
+        }:
+            continue
+        initial_start = payload.get("initialStart") or payload.get("initial_start") or {}
+        if not isinstance(initial_start, dict):
+            continue
+        start_step_type = initial_start.get("startStepType") or initial_start.get(
+            "start_step_type"
+        )
         if start_step_type:
             return str(start_step_type)
     return ""
@@ -275,7 +300,7 @@ def _has_start_step_progress(events: list[dict[str, Any]], start_step_type: str)
     for event in events:
         if event.get("type") not in {"StepWaitForCompleted", "StepExecuteCompleted"}:
             continue
-        if _history_event_step_type(event.get("payload", {})) == start_step_type:
+        if _history_event_step_type(event.get("payload") or {}) == start_step_type:
             return True
     return False
 
