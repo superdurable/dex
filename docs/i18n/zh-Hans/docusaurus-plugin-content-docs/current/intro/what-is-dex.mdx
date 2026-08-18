@@ -21,7 +21,7 @@ Dex 是结构化编程，只有少数几个概念作为 [durable primitives](/pr
 
 ## 订单处理作为一个例子
 
-还没看过 [什么是 Durable Execution？](/intro/what-is-durable-execution) 的话，这里用那里的 order-processing 例子。
+还没看过 [什么是 Durable Execution？](/intro/what-is-durable-execution) 的话，下面用那一页的 order-processing 例子。
 
 这条 Flow 会先给买家扣款，再等卖家批准（带提醒），然后发货；发货 API 的 retry 用尽就退款。
 
