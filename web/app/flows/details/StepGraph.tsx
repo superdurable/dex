@@ -436,13 +436,15 @@ export function StepGraph({
     <div className="graph-view">
       <div className="view-toolbar">
         <div>
-          <p className="eyebrow">Business topology</p>
           <h2>Step graph</h2>
         </div>
         <div className="graph-legend">
-          {['Active', 'Waiting', 'Pending', 'Completed', 'Failed', 'Canceled'].map((status) => (
-            <span key={status}><i className={`legend-${status.toLowerCase()}`} />{status}</span>
-          ))}
+          <span><i className="legend-source" />Source</span>
+          <span><i className="legend-active" />Active</span>
+          <span><i className="legend-waiting" />Waiting</span>
+          <span><i className="legend-pending" />Pending</span>
+          <span><i className="legend-failed" />Failed</span>
+          <span><i className="legend-canceled" />Canceled</span>
           <span><i className="legend-subflow" />SubFlow</span>
         </div>
       </div>

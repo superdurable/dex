@@ -2065,8 +2065,9 @@ pre {
   background: #8c6fc4;
 }
 
-.legend-completed {
-  background: #4e81a9;
+.legend-source {
+  border: 1px solid #856bb7;
+  background: #f5f1fb;
 }
 
 .legend-failed {
