@@ -8,89 +8,102 @@ import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproa
 
 # What is Durable Execution?
 
-Dex is **Durable Execution** for backend engineering: an abstraction over common distributed-system patterns, so you can build reliable backends with simpler architecture and day-to-day operations.
+**Durable Execution**  is abstraction of common backend engineering design patterns.
+It lets you build production-grade backend system easily.
+Your system will have a simpler architecture that is highly scalable, cost efficient, performant,
+observable with comprehensive production operation tooling.
 
-## Storage persists data. Execution persists progress.
+## Why existing databases fall short?
 
-Most teams already have durable storage — PostgreSQL, MySQL, MongoDB, S3. Those systems expose **passive APIs**: your code calls `insert` or `update`, and the row survives a restart. That solves data storage.
+Today we have all kinds of durable database/storage — like PostgreSQL, MySQL, S3.
 
-It does not solve **execution state** — what the system was doing, what it was waiting for, and what should happen next.
+They expose APIs to `persist` data, and APIs to `retrieve` the data. The APIs are **passive**.
 
-A reliable backend almost always runs on multiple machines for availability, throughput, and scale. A single API handler rarely maps to one database call. More often it:
+Usually, there are two main requirements when building a reliable backend:
+1. It should run on multiple machines for availability, throughput, and scale (not single point of failure)
+2. An API could be implemented as calling multiple other APIs, services. A single database transaction is usually not enough.
 
-1. Calls several APIs in sequence or in parallel
-2. Schedules future work — reminders, timeouts, retries
-3. Handles failures differently per step — retry, rollback, dead-letter, manual fix
-4. Waits on other systems — approvals, webhooks, human input
-5. Needs observability — inspect inputs, errors, and in-flight work at each step
-6. Must stay efficient at high volume — linear scaling, predictable cost, acceptable latency
+More specifically, a backend API usually:
 
-Passive storage can store outcomes. Engineers still have to wire the execution graph by hand.
+a. Calls several APIs in sequence or in parallel
+b. Schedules future work, like reminders or any business timeouts
+c. Coordinate with other systems, like human input or general events
+d. Handles all kinds of failures (may differently per step) with retry, rollback, DLQ (with manual intervention and recovery)
+e. Needs good observability — inspect inputs, errors, and in-flight work at each step
+f. Must stay reliable as system evolve and getting higher traffic, including high availability, linear scaling, acceptable & predictable cost, good latency & performance
 
-## A small example: charge, then ship
+None of them are provided out of the box by those passive storage or database.
+So today, engineers still have to write complex code to solve these problems, over and over and over again.
 
-Take the simplest non-trivial order flow: **charge the buyer**, then **ship the item**.
+## A simple example: order processing with only two steps -- charge, then ship
 
-For a demo you might write:
+Let's take the simplest example of order processing. There are only two steps, each step is a single API call.
+* **charge the buyer**
+* **ship the item**
+
+For a prototype you might write in the code directly:
 
 ```text
-charge(order)
-ship(order)
+function processOrder(order){
+    callChargeAPI(order)
+    callShipAPI(order)
+}
 ```
 
-That works until the process crashes after charge succeeds, the network times out, or a retry runs the same step twice. Production needs a durable record of “charge finished, ship is next” — and a policy for rollback if ship never succeeds.
-
-### Approach 1 — direct calls in the handler
+That works until any failure happens.
+Process or machine crashes after charge succeeds, or network times out at the API call.
+The order ends up with charging the buyer but never ship the item.
 
 <ExecutionApproachDiagram approach="naive" />
 
-One thread, two API calls, no durable state between them.
+### Fix 1 — database row + polling workers
 
-### Approach 2 — database row + polling workers
-
-The usual next step is to insert a row (`status = pending`), return to the client, and let background workers pick up work.
+Then a smart engineer thinks of inserting a row (`status = pending`)return to the client, and let background workers pick up work.
 
 <ExecutionApproachDiagram approach="table-poll" />
 
-You get minimal durability, but now you own claiming work, stuck rows, status enums, and a new recovery path for every step you add.
+We get minimal durability, but here are more problems:
+* How do multiple workers claim work without conflicting each other?
+* What if a worker also crashes after picking up the work, before the work is done?
 
-### Approach 3 — message queues between steps
+### Fix 2 — message queues between steps
 
-Queues remove some polling pain: publish to `charge-requests`, consume, then publish to `ship-requests`.
+More experienced back engineer usually adopt two message queues: "charge-request" and "ship-requests" queue.
+So the order start with publishing to `charge-requests`, consume, then publish to `ship-requests`.
 
 <ExecutionApproachDiagram approach="message-queue" />
 
-Two queues are easy to draw. They are harder to operate:
+That solve the hard problems in Fix 1, but still, more harder problems comes:
 
-- Most queues cannot atomically commit “charge done” and “enqueue ship”. Queue 2 may succeed while queue 1 times out, so both steps run concurrently.
-- A third step means a third queue and another consumer.
-- Backoff retry and DLQ often mean more queues — or more cron.
-- If the frontend should return after charge succeeds (“payment received, order processing”), you add status polling against a database.
-- Saga rollback (refund after ship fails for an hour) becomes timing logic plus yet another queue.
-- Seller approval before ship, with reminders, adds waiting state the queues do not model cleanly.
+- Most queues cannot atomically commit “charge done” and “enqueue ship”. Queue 2 may succeed while queue 1 times out, so both steps run concurrently for an order.
+  - Usually it ends up with using a database row as source of truth for dedup
+- Backoff retry and DLQ may not be provided out of the box
+  - E.g. Kafka requires separate topics, SQS requires visibility timeout to work around
+  - Need to build tooling for DLQ
+- If the frontend should return after charge succeeds (“payment received, order processing”), we need to be polling against a database, ugly and inefficient.
 
-Each fix is familiar. Teams rebuild the same patterns — outbox tables, idempotency keys, saga coordinators, status columns — for every service.
+More over, as business evolve, it's very common that the order processing need to
+- If shipping API fails after retry, refund the payment to buyer (refund after shipping API fails for an hour)
+- Seller approval before ship, or providing the tracking number manually
+- A reminder to seller to approve or provide the tracking number
 
-## What Durable Execution adds
+Those all require non-trivial architecture changes to support in this message queue design.
 
-Durable Execution lifts those patterns into the platform. You describe the business flow in code; the runtime persists **data and actions together**:
+## How Durable Execution helps
 
-| | Durable storage | Durable Execution |
-| --- | --- | --- |
-| Persists | Data | Data **and** the program's place in the flow |
-| API style | Passive (`put`, `get`) | Active execution (Steps, waits, retries) |
-| On crash | You reconstruct state | Execution resumes |
+Durable Execution provides the solution out of the box, without you writing a single line of code for those problems.
+You only write the business logic code for the real order process.
 
-For charge → approval → ship, you write something like:
+For this charge → approval → ship flow, you write something like:
 
 1. **Step 1 — Charge** with its own retry policy. When it succeeds, move to Step 2 **atomically**.
-2. **Step 2 — Wait** for seller approval **or** a durable timer. On timer fire, send a reminder and keep waiting.
-3. **Step 3 — Ship** with retry; on exhaustion, run a compensating refund Step.
-4. A **Client API** lets the frontend wait until Step 1 completes and return “payment received”.
-5. The platform records each Step's inputs, outputs, and errors; operators can inspect and replay.
+2. **Step 2 — Ship**
+  2.1 ** Wait for seller approval **or** a durable timer.
+  2.2 On timer fire or seller approval receives, invoke the code to send a reminder and keep waiting, or ship the item.
+  2.3 Ship execute with retry; on exhaustion, go to a refund Step.
+3. **Step 3 — Refund** process the refund to buyer.
+4. Frontend code call an API out of the box, to wait until Step 1 completes as “payment received”.
 
-That is still a toy example. Real systems add parallel branches, fan-out, locking, and cross-service coordination — the same class of problems, abstracted once instead of rebuilt per project.
+The platform handle the rest all for free -- records each Step's inputs, outputs, and errors; operators can inspect and time travel, etc.
 
-## Next
-
-See [What is Dex?](/intro/what-is-dex) for how Dex models this flow with Steps, Attributes, Channels, and RPCs — and how it differs from hand-rolled queues and tables.
+See [What is Dex?](/intro/what-is-dex) for how Dex implement this flow and run the example.
