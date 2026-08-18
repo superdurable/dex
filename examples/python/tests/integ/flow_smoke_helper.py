@@ -305,11 +305,18 @@ def _has_start_step_progress(events: list[dict[str, Any]], start_step_type: str)
     return False
 
 
-def _history_event_step_type(payload: dict[str, Any]) -> str:
+def _history_event_step_type(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
     step_type = payload.get("stepType")
     if step_type:
         return str(step_type)
-    input_payload = payload.get("input", {})
+    nested_context = payload.get("context")
+    if isinstance(nested_context, dict):
+        nested = nested_context.get("stepType")
+        if nested:
+            return str(nested)
+    input_payload = payload.get("input")
     if isinstance(input_payload, dict):
         nested = input_payload.get("stepType")
         if nested:

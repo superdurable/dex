@@ -213,9 +213,15 @@ function hasStartStepProgress(events: FlowHistoryEvent[], startStepType: string)
 }
 
 function historyEventStepType(payload: Record<string, unknown>): string {
-  const stepType = payload.stepType;
-  if (typeof stepType === "string") {
-    return stepType;
+  if (typeof payload.stepType === "string") {
+    return payload.stepType;
+  }
+  const stepContext = payload.context;
+  if (typeof stepContext === "object" && stepContext !== null) {
+    const nested = (stepContext as { stepType?: string }).stepType;
+    if (nested) {
+      return nested;
+    }
   }
   const input = payload.input;
   if (typeof input === "object" && input !== null) {

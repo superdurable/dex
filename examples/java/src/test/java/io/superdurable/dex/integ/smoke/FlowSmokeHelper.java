@@ -241,6 +241,10 @@ final class FlowSmokeHelper {
         if (!stepType.isEmpty()) {
             return stepType;
         }
+        final String fromContext = payload.path("context").path("stepType").asText("");
+        if (!fromContext.isEmpty()) {
+            return fromContext;
+        }
         return payload.path("input").path("stepType").asText("");
     }
 

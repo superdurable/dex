@@ -268,8 +268,13 @@ func hasStartStepProgress(events []flowHistoryEvent, startStepType string) bool 
 }
 
 func historyEventStepType(payload map[string]any) string {
-	if stepType, ok := payload["stepType"].(string); ok {
+	if stepType, ok := payload["stepType"].(string); ok && stepType != "" {
 		return stepType
+	}
+	if stepContext, ok := payload["context"].(map[string]any); ok {
+		if stepType, ok := stepContext["stepType"].(string); ok && stepType != "" {
+			return stepType
+		}
 	}
 	if input, ok := payload["input"].(map[string]any); ok {
 		if stepType, ok := input["stepType"].(string); ok {

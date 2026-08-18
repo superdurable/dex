@@ -258,6 +258,9 @@ fn history_event_step_type(payload: &Value) -> String {
     if let Some(step_type) = payload.get("stepType").and_then(Value::as_str) {
         return step_type.to_string();
     }
+    if let Some(step_type) = payload.pointer("/context/stepType").and_then(Value::as_str) {
+        return step_type.to_string();
+    }
     payload
         .pointer("/input/stepType")
         .and_then(Value::as_str)
