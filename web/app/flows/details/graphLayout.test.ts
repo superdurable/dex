@@ -24,6 +24,21 @@ function testNode(id: string): Node<Record<string, unknown>> {
   };
 }
 
+function layoutNode(
+  id: string,
+  kind: string,
+  width: number,
+  height: number,
+  parentStepId?: string,
+): Node<Record<string, unknown>> {
+  return {
+    id,
+    data: { model: { kind, parentStepId } },
+    position: { x: 0, y: 0 },
+    style: { height, width },
+  };
+}
+
 describe('step graph layout', () => {
   it('keeps a 90-execution fan-out and fan-in flow vertically readable', () => {
     const nodes: Array<Node<Record<string, unknown>>> = [testNode('start')];
@@ -70,6 +85,33 @@ describe('step graph layout', () => {
     expect(parallelRows.size).toBe(1);
     expect(defaultGraphZoom(bounds.width, 1_200)).toBe(minimumGraphZoom);
     expect(defaultGraphZoom(bounds.width, 1_800)).toBeGreaterThan(minimumGraphZoom);
+  });
+
+  it('places SubFlow nodes beside their parent instead of in the next Step rank', () => {
+    const nodes: Array<Node<Record<string, unknown>>> = [
+      layoutNode('__start__', 'source', 220, 90),
+      layoutNode('Parent-1', 'step', 300, 158),
+      layoutNode('Next-1', 'step', 300, 158),
+      layoutNode('__subflow:Parent-1:0', 'subflow', 220, 90, 'Parent-1'),
+    ];
+    const edges: Edge[] = [
+      { id: '__start__->Parent-1', source: '__start__', target: 'Parent-1' },
+      { id: 'Parent-1->Next-1', source: 'Parent-1', target: 'Next-1' },
+      { id: 'Parent-1->__subflow:Parent-1:0', source: 'Parent-1', target: '__subflow:Parent-1:0' },
+    ];
+
+    const layouted = layoutGraph(nodes, edges);
+    const start = layouted.find((node) => node.id === '__start__');
+    const parent = layouted.find((node) => node.id === 'Parent-1');
+    const next = layouted.find((node) => node.id === 'Next-1');
+    const subFlow = layouted.find((node) => node.id === '__subflow:Parent-1:0');
+
+    expect(parent?.position.y).toBeGreaterThan(start?.position.y ?? 0);
+    expect(next?.position.y).toBeGreaterThan((parent?.position.y ?? 0) + 150);
+    expect(subFlow?.position.x).toBeGreaterThan((parent?.position.x ?? 0) + 300);
+    expect(subFlow?.position.y).toBeGreaterThanOrEqual(parent?.position.y ?? 0);
+    expect((subFlow?.position.y ?? 0) + 90).toBeLessThanOrEqual((parent?.position.y ?? 0) + 158);
+    expect(subFlow?.position.y).toBeLessThan(next?.position.y ?? 0);
   });
 
   it('keeps uneven fan-out branches together', () => {

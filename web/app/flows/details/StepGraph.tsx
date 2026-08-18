@@ -13,11 +13,15 @@ import { Link } from 'react-router-dom';
 import {
   Background,
   Controls,
+  Handle,
   MarkerType,
   MiniMap,
+  Position,
   ReactFlow,
   type Edge,
   type Node,
+  type NodeProps,
+  type NodeTypes,
   type ReactFlowInstance,
 } from '@xyflow/react';
 import { buildStepGraph, stepGraphSelection } from '@/lib/graph';
@@ -32,6 +36,7 @@ import {
 interface StepNodeData extends Record<string, unknown> {
   label: React.ReactNode;
   model: StepGraphNode;
+  hasSubFlowChildren?: boolean;
 }
 
 type MethodStatus = 'Started' | 'Waiting' | 'Running' | 'Pending' | 'Completed' | 'Failed' | 'Canceled' | 'Not started';
@@ -232,12 +237,67 @@ function SubFlowNodeLabel({ flow }: { flow: StepGraphNode }) {
   );
 }
 
+function GraphNode({ data }: NodeProps<Node<StepNodeData>>) {
+  const { model } = data;
+  return (
+    <div className="graph-node-root">
+      {model.kind === 'step' && (
+        <Handle id="topology" position={Position.Top} type="target" />
+      )}
+      <div className="graph-node-body">{data.label}</div>
+      {(model.kind === 'source' || model.kind === 'step') && (
+        <Handle id="topology" position={Position.Bottom} type="source" />
+      )}
+      {model.kind === 'step' && data.hasSubFlowChildren === true && (
+        <Handle
+          className="graph-subflow-handle"
+          id="subflow"
+          position={Position.Right}
+          type="source"
+        />
+      )}
+      {model.kind === 'subflow' && (
+        <Handle
+          className="graph-subflow-handle"
+          id="subflow"
+          position={Position.Left}
+          type="target"
+        />
+      )}
+    </div>
+  );
+}
+
+const graphNodeTypes: NodeTypes = { graph: GraphNode };
+
 function graphNodeDimensions(node: StepGraphNode): { height: number; width: number } {
   if (node.kind !== 'step') return { height: 90, width: 220 };
   return {
     height: node.execute && !node.waitFor && !node.pendingWaitFor ? 126 : 158,
     width: 300,
   };
+}
+
+function nodeHandles(
+  node: StepGraphNode,
+  dimensions: { height: number; width: number },
+  hasSubFlowChildren: boolean,
+): Node['handles'] {
+  const box = { x: 0, y: 0, width: dimensions.width, height: dimensions.height };
+  if (node.kind === 'subflow') {
+    return [{ ...box, id: 'subflow', type: 'target', position: Position.Left }];
+  }
+  if (node.kind === 'source') {
+    return [{ ...box, id: 'topology', type: 'source', position: Position.Bottom }];
+  }
+  const handles: NonNullable<Node['handles']> = [
+    { ...box, id: 'topology', type: 'target', position: Position.Top },
+    { ...box, id: 'topology', type: 'source', position: Position.Bottom },
+  ];
+  if (hasSubFlowChildren) {
+    handles.push({ ...box, id: 'subflow', type: 'source', position: Position.Right });
+  }
+  return handles;
 }
 
 export function StepGraph({
@@ -265,24 +325,46 @@ export function StepGraph({
     () => stepGraphSelection(graph.nodes, graph.edges, selectedEvent),
     [graph.edges, graph.nodes, selectedEvent],
   );
+  const nodeByID = useMemo(
+    () => new Map(graph.nodes.map((node) => [node.id, node])),
+    [graph.nodes],
+  );
+  const subFlowParentIDs = useMemo(
+    () => new Set(
+      graph.nodes
+        .filter((node) => node.kind === 'subflow')
+        .map((node) => node.parentStepId),
+    ),
+    [graph.nodes],
+  );
   const edges = useMemo<Edge[]>(() => graph.edges.map((edge) => {
     const isIncoming = selection.incomingEdgeIDs.has(edge.id);
     const isOutgoing = selection.outgoingEdgeIDs.has(edge.id);
+    const isSubFlow = nodeByID.get(edge.target)?.kind === 'subflow';
     const color = isIncoming ? previousStepColor : isOutgoing ? nextStepColor : graphEdgeColor;
     return {
       ...edge,
-      className: isIncoming ? 'graph-edge-incoming' : isOutgoing ? 'graph-edge-outgoing' : undefined,
+      className: isSubFlow
+        ? 'graph-edge-subflow'
+        : isIncoming ? 'graph-edge-incoming' : isOutgoing ? 'graph-edge-outgoing' : undefined,
       type: 'smoothstep',
+      sourceHandle: isSubFlow ? 'subflow' : 'topology',
+      targetHandle: isSubFlow ? 'subflow' : 'topology',
       markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color },
-      style: { stroke: color, strokeWidth: isIncoming || isOutgoing ? 3 : 1.5 },
+      style: {
+        stroke: color,
+        strokeWidth: isIncoming || isOutgoing ? 3 : 1.5,
+        strokeDasharray: isSubFlow ? '6 4' : undefined,
+      },
       zIndex: isIncoming || isOutgoing ? 2 : 0,
     };
-  }), [graph.edges, selection]);
+  }), [graph.edges, nodeByID, selection]);
   const nodes = useMemo(() => {
     const raw: Array<Node<StepNodeData>> = graph.nodes.map((node) => {
       const dimensions = graphNodeDimensions(node);
       return {
         id: node.id,
+        type: 'graph',
         position: { x: 0, y: 0 },
         className: [
           'step-flow-node',
@@ -295,8 +377,10 @@ export function StepGraph({
         width: dimensions.width,
         height: dimensions.height,
         style: dimensions,
+        handles: nodeHandles(node, dimensions, subFlowParentIDs.has(node.id)),
         data: {
           model: node,
+          hasSubFlowChildren: subFlowParentIDs.has(node.id),
           label: node.kind === 'step' ? (
             <StepNodeLabel node={node} onSelect={onSelectEvent} />
           ) : node.kind === 'subflow' ? (
@@ -324,7 +408,7 @@ export function StepGraph({
       };
     });
     return layoutGraph(raw, edges);
-  }, [edges, graph.nodes, onSelectEvent, selection]);
+  }, [edges, flowId, graph.nodes, onSelectEvent, selection, subFlowParentIDs]);
   const bounds = useMemo(() => graphBounds(nodes), [nodes]);
   const initialZoom = defaultGraphZoom(bounds.width, canvasWidth);
 
@@ -352,13 +436,14 @@ export function StepGraph({
     <div className="graph-view">
       <div className="view-toolbar">
         <div>
-          <p className="eyebrow">Business topology</p>
           <h2>Step graph</h2>
         </div>
         <div className="graph-legend">
-          {['Active', 'Waiting', 'Pending', 'Completed', 'Failed', 'Canceled'].map((status) => (
-            <span key={status}><i className={`legend-${status.toLowerCase()}`} />{status}</span>
-          ))}
+          <span><i className="legend-source" />Source</span>
+          <span><i className="legend-active" />Active / Pending</span>
+          <span><i className="legend-waiting" />Waiting</span>
+          <span><i className="legend-failed" />Failed</span>
+          <span><i className="legend-canceled" />Canceled</span>
           <span><i className="legend-subflow" />SubFlow</span>
         </div>
       </div>
@@ -370,9 +455,11 @@ export function StepGraph({
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          nodeTypes={graphNodeTypes}
           minZoom={minimumGraphZoom}
           maxZoom={2}
           elementsSelectable={false}
+          nodesConnectable={false}
           nodesDraggable={false}
           preventScrolling={false}
           zoomOnScroll={false}
