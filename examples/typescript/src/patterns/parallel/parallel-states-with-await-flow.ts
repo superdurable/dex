@@ -74,12 +74,12 @@ class NotifyUser implements Step<JobSeeker> {
     return "NotifyUser";
   }
 
-  public execute(context: Context, jobSeeker: JobSeeker): StepDecision {
+  public async execute(context: Context, jobSeeker: JobSeeker): Promise<StepDecision> {
     const sleepMs = Math.floor(Math.random() * 5000);
-    const sleepUntil = Date.now() + sleepMs;
-    while (Date.now() < sleepUntil) {
-      // simulate variable notification latency
-    }
+    // simulate variable notification latency
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, sleepMs);
+    });
 
     const message = `[FAKE] Notifying user of something: ${jobSeeker.id}`;
     console.log(message);

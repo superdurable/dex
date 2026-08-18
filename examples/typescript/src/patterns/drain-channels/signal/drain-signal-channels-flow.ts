@@ -49,7 +49,7 @@ class ProcessSignal implements Step<string | undefined> {
     return Wait.skipImmediately();
   }
 
-  public execute(context: Context, input: string | undefined): StepDecision {
+  public async execute(context: Context, input: string | undefined): Promise<StepDecision> {
     if (input !== undefined) {
       console.log(`DrainSignalChannelsFlow process signal value: ${input}`);
     } else {
@@ -64,10 +64,10 @@ class ProcessSignal implements Step<string | undefined> {
       console.log(`DrainSignalChannelsFlow process signal value: ${value}`);
     }
 
-    const sleepUntil = Date.now() + 20_000;
-    while (Date.now() < sleepUntil) {
-      // busy wait mirrors Java Thread.sleep inside the workflow step
-    }
+    // busy wait mirrors Java Thread.sleep inside the workflow step
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 200);
+    });
 
     return forceCompleteIfChannelsEmpty(
       null,

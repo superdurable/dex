@@ -43,7 +43,7 @@ class Processing implements Step<string> {
   }
 
   public waitFor(_context: Context, _input: string): Wait {
-    const randomSeconds = Math.floor(Math.random() * 60);
+    const randomSeconds = Math.floor(Math.random() * 2);
     return Wait.until(Timer.byDuration(randomSeconds * 1000));
   }
 
