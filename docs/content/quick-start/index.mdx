@@ -109,7 +109,7 @@ class HelloFlow(Flow[str]):
 // StepB Execute only → complete
 // Attribute "status", Channel "unblock"
 // RPC Nudge: SetAttributes(status) + PublishToChannel(unblock)
-// See examples in sdk-go and examples/go for full Worker registration.
+// See examples in sdk-go and examples/go/primitives/step for full Worker registration.
 ```
 
 </SdkSnippet>
@@ -120,7 +120,7 @@ class HelloFlow(Flow[str]):
 // StepB: execute only → gracefulComplete
 // Attribute status; Channel unblock
 // @RPC nudge: set status + publish unblock
-// See examples/java for Worker + Spring controller wiring.
+// See examples/java/.../primitives/step for Worker + Spring controller wiring.
 ```
 
 </SdkSnippet>
@@ -236,7 +236,7 @@ const output = result.singleOutput(stringCodec);
 </SdkSnippet>
 </SdkTabs>
 
-A thin REST controller is optional — useful when a browser or partner system should start / nudge the Flow. The [Python basic example](https://github.com/superdurable/dex/tree/main/examples/python) exposes `/basic` routes in the same process as the Worker.
+A thin REST controller is optional — useful when a browser or partner system should start / nudge the Flow. Language samples under [examples](https://github.com/superdurable/dex/tree/main/examples) expose product, pattern, and primitive HTTP routes in the same process as the Worker. Try them from the examples playground (`examples/playground`); see `examples/README.md`.
 
 ## 5. View results in Dex Web
 

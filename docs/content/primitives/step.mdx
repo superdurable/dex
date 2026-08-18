@@ -124,7 +124,7 @@ Long-running processes often need multiple durable branches in flight. Start con
   <SdkSnippet lang="go">
 
 ```go
-// Same idea in Go — see examples/go and sdk-go.
+// Same idea in Go — see examples/go/primitives/step and sdk-go.
 ```
 
 </SdkSnippet>
@@ -161,14 +161,14 @@ Attach execute retry policies on Step options so Dex retries `Execute` with back
 ```python
 # StepOptions: execute retry with exponential backoff.
 # On execute failure → proceed to a compensation Step.
-# See examples money transfer saga.
+# See examples/*/products/money-transfer.
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-// Same idea in Go — see examples/go and sdk-go.
+// Same idea in Go — see examples/go/primitives/step and sdk-go.
 ```
 
 </SdkSnippet>

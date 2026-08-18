@@ -29,13 +29,15 @@ and cannot roll back a successful Flow Attribute write.
 
 ## API endpoints
 
-- `POST /design-pattern/entity-store/profile` — create a profile Flow
-- `POST /design-pattern/entity-store/profile/update` — update its synced fields
-- `GET /design-pattern/entity-store/profile?userId=...` — read authoritative Flow state
-- `POST /design-pattern/entity-store/profile/clear?userId=...` — delete the synced values
+- `POST /patterns/entity-store/profile` — create a profile Flow
+- `POST /patterns/entity-store/profile/update` — update its synced fields
+- `GET /patterns/entity-store/profile?userId=...` — read authoritative Flow state
+- `POST /patterns/entity-store/profile/clear?userId=...` — delete the synced values
 
 Clearing the profile leaves its SQL row in place and projects SQL `NULL` into the
 seven nullable columns.
+
+Full runnable samples live under `examples/{go,java,python,typescript,rust}` (HTTP prefix `/patterns/entity-store/...`). Try them from the examples playground (`examples/playground`); see `examples/README.md`.
 
 ## SDK definitions
 
