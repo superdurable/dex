@@ -2061,10 +2061,6 @@ pre {
   background: #d39732;
 }
 
-.legend-pending {
-  background: #8c6fc4;
-}
-
 .legend-source {
   border: 1px solid #856bb7;
   background: #f5f1fb;
@@ -2201,16 +2197,13 @@ pre {
   stroke-dasharray: 6 4;
 }
 
-.react-flow__node.node-active {
+.react-flow__node.node-active,
+.react-flow__node.node-pending {
   border-color: var(--brand-bright);
 }
 
 .react-flow__node.node-waiting {
   border-color: #d39732;
-}
-
-.react-flow__node.node-pending {
-  border-color: #8c6fc4;
 }
 
 .react-flow__node.node-failed {

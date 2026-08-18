@@ -440,9 +440,8 @@ export function StepGraph({
         </div>
         <div className="graph-legend">
           <span><i className="legend-source" />Source</span>
-          <span><i className="legend-active" />Active</span>
+          <span><i className="legend-active" />Active / Pending</span>
           <span><i className="legend-waiting" />Waiting</span>
-          <span><i className="legend-pending" />Pending</span>
           <span><i className="legend-failed" />Failed</span>
           <span><i className="legend-canceled" />Canceled</span>
           <span><i className="legend-subflow" />SubFlow</span>
