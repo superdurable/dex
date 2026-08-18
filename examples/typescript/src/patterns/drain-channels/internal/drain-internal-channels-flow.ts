@@ -26,7 +26,6 @@ import {
   gracefulComplete,
   jsonCodec,
   stringCodec,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -68,8 +67,6 @@ class Init implements Step<string> {
 }
 
 class UpsertMongoRecord implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: DrainInternalChannelsFlow) {}
 
   public getStepType(): string {
@@ -150,8 +147,6 @@ class ProcessData implements Step<string> {
 }
 
 class Finalize implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: DrainInternalChannelsFlow) {}
 
   public getStepType(): string {

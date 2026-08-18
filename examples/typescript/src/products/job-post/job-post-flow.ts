@@ -21,10 +21,8 @@ import {
   StepMovement,
   deadEnd,
   int64Codec,
-  optionalCodec,
   rpc,
   stringCodec,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -39,7 +37,7 @@ import {
   myDependencyService,
   type MyDependencyService,
 } from "../../shared/my-dependency-service.js";
-import { jobInfoCodec, optionalStringCodec, type JobInfo } from "./job-info.js";
+import { optionalStringCodec, type JobInfo } from "./job-info.js";
 
 export class JobPostFlow implements Flow {
   public readonly title = new Attribute("Title", stringCodec, {
@@ -71,17 +69,17 @@ export class JobPostFlow implements Flow {
     };
   }
 
-  @rpc({ outputCodec: jobInfoCodec })
+  @rpc()
   public get(context: Context): RPCResult<JobInfo> {
     return { output: this.readJobInfo(context) };
   }
 
-  @rpc({ name: "getWithStrongConsistency", outputCodec: jobInfoCodec })
+  @rpc({ name: "getWithStrongConsistency" })
   public getWithStrongConsistency(context: Context): RPCResult<JobInfo> {
     return this.get(context);
   }
 
-  @rpc({ inputCodec: jobInfoCodec, outputCodec: voidCodec })
+  @rpc()
   public update(context: Context, input: JobInfo): RPCResult<void> {
     this.title.set(context, input.title);
     this.jobDescription.set(context, input.description);
@@ -102,8 +100,6 @@ export class JobPostFlow implements Flow {
 }
 
 class ExternalUpdate implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   private readonly options: StepOptions = {
     executeRetry: {
       backoffCoefficient: 2,

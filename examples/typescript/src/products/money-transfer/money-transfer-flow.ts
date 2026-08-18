@@ -20,7 +20,6 @@ import {
   forceFail,
   goTo,
   gracefulComplete,
-  jsonCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -34,12 +33,7 @@ import {
   myDependencyService,
   type MyDependencyService,
 } from "../../shared/my-dependency-service.js";
-import {
-  transferRequestCodec,
-  type TransferRequest,
-} from "./transfer-request.js";
-
-const inputCodec = jsonCodec<TransferRequest>(transferRequestCodec);
+import { type TransferRequest } from "./transfer-request.js";
 
 export class MoneyTransferFlow implements Flow<TransferRequest> {
   private readonly checkBalance = new CheckBalance(this);
@@ -104,8 +98,6 @@ export class MoneyTransferFlow implements Flow<TransferRequest> {
 }
 
 class CheckBalance implements Step<TransferRequest> {
-  public readonly inputCodec = inputCodec;
-
   public constructor(private readonly flow: MoneyTransferFlow) {}
 
   public getStepType(): string {
@@ -121,8 +113,6 @@ class CheckBalance implements Step<TransferRequest> {
 }
 
 class CreateDebitMemo implements Step<TransferRequest> {
-  public readonly inputCodec = inputCodec;
-
   public constructor(private readonly flow: MoneyTransferFlow) {}
 
   public getStepType(): string {
@@ -140,8 +130,6 @@ class CreateDebitMemo implements Step<TransferRequest> {
 }
 
 class Debit implements Step<TransferRequest> {
-  public readonly inputCodec = inputCodec;
-
   public constructor(private readonly flow: MoneyTransferFlow) {}
 
   public getStepType(): string {
@@ -159,8 +147,6 @@ class Debit implements Step<TransferRequest> {
 }
 
 class CreateCreditMemo implements Step<TransferRequest> {
-  public readonly inputCodec = inputCodec;
-
   public constructor(private readonly flow: MoneyTransferFlow) {}
 
   public getStepType(): string {
@@ -178,8 +164,6 @@ class CreateCreditMemo implements Step<TransferRequest> {
 }
 
 class Credit implements Step<TransferRequest> {
-  public readonly inputCodec = inputCodec;
-
   public constructor(private readonly flow: MoneyTransferFlow) {}
 
   public getStepType(): string {
@@ -199,8 +183,6 @@ class Credit implements Step<TransferRequest> {
 }
 
 class Compensate implements Step<TransferRequest> {
-  public readonly inputCodec = inputCodec;
-
   public constructor(private readonly flow: MoneyTransferFlow) {}
 
   public getStepType(): string {

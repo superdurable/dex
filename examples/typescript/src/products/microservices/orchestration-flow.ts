@@ -100,8 +100,6 @@ class CallAPI1 implements Step<string> {
 }
 
 class CallAPI2 implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: OrchestrationFlow) {}
 
   public getStepType(): string {
@@ -115,8 +113,6 @@ class CallAPI2 implements Step<void> {
 }
 
 class CallAPI3 implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: OrchestrationFlow) {}
 
   public getStepType(): string {
@@ -138,8 +134,6 @@ class CallAPI3 implements Step<void> {
 }
 
 class CallAPI4 implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: OrchestrationFlow) {}
 
   public getStepType(): string {

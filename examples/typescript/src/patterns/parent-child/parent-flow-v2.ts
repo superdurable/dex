@@ -24,8 +24,6 @@ import {
   doubleCodec,
   goTo,
   goToMulti,
-  jsonCodec,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -37,16 +35,12 @@ import { getClient } from "../../client-holder.js";
 import { startOptions } from "../../config/env.js";
 import { isFlowAlreadyStarted } from "../../service-errors.js";
 import { childFlow, type ChildFlow } from "../scalable-parallel/child-flow.js";
-import {
-  waitForChildInputCodec,
-  type WaitForChildInput,
-} from "./wait-for-child-input.js";
+import { type WaitForChildInput } from "./wait-for-child-input.js";
 
 export const CONCURRENCY_PER_PARENT_WORKFLOW = 3;
 export const TASK_QUEUE = "task_queue";
 
 const countInputCodec = doubleCodec;
-const waitForChildInputCodecImpl = jsonCodec<WaitForChildInput>(waitForChildInputCodec);
 
 class Init implements Step<number> {
   public readonly inputCodec = countInputCodec;
@@ -71,8 +65,6 @@ class Init implements Step<number> {
 }
 
 class LoopForNextTask implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: ParentFlowV2) {}
 
   public getStepType(): string {
@@ -123,8 +115,6 @@ class StartChildWorkflow implements Step<number> {
 }
 
 class AwaitChildWorkflowCompletion implements Step<WaitForChildInput> {
-  public readonly inputCodec = waitForChildInputCodecImpl;
-
   public constructor(private readonly flow: ParentFlowV2) {}
 
   public getStepType(): string {

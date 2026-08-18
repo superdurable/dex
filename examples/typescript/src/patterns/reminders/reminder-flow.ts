@@ -47,8 +47,6 @@ export const INTERNAL_CHANNEL_COMPLETE_PROCESS = "CompleteProcess";
 const REMINDER_WAIT_MS = 5_000;
 
 class Init implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: ReminderFlow) {}
 
   public getStepType(): string {
@@ -65,8 +63,6 @@ class Init implements Step<void> {
 }
 
 class ProcessTimeout implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(
     private readonly flow: ReminderFlow,
     private readonly service: ServiceDependency,
@@ -92,8 +88,6 @@ class ProcessTimeout implements Step<void> {
 }
 
 class Reminder implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(
     private readonly flow: ReminderFlow,
     private readonly service: ServiceDependency,

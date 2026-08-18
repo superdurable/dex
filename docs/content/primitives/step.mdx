@@ -324,7 +324,7 @@ public RPCResult<QuoteStatus> acceptQuote(Context context, Quote quote) {
   <SdkSnippet lang="typescript">
 
 ```typescript
-@rpc({ name: "acceptQuote", inputCodec: quoteCodec, outputCodec: quoteStatusCodec })
+@rpc({ name: "acceptQuote" })
 acceptQuote(_context: Context, quote: Quote): RPCResult<QuoteStatus> {
   return {
     output: QuoteStatus.ACCEPTED,

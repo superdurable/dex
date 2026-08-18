@@ -23,7 +23,6 @@ import {
   forceComplete,
   forceFail,
   goToMulti,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -49,8 +48,6 @@ class Init implements Step<boolean> {
 }
 
 class Timeout implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public getStepType(): string {
     return "Timeout";
   }

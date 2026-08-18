@@ -46,8 +46,6 @@ import {
 } from "../../shared/my-dependency-service.js";
 import {
   Status,
-  engagementDescriptionCodec,
-  engagementInputCodec,
   statusCodec,
   type EngagementDescription,
   type EngagementInput,
@@ -102,12 +100,12 @@ export class EngagementFlow implements Flow<EngagementInput> {
     };
   }
 
-  @rpc({ outputCodec: engagementDescriptionCodec })
+  @rpc()
   public describe(context: Context): RPCResult<EngagementDescription> {
     return { output: this.describeEngagement(context) };
   }
 
-  @rpc({ inputCodec: stringCodec, outputCodec: statusCodec })
+  @rpc({ inputCodec: stringCodec })
   public decline(context: Context, note: string): RPCResult<Status> {
     const status = this.engagementStatus.get(context);
     if (status !== Status.INITIATED) {
@@ -122,7 +120,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
     };
   }
 
-  @rpc({ inputCodec: stringCodec, outputCodec: statusCodec })
+  @rpc({ inputCodec: stringCodec })
   public accept(context: Context, note: string): RPCResult<Status> {
     const status = this.engagementStatus.get(context);
     if (status !== Status.INITIATED && status !== Status.DECLINED) {
@@ -159,8 +157,6 @@ export class EngagementFlow implements Flow<EngagementInput> {
 }
 
 class Initialize implements Step<EngagementInput> {
-  public readonly inputCodec = engagementInputCodec;
-
   public constructor(private readonly flow: EngagementFlow) {}
 
   public getStepType(): string {
@@ -182,8 +178,6 @@ class Initialize implements Step<EngagementInput> {
 }
 
 class ProcessTimeout implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: EngagementFlow) {}
 
   public getStepType(): string {
@@ -211,8 +205,6 @@ class ProcessTimeout implements Step<void> {
 }
 
 class Reminder implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: EngagementFlow) {}
 
   public getStepType(): string {
@@ -243,8 +235,6 @@ class Reminder implements Step<void> {
 }
 
 class NotifyExternalSystem implements Step<Status> {
-  public readonly inputCodec = statusCodec;
-
   public constructor(private readonly flow: EngagementFlow) {}
 
   public getStepType(): string {

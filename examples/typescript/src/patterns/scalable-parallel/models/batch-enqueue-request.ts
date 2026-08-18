@@ -17,13 +17,3 @@
 export interface BatchEnqueueRequest {
   list: string[];
 }
-
-export const batchEnqueueRequestCodec = {
-  typeName: "BatchEnqueueRequest",
-  decode: (value: unknown): BatchEnqueueRequest => {
-    const record = value as BatchEnqueueRequest;
-    return {
-      list: Array.isArray(record.list) ? record.list.map(String) : [],
-    };
-  },
-};

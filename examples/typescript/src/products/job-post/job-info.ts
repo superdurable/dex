@@ -14,28 +14,12 @@
  * limitations under the License.
  */
 
-import { jsonCodec, optionalCodec, stringCodec } from "@superdurable/dex";
+import { optionalCodec, stringCodec } from "@superdurable/dex";
 
 export interface JobInfo {
   title: string;
   description: string;
   notes: string;
 }
-
-export function decodeJobInfo(value: unknown): JobInfo {
-  const record = value as JobInfo;
-  return {
-    title: String(record.title),
-    description: String(record.description),
-    notes: String(record.notes ?? ""),
-  };
-}
-
-export const jobInfoCodec = jsonCodec<JobInfo>({
-  typeName: "JobInfo",
-  decode: decodeJobInfo,
-});
-
-export const optionalJobInfoCodec = optionalCodec(jobInfoCodec);
 
 export const optionalStringCodec = optionalCodec(stringCodec);

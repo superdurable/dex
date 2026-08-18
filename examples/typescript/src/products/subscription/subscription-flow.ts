@@ -42,18 +42,13 @@ import {
   type MyDependencyService,
 } from "../../shared/my-dependency-service.js";
 import { SubscriptionBilling } from "./subscription-billing.js";
-import { decodeCustomer, decodeSubscription, type Customer, type Subscription } from "./models.js";
+import { decodeCustomer, type Customer, type Subscription } from "./models.js";
 
 const SUBSCRIPTION_OVER_KEY = "subscription-over";
 
 const customerCodec = jsonCodec<Customer>({
   typeName: "Customer",
   decode: decodeCustomer,
-});
-
-const subscriptionCodec = jsonCodec<Subscription>({
-  typeName: "Subscription",
-  decode: decodeSubscription,
 });
 
 export class SubscriptionFlow implements Flow<Customer> {
@@ -90,15 +85,13 @@ export class SubscriptionFlow implements Flow<Customer> {
     };
   }
 
-  @rpc({ outputCodec: subscriptionCodec })
+  @rpc()
   public describe(context: Context): RPCResult<Subscription> {
     return { output: this.customerDetails.get(context).subscription };
   }
 }
 
 class Initialize implements Step<Customer> {
-  public readonly inputCodec = customerCodec;
-
   public constructor(private readonly flow: SubscriptionFlow) {}
 
   public getStepType(): string {
@@ -116,8 +109,6 @@ class Initialize implements Step<Customer> {
 }
 
 class Trial implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: SubscriptionFlow) {}
 
   public getStepType(): string {
@@ -137,8 +128,6 @@ class Trial implements Step<void> {
 }
 
 class ChargeCurrentBill implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: SubscriptionFlow) {}
 
   public getStepType(): string {
@@ -170,8 +159,6 @@ class ChargeCurrentBill implements Step<void> {
 }
 
 class Cancel implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: SubscriptionFlow) {}
 
   public getStepType(): string {
@@ -190,8 +177,6 @@ class Cancel implements Step<void> {
 }
 
 class UpdateChargeAmount implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: SubscriptionFlow) {}
 
   public getStepType(): string {

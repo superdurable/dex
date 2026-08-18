@@ -45,35 +45,6 @@ export function decodeStatus(value: unknown): Status {
   throw new Error(`unknown status: ${status}`);
 }
 
-export function decodeEngagementInput(value: unknown): EngagementInput {
-  const record = value as EngagementInput;
-  return {
-    employerId: String(record.employerId),
-    jobSeekerId: String(record.jobSeekerId),
-    notes: String(record.notes ?? ""),
-  };
-}
-
-export function decodeEngagementDescription(value: unknown): EngagementDescription {
-  const record = value as EngagementDescription;
-  return {
-    employerId: String(record.employerId),
-    jobSeekerId: String(record.jobSeekerId),
-    notes: String(record.notes ?? ""),
-    currentStatus: decodeStatus(record.currentStatus),
-  };
-}
-
-export const engagementInputCodec = jsonCodec<EngagementInput>({
-  typeName: "EngagementInput",
-  decode: decodeEngagementInput,
-});
-
-export const engagementDescriptionCodec = jsonCodec<EngagementDescription>({
-  typeName: "EngagementDescription",
-  decode: decodeEngagementDescription,
-});
-
 export const statusCodec = jsonCodec<Status>({
   typeName: "Status",
   decode: decodeStatus,
