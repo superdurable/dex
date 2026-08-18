@@ -481,6 +481,17 @@ export function FlowSearchPage() {
               <span>⌁</span>
               <h3>No flows found</h3>
               <p>Adjust the query or clear filters to search all visible executions.</p>
+              <p>
+                Getting started? Try the{' '}
+                <a
+                  href="https://github.com/superdurable/dex/tree/main/examples"
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Dex examples
+                </a>
+                .
+              </p>
             </div>
           )}
           {loading && <div className="table-loading">Loading flows…</div>}

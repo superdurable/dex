@@ -28,8 +28,6 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
 dex_port="${DEX_INTEG_DEX_PORT:-$(available_port)}"
 web_port="${DEX_INTEG_WEB_PORT:-$(available_port)}"
-temporal_port="${DEX_INTEG_TEMPORAL_PORT:-$(available_port)}"
-temporal_ui_port="${DEX_INTEG_TEMPORAL_UI_PORT:-$(available_port)}"
 dex_address="127.0.0.1:${dex_port}"
 log_file="/tmp/test-typescript-sdk-integration-services.log"
 test_dir=$(mktemp -d)
@@ -78,9 +76,8 @@ fi
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
-  -temporal-port "$temporal_port" \
-  -temporal-ui-port "$temporal_ui_port" \
-  -temporal-db-filename "$test_dir/temporal.db" \
+  -open=false \
+  -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 

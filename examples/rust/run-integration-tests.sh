@@ -20,8 +20,6 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 dex_port="${DEX_RUST_EXAMPLES_DEX_PORT:-19804}"
 web_port="${DEX_RUST_EXAMPLES_WEB_PORT:-19904}"
-temporal_port="${DEX_RUST_EXAMPLES_TEMPORAL_PORT:-19236}"
-temporal_ui_port="${DEX_RUST_EXAMPLES_TEMPORAL_UI_PORT:-19336}"
 dex_address="127.0.0.1:${dex_port}"
 log_file="/tmp/test-rust-examples-integration-services.log"
 test_dir=$(mktemp -d)
@@ -59,9 +57,8 @@ fi
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
-  -temporal-port "$temporal_port" \
-  -temporal-ui-port "$temporal_ui_port" \
-  -temporal-db-filename "$test_dir/temporal.db" \
+  -open=false \
+  -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 

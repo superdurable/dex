@@ -14,7 +14,7 @@ From this directory:
 docker compose up -d --wait
 dexcli dev \
   --attribute-store-config ./attribute-store.yaml \
-  --temporal-db-filename /tmp/dex-entity-store.db
+  --sqlite-db-filename /tmp/dex-entity-store.db
 ```
 
 Compose starts PostgreSQL 17 and creates `public.user_profiles` on

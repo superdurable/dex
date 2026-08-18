@@ -17,7 +17,7 @@ For the sync `Client` / `Worker` surface (Flask, six Flows), see
 ## Run locally
 
 ```bash
-dexcli dev --temporal-db-filename /tmp/dex-examples-python.db
+dexcli dev --sqlite-db-filename /tmp/dex-examples-python.db
 uv sync --locked
 uv run --frozen python main.py
 ```

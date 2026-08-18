@@ -9,7 +9,7 @@ Worker and Client.
 ## Run locally
 
 ```bash
-dexcli dev --temporal-db-filename /tmp/dex-examples.db
+dexcli dev --sqlite-db-filename /tmp/dex-examples.db
 ./gradlew bootRun
 ```
 

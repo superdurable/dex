@@ -76,27 +76,27 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	if err != nil {
 		return err
 	}
+	logDir, err := openServerLogDir(s.cfg)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shouldRemove := logDir.isEphemeral && runErr == nil
+		if logDir.isEphemeral && runErr != nil {
+			runErr = fmt.Errorf("%w (server log folder %s)", runErr, logDir.directory)
+		}
+		runErr = errors.Join(runErr, logDir.Close(shouldRemove))
+	}()
 
 	startupCtx, cancelStartup := context.WithTimeout(ctx, s.cfg.StartupTimeout)
 	defer cancelStartup()
 	var temporal *temporalProcess
 	var temporalClient temporalclient.Client
-	if s.cfg.TemporalAddress == "" {
-		var temporalLogs io.Writer
-		logFile, err := openTemporalLogFile(s.cfg.TemporalLogFile)
-		if err != nil {
-			return err
-		}
-		if logFile != nil {
-			defer func() {
-				runErr = errors.Join(runErr, logFile.Close())
-			}()
-			temporalLogs = logFile
-		}
+	if s.cfg.ExternalTemporalAddress == "" {
 		if err := listeners.releaseTemporalPorts(); err != nil {
 			return err
 		}
-		temporal, temporalClient, err = s.startLocalTemporal(startupCtx, temporalLogs)
+		temporal, temporalClient, err = s.startLocalTemporal(startupCtx, logDir.engineLog)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -195,13 +195,10 @@ func (s *supervisor) startLocalTemporal(ctx context.Context, logs io.Writer) (*t
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
-			if s.cfg.isExplicit("temporal-port") || s.cfg.isExplicit("temporal-ui-port") {
-				return nil, nil, lastErr
-			}
 			if err := rebindTemporalPorts(s.cfg); err != nil {
 				return nil, nil, err
 			}
-			if err := assignTemporalDBFilename(s.cfg); err != nil {
+			if err := assignSQLiteDBFilename(s.cfg); err != nil {
 				return nil, nil, err
 			}
 		}
@@ -234,7 +231,7 @@ func (s *supervisor) startLocalTemporal(ctx context.Context, logs io.Writer) (*t
 
 func (s *supervisor) prepareBlobStoreDirectory() (string, error) {
 	directory := s.cfg.BlobStoreDirectory
-	if s.cfg.TemporalDBFilename != "" && s.cfg.blobStoreDirectoryDefault {
+	if s.cfg.SQLiteDBFilename != "" && s.cfg.blobStoreDirectoryDefault {
 		directory = s.cfg.adjacentBlobStoreDirectory()
 	}
 	directory, err := filepath.Abs(directory)
@@ -259,9 +256,9 @@ func (s *supervisor) startDexRuntime(
 	}
 	dexConfig := &config.Config{
 		Log: config.Logger{
-			Stdout:   true,
-			Level:    "info",
-			Encoding: "console",
+			Level:      "info",
+			Encoding:   "console",
+			OutputFile: s.cfg.dexServerLogPath(),
 		},
 		Api: config.ApiConfig{Port: s.cfg.DexPort},
 		BlobStore: config.BlobStoreConfig{
@@ -329,40 +326,43 @@ func (s *supervisor) printReady(webURL string, dexAddress string, blobStoreDirec
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintf(s.stdout, "Dex Web:       %s\n", webURL)
 	fmt.Fprintf(s.stdout, "Dex Server:    %s\n", dexAddress)
-	if s.cfg.TemporalDBFilename != "" {
-		fmt.Fprintf(s.stdout, "Local DB:      %s\n", s.cfg.TemporalDBFilename)
+	if s.cfg.SQLiteDBFilename != "" {
+		fmt.Fprintf(s.stdout, "Local DB:      %s\n", s.cfg.SQLiteDBFilename)
 	}
 	fmt.Fprintf(s.stdout, "Blob store:    %s\n", blobStoreDirectory)
+	if s.cfg.LogDirectory != "" {
+		fmt.Fprintf(s.stdout, "Server log folder: %s\n", s.cfg.LogDirectory)
+	}
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Press Ctrl+C to stop.")
 }
 
 func reserveOwnedListeners(cfg *Config) (*ownedListeners, error) {
 	allocated := make(map[string]string)
-	dexListener, err := bindServicePort("Dex Server", "dex-port", cfg, &cfg.DexPort, allocated)
+	dexListener, err := bindServicePort("Dex Server", cfg.isExplicit("dex-port"), cfg, &cfg.DexPort, allocated)
 	if err != nil {
 		return nil, err
 	}
 	listeners := &ownedListeners{dex: dexListener}
-	webListener, err := bindServicePort("Dex Web", "web-port", cfg, &cfg.WebPort, allocated)
+	webListener, err := bindServicePort("Dex Web", cfg.isExplicit("web-port"), cfg, &cfg.WebPort, allocated)
 	if err != nil {
 		return nil, errors.Join(err, listeners.Close())
 	}
 	listeners.web = webListener
-	if cfg.TemporalAddress != "" {
+	if cfg.ExternalTemporalAddress != "" {
 		return listeners, nil
 	}
-	temporalListener, err := bindServicePort("Temporal", "temporal-port", cfg, &cfg.TemporalPort, allocated)
+	temporalListener, err := bindServicePort("Temporal", false, cfg, &cfg.TemporalPort, allocated)
 	if err != nil {
 		return nil, errors.Join(err, listeners.Close())
 	}
 	listeners.temporal = temporalListener
-	uiListener, err := bindServicePort("Temporal Web", "temporal-ui-port", cfg, &cfg.TemporalUIPort, allocated)
+	uiListener, err := bindServicePort("Temporal Web", false, cfg, &cfg.TemporalUIPort, allocated)
 	if err != nil {
 		return nil, errors.Join(err, listeners.Close())
 	}
 	listeners.temporalUI = uiListener
-	if err := assignTemporalDBFilename(cfg); err != nil {
+	if err := assignSQLiteDBFilename(cfg); err != nil {
 		return nil, errors.Join(err, listeners.Close())
 	}
 	return listeners, nil
@@ -379,11 +379,11 @@ func rebindTemporalPorts(cfg *Config) error {
 		net.JoinHostPort(cfg.BindAddress, strconv.Itoa(cfg.DexPort)): "Dex Server",
 		net.JoinHostPort(cfg.BindAddress, strconv.Itoa(cfg.WebPort)): "Dex Web",
 	}
-	temporalListener, err := bindServicePort("Temporal", "temporal-port", cfg, &cfg.TemporalPort, allocated)
+	temporalListener, err := bindServicePort("Temporal", false, cfg, &cfg.TemporalPort, allocated)
 	if err != nil {
 		return err
 	}
-	uiListener, err := bindServicePort("Temporal Web", "temporal-ui-port", cfg, &cfg.TemporalUIPort, allocated)
+	uiListener, err := bindServicePort("Temporal Web", false, cfg, &cfg.TemporalUIPort, allocated)
 	if err != nil {
 		return errors.Join(err, closeListener(temporalListener))
 	}
@@ -392,12 +392,11 @@ func rebindTemporalPorts(cfg *Config) error {
 
 func bindServicePort(
 	name string,
-	flagName string,
+	explicit bool,
 	cfg *Config,
 	port *int,
 	allocated map[string]string,
 ) (net.Listener, error) {
-	explicit := cfg.isExplicit(flagName)
 	for candidate := *port; candidate <= 65535; candidate++ {
 		address := net.JoinHostPort(cfg.BindAddress, strconv.Itoa(candidate))
 		if owner, exists := allocated[address]; exists {
@@ -426,18 +425,18 @@ func bindServicePort(
 	return nil, fmt.Errorf("cannot start %s: no available port from %d", name, *port)
 }
 
-func assignTemporalDBFilename(cfg *Config) error {
-	if cfg.TemporalAddress != "" || cfg.isExplicit("temporal-db-filename") {
+func assignSQLiteDBFilename(cfg *Config) error {
+	if cfg.ExternalTemporalAddress != "" || cfg.isExplicit("sqlite-db-filename") {
 		return nil
 	}
 	if cfg.StateDirectory == "" {
 		return fmt.Errorf("Dex state directory is required")
 	}
-	filename := cfg.autoTemporalDBFilename()
+	filename := cfg.autoSQLiteDBFilename()
 	if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
 		return fmt.Errorf("create Temporal database directory: %w", err)
 	}
-	cfg.TemporalDBFilename = filename
+	cfg.SQLiteDBFilename = filename
 	return nil
 }
 

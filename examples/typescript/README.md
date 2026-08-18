@@ -13,7 +13,7 @@ Controllers handle expected duplicate and missing-Flow failures through
 ## Run locally
 
 ```bash
-dexcli dev --temporal-db-filename /tmp/dex-examples.db
+dexcli dev --sqlite-db-filename /tmp/dex-examples.db
 cd examples/typescript
 npm install
 npm start

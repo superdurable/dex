@@ -11,11 +11,11 @@ Traditional databases persist only data. Durable Execution persists both data an
 
 ```bash
 brew install superdurable/tap/dexcli
-dexcli dev --open
+dexcli dev
 ```
 
-Open Dex Web at [http://127.0.0.1:8802](http://127.0.0.1:8802). This starts
-the complete local Dex environment, including its internal workflow backend.
+This starts the complete local Dex environment, including its internal
+workflow backend, and opens Dex Web at [http://127.0.0.1:8802](http://127.0.0.1:8802).
 If 8802 is already taken, `dexcli dev` prints the port it selected instead.
 
 See [cli/README.md](cli/README.md) for Dex endpoints and persistence options.
