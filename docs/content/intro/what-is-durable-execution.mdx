@@ -100,9 +100,9 @@ For this charge → approval → ship flow, you write something like:
 
 1. **Step 1 — Charge** with its own retry policy. When it succeeds, move to Step 2 **atomically**.
 2. **Step 2 — Ship**
-  2.1 Wait for seller approval **or** a durable timer.
-  2.2 On timer fire or seller approval receives, invoke the code to send a reminder and keep waiting, or ship the item.
-  2.3 Ship execute with retry; on exhaustion, go to a refund Step.
+    1. Wait for seller approval **or** a durable timer.
+    2. When the timer fires or seller approval arrives, invoke the code to send a reminder and keep waiting, or ship the item.
+    3. Ship execute with retry; on exhaustion, go to a refund Step.
 3. **Step 3 — Refund** process the refund to buyer.
 4. Frontend code calls an API out of the box, to wait until Step 1 completes as “payment received”.
 

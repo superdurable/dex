@@ -99,9 +99,9 @@ Durable Execution 把这些开箱给你，**你不用为这些问题再写一行
 
 1. **Step 1 — Charge**，有自己的 retry。成功后 **原子地** 进入 Step 2。
 2. **Step 2 — Ship**
-  2.1 等待卖家批准 **或** 一个 durable timer。
-  2.2 Timer 到了，或卖家批准到了，就执行代码：发提醒并继续等，或者发货。
-  2.3 Ship 的 Execute 带 retry；用尽后进入退款 Step。
+    1. 等待卖家批准 **或** 一个 durable timer。
+    2. Timer 到了，或卖家批准到了，就执行代码：发提醒并继续等，或者发货。
+    3. Ship 的 Execute 带 retry；用尽后进入退款 Step。
 3. **Step 3 — Refund**，把钱退给买家。
 4. 前端调用一个开箱即用的 API，等到 Step 1 完成，再返回「已付款」。
 
