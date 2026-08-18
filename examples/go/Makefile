@@ -7,9 +7,10 @@ default: help
 
 bins:
 	go build -o dex-samples ./cmd/server
+	go build -o dex-dataset-deal ./cmd/dataset-deal
 
 clean:
-	rm -f dex-samples
+	rm -f dex-samples dex-dataset-deal
 
 datasetDealDemo:
 	./run-dataset-deal-demo.sh

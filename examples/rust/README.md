@@ -79,8 +79,8 @@ remain split so their orchestration boundaries are visible.
 | Wait for state completion | [`WaitForStateCompletionFlow`](src/patterns/wait_for_state_completion.rs) | `Client::wait_for_step_completion` target followed by background work |
 
 The Java retrying-Worker example, Python basic/resource-control/AI-agent examples,
-and Go dataset-deal example are language-specific and are not part of the shared
-cross-language catalog.
+and Go dataset-deal example (separate `dex-dataset-deal` binary) are language-specific
+and are not part of the shared cross-language catalog.
 
 ## Verify
 

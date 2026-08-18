@@ -73,8 +73,7 @@ Default example-server ports:
 
 Dex ports are whatever `dexcli dev` prints.
 
-Each language README lists env overrides for those addresses. Dataset Deal
-(Go) also needs PostgreSQL; see the [Go README](go/README.md). Entity Store
+Each language README lists env overrides for those addresses. Entity Store
 needs PostgreSQL plus `dexcli dev --attribute-store-config`; see
 [entity-store/](entity-store/).
 
@@ -126,7 +125,8 @@ client-apis. Java currently ships the step primitive.
 | [entity-store/](entity-store/) | PostgreSQL + Attribute Store YAML for the user-profile pattern |
 
 Language-specific extras live next to those trees: Go
-[Dataset Deal](go/products/dataset-deal/) (own UI and PostgreSQL), Python
+[Dataset Deal](go/products/dataset-deal/) (own UI, PostgreSQL, and
+`dex-dataset-deal` binary), Python
 [AI Agent Email](python/ai-agent-email/) (own UI).
 
 Each language README has setup, env overrides, and verify steps. CI workflows

@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package integ
+package datasetdeal_test
 
 import (
 	"context"
@@ -32,25 +32,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
-	exampleserver "github.com/superdurable/dex/examples/go/cmd/server/dex"
-	"github.com/superdurable/dex/examples/go/registry"
-	"github.com/superdurable/dex/examples/go/shared/service"
+	"github.com/superdurable/dex/examples/go/products/dataset-deal"
+	"github.com/superdurable/dex/examples/go/server/httputil"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 var (
-	integClient    *dex.Client
-	examplesAPIURL string
-	dexcliPath     string
-	flowCounter    atomic.Int64
+	integClient       *dex.Client
+	datasetDealAPIURL string
+	datasetDealDB     *pgxpool.Pool
+	flowCounter       atomic.Int64
 )
 
 type integrationEnvironment struct {
 	cache         *blobcache.Cache
 	cacheDir      string
 	client        *dex.Client
+	database      *pgxpool.Pool
 	apiServer     *httptest.Server
 	worker        *dex.Worker
 	workerAddress string
@@ -58,25 +59,32 @@ type integrationEnvironment struct {
 }
 
 func newIntegrationEnvironment() (*integrationEnvironment, error) {
-	var client *dex.Client
-	flows := registry.New(service.NewMyService(), func() *dex.Client { return client })
-	registry, err := dex.NewRegistry(flows)
+	database, dealRepository, err := newIntegrationDatasetDealRepository()
 	if err != nil {
 		return nil, err
 	}
-	cacheDir, err := os.MkdirTemp("", "dex-go-examples-integ-")
+	dealFlow := datasetdeal.NewDealFlow(dealRepository, nil)
+	flowRegistry, err := dex.NewRegistry([]dex.Flow{dealFlow})
 	if err != nil {
+		database.Close()
+		return nil, err
+	}
+	cacheDir, err := os.MkdirTemp("", "dex-dataset-deal-integ-")
+	if err != nil {
+		database.Close()
 		return nil, err
 	}
 	cache, err := blobcache.New(&blobcache.Config{Dir: cacheDir, MaxBytes: 64 << 20})
 	if err != nil {
+		database.Close()
 		return nil, errors.Join(err, os.RemoveAll(cacheDir))
 	}
 	workerPort, err := availablePort()
 	if err != nil {
+		database.Close()
 		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
 	}
-	worker, err := dex.NewWorker(registry, cache, dex.WorkerOptions{
+	worker, err := dex.NewWorker(flowRegistry, cache, dex.WorkerOptions{
 		BindAddress:        net.JoinHostPort("127.0.0.1", workerPort),
 		FlowServiceAddress: flowServiceAddress(),
 		WorkerTarget: dex.WorkerTarget{
@@ -84,36 +92,64 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 		},
 	})
 	if err != nil {
+		database.Close()
 		return nil, errors.Join(err, cache.Close(), os.RemoveAll(cacheDir))
 	}
 	workerResult := make(chan error, 1)
 	go func() {
 		workerResult <- worker.Start()
 	}()
-	client, err = dex.NewClient(registry, cache, dex.ClientOptions{
+	client, err := dex.NewClient(flowRegistry, cache, dex.ClientOptions{
 		FlowServiceAddress: flowServiceAddress(),
 		WorkerTarget:       worker.WorkerTarget(),
 	})
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		database.Close()
 		return nil, errors.Join(err, worker.Stop(stopCtx), cache.Close(), os.RemoveAll(cacheDir))
 	}
-	apiServer := httptest.NewServer(exampleserver.NewRouter(client))
+	router := gin.Default()
+	router.Use(httputil.AllowCORS())
+	datasetdeal.RegisterRoutes(router, client, dealFlow, dealRepository)
+	apiServer := httptest.NewServer(router)
 	environment := &integrationEnvironment{
 		cache:         cache,
 		cacheDir:      cacheDir,
 		client:        client,
+		database:      database,
 		apiServer:     apiServer,
 		worker:        worker,
 		workerAddress: net.JoinHostPort("127.0.0.1", workerPort),
 		workerResult:  workerResult,
 	}
-	integClient = client
 	if err := environment.waitUntilReady(); err != nil {
 		return nil, errors.Join(err, environment.Close())
 	}
 	return environment, nil
+}
+
+func newIntegrationDatasetDealRepository() (*pgxpool.Pool, *datasetdeal.PostgresRepository, error) {
+	postgresURL := os.Getenv("DATASET_DEAL_POSTGRES_URL")
+	if postgresURL == "" {
+		return nil, nil, fmt.Errorf("DATASET_DEAL_POSTGRES_URL is required")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	database, err := pgxpool.New(ctx, postgresURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure Dataset Deal PostgreSQL: %w", err)
+	}
+	if err := database.Ping(ctx); err != nil {
+		database.Close()
+		return nil, nil, fmt.Errorf("connect to Dataset Deal PostgreSQL: %w", err)
+	}
+	repository := datasetdeal.NewPostgresRepository(database)
+	if err := repository.EnsureSchema(ctx); err != nil {
+		database.Close()
+		return nil, nil, err
+	}
+	return database, repository, nil
 }
 
 func (environment *integrationEnvironment) waitUntilReady() error {
@@ -145,6 +181,7 @@ func (environment *integrationEnvironment) Close() error {
 	stopErr := environment.worker.Stop(stopCtx)
 	workerErr := <-environment.workerResult
 	cacheErr := environment.cache.Close()
+	environment.database.Close()
 	removeErr := os.RemoveAll(environment.cacheDir)
 	return errors.Join(clientErr, stopErr, workerErr, cacheErr, removeErr)
 }
@@ -156,7 +193,8 @@ func TestMain(tests *testing.M) {
 		os.Exit(1)
 	}
 	integClient = environment.client
-	examplesAPIURL = environment.apiServer.URL
+	datasetDealAPIURL = environment.apiServer.URL
+	datasetDealDB = environment.database
 	exitCode := tests.Run()
 	if err := environment.Close(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -176,17 +214,6 @@ func newFlowID(t *testing.T, prefix string) string {
 	t.Helper()
 	sequence := flowCounter.Add(1)
 	return prefix + "-" + strconv.FormatInt(time.Now().UnixNano(), 10) + "-" + strconv.FormatInt(sequence, 10)
-}
-
-func waitForFlow(t *testing.T, flowID string) dex.FlowResult {
-	t.Helper()
-	result, err := integClient.WaitForFlow(
-		integrationContext(t),
-		flowID,
-		dex.WaitForFlowOptions{NeedsResults: true, Timeout: 45 * time.Second},
-	)
-	require.NoError(t, err)
-	return result
 }
 
 func availablePort() (string, error) {

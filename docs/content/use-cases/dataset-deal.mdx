@@ -14,7 +14,18 @@ Long-running backend processes need durable waits, retries, and external interac
 
 ## Code examples
 
-Go-only sample with its own UI (not on the shared playground). HTTP UI `/products/dataset-deal/...`, API `/products/dataset-deal/api/...`. See `examples/README.md`.
+Go-only sample with its own UI (not on the shared playground). Run
+`examples/go/dex-dataset-deal`, not the default `./dex-samples` binary. HTTP UI
+`/products/dataset-deal/...`, API `/products/dataset-deal/api/...`. See
+`examples/go/products/dataset-deal/README.md`.
+
+```bash
+# from examples/go; needs PostgreSQL on 127.0.0.1:15432 (or DATASET_DEAL_POSTGRES_URL)
+docker compose -f dataset-deal/docker-compose.yml up -d --wait
+dexcli dev
+make bins
+./dex-dataset-deal
+```
 
 <SdkTabs>
 <SdkSnippet lang="python">

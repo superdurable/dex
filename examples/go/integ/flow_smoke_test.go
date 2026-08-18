@@ -165,31 +165,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "products/dataset-deal",
-			trigger: func(t *testing.T) (string, string) {
-				processID := smokeWorkflowID(t, "dataset-deal-process")
-				buyerID := smokeWorkflowID(t, "dataset-deal-buyer")
-				triggerFlowSmokeHTTP(
-					t,
-					http.MethodPost,
-					"/products/dataset-deal/api/processes",
-					nil,
-					smokeDealProcess(processID),
-				)
-				flowID, runID := triggerFlowSmokeHTTP(
-					t,
-					http.MethodPost,
-					"/products/dataset-deal/api/executions",
-					nil,
-					map[string]string{
-						"processID": processID,
-						"buyerID":   buyerID,
-					},
-				)
-				return flowID, runID
-			},
-		},
-		{
 			name: "patterns/polling/simple",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "pattern-polling-simple")}}
@@ -518,18 +493,5 @@ func requireFlowSmokeIDs(t *testing.T, name string, flowID string) {
 	t.Helper()
 	if flowID == "" {
 		t.Fatalf("%s: controller response did not include flowID", name)
-	}
-}
-
-func smokeDealProcess(processID string) map[string]any {
-	return map[string]any{
-		"processID":    processID,
-		"initialState": "terminal",
-		"initialStateData": map[string]string{
-			"smoke": "true",
-		},
-		"states": []map[string]any{{
-			"name": "terminal",
-		}},
 	}
 }

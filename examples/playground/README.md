@@ -3,8 +3,9 @@
 A single static page that calls every example HTTP controller (products,
 patterns, and primitives) without hand-building GET/POST URLs.
 
-Dataset Deal (Go) and AI Agent Email (Python) already have their own UIs and
-are not included here.
+Dataset Deal (Go) is a separate `dex-dataset-deal` binary with its own UI and
+PostgreSQL. AI Agent Email (Python) already has its own UI. Neither is included
+here.
 
 Start Dex, then one language example server, then this page. Commands and
 example-server ports (HTTP `8080` / Worker `8803`, Python sync `8081` /

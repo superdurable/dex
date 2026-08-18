@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
@@ -55,7 +54,6 @@ import (
 	primitivestep "github.com/superdurable/dex/examples/go/primitives/step"
 	primitivesubflow "github.com/superdurable/dex/examples/go/primitives/subflow"
 	primitivetimer "github.com/superdurable/dex/examples/go/primitives/timer"
-	"github.com/superdurable/dex/examples/go/products/dataset-deal"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
@@ -70,30 +68,25 @@ import (
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
-const defaultDatasetDealPostgresURL = "postgres://dataset_deal:dataset_deal@127.0.0.1:15432/dataset_deal?sslmode=disable"
-
 type sampleServer struct {
-	client         *sdk.Client
-	worker         *sdk.Worker
-	cache          *blobcache.Cache
-	database       *pgxpool.Pool
-	dealFlow       *datasetdeal.DealFlow
-	dealRepository datasetdeal.Repository
-	httpServer     *http.Server
-	workerAddress  string
-	workerResult   chan error
-	httpResult     chan error
+	client        *sdk.Client
+	worker        *sdk.Worker
+	cache         *blobcache.Cache
+	httpServer    *http.Server
+	workerAddress string
+	workerResult  chan error
+	httpResult    chan error
 }
 
 func Run(ctx context.Context) error {
-	server, err := newSampleServer(ctx)
+	server, err := newSampleServer()
 	if err != nil {
 		return err
 	}
 	return server.Run(ctx)
 }
 
-func newSampleServer(ctx context.Context) (*sampleServer, error) {
+func newSampleServer() (*sampleServer, error) {
 	cache, err := blobcache.New(&blobcache.Config{
 		Dir:      environmentOr("DEX_BLOB_CACHE_DIR", filepath.Join(os.TempDir(), "dex-go-examples-blobs")),
 		MaxBytes: 1 << 30,
@@ -101,19 +94,10 @@ func newSampleServer(ctx context.Context) (*sampleServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create blob cache: %w", err)
 	}
-	database, dealRepository, err := newDatasetDealRepository(ctx)
-	if err != nil {
-		return nil, errors.Join(err, cache.Close())
-	}
-	dealFlow := datasetdeal.NewDealFlow(dealRepository, cache.Logger())
 	var client *sdk.Client
-	flows := append(
-		registry.New(service.NewMyService(), func() *sdk.Client { return client }),
-		dealFlow,
-	)
+	flows := registry.New(service.NewMyService(), func() *sdk.Client { return client })
 	flowRegistry, err := sdk.NewRegistry(flows)
 	if err != nil {
-		database.Close()
 		return nil, errors.Join(fmt.Errorf("register example flows: %w", err), cache.Close())
 	}
 	workerOptions := sdk.WorkerOptions{
@@ -125,7 +109,6 @@ func newSampleServer(ctx context.Context) (*sampleServer, error) {
 	}
 	worker, err := sdk.NewWorker(flowRegistry, cache, workerOptions)
 	if err != nil {
-		database.Close()
 		return nil, errors.Join(err, cache.Close())
 	}
 	client, err = sdk.NewClient(flowRegistry, cache, sdk.ClientOptions{
@@ -135,47 +118,21 @@ func newSampleServer(ctx context.Context) (*sampleServer, error) {
 	if err != nil {
 		stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		database.Close()
 		return nil, errors.Join(err, worker.Stop(stopCtx), cache.Close())
 	}
 	server := &sampleServer{
-		client:         client,
-		worker:         worker,
-		cache:          cache,
-		database:       database,
-		dealFlow:       dealFlow,
-		dealRepository: dealRepository,
-		workerAddress:  workerOptions.BindAddress,
-		workerResult:   make(chan error, 1),
-		httpResult:     make(chan error, 1),
+		client:        client,
+		worker:        worker,
+		cache:         cache,
+		workerAddress: workerOptions.BindAddress,
+		workerResult:  make(chan error, 1),
+		httpResult:    make(chan error, 1),
 	}
 	server.httpServer = &http.Server{
 		Addr:    environmentOr("DEX_EXAMPLES_HTTP_ADDRESS", "127.0.0.1:8080"),
 		Handler: server.router(),
 	}
 	return server, nil
-}
-
-func newDatasetDealRepository(
-	ctx context.Context,
-) (*pgxpool.Pool, *datasetdeal.PostgresRepository, error) {
-	database, err := pgxpool.New(
-		ctx,
-		environmentOr("DATASET_DEAL_POSTGRES_URL", defaultDatasetDealPostgresURL),
-	)
-	if err != nil {
-		return nil, nil, fmt.Errorf("configure Dataset Deal PostgreSQL: %w", err)
-	}
-	if err := database.Ping(ctx); err != nil {
-		database.Close()
-		return nil, nil, fmt.Errorf("connect to Dataset Deal PostgreSQL: %w", err)
-	}
-	repository := datasetdeal.NewPostgresRepository(database)
-	if err := repository.EnsureSchema(ctx); err != nil {
-		database.Close()
-		return nil, nil, err
-	}
-	return database, repository, nil
 }
 
 func environmentOr(name string, fallback string) string {
@@ -186,15 +143,11 @@ func environmentOr(name string, fallback string) string {
 }
 
 func (server *sampleServer) router() http.Handler {
-	return NewRouter(server.client, server.dealFlow, server.dealRepository)
+	return NewRouter(server.client)
 }
 
-// NewRouter builds the Go examples HTTP API and Dataset Deal UI.
-func NewRouter(
-	client *sdk.Client,
-	dealFlow *datasetdeal.DealFlow,
-	dealRepository datasetdeal.Repository,
-) http.Handler {
+// NewRouter builds the Go examples HTTP API.
+func NewRouter(client *sdk.Client) http.Handler {
 	router := gin.Default()
 	router.Use(httputil.AllowCORS())
 	subscription.RegisterRoutes(router, client, registry.Subscription)
@@ -224,7 +177,6 @@ func NewRouter(
 	drainsignal.RegisterRoutes(router, client, registry.DrainSignal)
 	waitforstatecompletion.RegisterRoutes(router, client, registry.WaitForStateCompletion)
 	timeout.RegisterRoutes(router, client, registry.GracefulTimeout)
-	datasetdeal.RegisterRoutes(router, client, dealFlow, dealRepository)
 	primitivestep.RegisterRoutes(router, client, registry.Step, registry.StepRetry)
 	primitiveattribute.RegisterRoutes(router, client, registry.Attribute)
 	primitivechannel.RegisterRoutes(router, client, registry.Channel)
@@ -311,7 +263,6 @@ func (server *sampleServer) close() error {
 	workerErr := server.worker.Stop(stopCtx)
 	clientErr := server.client.Close()
 	cacheErr := server.cache.Close()
-	server.database.Close()
 	return errors.Join(httpErr, workerErr, clientErr, cacheErr)
 }
 

@@ -50,6 +50,7 @@ test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
 dexcli_pid=""
 entity_store_started=false
+dataset_deal_started=false
 : >"$log_file"
 
 cleanup() {
@@ -64,11 +65,13 @@ cleanup() {
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
   fi
-  if ! DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
-    -p "$compose_project" \
-    -f "$script_dir/dataset-deal/docker-compose.yml" \
-    down --volumes >>"$log_file" 2>&1; then
-    echo "failed to stop the Go examples database" >&2
+  if $dataset_deal_started; then
+    if ! DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
+      -p "$compose_project" \
+      -f "$script_dir/dataset-deal/docker-compose.yml" \
+      down --volumes >>"$log_file" 2>&1; then
+      echo "failed to stop the Dataset Deal database" >&2
+    fi
   fi
   if $entity_store_started; then
     if ! docker compose -p "$entity_store_project" \
@@ -82,11 +85,6 @@ cleanup() {
   rm -r "$test_dir" "$binary_dir"
 }
 trap cleanup EXIT
-
-DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
-  -p "$compose_project" \
-  -f "$script_dir/dataset-deal/docker-compose.yml" \
-  up -d --wait
 
 docker compose -p "$entity_store_project" \
   -f "$entity_store_dir/docker-compose.yml" up --detach --wait
@@ -135,13 +133,31 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
-DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-DEX_WORKER_HOST=127.0.0.1 \
+common_test_env=(
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address"
+  DEX_WORKER_HOST=127.0.0.1
+  GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}"
+  GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}"
+  GOWORK=off
+)
+integ_status=0
+env "${common_test_env[@]}" \
+  go test -count=1 -race -v ./integ ${test_args[@]+"${test_args[@]}"} || integ_status=$?
+
+DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
+  -p "$compose_project" \
+  -f "$script_dir/dataset-deal/docker-compose.yml" \
+  up -d --wait
+dataset_deal_started=true
+
+dataset_deal_status=0
+env "${common_test_env[@]}" \
 DATASET_DEAL_POSTGRES_URL="$postgres_url" \
-GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
-GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \
-GOWORK=off \
-  go test -count=1 -race -v ./integ "${test_args[@]}"
+  go test -count=1 -race -v ./integ/datasetdeal ${test_args[@]+"${test_args[@]}"} || dataset_deal_status=$?
+
+if [[ "$integ_status" -ne 0 || "$dataset_deal_status" -ne 0 ]]; then
+  exit 1
+fi
 
 if $keep_running; then
   echo ""

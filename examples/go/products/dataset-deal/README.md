@@ -92,8 +92,8 @@ Durable attribute keys are `stateData`, `processDefinition`, `processID`,
 `pendingPreConditionState`, and `pendingPreConditionName`. The channel-map key
 is `conditionMessages`.
 
-`schema.sql` creates only `dataset_deal_processes`. The Go server runs it
-idempotently at startup.
+`schema.sql` creates only `dataset_deal_processes`. The Dataset Deal server
+runs it idempotently at startup.
 
 ## REST API
 
@@ -115,7 +115,24 @@ complete.
 
 ## Run and verify
 
+Dataset Deal is **not** part of `./dex-samples`. Build `dex-dataset-deal` and
+start PostgreSQL first.
+
 From `examples/go`:
+
+```bash
+docker compose -f dataset-deal/docker-compose.yml up -d --wait
+dexcli dev
+make bins
+./dex-dataset-deal
+```
+
+The binary uses the same default HTTP (`127.0.0.1:8080`) and Worker
+(`127.0.0.1:8803`) ports as `dex-samples`. Override `DATASET_DEAL_POSTGRES_URL`
+when Postgres is not `postgres://dataset_deal:dataset_deal@127.0.0.1:15432/dataset_deal?sslmode=disable`.
+
+Or run the demo script, which starts PostgreSQL, Dex, and `dex-dataset-deal`
+on Dataset Deal's own ports:
 
 ```bash
 make datasetDealDemo
@@ -139,7 +156,7 @@ KEEP_DATASET_DEAL_DEMO=1 make datasetDealDemo
 To drive an already-running example API without managing its services:
 
 ```bash
-DATASET_DEAL_API_URL=http://127.0.0.1:28804 make triggerDatasetDealDemo
+DATASET_DEAL_API_URL=http://127.0.0.1:20804 make triggerDatasetDealDemo
 ```
 
 The trigger-only script creates or updates the comprehensive process, completes
@@ -154,7 +171,9 @@ runtime data, and provide the shared condition-message form.
 ## Tests
 
 `make e2eTests` runs the same comprehensive flow against real Dex, Temporal,
-WorkerService, FlowService, PostgreSQL, REST handlers, and indexed search.
+WorkerService, FlowService, PostgreSQL, REST handlers, and indexed search. That
+path starts Dataset Deal PostgreSQL only for these tests, not for the default
+`dex-samples` suite.
 
 ## Documentation
 

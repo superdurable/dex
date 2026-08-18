@@ -85,7 +85,7 @@ DEX_WORKER_BIND_ADDRESS="127.0.0.1:${worker_port}" \
 DEX_WORKER_TARGET="127.0.0.1:${worker_port}" \
 DEX_EXAMPLES_HTTP_ADDRESS="$api_address" \
 DEX_BLOB_CACHE_DIR="$test_dir/blob-cache" \
-  ./dex-samples >>"$app_log" 2>&1 &
+  ./dex-dataset-deal >>"$app_log" 2>&1 &
 app_pid=$!
 
 api_ready=false
@@ -96,14 +96,14 @@ for _ in {1..240}; do
   fi
   if ! kill -0 "$app_pid" 2>/dev/null; then
     cat "$app_log" >&2
-    echo "Go examples server exited before becoming ready" >&2
+    echo "Dataset Deal server exited before becoming ready" >&2
     exit 1
   fi
   sleep 0.25
 done
 if ! $api_ready; then
   cat "$app_log" >&2
-  echo "Go examples API did not become ready" >&2
+  echo "Dataset Deal API did not become ready" >&2
   exit 1
 fi
 

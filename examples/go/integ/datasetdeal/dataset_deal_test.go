@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package integ
+package datasetdeal_test
 
 import (
 	"bytes"
@@ -46,6 +46,25 @@ type datasetDealListResponse struct {
 
 type datasetDealProcessListResponse struct {
 	Processes []datasetdeal.DealProcess `json:"processes"`
+}
+
+func TestDatasetDealSmokeStart(t *testing.T) {
+	processID := newFlowID(t, "dataset-deal-smoke-process")
+	buyerID := newFlowID(t, "dataset-deal-smoke-buyer")
+	process := datasetdeal.DealProcess{
+		ProcessID:    processID,
+		InitialState: "terminal",
+		InitialStateData: map[string]string{
+			"smoke": "true",
+		},
+		States: []datasetdeal.StateDefinition{{
+			Name: "terminal",
+		}},
+	}
+	requestDatasetDealAPI(t, http.MethodPost, "/products/dataset-deal/api/processes", process, http.StatusCreated, nil)
+	execution := startDatasetDealExecution(t, processID, buyerID)
+	completed := waitForDatasetDealExecution(t, execution.FlowID, executionCompleted)
+	require.Equal(t, "terminal", completed.CurrentState)
 }
 
 func TestDatasetDealDSLComprehensiveProcess(t *testing.T) {
