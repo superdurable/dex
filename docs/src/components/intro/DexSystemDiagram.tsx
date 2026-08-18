@@ -50,7 +50,6 @@ type Copy = {
   app: string;
   client: string;
   worker: string;
-  sdk: string;
   toServer: string;
   fromServer: string;
   persist: string;
@@ -60,8 +59,7 @@ const EN: Copy = {
   label: 'Client and Worker talk to Dex Server through the Dex SDK',
   app: 'APPLICATION',
   client: 'Start and interact with Flow instances.',
-  worker: 'Hosts the Flow. Runs Step and RPC handlers.',
-  sdk: 'Talks to Dex Server.',
+  worker: 'Hosts the Flow. Runs Step and RPC implementations.',
   toServer: 'startFlow / invokeRPC',
   fromServer: 'invoke Step / RPC',
   persist: 'Persists Flow instances and execution.',
@@ -71,8 +69,7 @@ const ZH: Copy = {
   label: 'Client 和 Worker 通过 Dex SDK 与 Dex Server 交互',
   app: '应用',
   client: 'Start Flow 实例，并与之交互。',
-  worker: '托管 Flow。跑 Step 和 RPC handler。',
-  sdk: '和 Dex Server 交互。',
+  worker: '托管 Flow。跑 Step 和 RPC implementation。',
   toServer: 'startFlow / invokeRPC',
   fromServer: 'invoke Step / RPC',
   persist: '持久化 Flow instance 和 execution。',
@@ -91,7 +88,7 @@ export default function DexSystemDiagram(): ReactNode {
               <DiagramNode kicker="CLIENT" title="Client" detail={copy.client} compact />
               <DiagramNode kicker="WORKER" title="Worker" detail={copy.worker} compact />
             </div>
-            <DiagramNode kicker="SDK" title="Dex SDK" detail={copy.sdk} compact tone="accent" />
+            <DiagramNode kicker="SDK" title="Dex SDK" compact tone="accent" />
           </div>
         </div>
         <div className="exec-system-arrows">
