@@ -5,6 +5,7 @@ sidebar_label: Why Dex?
 ---
 
 import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
+import OrderProcessingDiagram from '@site/src/components/intro/OrderProcessingDiagram';
 
 # Why Dex?
 
@@ -14,21 +15,17 @@ Dex is structural programming with only a few concepts as durable primitives. Yo
 
 <DexSystemDiagram />
 
-A **Step** can **WaitFor** (Channel, Timer, or both) and then **Execute**. Execute returns the next Step, completes, fails, or loops. **Attribute** holds durable data. **Channel** carries messages into a running Flow. **Timer** is a durable deadline. **RPC** lets outside code read or write while the Flow is running.
+A **Step** can optionally **WaitFor** some condition (**Channel**, **Timer**, or both) durably. When the condition is met, **Execute** is invoked. If there is no WaitFor, Execute is invoked directly.
 
-If you have not read [What is Durable Execution?](/intro/what-is-durable-execution), this page uses the order-processing example from there.
+**Execute** returns a decision for the next Steps or for completing the Flow. Within the Steps and RPCs, user code can read or write **Attributes**, and/or publish durable **Channel** messages as communication from external events or within threads of a Flow.
 
-## Order processing as a Flow
+## Order processing as an example
 
-Same flow: charge, wait for seller approval (with reminders), ship, refund if ship retries exhaust.
+If you have not read [What is Durable Execution?](/intro/what-is-durable-execution), here uses the order-processing example from there.
 
-```text
-Start → ChargeStep → ShipStep → complete
-                       | wait: seller Channel OR Timer
-                       | timer → reminder, loop wait
-                       | approval → Execute ship
-                       | ship retry exhausted → RefundStep
-```
+The flow will charge the buyer, then wait for seller approval (with reminders), then ship the item, and refund if ship API call retries exhaust.
+
+<OrderProcessingDiagram />
 
 - **ChargeStep** calls the payment API with Step-level retry. On success, move to ShipStep atomically.
 - **ShipStep** waits for a seller **Channel** or a **Timer**. Timer first: send a reminder and keep waiting. Approval: ship. Exhausted ship retries: **RefundStep**.
@@ -36,11 +33,17 @@ Start → ChargeStep → ShipStep → complete
 - The storefront **start** handler waits for ChargeStep with the Client **wait-for-Step-completion** API — not a homemade status poll.
 - **Attribute `order-status`** is indexed so support can search stuck orders.
 
-Runnable code: [`examples/go/products/order-processing`](https://github.com/superdurable/dex/tree/main/examples/go/products/order-processing), plus the same product under `examples/java`, `examples/python`, `examples/typescript`, and `examples/rust`. HTTP prefix `/products/order-processing/...`. Try it from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) (`id: order-processing`).
+HTTP prefix `/products/order-processing/...`. Try it from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) (`id: order-processing`). Rust: [`examples/rust/src/products/order_processing`](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/order_processing).
 
 The snippets below are copied from those example files.
 
-<SdkTabs>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
@@ -283,7 +286,13 @@ public approve(context: Context, _note: string): RPCResult<string> {
 
 Frontend wait for “payment received”. `GET /products/order-processing/start` starts the Flow, then waits for ChargeStep before it returns:
 
-<SdkTabs>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+  }}>
 <SdkSnippet lang="python">
 
 ```python

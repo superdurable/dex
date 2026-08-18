@@ -766,6 +766,20 @@ code {
   background: var(--panel);
 }
 
+.sdk-tabs__example {
+  margin: 0.1rem 0 0.35rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.sdk-tabs__example a {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.78rem;
+  word-break: break-all;
+}
+
 .screenshot-placeholder {
   margin: 1rem 0 1.5rem;
   padding: 2.5rem 1.25rem;
@@ -1263,5 +1277,28 @@ code {
 
 [data-theme='dark'] .exec-app {
   background: rgba(18, 43, 28, 0.4);
+}
+
+.exec-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--muted-strong);
+  font-size: 0.86rem;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.exec-list li + li {
+  margin-top: 0.35rem;
+}
+
+.exec-node .exec-list {
+  display: inline-block;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.exec-flow-end {
+  margin-top: 0.15rem;
 }
 

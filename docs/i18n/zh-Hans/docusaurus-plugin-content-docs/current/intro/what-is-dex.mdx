@@ -5,6 +5,7 @@ sidebar_label: 为什么是 Dex？
 ---
 
 import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
+import OrderProcessingDiagram from '@site/src/components/intro/OrderProcessingDiagram';
 
 # 为什么是 Dex？
 
@@ -14,21 +15,17 @@ Dex 是结构化编程，只有少数几个概念作为 durable primitive。你�
 
 <DexSystemDiagram />
 
-一个 **Step** 可以 **WaitFor**（Channel、Timer，或两者），然后 **Execute**。Execute 返回下一步、完成、失败，或循环。**Attribute** 存 durable 数据。**Channel** 把消息送进正在跑的 Flow。**Timer** 是 durable 的截止时间。**RPC** 让外部代码在 Flow 运行中读写。
+一个 **Step** 可以可选地 **WaitFor** 某个 condition（**Channel**、**Timer**，或两者），并且是 durable 的。condition 满足后调用 **Execute**。没有 WaitFor 时，直接调用 Execute。
 
-还没看过 [什么是 Durable Execution？](/intro/what-is-durable-execution) 的话，先看那一页。这一页用那里的订单处理例子。
+**Execute** 返回 decision，用来决定下一步或完成这条 Flow。在 Step 和 RPC 里，用户代码可以读写 **Attribute**，也可以 publish durable 的 **Channel** 消息，用来接外部事件，或在同一条 Flow 的线程之间通信。
 
-## 订单处理写成 Flow
+## 订单处理作为一个例子
 
-同一条流程：扣款，等卖家批准（带提醒），发货；发货 retry 用尽就退款。
+还没看过 [什么是 Durable Execution？](/intro/what-is-durable-execution) 的话，这里用那里的 order-processing 例子。
 
-```text
-Start → ChargeStep → ShipStep → complete
-                       | wait: seller Channel OR Timer
-                       | timer → reminder, loop wait
-                       | approval → Execute ship
-                       | ship retry exhausted → RefundStep
-```
+这条 Flow 会先给买家扣款，再等卖家批准（带提醒），然后发货；发货 API 的 retry 用尽就退款。
+
+<OrderProcessingDiagram />
 
 - **ChargeStep** 调支付 API，Step 级 retry。成功后原子进入 ShipStep。
 - **ShipStep** 等待卖家 **Channel** 或 **Timer**。Timer 先到：发提醒，继续等。批准到了：发货。发货 retry 用尽：进 **RefundStep**。
@@ -36,11 +33,17 @@ Start → ChargeStep → ShipStep → complete
 - 店面 **start** handler 用 Client 的 **wait-for-Step-completion** API 等 ChargeStep 完成——不是自己轮询状态。
 - **Attribute `order-status`** 可检索，客服能搜卡住的订单。
 
-可运行代码：[`examples/go/products/order-processing`](https://github.com/superdurable/dex/tree/main/examples/go/products/order-processing)，以及 `examples/java`、`examples/python`、`examples/typescript`、`examples/rust` 里同一套产品例子。HTTP 前缀 `/products/order-processing/...`。用 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 试（`id: order-processing`）。
+HTTP 前缀 `/products/order-processing/...`。用 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 试（`id: order-processing`）。Rust：[`examples/rust/src/products/order_processing`](https://github.com/superdurable/dex/tree/main/examples/rust/src/products/order_processing)。
 
 下面的片段从这些例子文件里原样拷贝。
 
-<SdkTabs>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
@@ -283,7 +286,13 @@ public approve(context: Context, _note: string): RPCResult<string> {
 
 前端要等「已付款」。`GET /products/order-processing/start` 先启动 Flow，等 ChargeStep 完成后再返回：
 
-<SdkTabs>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
