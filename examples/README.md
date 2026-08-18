@@ -93,8 +93,8 @@ pass `--example-server http://127.0.0.1:8081`. `./start.sh` with no flags defaul
 the example server to `8080` and the playground to `3333`; still pass `--dex-web`
 with the printed port.
 
-Open [http://127.0.0.1:3333](http://127.0.0.1:3333). You can also change the
-example server and Dex web UI URLs in the page header.
+The script opens a browser tab to [http://127.0.0.1:3333](http://127.0.0.1:3333).
+You can also change the example server and Dex web UI URLs in the page header.
 
 Go-only [Dataset Deal](go/products/dataset-deal/) and Python-only
 [AI Agent Email](python/ai-agent-email/) have their own UIs; they are not on

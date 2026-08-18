@@ -42,9 +42,11 @@ Example, Python sync example server on `8081`:
 ./start.sh --port 3333 --example-server http://127.0.0.1:8081 --dex-web http://127.0.0.1:8802
 ```
 
-Then open [http://127.0.0.1:3333](http://127.0.0.1:3333). The page can also
-change example server and Dex web UI URLs in the header; those values persist
-in `localStorage`.
+The script opens a browser tab to the playground URL after the server is
+listening. It skips that in CI, when there is no terminal, or if neither
+macOS `open` nor Linux `xdg-open` is available. The page can also change
+example server and Dex web UI URLs in the header; those values persist in
+`localStorage`.
 
 `start.sh --print-config` prints the three URLs and exits. `./smoke.sh` checks
 that output.
