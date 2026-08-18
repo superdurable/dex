@@ -58,7 +58,7 @@ type Copy = {
   workerArrow?: string;
   stack?: {node: NodeProps; after?: string}[];
   panels?: {title: string; tags: string[]}[];
-  apis: NodeProps[];
+  apis?: NodeProps[];
   apiArrow?: string;
   problems?: string[];
 };
@@ -76,11 +76,8 @@ const EN: Record<ExecutionApproach, Copy> = {
       title: 'Order handler',
       detail: 'charge(); ship(); in one request thread.',
     },
-    callArrow: 'sequential calls',
-    apis: [{title: 'Charge API', compact: true}, {title: 'Ship API', compact: true}],
     problems: [
-      'Crash or timeout after charge leaves no durable next step.',
-      'Retries can double-charge or double-ship.',
+      'Crash or timeout after charge leaves corrupted state',
       'Fine for a POC. Breaks in production.',
     ],
   },
@@ -102,12 +99,6 @@ const EN: Record<ExecutionApproach, Copy> = {
       {kicker: 'WORKER POOL', title: 'Worker A', detail: 'SELECT … FOR UPDATE', compact: true},
       {title: 'Worker B', detail: 'same table scan', compact: true, tone: 'warn'},
     ],
-    apis: [{title: 'Charge API', compact: true}, {title: 'Ship API', compact: true}],
-    problems: [
-      'Who claims work — locks, skip-locked scans, or shard columns?',
-      'Worker dies mid-row: who puts the task back on the queue?',
-      'Every new step adds columns, status values, and recovery jobs.',
-    ],
   },
   'message-queue': {
     label: 'Message queues between charge and ship',
@@ -125,7 +116,6 @@ const EN: Record<ExecutionApproach, Copy> = {
       },
       {node: {title: 'Ship consumer', detail: 'Call ship API, maybe write status row.'}},
     ],
-    apis: [],
     problems: [
       'Queue 2 can succeed while queue 1 times out — both steps run twice.',
       'Step 3 means queue 3 and another consumer fleet.',
@@ -173,11 +163,8 @@ const ZH: Record<ExecutionApproach, Copy> = {
       title: '订单处理',
       detail: '同一个请求线程里 charge(); ship();',
     },
-    callArrow: '串行调用',
-    apis: [{title: '扣款 API', compact: true}, {title: '发货 API', compact: true}],
     problems: [
-      '扣款成功后进程崩溃或超时，下一步没有可恢复的记录。',
-      '重试可能重复扣款或重复发货。',
+      '扣款后崩溃或超时会留下损坏的状态',
       '做 POC 够用，上生产不行。',
     ],
   },
@@ -199,12 +186,6 @@ const ZH: Record<ExecutionApproach, Copy> = {
       {kicker: 'WORKER POOL', title: 'Worker A', detail: 'SELECT … FOR UPDATE', compact: true},
       {title: 'Worker B', detail: '扫同一张表', compact: true, tone: 'warn'},
     ],
-    apis: [{title: '扣款 API', compact: true}, {title: '发货 API', compact: true}],
-    problems: [
-      '谁来领任务？分布式锁、skip locked，还是按分片扫表？',
-      'Worker 领了任务没做完，谁把这条 started 的记录放回队列？',
-      '每加一步就要加列、加状态、再写一套恢复逻辑。',
-    ],
   },
   'message-queue': {
     label: '扣款和发货之间用消息队列衔接',
@@ -222,7 +203,6 @@ const ZH: Record<ExecutionApproach, Copy> = {
       },
       {node: {title: '发货 consumer', detail: '调发货 API，也许再写一行状态。'}},
     ],
-    apis: [],
     problems: [
       '第二个队列写入成功、第一个超时，重试时两步会同时跑。',
       '第三步就要第三套队列和另一批 consumer。',
@@ -285,9 +265,15 @@ function ApproachDiagram({copy}: {copy: Copy}): ReactNode {
           <DiagramNode {...item.node} />
         </React.Fragment>
       ))}
-      {copy.apiArrow ? <Arrow label={copy.apiArrow} /> : copy.apis.length > 0 ? <Arrow /> : null}
-      {copy.apis.length > 0 ? <NodeRow nodes={copy.apis} /> : null}
-      {copy.problems ? <ProblemList items={copy.problems} /> : null}
+      {copy.apis && copy.apis.length > 0 ? (
+        <>
+          {copy.apiArrow ? <Arrow label={copy.apiArrow} /> : <Arrow />}
+          <NodeRow nodes={copy.apis} />
+        </>
+      ) : copy.apiArrow ? (
+        <Arrow label={copy.apiArrow} />
+      ) : null}
+      {copy.problems && copy.problems.length > 0 ? <ProblemList items={copy.problems} /> : null}
     </div>
   );
 }

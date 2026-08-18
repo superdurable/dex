@@ -141,7 +141,7 @@ const config: Config = {
           title: 'Docs',
           items: [
             {label: 'What is Durable Execution?', to: '/intro/what-is-durable-execution'},
-            {label: 'What is Dex?', to: '/intro/what-is-dex'},
+            {label: 'Why Dex?', to: '/intro/what-is-dex'},
             {label: 'Quick Start', to: '/quick-start'},
             {label: 'Glossary', to: '/glossary'},
           ],

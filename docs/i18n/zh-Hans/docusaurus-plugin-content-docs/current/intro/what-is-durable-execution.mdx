@@ -9,6 +9,7 @@ import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproa
 # 什么是 Durable Execution？
 
 **Durable Execution** 是对常见后端工程设计模式的一层抽象。
+
 它让你更容易做出生产级的后端系统。
 架构会更简单，同时具备可扩展、成本可控、性能好、可观测，以及配套的生产运维工具。
 
@@ -24,17 +25,18 @@ import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproa
 
 更具体地说，一个后端 API 通常会：
 
-a. 串行或并行地调用若干 API
-b. 安排未来的工作，比如提醒或业务超时
-c. 和其他系统协同，比如人工输入或一般事件
-d. 处理各种失败（每一步可能不同）——retry、回滚、DLQ（再加人工介入和恢复）
-e. 需要好的可观测性——检查每一步的输入、错误、做到一半的工作
-f. 系统演进出更高流量时仍要可靠，包括高可用、线性扩展、可接受且可预期的成本、好的延迟和性能
+- 串行或并行地调用若干 API
+- 安排未来的工作，比如提醒或业务超时
+- 和其他系统协同，比如人工输入或一般事件
+- 处理各种失败（每一步可能不同）——retry、回滚、DLQ（再加人工介入和恢复）
+- 需要好的可观测性——检查每一步的输入、错误、做到一半的工作
+- 系统演进出更高流量时仍要可靠，包括高可用、线性扩展、可接受且可预期的成本、好的延迟和性能
 
-这些，被动的存储或数据库都不会开箱提供。
-所以今天工程师还是要一遍又一遍写复杂代码，来解决这些问题。
+**这些，被动的存储或数据库都不会开箱提供。**
 
-## 一个简单例子：订单处理只有两步——先扣款，再发货
+因此今天，工程师还是要一遍又一遍写复杂代码，来解决这些问题。
+
+## 例子：用两步处理订单
 
 最简单的订单处理例子。只有两步，每一步就是一次 API 调用。
 * **向买家扣款**
@@ -67,7 +69,7 @@ function processOrder(order){
 
 ### Fix 2 —— 步骤之间用消息队列
 
-更有经验的后端工程师通常会上两套队列：`charge-request` 和 `ship-requests`。
+更有经验的后端工程师通常会演进到使用消息队列：`charge-request` 和 `ship-requests`。
 订单从发布到 `charge-requests` 开始，消费完再发布到 `ship-requests`。
 
 <ExecutionApproachDiagram approach="message-queue" />
@@ -90,7 +92,7 @@ function processOrder(order){
 
 ## Durable Execution 补上的是什么
 
-Durable Execution 把这些开箱给你，你不用为这些问题再写一行基础设施代码。
+Durable Execution 把这些开箱给你，**你不用为这些问题再写一行基础设施代码。**
 你只写真正下单流程的业务逻辑。
 
 这条扣款 → 审批 → 发货的流程，代码大概是：
@@ -105,4 +107,6 @@ Durable Execution 把这些开箱给你，你不用为这些问题再写一行�
 
 其余平台都替你做了——记下每个 Step 的输入、输出和错误；运维可以查看、可以 time travel，等等。
 
-看 [什么是 Dex？](/intro/what-is-dex)：Dex 怎么实现这条流程，以及怎么跑这个例子。
+**听起来很厉害？**
+
+看 [为什么是 Dex？](/intro/what-is-dex)：Dex 怎么实现这条流程，以及怎么跑这个例子。
