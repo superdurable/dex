@@ -277,7 +277,7 @@ dexcli dev [flags]
 --dex-port int                 default 8801
 --web-port int                 default 8802
 --blob-store-dir string        persistent Dex blob storage directory (default $HOME/.dex/blobs)
---open                         open Dex Web after readiness
+--open                         open Dex Web after readiness (default true)
 --sqlite-db-filename string    default $HOME/.dex/dev/<port>/dex.sqlite.db
 --server-log-folder string     keep server logs (default temp folder, deleted on exit)
 --external-temporal-address string      non-empty selects external Temporal
@@ -487,7 +487,7 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 
 - Dex Web 的稳定默认入口是 `http://127.0.0.1:8802`。
 - `dexcli` 只在全部 services ready 后打印成功 banner。
-- `--open` 只打开 Dex Web，不自动打开 Temporal Web。
+- `dexcli dev` 默认打开 Dex Web，不自动打开 Temporal Web。使用 `--open=false` 跳过。
 - External Temporal 未提供 UI 地址时不显示猜测链接。
 - Browser API errors 使用当前页面内错误状态，不显示 Go/gRPC internal stack。
 - Local SYNC/ASYNC history、Step Graph、Timeline 和 Time Travel 的 UI 功能不得因静态 SPA 迁移减少。

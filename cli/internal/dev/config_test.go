@@ -133,6 +133,36 @@ func TestHelpListsFlagsWithTemporalLast(t *testing.T) {
 			t.Fatalf("removed flag %s still documented:\n%s", name, text)
 		}
 	}
+	if !strings.Contains(text, "open Dex Web after startup (default true)") {
+		t.Fatalf("missing --open default in help:\n%s", text)
+	}
+}
+
+func TestOpenBrowserDefaultsTrue(t *testing.T) {
+	cfg, err := parseConfig(nil, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.OpenBrowser {
+		t.Fatal("expected --open to default true")
+	}
+}
+
+func TestOpenFalseDisablesBrowser(t *testing.T) {
+	cfg, err := parseConfig([]string{"--open=false"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OpenBrowser {
+		t.Fatal("expected --open=false to disable Dex Web")
+	}
+}
+
+func TestOpenFalseSeparateTokenIsRejected(t *testing.T) {
+	_, err := parseConfig([]string{"--open", "false"}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected --open false to fail")
+	}
 }
 
 func TestRemovedTemporalPortFlagsAreRejected(t *testing.T) {

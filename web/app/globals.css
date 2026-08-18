@@ -716,6 +716,16 @@ pre {
   margin-bottom: 0;
 }
 
+.empty-state p + p {
+  margin-top: 8px;
+}
+
+.empty-state a {
+  color: var(--brand);
+  font-weight: 650;
+  text-decoration: underline;
+}
+
 .breadcrumbs {
   display: flex;
   gap: 7px;

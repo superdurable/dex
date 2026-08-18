@@ -75,7 +75,7 @@ type Config struct {
 	BlobStoreDirectory string
 	// AttributeStoreConfigPath defaults empty and loads Attribute Store settings from standard Dex YAML when set.
 	AttributeStoreConfigPath string
-	// OpenBrowser defaults false and opens Dex Web after readiness.
+	// OpenBrowser defaults true and opens Dex Web after readiness.
 	OpenBrowser bool
 	// StartupTimeout defaults to 45 seconds.
 	StartupTimeout time.Duration
@@ -108,7 +108,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"Dex blob storage directory",
 	)
 	flags.IntVar(&cfg.DexPort, "dex-port", cfg.DexPort, "Dex gRPC port")
-	flags.BoolVar(&cfg.OpenBrowser, "open", false, "open Dex Web after startup")
+	flags.BoolVar(&cfg.OpenBrowser, "open", true, "open Dex Web after startup")
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
 	flags.StringVar(
 		&cfg.SQLiteDBFilename,
@@ -168,6 +168,7 @@ func defaultConfig() (*Config, error) {
 		TemporalUIPort:            defaultTemporalUIPort,
 		StateDirectory:            stateDirectory,
 		BlobStoreDirectory:        filepath.Join(stateDirectory, "blobs"),
+		OpenBrowser:               true,
 		StartupTimeout:            45 * time.Second,
 		ShutdownTimeout:           10 * time.Second,
 		explicitLocalFlags:        make(map[string]bool),

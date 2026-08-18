@@ -32,8 +32,9 @@ same machine therefore starts isolated stacks: distinct Dex ports, a distinct
 local Temporal server, and a distinct SQLite database. Point later CLI commands
 at a non-default stack with `--server` or `DEX_FLOW_SERVICE_ADDRESS`.
 
-Use `--open` to open Dex Web after every component becomes ready. Ctrl+C stops
-Dex Web, Dex Server, and all internal processes owned by `dexcli`.
+Dex Web opens after every component becomes ready. Pass `--open=false` to skip
+that. Ctrl+C stops Dex Web, Dex Server, and all internal processes owned by
+`dexcli`.
 
 Local state persists in `$HOME/.dex/dev/<port>/dex.sqlite.db`.
 Dex Web step inputs and values larger than 1 KB persist next to that database
@@ -87,7 +88,7 @@ must exist and be reachable before startup.
 --bind-address string              local bind IP (default 127.0.0.1)
 --blob-store-dir string            persistent Dex blob storage directory (default $HOME/.dex/blobs)
 --dex-port int                     Dex gRPC port (default 8801)
---open                             open Dex Web after readiness
+--open                             open Dex Web after readiness (default true)
 --web-port int                     Dex Web port (default 8802)
 --sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)
 --server-log-folder string         keep server logs (default temp folder, deleted on exit)

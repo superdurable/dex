@@ -17,5 +17,6 @@ func testConfig(t *testing.T) *Config {
 		t.Fatal(err)
 	}
 	cfg.StateDirectory = t.TempDir()
+	cfg.OpenBrowser = false
 	return cfg
 }

@@ -74,6 +74,7 @@ make bins
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$dex_web_port" \
+  -open=false \
   -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$dex_log" 2>&1 &
 dexcli_pid=$!

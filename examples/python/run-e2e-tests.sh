@@ -42,6 +42,7 @@ make -C "$script_dir/../../cli" build
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
+  -open=false \
   -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
