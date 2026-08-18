@@ -26,7 +26,9 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         .merge(products::microservices::controller::mount(client.clone()))
         .merge(products::money_transfer::controller::mount(client.clone()))
         .merge(products::polling::controller::mount(client.clone()))
-        .merge(products::shortlist_candidates::controller::mount(client.clone()))
+        .merge(products::shortlist_candidates::controller::mount(
+            client.clone(),
+        ))
         .merge(products::signup::controller::mount(client.clone()))
         .merge(products::subscription::controller::mount(client.clone()))
         .merge(patterns::polling::controller::mount(client.clone()))
@@ -34,13 +36,19 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         .merge(patterns::reminders::controller::mount(client.clone()))
         .merge(patterns::entity_store::controller::mount(client.clone()))
         .merge(patterns::intervention::controller::mount(client.clone()))
-        .merge(patterns::resettable_timer::controller::mount(client.clone()))
+        .merge(patterns::resettable_timer::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::parallel::controller::mount(client.clone()))
         .merge(patterns::recovery::controller::mount(client.clone()))
-        .merge(patterns::scalable_parallel::controller::mount(client.clone()))
+        .merge(patterns::scalable_parallel::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::parent_child::controller::mount(client.clone()))
         .merge(patterns::drain_channels::controller::mount(client.clone()))
-        .merge(patterns::wait_for_state_completion::controller::mount(client.clone()))
+        .merge(patterns::wait_for_state_completion::controller::mount(
+            client.clone(),
+        ))
         .merge(patterns::timeout::controller::mount(client.clone()))
         .merge(primitives::step::controller::mount(client.clone()))
         .merge(primitives::attribute::controller::mount(client.clone()))

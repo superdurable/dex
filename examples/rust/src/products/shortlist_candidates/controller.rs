@@ -12,11 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use axum::{extract::{Query, State}, response::IntoResponse, routing::get, Router};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::IntoResponse,
+    routing::get,
+};
 use serde::Deserialize;
 
 use crate::products::shortlist_candidates::flow::{ShortlistFlow, ShortlistRequest};
-use crate::server::helpers::{map_sdk_error, new_flow_id, ok_json, run_blocking, SharedClient, StartResponse};
+use crate::server::helpers::{
+    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
+};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -30,12 +37,24 @@ pub fn mount(client: SharedClient) -> Router {
         .with_state(client)
 }
 
-async fn start(State(client): State<SharedClient>, Query(query): Query<StartQuery>) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() { new_flow_id("shortlist") } else { query.workflow_id };
+async fn start(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("shortlist")
+    } else {
+        query.workflow_id
+    };
     match run_blocking(move || {
         let flow = ShortlistFlow::default();
-        let input = ShortlistRequest { employer_id: "employer".into(), candidate_id: "candidate".into() };
-        client.start_flow(&flow, &flow_id, input).map(|run_id| StartResponse { flow_id, run_id })
+        let input = ShortlistRequest {
+            employer_id: "employer".into(),
+            candidate_id: "candidate".into(),
+        };
+        client
+            .start_flow(&flow, &flow_id, input)
+            .map(|run_id| StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),

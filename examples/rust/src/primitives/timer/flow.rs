@@ -40,7 +40,9 @@ impl Step for TimerStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(input.max(0) as u64))))
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
+            input.max(0) as u64,
+        ))))
     }
 
     fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {

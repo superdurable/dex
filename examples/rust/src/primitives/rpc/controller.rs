@@ -12,11 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use axum::{extract::{Query, State}, response::IntoResponse, routing::get, Router};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::IntoResponse,
+    routing::get,
+};
 use serde::Deserialize;
 
-use crate::primitives::rpc::flow::{RpcFlow, RPC_TRIGGER};
-use crate::server::helpers::{map_sdk_error, ok_text, ok_json, run_blocking, StartResponse, SharedClient};
+use crate::primitives::rpc::flow::{RPC_TRIGGER, RpcFlow};
+use crate::server::helpers::{
+    SharedClient, StartResponse, map_sdk_error, ok_json, ok_text, run_blocking,
+};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -39,7 +46,10 @@ pub fn mount(client: SharedClient) -> Router {
         .with_state(client)
 }
 
-async fn start(State(client): State<SharedClient>, Query(query): Query<StartQuery>) -> impl IntoResponse {
+async fn start(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     match run_blocking(move || {
         let flow = RpcFlow::default();
@@ -52,7 +62,10 @@ async fn start(State(client): State<SharedClient>, Query(query): Query<StartQuer
     }
 }
 
-async fn trigger(State(client): State<SharedClient>, Query(query): Query<TriggerQuery>) -> impl IntoResponse {
+async fn trigger(
+    State(client): State<SharedClient>,
+    Query(query): Query<TriggerQuery>,
+) -> impl IntoResponse {
     let workflow_id = query.workflow_id;
     let message = query.message;
     match run_blocking(move || client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)) {

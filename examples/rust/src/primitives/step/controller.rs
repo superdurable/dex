@@ -12,12 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use axum::{extract::{Query, State}, response::IntoResponse, routing::get, Router};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::IntoResponse,
+    routing::get,
+};
 use serde::Deserialize;
 
 use crate::primitives::step::flow::StepFlow;
 use crate::primitives::step::retry_flow::RetryFlow;
-use crate::server::helpers::{map_sdk_error, ok_json, run_blocking, StartResponse, SharedClient};
+use crate::server::helpers::{SharedClient, StartResponse, map_sdk_error, ok_json, run_blocking};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -59,7 +64,10 @@ async fn retry_start(
     }
 }
 
-async fn start(State(client): State<SharedClient>, Query(query): Query<StartQuery>) -> impl IntoResponse {
+async fn start(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     let input_num = query.input_num;
     match run_blocking(move || {

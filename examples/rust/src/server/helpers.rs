@@ -36,10 +36,13 @@ pub struct StartResponse {
 }
 
 pub fn new_flow_id(prefix: &str) -> String {
-    format!("{prefix}-{}", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0))
+    format!(
+        "{prefix}-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    )
 }
 
 pub fn map_sdk_error(error: SdkError) -> (StatusCode, Json<ErrorBody>) {

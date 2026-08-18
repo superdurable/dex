@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use axum::{extract::{Query, State}, response::IntoResponse, routing::get, Router};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::IntoResponse,
+    routing::get,
+};
 use serde::Deserialize;
 
 use crate::patterns::polling::flow::{BackoffPollingFlow, SimplePollingFlow};
-use crate::server::helpers::{map_sdk_error, new_flow_id, ok_text, run_blocking, SharedClient};
+use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -31,22 +36,36 @@ pub fn mount(client: SharedClient) -> Router {
         .with_state(client)
 }
 
-async fn start_simple(State(client): State<SharedClient>, Query(query): Query<StartQuery>) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() { new_flow_id("dp-simple") } else { query.workflow_id };
+async fn start_simple(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("dp-simple")
+    } else {
+        query.workflow_id
+    };
     match run_blocking(move || {
         let flow = SimplePollingFlow::default();
-        client.start_flow(&flow, &flow_id, 0_u32).map(|run_id| run_id)
+        client.start_flow(&flow, &flow_id, 0_u32)
     }) {
         Ok(run_id) => ok_text(run_id),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
 
-async fn start_backoff(State(client): State<SharedClient>, Query(query): Query<StartQuery>) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() { new_flow_id("dp-backoff") } else { query.workflow_id };
+async fn start_backoff(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("dp-backoff")
+    } else {
+        query.workflow_id
+    };
     match run_blocking(move || {
         let flow = BackoffPollingFlow::default();
-        client.start_flow(&flow, &flow_id, 0_u32).map(|run_id| run_id)
+        client.start_flow(&flow, &flow_id, 0_u32)
     }) {
         Ok(run_id) => ok_text(run_id),
         Err(error) => map_sdk_error(error).into_response(),

@@ -75,7 +75,11 @@ impl FlowSmokeHttpClient {
         )
     }
 
-    pub fn trigger_get(&self, path: &str, query: &HashMap<String, String>) -> FlowSmokeTriggerResult {
+    pub fn trigger_get(
+        &self,
+        path: &str,
+        query: &HashMap<String, String>,
+    ) -> FlowSmokeTriggerResult {
         let mut request = self.http.get(format!("{}{path}", self.base_url));
         for (key, value) in query {
             request = request.query(&[(key, value)]);
@@ -83,33 +87,35 @@ impl FlowSmokeHttpClient {
         let response = request.send().expect("flow smoke HTTP GET");
         let status = response.status();
         let body = response.text().expect("read flow smoke response");
-        assert!(
-            status.is_success(),
-            "GET {path} returned {status}: {body}"
-        );
-        parse_flow_trigger_response(&body, query.get("workflowId").map(String::as_str).unwrap_or(""))
+        assert!(status.is_success(), "GET {path} returned {status}: {body}");
+        parse_flow_trigger_response(
+            &body,
+            query.get("workflowId").map(String::as_str).unwrap_or(""),
+        )
     }
 }
 
-pub fn parse_flow_trigger_response(body: &str, workflow_id_from_query: &str) -> FlowSmokeTriggerResult {
+pub fn parse_flow_trigger_response(
+    body: &str,
+    workflow_id_from_query: &str,
+) -> FlowSmokeTriggerResult {
     let trimmed = body.trim();
-    if let Ok(json) = serde_json::from_str::<Value>(trimmed) {
-        if let Some(flow_id) = json
+    if let Ok(json) = serde_json::from_str::<Value>(trimmed)
+        && let Some(flow_id) = json
             .get("flowID")
             .or_else(|| json.get("flowId"))
             .and_then(Value::as_str)
-        {
-            let run_id = json
-                .get("runID")
-                .or_else(|| json.get("runId"))
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_string();
-            return FlowSmokeTriggerResult {
-                flow_id: flow_id.to_string(),
-                run_id,
-            };
-        }
+    {
+        let run_id = json
+            .get("runID")
+            .or_else(|| json.get("runId"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        return FlowSmokeTriggerResult {
+            flow_id: flow_id.to_string(),
+            run_id,
+        };
     }
     if let Some(run_id) = regex_run_id(trimmed) {
         return FlowSmokeTriggerResult {
@@ -177,7 +183,11 @@ pub fn assert_flow_smoke_start_step(entry: &FlowSmokeEntry, flow_id: &str, run_i
     panic!("start step did not succeed for {}", entry.name);
 }
 
-pub fn assert_flow_smoke_no_unexpected_failures(entry: &FlowSmokeEntry, flow_id: &str, run_id: &str) {
+pub fn assert_flow_smoke_no_unexpected_failures(
+    entry: &FlowSmokeEntry,
+    flow_id: &str,
+    run_id: &str,
+) {
     let history = run_dexcli_flow_history(flow_id, run_id);
     let events = history
         .get("events")
@@ -236,7 +246,8 @@ fn has_start_step_progress(history: &Value, start_step_type: &str) -> bool {
         if event_type != "StepWaitForCompleted" && event_type != "StepExecuteCompleted" {
             continue;
         }
-        if history_event_step_type(event.get("payload").unwrap_or(&Value::Null)) == start_step_type {
+        if history_event_step_type(event.get("payload").unwrap_or(&Value::Null)) == start_step_type
+        {
             return true;
         }
     }
@@ -274,7 +285,9 @@ fn is_terminal_flow_closed_failure(payload: &Value) -> bool {
         || payload
             .get("errorType")
             .and_then(Value::as_str)
-            .is_some_and(|error_type| !error_type.is_empty() && error_type != "FLOW_ERROR_TYPE_UNSPECIFIED")
+            .is_some_and(|error_type| {
+                !error_type.is_empty() && error_type != "FLOW_ERROR_TYPE_UNSPECIFIED"
+            })
 }
 
 fn has_retry_recovery(events: &[Value]) -> bool {
@@ -344,13 +357,14 @@ fn flow_service_address() -> String {
 }
 
 fn dexcli_path() -> String {
-    if let Ok(path) = std::env::var("DEXCLI_PATH") {
-        if !path.trim().is_empty() {
-            return path;
-        }
+    if let Ok(path) = std::env::var("DEXCLI_PATH")
+        && !path.trim().is_empty()
+    {
+        return path;
     }
     let repo_root = find_repo_root();
-    let output_path = std::env::temp_dir().join(format!("dexcli-rust-smoke-{}", std::process::id()));
+    let output_path =
+        std::env::temp_dir().join(format!("dexcli-rust-smoke-{}", std::process::id()));
     let status = Command::new("go")
         .args(["build", "-trimpath", "-o"])
         .arg(&output_path)

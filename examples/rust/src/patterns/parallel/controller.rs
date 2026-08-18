@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use axum::{extract::{Query, State}, response::IntoResponse, routing::get, Router};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::IntoResponse,
+    routing::get,
+};
 use serde::Deserialize;
 
 use crate::patterns::parallel::flow::{ParallelStatesWithAwaitFlow, SimpleParallelStatesFlow};
-use crate::server::helpers::{map_sdk_error, new_flow_id, ok_text, run_blocking, SharedClient};
+use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
 
 #[derive(Deserialize)]
 struct ParallelQuery {
@@ -33,23 +38,41 @@ pub fn mount(client: SharedClient) -> Router {
         .with_state(client)
 }
 
-async fn start_simple(State(client): State<SharedClient>, Query(query): Query<ParallelQuery>) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() { new_flow_id("par-simple") } else { query.workflow_id };
+async fn start_simple(
+    State(client): State<SharedClient>,
+    Query(query): Query<ParallelQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("par-simple")
+    } else {
+        query.workflow_id
+    };
     match run_blocking(move || {
         let flow = SimpleParallelStatesFlow::default();
-        client.start_flow(&flow, &flow_id, "jobseeker".to_string()).map(|run_id| run_id)
+        client.start_flow(&flow, &flow_id, "jobseeker".to_string())
     }) {
         Ok(run_id) => ok_text(run_id),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
 
-async fn start_with_await(State(client): State<SharedClient>, Query(query): Query<ParallelQuery>) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() { new_flow_id("par-await") } else { query.workflow_id };
-    let _count = if query.count_of_job_seekers == 0 { 2 } else { query.count_of_job_seekers };
+async fn start_with_await(
+    State(client): State<SharedClient>,
+    Query(query): Query<ParallelQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("par-await")
+    } else {
+        query.workflow_id
+    };
+    let _count = if query.count_of_job_seekers == 0 {
+        2
+    } else {
+        query.count_of_job_seekers
+    };
     match run_blocking(move || {
         let flow = ParallelStatesWithAwaitFlow::default();
-        client.start_flow(&flow, &flow_id, ()).map(|run_id| run_id)
+        client.start_flow(&flow, &flow_id, ())
     }) {
         Ok(run_id) => ok_text(run_id),
         Err(error) => map_sdk_error(error).into_response(),

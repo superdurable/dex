@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod flow_smoke_helper;
+mod common;
 
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
@@ -20,22 +20,24 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use common::{
+    FlowSmokeEntry, FlowSmokeFlags, FlowSmokeHttpClient, assert_flow_smoke_no_unexpected_failures,
+    assert_flow_smoke_start_step, query, query_with,
+};
 use dex_examples_rust::create_example_registry;
 use dex_examples_rust::server::build_router;
-use dex_sdk::{BlobCache, BlobCacheConfig, Client, ClientOptions, SdkResult, Worker, WorkerOptions};
-use flow_smoke_helper::{
-    assert_flow_smoke_no_unexpected_failures, assert_flow_smoke_start_step, query,
-    query_with, FlowSmokeEntry, FlowSmokeFlags, FlowSmokeHttpClient,
+use dex_sdk::{
+    BlobCache, BlobCacheConfig, Client, ClientOptions, SdkResult, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 
 struct FlowSmokeEnvironment {
-    client: Arc<Client>,
-    worker: Arc<Worker>,
-    worker_thread: Option<JoinHandle<SdkResult<()>>>,
-    cache: Arc<BlobCache>,
+    _client: Arc<Client>,
+    _worker: Arc<Worker>,
+    _worker_thread: Option<JoinHandle<SdkResult<()>>>,
+    _cache: Arc<BlobCache>,
     http_base_url: String,
-    server_thread: Option<JoinHandle<()>>,
+    _server_thread: Option<JoinHandle<()>>,
     _cache_directory: TempDir,
 }
 
@@ -101,12 +103,12 @@ impl FlowSmokeEnvironment {
         await_http(http_port);
 
         Self {
-            client,
-            worker,
-            worker_thread: Some(worker_thread),
-            cache,
+            _client: client,
+            _worker: worker,
+            _worker_thread: Some(worker_thread),
+            _cache: cache,
             http_base_url: format!("http://127.0.0.1:{http_port}"),
-            server_thread: Some(server_thread),
+            _server_thread: Some(server_thread),
             _cache_directory: cache_directory,
         }
     }
@@ -242,7 +244,10 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
         FlowSmokeEntry {
             name: "patterns/parent-child",
             path: "/patterns/parent-child/start",
-            query: query_with(&client.new_flow_id("parent-child"), &[("numOfChildWfs", "1")]),
+            query: query_with(
+                &client.new_flow_id("parent-child"),
+                &[("numOfChildWfs", "1")],
+            ),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
@@ -299,7 +304,10 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
         FlowSmokeEntry {
             name: "primitives/channel",
             path: "/primitives/channel/start",
-            query: query_with(&client.new_flow_id("primitive-channel"), &[("inputNum", "1")]),
+            query: query_with(
+                &client.new_flow_id("primitive-channel"),
+                &[("inputNum", "1")],
+            ),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
@@ -317,7 +325,10 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
         FlowSmokeEntry {
             name: "primitives/subflow",
             path: "/primitives/subflow/start",
-            query: query_with(&client.new_flow_id("primitive-subflow"), &[("inputNum", "1")]),
+            query: query_with(
+                &client.new_flow_id("primitive-subflow"),
+                &[("inputNum", "1")],
+            ),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {

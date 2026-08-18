@@ -25,8 +25,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
     let worker_bind_address =
         std::env::var("DEX_WORKER_BIND_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8803".to_string());
-    let http_address = std::env::var("DEX_EXAMPLES_HTTP_ADDRESS")
-        .unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+    let http_address =
+        std::env::var("DEX_EXAMPLES_HTTP_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
     let cache_directory = std::env::var("DEX_BLOB_CACHE_DIR")
         .unwrap_or_else(|_| "/tmp/dex-rust-examples-blobs".to_string());
 
@@ -56,9 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let router = build_router(client);
     let listener = tokio::net::TcpListener::bind(&http_address).await?;
-    println!(
-        "Dex Rust examples listening on http://{http_address} (worker {worker_bind_address})"
-    );
+    println!("Dex Rust examples listening on http://{http_address} (worker {worker_bind_address})");
     axum::serve(listener, router).await?;
 
     if let Err(error) = worker_handle.join().expect("worker thread panicked") {

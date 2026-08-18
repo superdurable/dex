@@ -51,7 +51,11 @@ impl Step for RetryStep {
         )
     }
 
-    fn execute(&self, context: &mut Context, ready_after_attempt: Self::Input) -> HandlerResult<StepDecision> {
+    fn execute(
+        &self,
+        context: &mut Context,
+        ready_after_attempt: Self::Input,
+    ) -> HandlerResult<StepDecision> {
         if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
             return Err(HandlerError::new(format!(
                 "not ready on attempt {}",

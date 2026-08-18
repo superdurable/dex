@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use axum::{extract::{Query, State}, response::IntoResponse, routing::get, Router};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::IntoResponse,
+    routing::get,
+};
 use serde::Deserialize;
 
 use crate::patterns::drain_channels::flow::{DrainInternalChannelsFlow, DrainSignalChannelsFlow};
-use crate::server::helpers::{map_sdk_error, new_flow_id, ok_text, run_blocking, SharedClient};
+use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -26,27 +31,49 @@ struct StartQuery {
 
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
-        .route("/patterns/drain-channels/internal/start", get(start_internal))
-        .route("/patterns/drain-channels/signal/startorsignal", get(start_or_signal))
+        .route(
+            "/patterns/drain-channels/internal/start",
+            get(start_internal),
+        )
+        .route(
+            "/patterns/drain-channels/signal/startorsignal",
+            get(start_or_signal),
+        )
         .with_state(client)
 }
 
-async fn start_internal(State(client): State<SharedClient>, Query(query): Query<StartQuery>) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() { new_flow_id("drain-internal") } else { query.workflow_id };
+async fn start_internal(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("drain-internal")
+    } else {
+        query.workflow_id
+    };
     match run_blocking(move || {
         let flow = DrainInternalChannelsFlow::default();
-        client.start_flow(&flow, &flow_id, vec!["start-input".to_string()]).map(|run_id| run_id)
+        client.start_flow(&flow, &flow_id, vec!["start-input".to_string()])
     }) {
         Ok(run_id) => ok_text(run_id),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
 
-async fn start_or_signal(State(client): State<SharedClient>, Query(query): Query<StartQuery>) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() { new_flow_id("drain-signal") } else { query.workflow_id };
+async fn start_or_signal(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("drain-signal")
+    } else {
+        query.workflow_id
+    };
     match run_blocking(move || {
         let flow = DrainSignalChannelsFlow::default();
-        client.start_flow(&flow, &flow_id, ()).map(|run_id| format!("Started the workflow with runId {run_id}"))
+        client
+            .start_flow(&flow, &flow_id, ())
+            .map(|run_id| format!("Started the workflow with runId {run_id}"))
     }) {
         Ok(message) => ok_text(message),
         Err(error) => map_sdk_error(error).into_response(),

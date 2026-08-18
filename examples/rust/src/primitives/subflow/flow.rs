@@ -97,6 +97,8 @@ impl Step for SubFlowParentStep {
             .single_output()
             .map_err(|error| HandlerError::new(error.to_string()))?;
         let flow_id = SubFlow::flow_id_at(context, 0)?;
-        Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
+        Ok(StepDecision::graceful_complete(format!(
+            "{flow_id}|{output}"
+        )))
     }
 }

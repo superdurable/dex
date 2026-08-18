@@ -12,11 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use axum::{extract::{Query, State}, response::IntoResponse, routing::get, Router};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::IntoResponse,
+    routing::get,
+};
 use serde::Deserialize;
 
 use crate::patterns::recovery::flow::FailureRecoveryFlow;
-use crate::server::helpers::{map_sdk_error, new_flow_id, ok_text, run_blocking, SharedClient};
+use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
 
 #[derive(Deserialize)]
 struct RecoveryQuery {
@@ -32,9 +37,20 @@ pub fn mount(client: SharedClient) -> Router {
         .with_state(client)
 }
 
-async fn start(State(client): State<SharedClient>, Query(query): Query<RecoveryQuery>) -> impl IntoResponse {
-    let flow_id = if query.workflow_id.is_empty() { new_flow_id("recovery") } else { query.workflow_id };
-    let item = if query.item_name.is_empty() { "widget".to_string() } else { query.item_name };
+async fn start(
+    State(client): State<SharedClient>,
+    Query(query): Query<RecoveryQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("recovery")
+    } else {
+        query.workflow_id
+    };
+    let item = if query.item_name.is_empty() {
+        "widget".to_string()
+    } else {
+        query.item_name
+    };
     match run_blocking(move || {
         let flow = FailureRecoveryFlow::default();
         client.start_flow(&flow, &flow_id, item).map(|_| ())

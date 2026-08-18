@@ -13,19 +13,19 @@
 // limitations under the License.
 
 use axum::{
+    Router,
     extract::{Query, State},
     response::IntoResponse,
     routing::get,
-    Router,
 };
 use serde::Deserialize;
 
 use crate::products::engagement::flow::{
-    EngagementFlow, EngagementRequest, ENGAGEMENT_ACCEPT, ENGAGEMENT_DECLINE, ENGAGEMENT_DESCRIBE,
-    ENGAGEMENT_OPT_OUT,
+    ENGAGEMENT_ACCEPT, ENGAGEMENT_DECLINE, ENGAGEMENT_DESCRIBE, ENGAGEMENT_OPT_OUT, EngagementFlow,
+    EngagementRequest,
 };
 use crate::server::helpers::{
-    map_sdk_error, new_flow_id, ok_json, run_blocking, SharedClient, StartResponse,
+    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
 };
 
 #[derive(Deserialize)]

@@ -12,11 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use axum::{extract::{Query, State}, response::IntoResponse, routing::get, Router};
+use axum::{
+    Router,
+    extract::{Query, State},
+    response::IntoResponse,
+    routing::get,
+};
 use serde::Deserialize;
 
-use crate::primitives::channel::flow::{ChannelFlow, CHANNEL_APPROVE};
-use crate::server::helpers::{map_sdk_error, ok_text, ok_json, run_blocking, StartResponse, SharedClient};
+use crate::primitives::channel::flow::{CHANNEL_APPROVE, ChannelFlow};
+use crate::server::helpers::{
+    SharedClient, StartResponse, map_sdk_error, ok_json, ok_text, run_blocking,
+};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -39,7 +46,10 @@ pub fn mount(client: SharedClient) -> Router {
         .with_state(client)
 }
 
-async fn start(State(client): State<SharedClient>, Query(query): Query<StartQuery>) -> impl IntoResponse {
+async fn start(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     let input_num = query.input_num;
     match run_blocking(move || {
@@ -53,7 +63,10 @@ async fn start(State(client): State<SharedClient>, Query(query): Query<StartQuer
     }
 }
 
-async fn approve(State(client): State<SharedClient>, Query(query): Query<ApproveQuery>) -> impl IntoResponse {
+async fn approve(
+    State(client): State<SharedClient>,
+    Query(query): Query<ApproveQuery>,
+) -> impl IntoResponse {
     let workflow_id = query.workflow_id;
     match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, CHANNEL_APPROVE)) {
         Ok(()) => ok_text("done"),

@@ -53,6 +53,8 @@ impl Step for AttributeStep {
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(message().get_required(context)?))
+        Ok(StepDecision::graceful_complete(
+            message().get_required(context)?,
+        ))
     }
 }
