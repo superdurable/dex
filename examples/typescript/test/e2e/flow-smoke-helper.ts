@@ -139,18 +139,24 @@ export async function assertFlowSmokeStartStep(
   }
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    const history = runDexcliFlowHistory(flowId, runId);
-    const startStepType = flowStartedStartStepType(history.events);
-    if (startStepType) {
-      if (entry.flags.stepStartMayFail) {
-        return;
+    try {
+      const history = runDexcliFlowHistory(flowId, runId);
+      const startStepType = flowStartedStartStepType(history.events);
+      if (startStepType) {
+        if (entry.flags.stepStartMayFail) {
+          return;
+        }
+        if (hasStartStepProgress(history.events, startStepType)) {
+          return;
+        }
+        const state = runDexcliFlowState(flowId, runId);
+        if (state.flowStatus === "FLOW_STATUS_RUNNING" && history.events.length > 1) {
+          return;
+        }
       }
-      if (hasStartStepProgress(history.events, startStepType)) {
-        return;
-      }
-      const state = runDexcliFlowState(flowId, runId);
-      if (state.flowStatus === "FLOW_STATUS_RUNNING" && history.events.length > 1) {
-        return;
+    } catch (error) {
+      if (!isRetryableDexcliError(error)) {
+        throw error;
       }
     }
     await sleep(200);
@@ -282,8 +288,21 @@ function runDexcliFlowState(flowId: string, runId: string): FlowStatePage {
 }
 
 function runDexcliJson<T>(args: string[]): T {
-  const output = execFileSync(dexcliPath(), args, { encoding: "utf8" });
+  const output = execFileSync(dexcliPath(), args, { encoding: "utf8", timeout: 15_000 });
   return JSON.parse(output) as T;
+}
+
+function isRetryableDexcliError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const code = (error as NodeJS.ErrnoException).code;
+  if (code === "ETIMEDOUT") {
+    return true;
+  }
+  return (
+    error.message.includes("DeadlineExceeded") || error.message.includes("deadline exceeded")
+  );
 }
 
 function flowServiceAddress(): string {
