@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 
 export interface FlowSmokeFlags {
   readonly stepStartMayFail: boolean;
@@ -57,6 +58,7 @@ interface FlowStatePage {
   readonly flowStatus: string;
 }
 
+const execFileAsync = promisify(execFile);
 const runIdPattern = /runId\s+(\S+)/;
 
 export function defaultFlags(): FlowSmokeFlags {
@@ -105,9 +107,9 @@ export function parseFlowTriggerResponse(
       flowId?: string;
       runId?: string;
     };
-    const flowId = json.flowID ?? json.flowId ?? "";
-    const runId = json.runID ?? json.runId ?? "";
-    if (flowId) {
+    if (json !== null && typeof json === "object" && !Array.isArray(json)) {
+      const flowId = json.flowID ?? json.flowId ?? "";
+      const runId = json.runID ?? json.runId ?? "";
       return { flowId, runId };
     }
   } catch {
@@ -140,7 +142,7 @@ export async function assertFlowSmokeStartStep(
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     try {
-      const history = runDexcliFlowHistory(flowId, runId);
+      const history = await runDexcliFlowHistory(flowId, runId);
       const startStepType = flowStartedStartStepType(history.events);
       if (startStepType) {
         if (entry.flags.stepStartMayFail) {
@@ -149,7 +151,7 @@ export async function assertFlowSmokeStartStep(
         if (hasStartStepProgress(history.events, startStepType)) {
           return;
         }
-        const state = runDexcliFlowState(flowId, runId);
+        const state = await runDexcliFlowState(flowId, runId);
         if (state.flowStatus === "FLOW_STATUS_RUNNING" && history.events.length > 1) {
           return;
         }
@@ -169,7 +171,7 @@ export async function assertFlowSmokeNoUnexpectedFailures(
   flowId: string,
   runId: string,
 ): Promise<void> {
-  const history = runDexcliFlowHistory(flowId, runId);
+  const history = await runDexcliFlowHistory(flowId, runId);
   for (const event of history.events) {
     switch (event.type) {
       case "StepExecuteFailed":
@@ -212,7 +214,12 @@ function flowStartedStartStepType(events: FlowHistoryEvent[]): string {
 
 function hasStartStepProgress(events: FlowHistoryEvent[], startStepType: string): boolean {
   for (const event of events) {
-    if (event.type !== "StepWaitForCompleted" && event.type !== "StepExecuteCompleted") {
+    if (
+      event.type !== "StepWaitForCompleted" &&
+      event.type !== "StepExecuteCompleted" &&
+      event.type !== "StepWaitForStarted" &&
+      event.type !== "StepExecuteStarted"
+    ) {
       continue;
     }
     if (historyEventStepType(event.payload) === startStepType) {
@@ -261,7 +268,7 @@ function isTerminalFlowClosedFailure(payload: Record<string, unknown>): boolean 
   return typeof errorType === "string" && errorType !== "" && errorType !== "FLOW_ERROR_TYPE_UNSPECIFIED";
 }
 
-function runDexcliFlowHistory(flowId: string, runId: string): FlowHistoryPage {
+async function runDexcliFlowHistory(flowId: string, runId: string): Promise<FlowHistoryPage> {
   const args = [
     "flow",
     "history",
@@ -279,7 +286,7 @@ function runDexcliFlowHistory(flowId: string, runId: string): FlowHistoryPage {
   return runDexcliJson<FlowHistoryPage>(args);
 }
 
-function runDexcliFlowState(flowId: string, runId: string): FlowStatePage {
+async function runDexcliFlowState(flowId: string, runId: string): Promise<FlowStatePage> {
   const args = ["flow", "state", flowId, "--server", flowServiceAddress(), "--output", "json"];
   if (runId) {
     args.push("--run-id", runId);
@@ -287,12 +294,26 @@ function runDexcliFlowState(flowId: string, runId: string): FlowStatePage {
   return runDexcliJson<FlowStatePage>(args);
 }
 
-function runDexcliJson<T>(args: string[]): T {
-  const output = execFileSync(dexcliPath(), args, { encoding: "utf8", timeout: 15_000 });
-  return JSON.parse(output) as T;
+async function runDexcliJson<T>(args: string[]): Promise<T> {
+  const { stdout, stderr } = await execFileAsync(dexcliPath(), args, {
+    encoding: "utf8",
+    timeout: 15_000,
+  });
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    throw new Error(`dexcli returned empty output: ${stderr}`);
+  }
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw new Error(`dexcli returned invalid JSON: ${trimmed.slice(0, 200)}`);
+  }
 }
 
 function isRetryableDexcliError(error: unknown): boolean {
+  if (error instanceof SyntaxError) {
+    return true;
+  }
   if (!(error instanceof Error)) {
     return false;
   }
@@ -301,7 +322,10 @@ function isRetryableDexcliError(error: unknown): boolean {
     return true;
   }
   return (
-    error.message.includes("DeadlineExceeded") || error.message.includes("deadline exceeded")
+    error.message.includes("DeadlineExceeded") ||
+    error.message.includes("deadline exceeded") ||
+    error.message.includes("empty output") ||
+    error.message.includes("invalid JSON")
   );
 }
 

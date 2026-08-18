@@ -33,7 +33,7 @@ export function createEntityStoreRouter(client: Client): Router {
     const body = request.body as UserProfileRequest;
     const userId = requiredString(body.userId, "userId");
     const profile = profileFromRequest(body);
-    await client.startFlow(userProfileFlow, userId, undefined, startOptions({
+    const runId = await client.startFlow(userProfileFlow, userId, undefined, startOptions({
       attributes: [
         InitialAttribute.of(userProfileFlow.displayName, profile.displayName),
         InitialAttribute.of(userProfileFlow.email, profile.email),
@@ -51,7 +51,7 @@ export function createEntityStoreRouter(client: Client): Router {
       ],
       configOverride: { attributeStoreName: ENTITY_STORE_NAME },
     }));
-    response.status(201).json({ userId, ...profile });
+    response.status(201).json({ flowID: userId, runID: runId, userId, ...profile });
   });
 
   router.post("/profile/update", async (request, response) => {

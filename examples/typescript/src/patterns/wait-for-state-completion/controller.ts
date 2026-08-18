@@ -35,7 +35,7 @@ export function createWaitForStateCompletionRouter(client: Client): Router {
     await client.waitForStepCompletion(
       workflowId,
       StepExecutionId.of("PersistData"),
-      5 * 60 * 1000,
+      15_000,
     );
     const persistedData = await client.invokeRPC(
       waitForStateCompletionFlow.getJobSeekerData,

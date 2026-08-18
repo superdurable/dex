@@ -51,7 +51,7 @@ class ReadExternalDep implements Step<void> {
         backoffCoefficient: 2,
         maximumAttempts: 5,
         totalDurationMs: 3_600_000,
-        initialIntervalMs: 3000,
+        initialIntervalMs: 1000,
         maximumIntervalMs: 60_000,
       },
     };
