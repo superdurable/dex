@@ -23,7 +23,6 @@ import {
   gracefulComplete,
   rpc,
   stringCodec,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -35,8 +34,6 @@ export const RESET_TIMER_CHANNEL = "RESET_TIMER_CHANNEL";
 export const TIMER_DURATION_MS = 5 * 60 * 1000;
 
 class ResettableTimerStep implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: ResettableTimerFlow) {}
 
   public getStepType(): string {
@@ -59,8 +56,6 @@ class ResettableTimerStep implements Step<void> {
 }
 
 class TimerExpired implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public getStepType(): string {
     return "TimerExpired";
   }

@@ -42,10 +42,7 @@ import {
 import { getClient } from "../../client-holder.js";
 import { HOUR_MS } from "../../config/env.js";
 import { isFlowAlreadyStarted } from "../../service-errors.js";
-import {
-  batchEnqueueRequestCodec,
-  type BatchEnqueueRequest,
-} from "./models/batch-enqueue-request.js";
+import { type BatchEnqueueRequest } from "./models/batch-enqueue-request.js";
 import { childFlow, type ChildFlow } from "./child-flow.js";
 
 export const NUM_PARENT_WORKFLOWS = 2;
@@ -55,7 +52,6 @@ export const TASK_QUEUE = "TaskQueue";
 export const CHILD_COMPLETE_CHANNEL_PREFIX = "ChildComplete_";
 export const DA_CURRENT_WAIT_CHILD_WFS = "CurrentWaitChildWfs";
 
-const batchInputCodec = jsonCodec<BatchEnqueueRequest>(batchEnqueueRequestCodec);
 const stringArrayCodec = jsonCodec<string[]>({
   typeName: "string[]",
   decode: (value: unknown) =>
@@ -63,8 +59,6 @@ const stringArrayCodec = jsonCodec<string[]>({
 });
 
 class Init implements Step<BatchEnqueueRequest> {
-  public readonly inputCodec = batchInputCodec;
-
   public constructor(private readonly flow: ParentFlow) {}
 
   public getStepType(): string {
@@ -80,8 +74,6 @@ class Init implements Step<BatchEnqueueRequest> {
 }
 
 class LoopForNextMessage implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(
     private readonly flow: ParentFlow,
     private readonly child: ChildFlow,
@@ -192,7 +184,7 @@ export class ParentFlow implements Flow<BatchEnqueueRequest> {
     };
   }
 
-  @rpc({ inputCodec: batchInputCodec, outputCodec: booleanCodec })
+  @rpc({ outputCodec: booleanCodec })
   public enqueue(context: Context, request: BatchEnqueueRequest): RPCResult<boolean> {
     if (this.taskQueue.size(context) + request.list.length > MAX_BUFFERED_TASKS) {
       return { output: false };

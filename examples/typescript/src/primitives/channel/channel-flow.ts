@@ -24,7 +24,6 @@ import {
   gracefulComplete,
   rpc,
   stringCodec,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -77,7 +76,7 @@ export class ChannelFlow implements Flow<number> {
     return { channels: [this.approval] };
   }
 
-  @rpc({ inputCodec: voidCodec })
+  @rpc()
   public approve(context: Context): void {
     this.approval.publish(context, "approved");
   }

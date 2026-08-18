@@ -92,8 +92,6 @@ class Initialize implements Step<number> {
 }
 
 class WaitForTasks implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: PollingFlow) {}
 
   public getStepType(): string {

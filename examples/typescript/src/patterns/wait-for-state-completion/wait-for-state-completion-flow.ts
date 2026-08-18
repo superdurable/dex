@@ -43,8 +43,6 @@ export const JOB_SEEKER_DATA = "job_seeker_data";
 const jobSeekerDataInputCodec = jsonCodec<JobSeekerData>(jobSeekerDataCodec);
 
 class PersistData implements Step<JobSeekerData> {
-  public readonly inputCodec = jobSeekerDataInputCodec;
-
   public constructor(private readonly flow: WaitForStateCompletionFlow) {}
 
   public getStepType(): string {
@@ -59,8 +57,6 @@ class PersistData implements Step<JobSeekerData> {
 }
 
 class UpdateExternalSystem implements Step<JobSeekerData> {
-  public readonly inputCodec = jobSeekerDataInputCodec;
-
   public constructor(private readonly flow: WaitForStateCompletionFlow) {}
 
   public getStepType(): string {
@@ -103,7 +99,7 @@ export class WaitForStateCompletionFlow implements Flow<JobSeekerData> {
     return { attributes: [this.jobSeekerData] };
   }
 
-  @rpc({ outputCodec: jobSeekerDataInputCodec })
+  @rpc()
   public getJobSeekerData(context: Context): RPCResult<JobSeekerData> {
     const data = this.jobSeekerData.get(context);
     if (data === undefined) {

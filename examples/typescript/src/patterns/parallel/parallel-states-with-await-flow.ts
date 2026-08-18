@@ -23,7 +23,6 @@ import {
   doubleCodec,
   goToMulti,
   gracefulComplete,
-  jsonCodec,
   stringCodec,
   type Context,
   type Flow,
@@ -32,11 +31,10 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-import { jobSeekerCodec, type JobSeeker } from "./job-seeker.js";
+import { type JobSeeker } from "./job-seeker.js";
 
 export const NOTIFY_CHANNEL = "test_notify_channel";
 
-const jobSeekerInputCodec = jsonCodec<JobSeeker>(jobSeekerCodec);
 const countInputCodec = doubleCodec;
 
 class Starting implements Step<number> {
@@ -66,8 +64,6 @@ class Starting implements Step<number> {
 }
 
 class NotifyUser implements Step<JobSeeker> {
-  public readonly inputCodec = jobSeekerInputCodec;
-
   public constructor(private readonly flow: ParallelStatesWithAwaitFlow) {}
 
   public getStepType(): string {

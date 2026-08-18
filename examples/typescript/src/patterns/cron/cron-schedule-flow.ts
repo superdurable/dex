@@ -17,7 +17,6 @@
 import {
   StepList,
   gracefulComplete,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -26,8 +25,6 @@ import {
 } from "@superdurable/dex";
 
 class CronScheduleStep implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public getStepType(): string {
     return "CronScheduleStep";
   }

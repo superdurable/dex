@@ -38,8 +38,6 @@ export const SIGNAL_CHANNEL_COMMAND_SKIP = "signal_channel_command_skip";
 export const NUMBER_OF_RETRIES = "number_of_retries";
 
 class Init implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: ManualInterventionFlow) {}
 
   public getStepType(): string {
@@ -92,8 +90,6 @@ class GetData implements Step<boolean> {
 }
 
 class ErrorStep implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: ManualInterventionFlow) {}
 
   public getStepType(): string {
@@ -117,8 +113,6 @@ class ErrorStep implements Step<void> {
 }
 
 class Final implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: ManualInterventionFlow) {}
 
   public getStepType(): string {

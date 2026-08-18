@@ -14,22 +14,7 @@
  * limitations under the License.
  */
 
-import { jsonCodec } from "@superdurable/dex";
-
 export interface ShortlistInput {
   employerId: string;
   candidateId: string;
 }
-
-export function decodeShortlistInput(value: unknown): ShortlistInput {
-  const record = value as ShortlistInput;
-  return {
-    employerId: String(record.employerId),
-    candidateId: String(record.candidateId),
-  };
-}
-
-export const shortlistInputCodec = jsonCodec<ShortlistInput>({
-  typeName: "ShortlistInput",
-  decode: decodeShortlistInput,
-});
