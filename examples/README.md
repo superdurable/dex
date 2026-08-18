@@ -71,19 +71,18 @@ Default example-server ports:
 | Example HTTP | `8080` (Python sync `8081`) |
 | Example Worker | `8803` (Python sync `8804`) |
 
-Dex ports are whatever `dexcli dev` prints. Only one language example server can bind
-HTTP `8080` / Worker `8803` at a time. Python sync uses `8081` / `8804`, so it
-can run alongside another language.
+Dex ports are whatever `dexcli dev` prints.
 
 Each language README lists env overrides for those addresses. Dataset Deal
 (Go) also needs PostgreSQL; see the [Go README](go/README.md). Entity Store
 needs PostgreSQL plus `dexcli dev --attribute-store-config`; see
 [entity-store/](entity-store/).
 
-## Step 2 — Examples playground
+## Step 2 — Examples playground Web UI
 
-From [`playground/`](playground/) ([README](playground/README.md)), point the
-page at the example HTTP port and the Dex web UI port from step 1:
+The playground Web UI is **optional but recommended**. From
+[`playground/`](playground/) ([README](playground/README.md)), point the page at
+the example HTTP port and the Dex web UI port from step 1:
 
 ```bash
 ./start.sh --port 3333 --example-server http://127.0.0.1:8080 --dex-web http://127.0.0.1:8802
@@ -101,7 +100,7 @@ Go-only [Dataset Deal](go/products/dataset-deal/) and Python-only
 [AI Agent Email](python/ai-agent-email/) have their own UIs; they are not on
 the shared playground.
 
-## Directory organization
+# Directory organization
 
 Each language tree groups Flows the same way. HTTP controllers use these
 prefixes (cron schedule and some Worker-only examples have no HTTP surface):
