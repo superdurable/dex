@@ -4,9 +4,15 @@ title: 为什么是 Dex？
 sidebar_label: 为什么是 Dex？
 ---
 
+import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
+
 # 为什么是 Dex？
 
-Dex 是 **Durable Execution** 引擎。你写的 **Flow** 就是普通应用对象：**Step**、**Attribute**、**Channel**、**Timer**、**RPC**。**Worker** 托管 Step 和 RPC handler，就是普通代码。Dex Server 把控制流决策做成 durable。
+Dex 是 **Durable Execution** 平台。
+
+Dex 是结构化编程，只有少数几个概念作为 durable primitive。你用 Dex 写 **Flow**，里面填普通代码：durable 的 **Step**、**Attribute**、**RPC**，以及用 **Channel** 和 **Timer** 表达的 durable condition。然后跑托管 Flow 的 **Worker**。**Client** 调 **Dex Server** 去 start 并和 Flow 实例交互。Dex Server 把 Step / RPC 调用任务派发给你的 Worker。
+
+<DexSystemDiagram />
 
 一个 **Step** 可以 **WaitFor**（Channel、Timer，或两者），然后 **Execute**。Execute 返回下一步、完成、失败，或循环。**Attribute** 存 durable 数据。**Channel** 把消息送进正在跑的 Flow。**Timer** 是 durable 的截止时间。**RPC** 让外部代码在 Flow 运行中读写。
 

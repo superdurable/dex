@@ -4,9 +4,15 @@ title: Why Dex?
 sidebar_label: Why Dex?
 ---
 
+import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
+
 # Why Dex?
 
-Dex is a **Durable Execution** engine. You write a **Flow** as ordinary application objects: **Steps**, **Attributes**, **Channels**, **Timers**, and **RPCs**. A **Worker** hosts your Step and RPC handlers as normal code. Dex Server keeps the control-flow decisions durable.
+Dex is a **Durable Execution** platform.
+
+Dex is structural programming with only a few concepts as durable primitives. You use Dex to write a **Flow** filled with ordinary code: durable **Steps**, **Attributes**, **RPCs**, and durable conditions using **Channels** and **Timers**. Then you run **Workers** hosting your Flow. The **Client** calls **Dex Server** to start and interact with Flow instances. Dex Server dispatches Step and RPC invocation tasks to your Workers.
+
+<DexSystemDiagram />
 
 A **Step** can **WaitFor** (Channel, Timer, or both) and then **Execute**. Execute returns the next Step, completes, fails, or loops. **Attribute** holds durable data. **Channel** carries messages into a running Flow. **Timer** is a durable deadline. **RPC** lets outside code read or write while the Flow is running.
 
