@@ -19,8 +19,12 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
+use serde_json::json;
 
-use crate::products::subscription::flow::{SubscriptionFlow, SubscriptionRequest};
+use crate::products::subscription::flow::{
+    SUBSCRIPTION_CANCEL, SUBSCRIPTION_DESCRIBE, SUBSCRIPTION_UPDATE_CHARGE, SubscriptionFlow,
+    SubscriptionRequest,
+};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
 };
@@ -31,9 +35,29 @@ struct StartQuery {
     workflow_id: String,
 }
 
+#[derive(Deserialize)]
+struct WorkflowQuery {
+    #[serde(default, rename = "workflowId")]
+    workflow_id: String,
+}
+
+#[derive(Deserialize)]
+struct UpdateQuery {
+    #[serde(default, rename = "workflowId")]
+    workflow_id: String,
+    #[serde(default, rename = "newChargeAmount")]
+    new_charge_amount: i64,
+}
+
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route("/products/subscription/start", get(start))
+        .route("/products/subscription/cancel", get(cancel))
+        .route(
+            "/products/subscription/updateChargeAmount",
+            get(update_charge),
+        )
+        .route("/products/subscription/describe", get(describe))
         .with_state(client)
 }
 
@@ -57,6 +81,40 @@ async fn start(
             .start_flow(&flow, &flow_id, input)
             .map(|run_id| StartResponse { flow_id, run_id })
     }) {
+        Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn cancel(
+    State(client): State<SharedClient>,
+    Query(query): Query<WorkflowQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, SUBSCRIPTION_CANCEL)) {
+        Ok(()) => ok_json(json!({})),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn update_charge(
+    State(client): State<SharedClient>,
+    Query(query): Query<UpdateQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    let amount = query.new_charge_amount;
+    match run_blocking(move || client.invoke_rpc(&flow_id, SUBSCRIPTION_UPDATE_CHARGE, amount)) {
+        Ok(()) => ok_json(json!({})),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn describe(
+    State(client): State<SharedClient>,
+    Query(query): Query<WorkflowQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, SUBSCRIPTION_DESCRIBE)) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }

@@ -73,5 +73,14 @@ export function createEngagementRouter(client: Client): Router {
     response.json(status);
   });
 
+  router.get("/list", async (request, response) => {
+    const query = String(request.query.query ?? "");
+    const page = await client.searchFlows(query, 100, "");
+    response.json({
+      flowIDs: page.flows.map((flow) => flow.flowId),
+      nextPageToken: page.nextPageToken,
+    });
+  });
+
   return router;
 }

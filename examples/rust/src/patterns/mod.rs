@@ -47,7 +47,7 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(scalable_parallel::ChildFlow::default())?
         .register(scalable_parallel::ParentFlow::default())?
         .register(scalable_parallel::RequestReceiverFlow::default())?
-        .register(entity_store::UserProfileFlow::default())?
+        .register(entity_store::UserProfileFlow)?
         .register(timeout::FlowGracefulTimeout::default())?
         .register(wait_for_state_completion::WaitForStateCompletionFlow::default())
 }

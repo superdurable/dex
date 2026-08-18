@@ -31,13 +31,23 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step,
-    StepDecision, StepList, Timer, Wait,
+    Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
+    Step, StepDecision, StepList, Timer, Wait,
 };
 use serde::{Deserialize, Serialize};
 
 pub const EMPLOYER_OPT_OUT: Rpc<(), ()> = Rpc::new("EmployerOptOut");
+pub const EMPLOYER_IS_OPTED_IN: Rpc<(), bool> = Rpc::new("EmployerIsOptedIn");
 pub const SHORTLIST_REVOKE: Rpc<(), ()> = Rpc::new("ShortlistRevoke");
+pub const SHORTLIST_EMAIL_SENT_TIMESTAMP: Rpc<(), i64> = Rpc::new("ShortlistEmailSentTimestamp");
+
+pub fn employer_opt_in_flow_id(employer_id: &str) -> String {
+    format!("shortlist_candidates_opt_in_{employer_id}")
+}
+
+pub fn shortlist_flow_id(employer_id: &str, candidate_id: &str) -> String {
+    format!("shortlist_candidates_shortlist_{employer_id}_{candidate_id}")
+}
 
 #[derive(Default)]
 pub struct EmployerOptInFlow {
@@ -48,6 +58,10 @@ pub struct EmployerOptInFlow {
 impl EmployerOptInFlow {
     fn opt_out(&self, context: &mut Context) -> HandlerResult<()> {
         opt_out().publish(context, ())
+    }
+
+    fn is_opted_in(&self, _context: &mut Context) -> HandlerResult<RpcResult<bool>> {
+        Ok(RpcResult::new(true))
     }
 }
 
@@ -69,7 +83,9 @@ impl Flow for EmployerOptInFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure_without_input(EMPLOYER_OPT_OUT, Self::opt_out)
+        RpcList::new()
+            .procedure_without_input(EMPLOYER_OPT_OUT, Self::opt_out)
+            .function_without_input(EMPLOYER_IS_OPTED_IN, Self::is_opted_in)
     }
 }
 
@@ -115,6 +131,10 @@ impl ShortlistFlow {
     fn revoke(&self, context: &mut Context) -> HandlerResult<()> {
         revoked().publish(context, ())
     }
+
+    fn email_sent_timestamp(&self, context: &mut Context) -> HandlerResult<RpcResult<i64>> {
+        Ok(RpcResult::new(email_sent().get(context)?.unwrap_or(0)))
+    }
 }
 
 impl Flow for ShortlistFlow {
@@ -129,11 +149,15 @@ impl Flow for ShortlistFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&revoked())
+        PersistenceSchema::new()
+            .attribute(&email_sent())
+            .channel(&revoked())
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure_without_input(SHORTLIST_REVOKE, Self::revoke)
+        RpcList::new()
+            .procedure_without_input(SHORTLIST_REVOKE, Self::revoke)
+            .function_without_input(SHORTLIST_EMAIL_SENT_TIMESTAMP, Self::email_sent_timestamp)
     }
 }
 
@@ -152,6 +176,11 @@ impl Step for ScheduleContact {
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         if revoked().condition_results(context)?.is_empty() {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_millis() as i64)
+                .unwrap_or(0);
+            email_sent().set(context, timestamp)?;
             context.record_event("candidate-contact", input.candidate_id)?;
             Ok(StepDecision::graceful_complete("contacted".to_string()))
         } else {
@@ -166,6 +195,10 @@ fn employer() -> Attribute<String> {
 
 fn opt_out() -> Channel<()> {
     Channel::new("employer-opt-out")
+}
+
+fn email_sent() -> Attribute<i64> {
+    Attribute::new("SHORTLIST_EmailSentTimestamp")
 }
 
 fn revoked() -> Channel<()> {

@@ -20,13 +20,13 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::resettable_timer::flow::ResettableTimerFlow;
+use crate::patterns::resettable_timer::flow::{RESETTABLE_TIMER_RESET, ResettableTimerFlow};
 use crate::server::helpers::{
-    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
+    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
 
 #[derive(Deserialize)]
-struct StartQuery {
+struct WorkflowQuery {
     #[serde(default, rename = "workflowId")]
     workflow_id: String,
 }
@@ -34,12 +34,13 @@ struct StartQuery {
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route("/patterns/resettable-timer/start", get(start))
+        .route("/patterns/resettable-timer/reset", get(reset))
         .with_state(client)
 }
 
 async fn start(
     State(client): State<SharedClient>,
-    Query(query): Query<StartQuery>,
+    Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = if query.workflow_id.is_empty() {
         new_flow_id("timer")
@@ -54,6 +55,17 @@ async fn start(
             .map(|run_id| StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn reset(
+    State(client): State<SharedClient>,
+    Query(query): Query<WorkflowQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, RESETTABLE_TIMER_RESET)) {
+        Ok(()) => ok_text("reset"),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }

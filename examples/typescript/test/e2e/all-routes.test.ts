@@ -142,6 +142,10 @@ test("product engagement start describe optout decline accept", async () => {
     await get("/products/engagement/accept", { workflowId, notes: "yes" }),
     "engagement/accept",
   );
+  requireOk(
+    await get("/products/engagement/list", { query: `WorkflowId="${workflowId}"` }),
+    "engagement/list",
+  );
 });
 
 test("product subscription start describe update cancel", async () => {

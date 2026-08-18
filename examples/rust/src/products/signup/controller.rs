@@ -20,9 +20,10 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::products::signup::flow::UserSignupFlow;
+use crate::products::signup::flow::{SIGNUP_VERIFY, UserSignupFlow};
 use crate::server::helpers::{
-    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
+    SharedClient, StartResponse, is_already_started, map_sdk_error, new_flow_id, ok_json, ok_text,
+    run_blocking,
 };
 
 #[derive(Deserialize)]
@@ -31,9 +32,25 @@ struct StartQuery {
     workflow_id: String,
 }
 
+#[derive(Deserialize)]
+struct SubmitQuery {
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    email: String,
+}
+
+#[derive(Deserialize)]
+struct VerifyQuery {
+    #[serde(default)]
+    username: String,
+}
+
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route("/products/signup/start", get(start))
+        .route("/products/signup/submit", get(submit))
+        .route("/products/signup/verify", get(verify))
         .with_state(client)
 }
 
@@ -54,6 +71,37 @@ async fn start(
             .map(|run_id| StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn submit(
+    State(client): State<SharedClient>,
+    Query(query): Query<SubmitQuery>,
+) -> impl IntoResponse {
+    let username = query.username;
+    let email = if query.email.is_empty() {
+        "user@example.com".to_string()
+    } else {
+        query.email
+    };
+    match run_blocking(move || {
+        let flow = UserSignupFlow::default();
+        client.start_flow(&flow, &username, email)
+    }) {
+        Ok(_) => ok_text("success"),
+        Err(error) if is_already_started(&error) => ok_text("username already started registry"),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn verify(
+    State(client): State<SharedClient>,
+    Query(query): Query<VerifyQuery>,
+) -> impl IntoResponse {
+    let username = query.username;
+    match run_blocking(move || client.invoke_rpc_without_input(&username, SIGNUP_VERIFY)) {
+        Ok(()) => ok_text("verified"),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }

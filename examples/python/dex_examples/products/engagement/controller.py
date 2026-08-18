@@ -79,4 +79,18 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
         )
         return jsonify(status.value)
 
+    @blueprint.get("/list")
+    async def list_engagements() -> Response:
+        page = await app_state.client.search_flows(
+            required_query("query"),
+            100,
+            "",
+        )
+        return jsonify(
+            {
+                "flowIDs": [flow.flow_id for flow in page.flows],
+                "nextPageToken": page.next_page_token,
+            }
+        )
+
     return blueprint

@@ -200,7 +200,7 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             name: "patterns/entity-store",
             path: "/patterns/entity-store/start",
             query: HashMap::new(),
-            flags: FlowSmokeFlags::NONE,
+            flags: FlowSmokeFlags::NO_START_STEP,
         },
         FlowSmokeEntry {
             name: "patterns/intervention",

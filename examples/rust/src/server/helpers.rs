@@ -54,6 +54,17 @@ pub fn map_sdk_error(error: SdkError) -> (StatusCode, Json<ErrorBody>) {
     )
 }
 
+pub fn is_already_started(error: &SdkError) -> bool {
+    matches!(error, SdkError::FlowAlreadyStarted { .. })
+}
+
+pub fn is_missing_or_inactive(error: &SdkError) -> bool {
+    matches!(
+        error,
+        SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }
+    )
+}
+
 pub fn ok_json<T: Serialize>(value: T) -> Response {
     Json(value).into_response()
 }

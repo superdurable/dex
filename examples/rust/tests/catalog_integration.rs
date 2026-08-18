@@ -73,7 +73,7 @@ fn catalog_matches_every_cross_language_example() {
         ChildFlow::default().flow_type(),
         ParentFlow::default().flow_type(),
         RequestReceiverFlow::default().flow_type(),
-        UserProfileFlow::default().flow_type(),
+        UserProfileFlow.flow_type(),
         FlowGracefulTimeout::default().flow_type(),
         WaitForStateCompletionFlow::default().flow_type(),
     ];

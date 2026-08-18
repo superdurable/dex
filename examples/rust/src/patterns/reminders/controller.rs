@@ -20,13 +20,13 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::reminders::flow::ReminderFlow;
+use crate::patterns::reminders::flow::{REMINDER_ACCEPT, REMINDER_OPT_OUT, ReminderFlow};
 use crate::server::helpers::{
-    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
+    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
 
 #[derive(Deserialize)]
-struct StartQuery {
+struct WorkflowQuery {
     #[serde(default, rename = "workflowId")]
     workflow_id: String,
 }
@@ -34,15 +34,17 @@ struct StartQuery {
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route("/patterns/reminders/start", get(start))
+        .route("/patterns/reminders/accept", get(accept))
+        .route("/patterns/reminders/optout", get(optout))
         .with_state(client)
 }
 
 async fn start(
     State(client): State<SharedClient>,
-    Query(query): Query<StartQuery>,
+    Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("reminder")
+        new_flow_id("reminder_test_id")
     } else {
         query.workflow_id
     };
@@ -54,6 +56,28 @@ async fn start(
             .map(|run_id| StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn accept(
+    State(client): State<SharedClient>,
+    Query(query): Query<WorkflowQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, REMINDER_ACCEPT)) {
+        Ok(()) => ok_text("accepted"),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn optout(
+    State(client): State<SharedClient>,
+    Query(query): Query<WorkflowQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, REMINDER_OPT_OUT)) {
+        Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }

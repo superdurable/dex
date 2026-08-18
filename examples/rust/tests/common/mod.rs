@@ -34,6 +34,10 @@ impl FlowSmokeFlags {
         step_start_may_fail: true,
         no_start_step: false,
     };
+    pub const NO_START_STEP: Self = Self {
+        step_start_may_fail: false,
+        no_start_step: true,
+    };
 }
 
 pub struct FlowSmokeEntry {

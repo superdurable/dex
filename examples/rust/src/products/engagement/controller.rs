@@ -19,6 +19,7 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
+use serde_json::json;
 
 use crate::products::engagement::flow::{
     ENGAGEMENT_ACCEPT, ENGAGEMENT_DECLINE, ENGAGEMENT_DESCRIBE, ENGAGEMENT_OPT_OUT, EngagementFlow,
@@ -36,6 +37,12 @@ struct WorkflowQuery {
     notes: String,
 }
 
+#[derive(Deserialize)]
+struct ListQuery {
+    #[serde(default)]
+    query: String,
+}
+
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route("/products/engagement/start", get(start))
@@ -43,6 +50,7 @@ pub fn mount(client: SharedClient) -> Router {
         .route("/products/engagement/optout", get(optout))
         .route("/products/engagement/decline", get(decline))
         .route("/products/engagement/accept", get(accept))
+        .route("/products/engagement/list", get(list))
         .with_state(client)
 }
 
@@ -80,7 +88,7 @@ async fn optout(
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     match run_blocking(move || client.invoke_rpc_without_input(&flow_id, ENGAGEMENT_OPT_OUT)) {
-        Ok(()) => ok_json(serde_json::json!({})),
+        Ok(()) => ok_json(json!({})),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
@@ -92,7 +100,7 @@ async fn decline(
     let flow_id = query.workflow_id;
     let notes = query.notes;
     match run_blocking(move || client.invoke_rpc(&flow_id, ENGAGEMENT_DECLINE, notes)) {
-        Ok(()) => ok_json(serde_json::json!({})),
+        Ok(()) => ok_json(json!({})),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
@@ -104,7 +112,20 @@ async fn accept(
     let flow_id = query.workflow_id;
     let notes = query.notes;
     match run_blocking(move || client.invoke_rpc(&flow_id, ENGAGEMENT_ACCEPT, notes)) {
-        Ok(()) => ok_json(serde_json::json!({})),
+        Ok(()) => ok_json(json!({})),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn list(
+    State(client): State<SharedClient>,
+    Query(query): Query<ListQuery>,
+) -> impl IntoResponse {
+    match run_blocking(move || client.search_flows(&query.query, 100)) {
+        Ok(page) => ok_json(json!({
+            "flowIDs": page.flows.iter().map(|flow| flow.flow_id.clone()).collect::<Vec<_>>(),
+            "nextPageToken": page.next_page_token,
+        })),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
