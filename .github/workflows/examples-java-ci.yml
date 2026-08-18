@@ -1,7 +1,23 @@
 name: Java examples CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/java/**"
+      - ".github/workflows/examples-java-ci.yml"
+  pull_request:
+    paths:
+      - "examples/java/**"
+      - ".github/workflows/examples-java-ci.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examples-java-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   unit:

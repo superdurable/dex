@@ -45,6 +45,21 @@ jobs:
               - 'web/**'
               - 'protos/**'
               - '.github/workflows/web-ci.yml'
+            examples_go:
+              - 'examples/go/**'
+              - '.github/workflows/examples-go-ci.yml'
+            examples_java:
+              - 'examples/java/**'
+              - '.github/workflows/examples-java-ci.yml'
+            examples_python:
+              - 'examples/python/**'
+              - '.github/workflows/examples-python-ci.yml'
+            examples_rust:
+              - 'examples/rust/**'
+              - '.github/workflows/examples-rust-ci.yml'
+            examples_typescript:
+              - 'examples/typescript/**'
+              - '.github/workflows/examples-typescript-ci.yml'
             generated_code:
               - 'protos/**'
               - 'server/gen/dexpb/**'
@@ -90,6 +105,11 @@ jobs:
           FILTER_SDK_GO: ${{ steps.filter.outputs.sdk_go }}
           FILTER_SDK_RUST: ${{ steps.filter.outputs.sdk_rust }}
           FILTER_WEB: ${{ steps.filter.outputs.web }}
+          FILTER_EXAMPLES_GO: ${{ steps.filter.outputs.examples_go }}
+          FILTER_EXAMPLES_JAVA: ${{ steps.filter.outputs.examples_java }}
+          FILTER_EXAMPLES_PYTHON: ${{ steps.filter.outputs.examples_python }}
+          FILTER_EXAMPLES_RUST: ${{ steps.filter.outputs.examples_rust }}
+          FILTER_EXAMPLES_TYPESCRIPT: ${{ steps.filter.outputs.examples_typescript }}
           FILTER_GENERATED_CODE: ${{ steps.filter.outputs.generated_code }}
           FILTER_COPYRIGHT: ${{ steps.filter.outputs.copyright }}
         run: |
@@ -121,6 +141,11 @@ jobs:
             [[ "$FILTER_SDK_GO" == "true" ]] && expected+=("Go SDK CI")
             [[ "$FILTER_SDK_RUST" == "true" ]] && expected+=("Rust SDK CI")
             [[ "$FILTER_WEB" == "true" ]] && expected+=("Web CI")
+            [[ "$FILTER_EXAMPLES_GO" == "true" ]] && expected+=("Go examples CI")
+            [[ "$FILTER_EXAMPLES_JAVA" == "true" ]] && expected+=("Java examples CI")
+            [[ "$FILTER_EXAMPLES_PYTHON" == "true" ]] && expected+=("Python examples CI")
+            [[ "$FILTER_EXAMPLES_RUST" == "true" ]] && expected+=("Rust examples CI")
+            [[ "$FILTER_EXAMPLES_TYPESCRIPT" == "true" ]] && expected+=("TypeScript examples CI")
             [[ "$FILTER_GENERATED_CODE" == "true" ]] && expected+=("Generated Code CI")
             [[ "$FILTER_COPYRIGHT" == "true" ]] && expected+=("Copyright")
           fi
