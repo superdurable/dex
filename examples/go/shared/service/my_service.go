@@ -25,6 +25,7 @@ import "fmt"
 type MyService interface {
 	SendEmail(recipient, subject, content string)
 	ChargeUser(email, customerID string, amount int)
+	ShipItem(orderID string, testFailAtShipping bool) error
 	UpdateExternalSystem(message string)
 	CallAPI1(data string)
 	CallAPI2(data string)
@@ -59,6 +60,14 @@ func (m myServiceImpl) SendEmail(recipient, subject, content string) {
 
 func (m myServiceImpl) ChargeUser(email, customerID string, amount int) {
 	fmt.Printf("charge user customerID[%v] email[%v] for $%v \n", customerID, email, amount)
+}
+
+func (m myServiceImpl) ShipItem(orderID string, testFailAtShipping bool) error {
+	if testFailAtShipping {
+		return fmt.Errorf("ship failed for order %s", orderID)
+	}
+	fmt.Println("ship item", orderID)
+	return nil
 }
 
 func (m myServiceImpl) CallAPI1(data string) {

@@ -31,8 +31,8 @@ pub struct OrderRequest {
     pub email: String,
     pub customer_id: String,
     pub amount: i64,
-    #[serde(default)]
-    pub fail_ship: bool,
+    #[serde(default, rename = "testFailAtShipping")]
+    pub test_fail_at_shipping: bool,
 }
 
 #[derive(Default)]
@@ -132,12 +132,7 @@ impl Step for Ship {
             context.record_event("shipment-reminder", input.order_id.clone())?;
             return Ok(StepDecision::go_to(&Ship, input));
         }
-        if input.fail_ship {
-            return Err(HandlerError::new(format!(
-                "ship failed for order {}",
-                input.order_id
-            )));
-        }
+        ship_item(&input.order_id, input.test_fail_at_shipping)?;
         context.record_event("ship", input.order_id.clone())?;
         order_status().set(context, "shipped".to_string())?;
         Ok(StepDecision::graceful_complete(format!(
@@ -177,4 +172,13 @@ fn order_status() -> Attribute<String> {
 
 fn seller_ok() -> Channel<String> {
     Channel::new("seller-ok")
+}
+
+fn ship_item(order_id: &str, test_fail_at_shipping: bool) -> HandlerResult<()> {
+    if test_fail_at_shipping {
+        return Err(HandlerError::new(format!(
+            "ship failed for order {order_id}"
+        )));
+    }
+    Ok(())
 }

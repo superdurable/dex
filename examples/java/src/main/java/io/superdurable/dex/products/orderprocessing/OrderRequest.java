@@ -21,7 +21,7 @@ public class OrderRequest {
     public String email;
     public String customerId;
     public int amount;
-    public boolean failShip;
+    public boolean testFailAtShipping;
 
     public OrderRequest() {
     }
@@ -31,11 +31,11 @@ public class OrderRequest {
             final String email,
             final String customerId,
             final int amount,
-            final boolean failShip) {
+            final boolean testFailAtShipping) {
         this.orderId = orderId;
         this.email = email;
         this.customerId = customerId;
         this.amount = amount;
-        this.failShip = failShip;
+        this.testFailAtShipping = testFailAtShipping;
     }
 }

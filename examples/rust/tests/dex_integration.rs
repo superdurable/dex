@@ -269,7 +269,11 @@ fn order_processing_ship_failure_refunds() {
     assert_eq!(output, format!("refunded:{flow_id}"));
 }
 
-fn start_order_processing(environment: &DexEnvironment, flow_id: &str, fail_ship: bool) {
+fn start_order_processing(
+    environment: &DexEnvironment,
+    flow_id: &str,
+    test_fail_at_shipping: bool,
+) {
     environment
         .client
         .start_flow(
@@ -280,7 +284,7 @@ fn start_order_processing(environment: &DexEnvironment, flow_id: &str, fail_ship
                 email: "buyer@example.com".to_string(),
                 customer_id: "customer-1".to_string(),
                 amount: 42,
-                fail_ship,
+                test_fail_at_shipping,
             },
         )
         .expect("start Rust Order Processing Flow");

@@ -136,10 +136,7 @@ class ShipStep implements Step<OrderRequest> {
       );
       return goTo(this, input);
     }
-    if (input.failShip) {
-      throw new Error(`ship failed for order ${input.orderId}`);
-    }
-    this.flow.service.updateExternalSystem(`ship ${input.orderId}`);
+    this.flow.service.shipItem(input.orderId, input.testFailAtShipping);
     this.flow.orderStatus.set(context, "shipped");
     return gracefulComplete(`shipped:${input.orderId}`);
   }

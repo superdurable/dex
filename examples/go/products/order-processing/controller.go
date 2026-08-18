@@ -44,11 +44,11 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *OrderProcessin
 func (controller *controller) start(request *gin.Context) {
 	flowID := httputil.NewFlowID("order-processing")
 	input := OrderRequest{
-		OrderID:    flowID,
-		Email:      "buyer@example.com",
-		CustomerID: "customer-1",
-		Amount:     42,
-		FailShip:   request.Query("failShip") == "true",
+		OrderID:            flowID,
+		Email:              "buyer@example.com",
+		CustomerID:         "customer-1",
+		Amount:             42,
+		TestFailAtShipping: request.Query("testFailAtShipping") == "true",
 	}
 	runID, err := controller.client.StartFlow(
 		request.Request.Context(),

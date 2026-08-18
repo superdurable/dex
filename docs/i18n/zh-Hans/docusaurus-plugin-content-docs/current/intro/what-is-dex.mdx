@@ -81,9 +81,7 @@ class ShipStep(Step[OrderRequest]):
                 "Please approve or provide a tracking number.",
             )
             return go_to(self, input)
-        if input.fail_ship:
-            raise RuntimeError(f"ship failed for order {input.order_id}")
-        self.flow.service.update_external_system(f"ship {input.order_id}")
+        self.flow.service.ship_item(input.order_id, input.test_fail_at_shipping)
         self.flow.order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
 
@@ -165,10 +163,9 @@ func (step shipStep) Execute(
 		)
 		return dex.GoTo(shipStep{}, order), nil
 	}
-	if order.FailShip {
-		return nil, fmt.Errorf("ship failed for order %s", order.OrderID)
+	if err := step.service.ShipItem(order.OrderID, order.TestFailAtShipping); err != nil {
+		return nil, err
 	}
-	step.service.UpdateExternalSystem("ship " + order.OrderID)
 	if err := OrderStatus.Set(ctx, "shipped"); err != nil {
 		return nil, err
 	}
@@ -214,13 +211,10 @@ final class ShipStep implements Step<OrderRequest> {
                     order.email,
                     "Reminder: approve shipment",
                     "Please approve or provide a tracking number.");
-            return StepDecision.goTo(ship, order);
-        }
-        if (order.failShip) {
-            throw new RuntimeException("ship failed for order " + order.orderId);
-        }
-        service.updateExternalSystem("ship " + order.orderId);
-        orderStatus.set(context, "shipped");
+                return StepDecision.goTo(ship, order);
+            }
+            service.shipItem(order.orderId, order.testFailAtShipping);
+            orderStatus.set(context, "shipped");
         return StepDecision.gracefulComplete("shipped:" + order.orderId);
     }
 }
@@ -261,10 +255,7 @@ class ShipStep implements Step<OrderRequest> {
       );
       return goTo(this, input);
     }
-    if (input.failShip) {
-      throw new Error(`ship failed for order ${input.orderId}`);
-    }
-    this.flow.service.updateExternalSystem(`ship ${input.orderId}`);
+    this.flow.service.shipItem(input.orderId, input.testFailAtShipping);
     this.flow.orderStatus.set(context, "shipped");
     return gracefulComplete(`shipped:${input.orderId}`);
   }

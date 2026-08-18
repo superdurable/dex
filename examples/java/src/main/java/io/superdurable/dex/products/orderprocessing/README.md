@@ -11,5 +11,5 @@ http://localhost:8080/products/order-processing/approve?workflowId=<flowID>
 http://localhost:8080/products/order-processing/describe?workflowId=<flowID>
 ```
 
-Start returns after ChargeStep completes. Pass `failShip=true` on start to
+Start returns after ChargeStep completes. Pass `testFailAtShipping=true` on start to
 exercise the refund path after approval.

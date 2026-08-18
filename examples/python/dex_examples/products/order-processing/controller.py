@@ -48,7 +48,7 @@ def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:
             "buyer@example.com",
             "customer-1",
             42,
-            optional_query("failShip", "") == "true",
+            optional_query("testFailAtShipping", "") == "true",
         )
         run_id = await app_state.client.start_flow(
             app_state.order_processing,

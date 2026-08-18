@@ -33,8 +33,8 @@ use crate::server::helpers::{
 
 #[derive(Deserialize)]
 struct StartQuery {
-    #[serde(default, rename = "failShip")]
-    fail_ship: bool,
+    #[serde(default, rename = "testFailAtShipping")]
+    test_fail_at_shipping: bool,
 }
 
 #[derive(Deserialize)]
@@ -65,7 +65,7 @@ async fn start(
             email: "buyer@example.com".into(),
             customer_id: "customer-1".into(),
             amount: 42,
-            fail_ship: query.fail_ship,
+            test_fail_at_shipping: query.test_fail_at_shipping,
         };
         let run_id = client.start_flow(&flow, &flow_id, input)?;
         client.wait_for_step_completion(

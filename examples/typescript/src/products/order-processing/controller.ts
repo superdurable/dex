@@ -32,7 +32,7 @@ export function createOrderProcessingRouter(client: Client): Router {
       email: "buyer@example.com",
       customerId: "customer-1",
       amount: 42,
-      failShip: String(request.query.failShip ?? "") === "true",
+      testFailAtShipping: String(request.query.testFailAtShipping ?? "") === "true",
     };
     const runId = await client.startFlow(orderProcessingFlow, flowId, input, startOptions());
     await client.waitForStepCompletion(

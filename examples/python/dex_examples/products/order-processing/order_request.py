@@ -21,4 +21,4 @@ class OrderRequest:
     email: str
     customer_id: str
     amount: int
-    fail_ship: bool = False
+    test_fail_at_shipping: bool = False

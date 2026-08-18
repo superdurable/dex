@@ -45,7 +45,7 @@ test("orderProcessingHappyPath", async () => {
       email: "buyer@example.com",
       customerId: "customer-1",
       amount: 42,
-      failShip: false,
+      testFailAtShipping: false,
     },
     environment.startOptions(),
   );
@@ -76,7 +76,7 @@ test("orderProcessingReminderThenShip", async () => {
       email: "buyer@example.com",
       customerId: "customer-1",
       amount: 42,
-      failShip: false,
+      testFailAtShipping: false,
     },
     environment.startOptions(),
   );
@@ -128,7 +128,7 @@ test("orderProcessingShipFailureRefunds", async () => {
       email: "buyer@example.com",
       customerId: "customer-1",
       amount: 42,
-      failShip: true,
+      testFailAtShipping: true,
     },
     environment.startOptions(),
   );

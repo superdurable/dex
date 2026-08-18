@@ -44,14 +44,14 @@ public class OrderProcessingController {
 
     @GetMapping("/start")
     public ResponseEntity<Map<String, String>> start(
-            @RequestParam(defaultValue = "false") final boolean failShip) {
+            @RequestParam(defaultValue = "false") final boolean testFailAtShipping) {
         final String flowId = "order-processing-" + System.nanoTime();
         final OrderRequest request = new OrderRequest(
                 flowId,
                 "buyer@example.com",
                 "customer-1",
                 42,
-                failShip);
+                testFailAtShipping);
         final String runId = client.startFlow(flow, flowId, request, ExampleFlows.startOptions());
         client.waitForStepCompletion(
                 flowId,

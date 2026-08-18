@@ -21,7 +21,6 @@
 package orderprocessing
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/superdurable/dex/examples/go/shared/service"
@@ -44,11 +43,11 @@ var (
 )
 
 type OrderRequest struct {
-	OrderID    string
-	Email      string
-	CustomerID string
-	Amount     int
-	FailShip   bool
+	OrderID            string
+	Email              string
+	CustomerID         string
+	Amount             int
+	TestFailAtShipping bool
 }
 
 type OrderProcessingFlow struct {
@@ -168,10 +167,9 @@ func (step shipStep) Execute(
 		)
 		return dex.GoTo(shipStep{}, order), nil
 	}
-	if order.FailShip {
-		return nil, fmt.Errorf("ship failed for order %s", order.OrderID)
+	if err := step.service.ShipItem(order.OrderID, order.TestFailAtShipping); err != nil {
+		return nil, err
 	}
-	step.service.UpdateExternalSystem("ship " + order.OrderID)
 	if err := OrderStatus.Set(ctx, "shipped"); err != nil {
 		return nil, err
 	}

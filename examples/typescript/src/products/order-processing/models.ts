@@ -21,7 +21,7 @@ export interface OrderRequest {
   readonly email: string;
   readonly customerId: string;
   readonly amount: number;
-  readonly failShip: boolean;
+  readonly testFailAtShipping: boolean;
 }
 
 export const orderRequestCodec = jsonCodec<OrderRequest>({
@@ -33,7 +33,7 @@ export const orderRequestCodec = jsonCodec<OrderRequest>({
       email: String(record.email),
       customerId: String(record.customerId),
       amount: Number(record.amount),
-      failShip: Boolean(record.failShip),
+      testFailAtShipping: Boolean(record.testFailAtShipping),
     };
   },
 });

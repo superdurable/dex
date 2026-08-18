@@ -85,9 +85,7 @@ class ShipStep(Step[OrderRequest]):
                 "Please approve or provide a tracking number.",
             )
             return go_to(self, input)
-        if input.fail_ship:
-            raise RuntimeError(f"ship failed for order {input.order_id}")
-        self.flow.service.update_external_system(f"ship {input.order_id}")
+        self.flow.service.ship_item(input.order_id, input.test_fail_at_shipping)
         self.flow.order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
 

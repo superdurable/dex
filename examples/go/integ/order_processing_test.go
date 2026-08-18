@@ -128,11 +128,11 @@ func TestOrderProcessingShipFailureRefunds(t *testing.T) {
 	ctx := integrationContext(t)
 	flowID := newFlowID(t, "order-processing-refund")
 	input := orderprocessing.OrderRequest{
-		OrderID:    flowID,
-		Email:      "buyer@example.com",
-		CustomerID: "customer-1",
-		Amount:     42,
-		FailShip:   true,
+		OrderID:            flowID,
+		Email:              "buyer@example.com",
+		CustomerID:         "customer-1",
+		Amount:             42,
+		TestFailAtShipping: true,
 	}
 	_, err := integClient.StartFlow(
 		ctx,

@@ -148,10 +148,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                         "Please approve or provide a tracking number.");
                 return StepDecision.goTo(ship, order);
             }
-            if (order.failShip) {
-                throw new RuntimeException("ship failed for order " + order.orderId);
-            }
-            service.updateExternalSystem("ship " + order.orderId);
+            service.shipItem(order.orderId, order.testFailAtShipping);
             orderStatus.set(context, "shipped");
             return StepDecision.gracefulComplete("shipped:" + order.orderId);
         }

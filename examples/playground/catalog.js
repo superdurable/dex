@@ -122,7 +122,7 @@ window.PLAYGROUND_CATALOG = [
     note: "Start waits until charged, then returns. Copy flowID from the response and approve shipment.",
     endpoints: [
       endpoint("GET", "/products/order-processing/start", "Start", [
-        query("failShip", { default: "false" }),
+        query("testFailAtShipping", { default: "false" }),
       ]),
       endpoint("GET", "/products/order-processing/approve", "Approve shipment", [flowId()]),
       endpoint("GET", "/products/order-processing/describe", "Describe", [flowId()]),
