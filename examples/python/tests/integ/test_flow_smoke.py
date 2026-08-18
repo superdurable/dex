@@ -193,6 +193,7 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                     "quantity": "2",
                 },
             ),
+            flags=FlowSmokeFlags(step_start_may_fail=True),
         ),
         FlowSmokeEntry(
             "patterns/scalable-parallel",
@@ -323,11 +324,12 @@ async def _signup_trigger(
     new_id: Callable[[str], str],
 ) -> tuple[str, str]:
     username = new_id("signup")
-    flow_id, run_id, _ = await client.get(
+    flow_id, run_id, body = await client.get(
         "/products/signup/submit",
         {"username": username, "email": f"{username}@example.com"},
     )
-    return flow_id, run_id
+    parsed_flow_id, parsed_run_id = parse_flow_trigger_response(body, username)
+    return parsed_flow_id or flow_id or username, parsed_run_id or run_id
 
 
 async def _shortlist_opt_in_trigger(

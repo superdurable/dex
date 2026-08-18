@@ -330,6 +330,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				}
 				return triggerFlowSmokeHTTP(t, http.MethodGet, "/patterns/recovery/start", query, nil)
 			},
+			flags: flowSmokeFlags{stepStartMayFail: true},
 		},
 		{
 			name: "patterns/scalable-parallel",

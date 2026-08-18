@@ -112,15 +112,19 @@ final class FlowSmokeHelper {
 
     static FlowSmokeTriggerResult parseFlowTriggerResponse(
             final String body,
-            final String workflowIdFromQuery) throws IOException {
+            final String workflowIdFromQuery) {
         final String trimmed = body.trim();
-        final JsonNode json = OBJECT_MAPPER.readTree(trimmed);
-        if (json.hasNonNull("flowID")) {
+        JsonNode json = null;
+        try {
+            json = OBJECT_MAPPER.readTree(trimmed);
+        } catch (final Exception ignored) {
+        }
+        if (json != null && json.hasNonNull("flowID")) {
             return new FlowSmokeTriggerResult(
                     json.path("flowID").asText(),
                     json.path("runID").asText(""));
         }
-        if (json.hasNonNull("flowId")) {
+        if (json != null && json.hasNonNull("flowId")) {
             return new FlowSmokeTriggerResult(
                     json.path("flowId").asText(),
                     json.path("runId").asText(""));

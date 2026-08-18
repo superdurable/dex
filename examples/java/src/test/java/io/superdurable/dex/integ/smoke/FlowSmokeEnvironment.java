@@ -109,7 +109,7 @@ final class FlowSmokeEnvironment implements AutoCloseable {
                             + ": "
                             + response.body());
         }
-        final String workflowId = query.getOrDefault("workflowId", "");
+        final String workflowId = firstNonEmpty(query, "workflowId", "username");
         return FlowSmokeHelper.parseFlowTriggerResponse(response.body(), workflowId);
     }
 
@@ -130,6 +130,16 @@ final class FlowSmokeEnvironment implements AutoCloseable {
                                         + "="
                                         + URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8))
                 .collect(Collectors.joining("&", "?", ""));
+    }
+
+    private static String firstNonEmpty(final Map<String, String> query, final String... keys) {
+        for (final String key : keys) {
+            final String value = query.get(key);
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private static int availablePort() throws IOException {

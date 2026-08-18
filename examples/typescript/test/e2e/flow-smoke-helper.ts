@@ -73,7 +73,10 @@ export async function triggerGet(
   query: Record<string, string | number | boolean> = {},
 ): Promise<FlowSmokeTriggerResult> {
   const response = await httpRequest(context.baseUrl, "GET", path, query);
-  return parseFlowTriggerResponse(response.text, String(query.workflowId ?? ""));
+  return parseFlowTriggerResponse(
+    response.text,
+    String(query.workflowId ?? query.username ?? ""),
+  );
 }
 
 export async function triggerPost(

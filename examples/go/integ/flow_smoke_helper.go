@@ -368,7 +368,7 @@ func triggerFlowSmokeHTTPWithBody(
 		response.StatusCode,
 		string(responseBody),
 	)
-	flowID, runID = parseFlowTriggerResponse(string(responseBody), query.Get("workflowId"))
+	flowID, runID = parseFlowTriggerResponse(string(responseBody), firstNonEmpty(query.Get("workflowId"), query.Get("username")))
 	return flowID, runID, responseBody
 }
 
@@ -399,6 +399,15 @@ func parseFlowTriggerResponse(body string, workflowIDFromQuery string) (flowID s
 		return workflowIDFromQuery, trimmed
 	}
 	return "", trimmed
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func smokeWorkflowID(t *testing.T, prefix string) string {

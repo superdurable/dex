@@ -90,7 +90,9 @@ class FlowSmokeHttpClient:
         status, text = await asyncio.to_thread(do_request)
         if status < 200 or status >= 300:
             raise AssertionError(f"{method} {path} returned {status}: {text}")
-        workflow_id = (query or {}).get("workflowId", "")
+        workflow_id = (query or {}).get("workflowId", "") or (query or {}).get(
+            "username", ""
+        )
         flow_id, run_id = parse_flow_trigger_response(text, workflow_id)
         return flow_id, run_id, text
 

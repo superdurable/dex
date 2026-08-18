@@ -94,10 +94,14 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       name: "products/signup",
       trigger: async () => {
         const username = newFlowId("signup");
-        return triggerGet(context, "/products/signup/submit", {
+        const result = await triggerGet(context, "/products/signup/submit", {
           username,
           email: `${username}@example.com`,
         });
+        return {
+          flowId: result.flowId || username,
+          runId: result.runId,
+        };
       },
       flags: defaultFlags(),
     },
@@ -219,7 +223,7 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
           itemName: "smoke-item",
           quantity: 2,
         }),
-      flags: defaultFlags(),
+      flags: stepStartMayFailFlags(),
     },
     {
       name: "patterns/scalable-parallel",

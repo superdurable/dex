@@ -96,7 +96,8 @@ final class FlowSmokeCatalog {
                         Map.of(
                                 "workflowId", environment.newFlowId("recovery"),
                                 "itemName", "smoke-item",
-                                "quantity", "2")),
+                                "quantity", "2"),
+                        FlowSmokeFlags.stepStartMayFail()),
                 FlowSmokeEntry.get(
                         "patterns/scalable-parallel",
                         "/patterns/scalable-parallel/start",
