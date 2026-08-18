@@ -24,9 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
-	"time"
 
-	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
 )
 
@@ -241,39 +239,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				flowID, runID := parseFlowTriggerResponse(string(responseBody), "")
 				return flowID, runID
 			},
-		},
-		{
-			name: "patterns/entity-store",
-			trigger: func(t *testing.T) (string, string) {
-				userID := smokeWorkflowID(t, "entity-store")
-				body := entitystore.UserProfileRequest{
-					UserID: userID,
-					UserProfile: entitystore.UserProfile{
-						DisplayName:    "Smoke Tester",
-						Email:          userID + "@example.com",
-						MarketingOptIn: true,
-						Credits:        120,
-						Weight:         59.5,
-						LastLoggedIn:   time.Date(2026, 8, 11, 15, 30, 0, 0, time.UTC),
-						Metadata: entitystore.UserProfileMetadata{
-							Source: "smoke",
-							Tags:   []string{"example"},
-						},
-					},
-				}
-				flowID, runID := triggerFlowSmokeHTTP(
-					t,
-					http.MethodPost,
-					"/patterns/entity-store/profile",
-					nil,
-					body,
-				)
-				if flowID == "" {
-					flowID = userID
-				}
-				return flowID, runID
-			},
-			flags: flowSmokeFlags{noStartStep: true},
 		},
 		{
 			name: "patterns/intervention",

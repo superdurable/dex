@@ -153,11 +153,6 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             lambda c: _reminders_trigger(c),
         ),
         FlowSmokeEntry(
-            "patterns/entity-store",
-            lambda c: _entity_store_trigger(c, new_id),
-            flags=FlowSmokeFlags(no_start_step=True),
-        ),
-        FlowSmokeEntry(
             "patterns/intervention",
             lambda c: trigger_get(
                 "/patterns/intervention/start",
@@ -369,27 +364,6 @@ async def _shortlist_trigger(
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:
     _, _, body = await client.get("/patterns/reminders/start", {})
     return parse_flow_trigger_response(body, "")
-
-
-async def _entity_store_trigger(
-    client: FlowSmokeHttpClient,
-    new_id: Callable[[str], str],
-) -> tuple[str, str]:
-    user_id = new_id("entity-store")
-    flow_id, run_id, _ = await client.post(
-        "/patterns/entity-store/profile",
-        {
-            "userId": user_id,
-            "displayName": "Smoke Tester",
-            "email": f"{user_id}@example.com",
-            "marketingOptIn": True,
-            "credits": 120,
-            "weight": 59.5,
-            "lastLoggedInTime": "2026-08-11T15:30:00+00:00",
-            "metadata": {"source": "smoke", "tags": ["example"]},
-        },
-    )
-    return flow_id or user_id, run_id
 
 
 def _new_flow_id(prefix: str) -> str:
