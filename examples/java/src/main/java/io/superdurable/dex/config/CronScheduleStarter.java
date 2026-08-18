@@ -29,7 +29,7 @@ import java.time.Duration;
 @Component
 public class CronScheduleStarter {
     public static final String CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample";
-    private static final String CRON_EXPRESSION = "*/1 * * * *";
+    private static final String CRON_EXPRESSION = "0 * * * *";
 
     private final Client client;
     private final CronScheduleFlow cronScheduleFlow;

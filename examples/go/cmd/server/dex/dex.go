@@ -324,7 +324,7 @@ func startCronSchedule(client *sdk.Client) {
 		nil,
 		sdk.StartFlowOptions{
 			Timeout:      &timeout,
-			CronSchedule: "*/1 * * * *",
+			CronSchedule: "0 * * * *",
 		},
 	)
 	if err != nil {

@@ -62,7 +62,7 @@ async def test_cron_schedule_starts(
         app.cron_schedule,
         flow_id,
         None,
-        StartFlowOptions(timeout=timedelta(hours=1), cron_schedule="*/1 * * * *"),
+        StartFlowOptions(timeout=timedelta(hours=1), cron_schedule="0 * * * *"),
     )
 
 

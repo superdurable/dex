@@ -21,7 +21,7 @@ import { cronScheduleFlow } from "../patterns/cron/cron-schedule-flow.js";
 import { isFlowAlreadyStarted } from "../service-errors.js";
 
 export const CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample";
-export const CRON_EXPRESSION = "*/1 * * * *";
+export const CRON_EXPRESSION = "0 * * * *";
 
 export async function startCronSchedule(client: Client): Promise<void> {
   try {

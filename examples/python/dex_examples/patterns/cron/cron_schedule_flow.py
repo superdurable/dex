@@ -25,7 +25,7 @@ from dex import (
 )
 
 CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample"
-CRON_SCHEDULE_EXPRESSION = "*/1 * * * *"
+CRON_SCHEDULE_EXPRESSION = "0 * * * *"
 
 
 class CronScheduleStep(Step[None]):

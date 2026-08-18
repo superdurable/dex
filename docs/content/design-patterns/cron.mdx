@@ -14,7 +14,7 @@ flow like a recurring job.
 ## Key components
 
 1. **`CronScheduleStarter`** — on Spring `ApplicationReadyEvent`, starts flow ID
-   `cron-schedule-sample` with cron expression `*/1 * * * *` (idempotent if
+   `cron-schedule-sample` with cron expression `0 * * * *` (idempotent if
    already started).
 2. **`CronScheduleFlow`** — the scheduled flow; each trigger runs its start step
    and completes.
@@ -35,7 +35,7 @@ client.startFlow(
     null,
     StartFlowOptions.newBuilder()
         .timeout(Duration.ofHours(1))
-        .cronSchedule("*/1 * * * *")
+        .cronSchedule("0 * * * *")
         .build());
 ```
 

@@ -5,5 +5,5 @@ like a recurring job.
 
 ## How it starts
 
-The sample process starts flow ID `cron-schedule-sample` with cron `*/1 * * * *`
+The sample process starts flow ID `cron-schedule-sample` with cron `0 * * * *`
 at boot. There is no HTTP endpoint.

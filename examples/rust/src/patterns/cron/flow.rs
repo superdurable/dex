@@ -37,7 +37,7 @@ pub struct CronScheduleFlow {
 
 impl CronScheduleFlow {
     pub fn start_options() -> StartFlowOptions {
-        StartFlowOptions::new().cron_schedule("0 */15 * * * *")
+        StartFlowOptions::new().cron_schedule("0 0 * * * *")
     }
 }
 
