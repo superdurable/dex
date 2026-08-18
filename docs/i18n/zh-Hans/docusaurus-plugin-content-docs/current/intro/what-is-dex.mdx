@@ -9,9 +9,9 @@ import OrderProcessingDiagram from '@site/src/components/intro/OrderProcessingDi
 
 # 为什么是 Dex？
 
-Dex 是 **Durable Execution** 平台。
+Dex 是 Durable Execution(D-Ex) 平台。
 
-Dex 是结构化编程，只有少数几个概念作为 durable primitive。你用 Dex 写 **Flow**，里面填普通代码：durable 的 **Step**、**Attribute**、**RPC**，以及用 **Channel** 和 **Timer** 表达的 durable condition。然后跑托管 Flow 的 **Worker**。**Client** 调 **Dex Server** 去 start 并和 Flow 实例交互。Dex Server 把 Step / RPC 调用任务派发给你的 Worker。
+Dex 是结构化编程，只有少数几个概念作为 [durable primitives](/primitives)。你用 Dex 写 Flow，里面填普通代码：durable 的 Step、Attribute、RPC，以及用 Channel 和 Timer 表达的 durable condition。然后跑托管 Flow 的 Worker。Client 调 Dex Server 去 start 并和 Flow 实例交互。Dex Server 把 Step / RPC 调用任务派发给你的 Worker。
 
 <DexSystemDiagram />
 
