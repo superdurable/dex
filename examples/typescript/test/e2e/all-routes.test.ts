@@ -111,14 +111,10 @@ test("product moneytransfer start", async () => {
   assert.ok((result.json as { flowID: string }).flowID);
 });
 
-test("product order-processing start wait-charged approve", async () => {
+test("product order-processing start approve", async () => {
   const start = await get("/products/order-processing/start");
   requireOk(start, "order-processing/start");
   const workflowId = (start.json as { flowID: string }).flowID;
-  requireOk(
-    await get("/products/order-processing/wait-charged", { workflowId }),
-    "order-processing/wait-charged",
-  );
   requireOk(
     await get("/products/order-processing/approve", { workflowId }),
     "order-processing/approve",

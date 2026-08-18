@@ -15,20 +15,20 @@
 use std::time::Duration;
 
 use axum::{
-    Router,
     extract::{Query, State},
     response::IntoResponse,
     routing::get,
+    Router,
 };
 use dex_sdk::StepExecutionId;
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::products::order_processing::flow::{
-    Charge, ORDER_APPROVE, ORDER_DESCRIBE, OrderProcessingFlow, OrderRequest,
+    Charge, OrderProcessingFlow, OrderRequest, ORDER_APPROVE, ORDER_DESCRIBE,
 };
 use crate::server::helpers::{
-    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
+    map_sdk_error, new_flow_id, ok_json, run_blocking, SharedClient, StartResponse,
 };
 
 #[derive(Deserialize)]
@@ -49,7 +49,6 @@ pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route("/products/order-processing/start", get(start))
         .route("/products/order-processing/approve", get(approve))
-        .route("/products/order-processing/wait-charged", get(wait_charged))
         .route("/products/order-processing/describe", get(describe))
         .with_state(client)
 }
@@ -68,9 +67,13 @@ async fn start(
             amount: 42,
             fail_ship: query.fail_ship,
         };
-        client
-            .start_flow(&flow, &flow_id, input)
-            .map(|run_id| StartResponse { flow_id, run_id })
+        let run_id = client.start_flow(&flow, &flow_id, input)?;
+        client.wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&Charge),
+            Duration::from_secs(300),
+        )?;
+        Ok(StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
@@ -84,24 +87,6 @@ async fn approve(
     let flow_id = query.workflow_id;
     let notes = query.notes;
     match run_blocking(move || client.invoke_rpc(&flow_id, ORDER_APPROVE, notes)) {
-        Ok(value) => ok_json(value),
-        Err(error) => map_sdk_error(error).into_response(),
-    }
-}
-
-async fn wait_charged(
-    State(client): State<SharedClient>,
-    Query(query): Query<WorkflowQuery>,
-) -> impl IntoResponse {
-    let flow_id = query.workflow_id;
-    match run_blocking(move || {
-        client.wait_for_step_completion(
-            &flow_id,
-            StepExecutionId::of(&Charge),
-            Duration::from_secs(300),
-        )?;
-        Ok(json!({ "flowID": flow_id, "status": "charged" }))
-    }) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }

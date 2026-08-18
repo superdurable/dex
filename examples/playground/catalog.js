@@ -119,12 +119,11 @@ window.PLAYGROUND_CATALOG = [
     id: "order-processing",
     title: "Order processing",
     flowIdPrefix: "order-processing",
-    note: "Start mints its own flowID; copy it from the response. Wait for charge, then approve shipment.",
+    note: "Start waits until charged, then returns. Copy flowID from the response and approve shipment.",
     endpoints: [
       endpoint("GET", "/products/order-processing/start", "Start", [
         query("failShip", { default: "false" }),
       ]),
-      endpoint("GET", "/products/order-processing/wait-charged", "Wait until charged", [flowId()]),
       endpoint("GET", "/products/order-processing/approve", "Approve shipment", [flowId()]),
       endpoint("GET", "/products/order-processing/describe", "Describe", [flowId()]),
     ],

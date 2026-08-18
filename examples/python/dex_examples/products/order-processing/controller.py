@@ -30,7 +30,7 @@ from dex_examples.shared.query import (
 from dex_examples.products.order_processing.order_request import OrderRequest
 
 CHARGE_STEP = StepExecutionId("ChargeStep")
-WAIT_CHARGED_TIMEOUT = timedelta(minutes=5)
+CHARGE_WAIT_TIMEOUT = timedelta(minutes=5)
 
 
 def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:
@@ -56,6 +56,11 @@ def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:
             request,
             start_options(),
         )
+        await app_state.client.wait_for_step_completion(
+            flow_id,
+            CHARGE_STEP,
+            CHARGE_WAIT_TIMEOUT,
+        )
         return started_flow(flow_id, run_id)
 
     @blueprint.get("/approve")
@@ -66,16 +71,6 @@ def create_order_processing_blueprint(app_state: ExampleApp) -> Blueprint:
             optional_query("notes", ""),
         )
         return jsonify(output)
-
-    @blueprint.get("/wait-charged")
-    async def wait_charged() -> Response:
-        flow_id = required_query("workflowId")
-        await app_state.client.wait_for_step_completion(
-            flow_id,
-            CHARGE_STEP,
-            WAIT_CHARGED_TIMEOUT,
-        )
-        return jsonify({"flowID": flow_id, "status": "charged"})
 
     @blueprint.get("/describe")
     async def describe() -> Response:

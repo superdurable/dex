@@ -27,7 +27,7 @@ Start → ChargeStep → ShipStep → complete
 - **ChargeStep** 调支付 API，Step 级 retry。成功后原子进入 ShipStep。
 - **ShipStep** 等待卖家 **Channel** 或 **Timer**。Timer 先到：发提醒，继续等。批准到了：发货。发货 retry 用尽：进 **RefundStep**。
 - **RPC `approve`** 往卖家 Channel 发消息。
-- 店面用 Client 的 **wait-for-Step-completion** API 等 ChargeStep 完成——不是自己轮询状态。
+- 店面 **start** handler 用 Client 的 **wait-for-Step-completion** API 等 ChargeStep 完成——不是自己轮询状态。
 - **Attribute `order-status`** 可检索，客服能搜卡住的订单。
 
 可运行代码：[`examples/go/products/order-processing`](https://github.com/superdurable/dex/tree/main/examples/go/products/order-processing)，以及 `examples/java`、`examples/python`、`examples/typescript`、`examples/rust` 里同一套产品例子。HTTP 前缀 `/products/order-processing/...`。用 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 试（`id: order-processing`）。
@@ -275,13 +275,80 @@ public approve(context: Context, _note: string): RPCResult<string> {
 </SdkSnippet>
 </SdkTabs>
 
-前端要等「已付款」：
+前端要等「已付款」。`GET /products/order-processing/start` 先启动 Flow，等 ChargeStep 完成后再返回：
+
+<SdkTabs>
+<SdkSnippet lang="python">
 
 ```python
-await client.wait_for_step_completion(flow_id, StepExecutionId("ChargeStep"), timeout)
+        run_id = await app_state.client.start_flow(
+            app_state.order_processing,
+            flow_id,
+            request,
+            start_options(),
+        )
+        await app_state.client.wait_for_step_completion(
+            flow_id,
+            CHARGE_STEP,
+            CHARGE_WAIT_TIMEOUT,
+        )
+        return started_flow(flow_id, run_id)
 ```
 
-Go、Java、TypeScript、Rust SDK 上都有这个 Client API。例子里的 HTTP 路由是 `GET /products/order-processing/wait-charged?workflowId=...`。
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+	runID, err := controller.client.StartFlow(
+		request.Request.Context(),
+		controller.flow,
+		flowID,
+		input,
+		sdk.StartFlowOptions{},
+	)
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return
+	}
+	err = controller.client.WaitForStepCompletion(
+		request.Request.Context(),
+		flowID,
+		sdk.StepExecutionID{StepType: ChargeStepType},
+		sdk.WaitOptions{Timeout: 5 * time.Minute},
+	)
+	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+        final String runId = client.startFlow(flow, flowId, request, ExampleFlows.startOptions());
+        client.waitForStepCompletion(
+                flowId,
+                StepExecutionId.of("ChargeStep"),
+                Duration.ofMinutes(5));
+        final Map<String, String> response = new LinkedHashMap<String, String>();
+        response.put("flowID", flowId);
+        response.put("runID", runId);
+        return ResponseEntity.ok(response);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+    const runId = await client.startFlow(orderProcessingFlow, flowId, input, startOptions());
+    await client.waitForStepCompletion(
+      flowId,
+      StepExecutionId.of("ChargeStep"),
+      5 * 60 * 1000,
+    );
+    response.json({ flowID: flowId, runID: runId });
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 Step 切换是原子的。Timer 和 Channel 等待能熬过 Worker 重启。Retry 和补偿写在 Step 上。
 

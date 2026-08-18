@@ -27,7 +27,7 @@ Start → ChargeStep → ShipStep → complete
 - **ChargeStep** calls the payment API with Step-level retry. On success, move to ShipStep atomically.
 - **ShipStep** waits for a seller **Channel** or a **Timer**. Timer first: send a reminder and keep waiting. Approval: ship. Exhausted ship retries: **RefundStep**.
 - **RPC `approve`** publishes the seller Channel.
-- The storefront uses the Client **wait-for-Step-completion** API on ChargeStep — not a homemade status poll.
+- The storefront **start** handler waits for ChargeStep with the Client **wait-for-Step-completion** API — not a homemade status poll.
 - **Attribute `order-status`** is indexed so support can search stuck orders.
 
 Runnable code: [`examples/go/products/order-processing`](https://github.com/superdurable/dex/tree/main/examples/go/products/order-processing), plus the same product under `examples/java`, `examples/python`, `examples/typescript`, and `examples/rust`. HTTP prefix `/products/order-processing/...`. Try it from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) (`id: order-processing`).
@@ -275,13 +275,80 @@ public approve(context: Context, _note: string): RPCResult<string> {
 </SdkSnippet>
 </SdkTabs>
 
-Frontend wait for “payment received”:
+Frontend wait for “payment received”. `GET /products/order-processing/start` starts the Flow, then waits for ChargeStep before it returns:
+
+<SdkTabs>
+<SdkSnippet lang="python">
 
 ```python
-await client.wait_for_step_completion(flow_id, StepExecutionId("ChargeStep"), timeout)
+        run_id = await app_state.client.start_flow(
+            app_state.order_processing,
+            flow_id,
+            request,
+            start_options(),
+        )
+        await app_state.client.wait_for_step_completion(
+            flow_id,
+            CHARGE_STEP,
+            CHARGE_WAIT_TIMEOUT,
+        )
+        return started_flow(flow_id, run_id)
 ```
 
-That Client API is also on the Go, Java, TypeScript, and Rust SDKs. The example HTTP route is `GET /products/order-processing/wait-charged?workflowId=...`.
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+	runID, err := controller.client.StartFlow(
+		request.Request.Context(),
+		controller.flow,
+		flowID,
+		input,
+		sdk.StartFlowOptions{},
+	)
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return
+	}
+	err = controller.client.WaitForStepCompletion(
+		request.Request.Context(),
+		flowID,
+		sdk.StepExecutionID{StepType: ChargeStepType},
+		sdk.WaitOptions{Timeout: 5 * time.Minute},
+	)
+	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+        final String runId = client.startFlow(flow, flowId, request, ExampleFlows.startOptions());
+        client.waitForStepCompletion(
+                flowId,
+                StepExecutionId.of("ChargeStep"),
+                Duration.ofMinutes(5));
+        final Map<String, String> response = new LinkedHashMap<String, String>();
+        response.put("flowID", flowId);
+        response.put("runID", runId);
+        return ResponseEntity.ok(response);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+    const runId = await client.startFlow(orderProcessingFlow, flowId, input, startOptions());
+    await client.waitForStepCompletion(
+      flowId,
+      StepExecutionId.of("ChargeStep"),
+      5 * 60 * 1000,
+    );
+    response.json({ flowID: flowId, runID: runId });
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 Step transitions are atomic. Timers and Channel waits survive Worker restarts. Retries and compensation are declared on the Step.
 

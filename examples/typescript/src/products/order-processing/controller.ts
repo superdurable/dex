@@ -35,6 +35,11 @@ export function createOrderProcessingRouter(client: Client): Router {
       failShip: String(request.query.failShip ?? "") === "true",
     };
     const runId = await client.startFlow(orderProcessingFlow, flowId, input, startOptions());
+    await client.waitForStepCompletion(
+      flowId,
+      StepExecutionId.of("ChargeStep"),
+      5 * 60 * 1000,
+    );
     response.json({ flowID: flowId, runID: runId });
   });
 
@@ -43,16 +48,6 @@ export function createOrderProcessingRouter(client: Client): Router {
     const notes = String(request.query.notes ?? "");
     const output = await client.invokeRPC(orderProcessingFlow.approve, workflowId, notes);
     response.json(output);
-  });
-
-  router.get("/wait-charged", async (request, response) => {
-    const workflowId = String(request.query.workflowId ?? "");
-    await client.waitForStepCompletion(
-      workflowId,
-      StepExecutionId.of("ChargeStep"),
-      5 * 60 * 1000,
-    );
-    response.json({ flowID: workflowId, status: "charged" });
   });
 
   router.get("/describe", async (request, response) => {

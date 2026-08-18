@@ -38,7 +38,6 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *OrderProcessin
 	group := router.Group("/products/order-processing")
 	group.GET("/start", controller.start)
 	group.GET("/approve", controller.approve)
-	group.GET("/wait-charged", controller.waitCharged)
 	group.GET("/describe", controller.describe)
 }
 
@@ -51,7 +50,24 @@ func (controller *controller) start(request *gin.Context) {
 		Amount:     42,
 		FailShip:   request.Query("failShip") == "true",
 	}
-	httputil.StartFlow(request, controller.client, controller.flow, flowID, input, sdk.StartFlowOptions{})
+	runID, err := controller.client.StartFlow(
+		request.Request.Context(),
+		controller.flow,
+		flowID,
+		input,
+		sdk.StartFlowOptions{},
+	)
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return
+	}
+	err = controller.client.WaitForStepCompletion(
+		request.Request.Context(),
+		flowID,
+		sdk.StepExecutionID{StepType: ChargeStepType},
+		sdk.WaitOptions{Timeout: 5 * time.Minute},
+	)
+	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
 }
 
 func (controller *controller) approve(request *gin.Context) {
@@ -69,20 +85,6 @@ func (controller *controller) approve(request *gin.Context) {
 		sdk.InvokeOptions{},
 	)
 	httputil.Respond(request, output, err)
-}
-
-func (controller *controller) waitCharged(request *gin.Context) {
-	flowID, found := httputil.RequiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	err := controller.client.WaitForStepCompletion(
-		request.Request.Context(),
-		flowID,
-		sdk.StepExecutionID{StepType: ChargeStepType},
-		sdk.WaitOptions{Timeout: 5 * time.Minute},
-	)
-	httputil.Respond(request, gin.H{"flowID": flowID, "status": "charged"}, err)
 }
 
 func (controller *controller) describe(request *gin.Context) {

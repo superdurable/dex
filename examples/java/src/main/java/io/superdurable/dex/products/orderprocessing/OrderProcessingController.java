@@ -53,6 +53,10 @@ public class OrderProcessingController {
                 42,
                 failShip);
         final String runId = client.startFlow(flow, flowId, request, ExampleFlows.startOptions());
+        client.waitForStepCompletion(
+                flowId,
+                StepExecutionId.of("ChargeStep"),
+                Duration.ofMinutes(5));
         final Map<String, String> response = new LinkedHashMap<String, String>();
         response.put("flowID", flowId);
         response.put("runID", runId);
@@ -65,19 +69,6 @@ public class OrderProcessingController {
             @RequestParam(defaultValue = "") final String notes) {
         final OrderProcessingFlow stub = client.newRpcStub(OrderProcessingFlow.class, workflowId);
         return ResponseEntity.ok(client.invokeRPC(stub::approve, notes));
-    }
-
-    @GetMapping("/wait-charged")
-    public ResponseEntity<Map<String, String>> waitCharged(
-            @RequestParam final String workflowId) {
-        client.waitForStepCompletion(
-                workflowId,
-                StepExecutionId.of("ChargeStep"),
-                Duration.ofMinutes(5));
-        final Map<String, String> response = new LinkedHashMap<String, String>();
-        response.put("flowID", workflowId);
-        response.put("status", "charged");
-        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/describe")
