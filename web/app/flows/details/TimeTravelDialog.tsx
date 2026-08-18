@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { readResponseJSON } from '@/lib/http';
 import {
   eventTimeTravelTarget,
   TIME_TRAVEL_STEP_METHOD,
@@ -87,8 +88,7 @@ export function TimeTravelDialog({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await response.json() as { runId?: string; error?: string };
-      if (!response.ok) throw new Error(data.error || 'Time travel failed');
+      const data = await readResponseJSON<{ runId?: string }>(response);
       navigate(`/flows/${encodeURIComponent(summary.flowId)}/${encodeURIComponent(data.runId || '')}`);
       onClose();
     } catch (timeTravelError) {

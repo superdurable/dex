@@ -6,6 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
+import { readResponseJSON } from './http';
 import { VALUE_BLOB_UNAVAILABLE } from './unavailable';
 
 export type BlobKind = 'string' | 'object';
@@ -73,8 +74,7 @@ export async function hydrateBlobs<T>(
       cache: 'no-store',
       signal,
     });
-    const result = await response.json() as { error?: string; values?: Record<string, unknown> };
-    if (!response.ok) throw new Error(result.error || `LoadBlobs failed (${response.status})`);
+    const result = await readResponseJSON<{ values?: Record<string, unknown> }>(response);
     for (const [key, resolved] of Object.entries(result.values ?? {})) {
       cache.set(key, resolved);
     }

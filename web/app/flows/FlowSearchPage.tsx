@@ -15,6 +15,7 @@ import {
   type BasicFilter,
   type QueryOperator,
 } from '@/lib/query';
+import { readResponseJSON } from '@/lib/http';
 import type { FlowExecution, SearchFlowsResult } from '@/lib/types';
 import { StatusBadge } from '../components/StatusBadge';
 import { usePreferences } from '../providers';
@@ -131,8 +132,7 @@ export function FlowSearchPage() {
           nextPageToken: requestedToken,
         }),
       });
-      const data = await response.json() as SearchFlowsResult & { error?: string };
-      if (!response.ok) throw new Error(data.error || 'Search failed');
+      const data = await readResponseJSON<SearchFlowsResult>(response);
       setFlows(data.flows);
       setNextPageToken(data.nextPageToken);
       setPage(requestedPage);
