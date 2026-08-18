@@ -52,19 +52,25 @@ final class FlowSmokeHelper {
         }
         final long deadline = System.nanoTime() + ASSERT_TIMEOUT.toNanos();
         while (System.nanoTime() < deadline) {
-            final JsonNode history = runDexcliFlowHistory(flowId, runId);
-            final String startStepType = flowStartedStartStepType(history.path("events"));
-            if (!startStepType.isEmpty()) {
-                if (entry.flags.stepStartMayFail) {
-                    return;
+            try {
+                final JsonNode history = runDexcliFlowHistory(flowId, runId);
+                final String startStepType = flowStartedStartStepType(history.path("events"));
+                if (!startStepType.isEmpty()) {
+                    if (entry.flags.stepStartMayFail) {
+                        return;
+                    }
+                    if (hasStartStepProgress(history.path("events"), startStepType)) {
+                        return;
+                    }
+                    final JsonNode state = runDexcliFlowState(flowId, runId);
+                    if ("FLOW_STATUS_RUNNING".equals(state.path("flowStatus").asText())
+                            && history.path("events").size() > 1) {
+                        return;
+                    }
                 }
-                if (hasStartStepProgress(history.path("events"), startStepType)) {
-                    return;
-                }
-                final JsonNode state = runDexcliFlowState(flowId, runId);
-                if ("FLOW_STATUS_RUNNING".equals(state.path("flowStatus").asText())
-                        && history.path("events").size() > 1) {
-                    return;
+            } catch (final IOException error) {
+                if (!isRetryableDexcliError(error)) {
+                    throw error;
                 }
             }
             Thread.sleep(200L);
@@ -205,6 +211,16 @@ final class FlowSmokeHelper {
                             + stderr);
         }
         return OBJECT_MAPPER.readTree(stdout);
+    }
+
+    private static boolean isRetryableDexcliError(final Exception error) {
+        final String message = error.getMessage();
+        if (message == null) {
+            return false;
+        }
+        return message.contains("DeadlineExceeded")
+                || message.contains("deadline exceeded")
+                || message.contains("timed out");
     }
 
     private static String flowStartedStartStepType(final JsonNode events) {

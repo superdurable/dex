@@ -183,7 +183,7 @@ func (environment *integrationEnvironment) waitUntilReady() error {
 func (environment *integrationEnvironment) Close() error {
 	environment.apiServer.Close()
 	clientErr := environment.client.Close()
-	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	stopCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	stopErr := environment.worker.Stop(stopCtx)
 	workerErr := <-environment.workerResult

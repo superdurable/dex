@@ -34,7 +34,6 @@ from dex import (
 from dex_examples.patterns.interruptible.interruptible_execution_flow import (
     InterruptibleExecutionFlow,
 )
-from dex_examples.patterns.parent_child.parent_flow_v2 import ParentFlowV2
 from dex_examples.primitives.channel.channel_flow import ChannelFlow
 from dex_examples.primitives.step.step_flow import StepFlow
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
@@ -42,7 +41,7 @@ from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransf
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
 from dex_examples.shared.my_dependency_service import MyDependencyService
 from sync_examples.config import SyncExamplesConfig
-from sync_examples.patterns.parent_child.parent_child import ChildFlow
+from sync_examples.patterns.parent_child.parent_child import ChildFlow, ParentFlowV2
 
 
 class SyncExampleApp:
