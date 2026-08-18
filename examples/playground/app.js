@@ -20,14 +20,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-const STORAGE_BACKEND = "dex-playground-backend";
+const STORAGE_EXAMPLE_SERVER = "dex-playground-example-server";
 const STORAGE_DEX_WEB = "dex-playground-dex-web";
 
 const bootConfig = window.PLAYGROUND_CONFIG || {};
 const catalog = window.PLAYGROUND_CATALOG || [];
 
 const state = {
-  backend: readStored(STORAGE_BACKEND, bootConfig.backend || "http://127.0.0.1:8080"),
+  exampleServer: readStored(STORAGE_EXAMPLE_SERVER, bootConfig.exampleServer || "http://127.0.0.1:8080"),
   dexWeb: readStored(STORAGE_DEX_WEB, bootConfig.dexWeb || "http://127.0.0.1:8802"),
   flowIds: {},
   runIds: {},
@@ -144,7 +144,7 @@ function buildRequest(example, endpoint, form) {
   });
   const path = endpoint.path;
   const queryText = query.toString();
-  const url = trimSlash(state.backend) + path + (queryText ? `?${queryText}` : "");
+  const url = trimSlash(state.exampleServer) + path + (queryText ? `?${queryText}` : "");
   const init = { method: endpoint.method, headers: {} };
   if (rawJson !== null) {
     let parsed = JSON.parse(rawJson);
@@ -283,7 +283,7 @@ function render() {
       return `<section class="group"><h2 id="${group.id}">${group.title}</h2>${sections}</section>`;
     })
     .join("");
-  document.getElementById("backend-url").value = state.backend;
+  document.getElementById("example-server-url").value = state.exampleServer;
   document.getElementById("dex-web-url").value = state.dexWeb;
   catalog.forEach((example) => renderExampleLinks(example.id));
 }
@@ -394,9 +394,9 @@ function onInput(event) {
 
 function saveSettings(event) {
   event.preventDefault();
-  state.backend = document.getElementById("backend-url").value.trim();
+  state.exampleServer = document.getElementById("example-server-url").value.trim();
   state.dexWeb = document.getElementById("dex-web-url").value.trim();
-  writeStored(STORAGE_BACKEND, state.backend);
+  writeStored(STORAGE_EXAMPLE_SERVER, state.exampleServer);
   writeStored(STORAGE_DEX_WEB, state.dexWeb);
   catalog.forEach((example) => renderExampleLinks(example.id));
 }

@@ -23,12 +23,12 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")" && pwd)"
-output="$("$root/start.sh" --print-config --port 3333 --backend http://127.0.0.1:8080 --dex-web http://127.0.0.1:8802)"
+output="$("$root/start.sh" --print-config --port 3333 --example-server http://127.0.0.1:8080 --dex-web http://127.0.0.1:8802)"
 
 printf '%s\n' "$output"
 
-echo "$output" | grep -qx 'Playground: http://127.0.0.1:3333'
-echo "$output" | grep -qx 'Backend:    http://127.0.0.1:8080'
-echo "$output" | grep -qx 'Dex Web:    http://127.0.0.1:8802'
+echo "$output" | grep -qx 'Playground:     http://127.0.0.1:3333'
+echo "$output" | grep -qx 'Example server: http://127.0.0.1:8080'
+echo "$output" | grep -qx 'Dex Web:        http://127.0.0.1:8802'
 
 echo "start.sh printed the three URLs"

@@ -23,7 +23,7 @@
 set -euo pipefail
 
 port="${PLAYGROUND_PORT:-3333}"
-backend="${PLAYGROUND_BACKEND:-http://127.0.0.1:8080}"
+example_server="${PLAYGROUND_EXAMPLE_SERVER:-http://127.0.0.1:8080}"
 dex_web="${PLAYGROUND_DEX_WEB:-http://127.0.0.1:8802}"
 is_print_config=0
 bind_host="127.0.0.1"
@@ -32,13 +32,13 @@ usage() {
   cat <<'EOF'
 Usage: ./start.sh [options]
 
-  --port PORT          Playground listen port (default 3333, env PLAYGROUND_PORT)
-  --backend URL        Example backend base URL (default http://127.0.0.1:8080,
-                       env PLAYGROUND_BACKEND)
-  --dex-web URL        Dex Web base URL (default http://127.0.0.1:8802,
-                       env PLAYGROUND_DEX_WEB)
-  --print-config       Print the three URLs and exit
-  -h, --help           Show this help
+  --port PORT             Playground listen port (default 3333, env PLAYGROUND_PORT)
+  --example-server URL    Example server base URL (default http://127.0.0.1:8080,
+                          env PLAYGROUND_EXAMPLE_SERVER)
+  --dex-web URL           Dex Web base URL (default http://127.0.0.1:8802,
+                          env PLAYGROUND_DEX_WEB)
+  --print-config          Print the three URLs and exit
+  -h, --help              Show this help
 EOF
 }
 
@@ -48,8 +48,8 @@ while [[ $# -gt 0 ]]; do
       port="$2"
       shift 2
       ;;
-    --backend)
-      backend="$2"
+    --example-server)
+      example_server="$2"
       shift 2
       ;;
     --dex-web)
@@ -76,9 +76,9 @@ root="$(cd "$(dirname "$0")" && pwd)"
 playground_url="http://${bind_host}:${port}"
 
 print_urls() {
-  printf 'Playground: %s\n' "$playground_url"
-  printf 'Backend:    %s\n' "$backend"
-  printf 'Dex Web:    %s\n' "$dex_web"
+  printf 'Playground:     %s\n' "$playground_url"
+  printf 'Example server: %s\n' "$example_server"
+  printf 'Dex Web:        %s\n' "$dex_web"
 }
 
 print_urls
@@ -87,7 +87,7 @@ if [[ "$is_print_config" -eq 1 ]]; then
   exit 0
 fi
 
-python3 - "$root" "$backend" "$dex_web" <<'PY'
+python3 - "$root" "$example_server" "$dex_web" <<'PY'
 import json
 import pathlib
 import sys
@@ -95,7 +95,7 @@ import sys
 root = pathlib.Path(sys.argv[1])
 config_path = root / "config.js"
 payload = {
-    "backend": sys.argv[2],
+    "exampleServer": sys.argv[2],
     "dexWeb": sys.argv[3],
 }
 config_path.write_text(
