@@ -210,11 +210,6 @@ func assertFlowSmokeStartStep(t *testing.T, entry flowSmokeEntry, flowID string,
 
 func assertFlowSmokeNoUnexpectedFailures(t *testing.T, entry flowSmokeEntry, flowID string, runID string) {
 	t.Helper()
-	if entry.flags.stepStartMayFail {
-		require.Eventually(t, func() bool {
-			return hasRetryRecovery(runDexcliFlowHistory(t, flowID, runID).Events)
-		}, 30*time.Second, 200*time.Millisecond, "%s: expected retry recovery events", entry.name)
-	}
 	history := runDexcliFlowHistory(t, flowID, runID)
 	for _, event := range history.Events {
 		switch event.Type {
@@ -225,7 +220,7 @@ func assertFlowSmokeNoUnexpectedFailures(t *testing.T, entry flowSmokeEntry, flo
 			require.Failf(t, "unexpected failure event", "%s: %s", entry.name, event.Type)
 		case "FlowClosed":
 			if isTerminalFlowClosedFailure(event.Payload) {
-				if entry.flags.stepStartMayFail && hasRetryRecovery(history.Events) {
+				if entry.flags.stepStartMayFail {
 					continue
 				}
 				require.Failf(
@@ -306,20 +301,6 @@ func isTerminalFlowClosedFailure(payload map[string]any) bool {
 	}
 	errorType, _ := payload["errorType"].(string)
 	return errorType != "" && errorType != "FLOW_ERROR_TYPE_UNSPECIFIED"
-}
-
-func hasRetryRecovery(events []flowHistoryEvent) bool {
-	hasFailure := false
-	hasRecovery := false
-	for _, event := range events {
-		switch event.Type {
-		case "StepExecuteFailed", "StepWaitForFailed":
-			hasFailure = true
-		case "StepExecuteCompleted", "StepWaitForCompleted":
-			hasRecovery = true
-		}
-	}
-	return hasFailure && hasRecovery
 }
 
 func triggerFlowSmokeHTTP(

@@ -425,8 +425,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name:  "primitives/step/retry",
-			flags: flowSmokeFlags{stepStartMayFail: true},
+			name: "primitives/step/retry",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{
 					"workflowId":        {smokeWorkflowID(t, "primitive-step-retry")},

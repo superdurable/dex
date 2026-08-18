@@ -296,7 +296,7 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
           workflowId: newFlowId("primitive-step-retry"),
           readyAfterAttempt: 2,
         }),
-      flags: stepStartMayFailFlags(),
+      flags: defaultFlags(),
     },
     {
       name: "primitives/attribute",

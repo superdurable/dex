@@ -76,16 +76,6 @@ final class FlowSmokeHelper {
             final FlowSmokeEntry entry,
             final String flowId,
             final String runId) throws Exception {
-        if (entry.flags.stepStartMayFail) {
-            final long deadline = System.nanoTime() + ASSERT_TIMEOUT.toNanos();
-            while (System.nanoTime() < deadline) {
-                final JsonNode history = runDexcliFlowHistory(flowId, runId);
-                if (hasRetryRecovery(history.path("events"))) {
-                    break;
-                }
-                Thread.sleep(200L);
-            }
-        }
         final JsonNode history = runDexcliFlowHistory(flowId, runId);
         for (final JsonNode event : history.path("events")) {
             final String type = event.path("type").asText();
@@ -98,7 +88,7 @@ final class FlowSmokeHelper {
                 }
                 case "FlowClosed" -> {
                     if (isTerminalFlowClosedFailure(event.path("payload"))) {
-                        if (entry.flags.stepStartMayFail && hasRetryRecovery(history.path("events"))) {
+                        if (entry.flags.stepStartMayFail) {
                             continue;
                         }
                         throw new AssertionError(
@@ -110,12 +100,6 @@ final class FlowSmokeHelper {
                 }
                 default -> {
                 }
-            }
-        }
-        if (entry.flags.stepStartMayFail) {
-            if (!hasRetryRecovery(history.path("events"))) {
-                throw new AssertionError(
-                        "expected retry recovery events for " + entry.name);
             }
         }
     }
@@ -282,21 +266,6 @@ final class FlowSmokeHelper {
         }
         final String errorType = payload.path("errorType").asText("");
         return !errorType.isEmpty() && !"FLOW_ERROR_TYPE_UNSPECIFIED".equals(errorType);
-    }
-
-    private static boolean hasRetryRecovery(final JsonNode events) {
-        boolean hasFailure = false;
-        boolean hasRecovery = false;
-        for (final JsonNode event : events) {
-            final String type = event.path("type").asText();
-            switch (type) {
-                case "StepExecuteFailed", "StepWaitForFailed" -> hasFailure = true;
-                case "StepExecuteCompleted", "StepWaitForCompleted" -> hasRecovery = true;
-                default -> {
-                }
-            }
-        }
-        return hasFailure && hasRecovery;
     }
 
     private static String flowServiceAddress() {

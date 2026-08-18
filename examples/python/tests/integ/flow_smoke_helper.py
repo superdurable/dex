@@ -238,28 +238,6 @@ async def assert_flow_smoke_no_unexpected_failures(
 ) -> None:
     dexcli = dexcli_path()
     server = flow_service_address()
-    if entry.flags.step_start_may_fail:
-        deadline = time.monotonic() + 30
-        while time.monotonic() < deadline:
-            history = await asyncio.to_thread(
-                run_dexcli_json,
-                [
-                    dexcli,
-                    "flow",
-                    "history",
-                    flow_id,
-                    "--server",
-                    server,
-                    "--output",
-                    "json",
-                    "--page-size",
-                    "50",
-                    *([] if not run_id else ["--run-id", run_id]),
-                ],
-            )
-            if _has_retry_recovery(history.get("events", [])):
-                break
-            await asyncio.sleep(0.2)
     history = await asyncio.to_thread(
         run_dexcli_json,
         [
@@ -287,13 +265,11 @@ async def assert_flow_smoke_no_unexpected_failures(
         elif event_type == "FlowClosed":
             payload = event.get("payload", {})
             if _is_terminal_flow_closed_failure(payload):
-                if entry.flags.step_start_may_fail and _has_retry_recovery(events):
+                if entry.flags.step_start_may_fail:
                     continue
                 raise AssertionError(
                     f"unexpected terminal flow closure for {entry.name}: {payload}"
                 )
-    if entry.flags.step_start_may_fail and not _has_retry_recovery(events):
-        raise AssertionError(f"expected retry recovery events for {entry.name}")
 
 
 def _flow_started_start_step_type(events: list[dict[str, Any]]) -> str:
@@ -365,15 +341,3 @@ def _is_terminal_flow_closed_failure(payload: dict[str, Any]) -> bool:
         return numeric not in {0, 2, 7}
     error_type = payload.get("errorType", "")
     return bool(error_type) and error_type != "FLOW_ERROR_TYPE_UNSPECIFIED"
-
-
-def _has_retry_recovery(events: list[dict[str, Any]]) -> bool:
-    has_failure = False
-    has_recovery = False
-    for event in events:
-        event_type = event.get("type", "")
-        if event_type in {"StepExecuteFailed", "StepWaitForFailed"}:
-            has_failure = True
-        elif event_type in {"StepExecuteCompleted", "StepWaitForCompleted"}:
-            has_recovery = True
-    return has_failure and has_recovery

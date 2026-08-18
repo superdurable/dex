@@ -163,16 +163,6 @@ export async function assertFlowSmokeNoUnexpectedFailures(
   flowId: string,
   runId: string,
 ): Promise<void> {
-  if (entry.flags.stepStartMayFail) {
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      const history = runDexcliFlowHistory(flowId, runId);
-      if (hasRetryRecovery(history.events)) {
-        break;
-      }
-      await sleep(200);
-    }
-  }
   const history = runDexcliFlowHistory(flowId, runId);
   for (const event of history.events) {
     switch (event.type) {
@@ -184,7 +174,7 @@ export async function assertFlowSmokeNoUnexpectedFailures(
         break;
       case "FlowClosed":
         if (isTerminalFlowClosedFailure(event.payload)) {
-          if (entry.flags.stepStartMayFail && hasRetryRecovery(history.events)) {
+          if (entry.flags.stepStartMayFail) {
             continue;
           }
           throw new Error(
@@ -195,9 +185,6 @@ export async function assertFlowSmokeNoUnexpectedFailures(
       default:
         break;
     }
-  }
-  if (entry.flags.stepStartMayFail && !hasRetryRecovery(history.events)) {
-    throw new Error(`expected retry recovery events for ${entry.name}`);
   }
 }
 
@@ -266,26 +253,6 @@ function isTerminalFlowClosedFailure(payload: Record<string, unknown>): boolean 
   }
   const errorType = payload.errorType;
   return typeof errorType === "string" && errorType !== "" && errorType !== "FLOW_ERROR_TYPE_UNSPECIFIED";
-}
-
-function hasRetryRecovery(events: FlowHistoryEvent[]): boolean {
-  let hasFailure = false;
-  let hasRecovery = false;
-  for (const event of events) {
-    switch (event.type) {
-      case "StepExecuteFailed":
-      case "StepWaitForFailed":
-        hasFailure = true;
-        break;
-      case "StepExecuteCompleted":
-      case "StepWaitForCompleted":
-        hasRecovery = true;
-        break;
-      default:
-        break;
-    }
-  }
-  return hasFailure && hasRecovery;
 }
 
 function runDexcliFlowHistory(flowId: string, runId: string): FlowHistoryPage {

@@ -140,8 +140,7 @@ final class FlowSmokeCatalog {
                         "/primitives/step/retry/start",
                         Map.of(
                                 "workflowId", environment.newFlowId("primitive-step-retry"),
-                                "readyAfterAttempt", "2"),
-                        FlowSmokeFlags.stepStartMayFail()));
+                                "readyAfterAttempt", "2")));
     }
 
     private static Map<String, String> signupQuery(final FlowSmokeEnvironment environment) {

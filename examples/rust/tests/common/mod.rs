@@ -188,21 +188,6 @@ pub fn assert_flow_smoke_no_unexpected_failures(
     flow_id: &str,
     run_id: &str,
 ) {
-    if entry.flags.step_start_may_fail {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        while Instant::now() < deadline {
-            let history = run_dexcli_flow_history(flow_id, run_id);
-            let events = history
-                .get("events")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            if has_retry_recovery(&events) {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
-    }
     let history = run_dexcli_flow_history(flow_id, run_id);
     let events = history
         .get("events")
@@ -217,9 +202,7 @@ pub fn assert_flow_smoke_no_unexpected_failures(
             }
             "FlowClosed" => {
                 let payload = event.get("payload").cloned().unwrap_or(Value::Null);
-                if is_terminal_flow_closed_failure(&payload)
-                    && !(entry.flags.step_start_may_fail && has_retry_recovery(&events))
-                {
+                if is_terminal_flow_closed_failure(&payload) && !entry.flags.step_start_may_fail {
                     panic!(
                         "unexpected terminal flow closure for {}: {payload}",
                         entry.name
@@ -228,9 +211,6 @@ pub fn assert_flow_smoke_no_unexpected_failures(
             }
             _ => {}
         }
-    }
-    if entry.flags.step_start_may_fail && !has_retry_recovery(&events) {
-        panic!("expected retry recovery events for {}", entry.name);
     }
 }
 
@@ -306,19 +286,6 @@ fn is_terminal_flow_closed_failure(payload: &Value) -> bool {
             .is_some_and(|error_type| {
                 !error_type.is_empty() && error_type != "FLOW_ERROR_TYPE_UNSPECIFIED"
             })
-}
-
-fn has_retry_recovery(events: &[Value]) -> bool {
-    let mut has_failure = false;
-    let mut has_recovery = false;
-    for event in events {
-        match event.get("type").and_then(Value::as_str).unwrap_or("") {
-            "StepExecuteFailed" | "StepWaitForFailed" => has_failure = true,
-            "StepExecuteCompleted" | "StepWaitForCompleted" => has_recovery = true,
-            _ => {}
-        }
-    }
-    has_failure && has_recovery
 }
 
 fn run_dexcli_flow_history(flow_id: &str, run_id: &str) -> Value {

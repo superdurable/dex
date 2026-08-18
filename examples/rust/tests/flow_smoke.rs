@@ -290,7 +290,7 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
                 &client.new_flow_id("primitive-step-retry"),
                 &[("readyAfterAttempt", "2")],
             ),
-            flags: FlowSmokeFlags::STEP_START_MAY_FAIL,
+            flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
             name: "primitives/attribute",

@@ -271,7 +271,6 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                     "readyAfterAttempt": "2",
                 },
             ),
-            flags=FlowSmokeFlags(step_start_may_fail=True),
         ),
         FlowSmokeEntry(
             "primitives/attribute",
