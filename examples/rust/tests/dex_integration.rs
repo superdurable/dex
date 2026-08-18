@@ -26,14 +26,17 @@ use dex_examples_rust::products::microservices::{
     ORCHESTRATION_READY, ORCHESTRATION_SWAP, OrchestrationFlow,
 };
 use dex_examples_rust::products::money_transfer::{MoneyTransferFlow, TransferRequest};
+use dex_examples_rust::products::order_processing::{
+    Charge, ORDER_APPROVE, OrderProcessingFlow, OrderRequest, SELLER_REMINDER_TIMER, Ship,
+};
 use dex_examples_rust::products::polling::{POLLING_COMPLETE_TASK, PollingFlow};
 use dex_examples_rust::products::subscription::{
     SUBSCRIPTION_CANCEL, SUBSCRIPTION_DESCRIBE, SUBSCRIPTION_UPDATE_CHARGE, SubscriptionFlow,
     SubscriptionRequest, SubscriptionState,
 };
 use dex_sdk::{
-    Attribute, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult, Worker,
-    WorkerOptions,
+    Attribute, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult,
+    StepExecutionId, TimerId, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 
@@ -171,6 +174,133 @@ fn money_transfer_completes_with_released_sdk() {
             .status,
         FlowStatus::Completed
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn order_processing_happy_path() {
+    let environment = DexEnvironment::start();
+    let flow_id = unique_flow_id("order-processing");
+    start_order_processing(&environment, &flow_id, false);
+    environment
+        .client
+        .wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&Charge),
+            Duration::from_secs(30),
+        )
+        .expect("wait for Rust Order Processing ChargeStep");
+    let approved: String = environment
+        .client
+        .invoke_rpc(&flow_id, ORDER_APPROVE, String::new())
+        .expect("approve Rust Order Processing Flow");
+    assert_eq!(approved, "ok");
+    let output: String = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
+        .expect("complete Rust Order Processing Flow")
+        .single_output()
+        .expect("decode Rust Order Processing output");
+    assert_eq!(output, format!("shipped:{flow_id}"));
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn order_processing_reminder_then_ship() {
+    let environment = DexEnvironment::start();
+    let flow_id = unique_flow_id("order-processing-reminder");
+    start_order_processing(&environment, &flow_id, false);
+    environment
+        .client
+        .wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&Charge),
+            Duration::from_secs(30),
+        )
+        .expect("wait for Rust Order Processing ChargeStep");
+    skip_seller_reminder(&environment, &flow_id);
+    environment
+        .client
+        .wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&Ship),
+            Duration::from_secs(30),
+        )
+        .expect("wait for Rust Order Processing reminder ShipStep");
+    let approved: String = environment
+        .client
+        .invoke_rpc(&flow_id, ORDER_APPROVE, String::new())
+        .expect("approve Rust Order Processing Flow after reminder");
+    assert_eq!(approved, "ok");
+    let output: String = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
+        .expect("complete Rust Order Processing Flow after reminder")
+        .single_output()
+        .expect("decode Rust Order Processing output after reminder");
+    assert_eq!(output, format!("shipped:{flow_id}"));
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn order_processing_ship_failure_refunds() {
+    let environment = DexEnvironment::start();
+    let flow_id = unique_flow_id("order-processing-refund");
+    start_order_processing(&environment, &flow_id, true);
+    environment
+        .client
+        .wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&Charge),
+            Duration::from_secs(30),
+        )
+        .expect("wait for Rust Order Processing ChargeStep");
+    let approved: String = environment
+        .client
+        .invoke_rpc(&flow_id, ORDER_APPROVE, String::new())
+        .expect("approve Rust Order Processing Flow for refund");
+    assert_eq!(approved, "ok");
+    let output: String = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(45))
+        .expect("complete Rust Order Processing refund Flow")
+        .single_output()
+        .expect("decode Rust Order Processing refund output");
+    assert_eq!(output, format!("refunded:{flow_id}"));
+}
+
+fn start_order_processing(environment: &DexEnvironment, flow_id: &str, fail_ship: bool) {
+    environment
+        .client
+        .start_flow(
+            &OrderProcessingFlow::default(),
+            flow_id,
+            OrderRequest {
+                order_id: flow_id.to_string(),
+                email: "buyer@example.com".to_string(),
+                customer_id: "customer-1".to_string(),
+                amount: 42,
+                fail_ship,
+            },
+        )
+        .expect("start Rust Order Processing Flow");
+}
+
+fn skip_seller_reminder(environment: &DexEnvironment, flow_id: &str) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut last_error = None;
+    while Instant::now() < deadline {
+        match environment.client.skip_timer(
+            flow_id,
+            StepExecutionId::of(&Ship),
+            TimerId::by_condition_id(SELLER_REMINDER_TIMER),
+        ) {
+            Ok(()) => return,
+            Err(error) => last_error = Some(error),
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    panic!("skip timer did not succeed: {last_error:?}");
 }
 
 #[test]

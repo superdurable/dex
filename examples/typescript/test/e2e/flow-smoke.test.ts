@@ -78,6 +78,11 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "products/order-processing",
+      trigger: () => triggerGet(context, "/products/order-processing/start"),
+      flags: defaultFlags(),
+    },
+    {
       name: "products/polling",
       trigger: () =>
         triggerGet(context, "/products/polling/start", {

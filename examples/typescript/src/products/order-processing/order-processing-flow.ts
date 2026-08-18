@@ -113,7 +113,7 @@ class ShipStep implements Step<OrderRequest> {
 
   public getStepOptions() {
     return {
-      executeRetry: { initialIntervalMs: 10, maximumAttempts: 2 },
+      executeRetry: { initialIntervalMs: 1000, maximumAttempts: 2 },
       executeFailure: ExecuteFailure.proceedTo(this.flow.refund, {
         executeRetry: { maximumAttempts: 3 },
       }),

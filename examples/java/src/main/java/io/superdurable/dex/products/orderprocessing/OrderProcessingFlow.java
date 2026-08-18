@@ -119,7 +119,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            .initialInterval(Duration.ofMillis(10))
+                            .initialInterval(Duration.ofSeconds(1))
                             .maximumAttempts(2)
                             .build())
                     .onExecuteFailureProceedTo(

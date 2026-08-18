@@ -40,7 +40,7 @@ from dex_examples.products.order_processing.order_request import OrderRequest
 
 SELLER_REMINDER_TIMER = "seller-reminder"
 SHIP_RETRY = RetryPolicy(
-    initial_interval=timedelta(milliseconds=10),
+    initial_interval=timedelta(seconds=1),
     maximum_attempts=2,
 )
 CHARGE_RETRY = RetryPolicy(maximum_attempts=3)
