@@ -130,6 +130,12 @@ class OrderProcessingFlow(Flow[OrderRequest]):
   <SdkSnippet lang="go">
 
 ```go
+func (chargeStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 3},
+	}
+}
+
 func (step chargeStep) Execute(
 	ctx dex.Context,
 	order OrderRequest,
@@ -139,6 +145,21 @@ func (step chargeStep) Execute(
 		return nil, err
 	}
 	return dex.GoTo(shipStep{}, order), nil
+}
+
+func (shipStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval: 10 * time.Millisecond,
+			MaximumAttempts: 2,
+		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(
+			refundStep{},
+			&dex.StepOptions{
+				ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 3},
+			},
+		),
+	}
 }
 
 func (shipStep) WaitFor(
@@ -172,6 +193,41 @@ func (step shipStep) Execute(
 	return dex.GracefulComplete("shipped:" + order.OrderID), nil
 }
 
+func (step refundStep) Execute(
+	ctx dex.Context,
+	order OrderRequest,
+) (*dex.StepDecision, error) {
+	step.service.UpdateExternalSystem("refund " + order.OrderID)
+	if err := OrderStatus.Set(ctx, "refunded"); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("refunded:" + order.OrderID), nil
+}
+
+type OrderProcessingFlow struct {
+	dex.FlowDefaults
+	service service.MyService
+}
+
+func NewOrderProcessingFlow(applicationService service.MyService) *OrderProcessingFlow {
+	return &OrderProcessingFlow{service: applicationService}
+}
+
+func (flow *OrderProcessingFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(chargeStep{service: flow.service}),
+		dex.DefineStep(shipStep{service: flow.service}),
+		dex.DefineStep(refundStep{service: flow.service}),
+	}
+}
+
+func (*OrderProcessingFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{OrderStatus},
+		Channels:   []dex.ChannelDef{SellerOK},
+	}
+}
+
 func (*OrderProcessingFlow) Approve(
 	ctx dex.Context,
 	_ string,
@@ -181,48 +237,126 @@ func (*OrderProcessingFlow) Approve(
 	}
 	return &dex.RPCResult[string]{Output: "ok"}, nil
 }
+
+func (*OrderProcessingFlow) Describe(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[string], error) {
+	status, err := OrderStatus.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: status}, nil
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-final class ChargeStep implements Step<OrderRequest> {
-    @Override
-    public StepDecision execute(final Context context, final OrderRequest order) {
-        service.chargeUser(order.email, order.customerId, order.amount);
-        orderStatus.set(context, "charged");
-        return StepDecision.goTo(ship, order);
-    }
-}
+public class OrderProcessingFlow implements Flow<OrderRequest> {
+    public final Attribute<String> orderStatus = Attribute.define(
+            "order-status",
+            String.class,
+            new AttributeIndex(AttributeIndex.Type.KEYWORD));
+    public final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
 
-final class ShipStep implements Step<OrderRequest> {
-    @Override
-    public Wait waitFor(final Context context, final OrderRequest order) {
-        return Wait.anyOf(
-                sellerOk.forOne(),
-                Timer.byDuration(Duration.ofHours(24), SELLER_REMINDER_TIMER));
+    private final MyDependencyService service;
+    private final ChargeStep charge = new ChargeStep();
+    private final ShipStep ship = new ShipStep();
+    private final RefundStep refund = new RefundStep();
+
+    public OrderProcessingFlow(final MyDependencyService service) {
+        this.service = service;
     }
 
     @Override
-    public StepDecision execute(final Context context, final OrderRequest order) {
-        if (context.hasTimerFired()) {
-            service.sendEmail(
-                    order.email,
-                    "Reminder: approve shipment",
-                    "Please approve or provide a tracking number.");
+    public StepList<OrderRequest> getSteps() {
+        return StepList.startStep(charge).otherSteps(ship, refund);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(orderStatus, sellerOk);
+    }
+
+    @RPC
+    public RPCResult<String> approve(final Context context, final String note) {
+        sellerOk.publish(context, "approved");
+        return RPCResult.of("ok");
+    }
+
+    @RPC
+    public RPCResult<String> describe(final Context context) {
+        return RPCResult.of(orderStatus.get(context));
+    }
+
+    final class ChargeStep implements Step<OrderRequest> {
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .executeRetry(RetryPolicy.newBuilder()
+                            .maximumAttempts(3)
+                            .build())
+                    .build();
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final OrderRequest order) {
+            service.chargeUser(order.email, order.customerId, order.amount);
+            orderStatus.set(context, "charged");
+            return StepDecision.goTo(ship, order);
+        }
+    }
+
+    final class ShipStep implements Step<OrderRequest> {
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .executeRetry(RetryPolicy.newBuilder()
+                            .initialInterval(Duration.ofSeconds(1))
+                            .maximumAttempts(2)
+                            .build())
+                    .onExecuteFailureProceedTo(
+                            refund,
+                            StepOptions.newBuilder()
+                                    .executeRetry(RetryPolicy.newBuilder()
+                                            .maximumAttempts(3)
+                                            .build())
+                                    .build())
+                    .build();
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final OrderRequest order) {
+            return Wait.anyOf(
+                    sellerOk.forOne(),
+                    Timer.byDuration(Duration.ofHours(24), SELLER_REMINDER_TIMER));
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final OrderRequest order) {
+            if (context.hasTimerFired()) {
+                service.sendEmail(
+                        order.email,
+                        "Reminder: approve shipment",
+                        "Please approve or provide a tracking number.");
                 return StepDecision.goTo(ship, order);
             }
             service.shipItem(order.orderId, order.testFailAtShipping);
             orderStatus.set(context, "shipped");
-        return StepDecision.gracefulComplete("shipped:" + order.orderId);
+            return StepDecision.gracefulComplete("shipped:" + order.orderId);
+        }
     }
-}
 
-@RPC
-public RPCResult<String> approve(final Context context, final String note) {
-    sellerOk.publish(context, "approved");
-    return RPCResult.of("ok");
+    final class RefundStep implements Step<OrderRequest> {
+        @Override
+        public StepDecision execute(final Context context, final OrderRequest order) {
+            service.updateExternalSystem("refund " + order.orderId);
+            orderStatus.set(context, "refunded");
+            return StepDecision.gracefulComplete("refunded:" + order.orderId);
+        }
+    }
 }
 ```
 
@@ -231,6 +365,12 @@ public RPCResult<String> approve(final Context context, final String note) {
 
 ```typescript
 class ChargeStep implements Step<OrderRequest> {
+  public constructor(private readonly flow: OrderProcessingFlow) {}
+
+  public getStepOptions() {
+    return { executeRetry: { maximumAttempts: 3 } };
+  }
+
   public execute(context: Context, input: OrderRequest): StepDecision {
     this.flow.service.chargeUser(input.email, input.customerId, input.amount);
     this.flow.orderStatus.set(context, "charged");
@@ -239,6 +379,17 @@ class ChargeStep implements Step<OrderRequest> {
 }
 
 class ShipStep implements Step<OrderRequest> {
+  public constructor(private readonly flow: OrderProcessingFlow) {}
+
+  public getStepOptions() {
+    return {
+      executeRetry: { initialIntervalMs: 1000, maximumAttempts: 2 },
+      executeFailure: ExecuteFailure.proceedTo(this.flow.refund, {
+        executeRetry: { maximumAttempts: 3 },
+      }),
+    };
+  }
+
   public waitFor(_context: Context, _input: OrderRequest): Wait {
     return Wait.anyOf(
       this.flow.sellerOk.forOne(),
@@ -261,10 +412,49 @@ class ShipStep implements Step<OrderRequest> {
   }
 }
 
-@rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
-public approve(context: Context, _note: string): RPCResult<string> {
-  this.sellerOk.publish(context, "approved");
-  return { output: "ok" };
+class RefundStep implements Step<OrderRequest> {
+  public constructor(private readonly flow: OrderProcessingFlow) {}
+
+  public execute(context: Context, input: OrderRequest): StepDecision {
+    this.flow.service.updateExternalSystem(`refund ${input.orderId}`);
+    this.flow.orderStatus.set(context, "refunded");
+    return gracefulComplete(`refunded:${input.orderId}`);
+  }
+}
+
+export class OrderProcessingFlow implements Flow<OrderRequest> {
+  public readonly orderStatus = new Attribute("order-status", stringCodec, {
+    type: IndexType.KEYWORD,
+  });
+  public readonly sellerOk = new Channel("seller-ok", stringCodec);
+
+  public readonly charge = new ChargeStep(this);
+  public readonly ship = new ShipStep(this);
+  public readonly refund = new RefundStep(this);
+
+  public constructor(public readonly service: MyDependencyService = myDependencyService) {}
+
+  public getSteps() {
+    return StepList.startStep(this.charge).otherSteps(this.ship, this.refund);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {
+      attributes: [this.orderStatus],
+      channels: [this.sellerOk],
+    };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+  public approve(context: Context, _note: string): RPCResult<string> {
+    this.sellerOk.publish(context, "approved");
+    return { output: "ok" };
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public describe(context: Context): RPCResult<string> {
+    return { output: this.orderStatus.get(context) };
+  }
 }
 ```
 
