@@ -84,4 +84,12 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 
 ## Primitives
 
-One minimal example under [`primitives/step/`](./src/main/java/io/superdurable/dex/primitives/step).
+Minimal examples under [`primitives/`](./src/main/java/io/superdurable/dex/primitives):
+
+- [Step](./src/main/java/io/superdurable/dex/primitives/step)
+- [Attribute](./src/main/java/io/superdurable/dex/primitives/attribute)
+- [Timer](./src/main/java/io/superdurable/dex/primitives/timer)
+- [Channel](./src/main/java/io/superdurable/dex/primitives/channel)
+- [RPC](./src/main/java/io/superdurable/dex/primitives/rpc)
+- [SubFlow](./src/main/java/io/superdurable/dex/primitives/subflow)
+- [Client APIs](./src/main/java/io/superdurable/dex/primitives/clientapis)

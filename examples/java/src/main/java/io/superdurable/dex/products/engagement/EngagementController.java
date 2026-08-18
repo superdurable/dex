@@ -17,6 +17,7 @@
 package io.superdurable.dex.products.engagement;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.SearchFlowsPage;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -83,5 +84,10 @@ public class EngagementController {
             @RequestParam(defaultValue = "") final String notes) {
         final EngagementFlow stub = client.newRpcStub(EngagementFlow.class, workflowId);
         return ResponseEntity.ok(client.invokeRPC(stub::accept, notes));
+    }
+
+    @GetMapping("/list")
+    public ResponseEntity<SearchFlowsPage> list(@RequestParam final String query) {
+        return ResponseEntity.ok(client.searchFlows(query, 100, ""));
     }
 }

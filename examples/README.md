@@ -111,7 +111,7 @@ prefixes (cron schedule and some Worker-only examples have no HTTP surface):
 | **primitives** | One minimal example per Dex primitive | `/primitives/<kebab-name>/...` |
 
 Shared primitives are step, attribute, channel, timer, rpc, subflow, and
-client-apis. Java currently ships the step primitive.
+client-apis.
 
 | Path | Role |
 |------|------|

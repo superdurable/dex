@@ -140,7 +140,41 @@ final class FlowSmokeCatalog {
                         "/primitives/step/retry/start",
                         Map.of(
                                 "workflowId", environment.newFlowId("primitive-step-retry"),
-                                "readyAfterAttempt", "2")));
+                                "readyAfterAttempt", "2")),
+                FlowSmokeEntry.get(
+                        "primitives/attribute",
+                        "/primitives/attribute/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-attribute"),
+                                "message", "smoke")),
+                FlowSmokeEntry.get(
+                        "primitives/channel",
+                        "/primitives/channel/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-channel"),
+                                "inputNum", "1")),
+                FlowSmokeEntry.get(
+                        "primitives/timer",
+                        "/primitives/timer/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-timer"),
+                                "seconds", "1")),
+                FlowSmokeEntry.get(
+                        "primitives/rpc",
+                        "/primitives/rpc/start",
+                        Map.of("workflowId", environment.newFlowId("primitive-rpc"))),
+                FlowSmokeEntry.get(
+                        "primitives/subflow",
+                        "/primitives/subflow/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-subflow"),
+                                "inputNum", "1")),
+                FlowSmokeEntry.get(
+                        "primitives/client-apis",
+                        "/primitives/client-apis/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-client-apis"),
+                                "keyword", "smoke")));
     }
 
     private static Map<String, String> signupQuery(final FlowSmokeEnvironment environment) {
