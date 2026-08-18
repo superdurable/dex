@@ -11,7 +11,7 @@ npm install
 npm start
 ```
 
-Build:
+`npm start` only serves English. The language switcher needs both locales, so use a production build:
 
 ```bash
 npm run build
