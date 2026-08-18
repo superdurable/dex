@@ -7,15 +7,14 @@ Channels, and call RPCs locally.
 You only need **two small steps**:
 
 1. Start Dex **and** one language example server.
-2. Start the examples playground, pointed at the Dex Web and example-server
-   ports from step 1.
+2. Start the examples playground, pointed at the example-server HTTP port
+   and the Dex web UI port printed in step 1.
 
 ## Step 1 — Dex and one example server
 
 In one terminal, start Dex. In another, start **one** language application.
-`dexcli dev` listens on flow service `8801` and Dex Web `8802`. It stores
-local Temporal state in `$HOME/.dex/dev/<temporal-port>/dex.sqlite.db`; you do
-not need `--temporal-db-filename`.
+`dexcli dev` starts a Dex server with a web UI. Ports are dynamic; use the
+addresses it prints.
 
 Pick a language. Commands match that language's README.
 
@@ -65,17 +64,16 @@ dexcli dev
 cargo run --locked
 ```
 
-Default ports:
+Default example-server ports:
 
 | Service | Default |
 |---------|---------|
 | Example HTTP | `8080` (Python sync `8081`) |
 | Example Worker | `8803` (Python sync `8804`) |
-| Dex flow service | `8801` |
-| Dex Web | `8802` (`dexcli dev`) |
 
-Only one language backend can bind HTTP `8080` / Worker `8803` at a time.
-Python sync uses `8081` / `8804`, so it can run alongside another language.
+Dex ports are whatever `dexcli dev` prints. Only one language backend can bind
+HTTP `8080` / Worker `8803` at a time. Python sync uses `8081` / `8804`, so it
+can run alongside another language.
 
 Each language README lists env overrides for those addresses. Dataset Deal
 (Go) also needs PostgreSQL; see the [Go README](go/README.md). Entity Store
@@ -85,18 +83,19 @@ needs PostgreSQL plus `dexcli dev --attribute-store-config`; see
 ## Step 2 — Examples playground
 
 From [`playground/`](playground/) ([README](playground/README.md)), point the
-page at the example HTTP port and Dex Web port from step 1:
+page at the example HTTP port and the Dex web UI port from step 1:
 
 ```bash
 ./start.sh --port 3333 --backend http://127.0.0.1:8080 --dex-web http://127.0.0.1:8802
 ```
 
-For Python sync, pass `--backend http://127.0.0.1:8081`. `./start.sh` with no
-flags uses those same defaults (`8080` / `8802` / playground `3333`).
+Replace `8802` with the web UI port printed by `dexcli dev`. For Python sync,
+pass `--backend http://127.0.0.1:8081`. `./start.sh` with no flags defaults
+the backend to `8080` and the playground to `3333`; still pass `--dex-web`
+with the printed port.
 
 Open [http://127.0.0.1:3333](http://127.0.0.1:3333). You can also change the
-backend and Dex Web URLs in the page header. Use Dex Web at
-[http://127.0.0.1:8802](http://127.0.0.1:8802) to inspect runs.
+backend and Dex web UI URLs in the page header.
 
 Go-only [Dataset Deal](go/products/dataset-deal/) and Python-only
 [AI Agent Email](python/ai-agent-email/) have their own UIs; they are not on
