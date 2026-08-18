@@ -120,7 +120,7 @@ export function parseFlowTriggerResponse(
     return { flowId: trimmed.slice("started workflowId: ".length), runId: "" };
   }
   if (workflowIdFromQuery) {
-    return { flowId: workflowIdFromQuery, runId: trimmed };
+    return { flowId: workflowIdFromQuery, runId: "" };
   }
   return { flowId: "", runId: trimmed };
 }

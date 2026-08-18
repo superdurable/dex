@@ -116,7 +116,7 @@ def parse_flow_trigger_response(body: str, workflow_id_from_query: str) -> tuple
     if trimmed.startswith("started workflowId: "):
         return trimmed.removeprefix("started workflowId: "), ""
     if workflow_id_from_query:
-        return workflow_id_from_query, trimmed
+        return workflow_id_from_query, ""
     return "", trimmed
 
 

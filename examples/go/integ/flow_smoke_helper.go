@@ -396,7 +396,7 @@ func parseFlowTriggerResponse(body string, workflowIDFromQuery string) (flowID s
 		return strings.TrimPrefix(trimmed, "started workflowId: "), ""
 	}
 	if workflowIDFromQuery != "" {
-		return workflowIDFromQuery, trimmed
+		return workflowIDFromQuery, ""
 	}
 	return "", trimmed
 }

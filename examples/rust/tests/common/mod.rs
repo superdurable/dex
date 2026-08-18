@@ -138,7 +138,7 @@ pub fn parse_flow_trigger_response(
     if !workflow_id_from_query.is_empty() {
         return FlowSmokeTriggerResult {
             flow_id: workflow_id_from_query.to_string(),
-            run_id: trimmed.to_string(),
+            run_id: String::new(),
         };
     }
     FlowSmokeTriggerResult {

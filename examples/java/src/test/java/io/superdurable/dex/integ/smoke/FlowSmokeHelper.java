@@ -140,7 +140,7 @@ final class FlowSmokeHelper {
             return new FlowSmokeTriggerResult(trimmed.substring("started workflowId: ".length()), "");
         }
         if (workflowIdFromQuery != null && !workflowIdFromQuery.isEmpty()) {
-            return new FlowSmokeTriggerResult(workflowIdFromQuery, trimmed);
+            return new FlowSmokeTriggerResult(workflowIdFromQuery, "");
         }
         return new FlowSmokeTriggerResult("", trimmed);
     }
