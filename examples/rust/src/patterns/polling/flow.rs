@@ -43,10 +43,6 @@ pub struct SimplePollingFlow {
 impl Flow for SimplePollingFlow {
     type StartInput = u32;
 
-    fn flow_type(&self) -> &'static str {
-        "SimplePollingFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.poll)
     }
@@ -82,10 +78,6 @@ pub struct BackoffPollingFlow {
 
 impl Flow for BackoffPollingFlow {
     type StartInput = u32;
-
-    fn flow_type(&self) -> &'static str {
-        "BackoffPollingFlow"
-    }
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.poll)

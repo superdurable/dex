@@ -31,10 +31,6 @@ pub struct ClientApisFlow {
 impl Flow for ClientApisFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "ClientApisFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.index)
     }

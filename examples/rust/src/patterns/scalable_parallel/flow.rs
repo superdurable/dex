@@ -41,10 +41,6 @@ pub struct ChildFlow {
 impl Flow for ChildFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "ChildFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.process)
     }
@@ -89,10 +85,6 @@ impl ParentFlow {
 
 impl Flow for ParentFlow {
     type StartInput = usize;
-
-    fn flow_type(&self) -> &'static str {
-        "ParentFlow"
-    }
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.drain)
@@ -149,10 +141,6 @@ impl RequestReceiverFlow {
 
 impl Flow for RequestReceiverFlow {
     type StartInput = ();
-
-    fn flow_type(&self) -> &'static str {
-        "RequestReceiverFlow"
-    }
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.forward)

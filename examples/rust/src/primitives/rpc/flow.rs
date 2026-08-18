@@ -44,10 +44,6 @@ impl RpcFlow {
 impl Flow for RpcFlow {
     type StartInput = i32;
 
-    fn flow_type(&self) -> &'static str {
-        "RpcFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.wait).and(&self.complete)
     }

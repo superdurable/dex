@@ -42,10 +42,6 @@ pub struct DrainInternalChannelsFlow {
 impl Flow for DrainInternalChannelsFlow {
     type StartInput = Vec<String>;
 
-    fn flow_type(&self) -> &'static str {
-        "DrainInternalChannelsFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.seed).and(&self.drain)
     }
@@ -109,10 +105,6 @@ impl DrainSignalChannelsFlow {
 
 impl Flow for DrainSignalChannelsFlow {
     type StartInput = ();
-
-    fn flow_type(&self) -> &'static str {
-        "DrainSignalChannelsFlow"
-    }
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.drain)

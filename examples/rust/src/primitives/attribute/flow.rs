@@ -28,10 +28,6 @@ pub struct AttributeFlow {
 impl Flow for AttributeFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "AttributeFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start)
     }

@@ -78,10 +78,6 @@ impl JobPostFlow {
 impl Flow for JobPostFlow {
     type StartInput = JobPost;
 
-    fn flow_type(&self) -> &'static str {
-        "JobPostFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.create)
     }

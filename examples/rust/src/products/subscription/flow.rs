@@ -78,10 +78,6 @@ impl SubscriptionFlow {
 impl Flow for SubscriptionFlow {
     type StartInput = SubscriptionRequest;
 
-    fn flow_type(&self) -> &'static str {
-        "SubscriptionFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.welcome)
             .and(&self.billing)

@@ -61,10 +61,6 @@ impl OrchestrationFlow {
 impl Flow for OrchestrationFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "OrchestrationFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.call_api_one)
             .and(&self.call_api_two)

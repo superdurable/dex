@@ -55,10 +55,6 @@ impl WaitForStateCompletionFlow {
 impl Flow for WaitForStateCompletionFlow {
     type StartInput = PersistRequest;
 
-    fn flow_type(&self) -> &'static str {
-        "WaitForStateCompletionFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.persist_data).and(&self.background_work)
     }

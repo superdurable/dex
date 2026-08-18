@@ -54,10 +54,6 @@ pub struct MoneyTransferFlow {
 impl Flow for MoneyTransferFlow {
     type StartInput = TransferRequest;
 
-    fn flow_type(&self) -> &'static str {
-        "MoneyTransferFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.check_balance)
             .and(&self.debit)

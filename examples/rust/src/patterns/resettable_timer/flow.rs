@@ -51,10 +51,6 @@ impl ResettableTimerFlow {
 impl Flow for ResettableTimerFlow {
     type StartInput = u64;
 
-    fn flow_type(&self) -> &'static str {
-        "ResettableTimerFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.wait)
     }

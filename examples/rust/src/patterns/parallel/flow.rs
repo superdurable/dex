@@ -43,10 +43,6 @@ pub struct SimpleParallelStatesFlow {
 impl Flow for SimpleParallelStatesFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "SimpleParallelStatesFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.fork)
             .and(&self.branch_one)
@@ -112,10 +108,6 @@ impl ParallelStatesWithAwaitFlow {
 
 impl Flow for ParallelStatesWithAwaitFlow {
     type StartInput = ();
-
-    fn flow_type(&self) -> &'static str {
-        "ParallelStatesWithAwaitFlow"
-    }
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.fork)

@@ -42,10 +42,6 @@ pub struct FailureRecoveryFlow {
 impl Flow for FailureRecoveryFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "FailureRecoveryFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.reserve).and(&self.compensate)
     }

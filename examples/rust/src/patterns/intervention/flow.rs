@@ -50,10 +50,6 @@ impl ManualInterventionFlow {
 impl Flow for ManualInterventionFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "ManualInterventionFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.risky_operation).and(&self.await_approval)
     }
