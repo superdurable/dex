@@ -15,20 +15,20 @@
 use std::time::Duration;
 
 use axum::{
+    Router,
     extract::{Query, State},
     response::IntoResponse,
     routing::get,
-    Router,
 };
 use dex_sdk::StepExecutionId;
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::products::order_processing::flow::{
-    Charge, OrderProcessingFlow, OrderRequest, ORDER_APPROVE, ORDER_DESCRIBE,
+    Charge, ORDER_APPROVE, ORDER_DESCRIBE, OrderProcessingFlow, OrderRequest,
 };
 use crate::server::helpers::{
-    map_sdk_error, new_flow_id, ok_json, run_blocking, SharedClient, StartResponse,
+    SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
 };
 
 #[derive(Deserialize)]
