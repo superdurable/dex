@@ -55,6 +55,7 @@ after E2E tests for manual HTTP exploration.
 ## Products
 
 - [Money transfer](./src/main/java/io/superdurable/dex/products/moneytransfer)
+- [Order processing](./src/main/java/io/superdurable/dex/products/orderprocessing)
 - [Microservice orchestration](./src/main/java/io/superdurable/dex/products/microservices)
 - [Engagement](./src/main/java/io/superdurable/dex/products/engagement)
 - [Subscription](./src/main/java/io/superdurable/dex/products/subscription)

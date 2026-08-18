@@ -4,170 +4,296 @@ title: What is Dex?
 sidebar_label: What is Dex?
 ---
 
-import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
-
 # What is Dex?
 
-Note: If you have not read [What is Durable Execution?](/intro/what-is-durable-execution), this page uses the order processing example from there.
+Dex is a **Durable Execution** engine. You write a **Flow** as ordinary application objects: **Steps**, **Attributes**, **Channels**, **Timers**, and **RPCs**. A **Worker** hosts your Step and RPC handlers as normal code. Dex Server keeps the control-flow decisions durable.
 
-Dex is a **Durable Execution**(D-Ex) platform.
+A **Step** can **WaitFor** (Channel, Timer, or both) and then **Execute**. Execute returns the next Step, completes, fails, or loops. **Attribute** holds durable data. **Channel** carries messages into a running Flow. **Timer** is a durable deadline. **RPC** lets outside code read or write while the Flow is running.
 
-## Structural, not replay-based
+If you have not read [What is Durable Execution?](/intro/what-is-durable-execution), this page uses the order-processing example from there.
 
-Dex programs are **Flows**: ordinary application objects made of **Steps**, **Attributes**, **Channels**, **Timers**, and **RPCs**. A Worker hosts your Step and RPC handlers as normal code. Dex Server keeps control-flow decisions durable on Temporal or Cadence — without forcing you to write event-sourced workflow functions.
+## Order processing as a Flow
 
-| | Temporal / Cadence workflow code | Dex |
-| --- | --- | --- |
-| Shape | Event-sourced functions + activities | Structural Steps, Attributes, Channels, RPCs |
-| App code | Must replay history | Worker handlers are plain code |
-| Waits, RPC, locking | Composed from SDK primitives | Built into the Flow model |
-| Engine | Workflow runtime | Dex interpreter on Temporal or Cadence |
-
-## Charge → approval → ship in Dex
-
-Same order flow from the previous page — charge, wait for seller approval (with reminders), then ship with rollback on failure.
-
-<ExecutionApproachDiagram approach="dex" />
-
-### Flow shape
+Same flow: charge, wait for seller approval (with reminders), ship, refund if ship retries exhaust.
 
 ```text
-Start → ChargeStep → ApprovalStep → ShipStep → complete
-                      ↑ timer / seller RPC
+Start → ChargeStep → ShipStep → complete
+                       | wait: seller Channel OR Timer
+                       | timer → reminder, loop wait
+                       | approval → Execute ship
+                       | ship retry exhausted → RefundStep
 ```
 
-- **ChargeStep** calls the payment API with Step-level retry. On success, move to ApprovalStep.
-- **ApprovalStep** waits for a seller **Channel** message or a **Timer**. If the timer fires first, send a reminder and keep waiting.
-- **ShipStep** calls fulfillment. If retries exhaust, move to **RefundStep** (compensation).
-- **RPC `waitUntilCharged`** lets the storefront API block until ChargeStep completes.
-- **Attribute `orderStatus`** is indexed so support can search stuck orders.
+- **ChargeStep** calls the payment API with Step-level retry. On success, move to ShipStep atomically.
+- **ShipStep** waits for a seller **Channel** or a **Timer**. Timer first: send a reminder and keep waiting. Approval: ship. Exhausted ship retries: **RefundStep**.
+- **RPC `approve`** publishes the seller Channel.
+- The storefront uses the Client **wait-for-Step-completion** API on ChargeStep — not a homemade status poll.
+- **Attribute `order-status`** is indexed so support can search stuck orders.
 
-### Code
+Runnable code: [`examples/go/products/order-processing`](https://github.com/superdurable/dex/tree/main/examples/go/products/order-processing), plus the same product under `examples/java`, `examples/python`, `examples/typescript`, and `examples/rust`. HTTP prefix `/products/order-processing/...`. Try it from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) (`id: order-processing`).
+
+The snippets below are copied from those example files.
 
 <SdkTabs>
 <SdkSnippet lang="python">
 
 ```python
-from datetime import timedelta
-from dex import Attribute, AttributeIndex, Channel, Context, Flow, IndexType, PersistenceSchema, RPCResult
-from dex import Step, StepDecision, StepList, Timer, Wait, go_to, graceful_complete, rpc
+class ChargeStep(Step[OrderRequest]):
+    def __init__(self, flow: "OrderProcessingFlow") -> None:
+        self.flow = flow
 
-class ChargeStep(Step[str]):
-    def execute(self, context: Context, order_id: str) -> StepDecision:
-        charge(order_id)
-        OrderFlow.order_status.set(context, "charged")
-        return go_to(ApprovalStep(OrderFlow.seller_ok, OrderFlow.reminder), order_id)
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=CHARGE_RETRY)
 
-class ApprovalStep(Step[str]):
-    def __init__(self, seller_ok: Channel[str], reminder: Channel[str]):
-        self.seller_ok = seller_ok
-        self.reminder = reminder
+    def execute(self, context: Context, input: OrderRequest) -> StepDecision:
+        self.flow.service.charge_user(input.email, input.customer_id, input.amount)
+        self.flow.order_status.set(context, "charged")
+        return go_to(self.flow.ship, input)
 
-    def wait_for(self, context: Context, order_id: str) -> Wait:
-        return Wait.any_of(
-            self.seller_ok.for_one(),
-            Timer.by_duration(timedelta(hours=24)),
+
+class ShipStep(Step[OrderRequest]):
+    def __init__(self, flow: "OrderProcessingFlow") -> None:
+        self.flow = flow
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_retry=SHIP_RETRY).on_execute_failure_proceed_to(
+            self.flow.refund,
+            StepOptions(execute_retry=REFUND_RETRY),
         )
 
-    def execute(self, context: Context, order_id: str) -> StepDecision:
+    def wait_for(self, context: Context, input: OrderRequest) -> Wait:
+        del context, input
+        return Wait.any_of(
+            self.flow.seller_ok.for_one(),
+            Timer.by_duration(timedelta(hours=24), condition_id=SELLER_REMINDER_TIMER),
+        )
+
+    def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         if context.has_timer_fired():
-            self.reminder.publish(context, "approve-shipment")
-            return go_to(self, order_id)
-        return go_to(ShipStep(), order_id)
+            self.flow.service.send_email(
+                input.email,
+                "Reminder: approve shipment",
+                "Please approve or provide a tracking number.",
+            )
+            return go_to(self, input)
+        if input.fail_ship:
+            raise RuntimeError(f"ship failed for order {input.order_id}")
+        self.flow.service.update_external_system(f"ship {input.order_id}")
+        self.flow.order_status.set(context, "shipped")
+        return graceful_complete(f"shipped:{input.order_id}")
 
-class ShipStep(Step[str]):
-    def execute(self, context: Context, order_id: str) -> StepDecision:
-        ship(order_id)
-        OrderFlow.order_status.set(context, "shipped")
-        return graceful_complete(order_id)
 
-class RefundStep(Step[str]):
-    def execute(self, context: Context, order_id: str) -> StepDecision:
-        refund(order_id)
-        return graceful_complete(f"refunded:{order_id}")
+class RefundStep(Step[OrderRequest]):
+    def __init__(self, flow: "OrderProcessingFlow") -> None:
+        self.flow = flow
 
-class OrderFlow(Flow[str]):
+    def execute(self, context: Context, input: OrderRequest) -> StepDecision:
+        self.flow.service.update_external_system(f"refund {input.order_id}")
+        self.flow.order_status.set(context, "refunded")
+        return graceful_complete(f"refunded:{input.order_id}")
+
+
+class OrderProcessingFlow(Flow[OrderRequest]):
     order_status = Attribute(
         "order-status",
         str,
-        index=AttributeIndex(type=IndexType.KEYWORD),
+        AttributeIndex(IndexType.KEYWORD),
     )
-    seller_ok = Channel("seller-ok", str)
-    reminder = Channel("reminder", str)
+    seller_ok = Channel[str]("seller-ok", str)
 
-    def get_steps(self) -> StepList[str]:
-        return StepList.start_step(ChargeStep()).other_steps(
-            ApprovalStep(self.seller_ok, self.reminder),
-            ShipStep(),
-            RefundStep(),
-        )
+    def __init__(self, service: MyDependencyService) -> None:
+        self.service = service
+        self.charge = ChargeStep(self)
+        self.ship = ShipStep(self)
+        self.refund = RefundStep(self)
+
+    def get_steps(self) -> StepList[OrderRequest]:
+        return StepList.start_step(self.charge).other_steps(self.ship, self.refund)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.attributes(self.order_status).channels(
-            self.seller_ok, self.reminder
-        )
+        return PersistenceSchema.of(self.order_status, self.seller_ok)
 
     @rpc
-    def approve_shipment(self, context: Context, _note: str) -> RPCResult:
+    def approve(self, context: Context, _note: str) -> RPCResult[str]:
         self.seller_ok.publish(context, "approved")
-        return RPCResult(output="ok")
+        return RPCResult("ok")
 
     @rpc
-    def wait_until_charged(self, context: Context, _input: str) -> RPCResult:
-        # Client API: block until ChargeStep completes, then return status.
-        return RPCResult(output=self.order_status.get(context))
+    def describe(self, context: Context) -> RPCResult[str]:
+        return RPCResult(self.order_status.get(context))
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-// ChargeStep → ApprovalStep (channel + timer) → ShipStep → RefundStep on failure.
-// Attribute order-status, Channels seller-ok / reminder.
-// RPC ApproveShipment publishes seller-ok; Client waits on Step 1 via RPC or Client API.
-// See sdk-go/README.md and examples/go for Registry + Worker wiring.
+func (step chargeStep) Execute(
+	ctx dex.Context,
+	order OrderRequest,
+) (*dex.StepDecision, error) {
+	step.service.ChargeUser(order.Email, order.CustomerID, order.Amount)
+	if err := OrderStatus.Set(ctx, "charged"); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(shipStep{}, order), nil
+}
+
+func (shipStep) WaitFor(
+	dex.Context,
+	OrderRequest,
+) (*dex.Wait, error) {
+	return dex.AnyOf(
+		SellerOK.ForOne(),
+		dex.Timer(24*time.Hour, dex.WithConditionID(SellerReminderTimer)),
+	), nil
+}
+
+func (step shipStep) Execute(
+	ctx dex.Context,
+	order OrderRequest,
+) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		step.service.SendEmail(
+			order.Email,
+			"Reminder: approve shipment",
+			"Please approve or provide a tracking number.",
+		)
+		return dex.GoTo(shipStep{}, order), nil
+	}
+	if order.FailShip {
+		return nil, fmt.Errorf("ship failed for order %s", order.OrderID)
+	}
+	step.service.UpdateExternalSystem("ship " + order.OrderID)
+	if err := OrderStatus.Set(ctx, "shipped"); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("shipped:" + order.OrderID), nil
+}
+
+func (*OrderProcessingFlow) Approve(
+	ctx dex.Context,
+	_ string,
+) (*dex.RPCResult[string], error) {
+	if err := SellerOK.Publish(ctx, "approved"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: "ok"}, nil
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-// Same Flow: ChargeStep, ApprovalStep with Wait.anyOf(channel, timer),
-// ShipStep, RefundStep; @RPC approveShipment; indexed Attribute order-status.
-// See sdk-java and examples/java for Worker registration.
+final class ChargeStep implements Step<OrderRequest> {
+    @Override
+    public StepDecision execute(final Context context, final OrderRequest order) {
+        service.chargeUser(order.email, order.customerId, order.amount);
+        orderStatus.set(context, "charged");
+        return StepDecision.goTo(ship, order);
+    }
+}
+
+final class ShipStep implements Step<OrderRequest> {
+    @Override
+    public Wait waitFor(final Context context, final OrderRequest order) {
+        return Wait.anyOf(
+                sellerOk.forOne(),
+                Timer.byDuration(Duration.ofHours(24), SELLER_REMINDER_TIMER));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final OrderRequest order) {
+        if (context.hasTimerFired()) {
+            service.sendEmail(
+                    order.email,
+                    "Reminder: approve shipment",
+                    "Please approve or provide a tracking number.");
+            return StepDecision.goTo(ship, order);
+        }
+        if (order.failShip) {
+            throw new RuntimeException("ship failed for order " + order.orderId);
+        }
+        service.updateExternalSystem("ship " + order.orderId);
+        orderStatus.set(context, "shipped");
+        return StepDecision.gracefulComplete("shipped:" + order.orderId);
+    }
+}
+
+@RPC
+public RPCResult<String> approve(final Context context, final String note) {
+    sellerOk.publish(context, "approved");
+    return RPCResult.of("ok");
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
 ```typescript
-// Same Flow with @superdurable/dex ^0.1.3+.
-// waitFor / execute / RPC may be async; Client calls can await on one Worker.
+class ChargeStep implements Step<OrderRequest> {
+  public execute(context: Context, input: OrderRequest): StepDecision {
+    this.flow.service.chargeUser(input.email, input.customerId, input.amount);
+    this.flow.orderStatus.set(context, "charged");
+    return goTo(this.flow.ship, input);
+  }
+}
+
+class ShipStep implements Step<OrderRequest> {
+  public waitFor(_context: Context, _input: OrderRequest): Wait {
+    return Wait.anyOf(
+      this.flow.sellerOk.forOne(),
+      Timer.byDuration(DAY_MS, SELLER_REMINDER_TIMER),
+    );
+  }
+
+  public execute(context: Context, input: OrderRequest): StepDecision {
+    if (context.hasTimerFired()) {
+      this.flow.service.sendEmail(
+        input.email,
+        "Reminder: approve shipment",
+        "Please approve or provide a tracking number.",
+      );
+      return goTo(this, input);
+    }
+    if (input.failShip) {
+      throw new Error(`ship failed for order ${input.orderId}`);
+    }
+    this.flow.service.updateExternalSystem(`ship ${input.orderId}`);
+    this.flow.orderStatus.set(context, "shipped");
+    return gracefulComplete(`shipped:${input.orderId}`);
+  }
+}
+
+@rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+public approve(context: Context, _note: string): RPCResult<string> {
+  this.sellerOk.publish(context, "approved");
+  return { output: "ok" };
+}
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-Step transitions are atomic. Timers and channel waits survive Worker restarts. Retries and compensation are declared on the Step, not scattered across queues and cron jobs. Dex Web shows each Step's inputs, outputs, and errors.
+Frontend wait for “payment received”:
 
-## Primitives map to the hard parts
+```python
+await client.wait_for_step_completion(flow_id, StepExecutionId("ChargeStep"), timeout)
+```
 
-| Problem from the storage-only approach | Dex primitive |
-| --- | --- |
-| Durable state between Steps | [Attribute](/primitives/attribute) |
-| Atomic move to the next Step | [Step](/primitives/step) movement |
-| Retry / timeout per Step | Step options |
-| Wait for approval or timer | [Channel](/primitives/channel) + [Timer](/primitives/timer) |
-| External read/write while running | [RPC](/primitives/rpc) |
-| Refund after ship failure | Failure movement to a compensation Step |
-| Frontend waits for charge | Client / RPC wait APIs |
-| Search stuck orders | Indexed Attributes + Client search |
+That Client API is also on the Go, Java, TypeScript, and Rust SDKs. The example HTTP route is `GET /products/order-processing/wait-charged?workflowId=...`.
 
-See [Durable Primitives](/primitives) for each building block — why it exists, how to use it, and what teams usually build by hand.
+Step transitions are atomic. Timers and Channel waits survive Worker restarts. Retries and compensation are declared on the Step.
+
+## How this differs from traditional Durable Execution
+
+Traditional Durable Execution runs workflow functions by **replaying** event history. Side effects go in **activities**. The workflow code must stay **deterministic**: no extra clocks, random, or IO in the replayed function.
+
+Dex does not ask you to write a replayable workflow function. You declare Steps and movements. Worker handlers are ordinary code. Waits, RPC, and locking are part of the Flow model, not something you reconstruct from history primitives.
 
 ## Next steps
 
 - [Quick Start](/quick-start) — install `dexcli`, run a Hello Flow, inspect it in Dex Web
+- [Durable Primitives](/primitives) — Step, Attribute, Channel, Timer, RPC, Client APIs
 - [Design Patterns](/design-patterns) — reusable Flow shapes
-- [Use Cases](/use-cases) — fuller product examples
-- [Compare with Temporal/Cadence](/references/compare-with-temporal) — if you already run that stack
+- [Product Examples](/use-cases) — fuller product examples

@@ -8,7 +8,7 @@ import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproa
 
 # What is Durable Execution?
 
-**Durable Execution**  is abstraction of common backend engineering design patterns.
+**Durable Execution** is an abstraction of common backend engineering design patterns.
 It lets you build production-grade backend system easily.
 Your system will have a simpler architecture that is highly scalable, cost efficient, performant,
 observable with comprehensive production operation tooling.
@@ -58,7 +58,7 @@ The order ends up with charging the buyer but never ship the item.
 
 ### Fix 1 — database row + polling workers
 
-Then a smart engineer thinks of inserting a row (`status = pending`)return to the client, and let background workers pick up work.
+Then a smart engineer thinks of inserting a row (`status = pending`), return to the client, and let background workers pick up work.
 
 <ExecutionApproachDiagram approach="table-poll" />
 
@@ -68,12 +68,12 @@ We get minimal durability, but here are more problems:
 
 ### Fix 2 — message queues between steps
 
-More experienced back engineer usually adopt two message queues: "charge-request" and "ship-requests" queue.
+More experienced backend engineers usually adopt two message queues: "charge-request" and "ship-requests" queue.
 So the order start with publishing to `charge-requests`, consume, then publish to `ship-requests`.
 
 <ExecutionApproachDiagram approach="message-queue" />
 
-That solve the hard problems in Fix 1, but still, more harder problems comes:
+That solves the hard problems in Fix 1, but still, harder problems come:
 
 - Most queues cannot atomically commit “charge done” and “enqueue ship”. Queue 2 may succeed while queue 1 times out, so both steps run concurrently for an order.
   - Usually it ends up with using a database row as source of truth for dedup
@@ -98,12 +98,12 @@ For this charge → approval → ship flow, you write something like:
 
 1. **Step 1 — Charge** with its own retry policy. When it succeeds, move to Step 2 **atomically**.
 2. **Step 2 — Ship**
-  2.1 ** Wait for seller approval **or** a durable timer.
+  2.1 Wait for seller approval **or** a durable timer.
   2.2 On timer fire or seller approval receives, invoke the code to send a reminder and keep waiting, or ship the item.
   2.3 Ship execute with retry; on exhaustion, go to a refund Step.
 3. **Step 3 — Refund** process the refund to buyer.
-4. Frontend code call an API out of the box, to wait until Step 1 completes as “payment received”.
+4. Frontend code calls an API out of the box, to wait until Step 1 completes as “payment received”.
 
-The platform handle the rest all for free -- records each Step's inputs, outputs, and errors; operators can inspect and time travel, etc.
+The platform handles the rest all for free -- records each Step's inputs, outputs, and errors; operators can inspect and time travel, etc.
 
-See [What is Dex?](/intro/what-is-dex) for how Dex implement this flow and run the example.
+See [What is Dex?](/intro/what-is-dex) for how Dex implements this flow and how to run the example.

@@ -32,6 +32,10 @@ only when a section genuinely doesn't apply.
   chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
 - Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both
   locales in sync. See `.cursor/rules/docs-i18n.mdc`.
+- Application snippets in product docs must be copied from runnable files under
+  `examples/`. Link the example (and the examples playground when the sample has
+  HTTP and is catalogued). Do not invent APIs; add the example first.
+  See `.cursor/rules/docs-examples.mdc`.
 
 ### UI/UX
 

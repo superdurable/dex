@@ -78,6 +78,10 @@ discussion-only turns.
   `<SdkTabs>` / `<SdkSnippet>` (Python, Go, Java, TypeScript). Do not use
   per-language headings or stacked fenced blocks. `bash` / `text` fences
   are exempt.
+- Application snippets must be copied from runnable files under `examples/`.
+  Link the example (and the examples playground when the sample has HTTP and
+  is catalogued). Do not invent APIs; add the example first.
+  See `.cursor/rules/docs-examples.mdc`.
 - Product docs should read naturally: plain English, short sentences, no
   chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
 - Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both

@@ -48,7 +48,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Use Cases',
+      label: 'Product Examples',
       link: {type: 'doc', id: 'use-cases/index'},
       items: [
         'use-cases/money-transfer',

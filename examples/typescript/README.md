@@ -61,6 +61,7 @@ after E2E tests for manual HTTP exploration.
 ## Products
 
 - [Money transfer](./src/products/money-transfer)
+- [Order processing](./src/products/order-processing)
 - [Microservice orchestration](./src/products/microservices)
 - [Engagement](./src/products/engagement)
 - [Subscription](./src/products/subscription)

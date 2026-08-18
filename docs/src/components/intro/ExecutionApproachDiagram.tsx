@@ -142,7 +142,7 @@ const EN: Record<ExecutionApproach, Copy> = {
     afterClient: {
       kicker: 'DEX',
       title: 'Order Flow',
-      detail: 'ChargeStep → ApprovalStep → ShipStep',
+      detail: 'ChargeStep → ShipStep (wait / execute) → RefundStep',
       tone: 'success',
     },
     panels: [
@@ -239,7 +239,7 @@ const ZH: Record<ExecutionApproach, Copy> = {
     afterClient: {
       kicker: 'DEX',
       title: 'Order Flow',
-      detail: 'ChargeStep → ApprovalStep → ShipStep',
+      detail: 'ChargeStep → ShipStep（等待 / 执行）→ RefundStep',
       tone: 'success',
     },
     panels: [

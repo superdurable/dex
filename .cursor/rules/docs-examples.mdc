@@ -1,0 +1,17 @@
+---
+description: Docs application snippets must come from runnable examples/
+globs: docs/**/*.mdx
+alwaysApply: false
+---
+
+# Docs snippets come from examples
+
+Application code in `docs/content/` (and the matching Chinese pages) must be
+copied from a runnable file under `examples/`. Do not invent Client, Worker,
+Step, RPC, or HTTP APIs in docs.
+
+Each snippet page must link to that example path. If the example exposes HTTP,
+also link the examples playground (`examples/playground`) when the sample is in
+the playground catalog.
+
+If the API does not exist yet, add the example first, then copy the snippet.
