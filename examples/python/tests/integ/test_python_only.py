@@ -17,11 +17,11 @@ from __future__ import annotations
 from typing import Callable
 
 import pytest
-from dex_examples.ai_agent_email.ai_agent_flow import STATUS_WAITING
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.resourcecontrol.controller_flow import SPOT_INSTANCE_IDS
-from dex_examples.resourcecontrol.request import Request
+from dex_examples.patterns.resource_control.controller_flow import SPOT_INSTANCE_IDS
+from dex_examples.patterns.resource_control.request import Request
+from dex_examples.products.ai_agent_email.ai_agent_flow import STATUS_WAITING
 from tests.integ.conftest import LONG_WAIT_TIMEOUT, WAIT_TIMEOUT, wait_until
 
 from dex import AsyncClient
@@ -29,16 +29,14 @@ from dex import AsyncClient
 pytestmark = pytest.mark.integ
 
 
-async def test_basic_approve_completes(
+async def test_channel_approve_completes(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = new_flow_id("basic")
-    await client.start_flow(app.basic, flow_id, 5, start_options())
-    appended = await client.invoke_rpc(app.basic.append_string, flow_id, "hello")
-    assert "hello" in appended
-    await client.invoke_rpc(app.basic.approve, flow_id)
+    flow_id = new_flow_id("channel")
+    await client.start_flow(app.channel, flow_id, 5, start_options())
+    await client.invoke_rpc(app.channel.approve, flow_id)
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str
     ) == "approved"

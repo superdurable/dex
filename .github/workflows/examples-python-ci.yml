@@ -1,7 +1,23 @@
 name: Python examples CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/python/**"
+      - ".github/workflows/examples-python-ci.yml"
+  pull_request:
+    paths:
+      - "examples/python/**"
+      - ".github/workflows/examples-python-ci.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examples-python-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   integ:

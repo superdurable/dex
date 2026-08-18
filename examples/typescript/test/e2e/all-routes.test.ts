@@ -101,7 +101,7 @@ test("cron schedule starter registered sample flow", async () => {
 });
 
 test("product moneytransfer start", async () => {
-  const result = await get("/moneytransfer/start", {
+  const result = await get("/products/money-transfer/start", {
     fromAccount: "a",
     toAccount: "b",
     amount: 10,
@@ -113,10 +113,10 @@ test("product moneytransfer start", async () => {
 
 test("product microservice start swap signal", async () => {
   const workflowId = id("ms");
-  requireOk(await get("/microservice/start", { workflowId }), "microservice/start");
+  requireOk(await get("/products/microservices/start", { workflowId }), "microservice/start");
   let swap: { status: number; text: string } | undefined;
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    swap = await get("/microservice/swap", { workflowId, data: "swapped" });
+    swap = await get("/products/microservices/swap", { workflowId, data: "swapped" });
     if (swap.status >= 200 && swap.status < 300) {
       break;
     }
@@ -125,49 +125,53 @@ test("product microservice start swap signal", async () => {
     });
   }
   requireOk(swap!, "microservice/swap");
-  requireOk(await get("/microservice/signal", { workflowId }), "microservice/signal");
+  requireOk(await get("/products/microservices/signal", { workflowId }), "microservice/signal");
 });
 
 test("product engagement start describe optout decline accept", async () => {
-  const start = await get("/engagement/start");
+  const start = await get("/products/engagement/start");
   requireOk(start, "engagement/start");
   const workflowId = (start.json as { flowID: string }).flowID;
-  requireOk(await get("/engagement/describe", { workflowId }), "engagement/describe");
-  requireOk(await get("/engagement/optout", { workflowId }), "engagement/optout");
+  requireOk(await get("/products/engagement/describe", { workflowId }), "engagement/describe");
+  requireOk(await get("/products/engagement/optout", { workflowId }), "engagement/optout");
   requireOk(
-    await get("/engagement/decline", { workflowId, notes: "no" }),
+    await get("/products/engagement/decline", { workflowId, notes: "no" }),
     "engagement/decline",
   );
   requireOk(
-    await get("/engagement/accept", { workflowId, notes: "yes" }),
+    await get("/products/engagement/accept", { workflowId, notes: "yes" }),
     "engagement/accept",
+  );
+  requireOk(
+    await get("/products/engagement/list", { query: `WorkflowId="${workflowId}"` }),
+    "engagement/list",
   );
 });
 
 test("product subscription start describe update cancel", async () => {
-  const start = await get("/subscription/start");
+  const start = await get("/products/subscription/start");
   requireOk(start, "subscription/start");
   const workflowId = (start.json as { flowID: string }).flowID;
-  requireOk(await get("/subscription/describe", { workflowId }), "subscription/describe");
+  requireOk(await get("/products/subscription/describe", { workflowId }), "subscription/describe");
   requireOk(
-    await get("/subscription/updateChargeAmount", { workflowId, newChargeAmount: 250 }),
+    await get("/products/subscription/updateChargeAmount", { workflowId, newChargeAmount: 250 }),
     "subscription/updateChargeAmount",
   );
-  requireOk(await get("/subscription/cancel", { workflowId }), "subscription/cancel");
+  requireOk(await get("/products/subscription/cancel", { workflowId }), "subscription/cancel");
 });
 
 test("product polling start complete", async () => {
   const workflowId = id("poll");
   requireOk(
-    await get("/polling/start", { workflowId, pollingCompletionThreshold: 3 }),
+    await get("/products/polling/start", { workflowId, pollingCompletionThreshold: 3 }),
     "polling/start",
   );
   requireOk(
-    await get("/polling/complete", { workflowId, channel: "task-a-completed" }),
+    await get("/products/polling/complete", { workflowId, channel: "task-a-completed" }),
     "polling/complete-a",
   );
   requireOk(
-    await get("/polling/complete", { workflowId, channel: "task-b-completed" }),
+    await get("/products/polling/complete", { workflowId, channel: "task-b-completed" }),
     "polling/complete-b",
   );
 });
@@ -175,14 +179,14 @@ test("product polling start complete", async () => {
 test("product signup submit verify", async () => {
   const username = id("user").replace(/-/g, "");
   requireOk(
-    await get("/signup/submit", { username, email: `${username}@example.com` }),
+    await get("/products/signup/submit", { username, email: `${username}@example.com` }),
     "signup/submit",
   );
-  requireOk(await get("/signup/verify", { username }), "signup/verify");
+  requireOk(await get("/products/signup/verify", { username }), "signup/verify");
 });
 
 test("product jobpost create read update delete search", async () => {
-  const created = await get("/jobpost/create", {
+  const created = await get("/products/job-post/create", {
     title: "Engineer",
     description: "Build flows",
   });
@@ -190,9 +194,9 @@ test("product jobpost create read update delete search", async () => {
   const match = /started workflowId:\s*(.+)$/i.exec(created.text.trim());
   assert.ok(match, `unexpected create response: ${created.text}`);
   const workflowId = match[1]!.trim();
-  requireOk(await get("/jobpost/read", { workflowId }), "jobpost/read");
+  requireOk(await get("/products/job-post/read", { workflowId }), "jobpost/read");
   requireOk(
-    await get("/jobpost/update", {
+    await get("/products/job-post/update", {
       workflowId,
       title: "Senior Engineer",
       description: "Build more flows",
@@ -200,45 +204,45 @@ test("product jobpost create read update delete search", async () => {
     }),
     "jobpost/update",
   );
-  requireOk(await get("/jobpost/search", { query: "Engineer" }), "jobpost/search");
-  requireOk(await get("/jobpost/delete", { workflowId }), "jobpost/delete");
+  requireOk(await get("/products/job-post/search", { query: "Engineer" }), "jobpost/search");
+  requireOk(await get("/products/job-post/delete", { workflowId }), "jobpost/delete");
 });
 
 test("product shortlist opt_in is_opted_in shortlist revoke opt_out email", async () => {
   const employerId = id("employer");
   const candidateId = id("candidate");
   requireOk(
-    await post("/shortlist_candidates/opt_in", { employerId }),
+    await post("/products/shortlist-candidates/opt_in", { employerId }),
     "shortlist opt_in",
   );
   requireOk(
-    await get("/shortlist_candidates/is_opted_in", { employerId }),
+    await get("/products/shortlist-candidates/is_opted_in", { employerId }),
     "shortlist is_opted_in",
   );
   requireOk(
-    await post("/shortlist_candidates/shortlist", { employerId, candidateId }),
+    await post("/products/shortlist-candidates/shortlist", { employerId, candidateId }),
     "shortlist shortlist",
   );
   requireOk(
-    await get("/shortlist_candidates/email_sent_timestamp", {
+    await get("/products/shortlist-candidates/email_sent_timestamp", {
       employerId,
       candidateId,
     }),
     "shortlist email_sent_timestamp",
   );
   requireOk(
-    await post("/shortlist_candidates/revoke_shortlist", { employerId, candidateId }),
+    await post("/products/shortlist-candidates/revoke_shortlist", { employerId, candidateId }),
     "shortlist revoke",
   );
   requireOk(
-    await post("/shortlist_candidates/opt_out", { employerId }),
+    await post("/products/shortlist-candidates/opt_out", { employerId }),
     "shortlist opt_out",
   );
 });
 
 test("design-pattern waitforstatecompletion start", async () => {
   requireOk(
-    await get("/design-pattern/waitforstatecompletion/start", {
+    await get("/patterns/wait-for-state-completion/start", {
       workflowId: id("wait-state"),
     }),
     "waitforstatecompletion",
@@ -247,7 +251,7 @@ test("design-pattern waitforstatecompletion start", async () => {
 
 test("design-pattern timeout start", async () => {
   requireOk(
-    await get("/design-pattern/timeout/start", {
+    await get("/patterns/timeout/start", {
       workflowId: id("timeout"),
       successfulWorkflow: true,
     }),
@@ -257,11 +261,11 @@ test("design-pattern timeout start", async () => {
 
 test("design-pattern polling simple and backoff", async () => {
   requireOk(
-    await get("/design-pattern/polling/start/simple", { workflowId: id("dp-simple") }),
+    await get("/patterns/polling/start/simple", { workflowId: id("dp-simple") }),
     "dp simple polling",
   );
   requireOk(
-    await get("/design-pattern/polling/start/backoff", { workflowId: id("dp-backoff") }),
+    await get("/patterns/polling/start/backoff", { workflowId: id("dp-backoff") }),
     "dp backoff polling",
   );
 });
@@ -269,32 +273,32 @@ test("design-pattern polling simple and backoff", async () => {
 test("design-pattern interruptible start cancel", async () => {
   const workflowId = id("interrupt");
   requireOk(
-    await get("/design-pattern/interruptible/start", { workflowId }),
+    await get("/patterns/interruptible/start", { workflowId }),
     "interrupt start",
   );
   requireOk(
-    await get("/design-pattern/interruptible/cancel", { workflowId }),
+    await get("/patterns/interruptible/cancel", { workflowId }),
     "interrupt cancel",
   );
 });
 
 test("design-pattern reminder start accept optout", async () => {
-  const started = await get("/design-pattern/workflow-with-reminder/start");
+  const started = await get("/patterns/reminders/start");
   requireOk(started, "reminder start");
   const match = /started workflowId:\s*(.+)$/i.exec(started.text.trim());
   assert.ok(match, started.text);
   const workflowId = match[1]!.trim();
   // Start a second reminder to exercise optout without racing accept.
-  const opted = await get("/design-pattern/workflow-with-reminder/start");
+  const opted = await get("/patterns/reminders/start");
   requireOk(opted, "reminder start 2");
   const optMatch = /started workflowId:\s*(.+)$/i.exec(opted.text.trim());
   assert.ok(optMatch, opted.text);
   requireOk(
-    await get("/design-pattern/workflow-with-reminder/accept", { workflowId }),
+    await get("/patterns/reminders/accept", { workflowId }),
     "reminder accept",
   );
   requireOk(
-    await get("/design-pattern/workflow-with-reminder/optout", {
+    await get("/patterns/reminders/optout", {
       workflowId: optMatch[1]!.trim(),
     }),
     "reminder optout",
@@ -304,7 +308,7 @@ test("design-pattern reminder start accept optout", async () => {
 test("design-pattern entity store profile lifecycle", async () => {
   const userId = id("user");
   requireOk(
-    await post("/design-pattern/entity-store/profile", {
+    await post("/patterns/entity-store/profile", {
       userId,
       displayName: "Ada Lovelace",
       email: "ada@example.com",
@@ -317,7 +321,7 @@ test("design-pattern entity store profile lifecycle", async () => {
     "entity store create",
   );
   requireOk(
-    await post("/design-pattern/entity-store/profile/update", {
+    await post("/patterns/entity-store/profile/update", {
       userId,
       displayName: "Ada Byron",
       email: "ada.byron@example.com",
@@ -330,18 +334,18 @@ test("design-pattern entity store profile lifecycle", async () => {
     "entity store update",
   );
   requireOk(
-    await get("/design-pattern/entity-store/profile", { userId }),
+    await get("/patterns/entity-store/profile", { userId }),
     "entity store get",
   );
   requireOk(
-    await post("/design-pattern/entity-store/profile/clear", undefined, { userId }),
+    await post("/patterns/entity-store/profile/clear", undefined, { userId }),
     "entity store clear",
   );
 });
 
 test("design-pattern intervention start", async () => {
   requireOk(
-    await get("/design-pattern/intervention/start", { workflowId: id("intervention") }),
+    await get("/patterns/intervention/start", { workflowId: id("intervention") }),
     "intervention",
   );
 });
@@ -349,22 +353,22 @@ test("design-pattern intervention start", async () => {
 test("design-pattern resettable timer start reset", async () => {
   const workflowId = id("timer");
   requireOk(
-    await get("/design-pattern/resettabletimer/start", { workflowId }),
+    await get("/patterns/resettable-timer/start", { workflowId }),
     "timer start",
   );
   requireOk(
-    await get("/design-pattern/resettabletimer/reset", { workflowId }),
+    await get("/patterns/resettable-timer/reset", { workflowId }),
     "timer reset",
   );
 });
 
 test("design-pattern parallel simple and withAwait", async () => {
   requireOk(
-    await get("/design-pattern/parallel/start/simple", { workflowId: id("par-simple") }),
+    await get("/patterns/parallel/start/simple", { workflowId: id("par-simple") }),
     "parallel simple",
   );
   requireOk(
-    await get("/design-pattern/parallel/start/withAwait", {
+    await get("/patterns/parallel/start/withAwait", {
       workflowId: id("par-await"),
       countOfJobSeekers: 2,
     }),
@@ -374,7 +378,7 @@ test("design-pattern parallel simple and withAwait", async () => {
 
 test("design-pattern recovery start", async () => {
   requireOk(
-    await get("/design-pattern/recovery/start", {
+    await get("/patterns/recovery/start", {
       workflowId: id("recovery"),
       itemName: "widget",
       quantity: 1,
@@ -385,7 +389,7 @@ test("design-pattern recovery start", async () => {
 
 test("design-pattern scalableparallel start", async () => {
   requireOk(
-    await get("/design-pattern/scalableparallel/start", {
+    await get("/patterns/scalable-parallel/start", {
       workflowId: id("scalable"),
       numOfChildWfs: 2,
     }),
@@ -395,7 +399,7 @@ test("design-pattern scalableparallel start", async () => {
 
 test("design-pattern parentchild start", async () => {
   requireOk(
-    await get("/design-pattern/parentchild/start", {
+    await get("/patterns/parent-child/start", {
       workflowId: id("parent"),
       numOfChildWfs: 2,
     }),
@@ -405,13 +409,13 @@ test("design-pattern parentchild start", async () => {
 
 test("design-pattern drain channels", async () => {
   requireOk(
-    await get("/design-pattern/drainchannels/internal/start", {
+    await get("/patterns/drain-channels/internal/start", {
       workflowId: id("drain-internal"),
     }),
     "drain internal",
   );
   requireOk(
-    await get("/design-pattern/drainchannels/signal/startorsignal", {
+    await get("/patterns/drain-channels/signal/startorsignal", {
       workflowId: id("drain-signal"),
     }),
     "drain signal",

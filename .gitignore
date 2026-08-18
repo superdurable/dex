@@ -15,6 +15,7 @@ server/coverage-raw/
 sdk-go/coverage/
 dex-server
 examples/go/dex-samples
+examples/go/dex-dataset-deal
 examples/go/deepverify
 cli/dexcli
 web/large-step-graph

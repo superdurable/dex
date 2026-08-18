@@ -20,12 +20,12 @@ from typing import Callable
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.workflow.shortlistcandidates import workflow_ids
-from dex_examples.workflow.shortlistcandidates.employer_opt_in_input import (
+from dex_examples.products.shortlist_candidates import workflow_ids
+from dex_examples.products.shortlist_candidates.employer_opt_in_input import (
     EmployerOptInInput,
 )
-from dex_examples.workflow.shortlistcandidates.shortlist_input import ShortlistInput
-from dex_examples.workflow.signup.signup_form import SignupForm
+from dex_examples.products.shortlist_candidates.shortlist_input import ShortlistInput
+from dex_examples.products.signup.signup_form import SignupForm
 from tests.integ.conftest import WAIT_TIMEOUT
 
 from dex import AsyncClient, StartFlowOptions

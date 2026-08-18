@@ -10,10 +10,27 @@ BlobCaches are under `DEX_BLOB_CACHE_DIR`.
 Controllers handle expected duplicate and missing-Flow failures through
 `DexServiceError` gRPC codes; no example compares Dex sub-status metadata.
 
+## Layout
+
+```
+src/
+├── products/       # real-world business scenarios
+├── patterns/       # design patterns
+├── primitives/     # one minimal example per Dex primitive
+├── config/         # env and cron bootstrap
+└── main.ts         # Worker and HTTP entrypoint
+```
+
+HTTP routes use category prefixes:
+
+- `/products/<kebab>/...` — e.g. `/products/job-post/create`
+- `/patterns/<kebab>/...` — e.g. `/patterns/polling/start/simple`
+- `/primitives/<kebab>/...` — e.g. `/primitives/channel/approve`
+
 ## Run locally
 
 ```bash
-dexcli dev --sqlite-db-filename /tmp/dex-examples.db
+dexcli dev
 cd examples/typescript
 npm install
 npm start
@@ -26,33 +43,35 @@ Use Node.js 22 or 24. Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,
 `DEX_EXAMPLES_HTTP_ADDRESS`, `DEX_BLOB_CACHE_DIR`.
 
-## Tests
+## Verify
 
 ```bash
 npm test                 # SubscriptionBilling unit tests
 npm run test:integ       # product integ tests (requires Dex)
-npm run smoke            # every product + design-pattern HTTP route
+npm run smoke            # every product + pattern HTTP route
 ./run-integration-tests.sh # start dexcli dev and run both integration suites
 ```
 
 The integration suite starts and verifies Money Transfer, Engagement,
 Microservice, Polling, Subscription, and Failure Recovery Flows.
 
-## Product examples
+The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
+after E2E tests for manual HTTP exploration.
 
-- [Money transfer](./src/workflow/money/transfer)
-- [Microservice orchestration](./src/workflow/microservices)
-- [Engagement](./src/workflow/engagement)
-- [Subscription](./src/workflow/subscription)
-- [Polling](./src/workflow/polling)
-- [Signup](./src/workflow/signup)
-- [Job post](./src/workflow/jobpost)
-- [Shortlist candidates](./src/workflow/shortlistcandidates)
+## Products
 
-## Design patterns
+- [Money transfer](./src/products/money-transfer)
+- [Microservice orchestration](./src/products/microservices)
+- [Engagement](./src/products/engagement)
+- [Subscription](./src/products/subscription)
+- [Polling](./src/products/polling)
+- [Signup](./src/products/signup)
+- [Job post](./src/products/job-post)
+- [Shortlist candidates](./src/products/shortlist-candidates)
 
-All under [`patterns/workflow`](./src/patterns/workflow),
-HTTP under `/design-pattern/...`:
+## Patterns
+
+Under [`src/patterns/`](./src/patterns):
 
 - Cron schedule
 - Drain internal / signal channels
@@ -65,6 +84,11 @@ HTTP under `/design-pattern/...`:
 - Reminders
 - Resettable timer
 - Scalable parallel
-- [Entity Store user profiles](./src/patterns/workflow/entitystore) ([PostgreSQL setup](../entity-store))
+- [Entity Store user profiles](./src/patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for state completion
+
+## Primitives
+
+Seven minimal examples under [`src/primitives/`](./src/primitives/): step,
+attribute, channel, timer, rpc, subflow, and client-apis.

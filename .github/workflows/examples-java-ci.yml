@@ -1,7 +1,23 @@
 name: Java examples CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/java/**"
+      - ".github/workflows/examples-java-ci.yml"
+  pull_request:
+    paths:
+      - "examples/java/**"
+      - ".github/workflows/examples-java-ci.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examples-java-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   unit:
@@ -19,7 +35,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
       - name: Build and unit tests
-        run: ./gradlew test --tests 'io.superdurable.dex.workflow.*' --refresh-dependencies
+        run: ./gradlew test --tests 'io.superdurable.dex.products.*' --refresh-dependencies
       - name: Verify published SDK coordinate
         run: |
           ./gradlew dependencyInsight --dependency dex-sdk --configuration compileClasspath \

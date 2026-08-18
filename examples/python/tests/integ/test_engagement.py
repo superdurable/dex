@@ -19,9 +19,9 @@ from typing import Callable
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.workflow.engagement.engagement_flow import EngagementFlow
-from dex_examples.workflow.engagement.engagement_input import EngagementInput
-from dex_examples.workflow.engagement.status import Status
+from dex_examples.products.engagement.engagement_flow import EngagementFlow
+from dex_examples.products.engagement.engagement_input import EngagementInput
+from dex_examples.products.engagement.status import Status
 from tests.integ.conftest import WAIT_TIMEOUT, wait_for_attribute
 
 from dex import AsyncClient

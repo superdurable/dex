@@ -19,10 +19,11 @@ from dataclasses import asdict
 from dex import IdReusePolicy, StartFlowOptions
 from flask import Blueprint, Flask, Response, jsonify
 
-from dex_examples.workflow.engagement.engagement_input import EngagementInput
-from dex_examples.workflow.money.transfer.transfer_request import TransferRequest
-from dex_examples.workflow.subscription.customer import Customer
-from dex_examples.workflow.subscription.subscription import Subscription
+from dex_examples.http_cors import install_flask_cors
+from dex_examples.products.engagement.engagement_input import EngagementInput
+from dex_examples.products.money_transfer.transfer_request import TransferRequest
+from dex_examples.products.subscription.customer import Customer
+from dex_examples.products.subscription.subscription import Subscription
 from sync_examples.app import SyncExampleApp
 from sync_examples.config import DEFAULT_TIMEOUT, start_options
 from sync_examples.query import (
@@ -36,11 +37,14 @@ from sync_examples.query import (
 
 def create_app(app_state: SyncExampleApp) -> Flask:
     app = Flask(__name__)
-    app.register_blueprint(_basic(app_state))
+    app.register_blueprint(_step(app_state))
+    app.register_blueprint(_channel(app_state))
     app.register_blueprint(_money_transfer(app_state))
     app.register_blueprint(_engagement(app_state))
     app.register_blueprint(_subscription(app_state))
-    app.register_blueprint(_patterns(app_state))
+    app.register_blueprint(_parent_child(app_state))
+    app.register_blueprint(_interruptible(app_state))
+    install_flask_cors(app)
 
     @app.get("/health")
     def health() -> Response:
@@ -49,32 +53,41 @@ def create_app(app_state: SyncExampleApp) -> Flask:
     return app
 
 
-def _basic(app_state: SyncExampleApp) -> Blueprint:
-    blueprint = Blueprint("basic", __name__, url_prefix="/basic")
+def _step(app_state: SyncExampleApp) -> Blueprint:
+    blueprint = Blueprint("primitive_step", __name__, url_prefix="/primitives/step")
 
     @blueprint.get("/start")
     def start() -> Response:
         flow_id = required_query("workflowId")
         run_id = app_state.client.start_flow(
-            app_state.basic,
+            app_state.step,
             flow_id,
             required_int_query("inputNum"),
             start_options(),
         )
         return started_flow(flow_id, run_id)
 
-    @blueprint.get("/appendString")
-    def append_string() -> str:
-        return app_state.client.invoke_rpc(
-            app_state.basic.append_string,
-            required_query("workflowId"),
-            required_query("str"),
+    return blueprint
+
+
+def _channel(app_state: SyncExampleApp) -> Blueprint:
+    blueprint = Blueprint("primitive_channel", __name__, url_prefix="/primitives/channel")
+
+    @blueprint.get("/start")
+    def start() -> Response:
+        flow_id = required_query("workflowId")
+        run_id = app_state.client.start_flow(
+            app_state.channel,
+            flow_id,
+            required_int_query("inputNum"),
+            start_options(),
         )
+        return started_flow(flow_id, run_id)
 
     @blueprint.get("/approve")
     def approve() -> str:
         app_state.client.invoke_rpc(
-            app_state.basic.approve,
+            app_state.channel.approve,
             required_query("workflowId"),
         )
         return "done"
@@ -83,7 +96,7 @@ def _basic(app_state: SyncExampleApp) -> Blueprint:
 
 
 def _money_transfer(app_state: SyncExampleApp) -> Blueprint:
-    blueprint = Blueprint("money_transfer", __name__, url_prefix="/moneytransfer")
+    blueprint = Blueprint("money_transfer", __name__, url_prefix="/products/money-transfer")
 
     @blueprint.get("/start")
     def start() -> Response:
@@ -106,7 +119,7 @@ def _money_transfer(app_state: SyncExampleApp) -> Blueprint:
 
 
 def _engagement(app_state: SyncExampleApp) -> Blueprint:
-    blueprint = Blueprint("engagement", __name__, url_prefix="/engagement")
+    blueprint = Blueprint("engagement", __name__, url_prefix="/products/engagement")
 
     @blueprint.get("/start")
     def start() -> Response:
@@ -149,7 +162,7 @@ def _engagement(app_state: SyncExampleApp) -> Blueprint:
 
 
 def _subscription(app_state: SyncExampleApp) -> Blueprint:
-    blueprint = Blueprint("subscription", __name__, url_prefix="/subscription")
+    blueprint = Blueprint("subscription", __name__, url_prefix="/products/subscription")
 
     @blueprint.get("/start")
     def start() -> Response:
@@ -194,10 +207,10 @@ def _subscription(app_state: SyncExampleApp) -> Blueprint:
     return blueprint
 
 
-def _patterns(app_state: SyncExampleApp) -> Blueprint:
-    blueprint = Blueprint("patterns", __name__, url_prefix="/design-pattern")
+def _parent_child(app_state: SyncExampleApp) -> Blueprint:
+    blueprint = Blueprint("parent_child", __name__, url_prefix="/patterns/parent-child")
 
-    @blueprint.get("/parentchild/start")
+    @blueprint.get("/start")
     def parent_child_start() -> Response:
         flow_id = optional_query("workflowId", new_flow_id("parent-child"))
         num_children = required_int_query("numOfChildWfs")
@@ -212,7 +225,13 @@ def _patterns(app_state: SyncExampleApp) -> Blueprint:
         )
         return started_flow(flow_id, run_id)
 
-    @blueprint.get("/interruptible/start")
+    return blueprint
+
+
+def _interruptible(app_state: SyncExampleApp) -> Blueprint:
+    blueprint = Blueprint("interruptible", __name__, url_prefix="/patterns/interruptible")
+
+    @blueprint.get("/start")
     def interruptible_start() -> Response:
         flow_id = optional_query("workflowId", new_flow_id("interruptible"))
         run_id = app_state.client.start_flow(
@@ -223,7 +242,7 @@ def _patterns(app_state: SyncExampleApp) -> Blueprint:
         )
         return started_flow(flow_id, run_id)
 
-    @blueprint.get("/interruptible/cancel")
+    @blueprint.get("/cancel")
     def interruptible_cancel() -> str:
         app_state.client.invoke_rpc(
             app_state.interruptible.interrupt,

@@ -20,16 +20,16 @@ from typing import Callable
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.patterns.workflow.entitystore.user_profile import (
+from dex_examples.patterns.entity_store.user_profile import (
     UserProfile,
     UserProfileMetadata,
 )
-from dex_examples.patterns.workflow.entitystore.user_profile_flow import STORE_NAME
-from dex_examples.patterns.workflow.parallel.job_seeker import JobSeeker
-from dex_examples.patterns.workflow.recovery.failure_recovery_workflow_input import (
+from dex_examples.patterns.entity_store.user_profile_flow import STORE_NAME
+from dex_examples.patterns.parallel.job_seeker import JobSeeker
+from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )
-from dex_examples.patterns.workflow.waitforstatecompletion.job_seeker_data import (
+from dex_examples.patterns.wait_for_state_completion.job_seeker_data import (
     JobSeekerData,
 )
 from tests.integ.conftest import (
@@ -62,7 +62,7 @@ async def test_cron_schedule_starts(
         app.cron_schedule,
         flow_id,
         None,
-        StartFlowOptions(timeout=timedelta(hours=1), cron_schedule="*/1 * * * *"),
+        StartFlowOptions(timeout=timedelta(hours=1), cron_schedule="0 * * * *"),
     )
 
 

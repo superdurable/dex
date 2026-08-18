@@ -23,12 +23,12 @@ import { join } from "node:path";
 import { Client, Registry, Worker, openBlobCache, type Flow } from "@superdurable/dex";
 
 import { HOUR_MS } from "../../src/config/env.js";
-import { failureRecoveryFlow } from "../../src/patterns/workflow/recovery/failure-recovery-flow.js";
-import { engagementFlow } from "../../src/workflow/engagement/engagement-flow.js";
-import { orchestrationFlow } from "../../src/workflow/microservices/orchestration-flow.js";
-import { moneyTransferFlow } from "../../src/workflow/money/transfer/money-transfer-flow.js";
-import { pollingFlow } from "../../src/workflow/polling/polling-flow.js";
-import { subscriptionFlow } from "../../src/workflow/subscription/subscription-flow.js";
+import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
+import { engagementFlow } from "../../src/products/engagement/engagement-flow.js";
+import { orchestrationFlow } from "../../src/products/microservices/orchestration-flow.js";
+import { moneyTransferFlow } from "../../src/products/money-transfer/money-transfer-flow.js";
+import { pollingFlow } from "../../src/products/polling/polling-flow.js";
+import { subscriptionFlow } from "../../src/products/subscription/subscription-flow.js";
 
 export interface IntegEnvironment {
   readonly client: Client;

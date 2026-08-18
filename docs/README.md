@@ -25,6 +25,10 @@ Application code samples must use `<SdkTabs>` / `<SdkSnippet>` so readers can
 switch Python, Go, Java, and TypeScript. Do not use per-language headings or
 stacked fenced blocks. `bash` / `text` fences are exempt.
 
+Runnable application samples live under [`examples/`](../examples/); see
+[`examples/README.md`](../examples/README.md) and the playground
+([`examples/playground/`](../examples/playground/)).
+
 Feature guides include [durable SubFlows](content/primitives/subflow.mdx).
 
 ## Contributor design notes

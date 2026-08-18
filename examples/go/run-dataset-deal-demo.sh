@@ -32,8 +32,8 @@ api_address="127.0.0.1:${api_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
 compose_project="dataset-deal-demo-$$"
 test_dir=$(mktemp -d)
-dex_log="/tmp/dataset-deal-dex.log"
-app_log="/tmp/dataset-deal-app.log"
+dex_log="/tmp/products/dataset-deal-dex.log"
+app_log="/tmp/products/dataset-deal-app.log"
 dexcli_pid=""
 app_pid=""
 
@@ -85,25 +85,25 @@ DEX_WORKER_BIND_ADDRESS="127.0.0.1:${worker_port}" \
 DEX_WORKER_TARGET="127.0.0.1:${worker_port}" \
 DEX_EXAMPLES_HTTP_ADDRESS="$api_address" \
 DEX_BLOB_CACHE_DIR="$test_dir/blob-cache" \
-  ./dex-samples >>"$app_log" 2>&1 &
+  ./dex-dataset-deal >>"$app_log" 2>&1 &
 app_pid=$!
 
 api_ready=false
 for _ in {1..240}; do
-  if curl --fail --silent "http://${api_address}/api/dataset-deal/actions" >/dev/null; then
+  if curl --fail --silent "http://${api_address}/products/dataset-deal/api/actions" >/dev/null; then
     api_ready=true
     break
   fi
   if ! kill -0 "$app_pid" 2>/dev/null; then
     cat "$app_log" >&2
-    echo "Go examples server exited before becoming ready" >&2
+    echo "Dataset Deal server exited before becoming ready" >&2
     exit 1
   fi
   sleep 0.25
 done
 if ! $api_ready; then
   cat "$app_log" >&2
-  echo "Go examples API did not become ready" >&2
+  echo "Dataset Deal API did not become ready" >&2
   exit 1
 fi
 

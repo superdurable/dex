@@ -1,0 +1,429 @@
+# Copyright (c) 2022-2026 Super Durable, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+from __future__ import annotations
+
+import asyncio
+import socket
+from collections.abc import AsyncIterator, Callable
+from uuid import uuid4
+
+import pytest
+import pytest_asyncio
+
+from dex_examples.app import ExampleApp
+from dex_examples.http_app import create_app
+from dex_examples.products.shortlist_candidates.workflow_ids import (
+    employer_opt_in,
+    shortlist,
+)
+from tests.integ.flow_smoke_helper import (
+    FlowSmokeEntry,
+    FlowSmokeFlags,
+    FlowSmokeHttpClient,
+    assert_flow_smoke_no_unexpected_failures,
+    assert_flow_smoke_start_step,
+    parse_flow_trigger_response,
+)
+
+
+@pytest_asyncio.fixture(scope="session")
+async def flow_smoke_http(
+    example_app: ExampleApp,
+) -> AsyncIterator[FlowSmokeHttpClient]:
+    http_port = _available_port()
+    quart_app = create_app(example_app)
+    server_task = asyncio.create_task(
+        quart_app.run_task(host="127.0.0.1", port=http_port, debug=False)
+    )
+    base_url = f"http://127.0.0.1:{http_port}"
+    await _wait_for_http(base_url)
+    client = FlowSmokeHttpClient(base_url, _new_flow_id)
+    try:
+        yield client
+    finally:
+        server_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await server_task
+
+
+def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
+    new_id = client.new_flow_id
+
+    async def trigger_get(path: str, query: dict[str, str]) -> tuple[str, str]:
+        flow_id, run_id, _ = await client.get(path, query)
+        return flow_id, run_id
+
+    return [
+        FlowSmokeEntry("products/engagement", lambda c: trigger_get("/products/engagement/start", {})),
+        FlowSmokeEntry(
+            "products/microservices",
+            lambda c: trigger_get(
+                "/products/microservices/start",
+                {"workflowId": new_id("microservices")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "products/money-transfer",
+            lambda c: trigger_get(
+                "/products/money-transfer/start",
+                {
+                    "amount": "100",
+                    "fromAccount": "from-smoke",
+                    "toAccount": "to-smoke",
+                    "notes": "smoke",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "products/polling",
+            lambda c: trigger_get(
+                "/products/polling/start",
+                {
+                    "workflowId": new_id("product-polling"),
+                    "pollingCompletionThreshold": "3",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "products/subscription",
+            lambda c: trigger_get("/products/subscription/start", {}),
+        ),
+        FlowSmokeEntry(
+            "products/signup",
+            lambda c: _signup_trigger(c, new_id),
+        ),
+        FlowSmokeEntry(
+            "products/job-post",
+            lambda c: trigger_get(
+                "/products/job-post/create",
+                {"title": "Smoke Test Job", "description": "Smoke test description"},
+            ),
+            flags=FlowSmokeFlags(no_start_step=True),
+        ),
+        FlowSmokeEntry(
+            "products/shortlist-candidates/employer-opt-in",
+            lambda c: _shortlist_opt_in_trigger(c, new_id),
+        ),
+        FlowSmokeEntry(
+            "products/shortlist-candidates/shortlist",
+            lambda c: _shortlist_trigger(c, new_id),
+        ),
+        FlowSmokeEntry(
+            "products/ai-agent-email",
+            lambda c: trigger_get(
+                "/products/ai-agent-email/start",
+                {"workflowId": new_id("ai-agent")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/polling/simple",
+            lambda c: trigger_get(
+                "/patterns/polling/start/simple",
+                {"workflowId": new_id("pattern-polling-simple")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/polling/backoff",
+            lambda c: trigger_get(
+                "/patterns/polling/start/backoff",
+                {"workflowId": new_id("pattern-polling-backoff")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/interruptible",
+            lambda c: trigger_get(
+                "/patterns/interruptible/start",
+                {"workflowId": new_id("interruptible")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/reminders",
+            lambda c: _reminders_trigger(c),
+        ),
+        FlowSmokeEntry(
+            "patterns/entity-store",
+            lambda c: _entity_store_trigger(c, new_id),
+            flags=FlowSmokeFlags(no_start_step=True),
+        ),
+        FlowSmokeEntry(
+            "patterns/intervention",
+            lambda c: trigger_get(
+                "/patterns/intervention/start",
+                {"workflowId": new_id("intervention")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/resettable-timer",
+            lambda c: trigger_get(
+                "/patterns/resettable-timer/start",
+                {"workflowId": new_id("resettable-timer")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/parallel/simple",
+            lambda c: trigger_get(
+                "/patterns/parallel/start/simple",
+                {"workflowId": new_id("parallel-simple")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/parallel/with-await",
+            lambda c: trigger_get(
+                "/patterns/parallel/start/withAwait",
+                {"workflowId": new_id("parallel-await")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/recovery",
+            lambda c: trigger_get(
+                "/patterns/recovery/start",
+                {
+                    "workflowId": new_id("recovery"),
+                    "itemName": "smoke-item",
+                    "quantity": "2",
+                },
+            ),
+            flags=FlowSmokeFlags(step_start_may_fail=True),
+        ),
+        FlowSmokeEntry(
+            "patterns/scalable-parallel",
+            lambda c: trigger_get(
+                "/patterns/scalable-parallel/start",
+                {
+                    "workflowId": new_id("scalable-parallel"),
+                    "numOfChildWfs": "1",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/parent-child",
+            lambda c: trigger_get(
+                "/patterns/parent-child/start",
+                {
+                    "workflowId": new_id("parent-child"),
+                    "numOfChildWfs": "1",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/drain-channels/internal",
+            lambda c: trigger_get(
+                "/patterns/drain-channels/internal/start",
+                {"workflowId": new_id("drain-internal")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/drain-channels/signal",
+            lambda c: trigger_get(
+                "/patterns/drain-channels/signal/startorsignal",
+                {"workflowId": new_id("drain-signal")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/wait-for-state-completion",
+            lambda c: trigger_get(
+                "/patterns/wait-for-state-completion/start",
+                {"workflowId": new_id("wait-for-state")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/timeout",
+            lambda c: trigger_get(
+                "/patterns/timeout/start",
+                {
+                    "workflowId": new_id("timeout"),
+                    "successfulWorkflow": "true",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/resource-control",
+            lambda c: trigger_get(
+                "/patterns/resource-control/request",
+                {"id": new_id("resource-request")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/step",
+            lambda c: trigger_get(
+                "/primitives/step/start",
+                {"workflowId": new_id("primitive-step"), "inputNum": "1"},
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/step/retry",
+            lambda c: trigger_get(
+                "/primitives/step/retry/start",
+                {
+                    "workflowId": new_id("primitive-step-retry"),
+                    "readyAfterAttempt": "2",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/attribute",
+            lambda c: trigger_get(
+                "/primitives/attribute/start",
+                {"workflowId": new_id("primitive-attribute"), "message": "smoke"},
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/channel",
+            lambda c: trigger_get(
+                "/primitives/channel/start",
+                {"workflowId": new_id("primitive-channel"), "inputNum": "1"},
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/timer",
+            lambda c: trigger_get(
+                "/primitives/timer/start",
+                {"workflowId": new_id("primitive-timer"), "seconds": "1"},
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/rpc",
+            lambda c: trigger_get(
+                "/primitives/rpc/start",
+                {"workflowId": new_id("primitive-rpc")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/subflow",
+            lambda c: trigger_get(
+                "/primitives/subflow/start",
+                {"workflowId": new_id("primitive-subflow"), "inputNum": "1"},
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/client-apis",
+            lambda c: trigger_get(
+                "/primitives/client-apis/start",
+                {
+                    "workflowId": new_id("primitive-client-apis"),
+                    "keyword": "smoke",
+                },
+            ),
+        ),
+    ]
+
+
+async def _signup_trigger(
+    client: FlowSmokeHttpClient,
+    new_id: Callable[[str], str],
+) -> tuple[str, str]:
+    username = new_id("signup")
+    flow_id, run_id, body = await client.get(
+        "/products/signup/submit",
+        {"username": username, "email": f"{username}@example.com"},
+    )
+    parsed_flow_id, parsed_run_id = parse_flow_trigger_response(body, username)
+    return parsed_flow_id or flow_id or username, parsed_run_id or run_id
+
+
+async def _shortlist_opt_in_trigger(
+    client: FlowSmokeHttpClient,
+    new_id: Callable[[str], str],
+) -> tuple[str, str]:
+    employer_id = new_id("employer")
+    _, _, body = await client.post(
+        "/products/shortlist-candidates/opt_in",
+        {"employerId": employer_id},
+    )
+    flow_id, run_id = parse_flow_trigger_response(body, employer_opt_in(employer_id))
+    return flow_id or employer_opt_in(employer_id), run_id
+
+
+async def _shortlist_trigger(
+    client: FlowSmokeHttpClient,
+    new_id: Callable[[str], str],
+) -> tuple[str, str]:
+    employer_id = new_id("shortlist-employer")
+    candidate_id = new_id("candidate")
+    await client.post(
+        "/products/shortlist-candidates/opt_in",
+        {"employerId": employer_id},
+    )
+    _, _, body = await client.post(
+        "/products/shortlist-candidates/shortlist",
+        {"employerId": employer_id, "candidateId": candidate_id},
+    )
+    expected_flow_id = shortlist(employer_id, candidate_id)
+    flow_id, run_id = parse_flow_trigger_response(body, expected_flow_id)
+    return flow_id or expected_flow_id, run_id
+
+
+async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:
+    _, _, body = await client.get("/patterns/reminders/start", {})
+    return parse_flow_trigger_response(body, "")
+
+
+async def _entity_store_trigger(
+    client: FlowSmokeHttpClient,
+    new_id: Callable[[str], str],
+) -> tuple[str, str]:
+    user_id = new_id("entity-store")
+    flow_id, run_id, _ = await client.post(
+        "/patterns/entity-store/profile",
+        {
+            "userId": user_id,
+            "displayName": "Smoke Tester",
+            "email": f"{user_id}@example.com",
+            "marketingOptIn": True,
+            "credits": 120,
+            "weight": 59.5,
+            "lastLoggedInTime": "2026-08-11T15:30:00+00:00",
+            "metadata": {"source": "smoke", "tags": ["example"]},
+        },
+    )
+    return flow_id or user_id, run_id
+
+
+def _new_flow_id(prefix: str) -> str:
+    return f"{prefix}-{uuid4().hex}"
+
+
+def _available_port() -> int:
+    with socket.socket() as worker_socket:
+        worker_socket.bind(("127.0.0.1", 0))
+        return worker_socket.getsockname()[1]
+
+
+async def _wait_for_http(base_url: str) -> None:
+    import urllib.request
+
+    deadline = asyncio.get_running_loop().time() + 20
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            await asyncio.to_thread(
+                lambda: urllib.request.urlopen(f"{base_url}/", timeout=1).read()
+            )
+            return
+        except OSError:
+            await asyncio.sleep(0.1)
+    raise RuntimeError("flow smoke HTTP server did not become ready")
+
+
+@pytest.mark.integ
+async def test_flow_smoke_all_registered_flows_via_controller(
+    flow_smoke_http: FlowSmokeHttpClient,
+) -> None:
+    catalog = flow_smoke_catalog(flow_smoke_http)
+    assert catalog, "flow smoke catalog is empty"
+    for entry in catalog:
+        flow_id, run_id = await entry.trigger(flow_smoke_http)
+        assert flow_id, f"{entry.name}: controller response did not include flowID"
+        await assert_flow_smoke_start_step(entry, flow_id, run_id)
+        await assert_flow_smoke_no_unexpected_failures(entry, flow_id, run_id)

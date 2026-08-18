@@ -22,6 +22,19 @@
 
 set -euo pipefail
 
+keep_running=false
+test_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --keep-running)
+      keep_running=true
+      ;;
+    *)
+      test_args+=("$arg")
+      ;;
+  esac
+done
+
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 dex_port="${DEX_EXAMPLES_DEX_PORT:-19801}"
@@ -30,23 +43,41 @@ postgres_port="${DEX_EXAMPLES_POSTGRES_PORT:-19432}"
 dex_address="127.0.0.1:${dex_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
 compose_project="dataset-deal-e2e-$$"
+entity_store_dir="$repo_root/examples/entity-store"
+entity_store_project="entity-store-e2e-$$"
 log_file="/tmp/test-go-examples-e2e-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
 dexcli_pid=""
+entity_store_started=false
+dataset_deal_started=false
 : >"$log_file"
 
 cleanup() {
   status=$?
+  if $keep_running; then
+    if [[ "$status" -ne 0 ]]; then
+      cat "$log_file" >&2
+    fi
+    return
+  fi
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
   fi
-  if ! DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
-    -p "$compose_project" \
-    -f "$script_dir/dataset-deal/docker-compose.yml" \
-    down --volumes >>"$log_file" 2>&1; then
-    echo "failed to stop the Go examples database" >&2
+  if $dataset_deal_started; then
+    if ! DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
+      -p "$compose_project" \
+      -f "$script_dir/dataset-deal/docker-compose.yml" \
+      down --volumes >>"$log_file" 2>&1; then
+      echo "failed to stop the Dataset Deal database" >&2
+    fi
+  fi
+  if $entity_store_started; then
+    if ! docker compose -p "$entity_store_project" \
+      -f "$entity_store_dir/docker-compose.yml" down --volumes >>"$log_file" 2>&1; then
+      echo "failed to stop the Go examples entity store" >&2
+    fi
   fi
   if [[ "$status" -ne 0 ]]; then
     cat "$log_file" >&2
@@ -55,10 +86,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
-  -p "$compose_project" \
-  -f "$script_dir/dataset-deal/docker-compose.yml" \
-  up -d --wait
+docker compose -p "$entity_store_project" \
+  -f "$entity_store_dir/docker-compose.yml" up --detach --wait
+entity_store_started=true
 
 if [[ ! -f "$repo_root/web/assets/dist/index.html" ]]; then
   (
@@ -74,6 +104,7 @@ fi
 )
 
 "$binary_dir/dexcli" dev \
+  -attribute-store-config "$entity_store_dir/attribute-store.yaml" \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
@@ -81,6 +112,8 @@ fi
   -sqlite-db-filename "$test_dir/temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
+
+export DEXCLI_PATH="$binary_dir/dexcli"
 
 dex_ready=false
 for _ in {1..240}; do
@@ -100,10 +133,36 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
-DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-DEX_WORKER_HOST=127.0.0.1 \
+common_test_env=(
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address"
+  DEX_WORKER_HOST=127.0.0.1
+  GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}"
+  GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}"
+  GOWORK=off
+)
+integ_status=0
+env "${common_test_env[@]}" \
+  go test -count=1 -race -v ./integ ${test_args[@]+"${test_args[@]}"} || integ_status=$?
+
+DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
+  -p "$compose_project" \
+  -f "$script_dir/dataset-deal/docker-compose.yml" \
+  up -d --wait
+dataset_deal_started=true
+
+dataset_deal_status=0
+env "${common_test_env[@]}" \
 DATASET_DEAL_POSTGRES_URL="$postgres_url" \
-GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
-GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \
-GOWORK=off \
-  go test -count=1 -race -v ./integ
+  go test -count=1 -race -v ./integ/datasetdeal ${test_args[@]+"${test_args[@]}"} || dataset_deal_status=$?
+
+if [[ "$integ_status" -ne 0 || "$dataset_deal_status" -ne 0 ]]; then
+  exit 1
+fi
+
+if $keep_running; then
+  echo ""
+  echo "Dex Web:  http://127.0.0.1:${web_port}"
+  echo "dexcli:   --server ${dex_address}"
+  echo "Press Ctrl+C to stop dexcli dev"
+  wait "$dexcli_pid"
+fi

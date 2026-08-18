@@ -36,24 +36,24 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
-	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/engagement"
-	"github.com/superdurable/dex/examples/go/workflows/jobpost"
-	"github.com/superdurable/dex/examples/go/workflows/microservices"
-	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
-	drainsignal "github.com/superdurable/dex/examples/go/workflows/patterns/drainchannels/signal"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/entitystore"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/interruptible"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/intervention"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/parallel"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/recovery"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/scalableparallel"
-	"github.com/superdurable/dex/examples/go/workflows/patterns/waitforstatecompletion"
-	"github.com/superdurable/dex/examples/go/workflows/polling"
-	"github.com/superdurable/dex/examples/go/workflows/service"
-	"github.com/superdurable/dex/examples/go/workflows/shortlistcandidates"
-	"github.com/superdurable/dex/examples/go/workflows/signup"
-	"github.com/superdurable/dex/examples/go/workflows/subscription"
+	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
+	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	"github.com/superdurable/dex/examples/go/patterns/interruptible"
+	"github.com/superdurable/dex/examples/go/patterns/intervention"
+	"github.com/superdurable/dex/examples/go/patterns/parallel"
+	"github.com/superdurable/dex/examples/go/patterns/recovery"
+	"github.com/superdurable/dex/examples/go/patterns/scalable-parallel"
+	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
+	"github.com/superdurable/dex/examples/go/products/engagement"
+	"github.com/superdurable/dex/examples/go/products/job-post"
+	"github.com/superdurable/dex/examples/go/products/microservices"
+	"github.com/superdurable/dex/examples/go/products/money-transfer"
+	"github.com/superdurable/dex/examples/go/products/polling"
+	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
+	"github.com/superdurable/dex/examples/go/products/signup"
+	"github.com/superdurable/dex/examples/go/products/subscription"
+	"github.com/superdurable/dex/examples/go/registry"
+	"github.com/superdurable/dex/examples/go/shared/service"
 	"github.com/superdurable/dex/sdk-go/dex"
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
@@ -161,7 +161,7 @@ func main() {
 
 func newVerifyClient() (*dex.Client, func(), error) {
 	var client *dex.Client
-	flows := workflows.New(service.NewMyService(), func() *dex.Client { return client })
+	flows := registry.New(service.NewMyService(), func() *dex.Client { return client })
 	registry, err := dex.NewRegistry(flows)
 	if err != nil {
 		return nil, nil, err
@@ -281,7 +281,7 @@ func parseOnly(raw string) map[string]bool {
 func verifyMoneyTransfer(ctx context.Context, client *dex.Client, stamp string) result {
 	name := "product/moneytransfer"
 	flowID := "dv-money-" + stamp
-	_, err := client.StartFlow(ctx, workflows.MoneyTransfer, flowID, moneytransfer.TransferRequest{
+	_, err := client.StartFlow(ctx, registry.MoneyTransfer, flowID, moneytransfer.TransferRequest{
 		FromAccount: "from-dv",
 		ToAccount:   "to-dv",
 		Amount:      17,
@@ -310,7 +310,7 @@ func verifyMicroservices(ctx context.Context, client *dex.Client, stamp string) 
 	name := "product/microservices"
 	flowID := "dv-ms-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.Microservices, flowID, "initial-data", dex.StartFlowOptions{},
+		ctx, registry.Microservices, flowID, "initial-data", dex.StartFlowOptions{},
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -323,7 +323,7 @@ func verifyMicroservices(ctx context.Context, client *dex.Client, stamp string) 
 	}
 	var oldData string
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.Microservices.Swap, "updated-data", &oldData, dex.InvokeOptions{},
+		ctx, flowID, registry.Microservices.Swap, "updated-data", &oldData, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "swap", err)
 	}
@@ -350,7 +350,7 @@ func verifyMicroservices(ctx context.Context, client *dex.Client, stamp string) 
 func verifyEngagement(ctx context.Context, client *dex.Client, stamp string) result {
 	name := "product/engagement"
 	flowID := "dv-eng-" + stamp
-	_, err := client.StartFlow(ctx, workflows.Engagement, flowID, engagement.EngagementInput{
+	_, err := client.StartFlow(ctx, registry.Engagement, flowID, engagement.EngagementInput{
 		EmployerID:  "employer-dv",
 		JobSeekerID: "job-seeker-dv",
 		Notes:       "deepverify",
@@ -366,7 +366,7 @@ func verifyEngagement(ctx context.Context, client *dex.Client, stamp string) res
 	}
 	var description engagement.EngagementDescription
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.Engagement.Describe, nil, &description, dex.InvokeOptions{},
+		ctx, flowID, registry.Engagement.Describe, nil, &description, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "describe", err)
 	}
@@ -378,7 +378,7 @@ func verifyEngagement(ctx context.Context, client *dex.Client, stamp string) res
 	}
 	var status engagement.Status
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.Engagement.Accept, "accepted deepverify", &status, dex.InvokeOptions{},
+		ctx, flowID, registry.Engagement.Accept, "accepted deepverify", &status, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "accept", err)
 	}
@@ -415,7 +415,7 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 		},
 	}
 	_, err := client.StartFlow(
-		ctx, workflows.Subscription, flowID, customer, dex.StartFlowOptions{},
+		ctx, registry.Subscription, flowID, customer, dex.StartFlowOptions{},
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -428,7 +428,7 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 	}
 	var current subscription.Subscription
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.Subscription.Describe, nil, &current, dex.InvokeOptions{},
+		ctx, flowID, registry.Subscription.Describe, nil, &current, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "describe", err)
 	}
@@ -441,7 +441,7 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		err = client.InvokeRPC(
-			ctx, flowID, workflows.Subscription.Describe, nil, &current, dex.InvokeOptions{},
+			ctx, flowID, registry.Subscription.Describe, nil, &current, dex.InvokeOptions{},
 		)
 		if err == nil && current.BillingPeriodCharge == 250 {
 			break
@@ -471,7 +471,7 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 func verifyPolling(ctx context.Context, client *dex.Client, stamp string) result {
 	name := "product/polling"
 	flowID := "dv-poll-" + stamp
-	_, err := client.StartFlow(ctx, workflows.Polling, flowID, 1, dex.StartFlowOptions{})
+	_, err := client.StartFlow(ctx, registry.Polling, flowID, 1, dex.StartFlowOptions{})
 	if err != nil {
 		return fail(name, "", err)
 	}
@@ -509,13 +509,13 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 		FirstName: "Deep",
 		LastName:  "Verify",
 	}
-	_, err := client.StartFlow(ctx, workflows.Signup, flowID, form, dex.StartFlowOptions{})
+	_, err := client.StartFlow(ctx, registry.Signup, flowID, form, dex.StartFlowOptions{})
 	if err != nil {
 		return fail(name, "", err)
 	}
 	var verifyOutput string
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.Signup.Verify, nil, &verifyOutput, dex.InvokeOptions{},
+		ctx, flowID, registry.Signup.Verify, nil, &verifyOutput, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "verify rpc", err)
 	}
@@ -551,7 +551,7 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	if err != nil {
 		return fail(name, "initial lastUpdate", err)
 	}
-	_, err = client.StartFlow(ctx, workflows.JobPost, flowID, nil, dex.StartFlowOptions{
+	_, err = client.StartFlow(ctx, registry.JobPost, flowID, nil, dex.StartFlowOptions{
 		Timeout: &timeout,
 		Attributes: []dex.InitialAttributeDef{
 			titleAttr, descriptionAttr, lastUpdateAttr,
@@ -563,7 +563,7 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	}
 	var info jobpost.JobInfo
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.JobPost.Get, nil, &info, dex.InvokeOptions{},
+		ctx, flowID, registry.JobPost.Get, nil, &info, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "get", err)
 	}
@@ -572,14 +572,14 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	}
 	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.JobPost.Update,
+		ctx, flowID, registry.JobPost.Update,
 		jobpost.JobInfo{Title: "Senior DeepVerify", Description: "More depth", Notes: "n1"},
 		&none, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "update", err)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.JobPost.Get, nil, &info, dex.InvokeOptions{},
+		ctx, flowID, registry.JobPost.Get, nil, &info, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "get after update", err)
 	}
@@ -620,7 +620,7 @@ func verifyShortlistRevoke(ctx context.Context, client *dex.Client, stamp string
 	candidateID := "cand-revoke-" + stamp
 	optInID := shortlistcandidates.EmployerOptInFlowID(employerID)
 	_, err := client.StartFlow(
-		ctx, workflows.EmployerOptIn, optInID,
+		ctx, registry.EmployerOptIn, optInID,
 		shortlistcandidates.EmployerOptInInput{EmployerID: employerID},
 		dex.StartFlowOptions{},
 	)
@@ -630,7 +630,7 @@ func verifyShortlistRevoke(ctx context.Context, client *dex.Client, stamp string
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		optedIn, checkErr := shortlistcandidates.IsOptedIn(
-			ctx, client, workflows.EmployerOptIn, employerID,
+			ctx, client, registry.EmployerOptIn, employerID,
 		)
 		if checkErr == nil && optedIn {
 			break
@@ -642,7 +642,7 @@ func verifyShortlistRevoke(ctx context.Context, client *dex.Client, stamp string
 	}
 	shortlistID := shortlistcandidates.ShortlistFlowID(employerID, candidateID)
 	_, err = client.StartFlow(
-		ctx, workflows.Shortlist, shortlistID,
+		ctx, registry.Shortlist, shortlistID,
 		shortlistcandidates.ShortlistInput{EmployerID: employerID, CandidateID: candidateID},
 		dex.StartFlowOptions{},
 	)
@@ -681,7 +681,7 @@ func startShortlistEmailPath(
 	candidateID := "cand-email-" + stamp
 	optInID := shortlistcandidates.EmployerOptInFlowID(employerID)
 	_, err := client.StartFlow(
-		ctx, workflows.EmployerOptIn, optInID,
+		ctx, registry.EmployerOptIn, optInID,
 		shortlistcandidates.EmployerOptInInput{EmployerID: employerID},
 		dex.StartFlowOptions{},
 	)
@@ -691,7 +691,7 @@ func startShortlistEmailPath(
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		optedIn, checkErr := shortlistcandidates.IsOptedIn(
-			ctx, client, workflows.EmployerOptIn, employerID,
+			ctx, client, registry.EmployerOptIn, employerID,
 		)
 		if checkErr == nil && optedIn {
 			break
@@ -706,7 +706,7 @@ func startShortlistEmailPath(
 	}
 	shortlistID := shortlistcandidates.ShortlistFlowID(employerID, candidateID)
 	_, err = client.StartFlow(
-		ctx, workflows.Shortlist, shortlistID,
+		ctx, registry.Shortlist, shortlistID,
 		shortlistcandidates.ShortlistInput{EmployerID: employerID, CandidateID: candidateID},
 		dex.StartFlowOptions{},
 	)
@@ -737,7 +737,7 @@ func startResettableTimerPath(
 ) (string, error) {
 	flowID := "dv-reset-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.ResettableTimer, flowID, nil, hourStartOptions(),
+		ctx, registry.ResettableTimer, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return "", err
@@ -745,7 +745,7 @@ func startResettableTimerPath(
 	time.Sleep(2 * time.Second)
 	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.ResettableTimer.SendResetMessage, nil, &none, dex.InvokeOptions{},
+		ctx, flowID, registry.ResettableTimer.SendResetMessage, nil, &none, dex.InvokeOptions{},
 	); err != nil {
 		return "", err
 	}
@@ -766,7 +766,7 @@ func verifySimplePolling(ctx context.Context, client *dex.Client, stamp string) 
 	name := "pattern/simple-polling"
 	flowID := "dv-simple-poll-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.SimplePolling, flowID, nil, hourStartOptions(),
+		ctx, registry.SimplePolling, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -781,7 +781,7 @@ func verifyBackoffPolling(ctx context.Context, client *dex.Client, stamp string)
 	name := "pattern/backoff-polling"
 	flowID := "dv-backoff-poll-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.BackoffPolling, flowID, nil, hourStartOptions(),
+		ctx, registry.BackoffPolling, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -804,7 +804,7 @@ func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) 
 	name := "pattern/interruptible"
 	flowID := "dv-interrupt-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.InterruptibleExecution, flowID, nil, hourStartOptions(),
+		ctx, registry.InterruptibleExecution, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -812,7 +812,7 @@ func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) 
 	time.Sleep(500 * time.Millisecond)
 	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.InterruptibleExecution.Interrupt, nil, &none, dex.InvokeOptions{},
+		ctx, flowID, registry.InterruptibleExecution.Interrupt, nil, &none, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "interrupt rpc", err)
 	}
@@ -833,14 +833,14 @@ func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) 
 func verifyReminder(ctx context.Context, client *dex.Client, stamp string) result {
 	name := "pattern/reminder"
 	flowID := "dv-reminder-" + stamp
-	_, err := client.StartFlow(ctx, workflows.Reminder, flowID, nil, hourStartOptions())
+	_, err := client.StartFlow(ctx, registry.Reminder, flowID, nil, hourStartOptions())
 	if err != nil {
 		return fail(name, "", err)
 	}
 	time.Sleep(6 * time.Second) // allow at least one reminder timer tick
 	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.Reminder.Accept, nil, &none, dex.InvokeOptions{},
+		ctx, flowID, registry.Reminder.Accept, nil, &none, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "accept", err)
 	}
@@ -874,12 +874,12 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 	options.ConfigOverride = &dex.FlowConfig{
 		AttributeStoreName: ptr.Any(entitystore.StoreName),
 	}
-	if _, err := client.StartFlow(ctx, workflows.UserProfile, flowID, nil, options); err != nil {
+	if _, err := client.StartFlow(ctx, registry.UserProfile, flowID, nil, options); err != nil {
 		return fail(name, "start", err)
 	}
 	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.UserProfile.UpdateProfile,
+		ctx, flowID, registry.UserProfile.UpdateProfile,
 		entitystore.UserProfile{
 			DisplayName:    "Ada Byron",
 			Email:          profile.Email,
@@ -898,7 +898,7 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 	}
 	var got entitystore.UserProfile
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.UserProfile.GetProfile, nil, &got, dex.InvokeOptions{},
+		ctx, flowID, registry.UserProfile.GetProfile, nil, &got, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "get", err)
 	}
@@ -912,7 +912,7 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 		return fail(name, fmt.Sprintf("unexpected profile: %+v", got), nil)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.UserProfile.ClearProfile, nil, &none, dex.InvokeOptions{},
+		ctx, flowID, registry.UserProfile.ClearProfile, nil, &none, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "clear", err)
 	}
@@ -923,7 +923,7 @@ func verifyInterventionRetry(ctx context.Context, client *dex.Client, stamp stri
 	name := "pattern/intervention-retry"
 	flowID := "dv-interv-retry-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.ManualIntervention, flowID, nil, hourStartOptions(),
+		ctx, registry.ManualIntervention, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "start", err)
@@ -967,7 +967,7 @@ func verifyInterventionSkip(ctx context.Context, client *dex.Client, stamp strin
 	name := "pattern/intervention-skip"
 	flowID := "dv-interv-skip-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.ManualIntervention, flowID, nil, hourStartOptions(),
+		ctx, registry.ManualIntervention, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "start", err)
@@ -1005,7 +1005,7 @@ func verifyParallelSimple(ctx context.Context, client *dex.Client, stamp string)
 	name := "pattern/parallel-simple"
 	flowID := "dv-par-simple-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.SimpleParallel, flowID,
+		ctx, registry.SimpleParallel, flowID,
 		parallel.JobSeeker{ID: "123", Email: "a@b.com", PhoneNumber: "1"},
 		hourStartOptions(),
 	)
@@ -1022,7 +1022,7 @@ func verifyParallelAwait(ctx context.Context, client *dex.Client, stamp string) 
 	name := "pattern/parallel-await"
 	flowID := "dv-par-await-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.ParallelWithAwait, flowID, 3, hourStartOptions(),
+		ctx, registry.ParallelWithAwait, flowID, 3, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -1037,7 +1037,7 @@ func verifyRecovery(ctx context.Context, client *dex.Client, stamp string) resul
 	name := "pattern/recovery"
 	flowID := "dv-recovery-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.FailureRecovery, flowID,
+		ctx, registry.FailureRecovery, flowID,
 		recovery.FailureRecoveryWorkflowInput{ItemName: "widget", RequestedQuantity: 0},
 		hourStartOptions(),
 	)
@@ -1066,7 +1066,7 @@ func verifyScalableParallel(ctx context.Context, client *dex.Client, stamp strin
 	taskA := "task-a-" + stamp
 	taskB := "task-b-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.ScalableParent, parentID,
+		ctx, registry.ScalableParent, parentID,
 		scalableparallel.BatchEnqueueRequest{List: []string{taskA, taskB}},
 		hourStartOptions(),
 	)
@@ -1100,7 +1100,7 @@ func verifyParentChild(ctx context.Context, client *dex.Client, stamp string) re
 		_ = client.StopFlow(ctx, childID, dex.StopOptions{})
 	}
 	_, err := client.StartFlow(
-		ctx, workflows.ParentChild, flowID, 2, idReuseHourOptions(),
+		ctx, registry.ParentChild, flowID, 2, idReuseHourOptions(),
 	)
 	if err != nil {
 		return fail(name, "start parent", err)
@@ -1132,7 +1132,7 @@ func verifyDrainInternal(ctx context.Context, client *dex.Client, stamp string) 
 	name := "pattern/drain-internal"
 	flowID := "dv-drain-int-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.DrainInternal, flowID, "doc-"+stamp, hourStartOptions(),
+		ctx, registry.DrainInternal, flowID, "doc-"+stamp, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -1147,7 +1147,7 @@ func verifyDrainSignal(ctx context.Context, client *dex.Client, stamp string) re
 	name := "pattern/drain-signal"
 	flowID := "dv-drain-sig-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.DrainSignal, flowID, "first message", hourStartOptions(),
+		ctx, registry.DrainSignal, flowID, "first message", hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -1173,7 +1173,7 @@ func verifyWaitForStateCompletion(
 	flowID := "dv-waitstate-" + stamp
 	input := waitforstatecompletion.JobSeekerData{ID: 42, Name: "deep", Email: "a@b.c"}
 	_, err := client.StartFlow(
-		ctx, workflows.WaitForStateCompletion, flowID, input, hourStartOptions(),
+		ctx, registry.WaitForStateCompletion, flowID, input, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "start", err)
@@ -1187,7 +1187,7 @@ func verifyWaitForStateCompletion(
 	}
 	var persisted waitforstatecompletion.JobSeekerData
 	if err := client.InvokeRPC(
-		ctx, flowID, workflows.WaitForStateCompletion.GetJobSeekerData,
+		ctx, flowID, registry.WaitForStateCompletion.GetJobSeekerData,
 		nil, &persisted, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "GetJobSeekerData", err)
@@ -1205,7 +1205,7 @@ func verifyTimeoutSuccess(ctx context.Context, client *dex.Client, stamp string)
 	name := "pattern/timeout-success"
 	flowID := "dv-timeout-ok-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.GracefulTimeout, flowID, true, hourStartOptions(),
+		ctx, registry.GracefulTimeout, flowID, true, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -1234,7 +1234,7 @@ func verifyTimeoutFail(ctx context.Context, client *dex.Client, stamp string) re
 	name := "pattern/timeout-fail"
 	flowID := "dv-timeout-fail-" + stamp
 	_, err := client.StartFlow(
-		ctx, workflows.GracefulTimeout, flowID, false, hourStartOptions(),
+		ctx, registry.GracefulTimeout, flowID, false, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -1261,7 +1261,7 @@ func verifyCron(ctx context.Context, client *dex.Client) result {
 	cronID := fmt.Sprintf("cron-schedule-dv-%d", time.Now().UnixNano())
 	timeout := time.Hour
 	_, startErr := client.StartFlow(
-		ctx, workflows.CronSchedule, cronID, nil,
+		ctx, registry.CronSchedule, cronID, nil,
 		dex.StartFlowOptions{Timeout: &timeout, CronSchedule: "*/1 * * * *"},
 	)
 	// Temporal Schedule.Create returns an empty run ID; SDK surfaces that after register.

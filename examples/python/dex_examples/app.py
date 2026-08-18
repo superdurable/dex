@@ -31,60 +31,67 @@ from dex import (
     open_blob_cache,
 )
 
-from dex_examples.basic.basic_flow import BasicFlow
 from dex_examples.config import ExamplesConfig
-from dex_examples.my_dependency_service import MyDependencyService
-from dex_examples.patterns.services.service_dependency import ServiceDependency
-from dex_examples.patterns.workflow.cron.cron_schedule_flow import CronScheduleFlow
-from dex_examples.patterns.workflow.drainchannels.internal.drain_internal_channels_flow import (
+from dex_examples.patterns.cron.cron_schedule_flow import CronScheduleFlow
+from dex_examples.patterns.drain_channels.internal.drain_internal_channels_flow import (
     DrainInternalChannelsFlow,
 )
-from dex_examples.patterns.workflow.drainchannels.signal.drain_signal_channels_flow import (
+from dex_examples.patterns.drain_channels.signal.drain_signal_channels_flow import (
     DrainSignalChannelsFlow,
 )
-from dex_examples.patterns.workflow.entitystore.user_profile_flow import UserProfileFlow
-from dex_examples.patterns.workflow.interruptible.interruptible_execution_flow import (
+from dex_examples.patterns.entity_store.user_profile_flow import UserProfileFlow
+from dex_examples.patterns.interruptible.interruptible_execution_flow import (
     InterruptibleExecutionFlow,
 )
-from dex_examples.patterns.workflow.intervention.manual_intervention_flow import (
+from dex_examples.patterns.intervention.manual_intervention_flow import (
     ManualInterventionFlow,
 )
-from dex_examples.patterns.workflow.parallel.parallel_states_with_await_flow import (
+from dex_examples.patterns.parallel.parallel_states_with_await_flow import (
     ParallelStatesWithAwaitFlow,
 )
-from dex_examples.patterns.workflow.parallel.simple_parallel_states_flow import (
+from dex_examples.patterns.parallel.simple_parallel_states_flow import (
     SimpleParallelStatesFlow,
 )
-from dex_examples.patterns.workflow.parentchild.parent_flow_v2 import ParentFlowV2
-from dex_examples.patterns.workflow.polling.backoff_polling_flow import BackoffPollingFlow
-from dex_examples.patterns.workflow.polling.simple_polling_flow import SimplePollingFlow
-from dex_examples.patterns.workflow.recovery.failure_recovery_flow import FailureRecoveryFlow
-from dex_examples.patterns.workflow.reminders.reminder_flow import ReminderFlow
-from dex_examples.patterns.workflow.resettabletimer.resettable_timer_flow import (
+from dex_examples.patterns.parent_child.parent_flow_v2 import ParentFlowV2
+from dex_examples.patterns.polling.backoff_polling_flow import BackoffPollingFlow
+from dex_examples.patterns.polling.simple_polling_flow import SimplePollingFlow
+from dex_examples.patterns.recovery.failure_recovery_flow import FailureRecoveryFlow
+from dex_examples.patterns.reminders.reminder_flow import ReminderFlow
+from dex_examples.patterns.resettable_timer.resettable_timer_flow import (
     ResettableTimerFlow,
 )
-from dex_examples.patterns.workflow.scalableparallel.child_flow import ChildFlow
-from dex_examples.patterns.workflow.scalableparallel.parent_flow import ParentFlow
-from dex_examples.patterns.workflow.scalableparallel.request_receiver_flow import (
+from dex_examples.patterns.resource_control.controller_flow import ControllerFlow
+from dex_examples.patterns.resource_control.processing_flow import ProcessingFlow
+from dex_examples.patterns.scalable_parallel.child_flow import ChildFlow
+from dex_examples.patterns.scalable_parallel.parent_flow import ParentFlow
+from dex_examples.patterns.scalable_parallel.request_receiver_flow import (
     RequestReceiverFlow,
 )
-from dex_examples.patterns.workflow.timeout.flow_graceful_timeout import FlowGracefulTimeout
-from dex_examples.patterns.workflow.waitforstatecompletion.wait_for_state_completion_flow import (
+from dex_examples.patterns.shared.service_dependency import ServiceDependency
+from dex_examples.patterns.timeout.flow_graceful_timeout import FlowGracefulTimeout
+from dex_examples.patterns.wait_for_state_completion.wait_for_state_completion_flow import (
     WaitForStateCompletionFlow,
 )
-from dex_examples.resourcecontrol.controller_flow import ControllerFlow
-from dex_examples.resourcecontrol.processing_flow import ProcessingFlow
-from dex_examples.ai_agent_email.ai_agent_flow import EmailAgentFlow
-from dex_examples.workflow.engagement.engagement_flow import EngagementFlow
-from dex_examples.workflow.jobpost.job_post_flow import JobPostFlow
-from dex_examples.workflow.microservices.orchestration_flow import OrchestrationFlow
-from dex_examples.workflow.money.transfer.money_transfer_flow import MoneyTransferFlow
-from dex_examples.workflow.polling.polling_flow import PollingFlow
-from dex_examples.workflow.shortlistcandidates.employer_opt_in_flow import EmployerOptInFlow
-from dex_examples.workflow.shortlistcandidates.shortlist_flow import ShortlistFlow
-from dex_examples.workflow.shortlistcandidates.workflow_ids import ClientOptInChecker
-from dex_examples.workflow.signup.user_signup_flow import UserSignupFlow
-from dex_examples.workflow.subscription.subscription_flow import SubscriptionFlow
+from dex_examples.primitives.attribute.attribute_flow import AttributeFlow
+from dex_examples.primitives.channel.channel_flow import ChannelFlow
+from dex_examples.primitives.client_apis.client_apis_flow import ClientApisFlow
+from dex_examples.primitives.rpc.rpc_flow import RpcFlow
+from dex_examples.primitives.step.retry_flow import RetryFlow
+from dex_examples.primitives.step.step_flow import StepFlow
+from dex_examples.primitives.subflow.subflow_flow import SubFlowChildFlow, SubFlowParentFlow
+from dex_examples.primitives.timer.timer_flow import TimerFlow
+from dex_examples.products.ai_agent_email.ai_agent_flow import EmailAgentFlow
+from dex_examples.products.engagement.engagement_flow import EngagementFlow
+from dex_examples.products.job_post.job_post_flow import JobPostFlow
+from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
+from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransferFlow
+from dex_examples.products.polling.polling_flow import PollingFlow
+from dex_examples.products.shortlist_candidates.employer_opt_in_flow import EmployerOptInFlow
+from dex_examples.products.shortlist_candidates.shortlist_flow import ShortlistFlow
+from dex_examples.products.shortlist_candidates.workflow_ids import ClientOptInChecker
+from dex_examples.products.signup.user_signup_flow import UserSignupFlow
+from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
+from dex_examples.shared.my_dependency_service import MyDependencyService
 
 
 class ExampleApp:
@@ -131,7 +138,16 @@ class ExampleApp:
         self.request_receiver = RequestReceiverFlow(client_provider, self.parent_flow)
         self.parent_flow_v2 = ParentFlowV2(client_provider, self.child_flow)
 
-        self.basic = BasicFlow()
+        self.step = StepFlow()
+        self.step_retry = RetryFlow()
+        self.attribute = AttributeFlow()
+        self.channel = ChannelFlow()
+        self.timer = TimerFlow()
+        self.rpc = RpcFlow()
+        self.subflow_child = SubFlowChildFlow()
+        self.subflow_parent = SubFlowParentFlow(self.subflow_child)
+        self.client_apis = ClientApisFlow()
+
         self.controller = ControllerFlow(client_provider, lambda: self.processing)
         self.processing = ProcessingFlow(client_provider, lambda: self.controller)
         self.email_agent = EmailAgentFlow()
@@ -165,7 +181,15 @@ class ExampleApp:
             self.parent_flow,
             self.request_receiver,
             self.parent_flow_v2,
-            self.basic,
+            self.step,
+            self.step_retry,
+            self.attribute,
+            self.channel,
+            self.timer,
+            self.rpc,
+            self.subflow_child,
+            self.subflow_parent,
+            self.client_apis,
             self.controller,
             self.processing,
             self.email_agent,
