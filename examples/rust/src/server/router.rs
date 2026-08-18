@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::patterns;
@@ -58,4 +59,5 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         .merge(primitives::subflow::controller::mount(client.clone()))
         .merge(primitives::client_apis::controller::mount(client))
         .layer(TraceLayer::new_for_http())
+        .layer(CorsLayer::permissive())
 }

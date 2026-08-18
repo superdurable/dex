@@ -1,0 +1,233 @@
+/*
+Copyright (c) 2022-2026 Super Durable, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+
+:root {
+  --bg: #f4f1ea;
+  --panel: #fffdf8;
+  --ink: #1b2430;
+  --muted: #5c6570;
+  --line: #d9d0c3;
+  --accent: #0f6e6b;
+  --get: #0f6e6b;
+  --post: #8a4b12;
+  --danger: #9b2c2c;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--bg);
+  font: 15px/1.45 "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+header.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  gap: 12px;
+  padding: 16px 20px;
+  background: #1b2430;
+  color: #f4f1ea;
+}
+
+header.app-bar h1 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+header.app-bar p {
+  margin: 4px 0 0;
+  color: #c9c2b6;
+  font-size: 0.9rem;
+}
+
+#settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+#settings label {
+  display: grid;
+  gap: 4px;
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #c9c2b6;
+}
+
+#settings input {
+  min-width: 280px;
+  padding: 8px 10px;
+  border: 1px solid #3a4553;
+  border-radius: 6px;
+  background: #111820;
+  color: #f4f1ea;
+}
+
+button {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: #3a4553;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  min-height: calc(100vh - 120px);
+}
+
+nav {
+  padding: 16px 12px 40px;
+  border-right: 1px solid var(--line);
+  background: #efe8dc;
+}
+
+.nav-group { margin-bottom: 18px; }
+
+.nav-group h2, .group > h2 {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+nav a {
+  display: block;
+  padding: 4px 8px;
+  color: var(--ink);
+  text-decoration: none;
+  border-radius: 4px;
+}
+
+nav a:hover { background: #e4d9c8; }
+
+main { padding: 16px 24px 64px; }
+
+.example {
+  margin: 0 0 28px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.example-head {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.example-head h3 { margin: 0; }
+
+.example-head .field, .endpoint form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.note, .web-links {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.endpoint {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+}
+
+.endpoint header {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+
+.method {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.method-get { color: var(--get); }
+.method-post { color: var(--post); }
+
+.field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.field input, .field select, .field textarea {
+  min-width: 180px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  color: var(--ink);
+}
+
+.field-wide { flex: 1 1 100%; }
+.field-wide textarea { width: 100%; font-family: "IBM Plex Mono", ui-monospace, monospace; }
+
+.result { margin-top: 10px; }
+
+.result .meta, .result .ids, .result .links {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+}
+
+.result pre {
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #1b2430;
+  color: #f4f1ea;
+  font: 12px/1.4 "IBM Plex Mono", ui-monospace, monospace;
+}
+
+a { color: var(--accent); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; }
+  nav { display: none; }
+}

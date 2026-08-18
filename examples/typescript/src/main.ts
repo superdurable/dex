@@ -83,6 +83,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   setClient(client);
 
   const app = express();
+  app.use(allowCors);
   app.use(express.json());
   app.use("/products/money-transfer", createMoneyTransferRouter(client));
   app.use("/products/microservices", createMicroserviceRouter(client));
@@ -162,6 +163,27 @@ export async function startSampleServer(): Promise<SampleServer> {
       ]);
     },
   };
+}
+
+function allowCors(
+  request: express.Request,
+  response: express.Response,
+  next: express.NextFunction,
+): void {
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  response.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  );
+  response.setHeader(
+    "Access-Control-Allow-Headers",
+    "Origin, Content-Type, Accept, Authorization",
+  );
+  if (request.method === "OPTIONS") {
+    response.sendStatus(204);
+    return;
+  }
+  next();
 }
 
 function parseHttpAddress(address: string): { host: string; port: number } {

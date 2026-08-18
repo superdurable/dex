@@ -29,6 +29,19 @@ import (
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
+func AllowCORS() gin.HandlerFunc {
+	return func(request *gin.Context) {
+		request.Header("Access-Control-Allow-Origin", "*")
+		request.Header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+		request.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Accept, Authorization")
+		if request.Request.Method == http.MethodOptions {
+			request.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		request.Next()
+	}
+}
+
 func RequiredQuery(request *gin.Context, name string) (string, bool) {
 	value := request.Query(name)
 	if value == "" {

@@ -27,6 +27,7 @@ from quart import Quart
 from werkzeug.exceptions import HTTPException
 
 from dex_examples.app import ExampleApp
+from dex_examples.http_cors import install_quart_cors
 from dex_examples.patterns.drain_channels.internal.controller import (
     create_drain_internal_blueprint,
 )
@@ -125,6 +126,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_subflow_blueprint(app_state))
     quart_app.register_blueprint(create_client_apis_blueprint(app_state))
 
+    install_quart_cors(quart_app)
     quart_app.register_error_handler(HTTPException, handle_http_exception)
     quart_app.register_error_handler(DexServiceError, handle_dex_exception)
     quart_app.register_error_handler(Exception, handle_unexpected_exception)

@@ -19,6 +19,7 @@ from dataclasses import asdict
 from dex import IdReusePolicy, StartFlowOptions
 from flask import Blueprint, Flask, Response, jsonify
 
+from dex_examples.http_cors import install_flask_cors
 from dex_examples.products.engagement.engagement_input import EngagementInput
 from dex_examples.products.money_transfer.transfer_request import TransferRequest
 from dex_examples.products.subscription.customer import Customer
@@ -43,6 +44,7 @@ def create_app(app_state: SyncExampleApp) -> Flask:
     app.register_blueprint(_subscription(app_state))
     app.register_blueprint(_parent_child(app_state))
     app.register_blueprint(_interruptible(app_state))
+    install_flask_cors(app)
 
     @app.get("/health")
     def health() -> Response:

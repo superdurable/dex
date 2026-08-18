@@ -65,6 +65,7 @@ import (
 	"github.com/superdurable/dex/examples/go/products/signup"
 	"github.com/superdurable/dex/examples/go/products/subscription"
 	"github.com/superdurable/dex/examples/go/registry"
+	"github.com/superdurable/dex/examples/go/server/httputil"
 	"github.com/superdurable/dex/examples/go/shared/service"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
@@ -195,6 +196,7 @@ func NewRouter(
 	dealRepository datasetdeal.Repository,
 ) http.Handler {
 	router := gin.Default()
+	router.Use(httputil.AllowCORS())
 	subscription.RegisterRoutes(router, client, registry.Subscription)
 	engagement.RegisterRoutes(router, client, registry.Engagement)
 	microservices.RegisterRoutes(router, client, registry.Microservices)
