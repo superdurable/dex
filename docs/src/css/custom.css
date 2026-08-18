@@ -45,6 +45,8 @@
   --ifm-menu-color: var(--muted-strong);
   --ifm-toc-border-color: var(--line);
   --ifm-hr-border-color: var(--line);
+  --ifm-link-decoration: underline;
+  --ifm-link-hover-decoration: underline;
   --docusaurus-highlighted-code-line-bg: rgba(137, 200, 46, 0.12);
 }
 
@@ -126,6 +128,12 @@ button:focus-visible,
 summary:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: 4px;
+}
+
+.markdown a:not(.hash-link) {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
 }
 
 .navbar {
@@ -778,6 +786,8 @@ code {
   font-family: var(--ifm-font-family-monospace);
   font-size: 0.78rem;
   word-break: break-all;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
 }
 
 .screenshot-placeholder {
