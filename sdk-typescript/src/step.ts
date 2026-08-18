@@ -86,8 +86,7 @@ export interface StepOptions {
  *
  * @example
  * ```ts
- * const confirm: Step<string> = {
- *   inputCodec: stringCodec,
+ * const confirm: Step<{ id: string }> = {
  *   getStepType: () => "Confirm",
  *   waitFor: () => Wait.until(Timer.byDuration(1_000)),
  *   execute: (_context, input) => forceComplete(input),
@@ -96,8 +95,14 @@ export interface StepOptions {
  * @typeParam Input - Value passed by an incoming Step movement.
  */
 export interface Step<Input> {
-  /** Codec used for every incoming input value. */
-  readonly inputCodec: Codec<Input>;
+  /**
+   * Codec used for every incoming input value.
+   *
+   * Omit this for JSON objects. Scalar wire kinds still need {@link stringCodec},
+   * {@link booleanCodec}, {@link int64Codec}, {@link doubleCodec}, or
+   * {@link bytesCodec}.
+   */
+  readonly inputCodec?: Codec<Input>;
   /**
    * Returns the protocol Step type.
    * @returns A non-empty Step type unique within the containing Flow.

@@ -16,7 +16,7 @@ import {
 } from "./gen/dex.js";
 import { FlowErrorType, type FlowErrorType as FlowErrorTypeValue } from "./errors.js";
 import type { FlowStatus } from "./options.js";
-import { decodeValue } from "./value-mapper.js";
+import { codecOrJson, decodeValue } from "./value-mapper.js";
 
 /** Contains one output-bearing Step completion returned by {@link Client.waitForFlow}. */
 export interface StepCompletion {
@@ -27,10 +27,11 @@ export interface StepCompletion {
   /**
    * Decodes this already hydrated Step output.
    * @typeParam Output - Expected application output type.
-   * @param codec - Codec for the expected output type.
+   * @param codec - Codec for the expected output type. Omit this for JSON objects.
+   *   Scalar wire kinds still need an explicit codec.
    * @returns The decoded Step output.
    */
-  decode<Output>(codec: Codec<Output>): Output;
+  decode<Output>(codec?: Codec<Output>): Output;
 }
 
 /** Describes an observed Flow status and its output-bearing completions. */
@@ -50,11 +51,12 @@ export interface FlowResult {
   /**
    * Decodes the output when exactly one completion exists.
    * @typeParam Output - Expected application output type.
-   * @param codec - Codec for the expected output type.
+   * @param codec - Codec for the expected output type. Omit this for JSON objects.
+   *   Scalar wire kinds still need an explicit codec.
    * @returns The only decoded Step output.
    * @throws {@link TypeError} when nonterminal or when zero or multiple outputs exist.
    */
-  singleOutput<Output>(codec: Codec<Output>): Output;
+  singleOutput<Output>(codec?: Codec<Output>): Output;
 }
 
 /** @internal */
@@ -70,8 +72,8 @@ export function createStepCompletions(
     return Object.freeze({
       stepType: record.completedStepType,
       stepExecutionId: record.completedStepExecutionId,
-      decode<Output>(codec: Codec<Output>): Output {
-        return decodeValue(codec, value);
+      decode<Output>(codec?: Codec<Output>): Output {
+        return decodeValue(codecOrJson(codec), value);
       },
     });
   }));
@@ -91,7 +93,7 @@ export function createFlowResult(
     errorMessage,
     isTerminal,
     completions,
-    singleOutput<Output>(codec: Codec<Output>): Output {
+    singleOutput<Output>(codec?: Codec<Output>): Output {
       if (!isTerminal) {
         throw new TypeError("Flow result is not terminal");
       }

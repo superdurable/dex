@@ -48,8 +48,9 @@ import {
   Context as ProtoContext,
   InvokeExecuteMethodRequest,
   InvokeWaitForMethodRequest,
+  InvokeWorkerRPCRequest,
 } from "../src/gen/dex.js";
-import { encodeValue, type ValueHydrator } from "../src/value-mapper.js";
+import { codecOrJson, encodeValue, type ValueHydrator } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
 import { registeredFlowByName } from "../src/flow.js";
 import { InvocationContext } from "../src/invocation-context.js";
@@ -195,6 +196,86 @@ test("canonical codecs enforce wire kinds and int64 range", () => {
   assert.equal(int64Codec.decode(int64Codec.encode(42n)), 42n);
   assert.throws(() => int64Codec.encode(2n ** 63n), RangeError);
   assert.throws(() => int64Codec.decode(stringCodec.encode("42")), TypeError);
+});
+
+test("omitted codecs use identity JSON rather than scalar wire kinds", () => {
+  const identity = jsonCodec<{ orderId: string }>();
+  const order = { orderId: "order-1" };
+  assert.deepEqual(identity.decode(identity.encode(order)), order);
+  const jsonString = encodeValue(codecOrJson(), "hello");
+  assert.equal(jsonString.kind?.$case, "objValue");
+  assert.equal(jsonString.kind?.$case === "objValue" ? jsonString.kind.value.encoding : "", "json");
+  const scalarString = encodeValue(stringCodec, "hello");
+  assert.equal(scalarString.kind?.$case, "stringValue");
+});
+
+test("object Step and RPC omit codecs and still encode JSON", async () => {
+  class JsonStep implements Step<OrderInput> {
+    public getStepType(): string {
+      return "JsonStep";
+    }
+
+    public execute(_context: Context, input: OrderInput): StepDecision {
+      return gracefulComplete(input);
+    }
+  }
+
+  class JsonFlow implements Flow<OrderInput> {
+    public readonly start = new JsonStep();
+
+    public getFlowType(): string {
+      return "JsonFlow";
+    }
+
+    public getSteps(): StepList<OrderInput> {
+      return StepList.startStep(this.start);
+    }
+
+    @rpc()
+    public describe(_context: Context, input: OrderInput): RPCResult<OrderInput> {
+      return { output: input };
+    }
+
+    @rpc()
+    public ping(_context: Context): void {}
+  }
+
+  const flow = new JsonFlow();
+  const hydrator = {
+    hydrateAll: async (values: readonly unknown[]) => values,
+  } as unknown as ValueHydrator;
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
+  const executed = await dispatcher.invokeExecute(
+    InvokeExecuteMethodRequest.create({
+      context: ProtoContext.create(),
+      flowType: flow.getFlowType(),
+      stepType: flow.start.getStepType(),
+      stepInput: encodeValue(codecOrJson(), { orderId: "order-1" }),
+      attributes: [],
+      stepExeLocals: [],
+    }),
+  );
+  const closeInput = executed.stepDecision?.closeDecision?.closeInput;
+  assert.equal(closeInput?.kind?.$case, "objValue");
+  const described = await dispatcher.invokeRPC(
+    InvokeWorkerRPCRequest.create({
+      context: ProtoContext.create(),
+      flowType: flow.getFlowType(),
+      rpcName: "describe",
+      input: encodeValue(codecOrJson(), { orderId: "order-1" }),
+      attributes: [],
+    }),
+  );
+  assert.equal(described.output?.kind?.$case, "objValue");
+  const pinged = await dispatcher.invokeRPC(
+    InvokeWorkerRPCRequest.create({
+      context: ProtoContext.create(),
+      flowType: flow.getFlowType(),
+      rpcName: "ping",
+      attributes: [],
+    }),
+  );
+  assert.equal(pinged.output?.kind?.$case, "objValue");
 });
 
 test("fluent wait factories validate channel bounds", () => {
