@@ -67,6 +67,10 @@ export function stepStartMayFailFlags(): FlowSmokeFlags {
   return { stepStartMayFail: true, noStartStep: false };
 }
 
+export function noStartStepFlags(): FlowSmokeFlags {
+  return { stepStartMayFail: false, noStartStep: true };
+}
+
 export async function triggerGet(
   context: FlowSmokeContext,
   path: string,
@@ -159,6 +163,16 @@ export async function assertFlowSmokeNoUnexpectedFailures(
   flowId: string,
   runId: string,
 ): Promise<void> {
+  if (entry.flags.stepStartMayFail) {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const history = runDexcliFlowHistory(flowId, runId);
+      if (hasRetryRecovery(history.events)) {
+        break;
+      }
+      await sleep(200);
+    }
+  }
   const history = runDexcliFlowHistory(flowId, runId);
   for (const event of history.events) {
     switch (event.type) {

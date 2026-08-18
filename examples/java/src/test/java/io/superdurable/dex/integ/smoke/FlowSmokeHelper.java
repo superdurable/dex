@@ -76,6 +76,16 @@ final class FlowSmokeHelper {
             final FlowSmokeEntry entry,
             final String flowId,
             final String runId) throws Exception {
+        if (entry.flags.stepStartMayFail) {
+            final long deadline = System.nanoTime() + ASSERT_TIMEOUT.toNanos();
+            while (System.nanoTime() < deadline) {
+                final JsonNode history = runDexcliFlowHistory(flowId, runId);
+                if (hasRetryRecovery(history.path("events"))) {
+                    break;
+                }
+                Thread.sleep(200L);
+            }
+        }
         final JsonNode history = runDexcliFlowHistory(flowId, runId);
         for (final JsonNode event : history.path("events")) {
             final String type = event.path("type").asText();

@@ -229,10 +229,7 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
         FlowSmokeEntry {
             name: "patterns/recovery",
             path: "/patterns/recovery/start",
-            query: query_with(
-                &client.new_flow_id("recovery"),
-                &[("itemName", "widget")],
-            ),
+            query: query_with(&client.new_flow_id("recovery"), &[("itemName", "widget")]),
             flags: FlowSmokeFlags::STEP_START_MAY_FAIL,
         },
         FlowSmokeEntry {

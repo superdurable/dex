@@ -188,6 +188,21 @@ pub fn assert_flow_smoke_no_unexpected_failures(
     flow_id: &str,
     run_id: &str,
 ) {
+    if entry.flags.step_start_may_fail {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            let history = run_dexcli_flow_history(flow_id, run_id);
+            let events = history
+                .get("events")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if has_retry_recovery(&events) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
     let history = run_dexcli_flow_history(flow_id, run_id);
     let events = history
         .get("events")

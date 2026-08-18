@@ -32,4 +32,8 @@ final class FlowSmokeFlags {
     static FlowSmokeFlags stepStartMayFail() {
         return new FlowSmokeFlags(true, false);
     }
+
+    static FlowSmokeFlags noStartStep() {
+        return new FlowSmokeFlags(false, true);
+    }
 }

@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
@@ -68,7 +69,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			name: "products/polling",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{
-					"workflowId":                  {smokeWorkflowID(t, "product-polling")},
+					"workflowId":                 {smokeWorkflowID(t, "product-polling")},
 					"pollingCompletionThreshold": {"3"},
 				}
 				return triggerFlowSmokeHTTP(t, http.MethodGet, "/products/polling/start", query, nil)
@@ -121,22 +122,21 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				)
 				return flowID, runID
 			},
+			flags: flowSmokeFlags{noStartStep: true},
 		},
 		{
 			name: "products/shortlist-candidates/employer-opt-in",
 			trigger: func(t *testing.T) (string, string) {
 				employerID := smokeWorkflowID(t, "employer")
 				body := map[string]string{"employerId": employerID}
-				_, _, responseBody := triggerFlowSmokeHTTPWithBody(
+				triggerFlowSmokeHTTPWithBody(
 					t,
 					http.MethodPost,
 					"/products/shortlist-candidates/opt_in",
 					nil,
 					body,
 				)
-				flowID := shortlistcandidates.EmployerOptInFlowID(employerID)
-				runID, _ := parseFlowTriggerResponse(string(responseBody), flowID)
-				return flowID, runID
+				return shortlistcandidates.EmployerOptInFlowID(employerID), ""
 			},
 		},
 		{
@@ -151,7 +151,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 					nil,
 					map[string]string{"employerId": employerID},
 				)
-				_, _, responseBody := triggerFlowSmokeHTTPWithBody(
+				triggerFlowSmokeHTTPWithBody(
 					t,
 					http.MethodPost,
 					"/products/shortlist-candidates/shortlist",
@@ -161,9 +161,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 						"candidateId": candidateID,
 					},
 				)
-				flowID := shortlistcandidates.ShortlistFlowID(employerID, candidateID)
-				runID, _ := parseFlowTriggerResponse(string(responseBody), flowID)
-				return flowID, runID
+				return shortlistcandidates.ShortlistFlowID(employerID, candidateID), ""
 			},
 		},
 		{
@@ -251,8 +249,16 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				body := entitystore.UserProfileRequest{
 					UserID: userID,
 					UserProfile: entitystore.UserProfile{
-						DisplayName: "Smoke Tester",
-						Email:       userID + "@example.com",
+						DisplayName:    "Smoke Tester",
+						Email:          userID + "@example.com",
+						MarketingOptIn: true,
+						Credits:        120,
+						Weight:         59.5,
+						LastLoggedIn:   time.Date(2026, 8, 11, 15, 30, 0, 0, time.UTC),
+						Metadata: entitystore.UserProfileMetadata{
+							Source: "smoke",
+							Tags:   []string{"example"},
+						},
 					},
 				}
 				flowID, runID := triggerFlowSmokeHTTP(
@@ -267,6 +273,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				}
 				return flowID, runID
 			},
+			flags: flowSmokeFlags{noStartStep: true},
 		},
 		{
 			name: "patterns/intervention",
@@ -418,7 +425,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "primitives/step/retry",
+			name:  "primitives/step/retry",
 			flags: flowSmokeFlags{stepStartMayFail: true},
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{

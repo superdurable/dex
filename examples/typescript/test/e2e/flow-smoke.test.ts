@@ -25,6 +25,7 @@ import {
   assertFlowSmokeStartStep,
   defaultFlags,
   stepStartMayFailFlags,
+  noStartStepFlags,
   employerOptInFlowId,
   type FlowSmokeContext,
   type FlowSmokeEntry,
@@ -112,7 +113,7 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
           title: "Smoke Test Job",
           description: "Smoke test description",
         }),
-      flags: defaultFlags(),
+      flags: noStartStepFlags(),
     },
     {
       name: "products/shortlist-candidates/employer-opt-in",
@@ -174,14 +175,17 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
         const userId = newFlowId("entity-store");
         const result = await triggerPost(context, "/patterns/entity-store/profile", {
           userId,
-          userProfile: {
-            displayName: "Smoke Tester",
-            email: `${userId}@example.com`,
-          },
+          displayName: "Smoke Tester",
+          email: `${userId}@example.com`,
+          marketingOptIn: true,
+          credits: 120,
+          weight: 59.5,
+          lastLoggedInTime: "2026-08-11T15:30:00Z",
+          metadata: { source: "smoke", tags: ["example"] },
         });
         return { flowId: result.flowId || userId, runId: result.runId };
       },
-      flags: defaultFlags(),
+      flags: noStartStepFlags(),
     },
     {
       name: "patterns/intervention",

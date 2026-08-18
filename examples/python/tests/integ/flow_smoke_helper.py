@@ -238,6 +238,28 @@ async def assert_flow_smoke_no_unexpected_failures(
 ) -> None:
     dexcli = dexcli_path()
     server = flow_service_address()
+    if entry.flags.step_start_may_fail:
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            history = await asyncio.to_thread(
+                run_dexcli_json,
+                [
+                    dexcli,
+                    "flow",
+                    "history",
+                    flow_id,
+                    "--server",
+                    server,
+                    "--output",
+                    "json",
+                    "--page-size",
+                    "50",
+                    *([] if not run_id else ["--run-id", run_id]),
+                ],
+            )
+            if _has_retry_recovery(history.get("events", [])):
+                break
+            await asyncio.sleep(0.2)
     history = await asyncio.to_thread(
         run_dexcli_json,
         [

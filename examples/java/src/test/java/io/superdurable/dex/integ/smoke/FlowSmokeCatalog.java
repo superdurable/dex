@@ -57,7 +57,8 @@ final class FlowSmokeCatalog {
                         "/products/job-post/create",
                         Map.of(
                                 "title", "Smoke Test Job",
-                                "description", "Smoke test description")),
+                                "description", "Smoke test description"),
+                        FlowSmokeFlags.noStartStep()),
                 shortlistOptIn(environment),
                 shortlist(environment),
                 FlowSmokeEntry.get(
@@ -191,16 +192,18 @@ final class FlowSmokeCatalog {
     private static FlowSmokeEntry entityStore(final FlowSmokeEnvironment environment) {
         return FlowSmokeEntry.custom(
                 "patterns/entity-store",
-                FlowSmokeFlags.none(),
+                FlowSmokeFlags.noStartStep(),
                 env -> {
                     final String userId = env.newFlowId("entity-store");
                     final Map<String, Object> body = new LinkedHashMap<>();
                     body.put("userId", userId);
-                    body.put(
-                            "userProfile",
-                            Map.of(
-                                    "displayName", "Smoke Tester",
-                                    "email", userId + "@example.com"));
+                    body.put("displayName", "Smoke Tester");
+                    body.put("email", userId + "@example.com");
+                    body.put("marketingOptIn", true);
+                    body.put("credits", 120);
+                    body.put("weight", 59.5);
+                    body.put("lastLoggedInTime", "2026-08-11T15:30:00Z");
+                    body.put("metadata", Map.of("source", "smoke", "tags", List.of("example")));
                     final FlowSmokeTriggerResult result =
                             env.triggerHttp(
                                     "POST", "/patterns/entity-store/profile", Map.of(), body);

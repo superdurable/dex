@@ -110,6 +110,7 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                 "/products/job-post/create",
                 {"title": "Smoke Test Job", "description": "Smoke test description"},
             ),
+            flags=FlowSmokeFlags(no_start_step=True),
         ),
         FlowSmokeEntry(
             "products/shortlist-candidates/employer-opt-in",
@@ -154,6 +155,7 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
         FlowSmokeEntry(
             "patterns/entity-store",
             lambda c: _entity_store_trigger(c, new_id),
+            flags=FlowSmokeFlags(no_start_step=True),
         ),
         FlowSmokeEntry(
             "patterns/intervention",
@@ -378,10 +380,13 @@ async def _entity_store_trigger(
         "/patterns/entity-store/profile",
         {
             "userId": user_id,
-            "userProfile": {
-                "displayName": "Smoke Tester",
-                "email": f"{user_id}@example.com",
-            },
+            "displayName": "Smoke Tester",
+            "email": f"{user_id}@example.com",
+            "marketingOptIn": True,
+            "credits": 120,
+            "weight": 59.5,
+            "lastLoggedInTime": "2026-08-11T15:30:00+00:00",
+            "metadata": {"source": "smoke", "tags": ["example"]},
         },
     )
     return flow_id or user_id, run_id

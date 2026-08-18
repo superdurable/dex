@@ -51,8 +51,8 @@ type flowSmokeEntry struct {
 }
 
 type flowHistoryPage struct {
-	FlowID string           `json:"flowId"`
-	RunID  string           `json:"runId"`
+	FlowID string             `json:"flowId"`
+	RunID  string             `json:"runId"`
 	Events []flowHistoryEvent `json:"events"`
 }
 
@@ -210,6 +210,11 @@ func assertFlowSmokeStartStep(t *testing.T, entry flowSmokeEntry, flowID string,
 
 func assertFlowSmokeNoUnexpectedFailures(t *testing.T, entry flowSmokeEntry, flowID string, runID string) {
 	t.Helper()
+	if entry.flags.stepStartMayFail {
+		require.Eventually(t, func() bool {
+			return hasRetryRecovery(runDexcliFlowHistory(t, flowID, runID).Events)
+		}, 10*time.Second, 200*time.Millisecond, "%s: expected retry recovery events", entry.name)
+	}
 	history := runDexcliFlowHistory(t, flowID, runID)
 	for _, event := range history.Events {
 		switch event.Type {
@@ -232,9 +237,6 @@ func assertFlowSmokeNoUnexpectedFailures(t *testing.T, entry flowSmokeEntry, flo
 				)
 			}
 		}
-	}
-	if entry.flags.stepStartMayFail {
-		require.True(t, hasRetryRecovery(history.Events), "%s: expected retry recovery events", entry.name)
 	}
 }
 
