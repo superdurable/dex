@@ -173,7 +173,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	}
 }
 
-func TestExternalTemporalRemainsRunning(t *testing.T) {
+func TestExternalWorkflowBackendRemainsRunning(t *testing.T) {
 	ports := freePorts(t, 4)
 	localConfig := testConfig(t)
 	localConfig.TemporalPort = ports[0]
