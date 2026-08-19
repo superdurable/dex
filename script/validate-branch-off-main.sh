@@ -15,7 +15,6 @@ Commands:
   resolve-main            Print ${MAIN_REF} SHA
   validate-start <ref>    Exit 0 when <ref> matches ${MAIN_REF}
   validate-head           Exit 0 when HEAD matches ${MAIN_REF}
-  validate-includes-main  Exit 0 when HEAD contains ${MAIN_REF}
 EOF
 }
 
@@ -59,21 +58,6 @@ validate_head() {
   validate_start_ref HEAD
 }
 
-validate_includes_main() {
-  local ref=${1:-HEAD}
-  fetch_main
-  local main_sha
-  main_sha=$(resolve_main)
-  if git merge-base --is-ancestor "$main_sha" "$ref"; then
-    return 0
-  fi
-  echo "This branch does not contain ${MAIN_REF} ($main_sha)." >&2
-  echo "Update it before pushing:" >&2
-  echo "  git fetch ${MAIN_REMOTE} ${MAIN_BRANCH}" >&2
-  echo "  git rebase ${MAIN_REF}" >&2
-  return 1
-}
-
 main() {
   if [ $# -lt 1 ]; then
     usage >&2
@@ -97,10 +81,6 @@ main() {
       ;;
     validate-head)
       validate_head
-      ;;
-    validate-includes-main)
-      shift
-      validate_includes_main "${1:-HEAD}"
       ;;
     *)
       usage >&2

@@ -58,8 +58,7 @@ every commit run `git log -1 --format=%B`. Do not use `--no-verify`. See
 ### Branch From Latest Main
 
 Before creating a feature branch, fetch and branch from `origin/main`. See
-`.cursor/rules/git-branch.mdc`. Git and Cursor hooks enforce this workflow.
-Run `make githooks` once per clone.
+`.cursor/rules/git-branch.mdc`. Cursor hooks enforce this workflow.
 
 ### Regenerate the Entire Repository After Proto Changes
 

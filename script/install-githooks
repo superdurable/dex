@@ -5,8 +5,6 @@ set -e
 root=$(git rev-parse --show-toplevel)
 hook_dir=$(git rev-parse --git-path hooks)
 mkdir -p "$hook_dir"
-for hook in commit-msg pre-push; do
-  cp "$root/.githooks/$hook" "$hook_dir/$hook"
-  chmod +x "$root/.githooks/$hook" "$hook_dir/$hook"
-  echo "Installed $hook_dir/$hook"
-done
+cp "$root/.githooks/commit-msg" "$hook_dir/commit-msg"
+chmod +x "$root/.githooks/commit-msg" "$hook_dir/commit-msg"
+echo "Installed $hook_dir/commit-msg"

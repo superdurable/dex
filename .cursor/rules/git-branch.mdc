@@ -17,21 +17,15 @@ git switch -c <branch> origin/main
 ```
 
 Use `git checkout -b <branch> origin/main` when `switch` is unavailable.
-Push with upstream tracking only after the branch contains `origin/main`.
 
 ## Forbidden
 
 - `git switch -c feature` while HEAD is behind `origin/main`
 - `git switch -c feature main` without verifying `main` matches `origin/main`
 - `git switch -c feature other-branch`
-- `git push --no-verify` to bypass branch checks
 
 ## Enforcement
 
 - `script/validate-branch-off-main.sh` implements the checks
 - Cursor `.cursor/hooks/validate-branch-off-main.sh` blocks branch-create
   commands that do not start from `origin/main`
-- `.githooks/pre-push` rejects pushes when the branch does not contain
-  `origin/main`
-
-Run `make githooks` once per clone to install Git hooks.
