@@ -50,6 +50,11 @@ End every agent turn that changes repository files with one commit on the
 current branch. Leave a clean working tree. Do not create empty commits for
 discussion-only turns.
 
+Never add Cursor as Author, Committer, or `Co-authored-by`. Cursor's commit
+wrapper often injects `Co-authored-by: Cursor <cursoragent@cursor.com>`; strip
+it before pushing. After every commit run `git log -1 --format=%B`. Do not use
+`--no-verify`. See `.cursor/rules/git-commit.mdc`.
+
 ### Regenerate the Entire Repository After Proto Changes
 
 Whenever any `.proto` file changes, run `make generated-code` from the repository
