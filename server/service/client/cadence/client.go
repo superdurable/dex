@@ -733,10 +733,14 @@ func (t *cadenceClient) addCadenceHistoryEvent(
 		})
 	case shared.EventTypeWorkflowExecutionFailed:
 		attributes := event.GetWorkflowExecutionFailedEventAttributes()
+		errorType, errorMessage := t.cadenceFlowClosedFailure(
+			attributes.GetReason(),
+			attributes.GetDetails(),
+		)
 		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
 			FlowStatus:   dexpb.FlowStatus_FLOW_STATUS_FAILED,
-			ErrorType:    cadenceFlowErrorType(attributes.GetReason()),
-			ErrorMessage: attributes.GetReason(),
+			ErrorType:    errorType,
+			ErrorMessage: errorMessage,
 		})
 	case shared.EventTypeWorkflowExecutionTimedOut:
 		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
@@ -1008,6 +1012,34 @@ func (t *cadenceClient) cadenceLocalStepFailure(
 			metadata.GetActivityError(),
 		),
 	}, metadata, nil
+}
+
+func (t *cadenceClient) cadenceFlowClosedFailure(
+	reason string,
+	detailsData []byte,
+) (dexpb.FlowErrorType, string) {
+	errorType := cadenceFlowErrorType(reason)
+	if len(detailsData) == 0 {
+		return errorType, cadenceFlowClosedFallbackMessage(reason)
+	}
+	flowError := &dexpb.InternalFlowError{}
+	if err := t.converter.FromData(detailsData, flowError); err != nil {
+		return errorType, cadenceFlowClosedFallbackMessage(reason)
+	}
+	errorMessage := serviceerrors.ServiceErrorResponseDetail(
+		serviceerrors.ServiceErrorResponseFromFlowError(errorType, flowError),
+	)
+	if errorMessage != "" {
+		return errorType, errorMessage
+	}
+	return errorType, cadenceFlowClosedFallbackMessage(reason)
+}
+
+func cadenceFlowClosedFallbackMessage(reason string) string {
+	if _, ok := dexpb.FlowErrorType_value[reason]; ok {
+		return ""
+	}
+	return reason
 }
 
 func cadenceFlowErrorType(reason string) dexpb.FlowErrorType {

@@ -171,6 +171,14 @@ func doTestFlowTimeout(
 		require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, resp.GetFlowStatus())
 		require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT, resp.GetErrorType())
 		require.Contains(t, resp.GetErrorMessage(), "timed out after 1 seconds")
+		requireFlowClosedHistoryTimeoutMessage(
+			t,
+			ctx,
+			flowClient,
+			flowID,
+			startResp.GetRunId(),
+			"timed out after 1 seconds",
+		)
 	}
 	select {
 	case terminalEvent := <-terminalEvents:
@@ -178,6 +186,33 @@ func doTestFlowTimeout(
 	case <-ctx.Done():
 		require.FailNow(t, "terminal metric was not reported", ctx.Err())
 	}
+}
+
+func requireFlowClosedHistoryTimeoutMessage(
+	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+	runID string,
+	expectedSubstring string,
+) {
+	t.Helper()
+	historyResponse, err := flowClient.GetHistoryEvents(ctx, &dexpb.GetHistoryEventsRequest{
+		FlowId:           flowID,
+		RunId:            runID,
+		EstimatePageSize: 100,
+	})
+	require.NoError(t, err)
+	var closed *dexpb.FlowClosedHistoryEvent
+	for _, event := range historyResponse.GetEvents() {
+		if event.GetFlowClosed() != nil {
+			closed = event.GetFlowClosed()
+		}
+	}
+	require.NotNil(t, closed)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_FAILED, closed.GetFlowStatus())
+	require.Equal(t, dexpb.FlowErrorType_FLOW_ERROR_TYPE_FLOW_TIMEOUT, closed.GetErrorType())
+	require.Contains(t, closed.GetErrorMessage(), expectedSubstring)
 }
 
 func doTestFlowTimeoutRetry(t *testing.T, backendType service.BackendType) {

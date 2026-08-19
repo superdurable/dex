@@ -109,12 +109,14 @@ export function flowErrorTypeLabel(value: unknown): string {
     2: 'Client API failed the flow',
     3: 'Worker method failed',
     4: 'Invalid flow code',
+    5: 'Flow timed out',
     6: 'Internal error',
     FLOW_ERROR_TYPE_UNSPECIFIED: 'Unspecified',
     FLOW_ERROR_TYPE_STEP_DECISION_FAILING_FLOW: 'Step decision failed the flow',
     FLOW_ERROR_TYPE_CLIENT_API_FAILING_FLOW: 'Client API failed the flow',
     FLOW_ERROR_TYPE_WORKER_API_FAIL: 'Worker method failed',
     FLOW_ERROR_TYPE_INVALID_USER_FLOW_CODE: 'Invalid flow code',
+    FLOW_ERROR_TYPE_FLOW_TIMEOUT: 'Flow timed out',
     FLOW_ERROR_TYPE_INTERNAL: 'Internal error',
   });
 }
