@@ -568,4 +568,22 @@ describe('flow start event details', () => {
     expect(markup).toContain('href="/flows/SubFlow%3Aparent-charge-1-0"');
     expect(markup).toContain('SubFlow:parent-charge-1-0');
   });
+
+  it('renders Flow timeout closure details', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 23,
+      eventTime: '2026-08-19T03:17:17.115138Z',
+      type: 'FlowClosed',
+      payload: {
+        flowStatus: 3,
+        errorType: 5,
+        errorMessage: 'Flow timed out after 3600 seconds',
+      },
+    };
+
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('Flow timed out after 3600 seconds');
+    expect(markup).toContain('Flow timed out');
+  });
 });

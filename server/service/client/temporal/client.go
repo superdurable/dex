@@ -799,10 +799,11 @@ func (t *temporalClient) addTemporalHistoryEvent(
 		})
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
 		attributes := event.GetWorkflowExecutionFailedEventAttributes()
+		errorType, errorMessage := t.temporalFlowClosedFailure(attributes.GetFailure())
 		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
 			FlowStatus:   dexpb.FlowStatus_FLOW_STATUS_FAILED,
-			ErrorType:    temporalFlowErrorType(attributes.GetFailure()),
-			ErrorMessage: attributes.GetFailure().GetMessage(),
+			ErrorType:    errorType,
+			ErrorMessage: errorMessage,
 		})
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT:
 		builder.RecordClose(event.GetEventId(), eventTime, &dexpb.FlowClosedHistoryEvent{
@@ -1090,6 +1091,31 @@ func temporalStepFailureFromBackend(failure *failurepb.Failure) *dexpb.StepMetho
 		backendError = timeoutFailure.GetTimeoutType().String()
 	}
 	return &dexpb.StepMethodFailure{BackendError: backendError}
+}
+
+func (t *temporalClient) temporalFlowClosedFailure(
+	failure *failurepb.Failure,
+) (dexpb.FlowErrorType, string) {
+	errorType := temporalFlowErrorType(failure)
+	if failure == nil {
+		return errorType, ""
+	}
+	applicationFailure := failure.GetApplicationFailureInfo()
+	if applicationFailure != nil && len(applicationFailure.GetDetails().GetPayloads()) > 0 {
+		flowError := &dexpb.InternalFlowError{}
+		if err := t.dataConverter.FromPayload(
+			applicationFailure.GetDetails().GetPayloads()[0],
+			flowError,
+		); err == nil {
+			errorMessage := serviceerrors.ServiceErrorResponseDetail(
+				serviceerrors.ServiceErrorResponseFromFlowError(errorType, flowError),
+			)
+			if errorMessage != "" {
+				return errorType, errorMessage
+			}
+		}
+	}
+	return errorType, failure.GetMessage()
 }
 
 func temporalFlowErrorType(failure *failurepb.Failure) dexpb.FlowErrorType {
