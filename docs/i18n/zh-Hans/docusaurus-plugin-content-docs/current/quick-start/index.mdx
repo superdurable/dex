@@ -1335,7 +1335,13 @@ curl -s "http://127.0.0.1:8080/products/order-processing/approve?workflowId=FLOW
 
 ## 6. Dex Web
 
-start 之后，打开这条 Flow，留在 Step graph tab。ChargeStep 已完成。ShipStep 在等卖家 Channel 和提醒 Timer。approve 之后，ShipStep 执行，Flow 完成。
+start 并 approve 之后，打开这条 Flow。Step graph 里是 Charge 然后 Ship：
+
+![approve 之后的 Dex Web Step graph](/img/quick-start/step-graph.png)
+
+Timeline tab 列出同一次 run：
+
+![approve 之后的 Dex Web Timeline](/img/quick-start/timeline.png)
 
 ## 接下来
 
