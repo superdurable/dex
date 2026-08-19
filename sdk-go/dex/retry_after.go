@@ -18,14 +18,18 @@ import (
 // execute. Dex schedules the next retry after the requested delay while
 // keeping the wrapped failure as the reported Worker error.
 type RetryAfterError struct {
+	// After is the delay Dex waits before retrying the Step method.
 	After time.Duration
+	// Cause is the current attempt failure reported to Dex.
 	Cause error
 }
 
+// Error returns the underlying attempt failure message.
 func (retryAfter *RetryAfterError) Error() string {
 	return retryAfter.Cause.Error()
 }
 
+// Unwrap returns the underlying attempt failure for errors.Is and errors.As.
 func (retryAfter *RetryAfterError) Unwrap() error {
 	return retryAfter.Cause
 }
