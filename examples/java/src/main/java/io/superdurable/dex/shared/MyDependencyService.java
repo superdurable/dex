@@ -43,6 +43,13 @@ public class MyDependencyService {
                 amount);
     }
 
+    public void shipItem(final String orderId, final boolean testFailAtShipping) {
+        if (testFailAtShipping) {
+            throw new RuntimeException("ship failed for order " + orderId);
+        }
+        System.out.println("ship item " + orderId);
+    }
+
     public void callAPI1(final String data) {
         System.out.println("call API1");
     }

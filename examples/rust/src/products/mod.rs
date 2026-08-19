@@ -16,6 +16,7 @@ pub mod engagement;
 pub mod job_post;
 pub mod microservices;
 pub mod money_transfer;
+pub mod order_processing;
 pub mod polling;
 pub mod shortlist_candidates;
 pub mod signup;
@@ -23,9 +24,14 @@ pub mod subscription;
 
 use dex_sdk::{Registry, SdkResult};
 
+use crate::shared::MyDependencyService;
+
 pub fn register(registry: Registry) -> SdkResult<Registry> {
     registry
         .register(money_transfer::MoneyTransferFlow::default())?
+        .register(order_processing::OrderProcessingFlow::new(
+            MyDependencyService,
+        ))?
         .register(microservices::OrchestrationFlow::default())?
         .register(engagement::EngagementFlow::default())?
         .register(subscription::SubscriptionFlow::default())?

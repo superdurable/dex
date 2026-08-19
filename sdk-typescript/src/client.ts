@@ -82,7 +82,7 @@ import { Attribute, AttributeMap, IndexType } from "./persistence.js";
 import type { RPCResult } from "./rpc.js";
 import type { RetryPolicy, StepOptions } from "./step.js";
 import { requireName } from "./validation.js";
-import { decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
+import { codecOrJson, decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
 import { ChannelMap, type Channel } from "./wait.js";
 
 const defaultServerAddress = "localhost:8801";
@@ -177,7 +177,7 @@ export class Client {
       }
     } else {
       request.startStepType = registered.startStep.name;
-      request.stepInput = encodeValue(registered.startStep.step.inputCodec, input);
+      request.stepInput = encodeValue(codecOrJson(registered.startStep.step.inputCodec), input);
       request.stepOptions = mapStepOptions(
         registered.startStep.step.getStepOptions?.(),
         registered.startStep.step.waitFor === undefined,
@@ -271,7 +271,7 @@ export class Client {
     runId = "",
   ): Promise<unknown> {
     const rpc = registeredRPC(this.registry, rpcMethod);
-    const hasInput = rpc.options.inputCodec !== undefined;
+    const hasInput = rpc.hasInput;
     const response = await unary<InvokeRPCResponse>(
       { operation: "invokeRPC", flowId, requirement: "active" },
       (callback) =>
@@ -281,7 +281,7 @@ export class Client {
           runId: hasInput ? runId : (inputOrRunId as string | undefined) ?? "",
           rpcName: rpc.name,
           input: hasInput
-            ? encodeValue(rpc.options.inputCodec!, inputOrRunId)
+            ? encodeValue(codecOrJson(rpc.options.inputCodec), inputOrRunId)
             : undefined,
           timeoutSeconds: seconds(rpc.options.timeoutMs),
           lockAttributeKeys: (rpc.options.lockAttributes ?? []).map((lock) =>
@@ -292,10 +292,13 @@ export class Client {
         callback,
       ),
     );
-    if (rpc.options.outputCodec === undefined) {
+    if (rpc.options.outputCodec === undefined && response.output?.kind === undefined) {
       return undefined;
     }
-    return decodeValue(rpc.options.outputCodec, await this.hydrator.hydrate(response.output));
+    return decodeValue(
+      codecOrJson(rpc.options.outputCodec),
+      await this.hydrator.hydrate(response.output),
+    );
   }
 
   /**

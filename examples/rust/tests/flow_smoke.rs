@@ -140,6 +140,12 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
+            name: "products/order-processing",
+            path: "/products/order-processing/start",
+            query: HashMap::new(),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "products/polling",
             path: "/products/polling/start",
             query: query_with(

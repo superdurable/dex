@@ -48,6 +48,7 @@ import (
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
 	"github.com/superdurable/dex/examples/go/products/money-transfer"
+	"github.com/superdurable/dex/examples/go/products/order-processing"
 	"github.com/superdurable/dex/examples/go/products/polling"
 	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
 	"github.com/superdurable/dex/examples/go/products/signup"
@@ -63,15 +64,16 @@ var (
 	applicationService = service.NewMyService()
 	patternService     = patternsservice.NewServiceDependency()
 
-	Engagement    *engagement.EngagementFlow
-	Microservices *microservices.OrchestrationFlow
-	MoneyTransfer *moneytransfer.MoneyTransferFlow
-	Polling       *polling.PollingFlow
-	Subscription  *subscription.SubscriptionFlow
-	Signup        *signup.UserSignupFlow
-	JobPost       *jobpost.JobPostFlow
-	EmployerOptIn *shortlistcandidates.EmployerOptInFlow
-	Shortlist     *shortlistcandidates.ShortlistFlow
+	Engagement      *engagement.EngagementFlow
+	Microservices   *microservices.OrchestrationFlow
+	MoneyTransfer   *moneytransfer.MoneyTransferFlow
+	OrderProcessing *orderprocessing.OrderProcessingFlow
+	Polling         *polling.PollingFlow
+	Subscription    *subscription.SubscriptionFlow
+	Signup          *signup.UserSignupFlow
+	JobPost         *jobpost.JobPostFlow
+	EmployerOptIn   *shortlistcandidates.EmployerOptInFlow
+	Shortlist       *shortlistcandidates.ShortlistFlow
 
 	CronSchedule           *cron.CronScheduleFlow
 	SimplePolling          *patternspolling.SimplePollingFlow
@@ -94,15 +96,15 @@ var (
 	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
 	GracefulTimeout        *timeout.FlowGracefulTimeout
 
-	Step           *step.StepFlow
-	StepRetry      *step.RetryFlow
-	Attribute      *attribute.AttributeFlow
-	Channel        *channel.ChannelFlow
-	Timer          *timer.TimerFlow
-	Rpc            *rpc.RpcFlow
-	SubFlowChild   *subflow.SubFlowChildFlow
-	SubFlowParent  *subflow.SubFlowParentFlow
-	ClientApis     *clientapis.ClientApisFlow
+	Step          *step.StepFlow
+	StepRetry     *step.RetryFlow
+	Attribute     *attribute.AttributeFlow
+	Channel       *channel.ChannelFlow
+	Timer         *timer.TimerFlow
+	Rpc           *rpc.RpcFlow
+	SubFlowChild  *subflow.SubFlowChildFlow
+	SubFlowParent *subflow.SubFlowParentFlow
+	ClientApis    *clientapis.ClientApisFlow
 )
 
 // New constructs every sample flow. getClient may return nil until the Client
@@ -119,6 +121,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	Engagement = engagement.NewEngagementFlow(applicationService)
 	Microservices = microservices.NewOrchestrationFlow(applicationService)
 	MoneyTransfer = moneytransfer.NewMoneyTransferFlow(applicationService)
+	OrderProcessing = orderprocessing.NewOrderProcessingFlow(applicationService)
 	Polling = polling.NewPollingFlow(applicationService)
 	Subscription = subscription.NewSubscriptionFlow(applicationService)
 	Signup = signup.NewUserSignupFlow(applicationService)
@@ -171,6 +174,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		Engagement,
 		Microservices,
 		MoneyTransfer,
+		OrderProcessing,
 		Polling,
 		Subscription,
 		Signup,

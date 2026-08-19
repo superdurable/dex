@@ -58,10 +58,6 @@ impl PollingFlow {
 impl Flow for PollingFlow {
     type StartInput = u32;
 
-    fn flow_type(&self) -> &'static str {
-        "PollingFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start)
             .and(&self.wait_for_task_a)

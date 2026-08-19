@@ -1,0 +1,112 @@
+---
+id: what-is-durable-execution
+title: 什么是 Durable Execution？
+sidebar_label: 什么是 Durable Execution？
+---
+
+import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproachDiagram';
+
+# 什么是 Durable Execution？
+
+**Durable Execution** 是对常见后端工程设计模式的一层抽象。
+
+它让你更容易做出生产级的后端系统。
+架构会更简单，同时具备可扩展、成本可控、性能好、可观测，以及配套的生产运维工具。
+
+## 为什么现有的数据库不够？
+
+今天我们有各种 durable 的数据库 / 存储——PostgreSQL、MySQL、S3。
+
+它们提供 `persist` 数据的 API，以及 `retrieve` 数据的 API。这些 API 是 **被动的**。
+
+做一个可靠的后端，通常有两个核心要求：
+1. 要跑在多台机器上，保证可用性、吞吐和规模（不能单点）
+2. 一个 API 往往会再去调多个 API、多个服务。单次数据库事务通常不够。
+
+更具体地说，一个后端 API 通常会：
+
+- 串行或并行地调用若干 API
+- 安排未来的工作，比如提醒或业务超时
+- 和其他系统协同，比如人工输入或一般事件
+- 处理各种失败（每一步可能不同）——retry、回滚、DLQ（再加人工介入和恢复）
+- 需要好的可观测性——检查每一步的输入、错误、做到一半的工作
+- 系统演进出更高流量时仍要可靠，包括高可用、线性扩展、可接受且可预期的成本、好的延迟和性能
+
+**这些，被动的存储或数据库都不会开箱提供。**
+
+因此今天，工程师还是要一遍又一遍写复杂代码，来解决这些问题。
+
+## 例子：用两步处理订单
+
+最简单的订单处理例子。只有两步，每一步就是一次 API 调用。
+* **向买家扣款**
+* **发货**
+
+做原型，你可能会直接写成：
+
+```text
+function processOrder(order){
+    callChargeAPI(order)
+    callShipAPI(order)
+}
+```
+
+只要一有失败，这就不够了。
+扣款成功后进程或机器崩溃，或者 API 调用网络超时。
+订单会变成：钱扣了，货没发。
+
+<ExecutionApproachDiagram approach="naive" />
+
+### Fix 1 —— 数据库行 + 轮询 Worker
+
+于是一个聪明的工程师想到：插入一行（`status = pending`），先返回给客户端，让后台 Worker 来领任务。
+
+<ExecutionApproachDiagram approach="table-poll" />
+
+最低限度的可靠性有了，但还有这些问题：
+* 多个 Worker 怎么领任务才不互相冲突？
+* Worker 领了任务之后、做完之前也崩溃了，怎么办？
+
+### Fix 2 —— 步骤之间用消息队列
+
+更有经验的后端工程师通常会演进到使用消息队列：`charge-request` 和 `ship-requests`。
+订单从发布到 `charge-requests` 开始，消费完再发布到 `ship-requests`。
+
+<ExecutionApproachDiagram approach="message-queue" />
+
+这解决了 Fix 1 里的硬问题，但更难的问题跟着来：
+
+- 大多数队列没法原子地提交「扣款完成」和「入队发货」。队列 2 成功、队列 1 超时，同一步订单的两步就会并发跑。
+  - 通常还是要用数据库行当去重的真相来源
+- Backoff retry 和 DLQ 未必开箱就有
+  - 比如 Kafka 要另开 topic，SQS 要用 visibility timeout 绕过去
+  - DLQ 还要自己做工具
+- 如果前端要在扣款成功后返回（「已付款，订单处理中」），就得再去轮询数据库，又丑又低效。
+
+而且业务一演进，订单处理常常还要：
+- 发货 API 重试失败后退款（发货 API 失败一小时后退款）
+- 发货前要卖家审批，或者手动提供运单号
+- 提醒卖家去审批或提供运单号
+
+在这套消息队列设计里，这些都要动不小的架构。
+
+## Durable Execution 补上的是什么
+
+Durable Execution 把这些开箱给你，**你不用为这些问题再写一行基础设施代码。**
+你只写真正下单流程的业务逻辑。
+
+这条扣款 → 审批 → 发货的流程，代码大概是：
+
+1. **Step 1 — Charge**，有自己的 retry。成功后 **原子地** 进入 Step 2。
+2. **Step 2 — Ship**
+    1. 等待卖家批准 **或** 一个 durable timer。
+    2. Timer 到了，或卖家批准到了，就执行代码：发提醒并继续等，或者发货。
+    3. Ship 的 Execute 带 retry；用尽后进入退款 Step。
+3. **Step 3 — Refund**，把钱退给买家。
+4. 前端调用一个开箱即用的 API，等到 Step 1 完成，再返回「已付款」。
+
+其余平台都替你做了——记下每个 Step 的输入、输出和错误；运维可以查看、可以 time travel，等等。
+
+**是不是很厉害？**
+
+看 [为什么是 Dex？](/intro/what-is-dex)：Dex 怎么实现这个。

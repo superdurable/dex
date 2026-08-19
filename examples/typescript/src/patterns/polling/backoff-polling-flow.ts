@@ -19,7 +19,6 @@ import {
   goTo,
   gracefulComplete,
   stringCodec,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -34,8 +33,6 @@ import {
 } from "../shared/service-dependency.js";
 
 class ReadExternalDep implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(
     private readonly flow: BackoffPollingFlow,
     private readonly service: ServiceDependency,
@@ -51,7 +48,7 @@ class ReadExternalDep implements Step<void> {
         backoffCoefficient: 2,
         maximumAttempts: 5,
         totalDurationMs: 3_600_000,
-        initialIntervalMs: 3000,
+        initialIntervalMs: 1000,
         maximumIntervalMs: 60_000,
       },
     };

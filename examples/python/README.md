@@ -52,6 +52,7 @@ after E2E tests for manual HTTP exploration.
 ## Products
 
 - [Money transfer](./dex_examples/products/money-transfer)
+- [Order processing](./dex_examples/products/order-processing)
 - [Microservice orchestration](./dex_examples/products/microservices)
 - [Engagement](./dex_examples/products/engagement)
 - [Subscription](./dex_examples/products/subscription)

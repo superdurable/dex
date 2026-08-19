@@ -27,13 +27,18 @@ import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recover
 import { engagementFlow } from "../../src/products/engagement/engagement-flow.js";
 import { orchestrationFlow } from "../../src/products/microservices/orchestration-flow.js";
 import { moneyTransferFlow } from "../../src/products/money-transfer/money-transfer-flow.js";
+import { OrderProcessingFlow } from "../../src/products/order-processing/order-processing-flow.js";
 import { pollingFlow } from "../../src/products/polling/polling-flow.js";
+import { MyDependencyService } from "../../src/shared/my-dependency-service.js";
 import { subscriptionFlow } from "../../src/products/subscription/subscription-flow.js";
+
+const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 
 export interface IntegEnvironment {
   readonly client: Client;
   readonly failureRecoveryFlow: typeof failureRecoveryFlow;
   readonly moneyTransferFlow: typeof moneyTransferFlow;
+  readonly orderProcessingFlow: typeof orderProcessingFlow;
   readonly engagementFlow: typeof engagementFlow;
   readonly orchestrationFlow: typeof orchestrationFlow;
   readonly pollingFlow: typeof pollingFlow;
@@ -67,6 +72,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
   const flows: readonly Flow<any>[] = [
     failureRecoveryFlow,
     moneyTransferFlow,
+    orderProcessingFlow,
     engagementFlow,
     orchestrationFlow,
     pollingFlow,
@@ -91,6 +97,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     client,
     failureRecoveryFlow,
     moneyTransferFlow,
+    orderProcessingFlow,
     engagementFlow,
     orchestrationFlow,
     pollingFlow,

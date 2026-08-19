@@ -18,14 +18,3 @@ export interface WorkJobParametersInput {
   jobUpperBound: number;
   progress: number;
 }
-
-export const workJobParametersInputCodec = {
-  typeName: "WorkJobParametersInput",
-  decode: (value: unknown): WorkJobParametersInput => {
-    const record = value as WorkJobParametersInput;
-    return {
-      jobUpperBound: Number(record.jobUpperBound),
-      progress: Number(record.progress),
-    };
-  },
-};

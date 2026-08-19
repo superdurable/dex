@@ -41,7 +41,7 @@ import {
   type MyDependencyService,
 } from "../../shared/my-dependency-service.js";
 import { employerOptInFlow } from "./employer-opt-in-flow.js";
-import { shortlistInputCodec, type ShortlistInput } from "./shortlist-input.js";
+import { type ShortlistInput } from "./shortlist-input.js";
 import { isOptedIn } from "./workflow-ids.js";
 
 export const SA_KEY_EMPLOYER_ID = "SHORTLIST_EmployerId";
@@ -87,8 +87,6 @@ export class ShortlistFlow implements Flow<ShortlistInput> {
 }
 
 class Shortlist implements Step<ShortlistInput> {
-  public readonly inputCodec = shortlistInputCodec;
-
   public constructor(private readonly flow: ShortlistFlow) {}
 
   public getStepType(): string {
@@ -104,8 +102,6 @@ class Shortlist implements Step<ShortlistInput> {
 }
 
 class SendEmail implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: ShortlistFlow) {}
 
   public getStepType(): string {

@@ -42,6 +42,10 @@ final class FlowSmokeCatalog {
                                 "toAccount", "to-smoke",
                                 "notes", "smoke")),
                 FlowSmokeEntry.get(
+                        "products/order-processing",
+                        "/products/order-processing/start",
+                        Map.of()),
+                FlowSmokeEntry.get(
                         "products/polling",
                         "/products/polling/start",
                         Map.of(

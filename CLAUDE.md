@@ -4,6 +4,17 @@ Dex is a durable workflow framework with a Go server (`server/`), OpenAPI IDL
 (`protos/`), and SDKs/samples for Go, Java, and Python. See `README.md` for the
 module map.
 
+## Commits
+
+End every agent turn that changes repository files with one commit on the
+current branch. Leave a clean working tree. Do not create empty commits for
+discussion-only turns.
+
+Never add Cursor as Author, Committer, or `Co-authored-by`. Cursor's commit
+wrapper often injects `Co-authored-by: Cursor <cursoragent@cursor.com>`; strip
+it before pushing. After every commit run `git log -1 --format=%B`. Do not use
+`--no-verify`. See `.cursor/rules/git-commit.mdc`.
+
 ## Compatibility
 
 - The project has not launched. Remove dead config fields immediately.
@@ -72,9 +83,14 @@ module map.
   immediately and include a language-native example when the solution is not
   obvious.
 - Product docs in `docs/content/` must present application code in
-  `<SdkTabs>` / `<SdkSnippet>` (Python, Go, Java, TypeScript). Do not use
+  `<SdkTabs>` / `<SdkSnippet>` (Python, Go, Java, TypeScript; add Rust when
+  `examples/rust` has the same sample). Do not use
   per-language headings or stacked fenced blocks. `bash` / `text` fences
   are exempt.
+- Application snippets must be copied from runnable files under `examples/`.
+  Link the example (and the examples playground when the sample has HTTP and
+  is catalogued). Do not invent APIs; add the example first.
+  See `.cursor/rules/docs-examples.mdc`.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 
@@ -286,8 +302,17 @@ Every implementation plan must include all three sections below. Use
 - Product docs: [`docs/`](docs/) (entry: [`docs/README.md`](docs/README.md)).
 - Contributor / module docs: module READMEs or `CONTRIBUTING.md`.
 - Application code snippets in `docs/content/` must use `<SdkTabs>` /
-  `<SdkSnippet>` (Python, Go, Java, TypeScript). Do not use per-language
+  `<SdkSnippet>` (Python, Go, Java, TypeScript; add Rust when `examples/rust`
+  has the same sample). Do not use per-language
   headings or stacked fenced blocks. `bash` / `text` fences are exempt.
+- Application snippets must be copied from runnable files under `examples/`.
+  Link the example (and the examples playground when the sample has HTTP and
+  is catalogued). Do not invent APIs; add the example first.
+  See `.cursor/rules/docs-examples.mdc`.
+- Product docs should read naturally: plain English, short sentences, no
+  chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
+- Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both
+  locales in sync. See `.cursor/rules/docs-i18n.mdc`.
 
 ## UI/UX
 

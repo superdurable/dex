@@ -99,10 +99,6 @@ impl EngagementFlow {
 impl Flow for EngagementFlow {
     type StartInput = EngagementRequest;
 
-    fn flow_type(&self) -> &'static str {
-        "EngagementFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start)
             .and(&self.wait_for_decision)

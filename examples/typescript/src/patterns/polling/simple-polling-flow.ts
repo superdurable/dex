@@ -20,7 +20,6 @@ import {
   Wait,
   goTo,
   gracefulComplete,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -29,8 +28,6 @@ import {
 } from "@superdurable/dex";
 
 class SimplePolling implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: SimplePollingFlow) {}
 
   public getStepType(): string {
@@ -38,7 +35,7 @@ class SimplePolling implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.until(Timer.byDuration(10_000));
+    return Wait.until(Timer.byDuration(1_000));
   }
 
   public execute(_context: Context, _input: void): StepDecision {
@@ -55,8 +52,6 @@ class SimplePolling implements Step<void> {
 }
 
 class SimplePollingComplete implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public getStepType(): string {
     return "SimplePollingComplete";
   }

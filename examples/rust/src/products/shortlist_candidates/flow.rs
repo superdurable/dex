@@ -68,10 +68,6 @@ impl EmployerOptInFlow {
 impl Flow for EmployerOptInFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "EmployerOptInFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.opt_in).and(&self.await_opt_out)
     }
@@ -139,10 +135,6 @@ impl ShortlistFlow {
 
 impl Flow for ShortlistFlow {
     type StartInput = ShortlistRequest;
-
-    fn flow_type(&self) -> &'static str {
-        "ShortlistFlow"
-    }
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.schedule_contact)

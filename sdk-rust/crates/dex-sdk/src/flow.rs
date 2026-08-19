@@ -30,10 +30,6 @@ pub type FlowTimeoutHandler<SomeFlow> = fn(&SomeFlow, &mut Context) -> HandlerRe
 /// impl Flow for OrderFlow {
 ///     type StartInput = String;
 ///
-///     fn flow_type(&self) -> &'static str {
-///         "OrderFlow"
-///     }
-///
 ///     fn steps(&self) -> StepList<'_, Self::StartInput> {
 ///         StepList::empty()
 ///     }

@@ -27,10 +27,6 @@ pub struct SubFlowChildFlow {
 impl Flow for SubFlowChildFlow {
     type StartInput = i32;
 
-    fn flow_type(&self) -> &'static str {
-        "SubFlowChildFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start)
     }
@@ -62,10 +58,6 @@ impl SubFlowParentFlow {
 
 impl Flow for SubFlowParentFlow {
     type StartInput = i32;
-
-    fn flow_type(&self) -> &'static str {
-        "SubFlowParentFlow"
-    }
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start)

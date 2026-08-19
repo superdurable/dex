@@ -24,10 +24,6 @@ pub struct TimerFlow {
 impl Flow for TimerFlow {
     type StartInput = i32;
 
-    fn flow_type(&self) -> &'static str {
-        "TimerFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start)
     }

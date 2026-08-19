@@ -27,10 +27,6 @@ pub struct RetryFlow {
 impl Flow for RetryFlow {
     type StartInput = i32;
 
-    fn flow_type(&self) -> &'static str {
-        "RetryFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start)
     }

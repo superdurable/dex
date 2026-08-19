@@ -23,10 +23,8 @@ import {
   goTo,
   goToMulti,
   gracefulComplete,
-  jsonCodec,
   rpc,
   stringCodec,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -34,18 +32,11 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-import {
-  workJobParametersInputCodec,
-  type WorkJobParametersInput,
-} from "./work-job-parameters-input.js";
+import { type WorkJobParametersInput } from "./work-job-parameters-input.js";
 
 export const DA_INTERRUPT_SIGNAL = "interruptSignal";
 
-const workJobInputCodec = jsonCodec<WorkJobParametersInput>(workJobParametersInputCodec);
-
 class Init implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: InterruptibleExecutionFlow) {}
 
   public getStepType(): string {
@@ -62,8 +53,6 @@ class Init implements Step<void> {
 }
 
 class WorkAExecution implements Step<WorkJobParametersInput> {
-  public readonly inputCodec = workJobInputCodec;
-
   public constructor(private readonly flow: InterruptibleExecutionFlow) {}
 
   public getStepType(): string {
@@ -71,7 +60,7 @@ class WorkAExecution implements Step<WorkJobParametersInput> {
   }
 
   public waitFor(_context: Context, _input: WorkJobParametersInput): Wait {
-    return Wait.until(Timer.byDuration(1500));
+    return Wait.until(Timer.byDuration(1_000));
   }
 
   public execute(context: Context, input: WorkJobParametersInput): StepDecision {
@@ -98,8 +87,6 @@ class WorkAExecution implements Step<WorkJobParametersInput> {
 }
 
 class WorkNExecution implements Step<WorkJobParametersInput> {
-  public readonly inputCodec = workJobInputCodec;
-
   public constructor(private readonly flow: InterruptibleExecutionFlow) {}
 
   public getStepType(): string {
@@ -107,7 +94,7 @@ class WorkNExecution implements Step<WorkJobParametersInput> {
   }
 
   public waitFor(_context: Context, _input: WorkJobParametersInput): Wait {
-    return Wait.until(Timer.byDuration(3000));
+    return Wait.until(Timer.byDuration(1_000));
   }
 
   public execute(context: Context, input: WorkJobParametersInput): StepDecision {

@@ -18,14 +18,3 @@ export interface WaitForChildInput {
   childWFId: string;
   timerSeconds: number;
 }
-
-export const waitForChildInputCodec = {
-  typeName: "WaitForChildInput",
-  decode: (value: unknown): WaitForChildInput => {
-    const record = value as WaitForChildInput;
-    return {
-      childWFId: String(record.childWFId),
-      timerSeconds: Number(record.timerSeconds),
-    };
-  },
-};

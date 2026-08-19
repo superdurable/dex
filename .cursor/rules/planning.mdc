@@ -23,8 +23,12 @@ Every implementation plan must include all three sections below. Use
 - Product docs: [`docs/`](docs/) (entry: [`docs/README.md`](docs/README.md)).
 - Contributor / module docs: module READMEs or [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - Application code snippets in `docs/content/` must use `<SdkTabs>` /
-  `<SdkSnippet>` (Python, Go, Java, TypeScript). Do not use per-language
+  `<SdkSnippet>` (Python, Go, Java, TypeScript; add Rust when `examples/rust`
+  has the same sample). Do not use per-language
   headings or stacked fenced blocks. `bash` / `text` fences are exempt.
+- Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both
+  locales in sync. Navbar locale preference persists in the browser. See
+  `.cursor/rules/docs-i18n.mdc`.
 
 ## UI/UX
 

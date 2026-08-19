@@ -66,6 +66,13 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
+			name: "products/order-processing",
+			trigger: func(t *testing.T) (string, string) {
+				flowID, runID := triggerFlowSmokeHTTP(t, http.MethodGet, "/products/order-processing/start", nil, nil)
+				return flowID, runID
+			},
+		},
+		{
 			name: "products/polling",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{

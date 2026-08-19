@@ -44,10 +44,6 @@ impl CronScheduleFlow {
 impl Flow for CronScheduleFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "CronScheduleFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.run)
     }

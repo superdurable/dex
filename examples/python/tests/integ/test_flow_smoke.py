@@ -87,6 +87,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
+            "products/order-processing",
+            lambda c: trigger_get("/products/order-processing/start", {}),
+        ),
+        FlowSmokeEntry(
             "products/polling",
             lambda c: trigger_get(
                 "/products/polling/start",

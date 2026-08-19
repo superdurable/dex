@@ -19,15 +19,3 @@ export interface JobSeeker {
   email: string;
   phoneNumber: string;
 }
-
-export const jobSeekerCodec = {
-  typeName: "JobSeeker",
-  decode: (value: unknown): JobSeeker => {
-    const record = value as JobSeeker;
-    return {
-      id: String(record.id),
-      email: String(record.email),
-      phoneNumber: String(record.phoneNumber),
-    };
-  },
-};

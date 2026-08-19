@@ -27,6 +27,13 @@ export class MyDependencyService {
     console.log(`charge user email=${email} customerId=${customerId} amount=${amount}`);
   }
 
+  public shipItem(orderId: string, testFailAtShipping: boolean): void {
+    if (testFailAtShipping) {
+      throw new Error(`ship failed for order ${orderId}`);
+    }
+    console.log(`ship item ${orderId}`);
+  }
+
   public callAPI1(data: string): void {
     console.log(`call API1 ${data}`);
   }

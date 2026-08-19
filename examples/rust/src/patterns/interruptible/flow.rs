@@ -16,14 +16,23 @@ use std::time::Duration;
 
 use dex_sdk::{
     Attribute, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
-    StepList, Timer, Wait,
+    StepList, StepMovement, Timer, Wait,
 };
+use serde::{Deserialize, Serialize};
 
 pub const INTERRUPTIBLE_INTERRUPT: Rpc<(), ()> = Rpc::new("InterruptibleInterrupt");
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct WorkJobParametersInput {
+    pub job_upper_bound: i32,
+    pub progress: i32,
+}
+
 #[derive(Default)]
 pub struct InterruptibleExecutionFlow {
-    run_until_cancelled: RunUntilCancelled,
+    init: Init,
+    work_a_execution: WorkAExecution,
+    work_n_execution: WorkNExecution,
 }
 
 impl InterruptibleExecutionFlow {
@@ -35,12 +44,10 @@ impl InterruptibleExecutionFlow {
 impl Flow for InterruptibleExecutionFlow {
     type StartInput = ();
 
-    fn flow_type(&self) -> &'static str {
-        "InterruptibleExecutionFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.run_until_cancelled)
+        StepList::start(&self.init)
+            .and(&self.work_a_execution)
+            .and(&self.work_n_execution)
     }
 
     fn persistence(&self) -> PersistenceSchema {
@@ -53,22 +60,90 @@ impl Flow for InterruptibleExecutionFlow {
 }
 
 #[derive(Default)]
-struct RunUntilCancelled;
+struct Init;
 
-impl Step for RunUntilCancelled {
+impl Step for Init {
     type Input = ();
 
-    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_millis(
-            1_500,
-        ))))
+    fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        let input = WorkJobParametersInput {
+            job_upper_bound: 15,
+            progress: 1,
+        };
+        Ok(StepDecision::go_to_many([
+            StepMovement::to(&WorkAExecution, input.clone()),
+            StepMovement::to(&WorkNExecution, input),
+        ]))
+    }
+}
+
+#[derive(Default)]
+struct WorkAExecution;
+
+impl Step for WorkAExecution {
+    type Input = WorkJobParametersInput;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(1))))
     }
 
-    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         if interrupt_signal().get(context)?.as_deref() == Some("cancel") {
-            return Ok(StepDecision::graceful_complete("cancelled".to_string()));
+            println!("A: Interrupted!");
+            return Ok(StepDecision::graceful_complete(()));
         }
-        Ok(StepDecision::go_to(&RunUntilCancelled, ()))
+        if input.progress > input.job_upper_bound {
+            println!("Executing WorkAExecution completed");
+            return Ok(StepDecision::graceful_complete(()));
+        }
+        println!(
+            "[{}][{}]: Doing job {}",
+            context.flow_id(),
+            context.step_execution_id(),
+            input.progress
+        );
+        Ok(StepDecision::go_to(
+            &WorkAExecution,
+            WorkJobParametersInput {
+                job_upper_bound: input.job_upper_bound,
+                progress: input.progress + 1,
+            },
+        ))
+    }
+}
+
+#[derive(Default)]
+struct WorkNExecution;
+
+impl Step for WorkNExecution {
+    type Input = WorkJobParametersInput;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(3))))
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        if interrupt_signal().get(context)?.as_deref() == Some("cancel") {
+            println!("N: Interrupted!");
+            return Ok(StepDecision::graceful_complete(()));
+        }
+        if input.progress > input.job_upper_bound {
+            println!("Executing WorkNExecution completed");
+            return Ok(StepDecision::graceful_complete(()));
+        }
+        println!(
+            "[{}][{}]: Processing job {}",
+            context.flow_id(),
+            context.step_execution_id(),
+            input.progress
+        );
+        Ok(StepDecision::go_to(
+            &WorkNExecution,
+            WorkJobParametersInput {
+                job_upper_bound: input.job_upper_bound,
+                progress: input.progress + 1,
+            },
+        ))
     }
 }
 

@@ -71,6 +71,9 @@ from dex_examples.products.engagement.controller import create_engagement_bluepr
 from dex_examples.products.job_post.controller import create_job_post_blueprint
 from dex_examples.products.microservices.controller import create_microservice_blueprint
 from dex_examples.products.money_transfer.controller import create_money_transfer_blueprint
+from dex_examples.products.order_processing.controller import (
+    create_order_processing_blueprint,
+)
 from dex_examples.products.polling.controller import create_polling_blueprint
 from dex_examples.products.shortlist_candidates.controller import create_shortlist_blueprint
 from dex_examples.products.signup.controller import create_signup_blueprint
@@ -93,6 +96,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     )
 
     quart_app.register_blueprint(create_money_transfer_blueprint(app_state))
+    quart_app.register_blueprint(create_order_processing_blueprint(app_state))
     quart_app.register_blueprint(create_microservice_blueprint(app_state))
     quart_app.register_blueprint(create_engagement_blueprint(app_state))
     quart_app.register_blueprint(create_subscription_blueprint(app_state))

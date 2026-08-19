@@ -39,10 +39,6 @@ impl ChannelFlow {
 impl Flow for ChannelFlow {
     type StartInput = i32;
 
-    fn flow_type(&self) -> &'static str {
-        "ChannelFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.wait)
     }

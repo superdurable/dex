@@ -20,16 +20,3 @@ export interface TransferRequest {
   readonly amount: number;
   readonly notes: string;
 }
-
-export const transferRequestCodec = {
-  typeName: "TransferRequest",
-  decode: (value: unknown): TransferRequest => {
-    const record = value as TransferRequest;
-    return {
-      fromAccount: String(record.fromAccount),
-      toAccount: String(record.toAccount),
-      amount: Number(record.amount),
-      notes: String(record.notes ?? ""),
-    };
-  },
-};

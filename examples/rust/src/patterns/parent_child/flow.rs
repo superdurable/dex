@@ -50,10 +50,6 @@ impl ParentFlowV2 {
 impl Flow for ParentFlowV2 {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "ParentFlowV2"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.record_child).and(&self.await_child)
     }

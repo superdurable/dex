@@ -1,6 +1,6 @@
 # Dex TypeScript examples
 
-These examples target [`@superdurable/dex@0.1.10`](https://www.npmjs.com/package/@superdurable/dex).
+These examples target [`@superdurable/dex@0.1.11`](https://www.npmjs.com/package/@superdurable/dex).
 
 The sample process hosts one gRPC Worker (default `127.0.0.1:8803`) and an HTTP
 controller on port `8080`. Step `execute` / `waitFor` / RPC handlers may
@@ -52,8 +52,8 @@ npm run smoke            # every product + pattern HTTP route
 ./run-integration-tests.sh # start dexcli dev and run both integration suites
 ```
 
-The integration suite starts and verifies Money Transfer, Engagement,
-Microservice, Polling, Subscription, and Failure Recovery Flows.
+The integration suite starts and verifies Money Transfer, Order Processing,
+Engagement, Microservice, Polling, Subscription, and Failure Recovery Flows.
 
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
 after E2E tests for manual HTTP exploration.
@@ -61,6 +61,7 @@ after E2E tests for manual HTTP exploration.
 ## Products
 
 - [Money transfer](./src/products/money-transfer)
+- [Order processing](./src/products/order-processing)
 - [Microservice orchestration](./src/products/microservices)
 - [Engagement](./src/products/engagement)
 - [Subscription](./src/products/subscription)

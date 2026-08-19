@@ -78,6 +78,11 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "products/order-processing",
+      trigger: () => triggerGet(context, "/products/order-processing/start"),
+      flags: defaultFlags(),
+    },
+    {
       name: "products/polling",
       trigger: () =>
         triggerGet(context, "/products/polling/start", {
@@ -216,6 +221,7 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       trigger: () =>
         triggerGet(context, "/patterns/parallel/start/withAwait", {
           workflowId: newFlowId("parallel-await"),
+          countOfJobSeekers: 1,
         }),
       flags: defaultFlags(),
     },
@@ -359,14 +365,24 @@ test("flow smoke catalog size", () => {
   assert.ok(catalog.length > 0, "flow smoke catalog is empty");
 });
 
-for (const entry of flowSmokeCatalog()) {
-  test(`flow smoke ${entry.name}`, async () => {
-    const result = await entry.trigger(context);
-    assert.ok(result.flowId, `${entry.name}: controller response did not include flowID`);
-    await assertFlowSmokeStartStep(entry, result.flowId, result.runId);
-    await assertFlowSmokeNoUnexpectedFailures(entry, result.flowId, result.runId);
-  });
-}
+test("flow smoke all registered flows via controller", async () => {
+  for (const entry of flowSmokeCatalog()) {
+    try {
+      const result = await entry.trigger(context);
+      assert.ok(result.flowId, `${entry.name}: controller response did not include flowID`);
+      await assertFlowSmokeStartStep(entry, result.flowId, result.runId);
+      if (entry.name === "patterns/interruptible") {
+        await triggerGet(context, "/patterns/interruptible/cancel", {
+          workflowId: result.flowId,
+        });
+      }
+      await assertFlowSmokeNoUnexpectedFailures(entry, result.flowId, result.runId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`${entry.name}: ${message}`, { cause: error });
+    }
+  }
+});
 
 function availablePort(): Promise<number> {
   return new Promise((resolve, reject) => {

@@ -102,10 +102,6 @@ impl UserProfileFlow {
 impl Flow for UserProfileFlow {
     type StartInput = ();
 
-    fn flow_type(&self) -> &'static str {
-        "UserProfileFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::empty()
     }

@@ -24,7 +24,6 @@ import {
   forceComplete,
   rpc,
   stringCodec,
-  voidCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -33,7 +32,7 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-import { employerOptInInputCodec, type EmployerOptInInput } from "./employer-opt-in-input.js";
+import { type EmployerOptInInput } from "./employer-opt-in-input.js";
 
 export class EmployerOptInFlow implements Flow<EmployerOptInInput> {
   public readonly employerId = new Attribute("EMPLOYER_OPT_IN_EmployerId", stringCodec, {
@@ -64,15 +63,13 @@ export class EmployerOptInFlow implements Flow<EmployerOptInInput> {
     return { output: this.optedIn.get(context) === true };
   }
 
-  @rpc({ outputCodec: voidCodec })
+  @rpc()
   public optOut(_context: Context): RPCResult<void> {
     return { output: undefined, nextSteps: [StepMovement.of(this.optOutStep, undefined)] };
   }
 }
 
 class OptIn implements Step<EmployerOptInInput> {
-  public readonly inputCodec = employerOptInInputCodec;
-
   public constructor(private readonly flow: EmployerOptInFlow) {}
 
   public getStepType(): string {
@@ -87,8 +84,6 @@ class OptIn implements Step<EmployerOptInInput> {
 }
 
 class OptOut implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: EmployerOptInFlow) {}
 
   public getStepType(): string {

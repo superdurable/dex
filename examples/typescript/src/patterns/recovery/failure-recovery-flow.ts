@@ -71,8 +71,6 @@ class PaymentProcessor {
 }
 
 class UpdateItemQuantity implements Step<FailureRecoveryWorkflowInput> {
-  public readonly inputCodec = workflowInputCodec;
-
   public constructor(
     private readonly flow: FailureRecoveryFlow,
     private readonly database: DatabaseConnection,
@@ -130,8 +128,6 @@ class ChargeForItems implements Step<number> {
 }
 
 class UpdateQuantityRecovery implements Step<FailureRecoveryWorkflowInput> {
-  public readonly inputCodec = workflowInputCodec;
-
   public constructor(private readonly database: DatabaseConnection) {}
 
   public getStepType(): string {

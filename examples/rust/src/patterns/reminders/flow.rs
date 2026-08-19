@@ -58,10 +58,6 @@ impl ReminderFlow {
 impl Flow for ReminderFlow {
     type StartInput = String;
 
-    fn flow_type(&self) -> &'static str {
-        "ReminderFlow"
-    }
-
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.start)
             .and(&self.remind)

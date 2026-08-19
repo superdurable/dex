@@ -7,7 +7,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Intro and Quick Start',
       collapsed: false,
-      items: ['intro/what-is-dex', 'quick-start/index'],
+      items: ['intro/what-is-durable-execution', 'intro/what-is-dex', 'quick-start/index'],
     },
     {
       type: 'category',
@@ -48,7 +48,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Use Cases',
+      label: 'Product Examples',
       link: {type: 'doc', id: 'use-cases/index'},
       items: [
         'use-cases/money-transfer',

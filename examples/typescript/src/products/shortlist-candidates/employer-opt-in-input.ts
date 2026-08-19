@@ -14,18 +14,6 @@
  * limitations under the License.
  */
 
-import { jsonCodec } from "@superdurable/dex";
-
 export interface EmployerOptInInput {
   employerId: string;
 }
-
-export function decodeEmployerOptInInput(value: unknown): EmployerOptInInput {
-  const record = value as EmployerOptInInput;
-  return { employerId: String(record.employerId) };
-}
-
-export const employerOptInInputCodec = jsonCodec<EmployerOptInInput>({
-  typeName: "EmployerOptInInput",
-  decode: decodeEmployerOptInInput,
-});

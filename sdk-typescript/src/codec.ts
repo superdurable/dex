@@ -166,26 +166,40 @@ export function optionalCodec<T>(codec: Codec<T>): Codec<T | undefined> {
 }
 
 /**
- * Creates a deterministic JSON codec with application conversion hooks.
+ * Creates a JSON-wire codec.
  *
- * JSON.stringify semantics apply; `undefined`, cycles, and unsupported bigint values
- * fail during encoding. The decoder receives parsed, untrusted JSON data.
+ * Call `jsonCodec()` with no arguments to encode with `JSON.stringify` and decode
+ * with `JSON.parse` without structural validation. That identity codec is the
+ * default when a Step or RPC omits an explicit codec. Pass `decode` when the
+ * parsed JSON must be validated or converted, such as rebuilding a `Date`.
+ * JSON.stringify semantics apply; `undefined`, cycles, and unsupported bigint
+ * values fail during encoding.
  *
+ * @example
+ * ```ts
+ * const order = jsonCodec<Order>();
+ * const created = jsonCodec<Date>({
+ *   typeName: "Date",
+ *   decode: (value) => new Date(String(value)),
+ *   encode: (value) => value.toISOString(),
+ * });
+ * ```
  * @typeParam T - Application value type.
- * @param options - Stable name plus JSON conversion hooks.
+ * @param options - Optional type name and JSON conversion hooks.
  * @returns A JSON-wire codec for `T`.
  * @throws {@link TypeError} when encoding produces `undefined`.
  */
 export function jsonCodec<T>(options: {
-  /** Stable type name used in mapping errors. */
-  readonly typeName: string;
-  /** Validates and converts parsed JSON-compatible data. */
-  readonly decode: (value: unknown) => T;
+  /** Stable type name used in mapping errors; defaults to `json`. */
+  readonly typeName?: string;
+  /** Validates and converts parsed JSON-compatible data; identity by default. */
+  readonly decode?: (value: unknown) => T;
   /** Converts an application value to JSON-compatible data; identity by default. */
   readonly encode?: (value: T) => unknown;
-}): Codec<T> {
+} = {}): Codec<T> {
+  const decodeJson = options.decode ?? ((value: unknown) => value as T);
   return {
-    typeName: options.typeName,
+    typeName: options.typeName ?? "json",
     wireKind: "json",
     encode: (value) => {
       const data = JSON.stringify(options.encode?.(value) ?? value);
@@ -194,7 +208,7 @@ export function jsonCodec<T>(options: {
       }
       return { kind: "json", data };
     },
-    decode: (value) => options.decode(JSON.parse(requireKind(value, "json").data) as unknown),
+    decode: (value) => decodeJson(JSON.parse(requireKind(value, "json").data) as unknown),
   };
 }
 

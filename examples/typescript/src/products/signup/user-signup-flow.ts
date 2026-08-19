@@ -78,8 +78,6 @@ export class UserSignupFlow implements Flow<SignupForm> {
 }
 
 class Submit implements Step<SignupForm> {
-  public readonly inputCodec = signupFormCodec;
-
   public constructor(private readonly flow: UserSignupFlow) {}
 
   public getStepType(): string {
@@ -95,8 +93,6 @@ class Submit implements Step<SignupForm> {
 }
 
 class Verify implements Step<void> {
-  public readonly inputCodec = voidCodec;
-
   public constructor(private readonly flow: UserSignupFlow) {}
 
   public getStepType(): string {

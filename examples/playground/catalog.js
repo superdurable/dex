@@ -116,6 +116,20 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "products",
+    id: "order-processing",
+    title: "Order processing",
+    flowIdPrefix: "order-processing",
+    note: "Start waits until charged, then returns. Copy flowID from the response and approve shipment.",
+    endpoints: [
+      endpoint("GET", "/products/order-processing/start", "Start", [
+        query("testFailAtShipping", { default: "false" }),
+      ]),
+      endpoint("GET", "/products/order-processing/approve", "Approve shipment", [flowId()]),
+      endpoint("GET", "/products/order-processing/describe", "Describe", [flowId()]),
+    ],
+  },
+  {
+    group: "products",
     id: "polling",
     title: "Polling",
     flowIdPrefix: "polling",
