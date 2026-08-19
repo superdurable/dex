@@ -1,4 +1,4 @@
-# Dex - Durable Execution(D-EX), Dead Simple. More Power.
+# Dex - Durable Execution(D-EX)
 
 **Durable Execution** is an abstraction of the design patterns every reliable backend needs: multi-step orchestration, durable timers, retries, human-in-the-loop coordination, and production observability. Traditional databases and storage only persist data with passive read/write APIs—they do not give you atomic step transitions, worker dispatch, or failure handling out of the box. Engineers end up rebuilding the same queue-and-poll infrastructure on every project.
 
