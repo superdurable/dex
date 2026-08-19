@@ -55,7 +55,7 @@ import { userSignupFlow } from "./products/signup/user-signup-flow.js";
 import { subscriptionFlow } from "./products/subscription/subscription-flow.js";
 import { MyDependencyService } from "./shared/my-dependency-service.js";
 
-export const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
+const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
