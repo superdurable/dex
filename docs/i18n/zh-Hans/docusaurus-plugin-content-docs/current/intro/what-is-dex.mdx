@@ -60,8 +60,7 @@ class ChargeStep(Step[OrderRequest]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
-                total_duration=timedelta(seconds=3),
+                total_duration=timedelta(hours=1),
             )
         )
 
@@ -79,15 +78,13 @@ class ShipStep(Step[OrderRequest]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(
-                # total_duration=timedelta(hours=1),
-                total_duration=timedelta(seconds=3),
+                total_duration=timedelta(hours=1),
             )
         ).on_execute_failure_proceed_to(
             self.refund,
             StepOptions(
                 execute_retry=RetryPolicy(
-                    # total_duration=timedelta(hours=1),
-                    total_duration=timedelta(seconds=3),
+                    total_duration=timedelta(hours=1),
                 )
             ),
         )
@@ -107,7 +104,7 @@ class ShipStep(Step[OrderRequest]):
                 "Please approve or provide a tracking number.",
             )
             return go_to(self, input)
-        self.service.ship_item(input.order_id, input.test_fail_at_shipping)
+        self.service.ship_item(input.order_id)
         order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
 
@@ -152,8 +149,7 @@ class OrderProcessingFlow(Flow[OrderRequest]):
 func (chargeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
-			TotalDuration: 3 * time.Second,
+			TotalDuration: time.Hour,
 		},
 	}
 }
@@ -172,15 +168,13 @@ func (step chargeStep) Execute(
 func (step shipStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			// TotalDuration: time.Hour,
-			TotalDuration: 3 * time.Second,
+			TotalDuration: time.Hour,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
 			refundStep{},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{
-					// TotalDuration: time.Hour,
-					TotalDuration: 3 * time.Second,
+					TotalDuration: time.Hour,
 				},
 			},
 		),
@@ -209,7 +203,7 @@ func (step shipStep) Execute(
 		)
 		return dex.GoTo(shipStep{}, order), nil
 	}
-	if err := step.service.ShipItem(order.OrderID, order.TestFailAtShipping); err != nil {
+	if err := step.service.ShipItem(order.OrderID); err != nil {
 		return nil, err
 	}
 	if err := OrderStatus.Set(ctx, "shipped"); err != nil {
@@ -342,8 +336,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
-                            .totalDuration(Duration.ofSeconds(3))
+                            .totalDuration(Duration.ofHours(1))
                             .build())
                     .build();
         }
@@ -379,15 +372,13 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            // .totalDuration(Duration.ofHours(1))
-                            .totalDuration(Duration.ofSeconds(3))
+                            .totalDuration(Duration.ofHours(1))
                             .build())
                     .onExecuteFailureProceedTo(
                             refund,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
-                                            // .totalDuration(Duration.ofHours(1))
-                                            .totalDuration(Duration.ofSeconds(3))
+                                            .totalDuration(Duration.ofHours(1))
                                             .build())
                                     .build())
                     .build();
@@ -409,7 +400,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                         "Please approve or provide a tracking number.");
                 return StepDecision.goTo(this, order);
             }
-            service.shipItem(order.orderId, order.testFailAtShipping);
+            service.shipItem(order.orderId);
             orderStatus.set(context, "shipped");
             return StepDecision.gracefulComplete("shipped:" + order.orderId);
         }
@@ -504,8 +495,7 @@ class ChargeStep implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
-        totalDurationMs: 3_000,
+        totalDurationMs: 60 * 60 * 1000,
       },
     };
   }
@@ -532,13 +522,11 @@ class ShipStep implements Step<OrderRequest> {
   public getStepOptions() {
     return {
       executeRetry: {
-        // totalDurationMs: 60 * 60 * 1000,
-        totalDurationMs: 3_000,
+        totalDurationMs: 60 * 60 * 1000,
       },
       executeFailure: ExecuteFailure.proceedTo(this.refund, {
         executeRetry: {
-          // totalDurationMs: 60 * 60 * 1000,
-          totalDurationMs: 3_000,
+          totalDurationMs: 60 * 60 * 1000,
         },
       }),
     };
@@ -557,7 +545,7 @@ class ShipStep implements Step<OrderRequest> {
       );
       return goTo(this, input);
     }
-    this.service.shipItem(input.orderId, input.testFailAtShipping);
+    this.service.shipItem(input.orderId);
     orderStatus.set(context, "shipped");
     return gracefulComplete(`shipped:${input.orderId}`);
   }
@@ -660,9 +648,7 @@ impl Step for Charge {
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
-            RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
-                .total_duration(Duration::from_secs(3)),
+            RetryPolicy::new().total_duration(Duration::from_secs(60 * 60)),
         )
     }
 
@@ -690,9 +676,7 @@ impl Step for Ship {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
             .execute_retry(
-                RetryPolicy::new()
-                    // .total_duration(Duration::from_secs(60 * 60))
-                    .total_duration(Duration::from_secs(3)),
+                RetryPolicy::new().total_duration(Duration::from_secs(60 * 60)),
             )
             .on_execute_failure_proceed_to(&Refund::default())
     }
@@ -714,8 +698,7 @@ impl Step for Ship {
             context.record_event("shipment-reminder", input.order_id.clone())?;
             return Ok(StepDecision::go_to(&Ship::default(), input));
         }
-        self.service
-            .ship_item(&input.order_id, input.test_fail_at_shipping)?;
+        self.service.ship_item(&input.order_id)?;
         context.record_event("ship", input.order_id.clone())?;
         order_status().set(context, "shipped".to_string())?;
         Ok(StepDecision::graceful_complete(format!(
@@ -739,9 +722,7 @@ impl Step for Refund {
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new().execute_retry(
-            RetryPolicy::new()
-                // .total_duration(Duration::from_secs(60 * 60))
-                .total_duration(Duration::from_secs(3)),
+            RetryPolicy::new().total_duration(Duration::from_secs(60 * 60)),
         )
     }
 
