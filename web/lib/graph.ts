@@ -12,10 +12,11 @@ import type {
   StepGraphEdge,
   StepGraphNode,
 } from './types';
-import { subFlowReusePolicyLabel, subFlowStatusName } from './semantic';
+import { isHandlerTimeoutPolicy, subFlowReusePolicyLabel, subFlowStatusName } from './semantic';
 import { generatedSubFlowID } from './subflows';
 
 export const START_NODE_ID = '__start__';
+export const FLOW_TIMEOUT_HANDLER_STEP_TYPE = 'sys:timeout_handler';
 
 const stepEventTypes = new Set([
   'StepWaitForCompleted',
@@ -117,6 +118,8 @@ export function buildStepGraph(
     }
   }
 
+  hideNonHandlerTimeoutNodes(nodes, events);
+
   const edges: StepGraphEdge[] = [];
   for (const node of nodes.values()) {
     if (node.kind === 'subflow') {
@@ -184,6 +187,19 @@ export function stepGraphSelection(
     incomingEdgeIDs,
     outgoingEdgeIDs,
   };
+}
+
+function hideNonHandlerTimeoutNodes(
+  nodes: Map<string, StepGraphNode>,
+  events: FlowHistoryEvent[],
+): void {
+  const started = events.find((event) => event.type === 'FlowStartedOrContinued');
+  if (isHandlerTimeoutPolicy(started?.payload.flowTimeoutPolicy)) return;
+  for (const [id, node] of nodes) {
+    if (node.stepType === FLOW_TIMEOUT_HANDLER_STEP_TYPE) {
+      nodes.delete(id);
+    }
+  }
 }
 
 function addStepEvent(
