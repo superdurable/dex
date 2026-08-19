@@ -25,9 +25,18 @@ only when a section genuinely doesn't apply.
 - Product docs live in [`docs/`](docs/) (start at [`docs/README.md`](docs/README.md)).
 - Contributor / module docs: update module READMEs or `CONTRIBUTING.md`.
 - Application code snippets in `docs/content/` must use `<SdkTabs>` /
-  `<SdkSnippet>` so readers can switch Python, Go, Java, and TypeScript.
+  `<SdkSnippet>` so readers can switch Python, Go, Java, TypeScript, and Rust
+  when `examples/rust` has the same sample.
   Do not use per-language headings (`### Java`) or stacked fenced blocks.
   `bash` / `text` fences are exempt.
+- Product docs should read naturally: plain English, short sentences, no
+  chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
+- Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both
+  locales in sync. See `.cursor/rules/docs-i18n.mdc`.
+- Application snippets in product docs must be copied from runnable files under
+  `examples/`. Link the example (and the examples playground when the sample has
+  HTTP and is catalogued). Do not invent APIs; add the example first.
+  See `.cursor/rules/docs-examples.mdc`.
 
 ### UI/UX
 
@@ -37,8 +46,9 @@ only when a section genuinely doesn't apply.
 
 ### Commit Every Changing Turn
 
-End every turn that changes repository files with one commit. Do not create
-empty commits for discussion-only turns.
+End every agent turn that changes repository files with one commit on the
+current branch. Leave a clean working tree. Do not create empty commits for
+discussion-only turns.
 
 ### Regenerate the Entire Repository After Proto Changes
 

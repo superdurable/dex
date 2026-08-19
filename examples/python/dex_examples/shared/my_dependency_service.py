@@ -26,6 +26,11 @@ class MyDependencyService:
     def charge_user(self, email: str, customer_id: str, amount: int) -> None:
         print(f"charge user customerID[{customer_id}] email[{email}] for ${amount}")
 
+    def ship_item(self, order_id: str, test_fail_at_shipping: bool) -> None:
+        if test_fail_at_shipping:
+            raise RuntimeError(f"ship failed for order {order_id}")
+        print(f"ship item {order_id}")
+
     def call_api1(self, data: str) -> None:
         print("call API1")
 

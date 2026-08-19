@@ -35,6 +35,7 @@ use dex_examples_rust::products::{
     job_post::JobPostFlow,
     microservices::OrchestrationFlow,
     money_transfer::MoneyTransferFlow,
+    order_processing::OrderProcessingFlow,
     polling::PollingFlow,
     shortlist_candidates::{EmployerOptInFlow, ShortlistFlow},
     signup::UserSignupFlow,
@@ -47,6 +48,7 @@ use dex_sdk::Flow;
 fn catalog_matches_every_cross_language_example() {
     let product_flows = [
         MoneyTransferFlow::default().flow_type(),
+        OrderProcessingFlow::default().flow_type(),
         OrchestrationFlow::default().flow_type(),
         EngagementFlow::default().flow_type(),
         SubscriptionFlow::default().flow_type(),
@@ -80,16 +82,16 @@ fn catalog_matches_every_cross_language_example() {
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
     assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
-    assert_eq!(product_flows.len() + pattern_flows.len(), 28);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 29);
     assert_eq!(
         product_flows
             .into_iter()
             .chain(pattern_flows)
             .collect::<HashSet<_>>()
             .len(),
-        28
+        29
     );
-    create_example_registry().expect("all 28 example Flow definitions must register together");
+    create_example_registry().expect("all 29 example Flow definitions must register together");
 }
 
 #[test]

@@ -19,8 +19,9 @@ pub mod server;
 
 use dex_sdk::{Registry, SdkResult};
 
-pub const PRODUCT_FLOW_TYPES: [&str; 9] = [
+pub const PRODUCT_FLOW_TYPES: [&str; 10] = [
     "MoneyTransferFlow",
+    "OrderProcessingFlow",
     "OrchestrationFlow",
     "EngagementFlow",
     "SubscriptionFlow",

@@ -42,6 +42,7 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | Java/Python/TypeScript example | Rust Flow | Demonstrated SDK features |
 |---|---|---|
 | Money transfer | [`MoneyTransferFlow`](src/products/money_transfer.rs) | Execute retry and debit compensation |
+| Order processing | [`OrderProcessingFlow`](src/products/order_processing) | Charge, seller Channel + reminder Timer, ship retry, refund |
 | Microservice orchestration | [`OrchestrationFlow`](src/products/microservices.rs) | Parallel Steps, Attribute swap RPC, Channel-or-timer wait |
 | Engagement | [`EngagementFlow`](src/products/engagement.rs) | Indexed status, decision RPCs, reminders, external notification |
 | Subscription | [`SubscriptionFlow`](src/products/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
@@ -91,7 +92,7 @@ make test
 ./run-integration-tests.sh
 ```
 
-The catalog integration test constructs every Flow, checks the exact 9 + 19
+The catalog integration test constructs every Flow, checks the exact 10 + 19
 mapping, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 

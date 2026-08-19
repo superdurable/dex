@@ -123,6 +123,7 @@ details.
 ## Products
 
 - [Money transfer saga](./products/money-transfer)
+- [Order processing](./products/order-processing)
 - [Microservice orchestration](./products/microservices)
 - [Employer/job-seeker engagement](./products/engagement)
 - [Subscription](./products/subscription)

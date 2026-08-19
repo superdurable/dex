@@ -5,6 +5,7 @@ import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import NavbarLogo from '@theme/Navbar/Logo';
 import BrandMenu from '@site/src/components/BrandMenu';
 import GitHubStarNavbarItem from '@site/src/components/GitHubStarNavbarItem';
+import LocaleSwitcher from '@site/src/components/LocaleSwitcher';
 import {BOOKING_URL, DOC_ITEMS, SERVICE_ITEMS} from '@site/src/components/brandNavigation';
 
 export default function NavbarContent(): ReactNode {
@@ -22,6 +23,7 @@ export default function NavbarContent(): ReactNode {
         <GitHubStarNavbarItem />
       </nav>
       <div className="header-actions">
+        <LocaleSwitcher />
         <NavbarColorModeToggle />
         <a className="button button-small header-cta" href={BOOKING_URL} target="_blank" rel="noreferrer">
           Book a call <span aria-hidden="true">↗</span>

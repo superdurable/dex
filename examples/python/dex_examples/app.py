@@ -85,6 +85,7 @@ from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.job_post.job_post_flow import JobPostFlow
 from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
 from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransferFlow
+from dex_examples.products.order_processing.order_processing_flow import OrderProcessingFlow
 from dex_examples.products.polling.polling_flow import PollingFlow
 from dex_examples.products.shortlist_candidates.employer_opt_in_flow import EmployerOptInFlow
 from dex_examples.products.shortlist_candidates.shortlist_flow import ShortlistFlow
@@ -104,6 +105,7 @@ class ExampleApp:
         pattern_service = ServiceDependency()
 
         self.money_transfer = MoneyTransferFlow(service)
+        self.order_processing = OrderProcessingFlow(service)
         self.orchestration = OrchestrationFlow(service)
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
@@ -154,6 +156,7 @@ class ExampleApp:
 
         flows: list[Flow[Any]] = [
             self.money_transfer,
+            self.order_processing,
             self.orchestration,
             self.engagement,
             self.subscription,

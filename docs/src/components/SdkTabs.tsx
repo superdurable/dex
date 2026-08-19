@@ -7,24 +7,34 @@ import React, {
   useMemo,
   useState,
 } from 'react';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import {
+  DEFAULT_SDK,
+  type SdkLanguage,
+  isSdkLanguage,
+  persistSdkPreference,
+  readSdkPreference,
+  subscribeSdkPreference,
+} from './sdkPreference';
 
-export type SdkLanguage = 'python' | 'go' | 'java' | 'typescript';
+const EXAMPLE_BASE = 'https://github.com/superdurable/dex/tree/main';
 
-const STORAGE_KEY = 'dex-docs-preferred-sdk';
-const DEFAULT_SDK: SdkLanguage = 'python';
+export type {SdkLanguage};
 
 const LABELS: Record<SdkLanguage, string> = {
   python: 'Python',
   go: 'Go',
   java: 'Java',
   typescript: 'TypeScript',
+  rust: 'Rust',
 };
 
-const ORDER: SdkLanguage[] = ['python', 'go', 'java', 'typescript'];
+const ORDER: SdkLanguage[] = ['python', 'go', 'java', 'typescript', 'rust'];
 
 export type SdkSnippetProps = {
   lang: SdkLanguage;
   children: ReactNode;
+  example?: string;
 };
 
 export function SdkSnippet({children}: SdkSnippetProps): ReactNode {
@@ -37,24 +47,20 @@ export type SdkTabsProps = {
   go?: ReactNode;
   java?: ReactNode;
   typescript?: ReactNode;
+  rust?: ReactNode;
+  examples?: Partial<Record<SdkLanguage, string>>;
 };
 
-function readPreference(): SdkLanguage {
-  if (typeof window === 'undefined') {
-    return DEFAULT_SDK;
-  }
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  if (stored === 'python' || stored === 'go' || stored === 'java' || stored === 'typescript') {
-    return stored;
-  }
-  return DEFAULT_SDK;
-}
+type SnippetRecord = {
+  body: ReactNode;
+  example?: string;
+};
 
-function collectSnippets(props: SdkTabsProps): Partial<Record<SdkLanguage, ReactNode>> {
-  const snippets: Partial<Record<SdkLanguage, ReactNode>> = {};
+function collectSnippets(props: SdkTabsProps): Partial<Record<SdkLanguage, SnippetRecord>> {
+  const snippets: Partial<Record<SdkLanguage, SnippetRecord>> = {};
   for (const language of ORDER) {
     if (props[language] != null) {
-      snippets[language] = props[language];
+      snippets[language] = {body: props[language], example: props.examples?.[language]};
     }
   }
   Children.forEach(props.children, (child) => {
@@ -63,26 +69,34 @@ function collectSnippets(props: SdkTabsProps): Partial<Record<SdkLanguage, React
     }
     const element = child as ReactElement<SdkSnippetProps>;
     const lang = element.props.lang;
-    if (lang === 'python' || lang === 'go' || lang === 'java' || lang === 'typescript') {
-      snippets[lang] = element.props.children;
+    if (isSdkLanguage(lang)) {
+      snippets[lang] = {
+        body: element.props.children,
+        example: element.props.example ?? props.examples?.[lang],
+      };
     }
   });
   return snippets;
 }
 
 export default function SdkTabs(props: SdkTabsProps): ReactNode {
+  const {i18n} = useDocusaurusContext();
   const snippets = useMemo(() => collectSnippets(props), [props]);
   const available = ORDER.filter((language) => snippets[language] != null);
   const [active, setActive] = useState<SdkLanguage>(DEFAULT_SDK);
+  const exampleLabel = i18n.currentLocale === 'zh-Hans' ? '例子' : 'Example';
 
   useEffect(() => {
-    const preferred = readPreference();
-    setActive(available.includes(preferred) ? preferred : available[0] ?? DEFAULT_SDK);
+    const apply = (preferred: SdkLanguage) => {
+      setActive(available.includes(preferred) ? preferred : available[0] ?? DEFAULT_SDK);
+    };
+    apply(readSdkPreference());
+    return subscribeSdkPreference(apply);
   }, [available.join(',')]);
 
   const select = (language: SdkLanguage) => {
+    persistSdkPreference(language);
     setActive(language);
-    window.localStorage.setItem(STORAGE_KEY, language);
   };
 
   if (available.length === 0) {
@@ -90,6 +104,7 @@ export default function SdkTabs(props: SdkTabsProps): ReactNode {
   }
 
   const current = available.includes(active) ? active : available[0];
+  const example = snippets[current]?.example;
 
   return (
     <div className="sdk-tabs">
@@ -111,7 +126,13 @@ export default function SdkTabs(props: SdkTabsProps): ReactNode {
         ))}
       </div>
       <div className="sdk-tabs__panel" role="tabpanel">
-        {snippets[current]}
+        {snippets[current]?.body}
+        {example ? (
+          <p className="sdk-tabs__example">
+            {exampleLabel}:{' '}
+            <a href={`${EXAMPLE_BASE}/${example}`}>{example}</a>
+          </p>
+        ) : null}
       </div>
     </div>
   );

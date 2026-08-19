@@ -30,17 +30,27 @@ assert.doesNotMatch(docsMenu, /Coming Soon/);
 assert.doesNotMatch(docsMenu, /iconExternalLink/);
 assert.match(docsMenu, /Open-source Dex guides, concepts, and references/);
 assert.match(docsMenu, /Run Dex inside your own cloud boundary/);
+assert.match(home, /English/);
+assert.match(home, /中文/);
+
+const zhHome = await readFile(join(root, 'zh-Hans', 'index.html'), 'utf8');
+assert.match(zhHome, /English/);
+assert.match(zhHome, /中文/);
+
 assert.match(cloud, /Dex Cloud \/ BYOC/);
 assert.match(cloud, /Coming Soon/);
 assert.match(cloud, /Explore Dex OSS Docs/);
 assert.match(cloud, /https:\/\/superdurable\.io\/byoc/);
 
 await Promise.all([
+  access(join(root, 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'quick-start', 'index.html')),
   access(join(root, 'primitives', 'index.html')),
   access(join(root, 'primitives', 'step', 'index.html')),
   access(join(root, 'references', 'rpc', 'index.html')),
+  access(join(root, 'zh-Hans', 'intro', 'what-is-durable-execution', 'index.html')),
+  access(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html')),
 ]);
 
 console.log('Docs shell, product navigation, cloud page, and representative routes passed smoke checks.');
