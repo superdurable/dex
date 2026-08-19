@@ -28,3 +28,7 @@ Use `git checkout -b <branch> origin/main` when `switch` is unavailable.
 
 - Cursor `.cursor/hooks/validate-branch-off-main.sh` blocks branch-create
   commands that do not start from `origin/main`
+- Codex `.codex/hooks/validate-branch-off-main.sh` applies the same check on
+  Bash `PreToolUse` (requires `features.codex_hooks = true` in
+  `~/.codex/config.toml`)
+- Both hooks call `script/branch_off_main_policy.py`

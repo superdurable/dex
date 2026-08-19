@@ -58,7 +58,9 @@ every commit run `git log -1 --format=%B`. Do not use `--no-verify`. See
 ### Branch From Latest Main
 
 Before creating a feature branch, fetch and branch from `origin/main`. See
-`.cursor/rules/git-branch.mdc`. Cursor hooks enforce this workflow.
+`.cursor/rules/git-branch.mdc`. Cursor and Codex hooks enforce this workflow
+(`script/branch_off_main_policy.py`; Codex requires `features.codex_hooks =
+true` in `~/.codex/config.toml`).
 
 ### Regenerate the Entire Repository After Proto Changes
 
