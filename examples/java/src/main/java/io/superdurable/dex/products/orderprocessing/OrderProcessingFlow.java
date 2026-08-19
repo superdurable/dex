@@ -38,11 +38,11 @@ import java.time.Duration;
 
 @Component
 public class OrderProcessingFlow implements Flow<OrderRequest> {
-    public final Attribute<String> orderStatus = Attribute.define(
+    public static final Attribute<String> orderStatus = Attribute.define(
             "order-status",
             String.class,
             new AttributeIndex(AttributeIndex.Type.KEYWORD));
-    public final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
+    public static final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
 
     private final MyDependencyService service;
     private final ChargeStep charge;
@@ -51,9 +51,9 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     public OrderProcessingFlow(final MyDependencyService service) {
         this.service = service;
-        this.charge = new ChargeStep(service);
-        this.ship = new ShipStep(service);
         this.refund = new RefundStep(service);
+        this.ship = new ShipStep(service, this.refund);
+        this.charge = new ChargeStep(service, this.ship);
     }
 
     @Override
@@ -77,11 +77,13 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         return RPCResult.of(orderStatus.get(context));
     }
 
-    final class ChargeStep implements Step<OrderRequest> {
+    static final class ChargeStep implements Step<OrderRequest> {
         private final MyDependencyService service;
+        private final ShipStep ship;
 
-        ChargeStep(final MyDependencyService service) {
+        ChargeStep(final MyDependencyService service, final ShipStep ship) {
             this.service = service;
+            this.ship = ship;
         }
 
         @Override
@@ -112,11 +114,13 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         }
     }
 
-    final class ShipStep implements Step<OrderRequest> {
+    static final class ShipStep implements Step<OrderRequest> {
         private final MyDependencyService service;
+        private final RefundStep refund;
 
-        ShipStep(final MyDependencyService service) {
+        ShipStep(final MyDependencyService service, final RefundStep refund) {
             this.service = service;
+            this.refund = refund;
         }
 
         @Override
@@ -161,7 +165,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                         order.email,
                         "Reminder: approve shipment",
                         "Please approve or provide a tracking number.");
-                return StepDecision.goTo(ship, order);
+                return StepDecision.goTo(this, order);
             }
             service.shipItem(order.orderId, order.testFailAtShipping);
             orderStatus.set(context, "shipped");
@@ -169,7 +173,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         }
     }
 
-    final class RefundStep implements Step<OrderRequest> {
+    static final class RefundStep implements Step<OrderRequest> {
         private final MyDependencyService service;
 
         RefundStep(final MyDependencyService service) {

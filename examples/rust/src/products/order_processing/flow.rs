@@ -15,11 +15,12 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Attribute, AttributeIndex, Channel, Context, Flow, HandlerError, HandlerResult,
-    PersistenceSchema, RetryPolicy, Rpc, RpcList, RpcResult, Step, StepDecision, StepList,
-    StepOptions, Timer, Wait,
+    Attribute, AttributeIndex, Channel, Context, Flow, HandlerResult, PersistenceSchema,
+    RetryPolicy, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepOptions, Timer, Wait,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::shared::MyDependencyService;
 
 pub const ORDER_APPROVE: Rpc<String, String> = Rpc::new("OrderApprove");
 pub const ORDER_DESCRIBE: Rpc<(), String> = Rpc::new("OrderDescribe");
@@ -32,35 +33,6 @@ pub struct OrderRequest {
     pub amount: i64,
     #[serde(default, rename = "testFailAtShipping")]
     pub test_fail_at_shipping: bool,
-}
-
-#[derive(Clone, Default)]
-pub struct MyDependencyService;
-
-impl MyDependencyService {
-    pub fn charge_user(&self, email: &str, customer_id: &str, amount: i64) {
-        println!("charge user customerID[{customer_id}] email[{email}] for ${amount}");
-    }
-
-    pub fn send_email(&self, recipient: &str, subject: &str, content: &str) {
-        println!("sending an email to {recipient}, title: {subject}, content: {content}");
-    }
-
-    pub fn ship_item(&self, order_id: &str, test_fail_at_shipping: bool) -> HandlerResult<()> {
-        if test_fail_at_shipping {
-            return Err(HandlerError::new(format!(
-                "ship failed for order {order_id}"
-            )));
-        }
-        println!("ship item {order_id}");
-        Ok(())
-    }
-
-    pub fn update_external_system(&self, message: &str) {
-        println!(
-            "Update external system(like via RPC, or sending Kafka message or database): {message}"
-        );
-    }
 }
 
 #[derive(Clone)]
@@ -150,12 +122,7 @@ impl Step for Charge {
             .charge_user(&input.email, &input.customer_id, input.amount);
         context.record_event("charge", input.order_id.clone())?;
         order_status().set(context, "charged".to_string())?;
-        Ok(StepDecision::go_to(
-            &Ship {
-                service: self.service.clone(),
-            },
-            input,
-        ))
+        Ok(StepDecision::go_to(&Ship::default(), input))
     }
 }
 
@@ -178,9 +145,7 @@ impl Step for Ship {
                     // .total_duration(Duration::from_secs(60 * 60))
                     .total_duration(Duration::from_secs(3)),
             )
-            .on_execute_failure_proceed_to(&Refund {
-                service: self.service.clone(),
-            })
+            .on_execute_failure_proceed_to(&Refund::default())
     }
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -198,12 +163,7 @@ impl Step for Ship {
                 "Please approve or provide a tracking number.",
             );
             context.record_event("shipment-reminder", input.order_id.clone())?;
-            return Ok(StepDecision::go_to(
-                &Ship {
-                    service: self.service.clone(),
-                },
-                input,
-            ));
+            return Ok(StepDecision::go_to(&Ship::default(), input));
         }
         self.service
             .ship_item(&input.order_id, input.test_fail_at_shipping)?;

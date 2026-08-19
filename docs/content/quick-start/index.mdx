@@ -47,10 +47,18 @@ Pass the mock payment and shipping API into the Flow constructor. Do not use a s
 <SdkSnippet lang="python">
 
 ```python
+order_status = Attribute(
+    "order-status",
+    str,
+    AttributeIndex(IndexType.KEYWORD),
+)
+seller_ok = Channel[str]("seller-ok", str)
+
+
 class ChargeStep(Step[OrderRequest]):
-    def __init__(self, flow: "OrderProcessingFlow", service: MyDependencyService) -> None:
-        self.flow = flow
+    def __init__(self, service: MyDependencyService, ship: ShipStep) -> None:
         self.service = service
+        self.ship = ship
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -62,14 +70,14 @@ class ChargeStep(Step[OrderRequest]):
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         self.service.charge_user(input.email, input.customer_id, input.amount)
-        self.flow.order_status.set(context, "charged")
-        return go_to(self.flow.ship, input)
+        order_status.set(context, "charged")
+        return go_to(self.ship, input)
 
 
 class ShipStep(Step[OrderRequest]):
-    def __init__(self, flow: "OrderProcessingFlow", service: MyDependencyService) -> None:
-        self.flow = flow
+    def __init__(self, service: MyDependencyService, refund: RefundStep) -> None:
         self.service = service
+        self.refund = refund
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -78,7 +86,7 @@ class ShipStep(Step[OrderRequest]):
                 total_duration=timedelta(seconds=3),
             )
         ).on_execute_failure_proceed_to(
-            self.flow.refund,
+            self.refund,
             StepOptions(
                 execute_retry=RetryPolicy(
                     # total_duration=timedelta(hours=1),
@@ -90,7 +98,7 @@ class ShipStep(Step[OrderRequest]):
     def wait_for(self, context: Context, input: OrderRequest) -> Wait:
         del context, input
         return Wait.any_of(
-            self.flow.seller_ok.for_one(),
+            seller_ok.for_one(),
             Timer.by_duration(timedelta(hours=24)),
         )
 
@@ -103,49 +111,41 @@ class ShipStep(Step[OrderRequest]):
             )
             return go_to(self, input)
         self.service.ship_item(input.order_id, input.test_fail_at_shipping)
-        self.flow.order_status.set(context, "shipped")
+        order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
 
 
 class RefundStep(Step[OrderRequest]):
-    def __init__(self, flow: "OrderProcessingFlow", service: MyDependencyService) -> None:
-        self.flow = flow
+    def __init__(self, service: MyDependencyService) -> None:
         self.service = service
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         self.service.update_external_system(f"refund {input.order_id}")
-        self.flow.order_status.set(context, "refunded")
+        order_status.set(context, "refunded")
         return graceful_complete(f"refunded:{input.order_id}")
 
 
 class OrderProcessingFlow(Flow[OrderRequest]):
-    order_status = Attribute(
-        "order-status",
-        str,
-        AttributeIndex(IndexType.KEYWORD),
-    )
-    seller_ok = Channel[str]("seller-ok", str)
-
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.charge = ChargeStep(self, service)
-        self.ship = ShipStep(self, service)
-        self.refund = RefundStep(self, service)
+        self.refund = RefundStep(service)
+        self.ship = ShipStep(service, self.refund)
+        self.charge = ChargeStep(service, self.ship)
 
     def get_steps(self) -> StepList[OrderRequest]:
         return StepList.start_step(self.charge).other_steps(self.ship, self.refund)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.order_status, self.seller_ok)
+        return PersistenceSchema.of(order_status, seller_ok)
 
     @rpc
     def approve(self, context: Context, _note: str) -> RPCResult[str]:
-        self.seller_ok.publish(context, "approved")
+        seller_ok.publish(context, "approved")
         return RPCResult("ok")
 
     @rpc
     def describe(self, context: Context) -> RPCResult[str]:
-        return RPCResult(self.order_status.get(context))
+        return RPCResult(order_status.get(context))
 ```
 
 </SdkSnippet>
@@ -216,7 +216,7 @@ func (step chargeStep) Execute(
 	if err := OrderStatus.Set(ctx, "charged"); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(shipStep{service: step.service}, order), nil
+	return dex.GoTo(shipStep{}, order), nil
 }
 
 type shipStep struct {
@@ -235,7 +235,7 @@ func (step shipStep) GetStepOptions() *dex.StepOptions {
 			TotalDuration: 3 * time.Second,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
-			refundStep{service: step.service},
+			refundStep{},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{
 					// TotalDuration: time.Hour,
@@ -266,7 +266,7 @@ func (step shipStep) Execute(
 			"Reminder: approve shipment",
 			"Please approve or provide a tracking number.",
 		)
-		return dex.GoTo(shipStep{service: step.service}, order), nil
+		return dex.GoTo(shipStep{}, order), nil
 	}
 	if err := step.service.ShipItem(order.OrderID, order.TestFailAtShipping); err != nil {
 		return nil, err
@@ -303,11 +303,11 @@ func (step refundStep) Execute(
 
 ```java
 public class OrderProcessingFlow implements Flow<OrderRequest> {
-    public final Attribute<String> orderStatus = Attribute.define(
+    public static final Attribute<String> orderStatus = Attribute.define(
             "order-status",
             String.class,
             new AttributeIndex(AttributeIndex.Type.KEYWORD));
-    public final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
+    public static final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
 
     private final MyDependencyService service;
     private final ChargeStep charge;
@@ -316,9 +316,9 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     public OrderProcessingFlow(final MyDependencyService service) {
         this.service = service;
-        this.charge = new ChargeStep(service);
-        this.ship = new ShipStep(service);
         this.refund = new RefundStep(service);
+        this.ship = new ShipStep(service, this.refund);
+        this.charge = new ChargeStep(service, this.ship);
     }
 
     @Override
@@ -342,11 +342,13 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         return RPCResult.of(orderStatus.get(context));
     }
 
-    final class ChargeStep implements Step<OrderRequest> {
+    static final class ChargeStep implements Step<OrderRequest> {
         private final MyDependencyService service;
+        private final ShipStep ship;
 
-        ChargeStep(final MyDependencyService service) {
+        ChargeStep(final MyDependencyService service, final ShipStep ship) {
             this.service = service;
+            this.ship = ship;
         }
 
         @Override
@@ -377,11 +379,13 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         }
     }
 
-    final class ShipStep implements Step<OrderRequest> {
+    static final class ShipStep implements Step<OrderRequest> {
         private final MyDependencyService service;
+        private final RefundStep refund;
 
-        ShipStep(final MyDependencyService service) {
+        ShipStep(final MyDependencyService service, final RefundStep refund) {
             this.service = service;
+            this.refund = refund;
         }
 
         @Override
@@ -426,7 +430,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                         order.email,
                         "Reminder: approve shipment",
                         "Please approve or provide a tracking number.");
-                return StepDecision.goTo(ship, order);
+                return StepDecision.goTo(this, order);
             }
             service.shipItem(order.orderId, order.testFailAtShipping);
             orderStatus.set(context, "shipped");
@@ -434,7 +438,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         }
     }
 
-    final class RefundStep implements Step<OrderRequest> {
+    static final class RefundStep implements Step<OrderRequest> {
         private final MyDependencyService service;
 
         RefundStep(final MyDependencyService service) {
@@ -465,20 +469,20 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
   <SdkSnippet lang="typescript">
 
 ```typescript
-export class OrderProcessingFlow implements Flow<OrderRequest> {
-  public readonly orderStatus = new Attribute("order-status", stringCodec, {
-    type: IndexType.KEYWORD,
-  });
-  public readonly sellerOk = new Channel("seller-ok", stringCodec);
+const orderStatus = new Attribute("order-status", stringCodec, {
+  type: IndexType.KEYWORD,
+});
+const sellerOk = new Channel("seller-ok", stringCodec);
 
+export class OrderProcessingFlow implements Flow<OrderRequest> {
   public readonly charge: ChargeStep;
   public readonly ship: ShipStep;
   public readonly refund: RefundStep;
 
   public constructor(public readonly service: MyDependencyService) {
-    this.charge = new ChargeStep(this, service);
-    this.ship = new ShipStep(this, service);
-    this.refund = new RefundStep(this, service);
+    this.refund = new RefundStep(service);
+    this.ship = new ShipStep(service, this.refund);
+    this.charge = new ChargeStep(service, this.ship);
   }
 
   public getFlowType(): string {
@@ -491,20 +495,20 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [this.orderStatus],
-      channels: [this.sellerOk],
+      attributes: [orderStatus],
+      channels: [sellerOk],
     };
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
   public approve(context: Context, _note: string): RPCResult<string> {
-    this.sellerOk.publish(context, "approved");
+    sellerOk.publish(context, "approved");
     return { output: "ok" };
   }
 
   @rpc({ outputCodec: stringCodec })
   public describe(context: Context): RPCResult<string> {
-    return { output: this.orderStatus.get(context) };
+    return { output: orderStatus.get(context) };
   }
 }
 
@@ -512,8 +516,8 @@ class ChargeStep implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
   public constructor(
-    private readonly flow: OrderProcessingFlow,
     private readonly service: MyDependencyService,
+    private readonly ship: ShipStep,
   ) {}
 
   public getStepType(): string {
@@ -531,8 +535,8 @@ class ChargeStep implements Step<OrderRequest> {
 
   public execute(context: Context, input: OrderRequest): StepDecision {
     this.service.chargeUser(input.email, input.customerId, input.amount);
-    this.flow.orderStatus.set(context, "charged");
-    return goTo(this.flow.ship, input);
+    orderStatus.set(context, "charged");
+    return goTo(this.ship, input);
   }
 }
 
@@ -540,8 +544,8 @@ class ShipStep implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
   public constructor(
-    private readonly flow: OrderProcessingFlow,
     private readonly service: MyDependencyService,
+    private readonly refund: RefundStep,
   ) {}
 
   public getStepType(): string {
@@ -554,7 +558,7 @@ class ShipStep implements Step<OrderRequest> {
         // totalDurationMs: 60 * 60 * 1000,
         totalDurationMs: 3_000,
       },
-      executeFailure: ExecuteFailure.proceedTo(this.flow.refund, {
+      executeFailure: ExecuteFailure.proceedTo(this.refund, {
         executeRetry: {
           // totalDurationMs: 60 * 60 * 1000,
           totalDurationMs: 3_000,
@@ -564,10 +568,7 @@ class ShipStep implements Step<OrderRequest> {
   }
 
   public waitFor(_context: Context, _input: OrderRequest): Wait {
-    return Wait.anyOf(
-      this.flow.sellerOk.forOne(),
-      Timer.byDuration(DAY_MS),
-    );
+    return Wait.anyOf(sellerOk.forOne(), Timer.byDuration(DAY_MS));
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
@@ -580,7 +581,7 @@ class ShipStep implements Step<OrderRequest> {
       return goTo(this, input);
     }
     this.service.shipItem(input.orderId, input.testFailAtShipping);
-    this.flow.orderStatus.set(context, "shipped");
+    orderStatus.set(context, "shipped");
     return gracefulComplete(`shipped:${input.orderId}`);
   }
 }
@@ -588,10 +589,7 @@ class ShipStep implements Step<OrderRequest> {
 class RefundStep implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(
-    private readonly flow: OrderProcessingFlow,
-    private readonly service: MyDependencyService,
-  ) {}
+  public constructor(private readonly service: MyDependencyService) {}
 
   public getStepType(): string {
     return "RefundStep";
@@ -599,7 +597,7 @@ class RefundStep implements Step<OrderRequest> {
 
   public execute(context: Context, input: OrderRequest): StepDecision {
     this.service.updateExternalSystem(`refund ${input.orderId}`);
-    this.flow.orderStatus.set(context, "refunded");
+    orderStatus.set(context, "refunded");
     return gracefulComplete(`refunded:${input.orderId}`);
   }
 }
@@ -609,35 +607,6 @@ class RefundStep implements Step<OrderRequest> {
   <SdkSnippet lang="rust">
 
 ```rust
-#[derive(Clone, Default)]
-pub struct MyDependencyService;
-
-impl MyDependencyService {
-    pub fn charge_user(&self, email: &str, customer_id: &str, amount: i64) {
-        println!("charge user customerID[{customer_id}] email[{email}] for ${amount}");
-    }
-
-    pub fn send_email(&self, recipient: &str, subject: &str, content: &str) {
-        println!("sending an email to {recipient}, title: {subject}, content: {content}");
-    }
-
-    pub fn ship_item(&self, order_id: &str, test_fail_at_shipping: bool) -> HandlerResult<()> {
-        if test_fail_at_shipping {
-            return Err(HandlerError::new(format!(
-                "ship failed for order {order_id}"
-            )));
-        }
-        println!("ship item {order_id}");
-        Ok(())
-    }
-
-    pub fn update_external_system(&self, message: &str) {
-        println!(
-            "Update external system(like via RPC, or sending Kafka message or database): {message}"
-        );
-    }
-}
-
 #[derive(Clone)]
 pub struct OrderProcessingFlow {
     charge: Charge,
@@ -725,12 +694,7 @@ impl Step for Charge {
             .charge_user(&input.email, &input.customer_id, input.amount);
         context.record_event("charge", input.order_id.clone())?;
         order_status().set(context, "charged".to_string())?;
-        Ok(StepDecision::go_to(
-            &Ship {
-                service: self.service.clone(),
-            },
-            input,
-        ))
+        Ok(StepDecision::go_to(&Ship::default(), input))
     }
 }
 
@@ -753,9 +717,7 @@ impl Step for Ship {
                     // .total_duration(Duration::from_secs(60 * 60))
                     .total_duration(Duration::from_secs(3)),
             )
-            .on_execute_failure_proceed_to(&Refund {
-                service: self.service.clone(),
-            })
+            .on_execute_failure_proceed_to(&Refund::default())
     }
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -773,12 +735,7 @@ impl Step for Ship {
                 "Please approve or provide a tracking number.",
             );
             context.record_event("shipment-reminder", input.order_id.clone())?;
-            return Ok(StepDecision::go_to(
-                &Ship {
-                    service: self.service.clone(),
-                },
-                input,
-            ));
+            return Ok(StepDecision::go_to(&Ship::default(), input));
         }
         self.service
             .ship_item(&input.order_id, input.test_fail_at_shipping)?;
@@ -821,6 +778,14 @@ impl Step for Refund {
             input.order_id
         )))
     }
+}
+
+fn order_status() -> Attribute<String> {
+    Attribute::new("order-status").indexed(AttributeIndex::keyword())
+}
+
+fn seller_ok() -> Channel<String> {
+    Channel::new("seller-ok")
 }
 ```
 
