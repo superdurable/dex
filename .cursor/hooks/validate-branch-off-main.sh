@@ -1,8 +1,5 @@
 #!/bin/sh
 # Cursor hook: require new branches to start from origin/main.
-hook_dir=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-repo_root=$(CDPATH= cd -- "$hook_dir/../.." && pwd)
-export DEX_VALIDATE_BRANCH_SCRIPT="$repo_root/script/validate-branch-off-main.sh"
 payload=$(mktemp)
 trap 'rm -f "$payload"' EXIT
 cat > "$payload"
@@ -10,11 +7,14 @@ python3 - "$payload" <<'PY'
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+MAIN_REMOTE = "origin"
+MAIN_BRANCH = "main"
+MAIN_REF = f"{MAIN_REMOTE}/{MAIN_BRANCH}"
 
 CREATE_PATTERNS = (
     re.compile(
@@ -53,19 +53,6 @@ def command_text(payload: dict) -> str:
     return command if isinstance(command, str) else ""
 
 
-def validator_path() -> Path | None:
-    env_path = os.environ.get("DEX_VALIDATE_BRANCH_SCRIPT")
-    if env_path:
-        path = Path(env_path)
-        if path.is_file():
-            return path
-    root = repo_root()
-    if root is None:
-        return None
-    path = root / "script" / "validate-branch-off-main.sh"
-    return path if path.is_file() else None
-
-
 def repo_root() -> Path | None:
     try:
         result = subprocess.run(
@@ -81,6 +68,41 @@ def repo_root() -> Path | None:
     return Path(result.stdout.strip())
 
 
+def git_output(args: list[str], cwd: Path) -> str:
+    result = subprocess.run(
+        args,
+        cwd=cwd,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "git command failed").strip()
+        raise RuntimeError(detail)
+    return result.stdout.strip()
+
+
+def fetch_main(cwd: Path) -> None:
+    git_output(["git", "fetch", MAIN_REMOTE, MAIN_BRANCH, "--quiet"], cwd)
+
+
+def validate_start_ref(start_ref: str, cwd: Path) -> tuple[bool, str]:
+    try:
+        fetch_main(cwd)
+        main_sha = git_output(["git", "rev-parse", MAIN_REF], cwd)
+        start_sha = git_output(["git", "rev-parse", start_ref], cwd)
+    except RuntimeError as err:
+        return False, str(err)
+    if start_sha == main_sha:
+        return True, ""
+    return False, (
+        f"Branch start {start_ref} ({start_sha}) is not {MAIN_REF} ({main_sha}).\n"
+        f"Fetch and branch from {MAIN_REF}:\n"
+        f"  git fetch {MAIN_REMOTE} {MAIN_BRANCH}\n"
+        f"  git switch -c <branch> {MAIN_REF}"
+    )
+
+
 def parse_create(command: str) -> tuple[str, str | None] | None:
     for pattern in CREATE_PATTERNS:
         match = pattern.search(command)
@@ -92,25 +114,6 @@ def parse_create(command: str) -> tuple[str, str | None] | None:
             return None
         return branch, start
     return None
-
-
-def run_validate(validator: Path, mode: str, start_ref: str | None) -> tuple[bool, str]:
-    args = [str(validator), mode]
-    if start_ref is not None:
-        args.append(start_ref)
-    try:
-        result = subprocess.run(
-            args,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError as err:
-        return False, f"Could not run branch validator: {err}"
-    if result.returncode == 0:
-        return True, ""
-    message = (result.stderr or result.stdout or "").strip()
-    return False, message or "Branch must start from origin/main."
 
 
 def emit(payload: dict) -> None:
@@ -141,17 +144,8 @@ def main() -> int:
         emit({"permission": "allow"})
         return 0
 
-    validator = validator_path()
-    if validator is None:
-        emit({"permission": "allow"})
-        return 0
-
     _, start_ref = create
-    ok, message = run_validate(
-        validator,
-        "validate-start" if start_ref else "validate-head",
-        start_ref,
-    )
+    ok, message = validate_start_ref(start_ref or "HEAD", root)
     if ok:
         emit({"permission": "allow"})
         return 0

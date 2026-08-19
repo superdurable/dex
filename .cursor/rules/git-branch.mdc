@@ -26,6 +26,5 @@ Use `git checkout -b <branch> origin/main` when `switch` is unavailable.
 
 ## Enforcement
 
-- `script/validate-branch-off-main.sh` implements the checks
 - Cursor `.cursor/hooks/validate-branch-off-main.sh` blocks branch-create
   commands that do not start from `origin/main`
