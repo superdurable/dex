@@ -1,0 +1,34 @@
+---
+description: Branch from latest origin/main before starting feature work
+alwaysApply: true
+---
+
+# Git branches — start from latest main
+
+Every new feature branch must start from the current tip of `origin/main`
+after fetching. Do not branch from a stale local `main`, another feature
+branch, or an old commit.
+
+## Required workflow
+
+```bash
+git fetch origin main
+git switch -c <branch> origin/main
+```
+
+Use `git checkout -b <branch> origin/main` when `switch` is unavailable.
+
+## Forbidden
+
+- `git switch -c feature` while HEAD is behind `origin/main`
+- `git switch -c feature main` without verifying `main` matches `origin/main`
+- `git switch -c feature other-branch`
+
+## Enforcement
+
+- Cursor `.cursor/hooks/validate-branch-off-main.sh` blocks branch-create
+  commands that do not start from `origin/main`
+- Codex `.codex/hooks/validate-branch-off-main.sh` applies the same check on
+  Bash `PreToolUse` (requires `features.codex_hooks = true` in
+  `~/.codex/config.toml`)
+- Both hooks call `script/branch_off_main_policy.py`

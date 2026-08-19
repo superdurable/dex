@@ -51,9 +51,16 @@ current branch. Leave a clean working tree. Do not create empty commits for
 discussion-only turns.
 
 Never add Cursor as Author, Committer, or `Co-authored-by`. Cursor's commit
-wrapper often injects `Co-authored-by: Cursor <cursoragent@cursor.com>`; strip
-it before pushing. After every commit run `git log -1 --format=%B`. Do not use
-`--no-verify`. See `.cursor/rules/git-commit.mdc`.
+wrapper often injects `cursoragent@cursor.com`; strip it before pushing. After
+every commit run `git log -1 --format=%B`. Do not use `--no-verify`. See
+`.cursor/rules/git-commit.mdc`.
+
+### Branch From Latest Main
+
+Before creating a feature branch, fetch and branch from `origin/main`. See
+`.cursor/rules/git-branch.mdc`. Cursor and Codex hooks enforce this workflow
+(`script/branch_off_main_policy.py`; Codex requires `features.codex_hooks =
+true` in `~/.codex/config.toml`).
 
 ### Regenerate the Entire Repository After Proto Changes
 
