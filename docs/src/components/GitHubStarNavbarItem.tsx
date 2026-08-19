@@ -58,7 +58,7 @@ export default function GitHubStarNavbarItem({
       rel="noreferrer"
       onClick={onClick}
       aria-label={`Star superdurable/dex on GitHub. ${stars} stars`}>
-      <span>GitHub</span>
+      <span>Star Us</span>
       <span className="github-star-stat" aria-hidden="true">
         <span>★</span>
         <span>Star</span>
