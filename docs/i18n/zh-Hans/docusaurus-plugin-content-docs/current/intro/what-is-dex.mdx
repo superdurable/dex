@@ -694,7 +694,9 @@ Step 切换是原子的。Timer 和 Channel 等待能熬过 Worker 重启。Retr
 
 ## 和传统 Durable Execution 差在哪
 
-传统 Durable Execution 靠 **replay** 事件历史来跑 workflow 函数。副作用放在 **activity** 里。workflow 代码必须 **deterministic**：replay 的函数里不能多走时钟、随机数或 IO。Event history 有 **size** 上限。跑得久就要 **ContinueAsNew**。业务数据塞进这段 history，又贵又慢。
+传统 Durable Execution 靠 **replay** 事件历史来跑 workflow 函数。副作用放在 **activity** 里。你必须把业务逻辑拆成 **workflow code** 和 **activity code**。两边是完全不同的 paradigm。workflow 代码必须 **deterministic**：replay 的函数里不能多走时钟、随机数或 IO。Event history 有 **size** 上限。跑得久就要 **ContinueAsNew**。业务数据塞进这段 history，又贵又慢。
+
+Replay 这套 Durable Execution 必须提供大量 API，才能模拟出一套 programming model。这些 API 引入了大量 implicit contracts 和 interfaces。理解和维护都非常复杂。
 
 Dex 不要求你写一段可 replay 的 workflow 函数。你声明 Step 和切换。Worker handler 就是普通代码。等待、RPC、locking 写在 Flow 模型里，不是从 history primitive 自己拼回来。**Attribute** 数据放在 **blob store** 里，不进 event history。也可以 sync 到你已有的数据库。
 

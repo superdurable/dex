@@ -694,7 +694,9 @@ Step transitions are atomic. Timers and Channel waits survive Worker restarts. R
 
 ## How this differs from traditional Durable Execution
 
-Traditional Durable Execution runs workflow functions by **replaying** event history. Side effects go in **activities**. The workflow code must stay **deterministic**: no extra clocks, random, or IO in the replayed function. Event history has a **size constraint**. Long-running executions must **ContinueAsNew**. That history is also a poor store for application data: large payloads are expensive and slow.
+Traditional Durable Execution runs workflow functions by **replaying** event history. Side effects go in **activities**. You must split business logic into **workflow code** and **activity code**. Those two are completely different paradigms. The workflow code must stay **deterministic**: no extra clocks, random, or IO in the replayed function. Event history has a **size constraint**. Long-running executions must **ContinueAsNew**. That history is also a poor store for application data: large payloads are expensive and slow.
+
+Replay-based Durable Execution must expose a large set of APIs to simulate a programming model. Those APIs introduce many implicit contracts and interfaces. They are hard to understand and maintain.
 
 Dex does not ask you to write a replayable workflow function. You declare Steps and movements. Worker handlers are ordinary code. Waits, RPC, and locking are part of the Flow model, not something you reconstruct from history primitives. **Attribute** data lives in a **blob store**, not in event history. You can sync it to a database you already run.
 
