@@ -40,7 +40,7 @@ await Promise.all([
   access(join(root, 'quick-start', 'index.html')),
   access(join(root, 'primitives', 'index.html')),
   access(join(root, 'primitives', 'step', 'index.html')),
-  access(join(root, 'references', 'rpc', 'index.html')),
+  access(join(root, 'references', 'cli', 'index.html')),
 ]);
 
 console.log('Docs shell, product navigation, cloud page, and representative routes passed smoke checks.');

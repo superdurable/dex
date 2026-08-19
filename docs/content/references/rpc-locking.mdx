@@ -1,9 +1,0 @@
----
-title: RPC locking
----
-
-# RPC locking
-
-RPC atomicity means the Worker handler runs with requested Attribute locks so concurrent Steps/RPCs cannot interleave conflicting writes.
-
-Lock only the Attributes you need. Over-locking reduces concurrency; under-locking races.
