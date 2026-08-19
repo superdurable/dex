@@ -14,12 +14,11 @@ export default function Footer(): ReactNode {
           <a href="https://superdurable.io/dex">Dex</a>
           <a href="/">Docs</a>
           <a href="https://superdurable.io/byoc">Dex BYOC</a>
-          <a href="https://superdurable.io/consulting">Consulting</a>
         </div>
         <div>
           <p className="footer-label">Company</p>
           <a href="https://superdurable.io/team">Team</a>
-          <a href="https://github.com/superdurable/dex">GitHub</a>
+          <a href="https://github.com/superdurable/dex">Star Us on GitHub</a>
         </div>
       </div>
       <div className="footer-bottom">

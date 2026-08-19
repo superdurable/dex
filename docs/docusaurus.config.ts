@@ -134,13 +134,10 @@ const config: Config = {
           ],
         },
         {
-          type: 'dropdown',
-          label: 'Services',
+          href: 'https://superdurable.io/byoc',
+          label: 'Dex BYOC',
           position: 'left',
-          items: [
-            {label: 'Dex BYOC', href: 'https://superdurable.io/byoc', target: '_self'},
-            {label: 'Consulting', href: 'https://superdurable.io/consulting', target: '_self'},
-          ],
+          target: '_self',
         },
         {
           href: 'https://calendar.google.com/appointments/schedules/AcZssZ0XTgrR4TGKOsS-zcB7tu_xqIaYaM3MQGXraOJccpyUe9LK0Z_FF7ImVSw4g_4UGGfx3ykq81mw',
