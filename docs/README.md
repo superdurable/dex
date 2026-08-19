@@ -56,4 +56,3 @@ Legacy iWF-era wiki and case studies (source material only):
 ## Hosting
 
 GitHub Pages via [`.github/workflows/deploy-docs.yml`](../.github/workflows/deploy-docs.yml).
-DNS / GoDaddy steps: [Hosting on GitHub Pages](content/references/hosting-github-pages.mdx).

@@ -48,7 +48,7 @@ await Promise.all([
   access(join(root, 'quick-start', 'index.html')),
   access(join(root, 'primitives', 'index.html')),
   access(join(root, 'primitives', 'step', 'index.html')),
-  access(join(root, 'references', 'rpc', 'index.html')),
+  access(join(root, 'references', 'cli', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'zh-Hans', 'quick-start', 'index.html')),
