@@ -28,10 +28,9 @@ import (
 )
 
 const (
-	ChargeStepType      = "ChargeStep"
-	ShipStepType        = "ShipStep"
-	RefundStepType      = "RefundStep"
-	SellerReminderTimer = "seller-reminder"
+	ChargeStepType = "ChargeStep"
+	ShipStepType   = "ShipStep"
+	RefundStepType = "RefundStep"
 )
 
 var (
@@ -106,7 +105,10 @@ func (chargeStep) GetStepType() string {
 
 func (chargeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 3},
+		ExecuteRetry: &dex.RetryPolicy{
+			// TotalDuration: time.Hour,
+			TotalDuration: 3 * time.Second,
+		},
 	}
 }
 
@@ -130,16 +132,19 @@ func (shipStep) GetStepType() string {
 	return ShipStepType
 }
 
-func (shipStep) GetStepOptions() *dex.StepOptions {
+func (step shipStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			InitialInterval: 10 * time.Millisecond,
-			MaximumAttempts: 2,
+			// TotalDuration: time.Hour,
+			TotalDuration: 3 * time.Second,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
 			refundStep{},
 			&dex.StepOptions{
-				ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 3},
+				ExecuteRetry: &dex.RetryPolicy{
+					// TotalDuration: time.Hour,
+					TotalDuration: 3 * time.Second,
+				},
 			},
 		),
 	}
@@ -151,7 +156,7 @@ func (shipStep) WaitFor(
 ) (*dex.Wait, error) {
 	return dex.AnyOf(
 		SellerOK.ForOne(),
-		dex.Timer(24*time.Hour, dex.WithConditionID(SellerReminderTimer)),
+		dex.Timer(24 * time.Hour),
 	), nil
 }
 

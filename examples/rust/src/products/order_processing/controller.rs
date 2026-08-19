@@ -31,6 +31,12 @@ use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
 };
 
+#[derive(Clone)]
+struct OrderProcessingState {
+    client: SharedClient,
+    flow: OrderProcessingFlow,
+}
+
 #[derive(Deserialize)]
 struct StartQuery {
     #[serde(default, rename = "testFailAtShipping")]
@@ -45,21 +51,21 @@ struct WorkflowQuery {
     notes: String,
 }
 
-pub fn mount(client: SharedClient) -> Router {
+pub fn mount(client: SharedClient, flow: OrderProcessingFlow) -> Router {
     Router::new()
         .route("/products/order-processing/start", get(start))
         .route("/products/order-processing/approve", get(approve))
         .route("/products/order-processing/describe", get(describe))
-        .with_state(client)
+        .with_state(OrderProcessingState { client, flow })
 }
 
 async fn start(
-    State(client): State<SharedClient>,
+    State(state): State<OrderProcessingState>,
     Query(query): Query<StartQuery>,
 ) -> impl IntoResponse {
+    let OrderProcessingState { client, flow } = state;
     match run_blocking(move || {
         let flow_id = new_flow_id("order-processing");
-        let flow = OrderProcessingFlow::default();
         let input = OrderRequest {
             order_id: flow_id.clone(),
             email: "buyer@example.com".into(),
@@ -70,7 +76,7 @@ async fn start(
         let run_id = client.start_flow(&flow, &flow_id, input)?;
         client.wait_for_step_completion(
             &flow_id,
-            StepExecutionId::of(&Charge),
+            StepExecutionId::of(&Charge::default()),
             Duration::from_secs(300),
         )?;
         Ok(StartResponse { flow_id, run_id })
@@ -81,24 +87,25 @@ async fn start(
 }
 
 async fn approve(
-    State(client): State<SharedClient>,
+    State(state): State<OrderProcessingState>,
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     let notes = query.notes;
-    match run_blocking(move || client.invoke_rpc(&flow_id, ORDER_APPROVE, notes)) {
+    match run_blocking(move || state.client.invoke_rpc(&flow_id, ORDER_APPROVE, notes)) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
 
 async fn describe(
-    State(client): State<SharedClient>,
+    State(state): State<OrderProcessingState>,
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
     match run_blocking(move || {
-        client
+        state
+            .client
             .invoke_rpc_without_input(&flow_id, ORDER_DESCRIBE)
             .map(|status| json!({ "flowID": flow_id, "status": status }))
     }) {

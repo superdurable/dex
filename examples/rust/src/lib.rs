@@ -16,6 +16,7 @@ pub mod patterns;
 pub mod primitives;
 pub mod products;
 pub mod server;
+pub mod shared;
 
 use dex_sdk::{Registry, SdkResult};
 

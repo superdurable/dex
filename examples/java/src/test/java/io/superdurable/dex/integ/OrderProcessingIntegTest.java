@@ -74,7 +74,7 @@ public class OrderProcessingIntegTest {
                         environment.client().skipTimer(
                                 flowId,
                                 StepExecutionId.of("ShipStep"),
-                                TimerId.byConditionId(OrderProcessingFlow.SELLER_REMINDER_TIMER));
+                                TimerId.byConditionIndex(0));
                         return Boolean.TRUE;
                     } catch (final RuntimeException ignored) {
                         return Boolean.FALSE;

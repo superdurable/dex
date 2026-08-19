@@ -15,15 +15,15 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Attribute, AttributeIndex, Channel, Context, Flow, HandlerError, HandlerResult,
-    PersistenceSchema, RetryPolicy, Rpc, RpcList, RpcResult, Step, StepDecision, StepList,
-    StepOptions, Timer, Wait,
+    Attribute, AttributeIndex, Channel, Context, Flow, HandlerResult, PersistenceSchema,
+    RetryPolicy, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepOptions, Timer, Wait,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::shared::MyDependencyService;
+
 pub const ORDER_APPROVE: Rpc<String, String> = Rpc::new("OrderApprove");
 pub const ORDER_DESCRIBE: Rpc<(), String> = Rpc::new("OrderDescribe");
-pub const SELLER_REMINDER_TIMER: &str = "seller-reminder";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct OrderRequest {
@@ -35,7 +35,7 @@ pub struct OrderRequest {
     pub test_fail_at_shipping: bool,
 }
 
-#[derive(Default)]
+#[derive(Clone)]
 pub struct OrderProcessingFlow {
     charge: Charge,
     ship: Ship,
@@ -43,6 +43,18 @@ pub struct OrderProcessingFlow {
 }
 
 impl OrderProcessingFlow {
+    pub fn new(service: MyDependencyService) -> Self {
+        Self {
+            charge: Charge {
+                service: service.clone(),
+            },
+            ship: Ship {
+                service: service.clone(),
+            },
+            refund: Refund { service },
+        }
+    }
+
     fn approve(&self, context: &mut Context, _note: String) -> HandlerResult<RpcResult<String>> {
         seller_ok().publish(context, "approved".to_string())?;
         Ok(RpcResult::new("ok".to_string()))
@@ -50,6 +62,12 @@ impl OrderProcessingFlow {
 
     fn describe(&self, context: &mut Context) -> HandlerResult<RpcResult<String>> {
         Ok(RpcResult::new(order_status().get_required(context)?))
+    }
+}
+
+impl Default for OrderProcessingFlow {
+    fn default() -> Self {
+        Self::new(MyDependencyService)
     }
 }
 
@@ -79,8 +97,10 @@ impl Flow for OrderProcessingFlow {
     }
 }
 
-#[derive(Default)]
-pub struct Charge;
+#[derive(Clone, Default)]
+pub struct Charge {
+    service: MyDependencyService,
+}
 
 impl Step for Charge {
     type Input = OrderRequest;
@@ -90,18 +110,26 @@ impl Step for Charge {
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_retry(RetryPolicy::new().maximum_attempts(3))
+        StepOptions::new().execute_retry(
+            RetryPolicy::new()
+                // .total_duration(Duration::from_secs(60 * 60))
+                .total_duration(Duration::from_secs(3)),
+        )
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        self.service
+            .charge_user(&input.email, &input.customer_id, input.amount);
         context.record_event("charge", input.order_id.clone())?;
         order_status().set(context, "charged".to_string())?;
-        Ok(StepDecision::go_to(&Ship, input))
+        Ok(StepDecision::go_to(&Ship::default(), input))
     }
 }
 
-#[derive(Default)]
-pub struct Ship;
+#[derive(Clone, Default)]
+pub struct Ship {
+    service: MyDependencyService,
+}
 
 impl Step for Ship {
     type Input = OrderRequest;
@@ -114,25 +142,31 @@ impl Step for Ship {
         StepOptions::new()
             .execute_retry(
                 RetryPolicy::new()
-                    .initial_interval(Duration::from_secs(1))
-                    .maximum_attempts(2),
+                    // .total_duration(Duration::from_secs(60 * 60))
+                    .total_duration(Duration::from_secs(3)),
             )
-            .on_execute_failure_proceed_to(&Refund)
+            .on_execute_failure_proceed_to(&Refund::default())
     }
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
             seller_ok().for_one(),
-            Timer::by_duration(Duration::from_secs(24 * 60 * 60)).with_id(SELLER_REMINDER_TIMER),
+            Timer::by_duration(Duration::from_secs(24 * 60 * 60)),
         ]))
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         if context.has_any_timer_fired() {
+            self.service.send_email(
+                &input.email,
+                "Reminder: approve shipment",
+                "Please approve or provide a tracking number.",
+            );
             context.record_event("shipment-reminder", input.order_id.clone())?;
-            return Ok(StepDecision::go_to(&Ship, input));
+            return Ok(StepDecision::go_to(&Ship::default(), input));
         }
-        ship_item(&input.order_id, input.test_fail_at_shipping)?;
+        self.service
+            .ship_item(&input.order_id, input.test_fail_at_shipping)?;
         context.record_event("ship", input.order_id.clone())?;
         order_status().set(context, "shipped".to_string())?;
         Ok(StepDecision::graceful_complete(format!(
@@ -142,8 +176,10 @@ impl Step for Ship {
     }
 }
 
-#[derive(Default)]
-struct Refund;
+#[derive(Clone, Default)]
+pub struct Refund {
+    service: MyDependencyService,
+}
 
 impl Step for Refund {
     type Input = OrderRequest;
@@ -153,10 +189,16 @@ impl Step for Refund {
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_retry(RetryPolicy::new().maximum_attempts(3))
+        StepOptions::new().execute_retry(
+            RetryPolicy::new()
+                // .total_duration(Duration::from_secs(60 * 60))
+                .total_duration(Duration::from_secs(3)),
+        )
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        self.service
+            .update_external_system(&format!("refund {}", input.order_id));
         context.record_event("refund", input.order_id.clone())?;
         order_status().set(context, "refunded".to_string())?;
         Ok(StepDecision::graceful_complete(format!(
@@ -172,13 +214,4 @@ fn order_status() -> Attribute<String> {
 
 fn seller_ok() -> Channel<String> {
     Channel::new("seller-ok")
-}
-
-fn ship_item(order_id: &str, test_fail_at_shipping: bool) -> HandlerResult<()> {
-    if test_fail_at_shipping {
-        return Err(HandlerError::new(format!(
-            "ship failed for order {order_id}"
-        )));
-    }
-    Ok(())
 }

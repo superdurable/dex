@@ -35,25 +35,24 @@ import {
 } from "@superdurable/dex";
 
 import { DAY_MS } from "../../config/env.js";
-import {
-  myDependencyService,
-  type MyDependencyService,
-} from "../../shared/my-dependency-service.js";
+import { type MyDependencyService } from "../../shared/my-dependency-service.js";
 import { orderRequestCodec, type OrderRequest } from "./models.js";
 
-export const SELLER_REMINDER_TIMER = "seller-reminder";
+const orderStatus = new Attribute("order-status", stringCodec, {
+  type: IndexType.KEYWORD,
+});
+const sellerOk = new Channel("seller-ok", stringCodec);
 
 export class OrderProcessingFlow implements Flow<OrderRequest> {
-  public readonly orderStatus = new Attribute("order-status", stringCodec, {
-    type: IndexType.KEYWORD,
-  });
-  public readonly sellerOk = new Channel("seller-ok", stringCodec);
+  public readonly charge: ChargeStep;
+  public readonly ship: ShipStep;
+  public readonly refund: RefundStep;
 
-  public readonly charge = new ChargeStep(this);
-  public readonly ship = new ShipStep(this);
-  public readonly refund = new RefundStep(this);
-
-  public constructor(public readonly service: MyDependencyService = myDependencyService) {}
+  public constructor(public readonly service: MyDependencyService) {
+    this.refund = new RefundStep(service);
+    this.ship = new ShipStep(service, this.refund);
+    this.charge = new ChargeStep(service, this.ship);
+  }
 
   public getFlowType(): string {
     return "OrderProcessingFlow";
@@ -65,47 +64,58 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [this.orderStatus],
-      channels: [this.sellerOk],
+      attributes: [orderStatus],
+      channels: [sellerOk],
     };
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
   public approve(context: Context, _note: string): RPCResult<string> {
-    this.sellerOk.publish(context, "approved");
+    sellerOk.publish(context, "approved");
     return { output: "ok" };
   }
 
   @rpc({ outputCodec: stringCodec })
   public describe(context: Context): RPCResult<string> {
-    return { output: this.orderStatus.get(context) };
+    return { output: orderStatus.get(context) };
   }
 }
 
 class ChargeStep implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(private readonly flow: OrderProcessingFlow) {}
+  public constructor(
+    private readonly service: MyDependencyService,
+    private readonly ship: ShipStep,
+  ) {}
 
   public getStepType(): string {
     return "ChargeStep";
   }
 
   public getStepOptions() {
-    return { executeRetry: { maximumAttempts: 3 } };
+    return {
+      executeRetry: {
+        // totalDurationMs: 60 * 60 * 1000,
+        totalDurationMs: 3_000,
+      },
+    };
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.flow.service.chargeUser(input.email, input.customerId, input.amount);
-    this.flow.orderStatus.set(context, "charged");
-    return goTo(this.flow.ship, input);
+    this.service.chargeUser(input.email, input.customerId, input.amount);
+    orderStatus.set(context, "charged");
+    return goTo(this.ship, input);
   }
 }
 
 class ShipStep implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(private readonly flow: OrderProcessingFlow) {}
+  public constructor(
+    private readonly service: MyDependencyService,
+    private readonly refund: RefundStep,
+  ) {}
 
   public getStepType(): string {
     return "ShipStep";
@@ -113,31 +123,34 @@ class ShipStep implements Step<OrderRequest> {
 
   public getStepOptions() {
     return {
-      executeRetry: { initialIntervalMs: 1000, maximumAttempts: 2 },
-      executeFailure: ExecuteFailure.proceedTo(this.flow.refund, {
-        executeRetry: { maximumAttempts: 3 },
+      executeRetry: {
+        // totalDurationMs: 60 * 60 * 1000,
+        totalDurationMs: 3_000,
+      },
+      executeFailure: ExecuteFailure.proceedTo(this.refund, {
+        executeRetry: {
+          // totalDurationMs: 60 * 60 * 1000,
+          totalDurationMs: 3_000,
+        },
       }),
     };
   }
 
   public waitFor(_context: Context, _input: OrderRequest): Wait {
-    return Wait.anyOf(
-      this.flow.sellerOk.forOne(),
-      Timer.byDuration(DAY_MS, SELLER_REMINDER_TIMER),
-    );
+    return Wait.anyOf(sellerOk.forOne(), Timer.byDuration(DAY_MS));
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
     if (context.hasTimerFired()) {
-      this.flow.service.sendEmail(
+      this.service.sendEmail(
         input.email,
         "Reminder: approve shipment",
         "Please approve or provide a tracking number.",
       );
       return goTo(this, input);
     }
-    this.flow.service.shipItem(input.orderId, input.testFailAtShipping);
-    this.flow.orderStatus.set(context, "shipped");
+    this.service.shipItem(input.orderId, input.testFailAtShipping);
+    orderStatus.set(context, "shipped");
     return gracefulComplete(`shipped:${input.orderId}`);
   }
 }
@@ -145,17 +158,15 @@ class ShipStep implements Step<OrderRequest> {
 class RefundStep implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(private readonly flow: OrderProcessingFlow) {}
+  public constructor(private readonly service: MyDependencyService) {}
 
   public getStepType(): string {
     return "RefundStep";
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.flow.service.updateExternalSystem(`refund ${input.orderId}`);
-    this.flow.orderStatus.set(context, "refunded");
+    this.service.updateExternalSystem(`refund ${input.orderId}`);
+    orderStatus.set(context, "refunded");
     return gracefulComplete(`refunded:${input.orderId}`);
   }
 }
-
-export const orderProcessingFlow = new OrderProcessingFlow();

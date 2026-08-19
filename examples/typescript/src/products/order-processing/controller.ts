@@ -19,10 +19,13 @@ import { Router } from "express";
 import { StepExecutionId, type Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { orderProcessingFlow } from "./order-processing-flow.js";
 import type { OrderRequest } from "./models.js";
+import type { OrderProcessingFlow } from "./order-processing-flow.js";
 
-export function createOrderProcessingRouter(client: Client): Router {
+export function createOrderProcessingRouter(
+  client: Client,
+  flow: OrderProcessingFlow,
+): Router {
   const router = Router();
 
   router.get("/start", async (request, response) => {
@@ -34,7 +37,7 @@ export function createOrderProcessingRouter(client: Client): Router {
       amount: 42,
       testFailAtShipping: String(request.query.testFailAtShipping ?? "") === "true",
     };
-    const runId = await client.startFlow(orderProcessingFlow, flowId, input, startOptions());
+    const runId = await client.startFlow(flow, flowId, input, startOptions());
     await client.waitForStepCompletion(
       flowId,
       StepExecutionId.of("ChargeStep"),
@@ -46,13 +49,13 @@ export function createOrderProcessingRouter(client: Client): Router {
   router.get("/approve", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const notes = String(request.query.notes ?? "");
-    const output = await client.invokeRPC(orderProcessingFlow.approve, workflowId, notes);
+    const output = await client.invokeRPC(flow.approve, workflowId, notes);
     response.json(output);
   });
 
   router.get("/describe", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    const status = await client.invokeRPC(orderProcessingFlow.describe, workflowId);
+    const status = await client.invokeRPC(flow.describe, workflowId);
     response.json({ flowID: workflowId, status });
   });
 

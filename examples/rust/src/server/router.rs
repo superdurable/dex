@@ -28,6 +28,9 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         .merge(products::money_transfer::controller::mount(client.clone()))
         .merge(products::order_processing::controller::mount(
             client.clone(),
+            products::order_processing::OrderProcessingFlow::new(
+                crate::shared::MyDependencyService,
+            ),
         ))
         .merge(products::polling::controller::mount(client.clone()))
         .merge(products::shortlist_candidates::controller::mount(

@@ -98,7 +98,7 @@ func TestOrderProcessingReminderThenShip(t *testing.T) {
 			integrationContext(t),
 			flowID,
 			dex.StepExecutionID{StepType: orderprocessing.ShipStepType},
-			dex.TimerID{ConditionID: orderprocessing.SellerReminderTimer},
+			dex.TimerID{Index: new(int32)},
 		) == nil
 	}, 15*time.Second, 50*time.Millisecond)
 	require.NoError(t, integClient.WaitForStepCompletion(

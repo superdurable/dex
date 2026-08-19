@@ -24,7 +24,6 @@ import {
   awaitCondition,
   releaseIntegEnvironment,
 } from "./environment.js";
-import { SELLER_REMINDER_TIMER } from "../../src/products/order-processing/order-processing-flow.js";
 
 test.before(async () => {
   await acquireIntegEnvironment();
@@ -91,7 +90,7 @@ test("orderProcessingReminderThenShip", async () => {
         await environment.client.skipTimer(
           flowId,
           StepExecutionId.of("ShipStep"),
-          TimerId.byConditionId(SELLER_REMINDER_TIMER),
+          TimerId.byConditionIndex(0),
         );
         return true;
       } catch {

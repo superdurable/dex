@@ -27,9 +27,12 @@ import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recover
 import { engagementFlow } from "../../src/products/engagement/engagement-flow.js";
 import { orchestrationFlow } from "../../src/products/microservices/orchestration-flow.js";
 import { moneyTransferFlow } from "../../src/products/money-transfer/money-transfer-flow.js";
-import { orderProcessingFlow } from "../../src/products/order-processing/order-processing-flow.js";
+import { OrderProcessingFlow } from "../../src/products/order-processing/order-processing-flow.js";
 import { pollingFlow } from "../../src/products/polling/polling-flow.js";
+import { MyDependencyService } from "../../src/shared/my-dependency-service.js";
 import { subscriptionFlow } from "../../src/products/subscription/subscription-flow.js";
+
+const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 
 export interface IntegEnvironment {
   readonly client: Client;

@@ -53,7 +53,7 @@ import { createPollingRouter } from "./products/polling/controller.js";
 import { createShortlistCandidatesRouter } from "./products/shortlist-candidates/controller.js";
 import { createSignupRouter } from "./products/signup/controller.js";
 import { createSubscriptionRouter } from "./products/subscription/controller.js";
-import { createExampleRegistry } from "./registry.js";
+import { createExampleRegistry, orderProcessingFlow } from "./registry.js";
 
 export interface SampleServer {
   readonly client: Client;
@@ -87,7 +87,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use(allowCors);
   app.use(express.json());
   app.use("/products/money-transfer", createMoneyTransferRouter(client));
-  app.use("/products/order-processing", createOrderProcessingRouter(client));
+  app.use("/products/order-processing", createOrderProcessingRouter(client, orderProcessingFlow));
   app.use("/products/microservices", createMicroserviceRouter(client));
   app.use("/products/engagement", createEngagementRouter(client));
   app.use("/products/subscription", createSubscriptionRouter(client));
