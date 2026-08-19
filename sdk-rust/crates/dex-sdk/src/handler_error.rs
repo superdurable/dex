@@ -20,6 +20,7 @@ pub type HandlerResult<T> = Result<T, HandlerError>;
 pub struct HandlerError {
     message: String,
     error_type: String,
+    retry_after_seconds: Option<i32>,
 }
 
 impl HandlerError {
@@ -28,7 +29,21 @@ impl HandlerError {
         Self {
             message: message.into(),
             error_type: std::any::type_name::<Self>().to_string(),
+            retry_after_seconds: None,
         }
+    }
+
+    /// Requests the next retry interval while preserving this failure.
+    pub fn retry_after(after_seconds: i32, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            error_type: std::any::type_name::<Self>().to_string(),
+            retry_after_seconds: Some(after_seconds),
+        }
+    }
+
+    pub(crate) fn retry_after_seconds(&self) -> i32 {
+        self.retry_after_seconds.unwrap_or(0)
     }
 
     pub(crate) fn invalid_step_result(
@@ -44,6 +59,7 @@ impl HandlerError {
         Self {
             message: format!("{target} {method} returned an invalid result: {detail}"),
             error_type: "dex_sdk::SdkError::InvalidStepResult".to_string(),
+            retry_after_seconds: None,
         }
     }
 

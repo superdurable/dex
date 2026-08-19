@@ -246,8 +246,8 @@ fn worker_status(error: HandlerError) -> Status {
     let detail = WorkerErrorResponse {
         detail: message.clone(),
         error_type: error.error_type().to_string(),
-        stack_trace: String::new(),
-        retry_after_seconds: 0,
+        stack_trace: std::backtrace::Backtrace::force_capture().to_string(),
+        retry_after_seconds: error.retry_after_seconds(),
     };
     let status = GoogleRpcStatus {
         code: Code::Unknown as i32,

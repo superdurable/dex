@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import traceback
+from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 import grpc
@@ -28,6 +30,28 @@ from dex.runtime_errors import (
 )
 
 FlowTargetRequirement = Literal["none", "existing", "active"]
+
+MAX_WORKER_STACK_TRACE_BYTES = 16 * 1024
+_STACK_TRACE_TRUNCATION_MARKER = b"\n... stack trace truncated by Dex Python SDK ..."
+
+
+@dataclass(frozen=True)
+class RetryAfterError(Exception):
+    """Requests a delay before the next retry while preserving the current failure."""
+
+    after_seconds: int
+    cause: BaseException
+
+    def __str__(self) -> str:
+        return str(self.cause)
+
+
+def retry_after(after_seconds: int, cause: BaseException) -> RetryAfterError:
+    if cause is None:
+        raise ValueError("cause is required")
+    if after_seconds <= 0:
+        raise ValueError("after_seconds must be positive")
+    return RetryAfterError(after_seconds=after_seconds, cause=cause)
 
 
 def translate_rpc_error(
@@ -118,17 +142,42 @@ async def async_abort_worker_error(
 
 
 def _worker_error_status(error: BaseException) -> status_pb2.Status:
-    message = str(error) or type(error).__name__
+    retry_after_error: RetryAfterError | None = None
+    reported = error
+    if isinstance(error, RetryAfterError):
+        retry_after_error = error
+        reported = error.cause
+
+    message = str(reported) or type(reported).__name__
     worker_error = pb.WorkerErrorResponse(
         detail=message,
-        error_type=f"{type(error).__module__}.{type(error).__qualname__}",
+        error_type=f"{type(reported).__module__}.{type(reported).__qualname__}",
+        stack_trace=_worker_stack_trace(reported),
     )
+    if retry_after_error is not None:
+        worker_error.retry_after_seconds = retry_after_error.after_seconds
     packed = any_pb2.Any()
     packed.Pack(worker_error)
     return status_pb2.Status(
         code=grpc.StatusCode.UNKNOWN.value[0],
         message=message,
         details=[packed],
+    )
+
+
+def _worker_stack_trace(error: BaseException) -> str:
+    if error.__traceback__ is None:
+        return ""
+    lines = traceback.format_exception(type(error), error, error.__traceback__)
+    encoded = "".join(lines).encode()
+    if len(encoded) <= MAX_WORKER_STACK_TRACE_BYTES:
+        return encoded.decode()
+    prefix_length = MAX_WORKER_STACK_TRACE_BYTES - len(_STACK_TRACE_TRUNCATION_MARKER)
+    while prefix_length > 0 and (encoded[prefix_length] & 0xC0) == 0x80:
+        prefix_length -= 1
+    return (
+        encoded[:prefix_length].decode(errors="replace")
+        + _STACK_TRACE_TRUNCATION_MARKER.decode()
     )
 
 
