@@ -17,11 +17,11 @@
 import type { Client } from "@superdurable/dex";
 
 import { HOUR_MS } from "./env.js";
-import { cronScheduleFlow } from "../patterns/workflow/cron/cron-schedule-flow.js";
+import { cronScheduleFlow } from "../patterns/cron/cron-schedule-flow.js";
 import { isFlowAlreadyStarted } from "../service-errors.js";
 
 export const CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample";
-export const CRON_EXPRESSION = "*/1 * * * *";
+export const CRON_EXPRESSION = "0 * * * *";
 
 export async function startCronSchedule(client: Client): Promise<void> {
   try {

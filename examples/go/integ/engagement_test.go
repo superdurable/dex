@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/engagement"
+	"github.com/superdurable/dex/examples/go/products/engagement"
+	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -40,7 +40,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 	}
 	runID, err := integClient.StartFlow(
 		ctx,
-		workflows.Engagement,
+		registry.Engagement,
 		flowID,
 		input,
 		dex.StartFlowOptions{},
@@ -59,7 +59,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		workflows.Engagement.Describe,
+		registry.Engagement.Describe,
 		nil,
 		&description,
 		dex.InvokeOptions{},
@@ -76,7 +76,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		workflows.Engagement.Decline,
+		registry.Engagement.Decline,
 		"declined in integration test",
 		&status,
 		dex.InvokeOptions{},
@@ -85,7 +85,7 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		workflows.Engagement.Accept,
+		registry.Engagement.Accept,
 		"accepted in integration test",
 		&status,
 		dex.InvokeOptions{},

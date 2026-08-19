@@ -24,7 +24,7 @@ import {
   awaitCondition,
   releaseIntegEnvironment,
 } from "./environment.js";
-import type { Customer, Subscription } from "../../src/workflow/subscription/models.js";
+import type { Customer, Subscription } from "../../src/products/subscription/models.js";
 
 test.before(async () => {
   await acquireIntegEnvironment();

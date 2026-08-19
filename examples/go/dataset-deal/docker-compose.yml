@@ -33,4 +33,4 @@ services:
       timeout: 3s
       retries: 30
     volumes:
-      - ../workflows/datasetdeal/schema.sql:/docker-entrypoint-initdb.d/001-dataset-deal.sql:ro
+      - ../products/dataset-deal/schema.sql:/docker-entrypoint-initdb.d/001-dataset-deal.sql:ro

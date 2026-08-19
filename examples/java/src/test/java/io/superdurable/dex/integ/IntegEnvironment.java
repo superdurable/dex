@@ -25,13 +25,14 @@ import io.superdurable.dex.Registry;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
-import io.superdurable.dex.workflow.MyDependencyService;
-import io.superdurable.dex.workflow.engagement.EngagementFlow;
-import io.superdurable.dex.workflow.microservices.OrchestrationFlow;
-import io.superdurable.dex.workflow.money.transfer.MoneyTransferFlow;
-import io.superdurable.dex.workflow.polling.PollingFlow;
-import io.superdurable.dex.workflow.retryingfailure.RetryingFailureFlow;
-import io.superdurable.dex.workflow.subscription.SubscriptionFlow;
+import io.superdurable.dex.shared.MyDependencyService;
+import io.superdurable.dex.products.engagement.EngagementFlow;
+import io.superdurable.dex.products.microservices.OrchestrationFlow;
+import io.superdurable.dex.products.moneytransfer.MoneyTransferFlow;
+import io.superdurable.dex.products.orderprocessing.OrderProcessingFlow;
+import io.superdurable.dex.products.polling.PollingFlow;
+import io.superdurable.dex.primitives.step.RetryingFailureFlow;
+import io.superdurable.dex.products.subscription.SubscriptionFlow;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -59,6 +60,7 @@ final class IntegEnvironment implements AutoCloseable {
     private final AtomicReference<Throwable> workerFailure;
     private final Client client;
     private final MoneyTransferFlow moneyTransferFlow;
+    private final OrderProcessingFlow orderProcessingFlow;
     private final EngagementFlow engagementFlow;
     private final OrchestrationFlow orchestrationFlow;
     private final PollingFlow pollingFlow;
@@ -73,6 +75,7 @@ final class IntegEnvironment implements AutoCloseable {
             final AtomicReference<Throwable> workerFailure,
             final Client client,
             final MoneyTransferFlow moneyTransferFlow,
+            final OrderProcessingFlow orderProcessingFlow,
             final EngagementFlow engagementFlow,
             final OrchestrationFlow orchestrationFlow,
             final PollingFlow pollingFlow,
@@ -85,6 +88,7 @@ final class IntegEnvironment implements AutoCloseable {
         this.workerFailure = workerFailure;
         this.client = client;
         this.moneyTransferFlow = moneyTransferFlow;
+        this.orderProcessingFlow = orderProcessingFlow;
         this.engagementFlow = engagementFlow;
         this.orchestrationFlow = orchestrationFlow;
         this.pollingFlow = pollingFlow;
@@ -98,6 +102,7 @@ final class IntegEnvironment implements AutoCloseable {
                 "127.0.0.1:8801");
         final MyDependencyService service = new MyDependencyService();
         final MoneyTransferFlow moneyTransferFlow = new MoneyTransferFlow(service);
+        final OrderProcessingFlow orderProcessingFlow = new OrderProcessingFlow(service);
         final EngagementFlow engagementFlow = new EngagementFlow(service);
         final OrchestrationFlow orchestrationFlow = new OrchestrationFlow(service);
         final PollingFlow pollingFlow = new PollingFlow(service);
@@ -105,6 +110,7 @@ final class IntegEnvironment implements AutoCloseable {
         final SubscriptionFlow subscriptionFlow = new SubscriptionFlow(service);
         final List<Flow<?>> flows = Arrays.<Flow<?>>asList(
                 moneyTransferFlow,
+                orderProcessingFlow,
                 engagementFlow,
                 orchestrationFlow,
                 pollingFlow,
@@ -148,6 +154,7 @@ final class IntegEnvironment implements AutoCloseable {
                 workerFailure,
                 client,
                 moneyTransferFlow,
+                orderProcessingFlow,
                 engagementFlow,
                 orchestrationFlow,
                 pollingFlow,
@@ -161,6 +168,10 @@ final class IntegEnvironment implements AutoCloseable {
 
     MoneyTransferFlow moneyTransferFlow() {
         return moneyTransferFlow;
+    }
+
+    OrderProcessingFlow orderProcessingFlow() {
+        return orderProcessingFlow;
     }
 
     EngagementFlow engagementFlow() {

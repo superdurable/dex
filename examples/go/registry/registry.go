@@ -1,0 +1,215 @@
+// Copyright (c) 2022-2026 Super Durable, Inc.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+package registry
+
+import (
+	"github.com/superdurable/dex/examples/go/patterns/cron"
+	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
+	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
+	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	"github.com/superdurable/dex/examples/go/patterns/interruptible"
+	"github.com/superdurable/dex/examples/go/patterns/intervention"
+	"github.com/superdurable/dex/examples/go/patterns/parallel"
+	"github.com/superdurable/dex/examples/go/patterns/parent-child"
+	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
+	"github.com/superdurable/dex/examples/go/patterns/recovery"
+	"github.com/superdurable/dex/examples/go/patterns/reminders"
+	"github.com/superdurable/dex/examples/go/patterns/resettable-timer"
+	"github.com/superdurable/dex/examples/go/patterns/scalable-parallel"
+	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
+	"github.com/superdurable/dex/examples/go/patterns/timeout"
+	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
+	"github.com/superdurable/dex/examples/go/primitives/attribute"
+	"github.com/superdurable/dex/examples/go/primitives/channel"
+	"github.com/superdurable/dex/examples/go/primitives/client-apis"
+	"github.com/superdurable/dex/examples/go/primitives/rpc"
+	"github.com/superdurable/dex/examples/go/primitives/step"
+	"github.com/superdurable/dex/examples/go/primitives/subflow"
+	"github.com/superdurable/dex/examples/go/primitives/timer"
+	"github.com/superdurable/dex/examples/go/products/engagement"
+	"github.com/superdurable/dex/examples/go/products/job-post"
+	"github.com/superdurable/dex/examples/go/products/microservices"
+	"github.com/superdurable/dex/examples/go/products/money-transfer"
+	"github.com/superdurable/dex/examples/go/products/order-processing"
+	"github.com/superdurable/dex/examples/go/products/polling"
+	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
+	"github.com/superdurable/dex/examples/go/products/signup"
+	"github.com/superdurable/dex/examples/go/products/subscription"
+	"github.com/superdurable/dex/examples/go/shared/service"
+	"github.com/superdurable/dex/sdk-go/dex"
+)
+
+// ClientProvider returns the shared Client after bootstrap completes.
+type ClientProvider func() *dex.Client
+
+var (
+	applicationService = service.NewMyService()
+	patternService     = patternsservice.NewServiceDependency()
+
+	Engagement      *engagement.EngagementFlow
+	Microservices   *microservices.OrchestrationFlow
+	MoneyTransfer   *moneytransfer.MoneyTransferFlow
+	OrderProcessing *orderprocessing.OrderProcessingFlow
+	Polling         *polling.PollingFlow
+	Subscription    *subscription.SubscriptionFlow
+	Signup          *signup.UserSignupFlow
+	JobPost         *jobpost.JobPostFlow
+	EmployerOptIn   *shortlistcandidates.EmployerOptInFlow
+	Shortlist       *shortlistcandidates.ShortlistFlow
+
+	CronSchedule           *cron.CronScheduleFlow
+	SimplePolling          *patternspolling.SimplePollingFlow
+	BackoffPolling         *patternspolling.BackoffPollingFlow
+	InterruptibleExecution *interruptible.InterruptibleExecutionFlow
+	Reminder               *reminders.ReminderFlow
+	UserProfile            *entitystore.UserProfileFlow
+	ManualIntervention     *intervention.ManualInterventionFlow
+	ResettableTimer        *resettabletimer.ResettableTimerFlow
+	SimpleParallel         *parallel.SimpleParallelStatesFlow
+	ParallelWithAwait      *parallel.ParallelStatesWithAwaitFlow
+	FailureRecovery        *recovery.FailureRecoveryFlow
+	RequestReceiver        *scalableparallel.RequestReceiverFlow
+	ScalableParent         *scalableparallel.ParentFlow
+	ScalableChild          *scalableparallel.ChildFlow
+	ParentChild            *parentchild.ParentFlowV2
+	ParentChildChild       *parentchild.ChildFlow
+	DrainInternal          *draininternal.DrainInternalChannelsFlow
+	DrainSignal            *drainsignal.DrainSignalChannelsFlow
+	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
+	GracefulTimeout        *timeout.FlowGracefulTimeout
+
+	Step          *step.StepFlow
+	StepRetry     *step.RetryFlow
+	Attribute     *attribute.AttributeFlow
+	Channel       *channel.ChannelFlow
+	Timer         *timer.TimerFlow
+	Rpc           *rpc.RpcFlow
+	SubFlowChild  *subflow.SubFlowChildFlow
+	SubFlowParent *subflow.SubFlowParentFlow
+	ClientApis    *clientapis.ClientApisFlow
+)
+
+// New constructs every sample flow. getClient may return nil until the Client
+// is created; flows that need it call the provider at Execute/RPC time.
+func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow {
+	if applicationSvc == nil {
+		panic("workflows: application service is required")
+	}
+	if getClient == nil {
+		panic("workflows: client provider is required")
+	}
+	applicationService = applicationSvc
+
+	Engagement = engagement.NewEngagementFlow(applicationService)
+	Microservices = microservices.NewOrchestrationFlow(applicationService)
+	MoneyTransfer = moneytransfer.NewMoneyTransferFlow(applicationService)
+	OrderProcessing = orderprocessing.NewOrderProcessingFlow(applicationService)
+	Polling = polling.NewPollingFlow(applicationService)
+	Subscription = subscription.NewSubscriptionFlow(applicationService)
+	Signup = signup.NewUserSignupFlow(applicationService)
+	JobPost = jobpost.NewJobPostFlow(applicationService)
+	EmployerOptIn = shortlistcandidates.NewEmployerOptInFlow()
+	Shortlist = shortlistcandidates.NewShortlistFlow(
+		applicationService,
+		getClient,
+		EmployerOptIn,
+	)
+
+	CronSchedule = cron.NewCronScheduleFlow()
+	SimplePolling = patternspolling.NewSimplePollingFlow()
+	BackoffPolling = patternspolling.NewBackoffPollingFlow(patternService)
+	InterruptibleExecution = interruptible.NewInterruptibleExecutionFlow()
+	Reminder = reminders.NewReminderFlow(patternService)
+	UserProfile = entitystore.NewUserProfileFlow()
+	ManualIntervention = intervention.NewManualInterventionFlow(patternService)
+	ResettableTimer = resettabletimer.NewResettableTimerFlow()
+	SimpleParallel = parallel.NewSimpleParallelStatesFlow(patternService)
+	ParallelWithAwait = parallel.NewParallelStatesWithAwaitFlow(patternService)
+	FailureRecovery = recovery.NewFailureRecoveryFlow()
+	ScalableChild = scalableparallel.NewChildFlow(getClient, func() *scalableparallel.ParentFlow {
+		return ScalableParent
+	})
+	ScalableParent = scalableparallel.NewParentFlow(getClient, ScalableChild)
+	RequestReceiver = scalableparallel.NewRequestReceiverFlow(getClient, ScalableParent)
+	ParentChildChild = parentchild.NewChildFlow()
+	ParentChild = parentchild.NewParentFlowV2(getClient, ParentChildChild)
+	DrainInternal = draininternal.NewDrainInternalChannelsFlow(patternService)
+	DrainSignal = drainsignal.NewDrainSignalChannelsFlow()
+	WaitForStateCompletion = waitforstatecompletion.NewWaitForStateCompletionFlow(patternService)
+	GracefulTimeout = timeout.NewFlowGracefulTimeout()
+
+	Step = step.NewStepFlow()
+	StepRetry = step.NewRetryFlow()
+	Attribute = attribute.NewAttributeFlow()
+	Channel = channel.NewChannelFlow()
+	Timer = timer.NewTimerFlow()
+	Rpc = rpc.NewRpcFlow()
+	SubFlowChild = subflow.NewSubFlowChildFlow()
+	SubFlowParent = subflow.NewSubFlowParentFlow(SubFlowChild)
+	ClientApis = clientapis.NewClientApisFlow()
+
+	return Flows()
+}
+
+func Flows(additional ...dex.Flow) []dex.Flow {
+	flows := []dex.Flow{
+		Engagement,
+		Microservices,
+		MoneyTransfer,
+		OrderProcessing,
+		Polling,
+		Subscription,
+		Signup,
+		JobPost,
+		EmployerOptIn,
+		Shortlist,
+		CronSchedule,
+		SimplePolling,
+		BackoffPolling,
+		InterruptibleExecution,
+		Reminder,
+		UserProfile,
+		ManualIntervention,
+		ResettableTimer,
+		SimpleParallel,
+		ParallelWithAwait,
+		FailureRecovery,
+		RequestReceiver,
+		ScalableParent,
+		ScalableChild,
+		ParentChild,
+		ParentChildChild,
+		DrainInternal,
+		DrainSignal,
+		WaitForStateCompletion,
+		GracefulTimeout,
+		Step,
+		StepRetry,
+		Attribute,
+		Channel,
+		Timer,
+		Rpc,
+		SubFlowChild,
+		SubFlowParent,
+		ClientApis,
+	}
+	return append(flows, additional...)
+}

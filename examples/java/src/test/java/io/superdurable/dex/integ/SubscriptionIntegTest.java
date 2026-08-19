@@ -16,9 +16,9 @@
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.workflow.subscription.Customer;
-import io.superdurable.dex.workflow.subscription.Subscription;
-import io.superdurable.dex.workflow.subscription.SubscriptionFlow;
+import io.superdurable.dex.products.subscription.Customer;
+import io.superdurable.dex.products.subscription.Subscription;
+import io.superdurable.dex.products.subscription.SubscriptionFlow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 

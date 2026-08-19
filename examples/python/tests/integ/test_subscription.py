@@ -19,8 +19,8 @@ from typing import Callable
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.workflow.subscription.customer import Customer
-from dex_examples.workflow.subscription.subscription import Subscription
+from dex_examples.products.subscription.customer import Customer
+from dex_examples.products.subscription.subscription import Subscription
 from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 
 from dex import AsyncClient

@@ -1,0 +1,185 @@
+# Dataset Deal DSL
+
+This example lets one seller define a reusable finite-state deal process for a
+dataset product. Each buyer starts an independent deal execution from the same
+stored process.
+
+The seller's DSL is stored as JSON in PostgreSQL. Initialization copies it into
+a Dex attribute, and four fixed steps interpret that immutable execution
+snapshot. Seller-authored states do not require dynamic SDK registration:
+
+```text
+initialize → pre-condition → execute one action → post-condition
+                  ↑                  │                 │
+                  └──────────────────┴──── next state ─┘
+```
+
+- `preCondition` optionally waits for one external channel message before the
+  state becomes pending.
+- `preActions` run in order before `currentState` changes.
+- `postActions` run in order after `currentState` changes.
+- `postCondition` may wait for an external message, then evaluates structured
+  equality cases against `stateData` and selects the next state.
+- Omitting `postCondition` completes the deal execution.
+
+The example uses `map[string]string` for `stateData` to keep the visual builder
+generic. A production deal system should use a versioned, strongly typed model
+for validation, migrations, and action inputs.
+
+## DSL shape
+
+```json
+{
+  "processID": "dataset-deal-v1",
+  "initialState": "buyer-negotiation",
+  "initialStateData": {"acceptedProposedPrice": "false"},
+  "states": [
+    {
+      "name": "seller-counteroffer",
+      "preCondition": {"name": "seller-price-response"},
+      "preActions": ["transferMoneyFromBuyerToSeller"],
+      "postActions": ["transportSampleDatasetToBuyer"],
+      "postCondition": {
+        "decision": {
+          "key": "acceptedProposedPrice",
+          "cases": [{"equals": "true", "goToState": "process-sample-order"}],
+          "elseState": "buyer-negotiation"
+        }
+      }
+    }
+  ]
+}
+```
+
+State and external-condition names must be unique within a process. Conditions
+use instances of the `ConditionMessages` channel map. A message and each action
+output merge string key/value pairs into `stateData`.
+
+The built-in actions only log simulated work:
+
+- `transferMoneyFromBuyerToSeller`
+- `transferMoneyFromSellerToBuyer`
+- `transportFullDatasetToBuyer`
+- `transportSampleDatasetToBuyer`
+
+`currentActionIndexToExecute` schedules exactly one action per step execution,
+then loops until the ordered list is complete.
+
+## Persistence and search
+
+PostgreSQL stores only seller-authored process definitions. The initialize step
+loads and validates one definition, then stores it in the `processDefinition`
+Dex attribute. Later steps and channel validation use that snapshot, so editing
+the PostgreSQL definition cannot change an existing execution.
+
+Execution status and state come entirely from Dex visibility plus one batched
+attribute read per flow. Visibility is eventually consistent; the REST API,
+UI, and E2E checks use bounded retries when a new execution has not appeared.
+Seller ProcessID filters and buyer ProcessID filters are combined directly with
+the buyer's `BuyerID` in Dex `SearchFlows` queries.
+
+The persistence schema declares these keyword Indexed Attributes, which the
+Worker synchronizes automatically before starting:
+
+- `ProcessID`
+- `BuyerID`
+- `CurrentState`
+- `PendingPreConditionState`
+- `PendingPreConditionName`
+
+Durable attribute keys are `stateData`, `processDefinition`, `processID`,
+`buyerID`, `currentState`, `currentActionIndexToExecute`,
+`pendingPreConditionState`, and `pendingPreConditionName`. The channel-map key
+is `conditionMessages`.
+
+`schema.sql` creates only `dataset_deal_processes`. The Dataset Deal server
+runs it idempotently at startup.
+
+## REST API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/products/dataset-deal/api/processes` | Validate and create a process |
+| `GET` | `/products/dataset-deal/api/processes` | List seller process definitions |
+| `GET` | `/products/dataset-deal/api/processes/:processID` | Read a process |
+| `PUT` | `/products/dataset-deal/api/processes/:processID` | Validate and update a process |
+| `POST` | `/products/dataset-deal/api/executions` | Start a buyer execution and wait for initialization |
+| `GET` | `/products/dataset-deal/api/executions?processID=deal-v1` | List one process's executions |
+| `GET` | `/products/dataset-deal/api/executions?buyerID=buyer1&processID=deal-v1` | List one buyer's matching executions |
+| `GET` | `/products/dataset-deal/api/executions/:flowID` | Read one execution snapshot |
+| `POST` | `/products/dataset-deal/api/executions/:flowID/channels/:conditionName` | Merge external condition data |
+
+The execution flow ID is `<processID>-<UUID>`. The start API initializes the
+buyer as an indexed attribute and waits for `datasetdeal.initializeStep` to
+complete.
+
+## Run and verify
+
+Dataset Deal is **not** part of `./dex-samples`. Build `dex-dataset-deal` and
+start PostgreSQL first.
+
+From `examples/go`:
+
+```bash
+docker compose -f dataset-deal/docker-compose.yml up -d --wait
+dexcli dev
+make bins
+./dex-dataset-deal
+```
+
+The binary uses the same default HTTP (`127.0.0.1:8080`) and Worker
+(`127.0.0.1:8803`) ports as `dex-samples`. Override `DATASET_DEAL_POSTGRES_URL`
+when Postgres is not `postgres://dataset_deal:dataset_deal@127.0.0.1:15432/dataset_deal?sslmode=disable`.
+
+Or run the demo script, which starts PostgreSQL, Dex, and `dex-dataset-deal`
+on Dataset Deal's own ports:
+
+```bash
+make datasetDealDemo
+```
+
+The script starts PostgreSQL with Docker Compose, initializes the schema,
+starts Dex, lets the Worker synchronize Indexed Attributes,
+starts the Go worker/API, and drives three executions:
+
+- buyer 1 rejects one counteroffer, accepts the next, then buys the full data;
+- buyer 2 accepts and requests a sample refund;
+- buyer 3 remains pending at the initial proposal channel.
+
+It also verifies the all-buyers and buyer-filtered list APIs. Services stop
+when the script exits. Keep them running for UI inspection with:
+
+```bash
+KEEP_DATASET_DEAL_DEMO=1 make datasetDealDemo
+```
+
+To drive an already-running example API without managing its services:
+
+```bash
+DATASET_DEAL_API_URL=http://127.0.0.1:20804 make triggerDatasetDealDemo
+```
+
+The trigger-only script creates or updates the comprehensive process, completes
+the full-purchase and refund paths, and leaves buyer 3 pending. Set
+`DATASET_DEAL_PROCESS_ID` to use a different process ID.
+
+The seller dashboard lists processes beside executions. Buyer dashboards list
+only their executions. Process pages provide an editable state graph;
+execution pages render the immutable graph, highlight `currentState`, show
+runtime data, and provide the shared condition-message form.
+
+## Tests
+
+`make e2eTests` runs the same comprehensive flow against real Dex, Temporal,
+WorkerService, FlowService, PostgreSQL, REST handlers, and indexed search. That
+path starts Dataset Deal PostgreSQL only for these tests, not for the default
+`dex-samples` suite.
+
+## Documentation
+
+The comprehensive JSON template is
+`products/dataset-deal/ui/dataset-deal/comprehensive-process.json`.
+
+## UI/UX
+
+The embedded UI provides seller DSL editing and buyer 1/2/3 execution controls.

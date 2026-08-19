@@ -19,7 +19,7 @@ package io.superdurable.dex.integ;
 import io.superdurable.dex.StopFlowOptions;
 import io.superdurable.dex.StopType;
 import io.superdurable.dex.exceptions.LongPollTimeoutException;
-import io.superdurable.dex.workflow.retryingfailure.RetryingFailureFlow;
+import io.superdurable.dex.primitives.step.RetryingFailureFlow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -40,7 +40,7 @@ public class RetryingFailureIntegTest {
         final String runId = environment.client().startFlow(
                 flow,
                 flowId,
-                null,
+                1000,
                 environment.startOptions());
         assertNotNull(runId);
         assertFalse(runId.isEmpty());

@@ -16,37 +16,50 @@
 
 import { Registry, type Flow } from "@superdurable/dex";
 
-import { cronScheduleFlow } from "./patterns/workflow/cron/cron-schedule-flow.js";
-import { drainInternalChannelsFlow } from "./patterns/workflow/drainchannels/internal/drain-internal-channels-flow.js";
-import { drainSignalChannelsFlow } from "./patterns/workflow/drainchannels/signal/drain-signal-channels-flow.js";
-import { interruptibleExecutionFlow } from "./patterns/workflow/interruptible/interruptible-execution-flow.js";
-import { manualInterventionFlow } from "./patterns/workflow/intervention/manual-intervention-flow.js";
-import { parallelStatesWithAwaitFlow } from "./patterns/workflow/parallel/parallel-states-with-await-flow.js";
-import { simpleParallelStatesFlow } from "./patterns/workflow/parallel/simple-parallel-states-flow.js";
-import { parentFlowV2 } from "./patterns/workflow/parentchild/parent-flow-v2.js";
-import { backoffPollingFlow } from "./patterns/workflow/polling/backoff-polling-flow.js";
-import { simplePollingFlow } from "./patterns/workflow/polling/simple-polling-flow.js";
-import { failureRecoveryFlow } from "./patterns/workflow/recovery/failure-recovery-flow.js";
-import { reminderFlow } from "./patterns/workflow/reminders/reminder-flow.js";
-import { resettableTimerFlow } from "./patterns/workflow/resettabletimer/resettable-timer-flow.js";
-import { childFlow } from "./patterns/workflow/scalableparallel/child-flow.js";
-import { parentFlow } from "./patterns/workflow/scalableparallel/parent-flow.js";
-import { requestReceiverFlow } from "./patterns/workflow/scalableparallel/request-receiver-flow.js";
-import { userProfileFlow } from "./patterns/workflow/entitystore/user-profile-flow.js";
-import { flowGracefulTimeout } from "./patterns/workflow/timeout/flow-graceful-timeout.js";
-import { waitForStateCompletionFlow } from "./patterns/workflow/waitforstatecompletion/wait-for-state-completion-flow.js";
-import { engagementFlow } from "./workflow/engagement/engagement-flow.js";
-import { jobPostFlow } from "./workflow/jobpost/job-post-flow.js";
-import { orchestrationFlow } from "./workflow/microservices/orchestration-flow.js";
-import { moneyTransferFlow } from "./workflow/money/transfer/money-transfer-flow.js";
-import { pollingFlow } from "./workflow/polling/polling-flow.js";
-import { employerOptInFlow } from "./workflow/shortlistcandidates/employer-opt-in-flow.js";
-import { shortlistFlow } from "./workflow/shortlistcandidates/shortlist-flow.js";
-import { userSignupFlow } from "./workflow/signup/user-signup-flow.js";
-import { subscriptionFlow } from "./workflow/subscription/subscription-flow.js";
+import { cronScheduleFlow } from "./patterns/cron/cron-schedule-flow.js";
+import { drainInternalChannelsFlow } from "./patterns/drain-channels/internal/drain-internal-channels-flow.js";
+import { drainSignalChannelsFlow } from "./patterns/drain-channels/signal/drain-signal-channels-flow.js";
+import { userProfileFlow } from "./patterns/entity-store/user-profile-flow.js";
+import { interruptibleExecutionFlow } from "./patterns/interruptible/interruptible-execution-flow.js";
+import { manualInterventionFlow } from "./patterns/intervention/manual-intervention-flow.js";
+import { parallelStatesWithAwaitFlow } from "./patterns/parallel/parallel-states-with-await-flow.js";
+import { simpleParallelStatesFlow } from "./patterns/parallel/simple-parallel-states-flow.js";
+import { parentFlowV2 } from "./patterns/parent-child/parent-flow-v2.js";
+import { backoffPollingFlow } from "./patterns/polling/backoff-polling-flow.js";
+import { simplePollingFlow } from "./patterns/polling/simple-polling-flow.js";
+import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.js";
+import { reminderFlow } from "./patterns/reminders/reminder-flow.js";
+import { resettableTimerFlow } from "./patterns/resettable-timer/resettable-timer-flow.js";
+import { childFlow } from "./patterns/scalable-parallel/child-flow.js";
+import { parentFlow } from "./patterns/scalable-parallel/parent-flow.js";
+import { requestReceiverFlow } from "./patterns/scalable-parallel/request-receiver-flow.js";
+import { flowGracefulTimeout } from "./patterns/timeout/flow-graceful-timeout.js";
+import { waitForStateCompletionFlow } from "./patterns/wait-for-state-completion/wait-for-state-completion-flow.js";
+import { attributeFlow } from "./primitives/attribute/attribute-flow.js";
+import { channelFlow } from "./primitives/channel/channel-flow.js";
+import { clientApisFlow } from "./primitives/client-apis/client-apis-flow.js";
+import { rpcFlow } from "./primitives/rpc/rpc-flow.js";
+import { retryFlow } from "./primitives/step/retry-flow.js";
+import { stepFlow } from "./primitives/step/step-flow.js";
+import { subFlowChildFlow, subFlowParentFlow } from "./primitives/subflow/subflow-flow.js";
+import { timerFlow } from "./primitives/timer/timer-flow.js";
+import { engagementFlow } from "./products/engagement/engagement-flow.js";
+import { jobPostFlow } from "./products/job-post/job-post-flow.js";
+import { orchestrationFlow } from "./products/microservices/orchestration-flow.js";
+import { moneyTransferFlow } from "./products/money-transfer/money-transfer-flow.js";
+import { OrderProcessingFlow } from "./products/order-processing/order-processing-flow.js";
+import { pollingFlow } from "./products/polling/polling-flow.js";
+import { employerOptInFlow } from "./products/shortlist-candidates/employer-opt-in-flow.js";
+import { shortlistFlow } from "./products/shortlist-candidates/shortlist-flow.js";
+import { userSignupFlow } from "./products/signup/user-signup-flow.js";
+import { subscriptionFlow } from "./products/subscription/subscription-flow.js";
+import { MyDependencyService } from "./shared/my-dependency-service.js";
+
+const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,
+  orderProcessingFlow,
   orchestrationFlow,
   engagementFlow,
   subscriptionFlow,
@@ -74,6 +87,15 @@ export const allExampleFlows: readonly Flow<any>[] = [
   userProfileFlow,
   flowGracefulTimeout,
   waitForStateCompletionFlow,
+  stepFlow,
+  retryFlow,
+  attributeFlow,
+  channelFlow,
+  timerFlow,
+  rpcFlow,
+  subFlowChildFlow,
+  subFlowParentFlow,
+  clientApisFlow,
 ];
 
 export function createExampleRegistry(): Registry {
@@ -82,6 +104,7 @@ export function createExampleRegistry(): Registry {
 
 export {
   moneyTransferFlow,
+  orderProcessingFlow,
   orchestrationFlow,
   engagementFlow,
   subscriptionFlow,
@@ -109,4 +132,13 @@ export {
   userProfileFlow,
   flowGracefulTimeout,
   waitForStateCompletionFlow,
+  stepFlow,
+  retryFlow,
+  attributeFlow,
+  channelFlow,
+  timerFlow,
+  rpcFlow,
+  subFlowChildFlow,
+  subFlowParentFlow,
+  clientApisFlow,
 };

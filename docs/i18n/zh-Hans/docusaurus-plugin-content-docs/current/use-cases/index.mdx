@@ -1,0 +1,29 @@
+---
+id: index
+title: 产品示例
+sidebar_label: Overview
+slug: /use-cases
+---
+
+# 产品示例
+
+比设计模式更完整的产品向例子。每一个都把 Dex primitive 组合成真实的后端场景。
+
+## 共用例子
+
+- [订单处理](/intro/what-is-dex) — 扣款、卖家审批带提醒、发货或退款
+- [Money transfer](/use-cases/money-transfer) — saga 借记/贷记和补偿
+- [Microservice orchestration](/use-cases/microservice-orchestration) — 并发 API + Channel/Timer
+- [Engagement](/use-cases/engagement) — 雇主 ↔ 求职者提醒
+- [Subscription](/use-cases/subscription) — 试用和计费 Timer
+- [Polling coordination](/use-cases/polling) — 双 Channel + Timer 协同
+- [User signup](/use-cases/signup) — 邮箱验证提醒 + verify RPC
+- [Job post](/use-cases/job-post) — 带索引 Attribute 的 CRUD
+- [Shortlist candidates](/use-cases/shortlist-candidates) — opt-in 单例 + 延迟邮件
+
+## 语言特定
+
+- [Dataset Deal](/use-cases/dataset-deal) — Go DSL 例子
+- [AI agent email](/use-cases/ai-agent-email) — Python durable AI 邮件应用
+
+可运行代码：GitHub 上的 `examples/{go,java,python,typescript,rust}`（适用时 HTTP 前缀 `/products/<name>/...`）。共用例子可在 examples playground（`examples/playground`）里试；见 `examples/README.md`。Dataset Deal 和 AI agent email 有自己的 UI，不在 playground 上。

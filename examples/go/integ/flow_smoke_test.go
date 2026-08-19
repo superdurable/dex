@@ -1,0 +1,504 @@
+// Copyright (c) 2022-2026 Super Durable, Inc.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+
+package integ
+
+import (
+	"net/http"
+	"net/url"
+	"testing"
+	"time"
+
+	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
+)
+
+func flowSmokeCatalog() []flowSmokeEntry {
+	return []flowSmokeEntry{
+		{
+			name: "products/engagement",
+			trigger: func(t *testing.T) (string, string) {
+				flowID, runID := triggerFlowSmokeHTTP(t, http.MethodGet, "/products/engagement/start", nil, nil)
+				return flowID, runID
+			},
+		},
+		{
+			name: "products/microservices",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "microservices")}}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/products/microservices/start", query, nil)
+			},
+		},
+		{
+			name: "products/money-transfer",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"amount":      {"100"},
+					"fromAccount": {"from-smoke"},
+					"toAccount":   {"to-smoke"},
+					"notes":       {"smoke"},
+				}
+				flowID, runID := triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/products/money-transfer/start",
+					query,
+					nil,
+				)
+				return flowID, runID
+			},
+		},
+		{
+			name: "products/order-processing",
+			trigger: func(t *testing.T) (string, string) {
+				flowID, runID := triggerFlowSmokeHTTP(t, http.MethodGet, "/products/order-processing/start", nil, nil)
+				return flowID, runID
+			},
+		},
+		{
+			name: "products/polling",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId":                 {smokeWorkflowID(t, "product-polling")},
+					"pollingCompletionThreshold": {"3"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/products/polling/start", query, nil)
+			},
+		},
+		{
+			name: "products/subscription",
+			trigger: func(t *testing.T) (string, string) {
+				flowID, runID := triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/products/subscription/start",
+					nil,
+					nil,
+				)
+				return flowID, runID
+			},
+		},
+		{
+			name: "products/signup",
+			trigger: func(t *testing.T) (string, string) {
+				username := smokeWorkflowID(t, "signup")
+				query := url.Values{
+					"username": {username},
+					"email":    {username + "@example.com"},
+				}
+				flowID, runID := triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/products/signup/submit",
+					query,
+					nil,
+				)
+				return flowID, runID
+			},
+		},
+		{
+			name: "products/job-post",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"title":       {"Smoke Test Job"},
+					"description": {"Smoke test description"},
+				}
+				flowID, runID := triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/products/job-post/create",
+					query,
+					nil,
+				)
+				return flowID, runID
+			},
+			flags: flowSmokeFlags{noStartStep: true},
+		},
+		{
+			name: "products/shortlist-candidates/employer-opt-in",
+			trigger: func(t *testing.T) (string, string) {
+				employerID := smokeWorkflowID(t, "employer")
+				body := map[string]string{"employerId": employerID}
+				triggerFlowSmokeHTTPWithBody(
+					t,
+					http.MethodPost,
+					"/products/shortlist-candidates/opt_in",
+					nil,
+					body,
+				)
+				return shortlistcandidates.EmployerOptInFlowID(employerID), ""
+			},
+		},
+		{
+			name: "products/shortlist-candidates/shortlist",
+			trigger: func(t *testing.T) (string, string) {
+				employerID := smokeWorkflowID(t, "shortlist-employer")
+				candidateID := smokeWorkflowID(t, "candidate")
+				triggerFlowSmokeHTTP(
+					t,
+					http.MethodPost,
+					"/products/shortlist-candidates/opt_in",
+					nil,
+					map[string]string{"employerId": employerID},
+				)
+				triggerFlowSmokeHTTPWithBody(
+					t,
+					http.MethodPost,
+					"/products/shortlist-candidates/shortlist",
+					nil,
+					map[string]string{
+						"employerId":  employerID,
+						"candidateId": candidateID,
+					},
+				)
+				return shortlistcandidates.ShortlistFlowID(employerID, candidateID), ""
+			},
+		},
+		{
+			name: "patterns/polling/simple",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "pattern-polling-simple")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/polling/start/simple",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/polling/backoff",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "pattern-polling-backoff")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/polling/start/backoff",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/interruptible",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "interruptible")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/interruptible/start",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/reminders",
+			trigger: func(t *testing.T) (string, string) {
+				_, _, responseBody := triggerFlowSmokeHTTPWithBody(
+					t,
+					http.MethodGet,
+					"/patterns/reminders/start",
+					nil,
+					nil,
+				)
+				flowID, runID := parseFlowTriggerResponse(string(responseBody), "")
+				return flowID, runID
+			},
+		},
+		{
+			name: "patterns/entity-store",
+			trigger: func(t *testing.T) (string, string) {
+				userID := smokeWorkflowID(t, "entity-store")
+				body := entitystore.UserProfileRequest{
+					UserID: userID,
+					UserProfile: entitystore.UserProfile{
+						DisplayName:    "Smoke Tester",
+						Email:          userID + "@example.com",
+						MarketingOptIn: true,
+						Credits:        120,
+						Weight:         59.5,
+						LastLoggedIn:   time.Date(2026, 8, 11, 15, 30, 0, 0, time.UTC),
+						Metadata: entitystore.UserProfileMetadata{
+							Source: "smoke",
+							Tags:   []string{"example"},
+						},
+					},
+				}
+				flowID, runID := triggerFlowSmokeHTTP(
+					t,
+					http.MethodPost,
+					"/patterns/entity-store/profile",
+					nil,
+					body,
+				)
+				if flowID == "" {
+					flowID = userID
+				}
+				return flowID, runID
+			},
+			flags: flowSmokeFlags{noStartStep: true},
+		},
+		{
+			name: "patterns/intervention",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "intervention")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/intervention/start",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/resettable-timer",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "resettable-timer")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/resettable-timer/start",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/parallel/simple",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-simple")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/parallel/start/simple",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/parallel/with-await",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-await")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/parallel/start/withAwait",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/recovery",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "recovery")},
+					"itemName":   {"smoke-item"},
+					"quantity":   {"2"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/patterns/recovery/start", query, nil)
+			},
+			flags: flowSmokeFlags{stepStartMayFail: true},
+		},
+		{
+			name: "patterns/scalable-parallel",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId":    {smokeWorkflowID(t, "scalable-parallel")},
+					"numOfChildWfs": {"1"},
+				}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/scalable-parallel/start",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/parent-child",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId":    {smokeWorkflowID(t, "parent-child")},
+					"numOfChildWfs": {"1"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/patterns/parent-child/start", query, nil)
+			},
+		},
+		{
+			name: "patterns/drain-channels/internal",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "drain-internal")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/drain-channels/internal/start",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/drain-channels/signal",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "drain-signal")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/drain-channels/signal/start-or-signal",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/wait-for-state-completion",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "wait-for-state")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/wait-for-state-completion/start",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/timeout",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId":         {smokeWorkflowID(t, "timeout")},
+					"successfulWorkflow": {"true"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/patterns/timeout/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/step",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-step")},
+					"inputNum":   {"1"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/step/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/step/retry",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId":        {smokeWorkflowID(t, "primitive-step-retry")},
+					"readyAfterAttempt": {"2"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/step/retry/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/attribute",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-attribute")},
+					"message":    {"smoke"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/attribute/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/channel",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-channel")},
+					"inputNum":   {"1"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/channel/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/timer",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-timer")},
+					"seconds":    {"1"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/timer/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/rpc",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "primitive-rpc")}}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/rpc/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/subflow",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-subflow")},
+					"inputNum":   {"1"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/subflow/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/client-apis",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-client-apis")},
+					"keyword":    {"smoke"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/client-apis/start", query, nil)
+			},
+		},
+	}
+}
+
+func TestFlowSmokeCatalogSize(t *testing.T) {
+	catalog := flowSmokeCatalog()
+	if len(catalog) == 0 {
+		t.Fatal("flow smoke catalog is empty")
+	}
+	t.Logf("flow smoke catalog size: %d", len(catalog))
+}
+
+func TestFlowSmokeAllRegisteredFlowsViaController(t *testing.T) {
+	for _, entry := range flowSmokeCatalog() {
+		entry := entry
+		t.Run(entry.name, func(t *testing.T) {
+			flowID, runID := entry.trigger(t)
+			requireFlowSmokeIDs(t, entry.name, flowID)
+			assertFlowSmokeStartStep(t, entry, flowID, runID)
+			assertFlowSmokeNoUnexpectedFailures(t, entry, flowID, runID)
+		})
+	}
+}
+
+func requireFlowSmokeIDs(t *testing.T, name string, flowID string) {
+	t.Helper()
+	if flowID == "" {
+		t.Fatalf("%s: controller response did not include flowID", name)
+	}
+}

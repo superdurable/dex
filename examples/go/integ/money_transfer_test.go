@@ -24,8 +24,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/moneytransfer"
+	"github.com/superdurable/dex/examples/go/products/money-transfer"
+	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -40,7 +40,7 @@ func TestMoneyTransferStart(t *testing.T) {
 	}
 	runID, err := integClient.StartFlow(
 		ctx,
-		workflows.MoneyTransfer,
+		registry.MoneyTransfer,
 		flowID,
 		input,
 		dex.StartFlowOptions{},

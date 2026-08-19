@@ -25,7 +25,7 @@ from dex_examples.config import DEFAULT_TIMEOUT, ExamplesConfig
 from dex_examples.http_app import create_app
 
 CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample"
-CRON_EXPRESSION = "*/1 * * * *"
+CRON_EXPRESSION = "0 * * * *"
 
 
 async def main() -> None:

@@ -440,4 +440,45 @@ describe('step graph', () => {
       flowId: 'SubFlow:parent-Parent-1-0',
     });
   });
+
+  it('hides the timeout handler Step unless the timeout policy is Handler', () => {
+    const timeoutHandler = {
+      stepExecutionId: 'sys:timeout_handler-1',
+      fromStepExecutionId: '__start__',
+      stepType: 'sys:timeout_handler',
+      phase: 'Waiting' as const,
+      stepExecutionLocals: [],
+      timers: [],
+    };
+
+    const failGraph = buildStepGraph([
+      event(1, 'FlowStartedOrContinued', {}, {
+        flowTimeout: '60s',
+        flowTimeoutPolicy: 1,
+        initialStart: { startStepType: 'charge' },
+      }),
+    ], [timeoutHandler]);
+    expect(failGraph.nodes.find((node) => node.stepType === 'sys:timeout_handler')).toBeUndefined();
+
+    const cancelGraph = buildStepGraph([
+      event(1, 'FlowStartedOrContinued', {}, {
+        flowTimeout: '60s',
+        flowTimeoutPolicy: 2,
+        initialStart: { startStepType: 'charge' },
+      }),
+    ], [timeoutHandler]);
+    expect(cancelGraph.nodes.find((node) => node.stepType === 'sys:timeout_handler')).toBeUndefined();
+
+    const handlerGraph = buildStepGraph([
+      event(1, 'FlowStartedOrContinued', {}, {
+        flowTimeout: '60s',
+        flowTimeoutPolicy: 3,
+        initialStart: { startStepType: 'charge' },
+      }),
+    ], [timeoutHandler]);
+    expect(handlerGraph.nodes.find((node) => node.stepType === 'sys:timeout_handler')).toMatchObject({
+      id: 'sys:timeout_handler-1',
+      status: 'Waiting',
+    });
+  });
 });

@@ -23,34 +23,37 @@ import { Client, Worker, openBlobCache } from "@superdurable/dex";
 import { setClient } from "./client-holder.js";
 import { startCronSchedule } from "./config/cron-schedule-starter.js";
 import { loadEnv } from "./config/env.js";
-import { createEngagementRouter } from "./controller/engagement-workflow-controller.js";
-import { createJobPostRouter } from "./controller/job-post-controller.js";
-import { createMicroserviceRouter } from "./controller/microservice-workflow-controller.js";
-import { createMoneyTransferRouter } from "./controller/money-transfer-workflow-controller.js";
-import { createPollingRouter } from "./controller/polling-controller.js";
-import { createShortlistCandidatesRouter } from "./controller/shortlist-candidates-controller.js";
-import { createSignupRouter } from "./controller/signup-workflow-controller.js";
-import { createSubscriptionRouter } from "./controller/subscription-workflow-controller.js";
-import { registerDesignPatternRoutes } from "./patterns/controller/design-pattern-controller.js";
-import {
-  backoffPollingFlow,
-  createExampleRegistry,
-  drainInternalChannelsFlow,
-  drainSignalChannelsFlow,
-  failureRecoveryFlow,
-  flowGracefulTimeout,
-  interruptibleExecutionFlow,
-  manualInterventionFlow,
-  parallelStatesWithAwaitFlow,
-  parentFlowV2,
-  reminderFlow,
-  requestReceiverFlow,
-  resettableTimerFlow,
-  simpleParallelStatesFlow,
-  simplePollingFlow,
-  userProfileFlow,
-  waitForStateCompletionFlow,
-} from "./registry.js";
+import { createDrainInternalRouter } from "./patterns/drain-channels/internal/controller.js";
+import { createDrainSignalRouter } from "./patterns/drain-channels/signal/controller.js";
+import { createEntityStoreRouter } from "./patterns/entity-store/controller.js";
+import { createInterruptibleRouter } from "./patterns/interruptible/controller.js";
+import { createInterventionRouter } from "./patterns/intervention/controller.js";
+import { createParallelRouter } from "./patterns/parallel/controller.js";
+import { createParentChildRouter } from "./patterns/parent-child/controller.js";
+import { createPatternPollingRouter } from "./patterns/polling/controller.js";
+import { createRecoveryRouter } from "./patterns/recovery/controller.js";
+import { createRemindersRouter } from "./patterns/reminders/controller.js";
+import { createResettableTimerRouter } from "./patterns/resettable-timer/controller.js";
+import { createScalableParallelRouter } from "./patterns/scalable-parallel/controller.js";
+import { createTimeoutRouter } from "./patterns/timeout/controller.js";
+import { createWaitForStateCompletionRouter } from "./patterns/wait-for-state-completion/controller.js";
+import { createAttributeRouter } from "./primitives/attribute/controller.js";
+import { createChannelRouter } from "./primitives/channel/controller.js";
+import { createClientApisRouter } from "./primitives/client-apis/controller.js";
+import { createRpcRouter } from "./primitives/rpc/controller.js";
+import { createStepRouter } from "./primitives/step/controller.js";
+import { createSubflowRouter } from "./primitives/subflow/controller.js";
+import { createTimerRouter } from "./primitives/timer/controller.js";
+import { createEngagementRouter } from "./products/engagement/controller.js";
+import { createJobPostRouter } from "./products/job-post/controller.js";
+import { createMicroserviceRouter } from "./products/microservices/controller.js";
+import { createMoneyTransferRouter } from "./products/money-transfer/controller.js";
+import { createOrderProcessingRouter } from "./products/order-processing/controller.js";
+import { createPollingRouter } from "./products/polling/controller.js";
+import { createShortlistCandidatesRouter } from "./products/shortlist-candidates/controller.js";
+import { createSignupRouter } from "./products/signup/controller.js";
+import { createSubscriptionRouter } from "./products/subscription/controller.js";
+import { createExampleRegistry, orderProcessingFlow } from "./registry.js";
 
 export interface SampleServer {
   readonly client: Client;
@@ -81,33 +84,38 @@ export async function startSampleServer(): Promise<SampleServer> {
   setClient(client);
 
   const app = express();
+  app.use(allowCors);
   app.use(express.json());
-  app.use("/moneytransfer", createMoneyTransferRouter(client));
-  app.use("/microservice", createMicroserviceRouter(client));
-  app.use("/engagement", createEngagementRouter(client));
-  app.use("/subscription", createSubscriptionRouter(client));
-  app.use("/polling", createPollingRouter(client));
-  app.use("/signup", createSignupRouter(client));
-  app.use("/jobpost", createJobPostRouter(client));
-  app.use("/shortlist_candidates", createShortlistCandidatesRouter(client));
-  registerDesignPatternRoutes(app, client, {
-    simplePollingFlow,
-    backoffPollingFlow,
-    interruptibleExecutionFlow,
-    reminderFlow,
-    userProfileFlow,
-    manualInterventionFlow,
-    resettableTimerFlow,
-    simpleParallelStatesFlow,
-    parallelStatesWithAwaitFlow,
-    failureRecoveryFlow,
-    requestReceiverFlow,
-    parentFlowV2,
-    drainInternalChannelsFlow,
-    drainSignalChannelsFlow,
-    waitForStateCompletionFlow,
-    flowGracefulTimeout,
-  });
+  app.use("/products/money-transfer", createMoneyTransferRouter(client));
+  app.use("/products/order-processing", createOrderProcessingRouter(client, orderProcessingFlow));
+  app.use("/products/microservices", createMicroserviceRouter(client));
+  app.use("/products/engagement", createEngagementRouter(client));
+  app.use("/products/subscription", createSubscriptionRouter(client));
+  app.use("/products/polling", createPollingRouter(client));
+  app.use("/products/signup", createSignupRouter(client));
+  app.use("/products/job-post", createJobPostRouter(client));
+  app.use("/products/shortlist-candidates", createShortlistCandidatesRouter(client));
+  app.use("/patterns/polling", createPatternPollingRouter(client));
+  app.use("/patterns/interruptible", createInterruptibleRouter(client));
+  app.use("/patterns/reminders", createRemindersRouter(client));
+  app.use("/patterns/entity-store", createEntityStoreRouter(client));
+  app.use("/patterns/intervention", createInterventionRouter(client));
+  app.use("/patterns/resettable-timer", createResettableTimerRouter(client));
+  app.use("/patterns/parallel", createParallelRouter(client));
+  app.use("/patterns/recovery", createRecoveryRouter(client));
+  app.use("/patterns/scalable-parallel", createScalableParallelRouter(client));
+  app.use("/patterns/parent-child", createParentChildRouter(client));
+  app.use("/patterns/drain-channels/internal", createDrainInternalRouter(client));
+  app.use("/patterns/drain-channels/signal", createDrainSignalRouter(client));
+  app.use("/patterns/wait-for-state-completion", createWaitForStateCompletionRouter(client));
+  app.use("/patterns/timeout", createTimeoutRouter(client));
+  app.use("/primitives/step", createStepRouter(client));
+  app.use("/primitives/attribute", createAttributeRouter(client));
+  app.use("/primitives/channel", createChannelRouter(client));
+  app.use("/primitives/timer", createTimerRouter(client));
+  app.use("/primitives/rpc", createRpcRouter(client));
+  app.use("/primitives/subflow", createSubflowRouter(client));
+  app.use("/primitives/client-apis", createClientApisRouter(client));
   app.use(
     (
       error: unknown,
@@ -157,6 +165,27 @@ export async function startSampleServer(): Promise<SampleServer> {
       ]);
     },
   };
+}
+
+function allowCors(
+  request: express.Request,
+  response: express.Response,
+  next: express.NextFunction,
+): void {
+  response.setHeader("Access-Control-Allow-Origin", "*");
+  response.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  );
+  response.setHeader(
+    "Access-Control-Allow-Headers",
+    "Origin, Content-Type, Accept, Authorization",
+  );
+  if (request.method === "OPTIONS") {
+    response.sendStatus(204);
+    return;
+  }
+  next();
 }
 
 function parseHttpAddress(address: string): { host: string; port: number } {

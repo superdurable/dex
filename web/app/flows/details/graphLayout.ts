@@ -66,6 +66,22 @@ export function layoutGraph<NodeData extends Record<string, unknown>>(
   edges: Edge[],
 ): Array<Node<NodeData>> {
   if (nodes.length === 0) return [];
+  const topologyNodes = nodes.filter((node) => !isSubFlowNode(node));
+  const subFlowNodes = nodes.filter(isSubFlowNode);
+  const topologyIDs = new Set(topologyNodes.map((node) => node.id));
+  const topologyEdges = edges.filter((edge) => (
+    topologyIDs.has(edge.source) && topologyIDs.has(edge.target)
+  ));
+  const positions = layoutTopology(topologyNodes, topologyEdges);
+  // SubFlow conditions are not next Steps; keep them off the topology ranks.
+  placeSubFlowNodes(subFlowNodes, topologyNodes, positions);
+  return nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position }));
+}
+
+function layoutTopology<NodeData extends Record<string, unknown>>(
+  nodes: Array<Node<NodeData>>,
+  edges: Edge[],
+): Map<string, { x: number; y: number }> {
   const graph = new dagre.graphlib.Graph();
   graph.setDefaultEdgeLabel(() => ({}));
   graph.setGraph({ rankdir: 'TB', ranksep: verticalGap, nodesep: horizontalGap });
@@ -115,8 +131,52 @@ export function layoutGraph<NodeData extends Record<string, unknown>>(
     }
     rowTop += rowHeight + verticalGap;
   }
+  return positions;
+}
 
-  return nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position }));
+function placeSubFlowNodes<NodeData extends Record<string, unknown>>(
+  subFlowNodes: Array<Node<NodeData>>,
+  topologyNodes: Array<Node<NodeData>>,
+  positions: Map<string, { x: number; y: number }>,
+): void {
+  const topologyByID = new Map(topologyNodes.map((node) => [node.id, node]));
+  const childrenByParent = new Map<string, Array<Node<NodeData>>>();
+  for (const node of subFlowNodes) {
+    const parentID = parentStepID(node);
+    if (!parentID || !positions.has(parentID)) continue;
+    childrenByParent.set(parentID, [...(childrenByParent.get(parentID) ?? []), node]);
+  }
+  for (const [parentID, children] of childrenByParent) {
+    const parent = topologyByID.get(parentID);
+    const parentPosition = positions.get(parentID);
+    if (!parent || !parentPosition) continue;
+    const stackHeight = children.reduce((height, child) => height + nodeHeight(child), 0)
+      + horizontalGap * Math.max(0, children.length - 1);
+    let nodeTop = parentPosition.y + Math.max(0, (nodeHeight(parent) - stackHeight) / 2);
+    const nodeLeft = parentPosition.x + nodeWidth(parent) + horizontalGap;
+    for (const child of children) {
+      positions.set(child.id, { x: nodeLeft, y: nodeTop });
+      nodeTop += nodeHeight(child) + horizontalGap;
+    }
+  }
+}
+
+function isSubFlowNode<NodeData extends Record<string, unknown>>(node: Node<NodeData>): boolean {
+  return nodeKind(node) === 'subflow';
+}
+
+function parentStepID<NodeData extends Record<string, unknown>>(node: Node<NodeData>): string {
+  const model = node.data.model;
+  if (!model || typeof model !== 'object') return '';
+  const value = (model as { parentStepId?: unknown }).parentStepId;
+  return typeof value === 'string' ? value : '';
+}
+
+function nodeKind<NodeData extends Record<string, unknown>>(node: Node<NodeData>): string {
+  const model = node.data.model;
+  if (!model || typeof model !== 'object') return '';
+  const value = (model as { kind?: unknown }).kind;
+  return typeof value === 'string' ? value : '';
 }
 
 export function defaultGraphZoom(contentWidth: number, viewportWidth: number): number {

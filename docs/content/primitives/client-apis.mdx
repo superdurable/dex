@@ -74,7 +74,57 @@ each SDK's long-poll timeout error.
 Java identifies Step executions with `StepExecutionId.of(stepType)` or
 `StepExecutionId.of(stepType, executionNumber)`.
 
-See [Wait for Step completion](/references/wait-for-step-completion).
+Clients can wait until a Step execution finishes while the Flow continues. Useful when an HTTP request should unblock after a particular Step without waiting for the whole Flow.
+
+## Flow options
+
+Start-time options include IDs, timeouts, retry/ID reuse policies, and search/index seeding. Exact fields live in the OpenAPI/proto and SDK option types.
+
+### Soft Flow timeout
+
+`flow_timeout_seconds` is enforced by Dex with a durable timer. It is not a
+Temporal or Cadence execution timeout, so Dex can still flush Attribute Store
+writes, report SubFlow completion, and publish terminal metrics after it fires.
+Zero disables the timeout. A positive timeout supports three policies:
+
+- `FAIL` fails the Flow with `FLOW_ERROR_TYPE_FLOW_TIMEOUT`. Normal Flow retry
+  policy applies.
+- `CANCEL` cancels the Flow and does not retry it.
+- `HANDLER` invokes the Flow's optional timeout hook once. The hook returns a
+  normal Step decision, so it can transition, dead-end, gracefully complete,
+  force-complete, or force-fail the Flow.
+
+SDKs default a positive timeout to `HANDLER` when the registered Flow provides
+the hook and to `FAIL` otherwise. Explicit `HANDLER` is rejected by the SDK
+when the Flow has no hook. A non-default policy without a positive timeout is
+invalid.
+
+The timeout budget begins when each actual workflow run starts. Backend retry
+and cron runs receive a new budget. Continue-as-new preserves the absolute
+deadline and the same timeout-handler Step execution.
+
+Every positive timeout is represented by one internal `sys:timeout_handler`
+Step. Dex creates its single timer directly, and `SkipTimer` can fire it early
+by index. `FAIL` and `CANCEL` terminate inside the interpreter; only `HANDLER`
+calls Worker Execute. The `sys:` namespace is reserved for Dex, and application
+Step types cannot contain `:`.
+
+Graceful completion considers only application Steps. Once requested, it
+cancels a waiting or executing timeout Step after all application work ends.
+
+## Flow config
+
+Runtime Flow configuration can be updated for some knobs (see `UpdateFlowConfig`). Prefer documenting the specific fields your SDK exposes rather than inventing server internals.
+
+The SDK field is `AttributeStoreName` in Go, `attributeStoreName` in Java and
+TypeScript, and `attribute_store_name` in Python and Rust. Each maps to the
+optional protocol field `attribute_sync_config_name` and selects a
+Server-configured Custom Attribute Store.
+
+An omitted field preserves the current setting. An explicit empty string keeps
+protocol presence and disables synchronization for future enabled writes.
+Pending mutations retain the target selected at enqueue time. A non-empty
+unknown name is rejected by StartFlow and UpdateFlowConfig.
 
 ## Control execution
 

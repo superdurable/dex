@@ -16,7 +16,7 @@
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.workflow.polling.PollingFlow;
+import io.superdurable.dex.products.polling.PollingFlow;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 

@@ -1,6 +1,15 @@
 name: Rust examples CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/rust/**"
+      - ".github/workflows/examples-rust-ci.yml"
+  pull_request:
+    paths:
+      - "examples/rust/**"
+      - ".github/workflows/examples-rust-ci.yml"
   workflow_dispatch:
 
 permissions:

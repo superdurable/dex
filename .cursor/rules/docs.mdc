@@ -7,10 +7,15 @@ alwaysApply: false
 # Product docs snippets
 
 Application code in `docs/content/` must be language-selectable with
-`<SdkTabs>` and `<SdkSnippet lang="python|go|java|typescript">`. Preference is
+`<SdkTabs>` and `<SdkSnippet lang="python|go|java|typescript|rust">`. Preference is
 sticky in the browser; default Python.
 
-Required shape: one `<SdkTabs>` wrapping four `<SdkSnippet>` children, each
+Every English page under `docs/content/` needs a matching Simplified Chinese
+page under `docs/i18n/zh-Hans/docusaurus-plugin-content-docs/current/`. See
+`.cursor/rules/docs-i18n.mdc`.
+
+Required shape: one `<SdkTabs>` wrapping `<SdkSnippet>` children (Python, Go,
+Java, TypeScript; add Rust when `examples/rust` has the same sample), each
 containing a fenced block in that language. Copy the pattern from an existing
 page such as `docs/content/primitives/step.mdx`.
 
@@ -19,3 +24,8 @@ or a single-language sample when the same API exists in other SDKs.
 
 Exempt: `bash` / `text` fences, tables of API names, and IDL excerpts.
 Use the exact SDK nouns and call sites; do not invent APIs.
+
+Application snippets must be copied from runnable files under `examples/`.
+The page must link to that example. If the example has HTTP, also link the
+examples playground when the sample is catalogued there. Add the example first
+when the API does not exist yet. See `.cursor/rules/docs-examples.mdc`.

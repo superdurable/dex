@@ -12,22 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/*
- * Copyright (c) 2022-2026 Super Durable, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 use std::collections::HashSet;
 
 use dex_examples_rust::patterns::{
@@ -46,11 +30,12 @@ use dex_examples_rust::patterns::{
     timeout::FlowGracefulTimeout,
     wait_for_state_completion::WaitForStateCompletionFlow,
 };
-use dex_examples_rust::workflow::{
+use dex_examples_rust::products::{
     engagement::EngagementFlow,
     job_post::JobPostFlow,
     microservices::OrchestrationFlow,
     money_transfer::MoneyTransferFlow,
+    order_processing::OrderProcessingFlow,
     polling::PollingFlow,
     shortlist_candidates::{EmployerOptInFlow, ShortlistFlow},
     signup::UserSignupFlow,
@@ -63,6 +48,7 @@ use dex_sdk::Flow;
 fn catalog_matches_every_cross_language_example() {
     let product_flows = [
         MoneyTransferFlow::default().flow_type(),
+        OrderProcessingFlow::default().flow_type(),
         OrchestrationFlow::default().flow_type(),
         EngagementFlow::default().flow_type(),
         SubscriptionFlow::default().flow_type(),
@@ -89,23 +75,23 @@ fn catalog_matches_every_cross_language_example() {
         ChildFlow::default().flow_type(),
         ParentFlow::default().flow_type(),
         RequestReceiverFlow::default().flow_type(),
-        UserProfileFlow::default().flow_type(),
+        UserProfileFlow.flow_type(),
         FlowGracefulTimeout::default().flow_type(),
         WaitForStateCompletionFlow::default().flow_type(),
     ];
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
     assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
-    assert_eq!(product_flows.len() + pattern_flows.len(), 28);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 29);
     assert_eq!(
         product_flows
             .into_iter()
             .chain(pattern_flows)
             .collect::<HashSet<_>>()
             .len(),
-        28
+        29
     );
-    create_example_registry().expect("all 28 example Flow definitions must register together");
+    create_example_registry().expect("all 29 example Flow definitions must register together");
 }
 
 #[test]

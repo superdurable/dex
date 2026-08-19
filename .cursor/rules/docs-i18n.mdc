@@ -1,0 +1,21 @@
+---
+description: Product docs ship in English and Simplified Chinese
+alwaysApply: true
+---
+
+# Docs languages
+
+Product docs in `docs/content/` ship in **English** and **Simplified Chinese**
+(`zh-Hans`). The navbar language control (top right) persists the choice in
+`localStorage` (`docs-locale`) and cookie `superdurable-docs-locale`.
+
+When you add or change a page under `docs/content/`:
+
+1. Write English in `docs/content/...`.
+2. Write Chinese at the same relative path under
+   `docs/i18n/zh-Hans/docusaurus-plugin-content-docs/current/`.
+3. Keep Dex terms untranslated: Flow, Step, Attribute, Channel, RPC, Timer.
+4. Keep code samples identical across locales.
+5. Do not ship a new English page without its Chinese counterpart.
+
+Do not remove the locale switcher or the stored preference.

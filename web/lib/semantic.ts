@@ -121,6 +121,24 @@ export function flowErrorTypeLabel(value: unknown): string {
   });
 }
 
+export function flowTimeoutPolicyLabel(value: unknown): string {
+  return enumLabel(value, {
+    0: 'Unspecified',
+    1: 'Fail',
+    2: 'Cancel',
+    3: 'Handler',
+    FLOW_TIMEOUT_POLICY_UNSPECIFIED: 'Unspecified',
+    FLOW_TIMEOUT_POLICY_FAIL: 'Fail',
+    FLOW_TIMEOUT_POLICY_CANCEL: 'Cancel',
+    FLOW_TIMEOUT_POLICY_HANDLER: 'Handler',
+  });
+}
+
+export function isHandlerTimeoutPolicy(value: unknown): boolean {
+  const key = String(value ?? 0);
+  return key === '3' || key === 'FLOW_TIMEOUT_POLICY_HANDLER';
+}
+
 export function closeDecisionTypeLabel(value: unknown): string {
   return enumLabel(value, {
     0: 'Unspecified',

@@ -544,6 +544,27 @@ describe('flow start event details', () => {
 
     expect(markup).toContain('Flow timeout');
     expect(markup).toContain('1m');
+    expect(markup).not.toContain('Timeout policy');
+  });
+
+  it('renders the configured flow timeout policy', () => {
+    const event: FlowHistoryEvent = {
+      eventId: 1,
+      eventTime: '2026-08-05T23:44:29Z',
+      type: 'FlowStartedOrContinued',
+      payload: {
+        flowTimeout: '60s',
+        flowTimeoutPolicy: 2,
+        initialStart: { startStepType: 'charge' },
+      },
+    };
+
+    const markup = renderDetails(event);
+
+    expect(markup).toContain('Flow timeout');
+    expect(markup).toContain('1m');
+    expect(markup).toContain('Timeout policy');
+    expect(markup).toContain('Cancel');
   });
 
   it('links a minimal continued SubFlow state by generated Flow ID', () => {

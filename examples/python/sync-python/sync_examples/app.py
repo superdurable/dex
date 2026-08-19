@@ -31,16 +31,17 @@ from dex import (
     open_blob_cache,
 )
 
-from dex_examples.basic.basic_flow import BasicFlow
-from dex_examples.my_dependency_service import MyDependencyService
-from dex_examples.patterns.workflow.interruptible.interruptible_execution_flow import (
+from dex_examples.patterns.interruptible.interruptible_execution_flow import (
     InterruptibleExecutionFlow,
 )
-from dex_examples.workflow.engagement.engagement_flow import EngagementFlow
-from dex_examples.workflow.money.transfer.money_transfer_flow import MoneyTransferFlow
-from dex_examples.workflow.subscription.subscription_flow import SubscriptionFlow
+from dex_examples.primitives.channel.channel_flow import ChannelFlow
+from dex_examples.primitives.step.step_flow import StepFlow
+from dex_examples.products.engagement.engagement_flow import EngagementFlow
+from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransferFlow
+from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
+from dex_examples.shared.my_dependency_service import MyDependencyService
 from sync_examples.config import SyncExamplesConfig
-from sync_examples.flows.parent_child import ChildFlow, ParentFlowV2
+from sync_examples.patterns.parent_child.parent_child import ChildFlow, ParentFlowV2
 
 
 class SyncExampleApp:
@@ -50,7 +51,8 @@ class SyncExampleApp:
         client_provider: Callable[[], Client] = self.require_client
 
         service = MyDependencyService()
-        self.basic = BasicFlow()
+        self.step = StepFlow()
+        self.channel = ChannelFlow()
         self.money_transfer = MoneyTransferFlow(service)
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
@@ -59,7 +61,8 @@ class SyncExampleApp:
         self.parent_flow_v2 = ParentFlowV2(client_provider, self.child_flow)
 
         flows: list[Flow[Any]] = [
-            self.basic,
+            self.step,
+            self.channel,
             self.money_transfer,
             self.engagement,
             self.subscription,

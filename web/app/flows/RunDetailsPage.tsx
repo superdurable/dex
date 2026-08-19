@@ -15,6 +15,7 @@ import type {
 } from 'react';
 import { formatDate, formatDuration } from '@/lib/format';
 import { hydrateBlobs } from '@/lib/blobs';
+import { readResponseJSON } from '@/lib/http';
 import { VALUE_BLOB_UNAVAILABLE } from '@/lib/unavailable';
 import type {
   FlowHistoryEvent,
@@ -73,12 +74,6 @@ function selectedEventConnectorTone(event: FlowHistoryEvent): SelectedEventConne
   if (event.type.startsWith('StepWaitFor')) return 'wait-for';
   if (event.type.startsWith('StepExecute')) return 'execute';
   return 'default';
-}
-
-async function responseJSON<T>(response: Response): Promise<T> {
-  const data = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
-  return data;
 }
 
 export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: string }) {
@@ -168,7 +163,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       return;
     }
     try {
-      const rawState = await responseJSON<FlowState>(await fetch(stateURL, { cache: 'no-store' }));
+      const rawState = await readResponseJSON<FlowState>(await fetch(stateURL, { cache: 'no-store' }));
       setState(rawState);
       const hydrated = await hydrateBlobs(rawState, blobCache.current);
       setState(hydrated.value);
@@ -195,7 +190,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
   }, [addDataWarning]);
 
   const loadSummary = useCallback(async () => {
-    const value = await responseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));
+    const value = await readResponseJSON<FlowSummary>(await fetch(summaryURL, { cache: 'no-store' }));
     setSummary(value);
     return value;
   }, [summaryURL]);
@@ -212,7 +207,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
       estimatePageSize: '200',
     });
     if (token) params.set('nextPageToken', token);
-    const page = await responseJSON<HistoryPage>(
+    const page = await readResponseJSON<HistoryPage>(
       await fetch(`/api/flows/history?${params}`, { cache: 'no-store' }),
     );
     setHistory((current) => {
@@ -285,7 +280,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
           setWaitCycle((current) => current + 1);
           return;
         }
-        await responseJSON(response);
+        await readResponseJSON(response);
         const latestSummary = await loadSummary();
         await Promise.all([
           loadHistoryPage('', nextInternalEventId, true),

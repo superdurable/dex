@@ -41,13 +41,29 @@ const config: Config = {
         (shared ? '; Domain=.superdurable.io; Secure' : '');
     }
   } catch (_) {}
+})();
+(function () {
+  try {
+    var stored = window.localStorage.getItem('docs-locale');
+    var cookieMatch = document.cookie.match(/(?:^|; )superdurable-docs-locale=(en|zh-Hans)(?:;|$)/);
+    var preferred = stored === 'en' || stored === 'zh-Hans' ? stored : (cookieMatch ? cookieMatch[1] : null);
+    if (preferred !== 'zh-Hans') return;
+    var path = location.pathname;
+    if (path === '/zh-Hans' || path === '/zh-Hans/' || path.indexOf('/zh-Hans/') === 0) return;
+    var next = path === '/' ? '/zh-Hans/' : '/zh-Hans' + path;
+    location.replace(next + location.search + location.hash);
+  } catch (_) {}
 })();`,
     },
   ],
 
   i18n: {
     defaultLocale: 'en',
-    locales: ['en'],
+    locales: ['en', 'zh-Hans'],
+    localeConfigs: {
+      en: {label: 'English', htmlLang: 'en'},
+      'zh-Hans': {label: '中文', htmlLang: 'zh-Hans'},
+    },
   },
 
   presets: [
@@ -124,7 +140,8 @@ const config: Config = {
         {
           title: 'Docs',
           items: [
-            {label: 'Intro', to: '/intro/what-is-dex'},
+            {label: 'What is Durable Execution?', to: '/intro/what-is-durable-execution'},
+            {label: 'Why Dex?', to: '/intro/what-is-dex'},
             {label: 'Quick Start', to: '/quick-start'},
             {label: 'Glossary', to: '/glossary'},
           ],
@@ -142,7 +159,7 @@ const config: Config = {
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
-      additionalLanguages: ['java', 'python', 'go', 'typescript', 'bash'],
+      additionalLanguages: ['java', 'python', 'go', 'typescript', 'rust', 'bash'],
     },
   } satisfies Preset.ThemeConfig,
 };

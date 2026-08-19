@@ -2061,12 +2061,9 @@ pre {
   background: #d39732;
 }
 
-.legend-pending {
-  background: #8c6fc4;
-}
-
-.legend-completed {
-  background: #4e81a9;
+.legend-source {
+  border: 1px solid #856bb7;
+  background: #f5f1fb;
 }
 
 .legend-failed {
@@ -2163,7 +2160,7 @@ pre {
 .react-flow__node.step-flow-node {
   width: 220px;
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid #bfcac7;
   border-radius: 10px;
   color: var(--ink);
@@ -2177,16 +2174,36 @@ pre {
   box-shadow: 0 0 0 3px rgba(111, 160, 54, 0.14);
 }
 
-.react-flow__node.node-active {
+.graph-node-root {
+  width: 100%;
+  height: 100%;
+}
+
+.graph-node-body {
+  height: 100%;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.react-flow__node.step-flow-node .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  border: none;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.react-flow__edge.graph-edge-subflow .react-flow__edge-path {
+  stroke-dasharray: 6 4;
+}
+
+.react-flow__node.node-active,
+.react-flow__node.node-pending {
   border-color: var(--brand-bright);
 }
 
 .react-flow__node.node-waiting {
   border-color: #d39732;
-}
-
-.react-flow__node.node-pending {
-  border-color: #8c6fc4;
 }
 
 .react-flow__node.node-failed {

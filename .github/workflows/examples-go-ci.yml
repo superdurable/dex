@@ -1,7 +1,23 @@
 name: Go examples CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/go/**"
+      - ".github/workflows/examples-go-ci.yml"
+  pull_request:
+    paths:
+      - "examples/go/**"
+      - ".github/workflows/examples-go-ci.yml"
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: examples-go-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   unit:

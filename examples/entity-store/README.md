@@ -12,9 +12,7 @@ From this directory:
 
 ```bash
 docker compose up -d --wait
-dexcli dev \
-  --attribute-store-config ./attribute-store.yaml \
-  --sqlite-db-filename /tmp/dex-entity-store.db
+dexcli dev --attribute-store-config ./attribute-store.yaml
 ```
 
 Compose starts PostgreSQL 17 and creates `public.user_profiles` on
@@ -25,11 +23,11 @@ Start any one language example according to its README, then create and update a
 profile through that example's HTTP server:
 
 ```bash
-curl -X POST http://localhost:8080/design-pattern/entity-store/profile \
+curl -X POST http://localhost:8080/patterns/entity-store/profile \
   -H 'content-type: application/json' \
   -d '{"userId":"user-42","displayName":"Ada Lovelace","email":"ada@example.com","marketingOptIn":true,"credits":120,"weight":59.5,"lastLoggedInTime":"2026-08-11T15:30:00Z","metadata":{"source":"example","tags":["computing","poetry"]}}'
 
-curl -X POST http://localhost:8080/design-pattern/entity-store/profile/update \
+curl -X POST http://localhost:8080/patterns/entity-store/profile/update \
   -H 'content-type: application/json' \
   -d '{"userId":"user-42","displayName":"Ada Byron","email":"ada.byron@example.com","marketingOptIn":false,"credits":180,"weight":60.25,"lastLoggedInTime":"2026-08-12T09:45:00Z","metadata":{"source":"example","tags":["computing","history"]}}'
 ```
@@ -51,7 +49,7 @@ docker compose \
 Clear the synced values with:
 
 ```bash
-curl -X POST 'http://localhost:8080/design-pattern/entity-store/profile/clear?userId=user-42'
+curl -X POST 'http://localhost:8080/patterns/entity-store/profile/clear?userId=user-42'
 ```
 
 The row remains and its seven projected columns become SQL `NULL`. A projection

@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { useState } from 'react';
+import { readResponseJSON } from '@/lib/http';
 import type { FlowSummary } from '@/lib/types';
 
 const stopTypes = [
@@ -50,8 +51,7 @@ export function StopFlowDialog({
           reason,
         }),
       });
-      const data = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(data.error || 'Stop failed');
+      await readResponseJSON(response);
       onStopped();
       onClose();
     } catch (stopError) {

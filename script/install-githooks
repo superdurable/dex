@@ -1,0 +1,10 @@
+#!/bin/sh
+# Install the repo commit-msg hook into this clone's git hooks directory.
+set -e
+
+root=$(git rev-parse --show-toplevel)
+hook_dir=$(git rev-parse --git-path hooks)
+mkdir -p "$hook_dir"
+cp "$root/.githooks/commit-msg" "$hook_dir/commit-msg"
+chmod +x "$root/.githooks/commit-msg" "$hook_dir/commit-msg"
+echo "Installed $hook_dir/commit-msg"

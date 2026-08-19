@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import type { BlobCache } from "./blob-cache.js";
-import type { Codec, Value as CodecValue } from "./codec.js";
+import { jsonCodec, type Codec, type Value as CodecValue } from "./codec.js";
 import { ValueMappingError } from "./errors.js";
 import { NullValue } from "./gen/google/protobuf/struct.js";
 import {
@@ -15,6 +15,13 @@ import {
   type FlowServiceClient,
   type LoadBlobsResponse,
 } from "./gen/dex.js";
+
+const jsonValueCodec = jsonCodec<unknown>();
+
+/** Returns `codec`, or the identity JSON codec when the caller omitted one. */
+export function codecOrJson<T>(codec?: Codec<T>): Codec<T> {
+  return codec ?? (jsonValueCodec as Codec<T>);
+}
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();

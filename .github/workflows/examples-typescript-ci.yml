@@ -1,6 +1,15 @@
 name: TypeScript examples CI
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "examples/typescript/**"
+      - ".github/workflows/examples-typescript-ci.yml"
+  pull_request:
+    paths:
+      - "examples/typescript/**"
+      - ".github/workflows/examples-typescript-ci.yml"
   workflow_dispatch:
 
 permissions:

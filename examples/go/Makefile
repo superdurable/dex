@@ -7,9 +7,10 @@ default: help
 
 bins:
 	go build -o dex-samples ./cmd/server
+	go build -o dex-dataset-deal ./cmd/dataset-deal
 
 clean:
-	rm -f dex-samples
+	rm -f dex-samples dex-dataset-deal
 
 datasetDealDemo:
 	./run-dataset-deal-demo.sh
@@ -21,12 +22,12 @@ e2eTests:
 	./run-e2e-tests.sh
 
 fmt:
-	gofmt -s -w ./cmd ./integ ./workflows
+	gofmt -s -w ./cmd ./integ ./products ./patterns ./registry ./server ./shared
 
 tests: unitTests
 
 unitTests:
-	go test -v ./cmd/... ./workflows/...
+	go test -v ./cmd/... ./products/... ./patterns/... ./registry/...
 
 help:
 	@printf "\033[36m%-20s\033[0m %s\n" 'help' 'Prints this help message'

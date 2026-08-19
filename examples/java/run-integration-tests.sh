@@ -16,8 +16,23 @@
 
 set -euo pipefail
 
+keep_running=false
+test_args=()
+for arg in "$@"; do
+  case "$arg" in
+    --keep-running)
+      keep_running=true
+      ;;
+    *)
+      test_args+=("$arg")
+      ;;
+  esac
+done
+
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
+entity_store_dir="$repo_root/examples/entity-store"
+compose_project="dex-java-examples-$$"
 dex_port="${DEX_JAVA_EXAMPLES_DEX_PORT:-19803}"
 web_port="${DEX_JAVA_EXAMPLES_WEB_PORT:-19903}"
 dex_address="127.0.0.1:${dex_port}"
@@ -25,13 +40,26 @@ log_file="/tmp/test-java-examples-integration-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
 dexcli_pid=""
+entity_store_started=false
 : >"$log_file"
 
 cleanup() {
   status=$?
+  if $keep_running; then
+    if [[ "$status" -ne 0 ]]; then
+      cat "$log_file" >&2
+    fi
+    return
+  fi
   if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
     kill -TERM "$dexcli_pid"
     wait "$dexcli_pid" || true
+  fi
+  if $entity_store_started; then
+    if ! docker compose -p "$compose_project" \
+      -f "$entity_store_dir/docker-compose.yml" down --volumes >>"$log_file" 2>&1; then
+      echo "failed to stop the Java examples entity store" >&2
+    fi
   fi
   if [[ "$status" -ne 0 ]]; then
     cat "$log_file" >&2
@@ -53,7 +81,12 @@ fi
   GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
 )
 
+docker compose -p "$compose_project" \
+  -f "$entity_store_dir/docker-compose.yml" up --detach --wait
+entity_store_started=true
+
 "$binary_dir/dexcli" dev \
+  -attribute-store-config "$entity_store_dir/attribute-store.yaml" \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
   -web-port "$web_port" \
@@ -80,5 +113,14 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
+export DEXCLI_PATH="$binary_dir/dexcli"
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  ./gradlew test --tests 'io.superdurable.dex.integ.*' --info --no-daemon
+  ./gradlew test --tests 'io.superdurable.dex.integ.*' --tests 'io.superdurable.dex.integ.smoke.*' --info --no-daemon "${test_args[@]}"
+
+if $keep_running; then
+  echo ""
+  echo "Dex Web:  http://127.0.0.1:${web_port}"
+  echo "dexcli:   --server ${dex_address}"
+  echo "Press Ctrl+C to stop dexcli dev"
+  wait "$dexcli_pid"
+fi

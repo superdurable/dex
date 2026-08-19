@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/superdurable/dex/examples/go/workflows"
-	"github.com/superdurable/dex/examples/go/workflows/microservices"
+	"github.com/superdurable/dex/examples/go/products/microservices"
+	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
@@ -35,7 +35,7 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 	flowID := newFlowID(t, "microservice")
 	runID, err := integClient.StartFlow(
 		ctx,
-		workflows.Microservices,
+		registry.Microservices,
 		flowID,
 		"initial-data",
 		dex.StartFlowOptions{},
@@ -54,7 +54,7 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
-		workflows.Microservices.Swap,
+		registry.Microservices.Swap,
 		"updated-data",
 		&oldData,
 		dex.InvokeOptions{},

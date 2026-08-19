@@ -16,7 +16,7 @@
 
 package io.superdurable.dex.integ;
 
-import io.superdurable.dex.workflow.money.transfer.TransferRequest;
+import io.superdurable.dex.products.moneytransfer.TransferRequest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 

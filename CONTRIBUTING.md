@@ -17,6 +17,10 @@
 | [sdk-python/](sdk-python/) | Python SDK |
 | [examples/python/](examples/python/) | Python examples |
 | [sdk-rust/](sdk-rust/) | Shared Rust SDK Core |
+| [examples/rust/](examples/rust/) | Rust examples |
+| [sdk-typescript/](sdk-typescript/) | TypeScript SDK |
+| [examples/typescript/](examples/typescript/) | TypeScript examples |
+| [examples/playground/](examples/playground/) | Shared examples playground |
 
 Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside the workspace so consumers resolve released versions. Build the server separately (`cd server && go build ./...`) to avoid a Cadence/Temporal `genproto` workspace conflict.
 
@@ -26,6 +30,9 @@ Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside 
 - Java 8+ and Gradle wrapper (for `sdk-java` / `examples/java`)
 - Python 3.9+ and uv (for `sdk-python` / `examples/python`)
 - Docker (for integration tests / local Temporal+Cadence stacks)
+
+Install the commit-msg hook once per clone with `make githooks`. It rejects
+Cursor co-author trailers. Do not pass `--no-verify`.
 
 ## Go workspace
 

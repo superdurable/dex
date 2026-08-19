@@ -44,9 +44,15 @@ export type RPC<Input, Output> = (
 export interface RPCOptions<Input = unknown, Output = unknown> {
   /** Protocol RPC name; uses the decorated method name when omitted. */
   readonly name?: string;
-  /** Required input codec for handlers that accept an input. */
+  /**
+   * Input codec. Omit this for JSON objects, or when the handler has no input.
+   * Scalar wire kinds still need an explicit codec.
+   */
   readonly inputCodec?: Codec<Input>;
-  /** Required output codec for handlers returning RPCResult. */
+  /**
+   * Output codec. Omit this for JSON objects, or when the handler returns void.
+   * Scalar wire kinds still need an explicit codec.
+   */
   readonly outputCodec?: Codec<Output>;
   /** Non-negative handler timeout in milliseconds. */
   readonly timeoutMs?: number;
@@ -58,99 +64,42 @@ export interface RegisteredRPC {
   readonly method: Function;
   readonly name: string;
   readonly options: RPCOptions<any, any>;
+  readonly hasInput: boolean;
 }
 
 const rpcOptions = new WeakMap<Function, RPCOptions<any, any>>();
 
 /**
- * Decorates an RPC with both typed input and output.
+ * Decorates a Flow method as an RPC handler.
  * @typeParam Input - Handler input type.
  * @typeParam Output - Handler output type.
- * @param options - Required input/output codecs and optional RPC settings.
+ * @param options - Optional codecs and RPC settings. Omitted codecs use JSON.
  * @returns A stage-3 method decorator validated during Registry construction.
  */
-export function rpc<Input, Output>(options: RPCOptions<Input, Output> & {
-  /** Required codec for the handler input. */
-  readonly inputCodec: Codec<Input>;
-  /** Required codec for the RPCResult output. */
-  readonly outputCodec: Codec<Output>;
-}): <This>(
-  method: (
-    this: This,
-    context: Context,
-    input: Input,
-  ) => RPCResult<Output> | Promise<RPCResult<Output>>,
-  context: ClassMethodDecoratorContext<
-    This,
-    (
-      this: This,
-      context: Context,
-      input: Input,
-    ) => RPCResult<Output> | Promise<RPCResult<Output>>
-  >,
-) => void;
-
-/**
- * Decorates an input-free RPC with typed output.
- * @typeParam Output - Handler output type.
- * @param options - Required output codec and optional RPC settings.
- * @returns A stage-3 method decorator validated during Registry construction.
- */
-export function rpc<Output>(options: RPCOptions<never, Output> & {
-  /** Input codecs are forbidden for an input-free handler. */
-  readonly inputCodec?: never;
-  /** Required codec for the RPCResult output. */
-  readonly outputCodec: Codec<Output>;
-}): <This>(
-  method: (this: This, context: Context) => RPCResult<Output> | Promise<RPCResult<Output>>,
-  context: ClassMethodDecoratorContext<
-    This,
-    (this: This, context: Context) => RPCResult<Output> | Promise<RPCResult<Output>>
-  >,
-) => void;
-
-/**
- * Decorates a typed-input RPC with no output.
- * @typeParam Input - Handler input type.
- * @param options - Required input codec and optional RPC settings.
- * @returns A stage-3 method decorator validated during Registry construction.
- */
-export function rpc<Input>(options: RPCOptions<Input, never> & {
-  /** Required codec for the handler input. */
-  readonly inputCodec: Codec<Input>;
-  /** Output codecs are forbidden for a void handler. */
-  readonly outputCodec?: never;
-}): <This>(
-  method: (this: This, context: Context, input: Input) => void | Promise<void>,
-  context: ClassMethodDecoratorContext<
-    This,
-    (this: This, context: Context, input: Input) => void | Promise<void>
-  >,
-) => void;
-
-/**
- * Decorates an input-free, output-free RPC.
- * @param options - Optional name, timeout, and Attribute locks.
- * @returns A stage-3 method decorator validated during Registry construction.
- */
-export function rpc(options?: RPCOptions<never, never> & {
-  /** Input codecs are forbidden for an input-free handler. */
-  readonly inputCodec?: never;
-  /** Output codecs are forbidden for a void handler. */
-  readonly outputCodec?: never;
-}): <This>(
-  method: (this: This, context: Context) => void | Promise<void>,
-  context: ClassMethodDecoratorContext<This, (this: This, context: Context) => void | Promise<void>>,
+export function rpc<Input = unknown, Output = unknown>(
+  options?: RPCOptions<Input, Output>,
+): <This>(
+  method: (this: This, context: Context, ...args: any[]) => unknown,
+  context: ClassMethodDecoratorContext<This, (this: This, context: Context, ...args: any[]) => unknown>,
 ) => void;
 
 /**
  * Creates a typed RPC method decorator.
  *
- * Registry construction validates handler shape, codecs, unique names, and locks.
+ * Registry construction validates handler shape, unique names, and locks.
  * The handler receives Context and optional input, then returns RPCResult or void.
+ * Omitted input and output codecs use JSON. Scalar wire kinds still need an
+ * explicit codec. A method with only a Context parameter and a void return is a
+ * procedure. Default-parameter methods report `Function.length` without those
+ * parameters, so pass `inputCodec` when a trailing input uses a default.
  *
  * @example
  * ```ts
+ * @rpc()
+ * describe(_context: Context, order: Order): RPCResult<Order> {
+ *   return { output: order };
+ * }
+ *
  * @rpc({ inputCodec: stringCodec, outputCodec: booleanCodec, timeoutMs: 10_000 })
  * async cancel(context: Context, reason: string): Promise<RPCResult<boolean>> {
  *   return { output: true };
@@ -198,6 +147,7 @@ export function registeredRPCs(flow: Flow<unknown>): readonly RegisteredRPC[] {
         method,
         name: options.name ?? name,
         options,
+        hasInput: method.length >= 2 || options.inputCodec !== undefined,
       });
     }
     prototype = Object.getPrototypeOf(prototype) as object | null;

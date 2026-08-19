@@ -29,6 +29,7 @@ import {
   executeFailurePolicyLabel,
   flowErrorTypeLabel,
   flowStatusLabel,
+  flowTimeoutPolicyLabel,
   grpcStatusLabel,
   subFlowReusePolicyLabel,
   waitForFailurePolicyLabel,
@@ -509,6 +510,9 @@ function SubFlowRecord({
         ['Condition ID', value.conditionId],
         ['Reuse policy', subFlowReusePolicyLabel(options.reusePolicy)],
         ['Timeout', seconds(options.flowTimeoutSeconds)],
+        ['Timeout policy', Number(options.flowTimeoutSeconds) > 0
+          ? specifiedTimeoutPolicy(options.flowTimeoutPolicy)
+          : undefined],
         ['Start delay', seconds(options.flowStartDelaySeconds)],
         ['Retry initial interval', seconds(retry.initialIntervalSeconds)],
         ['Retry backoff coefficient', retry.backoffCoefficient],
@@ -894,13 +898,29 @@ function protobufDuration(value: unknown): string | undefined {
   return displayValue(value);
 }
 
+function flowTimeoutFields(payload: Data): Field[] {
+  const duration = protobufDuration(payload.flowTimeout);
+  if (!duration) {
+    return [['Flow timeout', 'No timeout']];
+  }
+  return [
+    ['Flow timeout', duration],
+    ['Timeout policy', specifiedTimeoutPolicy(payload.flowTimeoutPolicy)],
+  ];
+}
+
+function specifiedTimeoutPolicy(value: unknown): string | undefined {
+  const label = flowTimeoutPolicyLabel(value);
+  return label === 'Unspecified' ? undefined : label;
+}
+
 function InitialStartDetails({ payload, showHeading = true }: { payload: Data; showHeading?: boolean }) {
   const start = asData(payload.initialStart);
   return (
     <>
       <DetailSection title={showHeading ? 'Initial start' : undefined}>
         <Fields values={[
-          ['Flow timeout', protobufDuration(payload.flowTimeout) ?? 'No timeout'],
+          ...flowTimeoutFields(payload),
           ['Start step', start.startStepType],
         ]} />
         <ValueBlock label="Step input" value={start.stepInput} />
@@ -931,7 +951,7 @@ function ContinuedStartDetails({
       <DetailSection title={showHeading ? 'Continued run' : undefined}>
         <Fields values={[
           ['Previous run ID', continued.previousRunId],
-          ['Flow timeout', protobufDuration(payload.flowTimeout) ?? 'No timeout'],
+          ...flowTimeoutFields(payload),
         ]} />
       </DetailSection>
       {Array.isArray(continued.stepsToStart) && continued.stepsToStart.length > 0 && (

@@ -12,38 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Construction smoke test for BasicFlow; the behaviour lives in tests/integ."""
+"""Construction smoke test for ChannelFlow; behaviour lives in tests/integ."""
 
 from __future__ import annotations
 
 from dex import Registry
 
-from dex_examples.basic.basic_flow import BasicFlow, Increment, WaitForApproval
+from dex_examples.primitives.channel.channel_flow import ChannelFlow, ChannelWaitStep
 
 
-def test_basic_flow_declares_a_start_step() -> None:
-    flow = BasicFlow()
+def test_channel_flow_declares_a_start_step() -> None:
+    flow = ChannelFlow()
 
     definitions = list(flow.get_steps())
 
-    assert [definition.step for definition in definitions] == [
-        flow.increment,
-        flow.wait_for_approval,
-    ]
-    assert [definition.is_start_step for definition in definitions] == [True, False]
-    assert isinstance(flow.increment, Increment)
-    assert isinstance(flow.wait_for_approval, WaitForApproval)
+    assert [definition.step for definition in definitions] == [flow.wait_for_approval]
+    assert [definition.is_start_step for definition in definitions] == [True]
+    assert isinstance(flow.wait_for_approval, ChannelWaitStep)
 
 
-def test_basic_flow_registers_its_attribute_channel_and_rpcs() -> None:
-    flow = BasicFlow()
+def test_channel_flow_registers_its_channel_and_rpc() -> None:
+    flow = ChannelFlow()
 
     registry = Registry((flow,))
     registered = registry._flow_for_instance(flow)
 
-    assert {rpc.name for rpc in registered.rpcs.values()} == {
-        "append_string",
-        "approve",
-    }
-    assert flow.test_string.name == BasicFlow.DA_TEST_STRING
-    assert flow.approval.name == BasicFlow.CHANNEL_APPROVAL
+    assert {rpc.name for rpc in registered.rpcs.values()} == {"approve"}
+    assert flow.approval.name == ChannelFlow.approval.name
