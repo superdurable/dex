@@ -45,12 +45,15 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     public final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
 
     private final MyDependencyService service;
-    private final ChargeStep charge = new ChargeStep();
-    private final ShipStep ship = new ShipStep();
-    private final RefundStep refund = new RefundStep();
+    private final ChargeStep charge;
+    private final ShipStep ship;
+    private final RefundStep refund;
 
     public OrderProcessingFlow(final MyDependencyService service) {
         this.service = service;
+        this.charge = new ChargeStep(service);
+        this.ship = new ShipStep(service);
+        this.refund = new RefundStep(service);
     }
 
     @Override
@@ -75,6 +78,12 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     }
 
     final class ChargeStep implements Step<OrderRequest> {
+        private final MyDependencyService service;
+
+        ChargeStep(final MyDependencyService service) {
+            this.service = service;
+        }
+
         @Override
         public String getStepType() {
             return "ChargeStep";
@@ -104,6 +113,12 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     }
 
     final class ShipStep implements Step<OrderRequest> {
+        private final MyDependencyService service;
+
+        ShipStep(final MyDependencyService service) {
+            this.service = service;
+        }
+
         @Override
         public String getStepType() {
             return "ShipStep";
@@ -155,6 +170,12 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     }
 
     final class RefundStep implements Step<OrderRequest> {
+        private final MyDependencyService service;
+
+        RefundStep(final MyDependencyService service) {
+            this.service = service;
+        }
+
         @Override
         public String getStepType() {
             return "RefundStep";

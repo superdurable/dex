@@ -40,8 +40,9 @@ from dex_examples.products.order_processing.order_request import OrderRequest
 
 
 class ChargeStep(Step[OrderRequest]):
-    def __init__(self, flow: "OrderProcessingFlow") -> None:
+    def __init__(self, flow: "OrderProcessingFlow", service: MyDependencyService) -> None:
         self.flow = flow
+        self.service = service
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -52,14 +53,15 @@ class ChargeStep(Step[OrderRequest]):
         )
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
-        self.flow.service.charge_user(input.email, input.customer_id, input.amount)
+        self.service.charge_user(input.email, input.customer_id, input.amount)
         self.flow.order_status.set(context, "charged")
         return go_to(self.flow.ship, input)
 
 
 class ShipStep(Step[OrderRequest]):
-    def __init__(self, flow: "OrderProcessingFlow") -> None:
+    def __init__(self, flow: "OrderProcessingFlow", service: MyDependencyService) -> None:
         self.flow = flow
+        self.service = service
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -86,23 +88,24 @@ class ShipStep(Step[OrderRequest]):
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         if context.has_timer_fired():
-            self.flow.service.send_email(
+            self.service.send_email(
                 input.email,
                 "Reminder: approve shipment",
                 "Please approve or provide a tracking number.",
             )
             return go_to(self, input)
-        self.flow.service.ship_item(input.order_id, input.test_fail_at_shipping)
+        self.service.ship_item(input.order_id, input.test_fail_at_shipping)
         self.flow.order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
 
 
 class RefundStep(Step[OrderRequest]):
-    def __init__(self, flow: "OrderProcessingFlow") -> None:
+    def __init__(self, flow: "OrderProcessingFlow", service: MyDependencyService) -> None:
         self.flow = flow
+        self.service = service
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
-        self.flow.service.update_external_system(f"refund {input.order_id}")
+        self.service.update_external_system(f"refund {input.order_id}")
         self.flow.order_status.set(context, "refunded")
         return graceful_complete(f"refunded:{input.order_id}")
 
@@ -117,9 +120,9 @@ class OrderProcessingFlow(Flow[OrderRequest]):
 
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.charge = ChargeStep(self)
-        self.ship = ShipStep(self)
-        self.refund = RefundStep(self)
+        self.charge = ChargeStep(self, service)
+        self.ship = ShipStep(self, service)
+        self.refund = RefundStep(self, service)
 
     def get_steps(self) -> StepList[OrderRequest]:
         return StepList.start_step(self.charge).other_steps(self.ship, self.refund)

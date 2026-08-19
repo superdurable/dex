@@ -44,11 +44,15 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
   });
   public readonly sellerOk = new Channel("seller-ok", stringCodec);
 
-  public readonly charge = new ChargeStep(this);
-  public readonly ship = new ShipStep(this);
-  public readonly refund = new RefundStep(this);
+  public readonly charge: ChargeStep;
+  public readonly ship: ShipStep;
+  public readonly refund: RefundStep;
 
-  public constructor(public readonly service: MyDependencyService) {}
+  public constructor(public readonly service: MyDependencyService) {
+    this.charge = new ChargeStep(this, service);
+    this.ship = new ShipStep(this, service);
+    this.refund = new RefundStep(this, service);
+  }
 
   public getFlowType(): string {
     return "OrderProcessingFlow";
@@ -80,7 +84,10 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
 class ChargeStep implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(private readonly flow: OrderProcessingFlow) {}
+  public constructor(
+    private readonly flow: OrderProcessingFlow,
+    private readonly service: MyDependencyService,
+  ) {}
 
   public getStepType(): string {
     return "ChargeStep";
@@ -96,7 +103,7 @@ class ChargeStep implements Step<OrderRequest> {
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.flow.service.chargeUser(input.email, input.customerId, input.amount);
+    this.service.chargeUser(input.email, input.customerId, input.amount);
     this.flow.orderStatus.set(context, "charged");
     return goTo(this.flow.ship, input);
   }
@@ -105,7 +112,10 @@ class ChargeStep implements Step<OrderRequest> {
 class ShipStep implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(private readonly flow: OrderProcessingFlow) {}
+  public constructor(
+    private readonly flow: OrderProcessingFlow,
+    private readonly service: MyDependencyService,
+  ) {}
 
   public getStepType(): string {
     return "ShipStep";
@@ -135,14 +145,14 @@ class ShipStep implements Step<OrderRequest> {
 
   public execute(context: Context, input: OrderRequest): StepDecision {
     if (context.hasTimerFired()) {
-      this.flow.service.sendEmail(
+      this.service.sendEmail(
         input.email,
         "Reminder: approve shipment",
         "Please approve or provide a tracking number.",
       );
       return goTo(this, input);
     }
-    this.flow.service.shipItem(input.orderId, input.testFailAtShipping);
+    this.service.shipItem(input.orderId, input.testFailAtShipping);
     this.flow.orderStatus.set(context, "shipped");
     return gracefulComplete(`shipped:${input.orderId}`);
   }
@@ -151,14 +161,17 @@ class ShipStep implements Step<OrderRequest> {
 class RefundStep implements Step<OrderRequest> {
   public readonly inputCodec = orderRequestCodec;
 
-  public constructor(private readonly flow: OrderProcessingFlow) {}
+  public constructor(
+    private readonly flow: OrderProcessingFlow,
+    private readonly service: MyDependencyService,
+  ) {}
 
   public getStepType(): string {
     return "RefundStep";
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.flow.service.updateExternalSystem(`refund ${input.orderId}`);
+    this.service.updateExternalSystem(`refund ${input.orderId}`);
     this.flow.orderStatus.set(context, "refunded");
     return gracefulComplete(`refunded:${input.orderId}`);
   }

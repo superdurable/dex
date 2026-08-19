@@ -45,8 +45,9 @@ The flow will charge the buyer, then wait for seller approval (with reminders), 
 
 ```python
 class ChargeStep(Step[OrderRequest]):
-    def __init__(self, flow: "OrderProcessingFlow") -> None:
+    def __init__(self, flow: "OrderProcessingFlow", service: MyDependencyService) -> None:
         self.flow = flow
+        self.service = service
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -57,14 +58,15 @@ class ChargeStep(Step[OrderRequest]):
         )
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
-        self.flow.service.charge_user(input.email, input.customer_id, input.amount)
+        self.service.charge_user(input.email, input.customer_id, input.amount)
         self.flow.order_status.set(context, "charged")
         return go_to(self.flow.ship, input)
 
 
 class ShipStep(Step[OrderRequest]):
-    def __init__(self, flow: "OrderProcessingFlow") -> None:
+    def __init__(self, flow: "OrderProcessingFlow", service: MyDependencyService) -> None:
         self.flow = flow
+        self.service = service
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -91,23 +93,24 @@ class ShipStep(Step[OrderRequest]):
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         if context.has_timer_fired():
-            self.flow.service.send_email(
+            self.service.send_email(
                 input.email,
                 "Reminder: approve shipment",
                 "Please approve or provide a tracking number.",
             )
             return go_to(self, input)
-        self.flow.service.ship_item(input.order_id, input.test_fail_at_shipping)
+        self.service.ship_item(input.order_id, input.test_fail_at_shipping)
         self.flow.order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
 
 
 class RefundStep(Step[OrderRequest]):
-    def __init__(self, flow: "OrderProcessingFlow") -> None:
+    def __init__(self, flow: "OrderProcessingFlow", service: MyDependencyService) -> None:
         self.flow = flow
+        self.service = service
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
-        self.flow.service.update_external_system(f"refund {input.order_id}")
+        self.service.update_external_system(f"refund {input.order_id}")
         self.flow.order_status.set(context, "refunded")
         return graceful_complete(f"refunded:{input.order_id}")
 
@@ -122,9 +125,9 @@ class OrderProcessingFlow(Flow[OrderRequest]):
 
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.charge = ChargeStep(self)
-        self.ship = ShipStep(self)
-        self.refund = RefundStep(self)
+        self.charge = ChargeStep(self, service)
+        self.ship = ShipStep(self, service)
+        self.refund = RefundStep(self, service)
 
     def get_steps(self) -> StepList[OrderRequest]:
         return StepList.start_step(self.charge).other_steps(self.ship, self.refund)
@@ -163,17 +166,17 @@ func (step chargeStep) Execute(
 	if err := OrderStatus.Set(ctx, "charged"); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(shipStep{}, order), nil
+	return dex.GoTo(shipStep{service: step.service}, order), nil
 }
 
-func (shipStep) GetStepOptions() *dex.StepOptions {
+func (step shipStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
 			// TotalDuration: time.Hour,
 			TotalDuration: 3 * time.Second,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
-			refundStep{},
+			refundStep{service: step.service},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{
 					// TotalDuration: time.Hour,
@@ -204,7 +207,7 @@ func (step shipStep) Execute(
 			"Reminder: approve shipment",
 			"Please approve or provide a tracking number.",
 		)
-		return dex.GoTo(shipStep{}, order), nil
+		return dex.GoTo(shipStep{service: step.service}, order), nil
 	}
 	if err := step.service.ShipItem(order.OrderID, order.TestFailAtShipping); err != nil {
 		return nil, err
@@ -284,12 +287,15 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     public final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
 
     private final MyDependencyService service;
-    private final ChargeStep charge = new ChargeStep();
-    private final ShipStep ship = new ShipStep();
-    private final RefundStep refund = new RefundStep();
+    private final ChargeStep charge;
+    private final ShipStep ship;
+    private final RefundStep refund;
 
     public OrderProcessingFlow(final MyDependencyService service) {
         this.service = service;
+        this.charge = new ChargeStep(service);
+        this.ship = new ShipStep(service);
+        this.refund = new RefundStep(service);
     }
 
     @Override
@@ -314,6 +320,12 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     }
 
     final class ChargeStep implements Step<OrderRequest> {
+        private final MyDependencyService service;
+
+        ChargeStep(final MyDependencyService service) {
+            this.service = service;
+        }
+
         @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
@@ -333,6 +345,12 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     }
 
     final class ShipStep implements Step<OrderRequest> {
+        private final MyDependencyService service;
+
+        ShipStep(final MyDependencyService service) {
+            this.service = service;
+        }
+
         @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
@@ -374,6 +392,12 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     }
 
     final class RefundStep implements Step<OrderRequest> {
+        private final MyDependencyService service;
+
+        RefundStep(final MyDependencyService service) {
+            this.service = service;
+        }
+
         @Override
         public StepDecision execute(final Context context, final OrderRequest order) {
             service.updateExternalSystem("refund " + order.orderId);
@@ -389,7 +413,10 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
 ```typescript
 class ChargeStep implements Step<OrderRequest> {
-  public constructor(private readonly flow: OrderProcessingFlow) {}
+  public constructor(
+    private readonly flow: OrderProcessingFlow,
+    private readonly service: MyDependencyService,
+  ) {}
 
   public getStepOptions() {
     return {
@@ -401,14 +428,17 @@ class ChargeStep implements Step<OrderRequest> {
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.flow.service.chargeUser(input.email, input.customerId, input.amount);
+    this.service.chargeUser(input.email, input.customerId, input.amount);
     this.flow.orderStatus.set(context, "charged");
     return goTo(this.flow.ship, input);
   }
 }
 
 class ShipStep implements Step<OrderRequest> {
-  public constructor(private readonly flow: OrderProcessingFlow) {}
+  public constructor(
+    private readonly flow: OrderProcessingFlow,
+    private readonly service: MyDependencyService,
+  ) {}
 
   public getStepOptions() {
     return {
@@ -434,24 +464,27 @@ class ShipStep implements Step<OrderRequest> {
 
   public execute(context: Context, input: OrderRequest): StepDecision {
     if (context.hasTimerFired()) {
-      this.flow.service.sendEmail(
+      this.service.sendEmail(
         input.email,
         "Reminder: approve shipment",
         "Please approve or provide a tracking number.",
       );
       return goTo(this, input);
     }
-    this.flow.service.shipItem(input.orderId, input.testFailAtShipping);
+    this.service.shipItem(input.orderId, input.testFailAtShipping);
     this.flow.orderStatus.set(context, "shipped");
     return gracefulComplete(`shipped:${input.orderId}`);
   }
 }
 
 class RefundStep implements Step<OrderRequest> {
-  public constructor(private readonly flow: OrderProcessingFlow) {}
+  public constructor(
+    private readonly flow: OrderProcessingFlow,
+    private readonly service: MyDependencyService,
+  ) {}
 
   public execute(context: Context, input: OrderRequest): StepDecision {
-    this.flow.service.updateExternalSystem(`refund ${input.orderId}`);
+    this.service.updateExternalSystem(`refund ${input.orderId}`);
     this.flow.orderStatus.set(context, "refunded");
     return gracefulComplete(`refunded:${input.orderId}`);
   }
@@ -463,11 +496,15 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
   });
   public readonly sellerOk = new Channel("seller-ok", stringCodec);
 
-  public readonly charge = new ChargeStep(this);
-  public readonly ship = new ShipStep(this);
-  public readonly refund = new RefundStep(this);
+  public readonly charge: ChargeStep;
+  public readonly ship: ShipStep;
+  public readonly refund: RefundStep;
 
-  public constructor(public readonly service: MyDependencyService) {}
+  public constructor(public readonly service: MyDependencyService) {
+    this.charge = new ChargeStep(this, service);
+    this.ship = new ShipStep(this, service);
+    this.refund = new RefundStep(this, service);
+  }
 
   public getSteps() {
     return StepList.startStep(this.charge).otherSteps(this.ship, this.refund);

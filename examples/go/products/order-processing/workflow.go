@@ -120,7 +120,7 @@ func (step chargeStep) Execute(
 	if err := OrderStatus.Set(ctx, "charged"); err != nil {
 		return nil, err
 	}
-	return dex.GoTo(shipStep{}, order), nil
+	return dex.GoTo(shipStep{service: step.service}, order), nil
 }
 
 type shipStep struct {
@@ -132,14 +132,14 @@ func (shipStep) GetStepType() string {
 	return ShipStepType
 }
 
-func (shipStep) GetStepOptions() *dex.StepOptions {
+func (step shipStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
 			// TotalDuration: time.Hour,
 			TotalDuration: 3 * time.Second,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
-			refundStep{},
+			refundStep{service: step.service},
 			&dex.StepOptions{
 				ExecuteRetry: &dex.RetryPolicy{
 					// TotalDuration: time.Hour,
@@ -170,7 +170,7 @@ func (step shipStep) Execute(
 			"Reminder: approve shipment",
 			"Please approve or provide a tracking number.",
 		)
-		return dex.GoTo(shipStep{}, order), nil
+		return dex.GoTo(shipStep{service: step.service}, order), nil
 	}
 	if err := step.service.ShipItem(order.OrderID, order.TestFailAtShipping); err != nil {
 		return nil, err
