@@ -9,12 +9,6 @@ slug: /quick-start
 
 Build the same order-processing Flow as [Why Dex?](/intro/what-is-dex): install Dex, register a Worker and Client, start the Flow from an HTTP controller, approve shipment, and inspect the Step graph in Dex Web.
 
-Choose an SDK once — the preference is stored in this browser (`localStorage`) and defaults to **Python**.
-
-:::tip TypeScript SDK
-Use `@superdurable/dex` **^0.1.3+**. `waitFor`, `execute`, and RPC handlers may be `async` and `await` `Client` calls on the **same** Worker — no sync sidecar.
-:::
-
 ## 1. Install Dex
 
 ```bash
