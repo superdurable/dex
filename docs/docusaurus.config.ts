@@ -1,3 +1,12 @@
+/*
+ * Modifications Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Modifications after the Legacy Cutoff are licensed under the
+ * Super Durable Source License 1.0.
+ * Legacy Materials remain under their original licenses.
+ * See LICENSE and LEGACY_NOTICES.md.
+ */
+
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
@@ -21,6 +30,13 @@ const config: Config = {
   onBrokenMarkdownLinks: 'throw',
 
   headTags: [
+    {
+      tagName: 'meta',
+      attributes: {
+        name: 'google-site-verification',
+        content: 'sZ7KTJpIynUmNq33gAzRLllx2nJvi2bvTpOYlHc7klg',
+      },
+    },
     {
       tagName: 'script',
       attributes: {},
@@ -81,7 +97,7 @@ const config: Config = {
           customCss: './src/css/custom.css',
         },
         sitemap: {
-          changefreq: 'weekly',
+          changefreq: 'daily',
           priority: 0.5,
         },
       } satisfies Preset.Options,
