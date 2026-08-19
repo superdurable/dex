@@ -1,0 +1,37 @@
+---
+description: Branch from latest origin/main before starting feature work
+alwaysApply: true
+---
+
+# Git branches — start from latest main
+
+Every new feature branch must start from the current tip of `origin/main`
+after fetching. Do not branch from a stale local `main`, another feature
+branch, or an old commit.
+
+## Required workflow
+
+```bash
+git fetch origin main
+git switch -c <branch> origin/main
+```
+
+Use `git checkout -b <branch> origin/main` when `switch` is unavailable.
+Push with upstream tracking only after the branch contains `origin/main`.
+
+## Forbidden
+
+- `git switch -c feature` while HEAD is behind `origin/main`
+- `git switch -c feature main` without verifying `main` matches `origin/main`
+- `git switch -c feature other-branch`
+- `git push --no-verify` to bypass branch checks
+
+## Enforcement
+
+- `script/validate-branch-off-main.sh` implements the checks
+- Cursor `.cursor/hooks/validate-branch-off-main.sh` blocks branch-create
+  commands that do not start from `origin/main`
+- `.githooks/pre-push` rejects pushes when the branch does not contain
+  `origin/main`
+
+Run `make githooks` once per clone to install Git hooks.

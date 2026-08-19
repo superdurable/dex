@@ -13,7 +13,7 @@ GENERATED_CODE_PATHS := \
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
 
-githooks: ## Install commit-msg hook that rejects Cursor co-author trailers
+githooks: ## Install commit-msg and pre-push Git hooks
 	bash script/install-githooks
 
 ci-runner-check: ## Verify CI workflows route main pushes to self-hosted runners

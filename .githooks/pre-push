@@ -1,0 +1,32 @@
+#!/bin/sh
+# Reject pushes when the branch does not contain the latest origin/main.
+set -e
+
+root=$(git rev-parse --show-toplevel)
+validate="$root/script/validate-branch-off-main.sh"
+
+if [ ! -x "$validate" ]; then
+  echo "pre-push: missing $validate" >&2
+  exit 1
+fi
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_ref" in
+    refs/heads/main|refs/heads/master)
+      continue
+      ;;
+  esac
+  case "$remote_ref" in
+    refs/heads/main|refs/heads/master)
+      continue
+      ;;
+  esac
+  if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+    continue
+  fi
+  if ! "$validate" validate-includes-main "$local_sha"; then
+    exit 1
+  fi
+done
+
+exit 0

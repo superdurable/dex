@@ -31,8 +31,9 @@ Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside 
 - Python 3.9+ and uv (for `sdk-python` / `examples/python`)
 - Docker (for integration tests / local Temporal+Cadence stacks)
 
-Install the commit-msg hook once per clone with `make githooks`. It rejects
-Cursor co-author trailers. Do not pass `--no-verify`.
+Install the Git hooks once per clone with `make githooks`. They reject Cursor
+co-author trailers and block pushes when a branch does not contain the latest
+`origin/main`. Do not pass `--no-verify`.
 
 ## Go workspace
 

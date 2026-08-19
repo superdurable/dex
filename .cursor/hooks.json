@@ -5,6 +5,10 @@
       {
         "command": "sh .cursor/hooks/reject-cursor-coauthor.sh",
         "failClosed": true
+      },
+      {
+        "command": "sh .cursor/hooks/validate-branch-off-main.sh",
+        "failClosed": true
       }
     ],
     "afterShellExecution": [
