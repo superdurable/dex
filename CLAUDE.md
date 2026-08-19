@@ -78,7 +78,8 @@ discussion-only turns.
   immediately and include a language-native example when the solution is not
   obvious.
 - Product docs in `docs/content/` must present application code in
-  `<SdkTabs>` / `<SdkSnippet>` (Python, Go, Java, TypeScript). Do not use
+  `<SdkTabs>` / `<SdkSnippet>` (Python, Go, Java, TypeScript; add Rust when
+  `examples/rust` has the same sample). Do not use
   per-language headings or stacked fenced blocks. `bash` / `text` fences
   are exempt.
 - Application snippets must be copied from runnable files under `examples/`.
@@ -296,7 +297,8 @@ Every implementation plan must include all three sections below. Use
 - Product docs: [`docs/`](docs/) (entry: [`docs/README.md`](docs/README.md)).
 - Contributor / module docs: module READMEs or `CONTRIBUTING.md`.
 - Application code snippets in `docs/content/` must use `<SdkTabs>` /
-  `<SdkSnippet>` (Python, Go, Java, TypeScript). Do not use per-language
+  `<SdkSnippet>` (Python, Go, Java, TypeScript; add Rust when `examples/rust`
+  has the same sample). Do not use per-language
   headings or stacked fenced blocks. `bash` / `text` fences are exempt.
 - Application snippets must be copied from runnable files under `examples/`.
   Link the example (and the examples playground when the sample has HTTP and

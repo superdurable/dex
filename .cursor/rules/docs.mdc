@@ -7,14 +7,15 @@ alwaysApply: false
 # Product docs snippets
 
 Application code in `docs/content/` must be language-selectable with
-`<SdkTabs>` and `<SdkSnippet lang="python|go|java|typescript">`. Preference is
+`<SdkTabs>` and `<SdkSnippet lang="python|go|java|typescript|rust">`. Preference is
 sticky in the browser; default Python.
 
 Every English page under `docs/content/` needs a matching Simplified Chinese
 page under `docs/i18n/zh-Hans/docusaurus-plugin-content-docs/current/`. See
 `.cursor/rules/docs-i18n.mdc`.
 
-Required shape: one `<SdkTabs>` wrapping four `<SdkSnippet>` children, each
+Required shape: one `<SdkTabs>` wrapping `<SdkSnippet>` children (Python, Go,
+Java, TypeScript; add Rust when `examples/rust` has the same sample), each
 containing a fenced block in that language. Copy the pattern from an existing
 page such as `docs/content/primitives/step.mdx`.
 

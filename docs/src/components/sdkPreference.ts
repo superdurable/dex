@@ -1,13 +1,25 @@
-export type SdkLanguage = 'python' | 'go' | 'java' | 'typescript';
+export type SdkLanguage = 'python' | 'go' | 'java' | 'typescript' | 'rust';
 
-export const SDK_LANGUAGES: SdkLanguage[] = ['python', 'go', 'java', 'typescript'];
+export const SDK_LANGUAGES: SdkLanguage[] = [
+  'python',
+  'go',
+  'java',
+  'typescript',
+  'rust',
+];
 export const DEFAULT_SDK: SdkLanguage = 'python';
 export const SDK_PREFERENCE_KEY = 'dex-docs-preferred-sdk';
 
 const SDK_PREFERENCE_EVENT = 'dex-docs-preferred-sdk';
 
 export function isSdkLanguage(value: string | null | undefined): value is SdkLanguage {
-  return value === 'python' || value === 'go' || value === 'java' || value === 'typescript';
+  return (
+    value === 'python' ||
+    value === 'go' ||
+    value === 'java' ||
+    value === 'typescript' ||
+    value === 'rust'
+  );
 }
 
 export function readSdkPreference(): SdkLanguage {

@@ -11,6 +11,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {
   DEFAULT_SDK,
   type SdkLanguage,
+  isSdkLanguage,
   persistSdkPreference,
   readSdkPreference,
   subscribeSdkPreference,
@@ -25,9 +26,10 @@ const LABELS: Record<SdkLanguage, string> = {
   go: 'Go',
   java: 'Java',
   typescript: 'TypeScript',
+  rust: 'Rust',
 };
 
-const ORDER: SdkLanguage[] = ['python', 'go', 'java', 'typescript'];
+const ORDER: SdkLanguage[] = ['python', 'go', 'java', 'typescript', 'rust'];
 
 export type SdkSnippetProps = {
   lang: SdkLanguage;
@@ -45,6 +47,7 @@ export type SdkTabsProps = {
   go?: ReactNode;
   java?: ReactNode;
   typescript?: ReactNode;
+  rust?: ReactNode;
   examples?: Partial<Record<SdkLanguage, string>>;
 };
 
@@ -66,7 +69,7 @@ function collectSnippets(props: SdkTabsProps): Partial<Record<SdkLanguage, Snipp
     }
     const element = child as ReactElement<SdkSnippetProps>;
     const lang = element.props.lang;
-    if (lang === 'python' || lang === 'go' || lang === 'java' || lang === 'typescript') {
+    if (isSdkLanguage(lang)) {
       snippets[lang] = {
         body: element.props.children,
         example: element.props.example ?? props.examples?.[lang],

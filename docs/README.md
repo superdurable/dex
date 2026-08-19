@@ -22,8 +22,9 @@ Published pages live under [`content/`](content/). Site config:
 `docusaurus.config.ts`, `sidebars.ts`, `src/`.
 
 Application code samples must use `<SdkTabs>` / `<SdkSnippet>` so readers can
-switch Python, Go, Java, and TypeScript. Do not use per-language headings or
-stacked fenced blocks. `bash` / `text` fences are exempt.
+switch Python, Go, Java, TypeScript, and Rust when `examples/rust` has the same
+sample. Do not use per-language headings or stacked fenced blocks. `bash` /
+`text` fences are exempt.
 
 Product docs ship in **English** and **Simplified Chinese** (`zh-Hans`). The
 navbar language switcher (top right) persists the choice in the browser. When you

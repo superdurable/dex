@@ -25,7 +25,8 @@ only when a section genuinely doesn't apply.
 - Product docs live in [`docs/`](docs/) (start at [`docs/README.md`](docs/README.md)).
 - Contributor / module docs: update module READMEs or `CONTRIBUTING.md`.
 - Application code snippets in `docs/content/` must use `<SdkTabs>` /
-  `<SdkSnippet>` so readers can switch Python, Go, Java, and TypeScript.
+  `<SdkSnippet>` so readers can switch Python, Go, Java, TypeScript, and Rust
+  when `examples/rust` has the same sample.
   Do not use per-language headings (`### Java`) or stacked fenced blocks.
   `bash` / `text` fences are exempt.
 - Product docs should read naturally: plain English, short sentences, no
