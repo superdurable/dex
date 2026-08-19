@@ -965,7 +965,6 @@ start handler 启动 Flow，再用 Client 的 wait-for-Step-completion API 等 C
             "buyer@example.com",
             "customer-1",
             42,
-            optional_query("testFailAtShipping", "") == "true",
         )
         run_id = await app_state.client.start_flow(
             app_state.order_processing,
@@ -1014,11 +1013,10 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *OrderProcessin
 func (controller *controller) start(request *gin.Context) {
 	flowID := httputil.NewFlowID("order-processing")
 	input := OrderRequest{
-		OrderID:            flowID,
-		Email:              "buyer@example.com",
-		CustomerID:         "customer-1",
-		Amount:             42,
-		TestFailAtShipping: request.Query("testFailAtShipping") == "true",
+		OrderID:    flowID,
+		Email:      "buyer@example.com",
+		CustomerID: "customer-1",
+		Amount:     42,
 	}
 	runID, err := controller.client.StartFlow(
 		request.Request.Context(),
@@ -1093,15 +1091,13 @@ public class OrderProcessingController {
     }
 
     @GetMapping("/start")
-    public ResponseEntity<Map<String, String>> start(
-            @RequestParam(defaultValue = "false") final boolean testFailAtShipping) {
+    public ResponseEntity<Map<String, String>> start() {
         final String flowId = "order-processing-" + System.nanoTime();
         final OrderRequest request = new OrderRequest(
                 flowId,
                 "buyer@example.com",
                 "customer-1",
-                42,
-                testFailAtShipping);
+                42);
         final String runId = client.startFlow(flow, flowId, request, ExampleFlows.startOptions());
         client.waitForStepCompletion(
                 flowId,
@@ -1151,7 +1147,6 @@ export function createOrderProcessingRouter(
       email: "buyer@example.com",
       customerId: "customer-1",
       amount: 42,
-      testFailAtShipping: String(request.query.testFailAtShipping ?? "") === "true",
     };
     const runId = await client.startFlow(flow, flowId, input, startOptions());
     await client.waitForStepCompletion(
@@ -1193,7 +1188,6 @@ pub fn mount(client: SharedClient, flow: OrderProcessingFlow) -> Router {
 
 async fn start(
     State(state): State<OrderProcessingState>,
-    Query(query): Query<StartQuery>,
 ) -> impl IntoResponse {
     let OrderProcessingState { client, flow } = state;
     match run_blocking(move || {
@@ -1203,7 +1197,6 @@ async fn start(
             email: "buyer@example.com".into(),
             customer_id: "customer-1".into(),
             amount: 42,
-            test_fail_at_shipping: query.test_fail_at_shipping,
         };
         let run_id = client.start_flow(&flow, &flow_id, input)?;
         client.wait_for_step_completion(
