@@ -38,21 +38,18 @@ from dex import (
 from dex_examples.shared.my_dependency_service import MyDependencyService
 from dex_examples.products.order_processing.order_request import OrderRequest
 
-SELLER_REMINDER_TIMER = "seller-reminder"
-SHIP_RETRY = RetryPolicy(
-    initial_interval=timedelta(seconds=1),
-    maximum_attempts=2,
-)
-CHARGE_RETRY = RetryPolicy(maximum_attempts=3)
-REFUND_RETRY = RetryPolicy(maximum_attempts=3)
-
 
 class ChargeStep(Step[OrderRequest]):
     def __init__(self, flow: "OrderProcessingFlow") -> None:
         self.flow = flow
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_retry=CHARGE_RETRY)
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                # total_duration=timedelta(hours=1),
+                total_duration=timedelta(seconds=3),
+            )
+        )
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         self.flow.service.charge_user(input.email, input.customer_id, input.amount)
@@ -65,16 +62,26 @@ class ShipStep(Step[OrderRequest]):
         self.flow = flow
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_retry=SHIP_RETRY).on_execute_failure_proceed_to(
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                # total_duration=timedelta(hours=1),
+                total_duration=timedelta(seconds=3),
+            )
+        ).on_execute_failure_proceed_to(
             self.flow.refund,
-            StepOptions(execute_retry=REFUND_RETRY),
+            StepOptions(
+                execute_retry=RetryPolicy(
+                    # total_duration=timedelta(hours=1),
+                    total_duration=timedelta(seconds=3),
+                )
+            ),
         )
 
     def wait_for(self, context: Context, input: OrderRequest) -> Wait:
         del context, input
         return Wait.any_of(
             self.flow.seller_ok.for_one(),
-            Timer.by_duration(timedelta(hours=24), condition_id=SELLER_REMINDER_TIMER),
+            Timer.by_duration(timedelta(hours=24)),
         )
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:

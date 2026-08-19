@@ -1,37 +1,40 @@
 ---
-id: what-is-dex
-title: 为什么是 Dex？
-sidebar_label: 为什么是 Dex？
+id: index
+title: Quick Start
+sidebar_label: Quick Start
+slug: /quick-start
 ---
 
-import DexSystemDiagram from '@site/src/components/intro/DexSystemDiagram';
-import OrderProcessingDiagram from '@site/src/components/intro/OrderProcessingDiagram';
+# Quick Start
 
-# 为什么是 Dex？
+用 [为什么是 Dex？](/intro/what-is-dex) 里同一条 order-processing Flow，从头跑一遍：安装 Dex，注册 Worker 和 Client，用 HTTP controller 启动 Flow，批准发货，再在 Dex Web 里看 Step graph。
 
-Dex 是 Durable Execution(D-Ex) 平台。
+SDK 选一次即可。偏好存在这个浏览器（`localStorage`），默认是 **Python**。
 
-Dex 是结构化编程，只有少数几个概念作为 [durable primitives](/primitives)。你用 Dex 写 Flow，里面填普通代码：durable 的 Step、Attribute、RPC，以及用 Channel 和 Timer 表达的 durable condition。然后跑托管 Flow 的 Worker。Client 调 Dex Server 去 start 并和 Flow 实例交互。Dex Server 把 Step / RPC 调用任务派发给你的 Worker。
+可运行的样例在各语言的 `examples/` 目录，见下面 tab 的链接。样例带 HTTP 路由；也可以用 examples playground（`examples/playground`，`id: order-processing`）。见 `examples/README.md`。
 
-<DexSystemDiagram />
+## 1. 安装 Dex
 
-一个 **Step** 可以可选地 **WaitFor** 某个 condition（**Channel**、**Timer**，或两者），并且是 durable 的。condition 满足后调用 **Execute**。没有 WaitFor 时，直接调用 Execute。
+```bash
+brew install superdurable/tap/dexcli
+brew upgrade superdurable/tap/dexcli   # when you want the latest
+dexcli dev
+```
 
-**Execute** 返回 decision，用来决定下一步或完成这条 Flow。在 Step 和 RPC 里，用户代码可以读写 **Attribute**，也可以 publish durable 的 **Channel** 消息，用来接外部事件，或在同一条 Flow 的线程之间通信。
+`dexcli` 会启动 Dex Server、Dex Web，以及内部的 workflow backend。这些端口空闲时的默认地址：
 
-## 订单处理作为一个例子
+| Service | Address |
+| --- | --- |
+| Dex Web | `http://127.0.0.1:8802` |
+| Dex Server | `127.0.0.1:8801` |
 
-还没看过 [什么是 Durable Execution？](/intro/what-is-durable-execution) 的话，下面用那一页的 order-processing 例子。
+同一台机器上再开一个 `dexcli dev` 会绑到别的空闲端口，并用自己的 SQLite。把打印出来的 Dex Server 地址传给 `--server`。flag 和持久化选项见 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)。
 
-这条 Flow 会先给买家扣款，再等卖家批准（带提醒），然后发货；发货 API 的 retry 用尽就退款。
+## 2. Flow、Step、RPC、constructor 依赖
 
-<OrderProcessingDiagram />
+先扣款，再等卖家批准（Channel 或提醒 Timer），然后发货。发货 retry 用尽就退款。设计见 [为什么是 Dex？](/intro/what-is-dex)。
 
-- **ChargeStep** 调支付 API，Step 级 retry。成功后原子进入 ShipStep。
-- **ShipStep** 等待卖家 **Channel** 或 **Timer**。Timer 先到：发提醒，继续等。批准到了：发货。发货 retry 用尽：进 **RefundStep**。
-- **RPC `approve`** 往卖家 Channel 发消息。
-- 店面 **start** handler 用 Client 的 **wait-for-Step-completion** API 等 ChargeStep 完成——不是自己轮询状态。
-- **Attribute `order-status`** 可检索，客服能搜卡住的订单。
+把 mock 的支付和发货 API 从 constructor 传进去。不要用 setter，也不要靠 global。
 
 <SdkTabs
   examples={{
@@ -146,6 +149,53 @@ class OrderProcessingFlow(Flow[OrderRequest]):
   <SdkSnippet lang="go">
 
 ```go
+type OrderProcessingFlow struct {
+	dex.FlowDefaults
+	service service.MyService
+}
+
+func NewOrderProcessingFlow(applicationService service.MyService) *OrderProcessingFlow {
+	return &OrderProcessingFlow{service: applicationService}
+}
+
+func (flow *OrderProcessingFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(chargeStep{service: flow.service}),
+		dex.DefineStep(shipStep{service: flow.service}),
+		dex.DefineStep(refundStep{service: flow.service}),
+	}
+}
+
+func (*OrderProcessingFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{OrderStatus},
+		Channels:   []dex.ChannelDef{SellerOK},
+	}
+}
+
+func (*OrderProcessingFlow) Approve(
+	ctx dex.Context,
+	_ string,
+) (*dex.RPCResult[string], error) {
+	if err := SellerOK.Publish(ctx, "approved"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: "ok"}, nil
+}
+
+func (*OrderProcessingFlow) Describe(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[string], error) {
+	status, err := OrderStatus.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: status}, nil
+}
+```
+
+```go
 func (chargeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
@@ -164,6 +214,15 @@ func (step chargeStep) Execute(
 		return nil, err
 	}
 	return dex.GoTo(shipStep{}, order), nil
+}
+
+type shipStep struct {
+	dex.DefaultStepType
+	service service.MyService
+}
+
+func (shipStep) GetStepType() string {
+	return ShipStepType
 }
 
 func (shipStep) GetStepOptions() *dex.StepOptions {
@@ -215,6 +274,15 @@ func (step shipStep) Execute(
 	return dex.GracefulComplete("shipped:" + order.OrderID), nil
 }
 
+type refundStep struct {
+	dex.StepDefaultsNoWaitFor[OrderRequest]
+	service service.MyService
+}
+
+func (refundStep) GetStepType() string {
+	return RefundStepType
+}
+
 func (step refundStep) Execute(
 	ctx dex.Context,
 	order OrderRequest,
@@ -224,51 +292,6 @@ func (step refundStep) Execute(
 		return nil, err
 	}
 	return dex.GracefulComplete("refunded:" + order.OrderID), nil
-}
-
-type OrderProcessingFlow struct {
-	dex.FlowDefaults
-	service service.MyService
-}
-
-func NewOrderProcessingFlow(applicationService service.MyService) *OrderProcessingFlow {
-	return &OrderProcessingFlow{service: applicationService}
-}
-
-func (flow *OrderProcessingFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{
-		dex.DefineStartStep(chargeStep{service: flow.service}),
-		dex.DefineStep(shipStep{service: flow.service}),
-		dex.DefineStep(refundStep{service: flow.service}),
-	}
-}
-
-func (*OrderProcessingFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{OrderStatus},
-		Channels:   []dex.ChannelDef{SellerOK},
-	}
-}
-
-func (*OrderProcessingFlow) Approve(
-	ctx dex.Context,
-	_ string,
-) (*dex.RPCResult[string], error) {
-	if err := SellerOK.Publish(ctx, "approved"); err != nil {
-		return nil, err
-	}
-	return &dex.RPCResult[string]{Output: "ok"}, nil
-}
-
-func (*OrderProcessingFlow) Describe(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.RPCResult[string], error) {
-	status, err := OrderStatus.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &dex.RPCResult[string]{Output: status}, nil
 }
 ```
 
@@ -315,6 +338,16 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     final class ChargeStep implements Step<OrderRequest> {
         @Override
+        public String getStepType() {
+            return "ChargeStep";
+        }
+
+        @Override
+        public Class<OrderRequest> getInputType() {
+            return OrderRequest.class;
+        }
+
+        @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
@@ -333,6 +366,16 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
     }
 
     final class ShipStep implements Step<OrderRequest> {
+        @Override
+        public String getStepType() {
+            return "ShipStep";
+        }
+
+        @Override
+        public Class<OrderRequest> getInputType() {
+            return OrderRequest.class;
+        }
+
         @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
@@ -375,6 +418,16 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
 
     final class RefundStep implements Step<OrderRequest> {
         @Override
+        public String getStepType() {
+            return "RefundStep";
+        }
+
+        @Override
+        public Class<OrderRequest> getInputType() {
+            return OrderRequest.class;
+        }
+
+        @Override
         public StepDecision execute(final Context context, final OrderRequest order) {
             service.updateExternalSystem("refund " + order.orderId);
             orderStatus.set(context, "refunded");
@@ -388,8 +441,53 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
   <SdkSnippet lang="typescript">
 
 ```typescript
+export class OrderProcessingFlow implements Flow<OrderRequest> {
+  public readonly orderStatus = new Attribute("order-status", stringCodec, {
+    type: IndexType.KEYWORD,
+  });
+  public readonly sellerOk = new Channel("seller-ok", stringCodec);
+
+  public readonly charge = new ChargeStep(this);
+  public readonly ship = new ShipStep(this);
+  public readonly refund = new RefundStep(this);
+
+  public constructor(public readonly service: MyDependencyService) {}
+
+  public getFlowType(): string {
+    return "OrderProcessingFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.charge).otherSteps(this.ship, this.refund);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {
+      attributes: [this.orderStatus],
+      channels: [this.sellerOk],
+    };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+  public approve(context: Context, _note: string): RPCResult<string> {
+    this.sellerOk.publish(context, "approved");
+    return { output: "ok" };
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public describe(context: Context): RPCResult<string> {
+    return { output: this.orderStatus.get(context) };
+  }
+}
+
 class ChargeStep implements Step<OrderRequest> {
+  public readonly inputCodec = orderRequestCodec;
+
   public constructor(private readonly flow: OrderProcessingFlow) {}
+
+  public getStepType(): string {
+    return "ChargeStep";
+  }
 
   public getStepOptions() {
     return {
@@ -408,7 +506,13 @@ class ChargeStep implements Step<OrderRequest> {
 }
 
 class ShipStep implements Step<OrderRequest> {
+  public readonly inputCodec = orderRequestCodec;
+
   public constructor(private readonly flow: OrderProcessingFlow) {}
+
+  public getStepType(): string {
+    return "ShipStep";
+  }
 
   public getStepOptions() {
     return {
@@ -448,47 +552,18 @@ class ShipStep implements Step<OrderRequest> {
 }
 
 class RefundStep implements Step<OrderRequest> {
+  public readonly inputCodec = orderRequestCodec;
+
   public constructor(private readonly flow: OrderProcessingFlow) {}
+
+  public getStepType(): string {
+    return "RefundStep";
+  }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
     this.flow.service.updateExternalSystem(`refund ${input.orderId}`);
     this.flow.orderStatus.set(context, "refunded");
     return gracefulComplete(`refunded:${input.orderId}`);
-  }
-}
-
-export class OrderProcessingFlow implements Flow<OrderRequest> {
-  public readonly orderStatus = new Attribute("order-status", stringCodec, {
-    type: IndexType.KEYWORD,
-  });
-  public readonly sellerOk = new Channel("seller-ok", stringCodec);
-
-  public readonly charge = new ChargeStep(this);
-  public readonly ship = new ShipStep(this);
-  public readonly refund = new RefundStep(this);
-
-  public constructor(public readonly service: MyDependencyService) {}
-
-  public getSteps() {
-    return StepList.startStep(this.charge).otherSteps(this.ship, this.refund);
-  }
-
-  public getPersistenceSchema(): PersistenceSchema {
-    return {
-      attributes: [this.orderStatus],
-      channels: [this.sellerOk],
-    };
-  }
-
-  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
-  public approve(context: Context, _note: string): RPCResult<string> {
-    this.sellerOk.publish(context, "approved");
-    return { output: "ok" };
-  }
-
-  @rpc({ outputCodec: stringCodec })
-  public describe(context: Context): RPCResult<string> {
-    return { output: this.orderStatus.get(context) };
   }
 }
 ```
@@ -710,20 +785,14 @@ impl Step for Refund {
         )))
     }
 }
-
-fn order_status() -> Attribute<String> {
-    Attribute::new("order-status").indexed(AttributeIndex::keyword())
-}
-
-fn seller_ok() -> Channel<String> {
-    Channel::new("seller-ok")
-}
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-前端要等「已付款」。`GET /products/order-processing/start` 先启动 Flow，等 ChargeStep 完成后再返回：
+## 3. Worker 和 Client
+
+把 Registry、Worker、Client 指到 `dexcli`（`127.0.0.1:8801`）。用 service 构造 Flow，再注册。
 
 <SdkTabs
   examples={{
@@ -736,6 +805,189 @@ fn seller_ok() -> Channel<String> {
 <SdkSnippet lang="python">
 
 ```python
+        service = MyDependencyService()
+        pattern_service = ServiceDependency()
+
+        self.money_transfer = MoneyTransferFlow(service)
+        self.order_processing = OrderProcessingFlow(service)
+```
+
+```python
+        self.registry = Registry(tuple(flows), allow_async_handlers=True)
+        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(
+            BlobCacheConfig(str(config.blob_cache_dir), 1 << 30)
+        )
+        worker_options = WorkerOptions(
+            bind_address=config.worker_bind_address,
+            server_address=config.server_address,
+            worker_target=(
+                WorkerTarget(config.worker_target)
+                if config.worker_target
+                else None
+            ),
+        )
+        self.worker = AsyncWorker(self.registry, self.blob_cache, worker_options)
+        self._client = AsyncClient(
+            self.registry,
+            self.blob_cache,
+            ClientOptions(
+                server_address=config.server_address,
+                worker_target=self.worker.worker_target,
+            ),
+        )
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+	var client *sdk.Client
+	flows := registry.New(service.NewMyService(), func() *sdk.Client { return client })
+	flowRegistry, err := sdk.NewRegistry(flows)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("register example flows: %w", err), cache.Close())
+	}
+	workerOptions := sdk.WorkerOptions{
+		BindAddress:        environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803"),
+		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+	}
+	if target := os.Getenv("DEX_WORKER_TARGET"); target != "" {
+		workerOptions.WorkerTarget.Address = target
+	}
+	worker, err := sdk.NewWorker(flowRegistry, cache, workerOptions)
+	if err != nil {
+		return nil, errors.Join(err, cache.Close())
+	}
+	client, err = sdk.NewClient(flowRegistry, cache, sdk.ClientOptions{
+		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+		WorkerTarget:       worker.WorkerTarget(),
+	})
+```
+
+```go
+	orderprocessing.RegisterRoutes(router, client, registry.OrderProcessing)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+    @Bean(destroyMethod = "close")
+    public Worker worker(
+            final Registry registry,
+            final BlobCache blobCache,
+            @Value("${dex.server-address}") final String serverAddress,
+            @Value("${dex.worker-bind-address}") final String workerBindAddress,
+            @Value("${dex.worker-target:}") final String workerTarget) {
+        final WorkerOptions.Builder options = WorkerOptions.newBuilder()
+                .bindAddress(workerBindAddress)
+                .serverAddress(serverAddress);
+        if (workerTarget != null && !workerTarget.trim().isEmpty()) {
+            options.workerTarget(new WorkerTarget(workerTarget, false));
+        }
+        return new Worker(registry, blobCache, options.build());
+    }
+
+    @Bean(destroyMethod = "close")
+    public Client client(
+            final Registry registry,
+            final BlobCache blobCache,
+            final Worker worker,
+            @Value("${dex.server-address}") final String serverAddress) {
+        return new Client(
+                registry,
+                blobCache,
+                new ClientOptions(serverAddress, worker.getWorkerTarget()));
+    }
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
+```
+
+```typescript
+  const registry = createExampleRegistry();
+  const blobCache = openBlobCache({
+    directory: env.blobCacheDir,
+    maxBytes: 1 << 30,
+  });
+  const worker = new Worker(registry, blobCache, {
+    bindAddress: env.workerBindAddress,
+    serverAddress: env.serverAddress,
+    ...(env.workerTarget !== undefined
+      ? { workerTarget: { address: env.workerTarget } }
+      : {}),
+  });
+  await worker.start();
+  const client = new Client(registry, blobCache, {
+    serverAddress: env.serverAddress,
+    workerTarget: worker.workerTarget,
+  });
+  setClient(client);
+```
+
+```typescript
+  app.use("/products/order-processing", createOrderProcessingRouter(client, orderProcessingFlow));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+    let registry = create_example_registry()?;
+    let worker = Worker::try_new(
+        registry.clone(),
+        Arc::clone(&cache),
+        WorkerOptions::new()
+            .server_address(server_address.clone())
+            .bind_address(worker_bind_address.clone()),
+    )?;
+    let worker_target = worker.worker_target().clone();
+    let worker_handle = thread::spawn(move || worker.start());
+
+    let client = Arc::new(Client::try_new(
+        registry,
+        Arc::clone(&cache),
+        ClientOptions::new()
+            .server_address(server_address)
+            .worker_target(worker_target),
+    )?);
+
+    let router = build_router(client);
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 4. Controller
+
+start handler 启动 Flow，再用 Client 的 wait-for-Step-completion API 等 ChargeStep。approve 往卖家 Channel 发消息。describe 读 `order-status`。Client 和 Flow 来自 constructor 或 factory 参数。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+    rust: 'examples/rust/src/products/order_processing',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+    @blueprint.get("/start")
+    async def start() -> Response:
+        flow_id = new_flow_id("order-processing")
+        request = OrderRequest(
+            flow_id,
+            "buyer@example.com",
+            "customer-1",
+            42,
+            optional_query("testFailAtShipping", "") == "true",
+        )
         run_id = await app_state.client.start_flow(
             app_state.order_processing,
             flow_id,
@@ -748,12 +1000,47 @@ fn seller_ok() -> Channel<String> {
             CHARGE_WAIT_TIMEOUT,
         )
         return started_flow(flow_id, run_id)
+
+    @blueprint.get("/approve")
+    async def approve() -> Response:
+        output = await app_state.client.invoke_rpc(
+            app_state.order_processing.approve,
+            required_query("workflowId"),
+            optional_query("notes", ""),
+        )
+        return jsonify(output)
+
+    @blueprint.get("/describe")
+    async def describe() -> Response:
+        flow_id = required_query("workflowId")
+        status = await app_state.client.invoke_rpc(
+            app_state.order_processing.describe,
+            flow_id,
+        )
+        return jsonify({"flowID": flow_id, "status": status})
 ```
 
 </SdkSnippet>
-<SdkSnippet lang="go">
+  <SdkSnippet lang="go">
 
 ```go
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *OrderProcessingFlow) {
+	controller := &controller{client: client, flow: flow}
+	group := router.Group("/products/order-processing")
+	group.GET("/start", controller.start)
+	group.GET("/approve", controller.approve)
+	group.GET("/describe", controller.describe)
+}
+
+func (controller *controller) start(request *gin.Context) {
+	flowID := httputil.NewFlowID("order-processing")
+	input := OrderRequest{
+		OrderID:            flowID,
+		Email:              "buyer@example.com",
+		CustomerID:         "customer-1",
+		Amount:             42,
+		TestFailAtShipping: request.Query("testFailAtShipping") == "true",
+	}
 	runID, err := controller.client.StartFlow(
 		request.Request.Context(),
 		controller.flow,
@@ -772,12 +1059,70 @@ fn seller_ok() -> Channel<String> {
 		sdk.WaitOptions{Timeout: 5 * time.Minute},
 	)
 	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
+}
+
+func (controller *controller) approve(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var output string
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		controller.flow.Approve,
+		request.Query("notes"),
+		&output,
+		sdk.InvokeOptions{},
+	)
+	httputil.Respond(request, output, err)
+}
+
+func (controller *controller) describe(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var output string
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		controller.flow.Describe,
+		nil,
+		&output,
+		sdk.InvokeOptions{},
+	)
+	httputil.Respond(request, gin.H{"flowID": flowID, "status": output}, err)
+}
 ```
 
 </SdkSnippet>
-<SdkSnippet lang="java">
+  <SdkSnippet lang="java">
 
 ```java
+@RestController
+@RequestMapping("/products/order-processing")
+public class OrderProcessingController {
+    private final Client client;
+    private final OrderProcessingFlow flow;
+
+    public OrderProcessingController(
+            final Client client,
+            final OrderProcessingFlow flow) {
+        this.client = client;
+        this.flow = flow;
+    }
+
+    @GetMapping("/start")
+    public ResponseEntity<Map<String, String>> start(
+            @RequestParam(defaultValue = "false") final boolean testFailAtShipping) {
+        final String flowId = "order-processing-" + System.nanoTime();
+        final OrderRequest request = new OrderRequest(
+                flowId,
+                "buyer@example.com",
+                "customer-1",
+                42,
+                testFailAtShipping);
         final String runId = client.startFlow(flow, flowId, request, ExampleFlows.startOptions());
         client.waitForStepCompletion(
                 flowId,
@@ -787,12 +1132,48 @@ fn seller_ok() -> Channel<String> {
         response.put("flowID", flowId);
         response.put("runID", runId);
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/approve")
+    public ResponseEntity<String> approve(
+            @RequestParam final String workflowId,
+            @RequestParam(defaultValue = "") final String notes) {
+        final OrderProcessingFlow stub = client.newRpcStub(OrderProcessingFlow.class, workflowId);
+        return ResponseEntity.ok(client.invokeRPC(stub::approve, notes));
+    }
+
+    @GetMapping("/describe")
+    public ResponseEntity<Map<String, String>> describe(
+            @RequestParam final String workflowId) {
+        final OrderProcessingFlow stub = client.newRpcStub(OrderProcessingFlow.class, workflowId);
+        final String status = client.invokeRPC(stub::describe);
+        final Map<String, String> response = new LinkedHashMap<String, String>();
+        response.put("flowID", workflowId);
+        response.put("status", status);
+        return ResponseEntity.ok(response);
+    }
+}
 ```
 
 </SdkSnippet>
-<SdkSnippet lang="typescript">
+  <SdkSnippet lang="typescript">
 
 ```typescript
+export function createOrderProcessingRouter(
+  client: Client,
+  flow: OrderProcessingFlow,
+): Router {
+  const router = Router();
+
+  router.get("/start", async (request, response) => {
+    const flowId = `order-processing-${process.hrtime.bigint()}`;
+    const input: OrderRequest = {
+      orderId: flowId,
+      email: "buyer@example.com",
+      customerId: "customer-1",
+      amount: 42,
+      testFailAtShipping: String(request.query.testFailAtShipping ?? "") === "true",
+    };
     const runId = await client.startFlow(flow, flowId, input, startOptions());
     await client.waitForStepCompletion(
       flowId,
@@ -800,12 +1181,51 @@ fn seller_ok() -> Channel<String> {
       5 * 60 * 1000,
     );
     response.json({ flowID: flowId, runID: runId });
+  });
+
+  router.get("/approve", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    const notes = String(request.query.notes ?? "");
+    const output = await client.invokeRPC(flow.approve, workflowId, notes);
+    response.json(output);
+  });
+
+  router.get("/describe", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    const status = await client.invokeRPC(flow.describe, workflowId);
+    response.json({ flowID: workflowId, status });
+  });
+
+  return router;
+}
 ```
 
 </SdkSnippet>
-<SdkSnippet lang="rust">
+  <SdkSnippet lang="rust">
 
 ```rust
+pub fn mount(client: SharedClient, flow: OrderProcessingFlow) -> Router {
+    Router::new()
+        .route("/products/order-processing/start", get(start))
+        .route("/products/order-processing/approve", get(approve))
+        .route("/products/order-processing/describe", get(describe))
+        .with_state(OrderProcessingState { client, flow })
+}
+
+async fn start(
+    State(state): State<OrderProcessingState>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
+    let OrderProcessingState { client, flow } = state;
+    match run_blocking(move || {
+        let flow_id = new_flow_id("order-processing");
+        let input = OrderRequest {
+            order_id: flow_id.clone(),
+            email: "buyer@example.com".into(),
+            customer_id: "customer-1".into(),
+            amount: 42,
+            test_fail_at_shipping: query.test_fail_at_shipping,
+        };
         let run_id = client.start_flow(&flow, &flow_id, input)?;
         client.wait_for_step_completion(
             &flow_id,
@@ -813,23 +1233,112 @@ fn seller_ok() -> Channel<String> {
             Duration::from_secs(300),
         )?;
         Ok(StartResponse { flow_id, run_id })
+    }) {
+        Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn approve(
+    State(state): State<OrderProcessingState>,
+    Query(query): Query<WorkflowQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    let notes = query.notes;
+    match run_blocking(move || state.client.invoke_rpc(&flow_id, ORDER_APPROVE, notes)) {
+        Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn describe(
+    State(state): State<OrderProcessingState>,
+    Query(query): Query<WorkflowQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    match run_blocking(move || {
+        state
+            .client
+            .invoke_rpc_without_input(&flow_id, ORDER_DESCRIBE)
+            .map(|status| json!({ "flowID": flow_id, "status": status }))
+    }) {
+        Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-Step 切换是原子的。Timer 和 Channel 等待能熬过 Worker 重启。Retry 和补偿写在 Step 上。
+## 5. 运行
 
-## 和传统 Durable Execution 差在哪
+保持 `dexcli dev` 在跑。另开一个终端：
 
-传统 Durable Execution 靠 **replay** 事件历史来跑 workflow 函数。副作用放在 **activity** 里。你必须把业务逻辑拆成 **workflow code** 和 **activity code**。两边是完全不同的 paradigm。workflow 代码必须 **deterministic**：replay 的函数里不能多走时钟、随机数或 IO。Event history 有 **size** 上限。跑得久就要 **ContinueAsNew**。业务数据塞进这段 history，又贵又慢。
+<SdkTabs>
+<SdkSnippet lang="python">
 
-Replay 这套 Durable Execution 必须提供大量 API，才能模拟出一套 programming model。这些 API 引入了大量 implicit contracts 和 interfaces。理解和维护都非常复杂。
+```bash
+cd examples/python
+uv run python main.py
+```
 
-Dex 不要求你写一段可 replay 的 workflow 函数。你声明 Step 和切换。Worker handler 就是普通代码。等待、RPC、locking 写在 Flow 模型里，不是从 history primitive 自己拼回来。**Attribute** 数据放在 **blob store** 里，不进 event history。也可以 sync 到你已有的数据库。
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```bash
+cd examples/go
+make bins
+./dex-samples
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```bash
+cd examples/java
+./gradlew bootRun
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm start
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```bash
+cd examples/rust
+cargo run --locked
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+然后启动一笔订单，打开 Dex Web，再批准发货：
+
+```bash
+curl -s 'http://127.0.0.1:8080/products/order-processing/start'
+```
+
+从 JSON 里复制 `flowID`。打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，找到这条 Flow，打开详情。ShipStep 在等待。
+
+```bash
+curl -s "http://127.0.0.1:8080/products/order-processing/approve?workflowId=FLOW_ID"
+```
+
+把 `FLOW_ID` 换成 start 的返回值。这条 Flow 会发货并完成。
+
+## 6. Dex Web
+
+start 之后，打开这条 Flow，留在 Step graph tab。ChargeStep 已完成。ShipStep 在等卖家 Channel 和提醒 Timer。approve 之后，ShipStep 执行，Flow 完成。
 
 ## 接下来
 
-- [Durable Primitives](/primitives) — Step、Attribute、Channel、Timer、RPC、Client API
-- [Design Patterns](/design-patterns) — 可复用的 Flow 形状
-- [产品示例](/use-cases) — 更完整的产品例子
+- [Durable Primitives](/primitives)
+- [为什么是 Dex？](/intro/what-is-dex)
+- [产品示例](/use-cases)

@@ -35,13 +35,8 @@ import {
 } from "@superdurable/dex";
 
 import { DAY_MS } from "../../config/env.js";
-import {
-  myDependencyService,
-  type MyDependencyService,
-} from "../../shared/my-dependency-service.js";
+import { type MyDependencyService } from "../../shared/my-dependency-service.js";
 import { orderRequestCodec, type OrderRequest } from "./models.js";
-
-export const SELLER_REMINDER_TIMER = "seller-reminder";
 
 export class OrderProcessingFlow implements Flow<OrderRequest> {
   public readonly orderStatus = new Attribute("order-status", stringCodec, {
@@ -53,7 +48,7 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
   public readonly ship = new ShipStep(this);
   public readonly refund = new RefundStep(this);
 
-  public constructor(public readonly service: MyDependencyService = myDependencyService) {}
+  public constructor(public readonly service: MyDependencyService) {}
 
   public getFlowType(): string {
     return "OrderProcessingFlow";
@@ -92,7 +87,12 @@ class ChargeStep implements Step<OrderRequest> {
   }
 
   public getStepOptions() {
-    return { executeRetry: { maximumAttempts: 3 } };
+    return {
+      executeRetry: {
+        // totalDurationMs: 60 * 60 * 1000,
+        totalDurationMs: 3_000,
+      },
+    };
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
@@ -113,9 +113,15 @@ class ShipStep implements Step<OrderRequest> {
 
   public getStepOptions() {
     return {
-      executeRetry: { initialIntervalMs: 1000, maximumAttempts: 2 },
+      executeRetry: {
+        // totalDurationMs: 60 * 60 * 1000,
+        totalDurationMs: 3_000,
+      },
       executeFailure: ExecuteFailure.proceedTo(this.flow.refund, {
-        executeRetry: { maximumAttempts: 3 },
+        executeRetry: {
+          // totalDurationMs: 60 * 60 * 1000,
+          totalDurationMs: 3_000,
+        },
       }),
     };
   }
@@ -123,7 +129,7 @@ class ShipStep implements Step<OrderRequest> {
   public waitFor(_context: Context, _input: OrderRequest): Wait {
     return Wait.anyOf(
       this.flow.sellerOk.forOne(),
-      Timer.byDuration(DAY_MS, SELLER_REMINDER_TIMER),
+      Timer.byDuration(DAY_MS),
     );
   }
 
@@ -157,5 +163,3 @@ class RefundStep implements Step<OrderRequest> {
     return gracefulComplete(`refunded:${input.orderId}`);
   }
 }
-
-export const orderProcessingFlow = new OrderProcessingFlow();

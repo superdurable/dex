@@ -7,15 +7,13 @@ slug: /quick-start
 
 # Quick Start
 
-Build a Hello Flow end to end: install Dex locally, define two Steps with a wait, unblock it with an RPC, and inspect the result in Dex Web.
+Build the same order-processing Flow as [Why Dex?](/intro/what-is-dex): install Dex, register a Worker and Client, start the Flow from an HTTP controller, approve shipment, and inspect the Step graph in Dex Web.
 
 Choose an SDK once — the preference is stored in this browser (`localStorage`) and defaults to **Python**.
 
-:::tip TypeScript SDK
-Use `@superdurable/dex` **^0.1.3+**. `waitFor`, `execute`, and RPC handlers may be `async` and `await` `Client` calls on the **same** Worker — no sync sidecar. See [TypeScript SDK notes](/references/typescript-sdk).
-:::
+Runnable sample: `examples/{python,go,java,typescript,rust}` directories linked from the tabs. The sample also has HTTP routes; try it from the examples playground (`examples/playground`, `id: order-processing`). See `examples/README.md`.
 
-## 1. Install Dex server + web
+## 1. Install Dex
 
 ```bash
 brew install superdurable/tap/dexcli
@@ -36,227 +34,1315 @@ own SQLite database. Use the printed Dex Server address with
 `--server`. See the [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)
 for flags and persistence options.
 
-## 2. Hello Flow design
+## 2. Flow, Steps, RPCs, constructor dependency
 
-You will implement:
+Charge, then wait for seller approval (Channel or reminder Timer), then ship. Exhausted ship retries go to Refund. The design is on [Why Dex?](/intro/what-is-dex).
 
-1. A **Flow** with **StepA → StepB**
-2. **StepA** uses `waitFor` with **anyOf(timer, channel)**; **StepB** has no wait
-3. One **Attribute**, one **Channel**, one **RPC** that updates the attribute and publishes the channel to unblock StepA
-4. A client (and optional REST controller) to start the Flow and invoke the RPC
-5. Inspection in Dex Web
+Pass the mock payment and shipping API into the Flow constructor. Do not use a setter or a global.
 
-```text
-Start → StepA (wait anyOf timer | channel)
-              │ channel msg or timer
-              ▼
-            StepB (execute only) → complete
-```
-
-## 3. Flow definition
-
-<SdkTabs>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+    rust: 'examples/rust/src/products/order_processing',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
-from datetime import timedelta
-from dex import (
-    Attribute, Channel, Context, Flow, PersistenceSchema, RPCResult,
-    Step, StepDecision, StepList, Timer, Wait, go_to, graceful_complete, rpc,
-)
+class ChargeStep(Step[OrderRequest]):
+    def __init__(self, flow: "OrderProcessingFlow") -> None:
+        self.flow = flow
 
-class StepA(Step[str]):
-    def __init__(self, unblock: Channel[str]):
-        self.unblock = unblock
-
-    def wait_for(self, context: Context, input: str) -> Wait:
-        return Wait.any_of(
-            self.unblock.for_one(),
-            Timer.by_duration(timedelta(seconds=60)),
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                # total_duration=timedelta(hours=1),
+                total_duration=timedelta(seconds=3),
+            )
         )
 
-    def execute(self, context: Context, input: str) -> StepDecision:
-        msgs = self.unblock.results(context)
-        note = msgs[0] if msgs else "timer"
-        return go_to(StepB(), f"{input}:{note}")
+    def execute(self, context: Context, input: OrderRequest) -> StepDecision:
+        self.flow.service.charge_user(input.email, input.customer_id, input.amount)
+        self.flow.order_status.set(context, "charged")
+        return go_to(self.flow.ship, input)
 
-class StepB(Step[str]):
-    def execute(self, context: Context, input: str) -> StepDecision:
-        return graceful_complete(input)
 
-class HelloFlow(Flow[str]):
-    status = Attribute("status", str)
-    unblock = Channel("unblock", str)
+class ShipStep(Step[OrderRequest]):
+    def __init__(self, flow: "OrderProcessingFlow") -> None:
+        self.flow = flow
 
-    def get_steps(self) -> StepList[str]:
-        return StepList.start_step(StepA(self.unblock)).other_steps(StepB())
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                # total_duration=timedelta(hours=1),
+                total_duration=timedelta(seconds=3),
+            )
+        ).on_execute_failure_proceed_to(
+            self.flow.refund,
+            StepOptions(
+                execute_retry=RetryPolicy(
+                    # total_duration=timedelta(hours=1),
+                    total_duration=timedelta(seconds=3),
+                )
+            ),
+        )
+
+    def wait_for(self, context: Context, input: OrderRequest) -> Wait:
+        del context, input
+        return Wait.any_of(
+            self.flow.seller_ok.for_one(),
+            Timer.by_duration(timedelta(hours=24)),
+        )
+
+    def execute(self, context: Context, input: OrderRequest) -> StepDecision:
+        if context.has_timer_fired():
+            self.flow.service.send_email(
+                input.email,
+                "Reminder: approve shipment",
+                "Please approve or provide a tracking number.",
+            )
+            return go_to(self, input)
+        self.flow.service.ship_item(input.order_id, input.test_fail_at_shipping)
+        self.flow.order_status.set(context, "shipped")
+        return graceful_complete(f"shipped:{input.order_id}")
+
+
+class RefundStep(Step[OrderRequest]):
+    def __init__(self, flow: "OrderProcessingFlow") -> None:
+        self.flow = flow
+
+    def execute(self, context: Context, input: OrderRequest) -> StepDecision:
+        self.flow.service.update_external_system(f"refund {input.order_id}")
+        self.flow.order_status.set(context, "refunded")
+        return graceful_complete(f"refunded:{input.order_id}")
+
+
+class OrderProcessingFlow(Flow[OrderRequest]):
+    order_status = Attribute(
+        "order-status",
+        str,
+        AttributeIndex(IndexType.KEYWORD),
+    )
+    seller_ok = Channel[str]("seller-ok", str)
+
+    def __init__(self, service: MyDependencyService) -> None:
+        self.service = service
+        self.charge = ChargeStep(self)
+        self.ship = ShipStep(self)
+        self.refund = RefundStep(self)
+
+    def get_steps(self) -> StepList[OrderRequest]:
+        return StepList.start_step(self.charge).other_steps(self.ship, self.refund)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.attributes(self.status).channels(self.unblock)
+        return PersistenceSchema.of(self.order_status, self.seller_ok)
 
     @rpc
-    def nudge(self, context: Context, message: str) -> RPCResult:
-        self.status.set(context, "nudged")
-        self.unblock.publish(context, message)
-        return RPCResult(output="ok")
+    def approve(self, context: Context, _note: str) -> RPCResult[str]:
+        self.seller_ok.publish(context, "approved")
+        return RPCResult("ok")
+
+    @rpc
+    def describe(self, context: Context) -> RPCResult[str]:
+        return RPCResult(self.order_status.get(context))
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-// StepA WaitFor: anyOf(channel, timer); Execute → StepB
-// StepB Execute only → complete
-// Attribute "status", Channel "unblock"
-// RPC Nudge: SetAttributes(status) + PublishToChannel(unblock)
-// See examples in sdk-go and examples/go/primitives/step for full Worker registration.
+type OrderProcessingFlow struct {
+	dex.FlowDefaults
+	service service.MyService
+}
+
+func NewOrderProcessingFlow(applicationService service.MyService) *OrderProcessingFlow {
+	return &OrderProcessingFlow{service: applicationService}
+}
+
+func (flow *OrderProcessingFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(chargeStep{service: flow.service}),
+		dex.DefineStep(shipStep{service: flow.service}),
+		dex.DefineStep(refundStep{service: flow.service}),
+	}
+}
+
+func (*OrderProcessingFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{OrderStatus},
+		Channels:   []dex.ChannelDef{SellerOK},
+	}
+}
+
+func (*OrderProcessingFlow) Approve(
+	ctx dex.Context,
+	_ string,
+) (*dex.RPCResult[string], error) {
+	if err := SellerOK.Publish(ctx, "approved"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: "ok"}, nil
+}
+
+func (*OrderProcessingFlow) Describe(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[string], error) {
+	status, err := OrderStatus.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: status}, nil
+}
+```
+
+```go
+func (chargeStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			// TotalDuration: time.Hour,
+			TotalDuration: 3 * time.Second,
+		},
+	}
+}
+
+func (step chargeStep) Execute(
+	ctx dex.Context,
+	order OrderRequest,
+) (*dex.StepDecision, error) {
+	step.service.ChargeUser(order.Email, order.CustomerID, order.Amount)
+	if err := OrderStatus.Set(ctx, "charged"); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(shipStep{}, order), nil
+}
+
+type shipStep struct {
+	dex.DefaultStepType
+	service service.MyService
+}
+
+func (shipStep) GetStepType() string {
+	return ShipStepType
+}
+
+func (shipStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			// TotalDuration: time.Hour,
+			TotalDuration: 3 * time.Second,
+		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(
+			refundStep{},
+			&dex.StepOptions{
+				ExecuteRetry: &dex.RetryPolicy{
+					// TotalDuration: time.Hour,
+					TotalDuration: 3 * time.Second,
+				},
+			},
+		),
+	}
+}
+
+func (shipStep) WaitFor(
+	dex.Context,
+	OrderRequest,
+) (*dex.Wait, error) {
+	return dex.AnyOf(
+		SellerOK.ForOne(),
+		dex.Timer(24 * time.Hour),
+	), nil
+}
+
+func (step shipStep) Execute(
+	ctx dex.Context,
+	order OrderRequest,
+) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		step.service.SendEmail(
+			order.Email,
+			"Reminder: approve shipment",
+			"Please approve or provide a tracking number.",
+		)
+		return dex.GoTo(shipStep{}, order), nil
+	}
+	if err := step.service.ShipItem(order.OrderID, order.TestFailAtShipping); err != nil {
+		return nil, err
+	}
+	if err := OrderStatus.Set(ctx, "shipped"); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("shipped:" + order.OrderID), nil
+}
+
+type refundStep struct {
+	dex.StepDefaultsNoWaitFor[OrderRequest]
+	service service.MyService
+}
+
+func (refundStep) GetStepType() string {
+	return RefundStepType
+}
+
+func (step refundStep) Execute(
+	ctx dex.Context,
+	order OrderRequest,
+) (*dex.StepDecision, error) {
+	step.service.UpdateExternalSystem("refund " + order.OrderID)
+	if err := OrderStatus.Set(ctx, "refunded"); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("refunded:" + order.OrderID), nil
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-// StepA: waitFor anyOf(Channel, Timer); execute → StepB
-// StepB: execute only → gracefulComplete
-// Attribute status; Channel unblock
-// @RPC nudge: set status + publish unblock
-// See examples/java/.../primitives/step for Worker + Spring controller wiring.
+public class OrderProcessingFlow implements Flow<OrderRequest> {
+    public final Attribute<String> orderStatus = Attribute.define(
+            "order-status",
+            String.class,
+            new AttributeIndex(AttributeIndex.Type.KEYWORD));
+    public final Channel<String> sellerOk = Channel.define("seller-ok", String.class);
+
+    private final MyDependencyService service;
+    private final ChargeStep charge = new ChargeStep();
+    private final ShipStep ship = new ShipStep();
+    private final RefundStep refund = new RefundStep();
+
+    public OrderProcessingFlow(final MyDependencyService service) {
+        this.service = service;
+    }
+
+    @Override
+    public StepList<OrderRequest> getSteps() {
+        return StepList.startStep(charge).otherSteps(ship, refund);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(orderStatus, sellerOk);
+    }
+
+    @RPC
+    public RPCResult<String> approve(final Context context, final String note) {
+        sellerOk.publish(context, "approved");
+        return RPCResult.of("ok");
+    }
+
+    @RPC
+    public RPCResult<String> describe(final Context context) {
+        return RPCResult.of(orderStatus.get(context));
+    }
+
+    final class ChargeStep implements Step<OrderRequest> {
+        @Override
+        public String getStepType() {
+            return "ChargeStep";
+        }
+
+        @Override
+        public Class<OrderRequest> getInputType() {
+            return OrderRequest.class;
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .executeRetry(RetryPolicy.newBuilder()
+                            // .totalDuration(Duration.ofHours(1))
+                            .totalDuration(Duration.ofSeconds(3))
+                            .build())
+                    .build();
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final OrderRequest order) {
+            service.chargeUser(order.email, order.customerId, order.amount);
+            orderStatus.set(context, "charged");
+            return StepDecision.goTo(ship, order);
+        }
+    }
+
+    final class ShipStep implements Step<OrderRequest> {
+        @Override
+        public String getStepType() {
+            return "ShipStep";
+        }
+
+        @Override
+        public Class<OrderRequest> getInputType() {
+            return OrderRequest.class;
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .executeRetry(RetryPolicy.newBuilder()
+                            // .totalDuration(Duration.ofHours(1))
+                            .totalDuration(Duration.ofSeconds(3))
+                            .build())
+                    .onExecuteFailureProceedTo(
+                            refund,
+                            StepOptions.newBuilder()
+                                    .executeRetry(RetryPolicy.newBuilder()
+                                            // .totalDuration(Duration.ofHours(1))
+                                            .totalDuration(Duration.ofSeconds(3))
+                                            .build())
+                                    .build())
+                    .build();
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final OrderRequest order) {
+            return Wait.anyOf(
+                    sellerOk.forOne(),
+                    Timer.byDuration(Duration.ofHours(24)));
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final OrderRequest order) {
+            if (context.hasTimerFired()) {
+                service.sendEmail(
+                        order.email,
+                        "Reminder: approve shipment",
+                        "Please approve or provide a tracking number.");
+                return StepDecision.goTo(ship, order);
+            }
+            service.shipItem(order.orderId, order.testFailAtShipping);
+            orderStatus.set(context, "shipped");
+            return StepDecision.gracefulComplete("shipped:" + order.orderId);
+        }
+    }
+
+    final class RefundStep implements Step<OrderRequest> {
+        @Override
+        public String getStepType() {
+            return "RefundStep";
+        }
+
+        @Override
+        public Class<OrderRequest> getInputType() {
+            return OrderRequest.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final OrderRequest order) {
+            service.updateExternalSystem("refund " + order.orderId);
+            orderStatus.set(context, "refunded");
+            return StepDecision.gracefulComplete("refunded:" + order.orderId);
+        }
+    }
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
 ```typescript
-import {
-  Attribute, Channel, StepList, Timer, Wait,
-  goTo, gracefulComplete, rpc, stringCodec,
-  type Context, type Flow, type PersistenceSchema,
-  type RPCResult, type Step, type StepDecision,
-} from "@superdurable/dex";
+export class OrderProcessingFlow implements Flow<OrderRequest> {
+  public readonly orderStatus = new Attribute("order-status", stringCodec, {
+    type: IndexType.KEYWORD,
+  });
+  public readonly sellerOk = new Channel("seller-ok", stringCodec);
 
-// @superdurable/dex ^0.1.3+: waitFor / execute / RPC may be async
-// and await Client on the same Worker (no sidecar).
+  public readonly charge = new ChargeStep(this);
+  public readonly ship = new ShipStep(this);
+  public readonly refund = new RefundStep(this);
 
-class StepA implements Step<string> {
-  readonly inputCodec = stringCodec;
-  constructor(private readonly flow: HelloFlow) {}
-  getStepType() { return "StepA"; }
+  public constructor(public readonly service: MyDependencyService) {}
 
-  waitFor(_context: Context, _input: string): Wait {
+  public getFlowType(): string {
+    return "OrderProcessingFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.charge).otherSteps(this.ship, this.refund);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {
+      attributes: [this.orderStatus],
+      channels: [this.sellerOk],
+    };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+  public approve(context: Context, _note: string): RPCResult<string> {
+    this.sellerOk.publish(context, "approved");
+    return { output: "ok" };
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public describe(context: Context): RPCResult<string> {
+    return { output: this.orderStatus.get(context) };
+  }
+}
+
+class ChargeStep implements Step<OrderRequest> {
+  public readonly inputCodec = orderRequestCodec;
+
+  public constructor(private readonly flow: OrderProcessingFlow) {}
+
+  public getStepType(): string {
+    return "ChargeStep";
+  }
+
+  public getStepOptions() {
+    return {
+      executeRetry: {
+        // totalDurationMs: 60 * 60 * 1000,
+        totalDurationMs: 3_000,
+      },
+    };
+  }
+
+  public execute(context: Context, input: OrderRequest): StepDecision {
+    this.flow.service.chargeUser(input.email, input.customerId, input.amount);
+    this.flow.orderStatus.set(context, "charged");
+    return goTo(this.flow.ship, input);
+  }
+}
+
+class ShipStep implements Step<OrderRequest> {
+  public readonly inputCodec = orderRequestCodec;
+
+  public constructor(private readonly flow: OrderProcessingFlow) {}
+
+  public getStepType(): string {
+    return "ShipStep";
+  }
+
+  public getStepOptions() {
+    return {
+      executeRetry: {
+        // totalDurationMs: 60 * 60 * 1000,
+        totalDurationMs: 3_000,
+      },
+      executeFailure: ExecuteFailure.proceedTo(this.flow.refund, {
+        executeRetry: {
+          // totalDurationMs: 60 * 60 * 1000,
+          totalDurationMs: 3_000,
+        },
+      }),
+    };
+  }
+
+  public waitFor(_context: Context, _input: OrderRequest): Wait {
     return Wait.anyOf(
-      this.flow.unblock.forOne(),
-      Timer.byDuration(60_000),
+      this.flow.sellerOk.forOne(),
+      Timer.byDuration(DAY_MS),
     );
   }
 
-  execute(context: Context, input: string): StepDecision {
-    const msgs = this.flow.unblock.results(context);
-    const note = msgs[0] ?? "timer";
-    return goTo(this.flow.stepB, `${input}:${note}`);
+  public execute(context: Context, input: OrderRequest): StepDecision {
+    if (context.hasTimerFired()) {
+      this.flow.service.sendEmail(
+        input.email,
+        "Reminder: approve shipment",
+        "Please approve or provide a tracking number.",
+      );
+      return goTo(this, input);
+    }
+    this.flow.service.shipItem(input.orderId, input.testFailAtShipping);
+    this.flow.orderStatus.set(context, "shipped");
+    return gracefulComplete(`shipped:${input.orderId}`);
   }
 }
 
-class StepB implements Step<string> {
-  readonly inputCodec = stringCodec;
-  getStepType() { return "StepB"; }
-  execute(_context: Context, input: string): StepDecision {
-    return gracefulComplete(input);
+class RefundStep implements Step<OrderRequest> {
+  public readonly inputCodec = orderRequestCodec;
+
+  public constructor(private readonly flow: OrderProcessingFlow) {}
+
+  public getStepType(): string {
+    return "RefundStep";
+  }
+
+  public execute(context: Context, input: OrderRequest): StepDecision {
+    this.flow.service.updateExternalSystem(`refund ${input.orderId}`);
+    this.flow.orderStatus.set(context, "refunded");
+    return gracefulComplete(`refunded:${input.orderId}`);
   }
 }
+```
 
-export class HelloFlow implements Flow<string> {
-  readonly status = new Attribute("status", stringCodec);
-  readonly unblock = new Channel("unblock", stringCodec);
-  readonly stepA = new StepA(this);
-  readonly stepB = new StepB();
+</SdkSnippet>
+  <SdkSnippet lang="rust">
 
-  getFlowType() { return "HelloFlow"; }
-  getSteps() {
-    return StepList.startStep(this.stepA).otherSteps(this.stepB);
-  }
-  getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.status], channels: [this.unblock] };
-  }
+```rust
+#[derive(Clone, Default)]
+pub struct MyDependencyService;
 
-  @rpc({ name: "nudge", inputCodec: stringCodec, outputCodec: stringCodec })
-  nudge(context: Context, message: string): RPCResult<string> {
-    this.status.set(context, "nudged");
-    this.unblock.publish(context, message);
-    return { output: "ok" };
-  }
+impl MyDependencyService {
+    pub fn charge_user(&self, email: &str, customer_id: &str, amount: i64) {
+        println!("charge user customerID[{customer_id}] email[{email}] for ${amount}");
+    }
+
+    pub fn send_email(&self, recipient: &str, subject: &str, content: &str) {
+        println!("sending an email to {recipient}, title: {subject}, content: {content}");
+    }
+
+    pub fn ship_item(&self, order_id: &str, test_fail_at_shipping: bool) -> HandlerResult<()> {
+        if test_fail_at_shipping {
+            return Err(HandlerError::new(format!(
+                "ship failed for order {order_id}"
+            )));
+        }
+        println!("ship item {order_id}");
+        Ok(())
+    }
+
+    pub fn update_external_system(&self, message: &str) {
+        println!(
+            "Update external system(like via RPC, or sending Kafka message or database): {message}"
+        );
+    }
+}
+
+#[derive(Clone)]
+pub struct OrderProcessingFlow {
+    charge: Charge,
+    ship: Ship,
+    refund: Refund,
+}
+
+impl OrderProcessingFlow {
+    pub fn new(service: MyDependencyService) -> Self {
+        Self {
+            charge: Charge {
+                service: service.clone(),
+            },
+            ship: Ship {
+                service: service.clone(),
+            },
+            refund: Refund { service },
+        }
+    }
+
+    fn approve(&self, context: &mut Context, _note: String) -> HandlerResult<RpcResult<String>> {
+        seller_ok().publish(context, "approved".to_string())?;
+        Ok(RpcResult::new("ok".to_string()))
+    }
+
+    fn describe(&self, context: &mut Context) -> HandlerResult<RpcResult<String>> {
+        Ok(RpcResult::new(order_status().get_required(context)?))
+    }
+}
+
+impl Default for OrderProcessingFlow {
+    fn default() -> Self {
+        Self::new(MyDependencyService)
+    }
+}
+
+impl Flow for OrderProcessingFlow {
+    type StartInput = OrderRequest;
+
+    fn flow_type(&self) -> &'static str {
+        "OrderProcessingFlow"
+    }
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.charge)
+            .and(&self.ship)
+            .and(&self.refund)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .attribute(&order_status())
+            .channel(&seller_ok())
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new()
+            .function(ORDER_APPROVE, Self::approve)
+            .function_without_input(ORDER_DESCRIBE, Self::describe)
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Charge {
+    service: MyDependencyService,
+}
+
+impl Step for Charge {
+    type Input = OrderRequest;
+
+    fn step_type(&self) -> &'static str {
+        "ChargeStep"
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_retry(
+            RetryPolicy::new()
+                // .total_duration(Duration::from_secs(60 * 60))
+                .total_duration(Duration::from_secs(3)),
+        )
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        self.service
+            .charge_user(&input.email, &input.customer_id, input.amount);
+        context.record_event("charge", input.order_id.clone())?;
+        order_status().set(context, "charged".to_string())?;
+        Ok(StepDecision::go_to(
+            &Ship {
+                service: self.service.clone(),
+            },
+            input,
+        ))
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Ship {
+    service: MyDependencyService,
+}
+
+impl Step for Ship {
+    type Input = OrderRequest;
+
+    fn step_type(&self) -> &'static str {
+        "ShipStep"
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new()
+            .execute_retry(
+                RetryPolicy::new()
+                    // .total_duration(Duration::from_secs(60 * 60))
+                    .total_duration(Duration::from_secs(3)),
+            )
+            .on_execute_failure_proceed_to(&Refund {
+                service: self.service.clone(),
+            })
+    }
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            seller_ok().for_one(),
+            Timer::by_duration(Duration::from_secs(24 * 60 * 60)),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        if context.has_any_timer_fired() {
+            self.service.send_email(
+                &input.email,
+                "Reminder: approve shipment",
+                "Please approve or provide a tracking number.",
+            );
+            context.record_event("shipment-reminder", input.order_id.clone())?;
+            return Ok(StepDecision::go_to(
+                &Ship {
+                    service: self.service.clone(),
+                },
+                input,
+            ));
+        }
+        self.service
+            .ship_item(&input.order_id, input.test_fail_at_shipping)?;
+        context.record_event("ship", input.order_id.clone())?;
+        order_status().set(context, "shipped".to_string())?;
+        Ok(StepDecision::graceful_complete(format!(
+            "shipped:{}",
+            input.order_id
+        )))
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Refund {
+    service: MyDependencyService,
+}
+
+impl Step for Refund {
+    type Input = OrderRequest;
+
+    fn step_type(&self) -> &'static str {
+        "RefundStep"
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_retry(
+            RetryPolicy::new()
+                // .total_duration(Duration::from_secs(60 * 60))
+                .total_duration(Duration::from_secs(3)),
+        )
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        self.service
+            .update_external_system(&format!("refund {}", input.order_id));
+        context.record_event("refund", input.order_id.clone())?;
+        order_status().set(context, "refunded".to_string())?;
+        Ok(StepDecision::graceful_complete(format!(
+            "refunded:{}",
+            input.order_id
+        )))
+    }
 }
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-## 4. Start the Flow and invoke the RPC
+## 3. Worker and Client
 
-Register the Flow on a Worker pointed at `dexcli` (`worker_target` / server address `127.0.0.1:8801`), then:
+Point a Registry, Worker, and Client at `dexcli` (`127.0.0.1:8801`). Construct the Flow with the service, then register it.
 
-<SdkTabs>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+    rust: 'examples/rust/src/products/order_processing',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
-# Start
-client.start_flow(HelloFlow(), flow_id="hello-1", input="hi")
+        service = MyDependencyService()
+        pattern_service = ServiceDependency()
 
-# Unblock StepA via RPC (also updates attribute + publishes channel)
-client.invoke_rpc(flow_id="hello-1", rpc="nudge", input="from-client")
+        self.money_transfer = MoneyTransferFlow(service)
+        self.order_processing = OrderProcessingFlow(service)
+```
+
+```python
+        self.registry = Registry(tuple(flows), allow_async_handlers=True)
+        config.blob_cache_dir.mkdir(parents=True, exist_ok=True)
+        self.blob_cache = open_blob_cache(
+            BlobCacheConfig(str(config.blob_cache_dir), 1 << 30)
+        )
+        worker_options = WorkerOptions(
+            bind_address=config.worker_bind_address,
+            server_address=config.server_address,
+            worker_target=(
+                WorkerTarget(config.worker_target)
+                if config.worker_target
+                else None
+            ),
+        )
+        self.worker = AsyncWorker(self.registry, self.blob_cache, worker_options)
+        self._client = AsyncClient(
+            self.registry,
+            self.blob_cache,
+            ClientOptions(
+                server_address=config.server_address,
+                worker_target=self.worker.worker_target,
+            ),
+        )
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-// client.StartFlow(...) then client.InvokeRPC(..., "Nudge", ...)
+	var client *sdk.Client
+	flows := registry.New(service.NewMyService(), func() *sdk.Client { return client })
+	flowRegistry, err := sdk.NewRegistry(flows)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("register example flows: %w", err), cache.Close())
+	}
+	workerOptions := sdk.WorkerOptions{
+		BindAddress:        environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803"),
+		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+	}
+	if target := os.Getenv("DEX_WORKER_TARGET"); target != "" {
+		workerOptions.WorkerTarget.Address = target
+	}
+	worker, err := sdk.NewWorker(flowRegistry, cache, workerOptions)
+	if err != nil {
+		return nil, errors.Join(err, cache.Close())
+	}
+	client, err = sdk.NewClient(flowRegistry, cache, sdk.ClientOptions{
+		FlowServiceAddress: os.Getenv("DEX_FLOW_SERVICE_ADDRESS"),
+		WorkerTarget:       worker.WorkerTarget(),
+	})
+```
+
+```go
+	orderprocessing.RegisterRoutes(router, client, registry.OrderProcessing)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-// client.startFlow(...) then client.invokeRPC(..., "nudge", ...)
+    @Bean(destroyMethod = "close")
+    public Worker worker(
+            final Registry registry,
+            final BlobCache blobCache,
+            @Value("${dex.server-address}") final String serverAddress,
+            @Value("${dex.worker-bind-address}") final String workerBindAddress,
+            @Value("${dex.worker-target:}") final String workerTarget) {
+        final WorkerOptions.Builder options = WorkerOptions.newBuilder()
+                .bindAddress(workerBindAddress)
+                .serverAddress(serverAddress);
+        if (workerTarget != null && !workerTarget.trim().isEmpty()) {
+            options.workerTarget(new WorkerTarget(workerTarget, false));
+        }
+        return new Worker(registry, blobCache, options.build());
+    }
+
+    @Bean(destroyMethod = "close")
+    public Client client(
+            final Registry registry,
+            final BlobCache blobCache,
+            final Worker worker,
+            @Value("${dex.server-address}") final String serverAddress) {
+        return new Client(
+                registry,
+                blobCache,
+                new ClientOptions(serverAddress, worker.getWorkerTarget()));
+    }
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
 ```typescript
-const hello = new HelloFlow();
-const client = new Client("127.0.0.1:8801"); // Promise-based gRPC client
+export const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
+```
 
-await client.startFlow(hello, "hello-1", "hi");
-await client.invokeRPC(hello.nudge, "hello-1", "from-client");
-// optional:
-const result = await client.waitForFlow("hello-1", 30_000);
-const output = result.singleOutput(stringCodec);
+```typescript
+  const registry = createExampleRegistry();
+  const blobCache = openBlobCache({
+    directory: env.blobCacheDir,
+    maxBytes: 1 << 30,
+  });
+  const worker = new Worker(registry, blobCache, {
+    bindAddress: env.workerBindAddress,
+    serverAddress: env.serverAddress,
+    ...(env.workerTarget !== undefined
+      ? { workerTarget: { address: env.workerTarget } }
+      : {}),
+  });
+  await worker.start();
+  const client = new Client(registry, blobCache, {
+    serverAddress: env.serverAddress,
+    workerTarget: worker.workerTarget,
+  });
+  setClient(client);
+```
+
+```typescript
+  app.use("/products/order-processing", createOrderProcessingRouter(client, orderProcessingFlow));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+    let registry = create_example_registry()?;
+    let worker = Worker::try_new(
+        registry.clone(),
+        Arc::clone(&cache),
+        WorkerOptions::new()
+            .server_address(server_address.clone())
+            .bind_address(worker_bind_address.clone()),
+    )?;
+    let worker_target = worker.worker_target().clone();
+    let worker_handle = thread::spawn(move || worker.start());
+
+    let client = Arc::new(Client::try_new(
+        registry,
+        Arc::clone(&cache),
+        ClientOptions::new()
+            .server_address(server_address)
+            .worker_target(worker_target),
+    )?);
+
+    let router = build_router(client);
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-A thin REST controller is optional — useful when a browser or partner system should start / nudge the Flow. Language samples under [examples](https://github.com/superdurable/dex/tree/main/examples) expose product, pattern, and primitive HTTP routes in the same process as the Worker. Try them from the examples playground (`examples/playground`); see `examples/README.md`.
+## 4. Controller
 
-## 5. View results in Dex Web
+The start handler starts the Flow, then waits for ChargeStep with the Client wait-for-Step-completion API. Approve publishes the seller Channel. Describe reads `order-status`. Client and Flow come from the constructor or factory args.
 
-1. Open [http://127.0.0.1:8802](http://127.0.0.1:8802)
-2. Find Flow `hello-1`
-3. Observe StepA waiting, then after the RPC, StepB completing and attributes/channel updates
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/order-processing',
+    go: 'examples/go/products/order-processing',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing',
+    typescript: 'examples/typescript/src/products/order-processing',
+    rust: 'examples/rust/src/products/order_processing',
+  }}>
+<SdkSnippet lang="python">
 
-![Dex Web Flow list placeholder](/img/quick-start/flow-list.svg)
+```python
+    @blueprint.get("/start")
+    async def start() -> Response:
+        flow_id = new_flow_id("order-processing")
+        request = OrderRequest(
+            flow_id,
+            "buyer@example.com",
+            "customer-1",
+            42,
+            optional_query("testFailAtShipping", "") == "true",
+        )
+        run_id = await app_state.client.start_flow(
+            app_state.order_processing,
+            flow_id,
+            request,
+            start_options(),
+        )
+        await app_state.client.wait_for_step_completion(
+            flow_id,
+            CHARGE_STEP,
+            CHARGE_WAIT_TIMEOUT,
+        )
+        return started_flow(flow_id, run_id)
 
-<ScreenshotPlaceholder caption="Replace static/img/quick-start/flow-list.svg with a real Dex Web screenshot" />
+    @blueprint.get("/approve")
+    async def approve() -> Response:
+        output = await app_state.client.invoke_rpc(
+            app_state.order_processing.approve,
+            required_query("workflowId"),
+            optional_query("notes", ""),
+        )
+        return jsonify(output)
 
-![Dex Web waiting placeholder](/img/quick-start/waiting.svg)
+    @blueprint.get("/describe")
+    async def describe() -> Response:
+        flow_id = required_query("workflowId")
+        status = await app_state.client.invoke_rpc(
+            app_state.order_processing.describe,
+            flow_id,
+        )
+        return jsonify({"flowID": flow_id, "status": status})
+```
 
-<ScreenshotPlaceholder caption="Replace static/img/quick-start/waiting.svg with StepA waiting" />
+</SdkSnippet>
+  <SdkSnippet lang="go">
 
-![Dex Web completed placeholder](/img/quick-start/completed.svg)
+```go
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *OrderProcessingFlow) {
+	controller := &controller{client: client, flow: flow}
+	group := router.Group("/products/order-processing")
+	group.GET("/start", controller.start)
+	group.GET("/approve", controller.approve)
+	group.GET("/describe", controller.describe)
+}
 
-<ScreenshotPlaceholder caption="Replace static/img/quick-start/completed.svg after RPC completes" />
+func (controller *controller) start(request *gin.Context) {
+	flowID := httputil.NewFlowID("order-processing")
+	input := OrderRequest{
+		OrderID:            flowID,
+		Email:              "buyer@example.com",
+		CustomerID:         "customer-1",
+		Amount:             42,
+		TestFailAtShipping: request.Query("testFailAtShipping") == "true",
+	}
+	runID, err := controller.client.StartFlow(
+		request.Request.Context(),
+		controller.flow,
+		flowID,
+		input,
+		sdk.StartFlowOptions{},
+	)
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return
+	}
+	err = controller.client.WaitForStepCompletion(
+		request.Request.Context(),
+		flowID,
+		sdk.StepExecutionID{StepType: ChargeStepType},
+		sdk.WaitOptions{Timeout: 5 * time.Minute},
+	)
+	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
+}
+
+func (controller *controller) approve(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var output string
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		controller.flow.Approve,
+		request.Query("notes"),
+		&output,
+		sdk.InvokeOptions{},
+	)
+	httputil.Respond(request, output, err)
+}
+
+func (controller *controller) describe(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var output string
+	err := controller.client.InvokeRPC(
+		request.Request.Context(),
+		flowID,
+		controller.flow.Describe,
+		nil,
+		&output,
+		sdk.InvokeOptions{},
+	)
+	httputil.Respond(request, gin.H{"flowID": flowID, "status": output}, err)
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@RestController
+@RequestMapping("/products/order-processing")
+public class OrderProcessingController {
+    private final Client client;
+    private final OrderProcessingFlow flow;
+
+    public OrderProcessingController(
+            final Client client,
+            final OrderProcessingFlow flow) {
+        this.client = client;
+        this.flow = flow;
+    }
+
+    @GetMapping("/start")
+    public ResponseEntity<Map<String, String>> start(
+            @RequestParam(defaultValue = "false") final boolean testFailAtShipping) {
+        final String flowId = "order-processing-" + System.nanoTime();
+        final OrderRequest request = new OrderRequest(
+                flowId,
+                "buyer@example.com",
+                "customer-1",
+                42,
+                testFailAtShipping);
+        final String runId = client.startFlow(flow, flowId, request, ExampleFlows.startOptions());
+        client.waitForStepCompletion(
+                flowId,
+                StepExecutionId.of("ChargeStep"),
+                Duration.ofMinutes(5));
+        final Map<String, String> response = new LinkedHashMap<String, String>();
+        response.put("flowID", flowId);
+        response.put("runID", runId);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/approve")
+    public ResponseEntity<String> approve(
+            @RequestParam final String workflowId,
+            @RequestParam(defaultValue = "") final String notes) {
+        final OrderProcessingFlow stub = client.newRpcStub(OrderProcessingFlow.class, workflowId);
+        return ResponseEntity.ok(client.invokeRPC(stub::approve, notes));
+    }
+
+    @GetMapping("/describe")
+    public ResponseEntity<Map<String, String>> describe(
+            @RequestParam final String workflowId) {
+        final OrderProcessingFlow stub = client.newRpcStub(OrderProcessingFlow.class, workflowId);
+        final String status = client.invokeRPC(stub::describe);
+        final Map<String, String> response = new LinkedHashMap<String, String>();
+        response.put("flowID", workflowId);
+        response.put("status", status);
+        return ResponseEntity.ok(response);
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export function createOrderProcessingRouter(
+  client: Client,
+  flow: OrderProcessingFlow,
+): Router {
+  const router = Router();
+
+  router.get("/start", async (request, response) => {
+    const flowId = `order-processing-${process.hrtime.bigint()}`;
+    const input: OrderRequest = {
+      orderId: flowId,
+      email: "buyer@example.com",
+      customerId: "customer-1",
+      amount: 42,
+      testFailAtShipping: String(request.query.testFailAtShipping ?? "") === "true",
+    };
+    const runId = await client.startFlow(flow, flowId, input, startOptions());
+    await client.waitForStepCompletion(
+      flowId,
+      StepExecutionId.of("ChargeStep"),
+      5 * 60 * 1000,
+    );
+    response.json({ flowID: flowId, runID: runId });
+  });
+
+  router.get("/approve", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    const notes = String(request.query.notes ?? "");
+    const output = await client.invokeRPC(flow.approve, workflowId, notes);
+    response.json(output);
+  });
+
+  router.get("/describe", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    const status = await client.invokeRPC(flow.describe, workflowId);
+    response.json({ flowID: workflowId, status });
+  });
+
+  return router;
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+pub fn mount(client: SharedClient, flow: OrderProcessingFlow) -> Router {
+    Router::new()
+        .route("/products/order-processing/start", get(start))
+        .route("/products/order-processing/approve", get(approve))
+        .route("/products/order-processing/describe", get(describe))
+        .with_state(OrderProcessingState { client, flow })
+}
+
+async fn start(
+    State(state): State<OrderProcessingState>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
+    let OrderProcessingState { client, flow } = state;
+    match run_blocking(move || {
+        let flow_id = new_flow_id("order-processing");
+        let input = OrderRequest {
+            order_id: flow_id.clone(),
+            email: "buyer@example.com".into(),
+            customer_id: "customer-1".into(),
+            amount: 42,
+            test_fail_at_shipping: query.test_fail_at_shipping,
+        };
+        let run_id = client.start_flow(&flow, &flow_id, input)?;
+        client.wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&Charge::default()),
+            Duration::from_secs(300),
+        )?;
+        Ok(StartResponse { flow_id, run_id })
+    }) {
+        Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn approve(
+    State(state): State<OrderProcessingState>,
+    Query(query): Query<WorkflowQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    let notes = query.notes;
+    match run_blocking(move || state.client.invoke_rpc(&flow_id, ORDER_APPROVE, notes)) {
+        Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn describe(
+    State(state): State<OrderProcessingState>,
+    Query(query): Query<WorkflowQuery>,
+) -> impl IntoResponse {
+    let flow_id = query.workflow_id;
+    match run_blocking(move || {
+        state
+            .client
+            .invoke_rpc_without_input(&flow_id, ORDER_DESCRIBE)
+            .map(|status| json!({ "flowID": flow_id, "status": status }))
+    }) {
+        Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 5. Run
+
+Keep `dexcli dev` running. In another terminal:
+
+<SdkTabs>
+<SdkSnippet lang="python">
+
+```bash
+cd examples/python
+uv run python main.py
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```bash
+cd examples/go
+make bins
+./dex-samples
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```bash
+cd examples/java
+./gradlew bootRun
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```bash
+cd examples/typescript
+npm start
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```bash
+cd examples/rust
+cargo run --locked
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Then start an order, open Dex Web, and approve shipment:
+
+```bash
+curl -s 'http://127.0.0.1:8080/products/order-processing/start'
+```
+
+Copy `flowID` from the JSON. Open [http://127.0.0.1:8802](http://127.0.0.1:8802), find that Flow, and open its details. ShipStep is waiting.
+
+```bash
+curl -s "http://127.0.0.1:8080/products/order-processing/approve?workflowId=FLOW_ID"
+```
+
+Replace `FLOW_ID` with the start response. The Flow ships and completes.
+
+## 6. Dex Web
+
+After start, open the Flow and stay on the Step graph tab. ChargeStep is complete. ShipStep is waiting on the seller Channel and the reminder Timer. After approve, ShipStep executes and the Flow completes.
 
 ## Next
 
-- Deepen primitives in [Durable Primitives](/primitives)
-- Browse [Design Patterns](/design-patterns) and [Product Examples](/use-cases)
+- [Durable Primitives](/primitives)
+- [Why Dex?](/intro/what-is-dex)
+- [Product Examples](/use-cases)

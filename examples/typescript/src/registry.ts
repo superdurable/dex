@@ -47,12 +47,15 @@ import { engagementFlow } from "./products/engagement/engagement-flow.js";
 import { jobPostFlow } from "./products/job-post/job-post-flow.js";
 import { orchestrationFlow } from "./products/microservices/orchestration-flow.js";
 import { moneyTransferFlow } from "./products/money-transfer/money-transfer-flow.js";
-import { orderProcessingFlow } from "./products/order-processing/order-processing-flow.js";
+import { OrderProcessingFlow } from "./products/order-processing/order-processing-flow.js";
 import { pollingFlow } from "./products/polling/polling-flow.js";
 import { employerOptInFlow } from "./products/shortlist-candidates/employer-opt-in-flow.js";
 import { shortlistFlow } from "./products/shortlist-candidates/shortlist-flow.js";
 import { userSignupFlow } from "./products/signup/user-signup-flow.js";
 import { subscriptionFlow } from "./products/subscription/subscription-flow.js";
+import { MyDependencyService } from "./shared/my-dependency-service.js";
+
+export const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 
 export const allExampleFlows: readonly Flow<any>[] = [
   moneyTransferFlow,

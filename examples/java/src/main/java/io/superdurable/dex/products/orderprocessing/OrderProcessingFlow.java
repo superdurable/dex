@@ -38,8 +38,6 @@ import java.time.Duration;
 
 @Component
 public class OrderProcessingFlow implements Flow<OrderRequest> {
-    public static final String SELLER_REMINDER_TIMER = "seller-reminder";
-
     public final Attribute<String> orderStatus = Attribute.define(
             "order-status",
             String.class,
@@ -91,7 +89,8 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            .maximumAttempts(3)
+                            // .totalDuration(Duration.ofHours(1))
+                            .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .build();
         }
@@ -119,14 +118,15 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            .initialInterval(Duration.ofSeconds(1))
-                            .maximumAttempts(2)
+                            // .totalDuration(Duration.ofHours(1))
+                            .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .onExecuteFailureProceedTo(
                             refund,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
-                                            .maximumAttempts(3)
+                                            // .totalDuration(Duration.ofHours(1))
+                                            .totalDuration(Duration.ofSeconds(3))
                                             .build())
                                     .build())
                     .build();
@@ -136,7 +136,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public Wait waitFor(final Context context, final OrderRequest order) {
             return Wait.anyOf(
                     sellerOk.forOne(),
-                    Timer.byDuration(Duration.ofHours(24), SELLER_REMINDER_TIMER));
+                    Timer.byDuration(Duration.ofHours(24)));
         }
 
         @Override

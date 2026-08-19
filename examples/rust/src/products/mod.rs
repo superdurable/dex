@@ -27,7 +27,9 @@ use dex_sdk::{Registry, SdkResult};
 pub fn register(registry: Registry) -> SdkResult<Registry> {
     registry
         .register(money_transfer::MoneyTransferFlow::default())?
-        .register(order_processing::OrderProcessingFlow::default())?
+        .register(order_processing::OrderProcessingFlow::new(
+            order_processing::MyDependencyService,
+        ))?
         .register(microservices::OrchestrationFlow::default())?
         .register(engagement::EngagementFlow::default())?
         .register(subscription::SubscriptionFlow::default())?

@@ -51,6 +51,7 @@ await Promise.all([
   access(join(root, 'references', 'rpc', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'zh-Hans', 'intro', 'what-is-dex', 'index.html')),
+  access(join(root, 'zh-Hans', 'quick-start', 'index.html')),
 ]);
 
 console.log('Docs shell, product navigation, cloud page, and representative routes passed smoke checks.');

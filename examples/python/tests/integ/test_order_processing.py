@@ -22,9 +22,6 @@ from datetime import timedelta
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.products.order_processing.order_processing_flow import (
-    SELLER_REMINDER_TIMER,
-)
 from dex_examples.products.order_processing.order_request import OrderRequest
 from tests.integ.conftest import WAIT_TIMEOUT
 
@@ -45,7 +42,7 @@ async def _skip_ship_timer(client: AsyncClient, flow_id: str) -> None:
             await client.skip_timer(
                 flow_id,
                 SHIP_STEP,
-                TimerId(condition_id=SELLER_REMINDER_TIMER),
+                TimerId.by_condition_index(0),
             )
             return
         except Exception as error:

@@ -27,7 +27,7 @@ use dex_examples_rust::products::microservices::{
 };
 use dex_examples_rust::products::money_transfer::{MoneyTransferFlow, TransferRequest};
 use dex_examples_rust::products::order_processing::{
-    Charge, ORDER_APPROVE, OrderProcessingFlow, OrderRequest, SELLER_REMINDER_TIMER, Ship,
+    Charge, ORDER_APPROVE, OrderProcessingFlow, OrderRequest, Ship,
 };
 use dex_examples_rust::products::polling::{POLLING_COMPLETE_TASK, PollingFlow};
 use dex_examples_rust::products::subscription::{
@@ -186,7 +186,7 @@ fn order_processing_happy_path() {
         .client
         .wait_for_step_completion(
             &flow_id,
-            StepExecutionId::of(&Charge),
+            StepExecutionId::of(&Charge::default()),
             Duration::from_secs(30),
         )
         .expect("wait for Rust Order Processing ChargeStep");
@@ -214,7 +214,7 @@ fn order_processing_reminder_then_ship() {
         .client
         .wait_for_step_completion(
             &flow_id,
-            StepExecutionId::of(&Charge),
+            StepExecutionId::of(&Charge::default()),
             Duration::from_secs(30),
         )
         .expect("wait for Rust Order Processing ChargeStep");
@@ -223,7 +223,7 @@ fn order_processing_reminder_then_ship() {
         .client
         .wait_for_step_completion(
             &flow_id,
-            StepExecutionId::of(&Ship),
+            StepExecutionId::of(&Ship::default()),
             Duration::from_secs(30),
         )
         .expect("wait for Rust Order Processing reminder ShipStep");
@@ -251,7 +251,7 @@ fn order_processing_ship_failure_refunds() {
         .client
         .wait_for_step_completion(
             &flow_id,
-            StepExecutionId::of(&Charge),
+            StepExecutionId::of(&Charge::default()),
             Duration::from_secs(30),
         )
         .expect("wait for Rust Order Processing ChargeStep");
@@ -296,8 +296,8 @@ fn skip_seller_reminder(environment: &DexEnvironment, flow_id: &str) {
     while Instant::now() < deadline {
         match environment.client.skip_timer(
             flow_id,
-            StepExecutionId::of(&Ship),
-            TimerId::by_condition_id(SELLER_REMINDER_TIMER),
+            StepExecutionId::of(&Ship::default()),
+            TimerId::by_condition_index(0),
         ) {
             Ok(()) => return,
             Err(error) => last_error = Some(error),

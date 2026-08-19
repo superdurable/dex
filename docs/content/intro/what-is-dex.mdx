@@ -49,7 +49,12 @@ class ChargeStep(Step[OrderRequest]):
         self.flow = flow
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_retry=CHARGE_RETRY)
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                # total_duration=timedelta(hours=1),
+                total_duration=timedelta(seconds=3),
+            )
+        )
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         self.flow.service.charge_user(input.email, input.customer_id, input.amount)
@@ -62,16 +67,26 @@ class ShipStep(Step[OrderRequest]):
         self.flow = flow
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_retry=SHIP_RETRY).on_execute_failure_proceed_to(
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                # total_duration=timedelta(hours=1),
+                total_duration=timedelta(seconds=3),
+            )
+        ).on_execute_failure_proceed_to(
             self.flow.refund,
-            StepOptions(execute_retry=REFUND_RETRY),
+            StepOptions(
+                execute_retry=RetryPolicy(
+                    # total_duration=timedelta(hours=1),
+                    total_duration=timedelta(seconds=3),
+                )
+            ),
         )
 
     def wait_for(self, context: Context, input: OrderRequest) -> Wait:
         del context, input
         return Wait.any_of(
             self.flow.seller_ok.for_one(),
-            Timer.by_duration(timedelta(hours=24), condition_id=SELLER_REMINDER_TIMER),
+            Timer.by_duration(timedelta(hours=24)),
         )
 
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
@@ -133,7 +148,10 @@ class OrderProcessingFlow(Flow[OrderRequest]):
 ```go
 func (chargeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 3},
+		ExecuteRetry: &dex.RetryPolicy{
+			// TotalDuration: time.Hour,
+			TotalDuration: 3 * time.Second,
+		},
 	}
 }
 
@@ -151,13 +169,16 @@ func (step chargeStep) Execute(
 func (shipStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
-			InitialInterval: 10 * time.Millisecond,
-			MaximumAttempts: 2,
+			// TotalDuration: time.Hour,
+			TotalDuration: 3 * time.Second,
 		},
 		ExecuteFailure: dex.ProceedToOnExecuteFailure(
 			refundStep{},
 			&dex.StepOptions{
-				ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 3},
+				ExecuteRetry: &dex.RetryPolicy{
+					// TotalDuration: time.Hour,
+					TotalDuration: 3 * time.Second,
+				},
 			},
 		),
 	}
@@ -169,7 +190,7 @@ func (shipStep) WaitFor(
 ) (*dex.Wait, error) {
 	return dex.AnyOf(
 		SellerOK.ForOne(),
-		dex.Timer(24*time.Hour, dex.WithConditionID(SellerReminderTimer)),
+		dex.Timer(24 * time.Hour),
 	), nil
 }
 
@@ -297,7 +318,8 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            .maximumAttempts(3)
+                            // .totalDuration(Duration.ofHours(1))
+                            .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .build();
         }
@@ -315,14 +337,15 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
                     .executeRetry(RetryPolicy.newBuilder()
-                            .initialInterval(Duration.ofSeconds(1))
-                            .maximumAttempts(2)
+                            // .totalDuration(Duration.ofHours(1))
+                            .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .onExecuteFailureProceedTo(
                             refund,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
-                                            .maximumAttempts(3)
+                                            // .totalDuration(Duration.ofHours(1))
+                                            .totalDuration(Duration.ofSeconds(3))
                                             .build())
                                     .build())
                     .build();
@@ -332,7 +355,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public Wait waitFor(final Context context, final OrderRequest order) {
             return Wait.anyOf(
                     sellerOk.forOne(),
-                    Timer.byDuration(Duration.ofHours(24), SELLER_REMINDER_TIMER));
+                    Timer.byDuration(Duration.ofHours(24)));
         }
 
         @Override
@@ -369,7 +392,12 @@ class ChargeStep implements Step<OrderRequest> {
   public constructor(private readonly flow: OrderProcessingFlow) {}
 
   public getStepOptions() {
-    return { executeRetry: { maximumAttempts: 3 } };
+    return {
+      executeRetry: {
+        // totalDurationMs: 60 * 60 * 1000,
+        totalDurationMs: 3_000,
+      },
+    };
   }
 
   public execute(context: Context, input: OrderRequest): StepDecision {
@@ -384,9 +412,15 @@ class ShipStep implements Step<OrderRequest> {
 
   public getStepOptions() {
     return {
-      executeRetry: { initialIntervalMs: 1000, maximumAttempts: 2 },
+      executeRetry: {
+        // totalDurationMs: 60 * 60 * 1000,
+        totalDurationMs: 3_000,
+      },
       executeFailure: ExecuteFailure.proceedTo(this.flow.refund, {
-        executeRetry: { maximumAttempts: 3 },
+        executeRetry: {
+          // totalDurationMs: 60 * 60 * 1000,
+          totalDurationMs: 3_000,
+        },
       }),
     };
   }
@@ -394,7 +428,7 @@ class ShipStep implements Step<OrderRequest> {
   public waitFor(_context: Context, _input: OrderRequest): Wait {
     return Wait.anyOf(
       this.flow.sellerOk.forOne(),
-      Timer.byDuration(DAY_MS, SELLER_REMINDER_TIMER),
+      Timer.byDuration(DAY_MS),
     );
   }
 
@@ -433,7 +467,7 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
   public readonly ship = new ShipStep(this);
   public readonly refund = new RefundStep(this);
 
-  public constructor(public readonly service: MyDependencyService = myDependencyService) {}
+  public constructor(public readonly service: MyDependencyService) {}
 
   public getSteps() {
     return StepList.startStep(this.charge).otherSteps(this.ship, this.refund);
@@ -463,78 +497,36 @@ export class OrderProcessingFlow implements Flow<OrderRequest> {
   <SdkSnippet lang="rust">
 
 ```rust
-#[derive(Default)]
-pub struct Charge;
+#[derive(Clone, Default)]
+pub struct MyDependencyService;
 
-impl Step for Charge {
-    type Input = OrderRequest;
-
-    fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_retry(RetryPolicy::new().maximum_attempts(3))
+impl MyDependencyService {
+    pub fn charge_user(&self, email: &str, customer_id: &str, amount: i64) {
+        println!("charge user customerID[{customer_id}] email[{email}] for ${amount}");
     }
 
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        context.record_event("charge", input.order_id.clone())?;
-        order_status().set(context, "charged".to_string())?;
-        Ok(StepDecision::go_to(&Ship, input))
-    }
-}
-
-#[derive(Default)]
-pub struct Ship;
-
-impl Step for Ship {
-    type Input = OrderRequest;
-
-    fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new()
-            .execute_retry(
-                RetryPolicy::new()
-                    .initial_interval(Duration::from_secs(1))
-                    .maximum_attempts(2),
-            )
-            .on_execute_failure_proceed_to(&Refund)
+    pub fn send_email(&self, recipient: &str, subject: &str, content: &str) {
+        println!("sending an email to {recipient}, title: {subject}, content: {content}");
     }
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([
-            seller_ok().for_one(),
-            Timer::by_duration(Duration::from_secs(24 * 60 * 60)).with_id(SELLER_REMINDER_TIMER),
-        ]))
-    }
-
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        if context.has_any_timer_fired() {
-            context.record_event("shipment-reminder", input.order_id.clone())?;
-            return Ok(StepDecision::go_to(&Ship, input));
+    pub fn ship_item(&self, order_id: &str, test_fail_at_shipping: bool) -> HandlerResult<()> {
+        if test_fail_at_shipping {
+            return Err(HandlerError::new(format!(
+                "ship failed for order {order_id}"
+            )));
         }
-        ship_item(&input.order_id, input.test_fail_at_shipping)?;
-        context.record_event("ship", input.order_id.clone())?;
-        order_status().set(context, "shipped".to_string())?;
-        Ok(StepDecision::graceful_complete(format!(
-            "shipped:{}",
-            input.order_id
-        )))
+        println!("ship item {order_id}");
+        Ok(())
+    }
+
+    pub fn update_external_system(&self, message: &str) {
+        println!(
+            "Update external system(like via RPC, or sending Kafka message or database): {message}"
+        );
     }
 }
 
-#[derive(Default)]
-struct Refund;
-
-impl Step for Refund {
-    type Input = OrderRequest;
-
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        context.record_event("refund", input.order_id.clone())?;
-        order_status().set(context, "refunded".to_string())?;
-        Ok(StepDecision::graceful_complete(format!(
-            "refunded:{}",
-            input.order_id
-        )))
-    }
-}
-
-#[derive(Default)]
+#[derive(Clone)]
 pub struct OrderProcessingFlow {
     charge: Charge,
     ship: Ship,
@@ -542,6 +534,18 @@ pub struct OrderProcessingFlow {
 }
 
 impl OrderProcessingFlow {
+    pub fn new(service: MyDependencyService) -> Self {
+        Self {
+            charge: Charge {
+                service: service.clone(),
+            },
+            ship: Ship {
+                service: service.clone(),
+            },
+            refund: Refund { service },
+        }
+    }
+
     fn approve(&self, context: &mut Context, _note: String) -> HandlerResult<RpcResult<String>> {
         seller_ok().publish(context, "approved".to_string())?;
         Ok(RpcResult::new("ok".to_string()))
@@ -552,8 +556,18 @@ impl OrderProcessingFlow {
     }
 }
 
+impl Default for OrderProcessingFlow {
+    fn default() -> Self {
+        Self::new(MyDependencyService)
+    }
+}
+
 impl Flow for OrderProcessingFlow {
     type StartInput = OrderRequest;
+
+    fn flow_type(&self) -> &'static str {
+        "OrderProcessingFlow"
+    }
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.charge)
@@ -574,21 +588,135 @@ impl Flow for OrderProcessingFlow {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct Charge {
+    service: MyDependencyService,
+}
+
+impl Step for Charge {
+    type Input = OrderRequest;
+
+    fn step_type(&self) -> &'static str {
+        "ChargeStep"
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_retry(
+            RetryPolicy::new()
+                // .total_duration(Duration::from_secs(60 * 60))
+                .total_duration(Duration::from_secs(3)),
+        )
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        self.service
+            .charge_user(&input.email, &input.customer_id, input.amount);
+        context.record_event("charge", input.order_id.clone())?;
+        order_status().set(context, "charged".to_string())?;
+        Ok(StepDecision::go_to(
+            &Ship {
+                service: self.service.clone(),
+            },
+            input,
+        ))
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Ship {
+    service: MyDependencyService,
+}
+
+impl Step for Ship {
+    type Input = OrderRequest;
+
+    fn step_type(&self) -> &'static str {
+        "ShipStep"
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new()
+            .execute_retry(
+                RetryPolicy::new()
+                    // .total_duration(Duration::from_secs(60 * 60))
+                    .total_duration(Duration::from_secs(3)),
+            )
+            .on_execute_failure_proceed_to(&Refund {
+                service: self.service.clone(),
+            })
+    }
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            seller_ok().for_one(),
+            Timer::by_duration(Duration::from_secs(24 * 60 * 60)),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        if context.has_any_timer_fired() {
+            self.service.send_email(
+                &input.email,
+                "Reminder: approve shipment",
+                "Please approve or provide a tracking number.",
+            );
+            context.record_event("shipment-reminder", input.order_id.clone())?;
+            return Ok(StepDecision::go_to(
+                &Ship {
+                    service: self.service.clone(),
+                },
+                input,
+            ));
+        }
+        self.service
+            .ship_item(&input.order_id, input.test_fail_at_shipping)?;
+        context.record_event("ship", input.order_id.clone())?;
+        order_status().set(context, "shipped".to_string())?;
+        Ok(StepDecision::graceful_complete(format!(
+            "shipped:{}",
+            input.order_id
+        )))
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct Refund {
+    service: MyDependencyService,
+}
+
+impl Step for Refund {
+    type Input = OrderRequest;
+
+    fn step_type(&self) -> &'static str {
+        "RefundStep"
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_retry(
+            RetryPolicy::new()
+                // .total_duration(Duration::from_secs(60 * 60))
+                .total_duration(Duration::from_secs(3)),
+        )
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        self.service
+            .update_external_system(&format!("refund {}", input.order_id));
+        context.record_event("refund", input.order_id.clone())?;
+        order_status().set(context, "refunded".to_string())?;
+        Ok(StepDecision::graceful_complete(format!(
+            "refunded:{}",
+            input.order_id
+        )))
+    }
+}
+
 fn order_status() -> Attribute<String> {
     Attribute::new("order-status").indexed(AttributeIndex::keyword())
 }
 
 fn seller_ok() -> Channel<String> {
     Channel::new("seller-ok")
-}
-
-fn ship_item(order_id: &str, test_fail_at_shipping: bool) -> HandlerResult<()> {
-    if test_fail_at_shipping {
-        return Err(HandlerError::new(format!(
-            "ship failed for order {order_id}"
-        )));
-    }
-    Ok(())
 }
 ```
 
@@ -665,7 +793,7 @@ Frontend wait for “payment received”. `GET /products/order-processing/start`
 <SdkSnippet lang="typescript">
 
 ```typescript
-    const runId = await client.startFlow(orderProcessingFlow, flowId, input, startOptions());
+    const runId = await client.startFlow(flow, flowId, input, startOptions());
     await client.waitForStepCompletion(
       flowId,
       StepExecutionId.of("ChargeStep"),
@@ -681,7 +809,7 @@ Frontend wait for “payment received”. `GET /products/order-processing/start`
         let run_id = client.start_flow(&flow, &flow_id, input)?;
         client.wait_for_step_completion(
             &flow_id,
-            StepExecutionId::of(&Charge),
+            StepExecutionId::of(&Charge::default()),
             Duration::from_secs(300),
         )?;
         Ok(StartResponse { flow_id, run_id })
