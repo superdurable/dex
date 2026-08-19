@@ -7,18 +7,12 @@ slug: /primitives
 
 # Durable Primitives
 
-Each Dex **primitive** is a distributed-system abstraction. Durable Execution is not a single feature — it is these primitives working together so backend engineers can persist both data and actions without rebuilding orchestration by hand.
+Dex gives you a small set of durable primitives. Compose them into a Flow that meets any complex business requirement.
 
-A Flow is ordinary application code structured from these primitives:
-
-- [Step](/primitives/step) — durable control flow: `WaitFor`, `Execute`, movements, retries, concurrency, and cancellation
-- [Attribute](/primitives/attribute) — durable typed variables, locking, and optional storage sync
-- [RPC](/primitives/rpc) — external read/write against a running Flow
-- [Channel](/primitives/channel) — durable messages from callers and between concurrent Steps
-- [Timer](/primitives/timer) — durable sleep that resumes a waiting Step
-- [SubFlow](/primitives/subflow) — start another Flow and wait for it as a Condition
-- [Client APIs](/primitives/client-apis) — start, search, wait, stop, time-travel, and operate Flows from outside a Worker
-
-Each page covers why the primitive exists, how to use it, how Dex implements it, and what teams traditionally build by hand.
-
-Minimal runnable samples live under `examples/*/primitives/` (HTTP prefix `/primitives/<name>/...`; RetryingFailure is `/primitives/step/retry/...`). Try them from the examples playground (`examples/playground`); see `examples/README.md`.
+- [Step](/primitives/step) — durable Steps run in the background with retries and more power
+- [Attribute](/primitives/attribute) — durable variables, with optional indexing, storage sync, and locking
+- [RPC](/primitives/rpc) — durable communication (Remote Procedure Call)
+- [Channel](/primitives/channel) — durable message queue for internal and external communication
+- [Timer](/primitives/timer) — durable timer
+- [SubFlow](/primitives/subflow) — start another Flow with hierarchical structure
+- [Client APIs](/primitives/client-apis) — APIs to operate Flow instances
