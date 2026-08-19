@@ -11,3 +11,5 @@ Learn more: [What is Durable Execution?](https://docs.superdurable.io/intro/what
 ## Quick start
 
 See [Quick start](https://docs.superdurable.io/quick-start) on docs.superdurable.io.
+
+If Dex is useful to you, please [star us on GitHub](https://github.com/superdurable/dex) to follow releases.
