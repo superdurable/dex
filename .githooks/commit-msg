@@ -1,0 +1,18 @@
+#!/bin/sh
+# Strip Cursor/agent attribution trailers. Agents must not skip this hook.
+set -e
+
+message_file=$1
+if [ ! -f "$message_file" ]; then
+  echo "commit-msg: missing commit message file" >&2
+  exit 1
+fi
+
+filtered=$(mktemp)
+trap 'rm -f "$filtered"' EXIT
+if ! grep -Eiv \
+  '^[[:space:]]*Co-authored-by:.*cursor|^[[:space:]]*Made-with:[[:space:]]*Cursor\b|cursoragent@cursor\.com' \
+  "$message_file" > "$filtered"; then
+  :
+fi
+cat "$filtered" > "$message_file"

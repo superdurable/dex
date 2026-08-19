@@ -1,18 +1,41 @@
 ---
-description: Never add Cursor as a git commit co-author
+description: Never add Cursor as a git commit co-author; verify every commit message
 alwaysApply: true
 ---
 
-# Git Commits — No Cursor Co-Author
+# Git commits — human author only
 
-Never add Cursor (or any Cursor agent identity) as a git commit co-author.
+The commit Author, Committer, and message must be the human user only.
+Cursor, Cursor Agent, and `cursoragent@cursor.com` are never co-authors.
 
-Do not include any of these trailers in commit messages:
+This is mandatory. Cursor's commit wrapper, diff-tab "commit and create pull
+request", and `git commit --trailer` often inject the trailer below. Treat that
+as a bug to undo, not as something to keep.
+
+```
+Co-authored-by: Cursor <cursoragent@cursor.com>
+```
+
+## Forbidden
+
+Never write, keep, or push any of these:
 
 - `Co-authored-by: Cursor <...>`
 - `Co-authored-by: Cursor Agent <...>`
-- `Co-authored-by: cursoragent@cursor.com`
-- any other `Co-authored-by` line that names Cursor, Cursor Agent, or cursoragent
+- `Co-authored-by:` lines that mention Cursor, Cursor Agent, or cursoragent
+- `Made-with: Cursor` or other Cursor attribution trailers
+- `git commit --trailer ...Cursor...`
+- `git commit --no-verify` / `-n` to skip the hook that rejects those trailers
 
-Write the commit as the user only. Do not add `Made-with: Cursor` or similar
-Cursor attribution trailers either.
+Human `Co-authored-by` trailers for real people are fine.
+
+## Required after every `git commit`
+
+1. Run `git log -1 --format='%an %ae%n%B'`.
+2. If a forbidden trailer is present, amend **immediately** and remove only
+   that trailer. This amend is authorized even after a successful commit.
+3. Run the same `git log -1` check again. Do not push until it is clean.
+
+`.githooks/commit-msg` strips forbidden trailers if a wrapper injects them.
+Cursor `.cursor/hooks/reject-cursor-coauthor.sh` blocks `--no-verify` and warns
+if HEAD still has a Cursor trailer. Do not bypass either hook.
