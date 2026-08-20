@@ -6,7 +6,7 @@ slug: /primitives/step
 
 # Step
 
-A **Step** is the unit of durable control flow. Dex schedules Steps in the background, retries failed methods, and recovers from exhaustion according to your policies. Each Step type waits (WaitFor), runs work (Execute), then returns a **StepDecision** that moves the Flow forward.
+**Step** is the key building blocks of background execution.
 
 - [Basics](/primitives/step/basic) — default waiting condition, Step decision, and Step options (including default retry)
 - [waiting condition](/primitives/step/waiting-condition) — anyCombinationOf and reading Condition results after WaitFor
