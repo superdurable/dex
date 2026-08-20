@@ -4,15 +4,13 @@ sidebar_label: Basics
 slug: /primitives/step/basic
 ---
 
-# Step Basic Features
+# Durable Step Basic Features
 
-**Step** is the key building blocks of background execution. This page covers the basic features of step.
+**Step** is the basic building block of background execution. This page covers the default shape of a Step: typed input, optional `WaitFor`, required `Execute`, movement with `StepDecision`, and the default `StepOptions` behavior.
 
-A Dex Step is implemented by native code. The struct/class that implements the step decides the **StepType**.
-In most languages, SDK can derive the StepType by reflection -- the struct or class name.
+A Dex Step is implemented by native code. The struct or class that implements the Step determines the **StepType**. In most languages, the SDK derives the StepType from the native type name unless you override it.
 
-A step can run for multiple times. Each time is called **StepExecution**, the identifier is **StepExecutionID**.
-StepExecutionID is formated as **<StepType>-<Number>**, maintained by Dex server.
+The same Step type can execute multiple times in one Flow. Each execution is a **StepExecution**, identified by a **StepExecutionID** in the form `<StepType>-<Number>`. Dex assigns and maintains that identifier.
 
 ## Step input {#step-input}
 
@@ -27,13 +25,13 @@ For most languages, step input is strongly typed, when writing code to start a f
 
 ## WaitFor and Execute {#waitfor-and-execute}
 
-A Dex Step implementation has one or two small methods: [**WaitFor**] -> **Execute**.
+A Step implementation has one or two small methods: **WaitFor** -> **Execute**.
 
-WaitFor is optional. It returns a **WaitingCondition** to server. When the condition is met then Execute is triggered.
+`WaitFor` is optional. It returns a durable `Wait` to Dex Server. Dex persists that waiting state, evaluates the conditions on your behalf, and invokes `Execute` after the wait is satisfied.
 
-If no WaitFor in a step, then Execute is invoked immediately without conditions.
+If a Step does not implement `WaitFor`, `Execute` runs immediately.
 
-Execute is required. It returns a **StepDecision** to server, to decide next steps or completing the flow.
+`Execute` is required. It returns a `StepDecision` that moves to the next Step, branches to several Steps, or closes the Flow.
 
 // TODO insert a diagram here to illustrate the waitFor method->condition waiting -> execute method -> decision
 
@@ -48,34 +46,50 @@ Execute is required. It returns a **StepDecision** to server, to decide next ste
 <SdkSnippet lang="python">
 
 ```python
-def wait_for(self, context, input):
-    return Wait.any_of(
-        self.unblock.for_one(),
-        Timer.by_duration(timedelta(seconds=30)),
-    )
+class StepSecond(Step[int]):
+    def execute(self, context: Context, input: int) -> StepDecision:
+        del context
+        return graceful_complete(input + 1)
 
-def execute(self, context, input):
-    if input.ok:
-        return go_to(SuccessStep(), input)
-    return go_to(self, input.retry())
+
+class StepFirst(Step[int]):
+    def __init__(self, second: StepSecond) -> None:
+        self.second = second
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        context.set_step_execution_local("input", input)
+        return Wait.skip_immediately()
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        del context
+        return go_to(self.second, input + 1)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-func (s StepA) WaitFor(_ dex.Context, _ Input) (*dex.Wait, error) {
-	return dex.AnyOf(
-		unblock.ForOne(),
-		dex.Timer(30*time.Second),
-	), nil
+type stepFirstStep struct {
+	dex.StepDefaults
 }
 
-func (s StepA) Execute(_ dex.Context, input Input) (*dex.StepDecision, error) {
-	if input.OK {
-		return dex.GoTo(SuccessStep{}, input), nil
+func (stepFirstStep) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
+	if err := ctx.SetStepExecutionLocal("input", input); err != nil {
+		return nil, err
 	}
-	return dex.GoTo(s, input.Retry()), nil
+	return dex.SkipWaitImmediately(), nil
+}
+
+func (stepFirstStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GoTo(stepSecondStep{}, input+1), nil
+}
+
+type stepSecondStep struct {
+	dex.StepDefaultsNoWaitFor[int]
+}
+
+func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(input + 1), nil
 }
 ```
 
@@ -83,17 +97,34 @@ func (s StepA) Execute(_ dex.Context, input Input) (*dex.StepDecision, error) {
   <SdkSnippet lang="java">
 
 ```java
-public Wait waitFor(Context context, Order input) {
-    return Wait.anyOf(
-        unblock.forOne(),
-        Timer.byDuration(Duration.ofSeconds(30)));
+final class StepFirst implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        context.setStepExecutionLocal("input", input, Integer.class);
+        return Wait.skipImmediately();
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        return StepDecision.goTo(second, input + 1);
+    }
 }
 
-public StepDecision execute(Context context, Order input) {
-    if (input.ok()) {
-        return StepDecision.goTo(successStep, input);
+static final class StepSecond implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
     }
-    return StepDecision.goTo(this, input.retry());
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        return StepDecision.gracefulComplete(input + 1);
+    }
 }
 ```
 
@@ -101,18 +132,35 @@ public StepDecision execute(Context context, Order input) {
   <SdkSnippet lang="typescript">
 
 ```typescript
-waitFor(_context: Context, _input: Order): Wait {
-  return Wait.anyOf(
-    this.unblock.forOne(),
-    Timer.byDuration(30_000),
-  );
+class StepFirst implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public constructor(private readonly flow: StepFlow) {}
+
+  public getStepType(): string {
+    return "StepFirst";
+  }
+
+  public waitFor(context: Context, input: number): Wait {
+    context.setStepExecutionLocal("input", input, doubleCodec);
+    return Wait.skipImmediately();
+  }
+
+  public execute(_context: Context, input: number): StepDecision {
+    return goTo(this.flow.secondStep, input + 1);
+  }
 }
 
-execute(_context: Context, input: Order): StepDecision {
-  if (input.ok) {
-    return goTo(successStep, input);
+class StepSecond implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "StepSecond";
   }
-  return goTo(this, input);
+
+  public execute(_context: Context, input: number): StepDecision {
+    return gracefulComplete(input + 1);
+  }
 }
 ```
 
@@ -120,18 +168,31 @@ execute(_context: Context, input: Order): StepDecision {
   <SdkSnippet lang="rust">
 
 ```rust
-async fn wait_for(&self, _ctx: &Context, _input: i32) -> Result<Wait, HandlerError> {
-    Ok(Wait::any_of(vec![
-        self.unblock.for_one(),
-        Timer::by_duration(Duration::from_secs(30)),
-    ]))
+#[derive(Default)]
+struct StepFirst;
+
+impl Step for StepFirst {
+    type Input = i32;
+
+    fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        context.set_step_execution_local("input", input)?;
+        Ok(Wait::skip_immediately())
+    }
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to(&StepSecond, input + 1))
+    }
 }
 
-async fn execute(&self, _ctx: &Context, input: i32) -> Result<StepDecision, HandlerError> {
-    if input > 0 {
-        return Ok(go_to(SuccessStep, input));
+#[derive(Default)]
+struct StepSecond;
+
+impl Step for StepSecond {
+    type Input = i32;
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(input + 1))
     }
-    Ok(go_to(self.clone(), input))
 }
 ```
 
@@ -171,8 +232,8 @@ Note:
 
 ```python
 return Wait.any_of(
-    self.flow.channel_a.for_one(condition_id="signal"),
-    Timer.by_duration(timeout, condition_id="timeout"),
+    self.flow.channel_a.for_one(),
+    Timer.by_duration(timeout),
 )
 ```
 
@@ -181,8 +242,8 @@ return Wait.any_of(
 
 ```go
 return dex.AnyOf(
-	SignalA.ForOne(dex.WithConditionID("signal")),
-	dex.Timer(timeout, dex.WithConditionID("timeout")),
+	SignalA.ForOne(),
+	dex.Timer(timeout),
 ), nil
 ```
 
@@ -191,8 +252,8 @@ return dex.AnyOf(
 
 ```java
 return Wait.anyOf(
-        channelA.forOne("signal"),
-        Timer.byDuration(timeout, "timeout"));
+        channelA.forOne(),
+        Timer.byDuration(timeout));
 ```
 
 </SdkSnippet>
@@ -200,8 +261,8 @@ return Wait.anyOf(
 
 ```typescript
 return Wait.anyOf(
-  this.flow.channelA.forOne("signal"),
-  Timer.byDuration(timeoutMs, "timeout"),
+  this.flow.channelA.forOne(),
+  Timer.byDuration(timeoutMs),
 );
 ```
 
@@ -210,8 +271,8 @@ return Wait.anyOf(
 
 ```rust
 Ok(Wait::any_of([
-    signal_a_channel().for_one().with_id("signal"),
-    Timer::by_duration(timeout).with_id("timeout"),
+    signal_a_channel().for_one(),
+    Timer::by_duration(timeout),
 ]))
 ```
 
@@ -230,8 +291,8 @@ Ok(Wait::any_of([
 
 ```python
 return Wait.all_of(
-    self.flow.channel_a.for_one(condition_id="signal-a"),
-    self.flow.channel_b.for_one(condition_id="signal-b"),
+    self.flow.channel_a.for_one(),
+    self.flow.channel_b.for_one(),
 )
 ```
 
@@ -240,8 +301,8 @@ return Wait.all_of(
 
 ```go
 return dex.AllOf(
-	SignalA.ForOne(dex.WithConditionID("signal-a")),
-	SignalB.ForOne(dex.WithConditionID("signal-b")),
+	SignalA.ForOne(),
+	SignalB.ForOne(),
 ), nil
 ```
 
@@ -250,8 +311,8 @@ return dex.AllOf(
 
 ```java
 return Wait.allOf(
-        channelA.forOne("signal-a"),
-        channelB.forOne("signal-b"));
+        channelA.forOne(),
+        channelB.forOne());
 ```
 
 </SdkSnippet>
@@ -259,8 +320,8 @@ return Wait.allOf(
 
 ```typescript
 return Wait.allOf(
-  this.flow.channelA.forOne("signal-a"),
-  this.flow.channelB.forOne("signal-b"),
+  this.flow.channelA.forOne(),
+  this.flow.channelB.forOne(),
 );
 ```
 
@@ -269,8 +330,8 @@ return Wait.allOf(
 
 ```rust
 Ok(Wait::all_of([
-    signal_a_channel().for_one().with_id("signal-a"),
-    signal_b_channel().for_one().with_id("signal-b"),
+    signal_a_channel().for_one(),
+    signal_b_channel().for_one(),
 ]))
 ```
 
@@ -278,7 +339,7 @@ Ok(Wait::all_of([
 </SdkTabs>
 
 
-## StepDecision {#stepdecision}
+## StepDecision {#stepdecision-movements}
 
 A StepDecision can go to a single or multiple next steps.
 

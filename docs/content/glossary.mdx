@@ -17,7 +17,7 @@ Durable typed variable on a Flow (optionally indexed for search).
 
 Durable message pipe for external or internal communication.
 
-#### [Condition](/primitives/step#waitfor-and-execute)
+#### [Condition](/primitives/step/basic#waitfor-and-execute)
 
 A wait unit (timer, channel, combinations) returned from WaitFor.
 
@@ -29,7 +29,7 @@ Start a fresh run carrying state forward so history stays bounded.
 
 Homebrew-installed CLI that runs local Temporal + Dex Server + Dex Web.
 
-#### [Execute](/primitives/step)
+#### [Execute](/primitives/step/basic#waitfor-and-execute)
 
 Step method that runs after WaitFor completes (or immediately if there is no wait).
 
@@ -49,7 +49,7 @@ Client API to call a Flow RPC handler on the Worker.
 
 Serializing access to Attributes for Steps/RPCs.
 
-#### [Movement](/primitives/step#branch-and-loop)
+#### [Movement](/primitives/step/basic#stepdecision-movements)
 
 Decision to go to another Step (or complete/fail).
 
@@ -77,7 +77,7 @@ One invocation instance of a Step type (`step_type` + number).
 
 Durable sleep condition that resumes a waiting Step.
 
-#### [WaitFor](/primitives/step#waitfor-and-execute)
+#### [WaitFor](/primitives/step/basic#waitfor-and-execute)
 
 Step method that registers durable wait Conditions before Execute.
 

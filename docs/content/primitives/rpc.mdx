@@ -75,7 +75,7 @@ await client.invokeRPC(flow.nudge, flowId, "hello");
 
 RPCs run through the server to the Worker (`InvokeRPC` → Worker `InvokeWorkerRPC`). They are not Step executions; they do not upsert Step locals.
 
-An RPC can also cancel Step executions and start next Steps. See [Step cancellation](/primitives/step#cancellation). For serializing Attribute access from RPCs, see [Attribute locking](/primitives/attribute#locking) and [RPC locking](#rpc-locking).
+An RPC can also cancel Step executions and start next Steps. See [Step cancellation](/primitives/step/step-decision#cancellation-on-stepdecision). For serializing Attribute access from RPCs, see [Attribute locking](/primitives/attribute#locking) and [RPC locking](#rpc-locking).
 
 ## How Dex implements it
 
