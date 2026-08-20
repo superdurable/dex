@@ -25,6 +25,10 @@ import {
   releaseIntegEnvironment,
 } from "./environment.js";
 import type { Customer, Subscription } from "../../src/products/subscription/models.js";
+import {
+  cancelSubscription,
+  updateChargeAmount,
+} from "../../src/products/subscription/subscription-flow.js";
 
 test.before(async () => {
   await acquireIntegEnvironment();
@@ -72,7 +76,7 @@ test("subscriptionStartRpcAndChannels", async () => {
   const current = (await environment.client.invokeRPC(flow.describe, flowId)) as Subscription;
   assert.equal(current.billingPeriodCharge, 100);
 
-  await environment.client.publish(flowId, flow.updateChargeAmount, 250);
+  await environment.client.publish(flowId, updateChargeAmount, 250);
   await awaitCondition(
     async () => (await environment.client.invokeRPC(flow.describe, flowId)) as Subscription,
     (subscription) => subscription.billingPeriodCharge === 250,
@@ -80,7 +84,7 @@ test("subscriptionStartRpcAndChannels", async () => {
     "Describe charge amount did not update",
   );
 
-  await environment.client.publish(flowId, flow.cancelSubscription, undefined);
+  await environment.client.publish(flowId, cancelSubscription, undefined);
   const output = await environment.client.waitForFlow(flowId, 45_000).then((result) =>
     result.singleOutput(stringCodec),
   );

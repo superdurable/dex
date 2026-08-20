@@ -46,6 +46,9 @@ from dex_examples.products.ai_agent_email.agent import request_email_fields
 GOOGLE_EMAIL_VARIABLE = "GOOGLE_EMAIL_ADDRESS"
 GOOGLE_EMAIL_PASSWORD_VARIABLE = "GOOGLE_EMAIL_APP_PASSWORD"
 
+CH_USER_INPUT = "UserInput"
+user_input = Channel(CH_USER_INPUT, str)
+
 STATUS_INITIALIZED = "initialized"
 STATUS_WAITING = "waiting"
 STATUS_PROCESSING = "processing"
@@ -128,16 +131,15 @@ class Schedule(Step[None]):
         return Wait.any_of(
             # Dex timers are durable, so a worker restart does not lose the send.
             Timer.by_duration(timedelta(seconds=max(0, send_time - int(time.time())))),
-            self.flow.user_input.for_one(),
+            user_input.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
-        requests = self.flow.user_input.results(context)
+        requests = user_input.results(context)
         if not requests:
             return go_to(self.sending, None)
-        # Put the message back so the agent Step handles it the usual way.
-        self.flow.user_input.publish(context, requests[0])
+        user_input.publish(context, requests[0])
         return go_to(self.flow.agent, None)
 
 
@@ -152,11 +154,11 @@ class Agent(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:
         del input
         self.flow.status.set(context, STATUS_WAITING)
-        return Wait.until(self.flow.user_input.for_one())
+        return Wait.until(user_input.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
-        requests = self.flow.user_input.results(context)
+        requests = user_input.results(context)
         if not requests:
             raise RuntimeError("no user request found")
         user_request = requests[0]
@@ -218,7 +220,6 @@ class EmailAgentFlow(Flow[None]):
     DA_EMAIL_SUBJECT = "EmailSubject"
     DA_EMAIL_BODY = "EmailBody"
     DA_SCHEDULED_TIME_SECONDS = "ScheduledTime"
-    CH_USER_INPUT = "UserInput"
 
     status = Attribute(DA_STATUS, str)
     current_request = Attribute(DA_CURRENT_REQUEST, str)
@@ -228,7 +229,6 @@ class EmailAgentFlow(Flow[None]):
     email_subject = Attribute(DA_EMAIL_SUBJECT, str)
     email_body = Attribute(DA_EMAIL_BODY, str)
     scheduled_time_seconds = Attribute(DA_SCHEDULED_TIME_SECONDS, int)
-    user_input = Channel(CH_USER_INPUT, str)
 
     def __init__(self) -> None:
         self.sending = Sending(self)
@@ -253,7 +253,7 @@ class EmailAgentFlow(Flow[None]):
             self.email_subject,
             self.email_body,
             self.scheduled_time_seconds,
-            self.user_input,
+            user_input,
         )
 
     @rpc
@@ -261,7 +261,7 @@ class EmailAgentFlow(Flow[None]):
         if self.status.get(context) != STATUS_WAITING:
             return RPCResult(False)
         self.current_request_draft.set(context, "")
-        self.user_input.publish(context, input)
+        user_input.publish(context, input)
         self.status.set(context, STATUS_PROCESSING)
         return RPCResult(True)
 

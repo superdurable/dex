@@ -58,10 +58,19 @@ from dex_examples.patterns.wait_for_state_completion.controller import (
 from dex_examples.primitives.attribute.controller import create_attribute_blueprint
 from dex_examples.primitives.channel.controller import create_channel_blueprint
 from dex_examples.primitives.client_apis.controller import create_client_apis_blueprint
+from dex_examples.primitives.custom_retry.controller import create_custom_retry_blueprint
+from dex_examples.primitives.durability.controller import create_durability_blueprint
+from dex_examples.primitives.heartbeat.controller import create_heartbeat_blueprint
+from dex_examples.primitives.options_override.controller import (
+    create_options_override_blueprint,
+)
+from dex_examples.primitives.flow.controller import create_flow_blueprint
 from dex_examples.primitives.rpc.controller import create_rpc_blueprint
 from dex_examples.primitives.step.controller import create_step_blueprint
+from dex_examples.primitives.step_decision.controller import create_step_decision_blueprint
 from dex_examples.primitives.subflow.controller import create_subflow_blueprint
 from dex_examples.primitives.timer.controller import create_timer_blueprint
+from dex_examples.primitives.wait_types.controller import create_wait_types_blueprint
 from dex_examples.products.ai_agent_email.http_routes import (
     STATIC_DIR,
     TEMPLATE_DIR,
@@ -122,7 +131,14 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_timeout_blueprint(app_state))
     quart_app.register_blueprint(create_resource_control_blueprint(app_state))
 
+    quart_app.register_blueprint(create_flow_blueprint(app_state))
     quart_app.register_blueprint(create_step_blueprint(app_state))
+    quart_app.register_blueprint(create_custom_retry_blueprint(app_state))
+    quart_app.register_blueprint(create_durability_blueprint(app_state))
+    quart_app.register_blueprint(create_heartbeat_blueprint(app_state))
+    quart_app.register_blueprint(create_options_override_blueprint(app_state))
+    quart_app.register_blueprint(create_step_decision_blueprint(app_state))
+    quart_app.register_blueprint(create_wait_types_blueprint(app_state))
     quart_app.register_blueprint(create_attribute_blueprint(app_state))
     quart_app.register_blueprint(create_channel_blueprint(app_state))
     quart_app.register_blueprint(create_timer_blueprint(app_state))

@@ -45,11 +45,12 @@ export const TASK_C_COMPLETED = "task-c-completed";
 
 const POLL_INTERVAL_MS = 1_000;
 
+export const taskACompleted = new Channel(TASK_A_COMPLETED, voidCodec);
+export const taskBCompleted = new Channel(TASK_B_COMPLETED, voidCodec);
+export const taskCCompleted = new Channel(TASK_C_COMPLETED, voidCodec);
+
 export class PollingFlow implements Flow<number> {
   public readonly currentPolls = new Attribute("current-polls", doubleCodec);
-  public readonly taskACompleted = new Channel(TASK_A_COMPLETED, voidCodec);
-  public readonly taskBCompleted = new Channel(TASK_B_COMPLETED, voidCodec);
-  public readonly taskCCompleted = new Channel(TASK_C_COMPLETED, voidCodec);
 
   public readonly initialize = new Initialize(this);
   public readonly poll = new Poll(this);
@@ -68,7 +69,7 @@ export class PollingFlow implements Flow<number> {
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.currentPolls],
-      channels: [this.taskACompleted, this.taskBCompleted, this.taskCCompleted],
+      channels: [taskACompleted, taskBCompleted, taskCCompleted],
     };
   }
 }
@@ -100,9 +101,9 @@ class WaitForTasks implements Step<void> {
 
   public waitFor(_context: Context, _input: void): Wait {
     return Wait.allOf(
-      this.flow.taskACompleted.forOne(),
-      this.flow.taskBCompleted.forOne(),
-      this.flow.taskCCompleted.forOne(),
+      taskACompleted.forOne(),
+      taskBCompleted.forOne(),
+      taskCCompleted.forOne(),
     );
   }
 
@@ -128,7 +129,7 @@ class Poll implements Step<number> {
     this.flow.service.callAPI1("calling API1 for polling service C");
     const polls = this.flow.currentPolls.get(context);
     if (polls >= maximumPolls) {
-      this.flow.taskCCompleted.publish(context, undefined);
+      taskCCompleted.publish(context, undefined);
       return deadEnd();
     }
     this.flow.currentPolls.set(context, polls + 1);

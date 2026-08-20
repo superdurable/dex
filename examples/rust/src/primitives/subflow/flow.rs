@@ -79,15 +79,13 @@ impl Step for SubFlowParentStep {
                 .timeout(Duration::from_secs(3600))
                 .timeout_policy(FlowTimeoutPolicy::Cancel),
         )
-        .map_err(|error| HandlerError::new(error.to_string()))?;
+        .map_err(HandlerError::from_error)?;
         Ok(Wait::until(condition))
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
         let result = SubFlow::condition_result(context)?;
-        let output: i32 = result
-            .single_output()
-            .map_err(|error| HandlerError::new(error.to_string()))?;
+        let output: i32 = result.single_output().map_err(HandlerError::from_error)?;
         let flow_id = SubFlow::flow_id_at(context, 0)?;
         Ok(StepDecision::graceful_complete(format!(
             "{flow_id}|{output}"

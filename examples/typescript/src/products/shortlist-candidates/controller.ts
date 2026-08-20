@@ -25,7 +25,7 @@ import {
 } from "../../service-errors.js";
 import { employerOptInFlow } from "./employer-opt-in-flow.js";
 import type { EmployerOptInInput } from "./employer-opt-in-input.js";
-import { shortlistFlow } from "./shortlist-flow.js";
+import { shortlistFlow, revokeShortlist } from "./shortlist-flow.js";
 import type { ShortlistInput } from "./shortlist-input.js";
 import { employerOptIn, isOptedIn, shortlist } from "./workflow-ids.js";
 
@@ -96,7 +96,7 @@ export function createShortlistCandidatesRouter(client: Client): Router {
     const candidateId = String(request.body?.candidateId ?? "");
     const workflowId = shortlist(employerId, candidateId);
     try {
-      await client.publish(workflowId, shortlistFlow.revokeShortlist, undefined);
+      await client.publish(workflowId, revokeShortlist, undefined);
     } catch (failure) {
       if (isFlowMissingOrInactive(failure)) {
         response.send(`No running workflow to revoke for ${employerId}-${candidateId}`);

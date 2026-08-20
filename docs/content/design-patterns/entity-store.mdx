@@ -10,34 +10,34 @@ into an application-owned PostgreSQL table.
 ## Problem and approach
 
 Applications often need both durable orchestration state and a conventional SQL
-read model. `UserProfileFlow` uses the user ID as its Flow ID, stores the profile
+read model. **UserProfileFlow** uses the user ID as its Flow ID, stores the profile
 as seven Attributes, and opts those definitions into Attribute Store sync. The
-Flow selects the Server store named `entityStore`, whose destination table uses
-the Flow ID as its `user_id` primary key.
+Flow selects the Server store named **entityStore**, whose destination table uses
+the Flow ID as its **user_id** primary key.
 
 Dex remains authoritative. SQL projection is asynchronous, latest-state only,
 and cannot roll back a successful Flow Attribute write.
 
 ## Key components
 
-1. **`UserProfileFlow`**: One long-lived Flow per user.
+1. **UserProfileFlow**: One long-lived Flow per user.
 2. **Synced Attribute definitions**: text, boolean, integer, double, datetime,
    and JSON fields project every initial value, RPC update, and deletion.
-3. **`FlowConfig`**: Selects the Server-configured `entityStore` target.
-4. **`user_profiles`**: Application-owned PostgreSQL table whose primary key is
+3. **FlowConfig**: Selects the Server-configured **entityStore** target.
+4. **user_profiles**: Application-owned PostgreSQL table whose primary key is
    populated from the Flow ID.
 
 ## API endpoints
 
-- `POST /patterns/entity-store/profile` — create a profile Flow
-- `POST /patterns/entity-store/profile/update` — update its synced fields
-- `GET /patterns/entity-store/profile?userId=...` — read authoritative Flow state
-- `POST /patterns/entity-store/profile/clear?userId=...` — delete the synced values
+- **POST /patterns/entity-store/profile** — create a profile Flow
+- **POST /patterns/entity-store/profile/update** — update its synced fields
+- **GET /patterns/entity-store/profile?userId=...** — read authoritative Flow state
+- **POST /patterns/entity-store/profile/clear?userId=...** — delete the synced values
 
-Clearing the profile leaves its SQL row in place and projects SQL `NULL` into the
+Clearing the profile leaves its SQL row in place and projects SQL **NULL** into the
 seven nullable columns.
 
-Full runnable samples live under `examples/{go,java,python,typescript,rust}` (HTTP prefix `/patterns/entity-store/...`). Try them from the examples playground (`examples/playground`); see `examples/README.md`.
+Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix **/patterns/entity-store/...**). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
 
 ## SDK definitions
 
@@ -114,8 +114,8 @@ const options = {
 ## Run with PostgreSQL
 
 The [shared example setup](https://github.com/superdurable/dex/tree/main/examples/entity-store)
-starts PostgreSQL, creates `public.user_profiles`, and passes the `entityStore`
-configuration to `dexcli dev`. The language examples intentionally keep their
+starts PostgreSQL, creates **public.user_profiles**, and passes the **entityStore**
+configuration to **dexcli dev**. The language examples intentionally keep their
 normal test suites independent of PostgreSQL.
 
 ## Related

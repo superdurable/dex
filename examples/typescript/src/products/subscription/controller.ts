@@ -20,7 +20,7 @@ import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
 import type { Customer, Subscription } from "./models.js";
-import { subscriptionFlow } from "./subscription-flow.js";
+import { subscriptionFlow, cancelSubscription, updateChargeAmount } from "./subscription-flow.js";
 
 export function createSubscriptionRouter(client: Client): Router {
   const router = Router();
@@ -46,14 +46,14 @@ export function createSubscriptionRouter(client: Client): Router {
 
   router.get("/cancel", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    await client.publish(workflowId, subscriptionFlow.cancelSubscription, undefined);
+    await client.publish(workflowId, cancelSubscription, undefined);
     response.json({});
   });
 
   router.get("/updateChargeAmount", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const newChargeAmount = Number(request.query.newChargeAmount ?? 0);
-    await client.publish(workflowId, subscriptionFlow.updateChargeAmount, newChargeAmount);
+    await client.publish(workflowId, updateChargeAmount, newChargeAmount);
     response.json({});
   });
 

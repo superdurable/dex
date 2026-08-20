@@ -18,7 +18,7 @@ observable with comprehensive production operation tooling.
 
 Today we have all kinds of durable database/storage — like PostgreSQL, MySQL, S3.
 
-They expose APIs to `persist` data, and APIs to `retrieve` the data. The APIs are **passive**.
+They expose APIs to **persist** data, and APIs to **retrieve** the data. The APIs are **passive**.
 
 Usually, there are two main requirements when building a reliable backend:
 1. It should run on multiple machines for availability, throughput, and scale (not single point of failure)
@@ -60,7 +60,7 @@ The order ends up with charging the buyer but never ship the item.
 
 ### Fix 1 — database row + polling workers
 
-Then a smart engineer thinks of inserting a row (`status = pending`), return to the client, and let background workers pick up work.
+Then a smart engineer thinks of inserting a row (**status = pending**), return to the client, and let background workers pick up work.
 
 <ExecutionApproachDiagram approach="table-poll" />
 
@@ -71,7 +71,7 @@ We get minimal durability, but here are more problems:
 ### Fix 2 — message queues between steps
 
 More experienced backend engineers usually evolve to use message queues: "charge-request" and "ship-requests" queue.
-So the order start with publishing to `charge-requests`, consume, then publish to `ship-requests`.
+So the order start with publishing to **charge-requests**, consume, then publish to **ship-requests**.
 
 <ExecutionApproachDiagram approach="message-queue" />
 

@@ -50,10 +50,18 @@ import (
 	primitiveattribute "github.com/superdurable/dex/examples/go/primitives/attribute"
 	primitivechannel "github.com/superdurable/dex/examples/go/primitives/channel"
 	primitiveclientapis "github.com/superdurable/dex/examples/go/primitives/client-apis"
+	primitivecustomretry "github.com/superdurable/dex/examples/go/primitives/custom-retry"
+	primitiveflow "github.com/superdurable/dex/examples/go/primitives/flow"
+	primitivedurability "github.com/superdurable/dex/examples/go/primitives/durability"
+	primitiveheartbeat "github.com/superdurable/dex/examples/go/primitives/heartbeat"
+	primitiveoptionsoverride "github.com/superdurable/dex/examples/go/primitives/options-override"
+	primitiveproceedonwaitfailure "github.com/superdurable/dex/examples/go/primitives/proceed-on-wait-failure"
 	primitiverpc "github.com/superdurable/dex/examples/go/primitives/rpc"
 	primitivestep "github.com/superdurable/dex/examples/go/primitives/step"
+	primitivestepdecision "github.com/superdurable/dex/examples/go/primitives/step-decision"
 	primitivesubflow "github.com/superdurable/dex/examples/go/primitives/subflow"
 	primitivetimer "github.com/superdurable/dex/examples/go/primitives/timer"
+	primitivewaittypes "github.com/superdurable/dex/examples/go/primitives/wait-types"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
@@ -179,7 +187,15 @@ func NewRouter(client *sdk.Client) http.Handler {
 	drainsignal.RegisterRoutes(router, client, registry.DrainSignal)
 	waitforstatecompletion.RegisterRoutes(router, client, registry.WaitForStateCompletion)
 	timeout.RegisterRoutes(router, client, registry.GracefulTimeout)
+	primitiveflow.RegisterRoutes(router, client, registry.ExampleFlow)
 	primitivestep.RegisterRoutes(router, client, registry.Step, registry.StepRetry)
+	primitivecustomretry.RegisterRoutes(router, client, registry.CustomRetry)
+	primitivedurability.RegisterRoutes(router, client, registry.Durability)
+	primitiveheartbeat.RegisterRoutes(router, client, registry.Heartbeat)
+	primitiveoptionsoverride.RegisterRoutes(router, client, registry.OptionsOverride)
+	primitiveproceedonwaitfailure.RegisterRoutes(router, client, registry.ProceedOnWaitFailure)
+	primitivestepdecision.RegisterRoutes(router, client, registry.StepDecision)
+	primitivewaittypes.RegisterRoutes(router, client, registry.WaitTypes)
 	primitiveattribute.RegisterRoutes(router, client, registry.Attribute)
 	primitivechannel.RegisterRoutes(router, client, registry.Channel)
 	primitivetimer.RegisterRoutes(router, client, registry.Timer)

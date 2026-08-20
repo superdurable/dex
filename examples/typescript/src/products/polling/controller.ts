@@ -23,6 +23,8 @@ import {
   TASK_A_COMPLETED,
   TASK_B_COMPLETED,
   pollingFlow,
+  taskACompleted,
+  taskBCompleted,
 } from "./polling-flow.js";
 
 export function createPollingRouter(client: Client): Router {
@@ -44,12 +46,12 @@ export function createPollingRouter(client: Client): Router {
     const workflowId = String(request.query.workflowId ?? "");
     const channel = String(request.query.channel ?? "");
     if (channel === TASK_A_COMPLETED) {
-      await client.publish(workflowId, pollingFlow.taskACompleted, undefined);
+      await client.publish(workflowId, taskACompleted, undefined);
       response.json({});
       return;
     }
     if (channel === TASK_B_COMPLETED) {
-      await client.publish(workflowId, pollingFlow.taskBCompleted, undefined);
+      await client.publish(workflowId, taskBCompleted, undefined);
       response.json({});
       return;
     }

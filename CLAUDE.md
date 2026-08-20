@@ -311,6 +311,9 @@ Every implementation plan must include all three sections below. Use
   See `.cursor/rules/docs-examples.mdc`.
 - Product docs should read naturally: plain English, short sentences, no
   chatbot filler or marketing tone. See `.cursor/rules/docs-writing.mdc`.
+- In product-doc prose, do not use inline backticks for API names, methods,
+  types, or identifiers; use **bold** instead. Fenced code blocks and `bash` /
+  `text` fences are exempt.
 - Product docs ship in English and Simplified Chinese (`zh-Hans`); keep both
   locales in sync. See `.cursor/rules/docs-i18n.mdc`.
 

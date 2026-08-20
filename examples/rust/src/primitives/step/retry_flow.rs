@@ -53,10 +53,10 @@ impl Step for RetryStep {
         ready_after_attempt: Self::Input,
     ) -> HandlerResult<StepDecision> {
         if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
-            return Err(HandlerError::new(format!(
-                "not ready on attempt {}",
-                context.attempt()
-            )));
+            return Err(HandlerError::new(
+                "RetryExample",
+                format!("not ready on attempt {}", context.attempt()),
+            ));
         }
         Ok(StepDecision::graceful_complete(()))
     }

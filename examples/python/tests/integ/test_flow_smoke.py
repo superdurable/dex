@@ -277,6 +277,67 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
+            "primitives/step/custom-retry",
+            lambda c: trigger_get(
+                "/primitives/step/custom-retry/start",
+                {
+                    "workflowId": new_id("primitive-step-custom-retry"),
+                    "readyAfterAttempt": "1",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/step/durability",
+            lambda c: trigger_get(
+                "/primitives/step/durability/start",
+                {
+                    "workflowId": new_id("primitive-step-durability"),
+                    "mode": "sync",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/step/heartbeat",
+            lambda c: trigger_get(
+                "/primitives/step/heartbeat/start",
+                {
+                    "workflowId": new_id("primitive-step-heartbeat"),
+                    "batches": "0",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/step/options-override",
+            lambda c: trigger_get(
+                "/primitives/step/options-override/start",
+                {
+                    "workflowId": new_id("primitive-step-options-override"),
+                    "input": "smoke",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/step/step-decision",
+            lambda c: trigger_get(
+                "/primitives/step/step-decision/start",
+                {
+                    "workflowId": new_id("primitive-step-decision"),
+                    "mode": "graceful",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
+            "primitives/step/wait-types",
+            lambda c: trigger_get(
+                "/primitives/step/wait-types/start",
+                {
+                    "workflowId": new_id("primitive-step-wait-types"),
+                    "mode": "any",
+                    "timeoutSeconds": "1",
+                },
+            ),
+        ),
+        FlowSmokeEntry(
             "primitives/attribute",
             lambda c: trigger_get(
                 "/primitives/attribute/start",

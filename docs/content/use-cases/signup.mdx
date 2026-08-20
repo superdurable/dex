@@ -15,7 +15,7 @@ Long-running backend processes need durable waits, retries, and external interac
 
 Signup is a classic long-running registration Flow: start with user data, wait for email verification, send reminders on a timer, and expose an RPC to mark verified. Compared with a cron + DB status column design, Dex keeps the reminder loop and verification wait in one Flow so recovery is automatic after deploys.
 
-See also archived case study notes under `docs/archive/` (legacy iWF wording) and the live example code.
+See also archived case study notes under **docs/archive/** (legacy iWF wording) and the live example code.
 
 
 ## Code examples

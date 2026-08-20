@@ -19,6 +19,8 @@ import test from "node:test";
 
 import { stringCodec } from "@superdurable/dex";
 
+import { optOutReminder } from "../../src/products/engagement/engagement-flow.js";
+
 import {
   acquireIntegEnvironment,
   awaitCondition,
@@ -59,7 +61,7 @@ test("engagementStartChannelRpcAndStatus", async () => {
   const description = await environment.client.invokeRPC(flow.describe, flowId);
   assert.equal((description as { currentStatus: string }).currentStatus, "Initiated");
 
-  await environment.client.publish(flowId, flow.optOutReminder, undefined);
+  await environment.client.publish(flowId, optOutReminder, undefined);
   const declined = await environment.client.invokeRPC(
     flow.decline,
     flowId,

@@ -40,6 +40,8 @@ import { type WaitForChildInput } from "./wait-for-child-input.js";
 export const CONCURRENCY_PER_PARENT_WORKFLOW = 3;
 export const TASK_QUEUE = "task_queue";
 
+const taskQueue = new Channel(TASK_QUEUE, doubleCodec);
+
 const countInputCodec = doubleCodec;
 
 class Init implements Step<number> {
@@ -53,7 +55,7 @@ class Init implements Step<number> {
 
   public execute(context: Context, numRequests: number): StepDecision {
     for (let index = 0; index < numRequests; index += 1) {
-      this.flow.taskQueue.publish(context, index);
+      taskQueue.publish(context, index);
     }
 
     const movements: StepMovement<unknown>[] = [];
@@ -72,11 +74,11 @@ class LoopForNextTask implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.until(this.flow.taskQueue.forOne());
+    return Wait.until(taskQueue.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    const request = this.flow.taskQueue.results(context)[0];
+    const request = taskQueue.results(context)[0];
     if (request === undefined) {
       throw new Error("No task found on queue");
     }
@@ -148,8 +150,6 @@ class AwaitChildWorkflowCompletion implements Step<WaitForChildInput> {
 }
 
 export class ParentFlowV2 implements Flow<number> {
-  public readonly taskQueue = new Channel(TASK_QUEUE, doubleCodec);
-
   private readonly initStep = new Init(this);
   private readonly loopForNextTask = new LoopForNextTask(this);
   private readonly startChildWorkflow = new StartChildWorkflow(this, childFlow);
@@ -180,7 +180,7 @@ export class ParentFlowV2 implements Flow<number> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [this.taskQueue] };
+    return { channels: [taskQueue] };
   }
 }
 

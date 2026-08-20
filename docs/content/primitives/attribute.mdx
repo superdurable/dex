@@ -131,10 +131,10 @@ Dex can asynchronously copy selected Attribute writes into a deployment-managed 
 
 Two settings opt in:
 
-1. The Flow selects a named Server store with `AttributeStoreName` (Go), `attributeStoreName` (Java and TypeScript), or `attribute_store_name` (Python and Rust).
-2. The Attribute definition opts in with `SyncToAttributeStore` (Go), `syncToAttributeStore` (Java and TypeScript), or `sync_to_attribute_store` (Python and Rust).
+1. The Flow selects a named Server store with **AttributeStoreName** (Go), **attributeStoreName** (Java and TypeScript), or **attribute_store_name** (Python and Rust).
+2. The Attribute definition opts in with **SyncToAttributeStore** (Go), **syncToAttributeStore** (Java and TypeScript), or **sync_to_attribute_store** (Python and Rust).
 
-AttributeMap definitions support the same opt-in. Their SQL column names match the physical Attribute names produced for individual map instances. SDKs omit `sync_config` for ordinary definitions and send `enabled = true` for opted-in definitions across initial, Client, Step, and RPC writes and deletions.
+AttributeMap definitions support the same opt-in. Their SQL column names match the physical Attribute names produced for individual map instances. SDKs omit **sync_config** for ordinary definitions and send **enabled = true** for opted-in definitions across initial, Client, Step, and RPC writes and deletions.
 
 Changing the Flow target affects only new writes. Already queued mutations keep the target selected when they were enqueued. Clearing the target disables later sync; enabled writes still update the workflow Attribute and produce an error metric/log rather than entering a queue with no destination.
 
@@ -156,4 +156,4 @@ Dex stores Attributes as durable Flow state (optionally indexed). Workers receiv
 
 ## Traditional workarounds
 
-Teams typically glue Redis/SQL + optimistic locking + custom APIs, then rehydrate state on every resume. Without Dex locking: `SELECT FOR UPDATE`, Redis locks, or “hope” — with unclear ownership across services.
+Teams typically glue Redis/SQL + optimistic locking + custom APIs, then rehydrate state on every resume. Without Dex locking: **SELECT FOR UPDATE**, Redis locks, or “hope” — with unclear ownership across services.

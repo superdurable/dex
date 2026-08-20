@@ -8,11 +8,11 @@ When an API fails, let a human retry or skip without abandoning the Flow.
 
 ## Problem and approach
 
-The `ManualInterventionFlow` is a pattern for handling scenarios where an API call might fail, that requires manual intervention to retry or skip the operation. This Flow is particularly useful in situations where a call to an external API fails and requires human intervention to fix the issue. Once the issues is resolved, the Flow can either retry the call or skip it and proceed with the Flow.
+The **ManualInterventionFlow** is a pattern for handling scenarios where an API call might fail, that requires manual intervention to retry or skip the operation. This Flow is particularly useful in situations where a call to an external API fails and requires human intervention to fix the issue. Once the issues is resolved, the Flow can either retry the call or skip it and proceed with the Flow.
 
 ## Code examples
 
-Full runnable samples live under `examples/{go,java,python,typescript,rust}` (HTTP prefix `/patterns/<name>/...` where applicable). Try them from the examples playground (`examples/playground`); see `examples/README.md`.
+Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix /patterns/name/... where applicable). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
 
 <SdkTabs>
 <SdkSnippet lang="python">

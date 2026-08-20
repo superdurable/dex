@@ -305,6 +305,61 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "primitives/step/custom-retry",
+      trigger: () =>
+        triggerGet(context, "/primitives/step/custom-retry/start", {
+          workflowId: newFlowId("primitive-step-custom-retry"),
+          readyAfterAttempt: 1,
+        }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "primitives/step/durability",
+      trigger: () =>
+        triggerGet(context, "/primitives/step/durability/start", {
+          workflowId: newFlowId("primitive-step-durability"),
+          mode: "sync",
+        }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "primitives/step/heartbeat",
+      trigger: () =>
+        triggerGet(context, "/primitives/step/heartbeat/start", {
+          workflowId: newFlowId("primitive-step-heartbeat"),
+          batches: 0,
+        }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "primitives/step/options-override",
+      trigger: () =>
+        triggerGet(context, "/primitives/step/options-override/start", {
+          workflowId: newFlowId("primitive-step-options-override"),
+          input: "smoke",
+        }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "primitives/step/step-decision",
+      trigger: () =>
+        triggerGet(context, "/primitives/step/step-decision/start", {
+          workflowId: newFlowId("primitive-step-decision"),
+          mode: "graceful",
+        }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "primitives/step/wait-types",
+      trigger: () =>
+        triggerGet(context, "/primitives/step/wait-types/start", {
+          workflowId: newFlowId("primitive-step-wait-types"),
+          mode: "any",
+          timeoutSeconds: 1,
+        }),
+      flags: defaultFlags(),
+    },
+    {
       name: "primitives/attribute",
       trigger: () =>
         triggerGet(context, "/primitives/attribute/start", {

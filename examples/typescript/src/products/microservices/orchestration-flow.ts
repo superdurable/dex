@@ -42,9 +42,10 @@ import {
   type MyDependencyService,
 } from "../../shared/my-dependency-service.js";
 
+export const ready = new Channel("Ready", voidCodec);
+
 export class OrchestrationFlow implements Flow<string> {
   public readonly data = new Attribute("data", stringCodec);
-  public readonly ready = new Channel("Ready", voidCodec);
 
   public readonly callAPI1 = new CallAPI1(this);
   public readonly callAPI2 = new CallAPI2(this);
@@ -68,7 +69,7 @@ export class OrchestrationFlow implements Flow<string> {
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.data],
-      channels: [this.ready],
+      channels: [ready],
     };
   }
 
@@ -120,7 +121,7 @@ class CallAPI3 implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(Timer.byDuration(DAY_MS), this.flow.ready.forOne());
+    return Wait.anyOf(Timer.byDuration(DAY_MS), ready.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {

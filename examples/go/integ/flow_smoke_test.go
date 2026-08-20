@@ -417,6 +417,67 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
+			name: "primitives/step/custom-retry",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId":        {smokeWorkflowID(t, "primitive-step-custom-retry")},
+					"readyAfterAttempt": {"1"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/step/custom-retry/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/step/durability",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-step-durability")},
+					"mode":       {"sync"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/step/durability/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/step/heartbeat",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-step-heartbeat")},
+					"batches":    {"0"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/step/heartbeat/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/step/options-override",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-step-options-override")},
+					"input":      {"smoke"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/step/options-override/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/step/step-decision",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-step-decision")},
+					"mode":       {"graceful"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/step/step-decision/start", query, nil)
+			},
+		},
+		{
+			name: "primitives/step/wait-types",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId":     {smokeWorkflowID(t, "primitive-step-wait-types")},
+					"mode":           {"any"},
+					"timeoutSeconds": {"1"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/step/wait-types/start", query, nil)
+			},
+		},
+		{
 			name: "primitives/attribute",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{

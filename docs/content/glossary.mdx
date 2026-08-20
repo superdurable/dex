@@ -17,7 +17,7 @@ Durable typed variable on a Flow (optionally indexed for search).
 
 Durable message pipe for external or internal communication.
 
-#### [Condition](/primitives/step#waitfor-and-execute)
+#### [Condition](/primitives/step/basic#waitfor-and-execute)
 
 A wait unit (timer, channel, combinations) returned from WaitFor.
 
@@ -29,15 +29,15 @@ Start a fresh run carrying state forward so history stays bounded.
 
 Homebrew-installed CLI that runs local Temporal + Dex Server + Dex Web.
 
-#### [Execute](/primitives/step)
+#### [Execute](/primitives/step/basic#waitfor-and-execute)
 
 Step method that runs after WaitFor completes (or immediately if there is no wait).
 
-#### [Flow](/intro/what-is-dex)
+#### [Flow](/primitives/flow)
 
-Durable Execution program: Steps + Attributes + Channels + RPCs.
+Top-level durable program: Steps, Attributes, Channels, and RPCs.
 
-#### [Flow ID](/primitives/client-apis)
+#### [Flow ID](/primitives/flow/basic#identifiers)
 
 Application-assigned identity for a Flow execution.
 
@@ -49,7 +49,7 @@ Client API to call a Flow RPC handler on the Worker.
 
 Serializing access to Attributes for Steps/RPCs.
 
-#### [Movement](/primitives/step#branch-and-loop)
+#### [Movement](/primitives/step/basic#stepdecision-movements)
 
 Decision to go to another Step (or complete/fail).
 
@@ -61,7 +61,7 @@ Create a new Flow run from an earlier Step after a fix.
 
 Worker handler for external read/write against a running Flow.
 
-#### [Run ID](/primitives/client-apis)
+#### [Run ID](/primitives/flow/basic#identifiers)
 
 Engine-assigned ID for a particular Flow run.
 
@@ -71,13 +71,13 @@ Unit of durable control flow with optional WaitFor + Execute.
 
 #### [Step execution](/primitives/client-apis#wait-from-a-client)
 
-One invocation instance of a Step type (`step_type` + number).
+One invocation instance of a Step type (**step_type** + number).
 
 #### [Timer](/primitives/timer)
 
 Durable sleep condition that resumes a waiting Step.
 
-#### [WaitFor](/primitives/step#waitfor-and-execute)
+#### [WaitFor](/primitives/step/basic#waitfor-and-execute)
 
 Step method that registers durable wait Conditions before Execute.
 

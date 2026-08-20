@@ -8,13 +8,19 @@ GENERATED_CODE_PATHS := \
 	sdk-python/dex/dexpb \
 	sdk-typescript/src/gen
 
-.PHONY: help ci-runner-check copyright copyright-check generated-code generated-code-check githooks
+.PHONY: help ci-runner-check copyright copyright-check generated-code generated-code-check githooks docs-prose-check docs-prose-fix
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
 
-githooks: ## Install commit-msg hook that rejects Cursor co-author trailers
+githooks: ## Install commit-msg and pre-commit hooks (Cursor co-author + docs prose)
 	bash script/install-githooks
+
+docs-prose-check: ## Fail when product-doc MDX prose uses inline backticks
+	python3 script/docs_no_inline_backticks.py
+
+docs-prose-fix: ## Replace inline backticks with **bold** in product-doc MDX prose
+	python3 script/docs_no_inline_backticks.py --fix
 
 ci-runner-check: ## Verify CI workflows route main pushes to self-hosted runners
 	bash .github/scripts/check-ci-runners.sh

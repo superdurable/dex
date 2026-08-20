@@ -9,6 +9,12 @@
             "command": "sh .codex/hooks/validate-branch-off-main.sh",
             "timeout": 30,
             "statusMessage": "Checking branch start ref..."
+          },
+          {
+            "type": "command",
+            "command": "sh .codex/hooks/reject-docs-inline-backticks.sh",
+            "timeout": 30,
+            "statusMessage": "Checking docs prose for inline backticks..."
           }
         ]
       }

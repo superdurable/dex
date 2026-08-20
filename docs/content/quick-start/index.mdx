@@ -17,17 +17,17 @@ brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 dexcli dev
 ```
 
-`dexcli` starts Dex Server, Dex Web, and the internal workflow backend. Defaults
+**dexcli** starts Dex Server, Dex Web, and the internal workflow backend. Defaults
 when those ports are free:
 
 | Service | Address |
 | --- | --- |
-| Dex Web | `http://127.0.0.1:8802` |
-| Dex Server | `127.0.0.1:8801` |
+| Dex Web | **http://127.0.0.1:8802** |
+| Dex Server | **127.0.0.1:8801** |
 
-A second `dexcli dev` on the same machine binds other free ports and uses its
+A second **dexcli dev** on the same machine binds other free ports and uses its
 own SQLite database. Use the printed Dex Server address with
-`--server`. See the [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)
+**--server**. See the [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)
 for flags and persistence options.
 
 ## 2. Flow, Steps, RPCs, constructor dependency
@@ -775,7 +775,7 @@ fn seller_ok() -> Channel<String> {
 
 ## 3. Worker and Client
 
-Point a Registry, Worker, and Client at `dexcli` (`127.0.0.1:8801`). Construct the Flow with the service, then register it.
+Point a Registry, Worker, and Client at **dexcli** (**127.0.0.1:8801**). Construct the Flow with the service, then register it.
 
 <SdkTabs
   examples={{
@@ -948,7 +948,7 @@ export const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyServi
 
 ## 4. Controller
 
-The start handler starts the Flow, then waits for ChargeStep with the Client wait-for-Step-completion API. Approve publishes the seller Channel. Describe reads `order-status`. Client and Flow come from the constructor or factory args.
+The start handler starts the Flow, then waits for ChargeStep with the Client wait-for-Step-completion API. Approve publishes the seller Channel. Describe reads **order-status**. Client and Flow come from the constructor or factory args.
 
 <SdkTabs
   examples={{
@@ -1249,7 +1249,7 @@ async fn describe(
 
 ## 5. Run
 
-Keep `dexcli dev` running. In another terminal:
+Keep **dexcli dev** running. In another terminal:
 
 <SdkTabs>
 <SdkSnippet lang="python">
@@ -1301,13 +1301,13 @@ Then start an order, open Dex Web, and approve shipment:
 curl -s 'http://127.0.0.1:8080/products/order-processing/start'
 ```
 
-Copy `flowID` from the JSON. Open [http://127.0.0.1:8802](http://127.0.0.1:8802), find that Flow, and open its details. ShipStep is waiting.
+Copy **flowID** from the JSON. Open [http://127.0.0.1:8802](http://127.0.0.1:8802), find that Flow, and open its details. ShipStep is waiting.
 
 ```bash
 curl -s "http://127.0.0.1:8080/products/order-processing/approve?workflowId=FLOW_ID"
 ```
 
-Replace `FLOW_ID` with the start response. The Flow ships and completes.
+Replace **FLOW_ID** with the start response. The Flow ships and completes.
 
 ## 6. Dex Web
 

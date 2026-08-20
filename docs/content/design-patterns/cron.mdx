@@ -13,10 +13,10 @@ flow like a recurring job.
 
 ## Key components
 
-1. **`CronScheduleStarter`** — on Spring `ApplicationReadyEvent`, starts flow ID
-   `cron-schedule-sample` with cron expression `0 * * * *` (idempotent if
+1. **CronScheduleStarter** — on Spring **ApplicationReadyEvent**, starts flow ID
+   **cron-schedule-sample** with cron expression 0 \* \* \* \* (idempotent if
    already started).
-2. **`CronScheduleFlow`** — the scheduled flow; each trigger runs its start step
+2. **CronScheduleFlow** — the scheduled flow; each trigger runs its start step
    and completes.
 
 ## Useful links
@@ -26,7 +26,7 @@ flow like a recurring job.
 
 ## How it starts
 
-`CronScheduleStarter` uses the shared Dex `Client` after the Worker is up:
+**CronScheduleStarter** uses the shared Dex **Client** after the Worker is up:
 
 ```java
 client.startFlow(
@@ -39,18 +39,18 @@ client.startFlow(
         .build());
 ```
 
-If the flow is already running, `FLOW_ALREADY_STARTED` is ignored so restarts
+If the flow is already running, **FLOW_ALREADY_STARTED** is ignored so restarts
 are safe.
 
 ## Schedule management
 
 Inspect scheduled Flow executions in Dex Web (local
-`dexcli` Temporal or Temporal Cloud):
+**dexcli** Temporal or Temporal Cloud):
 
-- **Flows** — filter by Flow ID `cron-schedule-sample`
+- **Flows** — filter by Flow ID **cron-schedule-sample**
 - **Schedules** — pause, trigger, or delete
 
-To change the schedule: update `CronScheduleStarter`, deploy, delete the old
+To change the schedule: update **CronScheduleStarter**, deploy, delete the old
 schedule in the UI if needed, then restart the sample process so it recreates
 the schedule.
 
@@ -60,7 +60,7 @@ Schedule overlap policy is not exposed and defaults to skip overlapping runs.
 
 ## Code examples
 
-Full runnable samples live under `examples/{go,java,python,typescript,rust}` (HTTP prefix `/patterns/<name>/...` where applicable). Try them from the examples playground (`examples/playground`); see `examples/README.md`.
+Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix /patterns/name/... where applicable). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
 
 <SdkTabs>
 <SdkSnippet lang="python">

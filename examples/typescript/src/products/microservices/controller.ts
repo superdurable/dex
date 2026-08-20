@@ -19,7 +19,7 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { orchestrationFlow } from "./orchestration-flow.js";
+import { orchestrationFlow, ready } from "./orchestration-flow.js";
 
 export function createMicroserviceRouter(client: Client): Router {
   const router = Router();
@@ -44,7 +44,7 @@ export function createMicroserviceRouter(client: Client): Router {
 
   router.get("/signal", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    await client.publish(workflowId, orchestrationFlow.ready, undefined);
+    await client.publish(workflowId, ready, undefined);
     response.json({});
   });
 

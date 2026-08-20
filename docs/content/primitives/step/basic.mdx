@@ -1,0 +1,701 @@
+---
+title: Step Basic Features
+sidebar_label: Basics
+slug: /primitives/step/basic
+---
+
+import StepWaitExecuteDiagram from '@site/src/components/primitives/step/StepWaitExecuteDiagram';
+import StepDecisionMovementsDiagram from '@site/src/components/primitives/step/StepDecisionMovementsDiagram';
+
+# Step Basic Features
+
+**Step** is the basic building block of background execution. This page covers the default shape of a Step: typed input, optional **WaitFor**, required **Execute**, movement with **StepDecision**, and the default **StepOptions** behavior.
+
+A Dex Step is implemented by native code. The struct or class that implements the Step determines the **StepType**. In most languages, the SDK derives the StepType from the native type name unless you override it.
+
+The same Step type can execute multiple times in one Flow. Each execution is a **StepExecution**, identified by a **StepExecutionID** in the form **StepType**-**Number**. Dex assigns and maintains that identifier.
+
+## Step input {#step-input}
+
+A step usually has an input that is uniquely persisted for this step execution.
+
+Since a step can run multiple times and even in parallel, step input is very useful to tell the differences of different StepExecutions of the same step type.
+
+The start Step of a flow is also the input of the flow.
+
+For most languages, step input is strongly typed, when writing code to start a flow, or go to next step(s),
+
+
+## WaitFor and Execute {#waitfor-and-execute}
+
+A Step implementation has one or two small methods: **WaitFor** -> **Execute**.
+
+**WaitFor** is optional. It returns a durable **Wait** to Dex Server. Dex persists that waiting state, evaluates the conditions on your behalf, and invokes **Execute** after the wait is satisfied.
+
+If a Step does not implement **WaitFor**, **Execute** runs immediately.
+
+**Execute** is required. It returns a **StepDecision** that moves to the next Step, branches to several Steps, or closes the Flow.
+
+<StepWaitExecuteDiagram />
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/step/step_flow.py',
+    go: 'examples/go/primitives/step/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/step/StepFlow.java',
+    typescript: 'examples/typescript/src/primitives/step/step-flow.ts',
+    rust: 'examples/rust/src/primitives/step/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+approval = Channel("Approval", str)
+
+
+class StepSecond(Step[int]):
+    def execute(self, context: Context, input: int) -> StepDecision:
+        del context
+        return graceful_complete(input + 1)
+
+
+class ExampleStep(Step[int]):
+    def __init__(self, second: StepSecond) -> None:
+        self.second = second
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        del context, input
+        return Wait.until(approval.for_one())
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        del context
+        return go_to(self.second, input + 1)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+var Approval = dex.DefineChannel[string]("Approval")
+
+type ExampleStep struct {
+	dex.StepDefaults
+}
+
+func (ExampleStep) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
+	return dex.Until(Approval.ForOne()), nil
+}
+
+func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GoTo(stepSecondStep{}, input+1), nil
+}
+
+type stepSecondStep struct {
+	dex.StepDefaultsNoWaitFor[int]
+}
+
+func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(input + 1), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final class ExampleStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.until(approval.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        return StepDecision.goTo(second, input + 1);
+    }
+}
+
+static final class StepSecond implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        return StepDecision.gracefulComplete(input + 1);
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const approval = new Channel("Approval", stringCodec);
+
+class ExampleStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public constructor(private readonly flow: StepFlow) {}
+
+  public getStepType(): string {
+    return "ExampleStep";
+  }
+
+  public waitFor(_context: Context, _input: number): Wait {
+    return Wait.until(approval.forOne());
+  }
+
+  public execute(_context: Context, input: number): StepDecision {
+    return goTo(this.flow.secondStep, input + 1);
+  }
+}
+
+class StepSecond implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "StepSecond";
+  }
+
+  public execute(_context: Context, input: number): StepDecision {
+    return gracefulComplete(input + 1);
+  }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn approval() -> Channel<String> {
+    Channel::new("Approval")
+}
+
+#[derive(Default)]
+struct ExampleStep;
+
+impl Step for ExampleStep {
+    type Input = i32;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(approval().for_one()))
+    }
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to(&StepSecond, input + 1))
+    }
+}
+
+#[derive(Default)]
+struct StepSecond;
+
+impl Step for StepSecond {
+    type Input = i32;
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(input + 1))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+
+### Durable WaitFor
+
+WaitFor returns **Waiting** to server using **WaitingType** and the conditions to wait for. Server persist the waiting state and evaluate the condition on any related changes happened. So the waiting is **durable**.
+
+There are three waiting types: **AnyOf**,**AllOf**,**AnyCombinationOf**.
+
+AnyOf and AllOf are the most frequently used/needed. See [AnyCombinationOf](/primitives/step/waiting-condition) as advanced feature.
+
+As the name says,
+
+* the waiting condition is met when anyOf conditions is met.
+* the waiting condition is met when AllOf conditions are met.
+
+[Timer](/primitives/timer), [Channel](/primitives/channel), and [SubFlow](/primitives/subflow) are the conditions that the waiting type can wait on.
+
+Note:
+
+* **ConditionID** is not required for AnyOf / AllOf, but only required for AnyCombinationOf
+
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
+    go: 'examples/go/primitives/wait-types/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
+    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
+    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.any_of(
+    channel_a.for_one(),
+    Timer.by_duration(timeout),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.AnyOf(
+	SignalA.ForOne(),
+	dex.Timer(timeout),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.anyOf(
+        channelA.forOne(),
+        Timer.byDuration(timeout));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.anyOf(
+  channelA.forOne(),
+  Timer.byDuration(timeoutMs),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::any_of([
+    signal_a_channel().for_one(),
+    Timer::by_duration(timeout),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
+    go: 'examples/go/primitives/wait-types/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
+    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
+    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.all_of(
+    channel_a.for_one(),
+    channel_b.for_one(),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.AllOf(
+	SignalA.ForOne(),
+	SignalB.ForOne(),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.allOf(
+        channelA.forOne(),
+        channelB.forOne());
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.allOf(
+  channelA.forOne(),
+  channelB.forOne(),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::all_of([
+    signal_a_channel().for_one(),
+    signal_b_channel().for_one(),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+
+## StepDecision {#stepdecision-movements}
+
+A StepDecision can go to a single or multiple next steps.
+
+This is how you build branching, looping, and parallel work.
+
+<StepDecisionMovementsDiagram />
+
+See more in the [parallel](/design-patterns/parallel) and [scalable-parallel](/design-patterns/scalable-parallel) patterns.
+
+Step Decision can also complete or fail the flow:
+* **GracefulComplete** will complete the flow when there are no more steps active in the flow
+* **ForceComplete** will complete the flow immediately
+* **Fail** will fail the flow immediately
+
+And they all can return flow output so that client can wait and retrieve as **FlowResult**.
+
+See more advanced [Step decision](/primitives/step/step-decision) for **DeadEnd**, **Cancellation**, **forceCompleteIfChannelsEmpty**.
+
+
+
+## StepOptions {#stepoptions}
+
+**StepOptions** is extremely powerful to customize the behavior of a step.
+
+Most of the times, you need to customize failing handling -- timeout, retry and failure policy.  There are more advanced [Step options](/primitives/step/step-options) like heartbeat, durability etc.
+
+* Timeout customize the timeout of a single attempt of the method(WaitFor/Execute) invocation.
+* **Retry policy** — re-invokes the **same** method on the **same** Step execution until attempts are exhausted.
+- **Failure policy** — decide what happens **after** retries end. Default is to fail the Flow. But WaitFor can run Execute anyway, or Execute can go to a recovery Step.
+
+Configure WaitFor and Execute by implementing the step method to return a StepOptions.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/step/retry_flow.py',
+    go: 'examples/go/primitives/step/retry_flow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/step/RetryFlow.java',
+    typescript: 'examples/typescript/src/primitives/step/retry-flow.ts',
+    rust: 'examples/rust/src/primitives/step/retry_flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(
+            initial_interval=timedelta(seconds=1),
+            backoff_coefficient=2,
+            maximum_attempts=5,
+        ),
+    )
+
+def execute(self, context, ready_after_attempt: int) -> StepDecision:
+    if context.attempt < ready_after_attempt:
+        raise RuntimeError(f"not ready on attempt {context.attempt}")
+    return graceful_complete("ready")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (retryStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    5,
+		},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeRetry(RetryPolicy.newBuilder()
+                    .initialInterval(Duration.ofSeconds(1))
+                    .backoffCoefficient(2)
+                    .maximumAttempts(5)
+                    .build())
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    executeRetry: {
+      initialIntervalMs: 1000,
+      backoffCoefficient: 2,
+      maximumAttempts: 5,
+    },
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_retry(
+        RetryPolicy::new()
+            .initial_interval(Duration::from_secs(1))
+            .backoff_coefficient(2.0)
+            .maximum_attempts(5),
+    )
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### WaitFor failure policy
+
+When WaitFor retries are exhausted:
+
+- **PROCEED** — Execute runs in the **same workflow run**. Continue-as-new cannot occur between the failed WaitFor and that Execute.
+- **Fail the Flow** — default when not configured to proceed.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/proceed-on-wait-failure/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/proceedonwaitfailure/ProceedOnWaitFailureFlow.java',
+    python: 'examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py',
+    typescript: 'examples/typescript/src/primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts',
+    rust: 'examples/rust/src/primitives/proceed_on_wait_failure/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (failingWaitStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
+		WaitForFailure: dex.ProceedOnWaitForFailure,
+	}
+}
+
+func (failingWaitStep) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
+	return nil, fmt.Errorf("planned WaitFor failure")
+}
+
+func (failingWaitStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if !ctx.WaitForMethodFailed() {
+		return nil, fmt.Errorf("waitFor failure was not reported")
+	}
+	return dex.GoTo(finishStep{}, input+"_recovered"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+            .waitForFailure(WaitForFailurePolicy.PROCEED)
+            .build();
+}
+
+@Override
+public Wait waitFor(final Context context, final String input) {
+    throw new IllegalStateException("planned WaitFor failure");
+}
+
+@Override
+public StepDecision execute(final Context context, final String input) {
+    if (!context.waitForMethodFailed()) {
+        throw new IllegalStateException("waitFor failure was not reported");
+    }
+    return StepDecision.goTo(finish, input + "_recovered");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        wait_for_retry=RetryPolicy(maximum_attempts=2),
+        wait_for_failure=WaitForFailurePolicy.PROCEED,
+    )
+
+def wait_for(self, context: Context, input: str) -> Wait:
+    del context, input
+    raise RuntimeError("planned WaitFor failure")
+
+def execute(self, context: Context, input: str) -> StepDecision:
+    if not context.wait_for_method_failed():
+        raise RuntimeError("waitFor failure was not reported")
+    return go_to(self.finish, f"{input}_recovered")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    waitForRetry: { maximumAttempts: 2 },
+    waitForFailure: "proceed",
+  };
+}
+
+public waitFor(_context: Context, _input: string): Wait {
+  throw new Error("planned WaitFor failure");
+}
+
+public execute(context: Context, input: string): StepDecision {
+  if (!context.waitForMethodFailed()) {
+    throw new Error("waitFor failure was not reported");
+  }
+  return goTo(this.finish, `${input}_recovered`);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .wait_for_failure(WaitForFailurePolicy::Proceed)
+        .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
+}
+
+fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    Err(HandlerError::new("ProceedOnWaitFailure", "planned WaitFor failure"))
+}
+
+fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    if !context.wait_for_method_failed() {
+        return Err(HandlerError::new(
+            "ProceedOnWaitFailure",
+            "waitFor failure was not reported",
+        ));
+    }
+    Ok(StepDecision::go_to(&FinishStep, format!("{input}_recovered")))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Execute failure policy
+
+When Execute retries are exhausted, onExecuteFailureProceedTo / ExecuteFailure.proceedTo(...) queues a **recovery Step** with the same typed input. Recovery Steps are ordinary Steps — compensations are just more Steps.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/patterns/recovery/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/recovery/FailureRecoveryFlow.java',
+    python: 'examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py',
+    typescript: 'examples/typescript/src/patterns/recovery/failure-recovery-flow.ts',
+    rust: 'examples/rust/src/patterns/recovery/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (updateItemQuantityStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(updateQuantityRecoveryStep{}, nil),
+		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 5},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .onExecuteFailureProceedTo(updateQuantityRecovery)
+            .executeRetry(RetryPolicy.newBuilder().maximumAttempts(5).build())
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(maximum_attempts=5)
+    ).on_execute_failure_proceed_to(self.update_quantity_recovery)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    executeFailure: ExecuteFailure.proceedTo(this.flow.updateQuantityRecoveryStep, {
+      executeRetry: { maximumAttempts: 5 },
+    }),
+    executeRetry: { maximumAttempts: 5 },
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_retry(RetryPolicy::new().maximum_attempts(3))
+        .on_execute_failure_proceed_to(&Compensate)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+See the [failure recovery](/design-patterns/recovery) pattern and [money-transfer](/use-cases/money-transfer) use case.
+
+### What recovery WaitFor / Execute can read
+
+| Available | Semantics |
+| --- | --- |
+| **Step input** | The failed Step's durable input travels with the recovery movement unchanged. |
+| **RecoveryErrorInfo** | error_type + detail for the **final** failed attempt. No stack trace — by design. |
+| **waitForMethodFailed()** | On the WaitFor-proceed path, Execute on the **same** Step knows WaitFor failed. Pair with getRecoveryError(). |
+| **Precedence** | If the recovery Step's WaitFor also fails and proceeds, its Execute receives the **newer WaitFor failure**, not the original Execute failure. |
+| **Backend failures** | Timeouts without a Worker response use the Temporal or Cadence backend failure type. |
+| **Worker errors** | Structured detail and error_type; stack trace stays in history / last failure info, not in RecoveryErrorInfo. |
+
+Recovery error survives queueing and **continue-as-new** on recovery Step movements.
+
+### Step Failed events and last failure info
+
+- Terminal events **StepExecuteFailed** / **StepWaitForFailed** carry failure output when the Step ultimately fails.
+- **During retries** (before failure policy runs), Step events and live Flow state expose **lastFailureInfo** — the most recent attempt's error (type, detail, worker metadata).
+- In Dex Web, open event details to see **Last failure** while retries are in flight. Active Steps in the Flow overview also show lastFailureInfo.
+
+Last failure info describes **retry attempts**. Failure policy decides what happens once retries end.

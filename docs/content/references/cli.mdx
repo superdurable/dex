@@ -6,14 +6,14 @@ sidebar_label: CLI
 
 # Dex CLI
 
-`dexcli` provides a JSON-first interface for operating and inspecting Flows. It
+**dexcli** provides a JSON-first interface for operating and inspecting Flows. It
 is designed for shell automation and AI agents as well as human operators.
 
 ## Connect to Dex
 
-Commands connect to `127.0.0.1:8801` by default. Set
-`DEX_FLOW_SERVICE_ADDRESS` for a process-wide target or pass `--server` for one
-command. The server address is a plaintext gRPC `host:port`, not an HTTP URL.
+Commands connect to **127.0.0.1:8801** by default. Set
+**DEX_FLOW_SERVICE_ADDRESS** for a process-wide target or pass **--server** for one
+command. The server address is a plaintext gRPC **host:port**, not an HTTP URL.
 
 ```bash
 DEX_FLOW_SERVICE_ADDRESS=dex.example.internal:8801 dexcli health
@@ -22,28 +22,28 @@ dexcli --server 127.0.0.1:9901 flow search
 
 ## Friendly Flow operations
 
-Use `flow search`, `summary`, `state`, `history`, and `inspect` for bounded JSON
-responses. `inspect` combines summary, current state, and history, making it the
+Use **flow search**, **summary**, **state**, **history**, and **inspect** for bounded JSON
+responses. **inspect** combines summary, current state, and history, making it the
 best starting point for an agent investigating a Flow.
 
 ```bash
 dexcli flow inspect order-123 --all-history
 ```
 
-Stored strings and objects are hydrated automatically. Use `--no-hydrate` when
+Stored strings and objects are hydrated automatically. Use **--no-hydrate** when
 only structure and blob identities are needed. The output then contains stable
-`__dexBlobReference` objects rather than the stored payload.
+**__dexBlobReference** objects rather than the stored payload.
 
-`flow watch` first emits available semantic history events and then long-polls
+**flow watch** first emits available semantic history events and then long-polls
 for new events. Each line is one JSON object. It stops at a terminal status;
-`--follow-runs` follows Continue-As-New into the current run.
+**--follow-runs** follows Continue-As-New into the current run.
 
-Stop and time travel always require an exact `--run-id` and explicit `--yes`. This
+Stop and time travel always require an exact **--run-id** and explicit **--yes**. This
 prevents an agent from mutating a newer run after resolving an older one.
 
 ## Complete public API access
 
-The `api` commands expose every public `FlowService` RPC known to the installed
+The **api** commands expose every public **FlowService** RPC known to the installed
 CLI version:
 
 ```bash
@@ -52,23 +52,23 @@ dexcli api describe InvokeRPC
 dexcli api call InvokeRPC --data @invoke.json --yes
 ```
 
-`api describe` reports request and response fields, oneofs, enums, maps, and
-reachable message definitions. `api call` accepts canonical protobuf JSON from
-an inline string, `@file`, or stdin via `--data -`. It returns canonical
+**api describe** reports request and response fields, oneofs, enums, maps, and
+reachable message definitions. **api call** accepts canonical protobuf JSON from
+an inline string, **@file**, or stdin via **--data -**. It returns canonical
 protobuf JSON and does not perform friendly value hydration.
 
-`WorkerService` and `InternalService` are intentionally excluded because they
+**WorkerService** and **InternalService** are intentionally excluded because they
 are worker callbacks and server-internal protocols rather than public operator
 APIs.
 
 ## Output and errors
 
-JSON is the default stable output. `--output table` is intended for human
-display and is not a machine compatibility contract. Use `--timeout 0` to
+JSON is the default stable output. **--output table** is intended for human
+display and is not a machine compatibility contract. Use **--timeout 0** to
 disable the default 30-second client deadline for a bounded command; watch
 manages its long-poll lifecycle until interrupted.
 
-Errors are JSON on stderr. They include `kind`, `operation`, `message`, and,
-when applicable, `grpcCode`, `grpcCodeName`, and structured status details.
+Errors are JSON on stderr. They include **kind**, **operation**, **message**, and,
+when applicable, **grpcCode**, **grpcCodeName**, and structured status details.
 Exit status 2 means invalid usage or missing confirmation; status 1 means the
 request failed.

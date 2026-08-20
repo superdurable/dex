@@ -7,6 +7,10 @@
         "failClosed": true
       },
       {
+        "command": "sh .cursor/hooks/reject-docs-inline-backticks.sh",
+        "failClosed": true
+      },
+      {
         "command": "sh .cursor/hooks/validate-branch-off-main.sh",
         "failClosed": true
       }

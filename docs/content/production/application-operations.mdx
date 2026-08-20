@@ -29,8 +29,8 @@ Mitigation after a fix: [time travel](/primitives/client-apis) failed Flows when
 ### Flow timeout
 
 Flow timeouts are durable Dex timers configured at start; zero disables them.
-Choose `FAIL`, `CANCEL`, or a Flow timeout handler. A fail timeout records
-`FLOW_ERROR_TYPE_FLOW_TIMEOUT`, while cancel produces a canceled Flow. Both
+Choose **FAIL**, **CANCEL**, or a Flow timeout handler. A fail timeout records
+**FLOW_ERROR_TYPE_FLOW_TIMEOUT**, while cancel produces a canceled Flow. Both
 paths finish Dex terminal coordination before the backend execution closes.
 
 Inspect Dex start history for the configured timeout and resolved policy. Do
@@ -39,8 +39,8 @@ execution timeout for interpreter Flows, and Cadence uses its maximum value as
 an implementation detail. A continue-as-new run retains the original absolute
 deadline; retries and cron runs start with a fresh budget.
 
-Every positive timeout uses one internal `sys:timeout_handler` timer visible in
-active-Step diagnostics. `SkipTimer` can fire it early by timer index. Mitigate
+Every positive timeout uses one internal **sys:timeout_handler** timer visible in
+active-Step diagnostics. **SkipTimer** can fire it early by timer index. Mitigate
 a failed timeout with time travel only after fixing the underlying cause.
 
 ## How to operate

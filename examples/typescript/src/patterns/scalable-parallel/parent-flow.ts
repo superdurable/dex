@@ -58,6 +58,9 @@ const stringArrayCodec = jsonCodec<string[]>({
     Array.isArray(value) ? value.map(String) : [],
 });
 
+const taskQueue = new Channel(TASK_QUEUE, stringCodec);
+const childComplete = new ChannelMap(CHILD_COMPLETE_CHANNEL_PREFIX, voidCodec);
+
 class Init implements Step<BatchEnqueueRequest> {
   public constructor(private readonly flow: ParentFlow) {}
 
@@ -67,7 +70,7 @@ class Init implements Step<BatchEnqueueRequest> {
 
   public execute(context: Context, initRequest: BatchEnqueueRequest): StepDecision {
     for (const uuid of initRequest.list) {
-      this.flow.taskQueue.publish(context, uuid);
+      taskQueue.publish(context, uuid);
     }
     return goTo(this.flow.loopForNextMessageStep, undefined);
   }
@@ -91,10 +94,10 @@ class LoopForNextMessage implements Step<void> {
 
     const conditions: Condition[] = [];
     if (waiting.length < CONCURRENCY_PER_PARENT_WORKFLOW) {
-      conditions.push(this.flow.taskQueue.forOne());
+      conditions.push(taskQueue.forOne());
     }
     for (const childWfId of waiting) {
-      conditions.push(this.flow.childComplete.forOne(childWfId));
+      conditions.push(childComplete.forOne(childWfId));
     }
     return Wait.anyOf(...conditions);
   }
@@ -103,7 +106,7 @@ class LoopForNextMessage implements Step<void> {
     let waiting = this.flow.currentWaitChildWfs.get(context) ?? [];
     const newWaitList = [...waiting];
 
-    const taskResults = this.flow.taskQueue.results(context);
+    const taskResults = taskQueue.results(context);
     if (taskResults.length > 0) {
       const request = taskResults[0];
       if (request === undefined) {
@@ -133,7 +136,7 @@ class LoopForNextMessage implements Step<void> {
     }
 
     for (const childWfId of [...newWaitList]) {
-      if (this.flow.childComplete.results(context, childWfId).length > 0) {
+      if (childComplete.results(context, childWfId).length > 0) {
         const exists = newWaitList.splice(newWaitList.indexOf(childWfId), 1).length > 0;
         if (!exists) {
           throw new Error(`child workflow ${childWfId} is not in the waiting list?`);
@@ -147,7 +150,7 @@ class LoopForNextMessage implements Step<void> {
       return forceCompleteIfChannelsEmpty(
         null,
         StepMovement.of(this.flow.loopForNextMessageStep, undefined),
-        this.flow.taskQueue,
+        taskQueue,
       );
     }
     return goTo(this.flow.loopForNextMessageStep, undefined);
@@ -155,8 +158,6 @@ class LoopForNextMessage implements Step<void> {
 }
 
 export class ParentFlow implements Flow<BatchEnqueueRequest> {
-  public readonly taskQueue = new Channel(TASK_QUEUE, stringCodec);
-  public readonly childComplete = new ChannelMap(CHILD_COMPLETE_CHANNEL_PREFIX, voidCodec);
   public readonly currentWaitChildWfs = new Attribute(
     DA_CURRENT_WAIT_CHILD_WFS,
     stringArrayCodec,
@@ -180,24 +181,24 @@ export class ParentFlow implements Flow<BatchEnqueueRequest> {
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.currentWaitChildWfs],
-      channels: [this.taskQueue, this.childComplete],
+      channels: [taskQueue, childComplete],
     };
   }
 
   @rpc({ outputCodec: booleanCodec })
   public enqueue(context: Context, request: BatchEnqueueRequest): RPCResult<boolean> {
-    if (this.taskQueue.size(context) + request.list.length > MAX_BUFFERED_TASKS) {
+    if (taskQueue.size(context) + request.list.length > MAX_BUFFERED_TASKS) {
       return { output: false };
     }
     for (const uuid of request.list) {
-      this.taskQueue.publish(context, uuid);
+      taskQueue.publish(context, uuid);
     }
     return { output: true };
   }
 
   @rpc({ inputCodec: stringCodec })
   public completeChildWorkflow(context: Context, childWorkflowId: string): void {
-    this.childComplete.publish(context, childWorkflowId, undefined);
+    childComplete.publish(context, childWorkflowId, undefined);
   }
 }
 

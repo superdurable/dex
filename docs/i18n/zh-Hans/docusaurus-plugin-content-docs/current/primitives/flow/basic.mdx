@@ -1,0 +1,200 @@
+---
+title: Flow 基础
+sidebar_label: 基础
+slug: /primitives/flow/basic
+---
+
+# Flow 基础
+
+**Flow** 是你向 Dex 注册的 durable 应用。它定义哪些 [Step](/primitives/step) 会运行、哪些 [Attribute](/primitives/attribute) 与 [Channel](/primitives/channel) 需要持久化，以及客户端在 Flow 活跃时可调用的 [RPC](/primitives/rpc) handler。
+
+大多数 SDK 会从原生类型名推导 **FlowType**，除非你显式覆盖。客户端启动 Flow 时传入 **Flow ID**；Dex 为每次执行分配 **Run ID**。每个 Step 运行是一次 **StepExecution**，由 **StepType** 与 **StepExecutionID** 标识。
+
+如果你刚开始使用 Dex，建议依次阅读本页、[Step 基础](/primitives/step/basic)、[等待](/primitives/step/waiting-condition) 和 [Step options](/primitives/step/step-options)。需要配置启动行为或整个执行的默认值时，再阅读 [Flow options](/primitives/flow/flow-options)。
+
+## 标识符 {#identifiers}
+
+| 标识符 | 谁设置 | 含义 |
+|--------|--------|------|
+| **FlowType** | 应用（Flow 实现） | Dex 路由 Worker 调用与搜索结果使用的稳定类型名。 |
+| **Flow ID** | 应用在 start 时 | 一个逻辑 Flow 的业务身份。Reuse policy 决定新 run 能否 attach、替换或拒绝已有 ID。 |
+| **Run ID** | Dex / 执行引擎 | 一次 run 尝试的身份。Time travel 与 continue-as-new 会保留 Flow ID 并开启新的 Run ID。 |
+| **StepType** | 应用（Step 实现） | Flow 内 Step 定义的 stable 名称。 |
+| **StepExecutionID** | Dex | 某个 Step type 的一次执行实例，格式为 **StepType-Number**。 |
+
+启动 Flow、等待 Step 完成、按 Flow ID 或 indexed Attribute 搜索，见 [Client APIs](/primitives/client-apis)。
+
+## 实现一个 Flow {#implement-a-flow}
+
+Flow 实现注册四块内容：
+
+1. **Steps** — start Step 与 Flow 可能进入的其它 Step type。
+2. **Persistence schema** — Flow 读写的每个 Attribute 与 Channel。
+3. **RPC handler** — 客户端通过 **InvokeRPC** 调用的方法。
+4. **可选 timeout handler** — 正数 soft timeout 到期时 Dex 调用一次的应用代码（见 [Flow options](/primitives/flow/flow-options)）。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
+    go: 'examples/go/primitives/flow/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
+    typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
+    rust: 'examples/rust/src/primitives/flow/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+status = Attribute("status", str)
+notify = Channel("notify", None)
+
+
+class ExampleFlow(Flow[int]):
+    def __init__(self) -> None:
+        self.finish = FinishStep()
+        self.example = ExampleStep(self.finish)
+
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.example).other_steps(self.finish)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(status, notify)
+
+    @rpc
+    def describe(self, context: Context) -> RPCResult[str]:
+        return RPCResult.of(status.get(context))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+type ExampleFlow struct {
+	dex.FlowDefaults
+}
+
+func (*ExampleFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(ExampleStep{}),
+		dex.DefineStep(FinishStep{}),
+	}
+}
+
+func (*ExampleFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Status},
+		Channels:   []dex.ChannelDef{Notify},
+	}
+}
+
+func (*ExampleFlow) Describe(ctx dex.Context, _ dex.None) (*dex.RPCResult[string], error) {
+	value, err := Status.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: value}, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Component
+public class ExampleFlow implements Flow<Integer> {
+    public static final Attribute<String> status = Attribute.define("status", String.class);
+    public static final Channel<Void> notify = Channel.define("notify", Void.class);
+
+    @Override
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(exampleStep).otherSteps(finishStep);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(status, notify);
+    }
+
+    @RPC
+    public RPCResult<String> describe(final Context context) {
+        return RPCResult.of(status.get(context));
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export class ExampleFlow implements Flow<number> {
+  public getSteps() {
+    return StepList.startStep(this.example).otherSteps(this.finish);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { attributes: [status], channels: [notify] };
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public describe(context: Context): RPCResult<string> {
+    return { output: status.get(context) ?? "" };
+  }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+impl Flow for ExampleFlow {
+    type StartInput = i32;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.example).and(&self.finish)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .attribute(&status())
+            .channel(&notify())
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().function(DESCRIBE, Self::describe)
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Steps {#steps}
+
+**GetSteps** / **get_steps** / **steps** 注册一个 start Step，以及通过 [StepDecision](/primitives/step/basic#stepdecision-movements) movement 可能到达的其它 Step type。start Step 的 input type 也是 Flow 的 start input type。
+
+Step 列表为空，或没有 start Step，在 Flow 完全由 RPC 驱动、稍后再进入 Step 时是合法的。
+
+**WaitFor**、**Execute** 与默认 Step options 见 [Step 基础](/primitives/step/basic)。
+
+## Persistence schema {#persistence-schema}
+
+Persistence schema 列出 Step 或 RPC 使用的每个 [Attribute](/primitives/attribute) 与 [Channel](/primitives/channel)。未声明的名称会被 Dex 拒绝读写。
+
+Attribute 保存 typed durable 变量。Channel 把消息送入等待中的 Step，并接受客户端 publish。
+
+## RPC handler {#rpc-handlers}
+
+RPC 方法就是 Flow 实现上的普通方法。Dex 按方法名（Rust 中可显式命名）注册。客户端用 [InvokeRPC](/primitives/rpc) 调用；handler 在 Worker 上以 durable [Context](/primitives/step/basic) 运行，可读写已声明的 Attribute 与 Channel。
+
+## SubFlow 与 Timer {#related-primitives}
+
+Flow 还会组合其它 primitive：
+
+- [SubFlow](/primitives/subflow) — 从 Step 等待条件启动子 Flow。
+- [Timer](/primitives/timer) — Step **WaitFor** 内的 durable 延迟与 deadline。
+- [Client APIs](/primitives/client-apis) — 在 Worker 外启动、Inspect、搜索与控制 Flow 实例。
+
+## Flow 内的 Step 标识符 {#step-identifiers}
+
+**StepType** 来自 Step 实现，通常是原生类型名。**StepExecutionID** 标识 Flow 执行内某 Step type 的一次运行（**ExampleStep-1**、**ExampleStep-2** …）。Step input 按 StepExecution 持久化，因此并行或重复的 Step 仍可区分。
+
+start Step 的 input 也是传给 **StartFlow** 的 Flow start input。

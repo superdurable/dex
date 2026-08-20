@@ -33,6 +33,8 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
+const internal = new Channel("rpc-internal", voidCodec);
+
 class RpcWait implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
@@ -43,7 +45,7 @@ class RpcWait implements Step<number> {
   }
 
   public waitFor(_context: Context, _input: number): Wait {
-    return Wait.until(this.flow.internal.forOne());
+    return Wait.until(internal.forOne());
   }
 
   public execute(_context: Context, _input: number): StepDecision {
@@ -64,7 +66,6 @@ class RpcComplete implements Step<number> {
 }
 
 export class RpcFlow implements Flow<number> {
-  public readonly internal = new Channel("rpc-internal", voidCodec);
   public readonly data = new Attribute("rpc-data", stringCodec);
   private readonly wait = new RpcWait(this);
   private readonly complete = new RpcComplete();
@@ -82,13 +83,13 @@ export class RpcFlow implements Flow<number> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.data], channels: [this.internal] };
+    return { attributes: [this.data], channels: [internal] };
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
   public trigger(context: Context, input: string): RPCResult<string> {
     this.data.set(context, input);
-    this.internal.publish(context, undefined);
+    internal.publish(context, undefined);
     return { output: input };
   }
 }

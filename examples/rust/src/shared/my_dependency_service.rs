@@ -28,9 +28,10 @@ impl MyDependencyService {
 
     pub fn ship_item(&self, order_id: &str, test_fail_at_shipping: bool) -> HandlerResult<()> {
         if test_fail_at_shipping {
-            return Err(HandlerError::new(format!(
-                "ship failed for order {order_id}"
-            )));
+            return Err(HandlerError::new(
+                "ShipFailure",
+                format!("ship failed for order {order_id}"),
+            ));
         }
         println!("ship item {order_id}");
         Ok(())

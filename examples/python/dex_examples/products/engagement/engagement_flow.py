@@ -46,7 +46,6 @@ from dex_examples.products.engagement.status import Status
 
 STATUS_SEARCH_KEY = "CustomKeywordField"
 
-
 def current_time_millis() -> int:
     return int(time.time() * 1000)
 

@@ -1,0 +1,18 @@
+---
+title: Step
+sidebar_label: Step
+slug: /primitives/step
+---
+
+# Step
+
+**Step** 是 durable 控制流的基本单元。Dex 在后台调度 Step、重试失败的方法，并按你的策略在耗尽后恢复。每种 Step 类型会等待（WaitFor）、执行工作（Execute），然后返回 **StepDecision** 推动 Flow 前进。
+
+- [基础](/primitives/step/basic) — typed input、WaitFor/Execute 生命周期与简单的 Step decision
+- [等待](/primitives/step/waiting-condition) — Condition 组合与 WaitFor 完成后读取 Condition 结果
+- [Step decision](/primitives/step/step-decision) — movement、关闭决策、输出、取消与 forceCompleteIfChannelsEmpty
+- [Step options](/primitives/step/step-options) — timeout、retry、failure policy、durability、heartbeat 与按 StepExecution 覆盖 StepOptions
+
+第一次实现 Flow 时，建议按“基础 → 等待 → Step decision → Step options”的顺序阅读。
+
+可运行示例位于 examples/go, examples/java, examples/python, examples/typescript, and examples/rust

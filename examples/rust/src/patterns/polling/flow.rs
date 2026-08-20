@@ -96,7 +96,7 @@ impl Step for BackoffPoll {
         ready_after_attempt: Self::Input,
     ) -> HandlerResult<StepDecision> {
         if context.attempt() < ready_after_attempt.max(1) {
-            return Err(HandlerError::new("external system is not ready"));
+            return Err(HandlerError::new("Polling", "external system is not ready"));
         }
         Ok(StepDecision::graceful_complete("ready".to_string()))
     }

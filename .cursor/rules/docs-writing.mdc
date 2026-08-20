@@ -18,6 +18,12 @@ for locale file layout.
 - State the problem, then the mechanism. Do not stack synonyms or repeat the
   same idea in three forms.
 - Use Dex terms exactly: Flow, Step, Attribute, Channel, RPC, Timer.
+- Do not wrap API names, method names, types, or identifiers in inline
+  backticks in prose. Use **bold** instead (for example **WaitFor**,
+  **StepDecision**, **InvokeRPC**). Fenced code blocks and
+  `bash` / `text` fences are exempt.
+- `make docs-prose-check` enforces this. Hooks run the same check on staged
+  docs when you commit.
 - Diagrams and examples should carry structure; prose should not over-explain
   what the diagram already shows.
 - Avoid bullet lists when a paragraph reads better. Avoid numbered lists unless

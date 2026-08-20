@@ -34,11 +34,11 @@ attributeStore:
 The Server connects, pings, and describes every configured table during startup.
 One failure fails startup and closes already-opened pools. Every table must have
 exactly one character-compatible primary key; Dex writes the Flow ID into the
-discovered key. Any other `NOT NULL` column must have a default or generated
+discovered key. Any other **NOT NULL** column must have a default or generated
 value so a partial insert can create a row.
 
-`tableName` accepts `table` or `schema.table` for PostgreSQL and `table` or
-`database.table` for MySQL. Identifiers are parsed and quoted; values always use
+**tableName** accepts **table** or **schema.table** for PostgreSQL and **table** or
+**database.table** for MySQL. Identifiers are parsed and quoted; values always use
 SQL parameters. DSNs and Attribute payloads are not logged.
 
 ## Schema refresh
@@ -55,9 +55,9 @@ retried, depending on whether validation or SQL execution detects the change.
 ## Type contract
 
 - strings: character, varchar, or text, with declared length enforced
-- `int64`: signed integer or scale-zero numeric, with range/precision enforced
+- **int64**: signed integer or scale-zero numeric, with range/precision enforced
 - double: floating or numeric
-- bool: PostgreSQL boolean; MySQL boolean, `tinyint(1)`, or `bit(1)`
+- bool: PostgreSQL boolean; MySQL boolean, **tinyint(1)**, or **bit(1)**
 - SDK datetime: RFC3339 or JSON epoch seconds; PostgreSQL timestamp with time zone,
   MySQL timestamp or datetime
 - JSON object: JSON/JSONB, after payload validation

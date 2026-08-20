@@ -70,9 +70,10 @@ impl Step for RiskyOperation {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        Err(HandlerError::new(format!(
-            "manual review required for {input}"
-        )))
+        Err(HandlerError::new(
+            "Intervention",
+            format!("manual review required for {input}"),
+        ))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {

@@ -13,7 +13,7 @@ External callers need a single request that can inspect and change a live Flow w
 
 ## Declare and invoke
 
-Declare `@rpc` / RPC methods on the Flow; invoke via client `InvokeRPC`.
+Declare **@rpc** / RPC methods on the Flow; invoke via client **InvokeRPC**.
 
 Choose an SDK (preference is sticky in this browser; default Python).
 
@@ -73,15 +73,15 @@ await client.invokeRPC(flow.nudge, flowId, "hello");
 </SdkSnippet>
 </SdkTabs>
 
-RPCs run through the server to the Worker (`InvokeRPC` → Worker `InvokeWorkerRPC`). They are not Step executions; they do not upsert Step locals.
+RPCs run through the server to the Worker (**InvokeRPC** → Worker **InvokeWorkerRPC**). They are not Step executions; they do not upsert Step locals.
 
-An RPC can also cancel Step executions and start next Steps. See [Step cancellation](/primitives/step#cancellation). For serializing Attribute access from RPCs, see [Attribute locking](/primitives/attribute#locking) and [RPC locking](#rpc-locking).
+An RPC can also cancel Step executions and start next Steps. See [Step cancellation](/primitives/step/step-decision#cancellation-on-stepdecision). For serializing Attribute access from RPCs, see [Attribute locking](/primitives/attribute#locking) and [RPC locking](#rpc-locking).
 
 ## How Dex implements it
 
 Non-locking RPCs use a query, Worker call, and optional result signal by default.
 Temporal can route all RPCs through one synchronous Workflow Update by setting
-`api.useTemporalSynchronousUpdateForAllRPCs: true`. Locking RPCs always use the
+**api.useTemporalSynchronousUpdateForAllRPCs: true**. Locking RPCs always use the
 Update and are unavailable on Cadence. Once terminal finalization begins, the
 Update validator rejects new RPCs. Large input and output values are stored in
 the configured Blob Store and hydrated when displayed or returned through an SDK.
@@ -89,7 +89,7 @@ Keep the default signal path when Temporal Update concurrency is more important
 than validator rejection and atomic effect commits.
 
 Successful Updates always contain RPC input and output. Signal history includes
-them only when `api.includeRPCInputOutputIntoHistory` is enabled. Values above the
+them only when **api.includeRPCInputOutputIntoHistory** is enabled. Values above the
 Blob Store threshold are stored as references and hydrated by Dex clients, Dex
 Web, and dexcli.
 

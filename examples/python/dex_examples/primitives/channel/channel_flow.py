@@ -9,7 +9,7 @@
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
+# See the License for the applicable language governing permissions and
 # limitations under the License.
 
 """Minimal Channel Flow: publish on an RPC and wait in a Step."""
@@ -32,7 +32,6 @@ from dex import (
     graceful_complete,
     rpc,
 )
-
 
 class ChannelWaitStep(Step[int]):
     def __init__(self, approval: Channel[str]) -> None:

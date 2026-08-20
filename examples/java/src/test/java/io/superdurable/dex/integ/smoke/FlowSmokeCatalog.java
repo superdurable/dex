@@ -146,6 +146,43 @@ final class FlowSmokeCatalog {
                                 "workflowId", environment.newFlowId("primitive-step-retry"),
                                 "readyAfterAttempt", "2")),
                 FlowSmokeEntry.get(
+                        "primitives/step/custom-retry",
+                        "/primitives/step/custom-retry/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-step-custom-retry"),
+                                "readyAfterAttempt", "1")),
+                FlowSmokeEntry.get(
+                        "primitives/step/durability",
+                        "/primitives/step/durability/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-step-durability"),
+                                "mode", "sync")),
+                FlowSmokeEntry.get(
+                        "primitives/step/heartbeat",
+                        "/primitives/step/heartbeat/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-step-heartbeat"),
+                                "batches", "0")),
+                FlowSmokeEntry.get(
+                        "primitives/step/options-override",
+                        "/primitives/step/options-override/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-step-options-override"),
+                                "input", "smoke")),
+                FlowSmokeEntry.get(
+                        "primitives/step/step-decision",
+                        "/primitives/step/step-decision/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-step-decision"),
+                                "mode", "graceful")),
+                FlowSmokeEntry.get(
+                        "primitives/step/wait-types",
+                        "/primitives/step/wait-types/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-step-wait-types"),
+                                "mode", "any",
+                                "timeoutSeconds", "1")),
+                FlowSmokeEntry.get(
                         "primitives/attribute",
                         "/primitives/attribute/start",
                         Map.of(

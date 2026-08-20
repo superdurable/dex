@@ -1,0 +1,132 @@
+---
+title: Flow options
+sidebar_label: Flow options
+slug: /primitives/flow/flow-options
+---
+
+# Flow options
+
+Dex 把 **start 时选项** 与 **运行时 Flow 配置** 分开。
+
+- **StartFlowOptions** 在客户端 start Flow（或 SubFlow）时生效，控制 timeout、ID reuse、cron schedule、初始 Attribute、request 幂等，以及该次 execution 可选的 config override。
+- **FlowConfig** 覆盖可变运行时行为：Step durability 默认值、Worker 路由、active Step 搜索索引、continue-as-new 阈值，以及 Attribute Store 投影目标。
+
+启动与配置 Flow 之外，运行中更新 config 见 [Client APIs](/primitives/client-apis) 与各 SDK 的 **UpdateFlowConfig**（若暴露）。
+
+## StartFlowOptions {#start-flow-options}
+
+常用字段：
+
+| 字段 | 作用 |
+|------|------|
+| **Timeout** | Dex soft timeout，由 durable timer 执行。零表示禁用。 |
+| **TimeoutPolicy** | 正数 timeout 到期时的 **FAIL**、**CANCEL** 或 **HANDLER**。Flow 有 timeout handler 时默认 **HANDLER**，否则 **FAIL**。 |
+| **IDReusePolicy** | 同一 Flow ID 能否 attach、替换或拒绝已有 execution。 |
+| **CronSchedule** | 服务端 cron 表达式，用于周期性 run。 |
+| **StartDelay** | start 接受后推迟第一个 Step。 |
+| **RetryPolicy** | terminal failure 后的整 Flow retry 节奏。 |
+| **Attributes** | start 时编码的初始 Attribute 与 Attribute-map 值。 |
+| **ConfigOverride** | 替换该次 execution 的已注册 **FlowConfig** 字段。 |
+| **RequestID** | 稳定的业务幂等键；省略时 SDK 生成 UUID。 |
+| **AlreadyStarted** | Flow ID 已活跃时返回已有 run，而非失败。 |
+
+Soft Flow timeout 语义与 [Client APIs — soft Flow timeout](/primitives/client-apis#soft-flow-timeout) 一致。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/controller.py',
+    go: 'examples/go/primitives/flow/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
+    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
+    rust: 'examples/rust/src/primitives/flow/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def start_flow_options() -> StartFlowOptions:
+    return StartFlowOptions(
+        timeout=timedelta(hours=1),
+        config_override=FlowConfig(step_durability=StepDurability.SYNC),
+    )
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func startFlowOptions() sdk.StartFlowOptions {
+	timeout := time.Hour
+	stepDurability := sdk.StepDurabilitySync
+	return sdk.StartFlowOptions{
+		Timeout: &timeout,
+		ConfigOverride: &sdk.FlowConfig{
+			StepDurability: &stepDurability,
+		},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+StartFlowOptions.newBuilder()
+    .timeout(Duration.ofHours(1))
+    .configOverride(
+        FlowConfig.newBuilder()
+            .stepDurability(StepDurability.SYNC)
+            .build())
+    .build()
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+function startFlowOptions(): StartFlowOptions {
+  return startOptions({
+    configOverride: {
+      stepDurability: "sync",
+    },
+  });
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn start_flow_options() -> StartFlowOptions {
+    StartFlowOptions::new()
+        .timeout(Duration::from_secs(3_600))
+        .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## FlowConfig {#flow-config}
+
+**FlowConfig** 字段覆盖某次 Flow execution 的服务端默认值：
+
+| 字段 | 作用 |
+|------|------|
+| **ActiveStepSearchMode** | Dex 为 Flow 搜索索引哪些 active Step type。 |
+| **ContinueAsNewThreshold** | 触发 continue-as-new 的事件数阈值。 |
+| **ContinueAsNewPageSizeBytes** | continue-as-new 携带的历史字节上限。 |
+| **StepDurability** | Step 写入的默认 persistence durability。 |
+| **WorkerTarget** | 后续 Step 与 RPC 调用的 WorkerService 端点。 |
+| **AttributeStoreName** | 已 opt-in Attribute 投影所用的服务端 Attribute Store。 |
+
+省略字段表示保留当前值或服务端默认。显式传入空 **AttributeStoreName** 会禁用未来的异步 SQL 投影，但字段仍在协议上 present。
+
+**AttributeStoreName** 与 synced Attribute 的用法见 [entity store](/design-patterns/entity-store) pattern；start 上的 **CronSchedule** 见 [cron schedule](/design-patterns/cron)。
+
+## SubFlow options {#subflow-options}
+
+[SubFlow](/primitives/subflow) condition 通过 **SubFlowOptions** 复用相同的 timeout、retry、初始 Attribute 与 **ConfigOverride** 形态，并额外包含子 Flow ID 的 **reuse policy**。SubFlow 的 start ID 由服务端生成，调用方不能覆盖。
+
+## 运维 API {#operational-apis}
+
+启动与配置只是生命周期的一部分。[Client APIs](/primitives/client-apis) 还涵盖 search、RPC 与 Channel 交互、wait、stop、timer skip、time travel 与 continue-as-new。

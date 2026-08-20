@@ -33,6 +33,8 @@ import {
 export const RESET_TIMER_CHANNEL = "RESET_TIMER_CHANNEL";
 export const TIMER_DURATION_MS = 5 * 60 * 1000;
 
+const resetTimerChannel = new Channel(RESET_TIMER_CHANNEL, stringCodec);
+
 class ResettableTimerStep implements Step<void> {
   public constructor(private readonly flow: ResettableTimerFlow) {}
 
@@ -43,7 +45,7 @@ class ResettableTimerStep implements Step<void> {
   public waitFor(_context: Context, _input: void): Wait {
     return Wait.anyOf(
       Timer.byDuration(TIMER_DURATION_MS),
-      this.flow.resetTimerChannel.forOne(),
+      resetTimerChannel.forOne(),
     );
   }
 
@@ -67,8 +69,6 @@ class TimerExpired implements Step<void> {
 }
 
 export class ResettableTimerFlow implements Flow<void> {
-  public readonly resetTimerChannel = new Channel(RESET_TIMER_CHANNEL, stringCodec);
-
   private readonly resettableTimer = new ResettableTimerStep(this);
   private readonly timerExpired = new TimerExpired();
 
@@ -89,12 +89,12 @@ export class ResettableTimerFlow implements Flow<void> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [this.resetTimerChannel] };
+    return { channels: [resetTimerChannel] };
   }
 
   @rpc()
   public sendResetMessage(context: Context): void {
-    this.resetTimerChannel.publish(context, "reset");
+    resetTimerChannel.publish(context, "reset");
   }
 }
 
