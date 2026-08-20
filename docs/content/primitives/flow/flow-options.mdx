@@ -292,17 +292,15 @@ If the backend reports that the Flow is already started, Dex checks **AlreadySta
 
 **RetryPolicy** retries one Flow execution after it fails. **MaximumAttempts** includes the first execution. **InitialInterval**, **BackoffCoefficient**, and **MaximumInterval** set the exponential backoff. A **FAIL** timeout can use this retry policy. A **CANCEL** timeout cannot.
 
-**CronSchedule** asks the configured backend to start new executions on a schedule. It is not Flow retry. Retry recovers one failed execution. Cron creates later executions. The backend decides what happens to overlapping or missed runs. See the [cron schedule pattern](/design-patterns/cron) before using it in production.
+**CronSchedule** start new executions on a schedule. Retry recovers one failed execution but Cron creates later executions. The backend decides what happens to overlapping or missed runs.
 
 ### StartDelay {#start-delay}
 
-**StartDelay** accepts the Flow start now, then waits before the start Step can run. Use it for a one-off delay, for example, wait five minutes before processing a new order. It does not repeat. Use **CronSchedule** for recurring work.
+**StartDelay** accepts the Flow to start now, but waits before the **StartStep** can run. Use it for a one-off delay, for example, wait five minutes before processing a new order. Use **CronSchedule** for recurring schedule.
 
 ### Attributes {#attributes}
 
-**Attributes** write durable state before the start Step runs. Each value must match an Attribute or Attribute map in the Flow persistence schema. An Attribute map also needs its instance key. Dex rejects undeclared names, duplicate physical keys, and definitions that do not match the registered map, index, or synchronization settings.
-
-Use the SDK's **InitialAttribute** and Attribute-map helper. The start Step reads these values like any other Attribute.
+**Attributes** write initial values . Each value must match an Attribute or Attribute map in the Flow persistence schema.
 
 ## FlowConfig {#flow-config}
 
@@ -310,15 +308,15 @@ Use **ConfigOverride** in **StartFlowOptions** to change the initial configurati
 
 At start, Dex applies the supplied fields over the Dex Server defaults. Omitted fields keep their default values.
 
-| Field | Behavior |
-|-------|----------|
-| **ActiveStepSearchMode** | Index every active Step, only Steps that ran **WaitFor**, or no active Steps. The default indexes Steps with **WaitFor**. |
-| **ContinueAsNewThreshold** | Continue as new after this many tracked events. Zero turns it off. |
-| **ContinueAsNewPageSizeBytes** | Limit each page of state carried into continue-as-new. Zero uses 1 MiB. |
-| **StepDurability** | Default durability for Step writes. A Step override wins. Recovery uses synchronous durability unless you override it. |
-| **WorkerTarget** | WorkerService endpoint for later Step and RPC calls. Use it to move later work to a new Worker. |
-| **AttributeStoreName** | Dex Server Attribute Store for Attributes that opt in to asynchronous projection. An empty value turns off later projections. |
+| Field | Behavior                                                                                                                        |
+|-------|---------------------------------------------------------------------------------------------------------------------------------|
+| **ActiveStepSearchMode** | Index every active Step, only Steps that ran **WaitFor**, or no active Steps. The default indexes Steps with **WaitFor**.       |
+| **ContinueAsNewThreshold** | Continue as new after this many tracked events. Zero turns it off.                                                              |
+| **ContinueAsNewPageSizeBytes** | Limit each page of state carried into continue-as-new. Zero uses 1 MiB.|
+| **StepDurability** | Default durability for Step writes. A Step override wins. Recovery uses synchronous durability unless you override it in StepOptions. |
+| **WorkerTarget** | WorkerService endpoint for Step and RPC invocation                                                                              |
+| **AttributeStoreName** | Dex Server Attribute Store for Attributes that opt in to attribute sync                                                         |
 
 ### Update FlowConfig with a Client {#update-flow-config-with-a-client}
 
-Call **UpdateFlowConfig** while the Flow is active. Send only the fields you want to change. The change applies to later Flow decisions. Dex does not recall work it already dispatched.
+Call **UpdateFlowConfig** while the Flow is active. Send only the fields you want to change.They will be merged with the existing configuration.
