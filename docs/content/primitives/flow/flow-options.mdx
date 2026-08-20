@@ -266,7 +266,7 @@ impl Flow for ExampleFlow {
 | **IDReuseDisallow** | Never reuse the ID. |
 | **IDReuseTerminateIfRunning** | Stop the active run, then start the replacement. |
 
-Use a stable **RequestID** if the caller may retry after losing the StartFlow response. Retry with the same Flow ID, start input, options, and RequestID. With **AlreadyStartedOptions.IgnoreError**, Dex returns the existing Run ID only when that Flow started with the same RequestID. A different RequestID is still an already-started error. This option does not attach to an unrelated Flow.
+Use a stable **RequestID** if the caller may retry after losing the StartFlow response. Retry with the same Flow ID, start input, options, and RequestID. With **AlreadyStartedOptions.IgnoreError**, Dex returns the existing Run ID only when that Flow started with the same RequestID. A different RequestID is still an already-started error.
 
 ### RetryPolicy and CronSchedule {#retry-policy-and-cron-schedule}
 

@@ -266,7 +266,7 @@ impl Flow for ExampleFlow {
 | **IDReuseDisallow** | 永不复用该 ID。 |
 | **IDReuseTerminateIfRunning** | 停止 active run，再启动 replacement。 |
 
-调用方可能在丢失 StartFlow response 后重试时，应使用稳定的 **RequestID**。重试时发送相同的 Flow ID、start input、options 与 RequestID。启用 **AlreadyStartedOptions.IgnoreError** 后，Dex 只会在已有 Flow 使用相同 RequestID 启动时返回其 Run ID。不同 RequestID 仍会得到 already-started error。这个选项不会 attach 到无关的 Flow。
+调用方可能在丢失 StartFlow response 后重试时，应使用稳定的 **RequestID**。重试时发送相同的 Flow ID、start input、options 与 RequestID。启用 **AlreadyStartedOptions.IgnoreError** 后，Dex 只会在已有 Flow 使用相同 RequestID 启动时返回其 Run ID。不同 RequestID 仍会得到 already-started error。
 
 ### RetryPolicy 与 CronSchedule {#retry-policy-and-cron-schedule}
 
