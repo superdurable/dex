@@ -180,7 +180,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 - **CANCEL** — cancel the Flow. It does not retry.
 - **HANDLER** — run the Flow timeout handler once.
 
-Dex uses **HANDLER** by default when the Flow has a timeout handler. Otherwise it uses **FAIL**. **HANDLER** is invalid when the Flow has no handler. Continue-as-new keeps the current deadline. A retry starts with a new timeout budget.
+Dex uses **HANDLER** by default when the Flow has a timeout handler. Otherwise it uses **FAIL**. **HANDLER** is invalid when the Flow has no handler. A retry starts with a new timeout budget.
 
 Set **TimeoutPolicy** to **HANDLER** to run this code when the timeout fires. This handler records why the Flow ended, then fails it with an application reason.
 
