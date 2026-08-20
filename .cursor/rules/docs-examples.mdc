@@ -15,3 +15,7 @@ also link the examples playground (`examples/playground`) when the sample is in
 the playground catalog.
 
 If the API does not exist yet, add the example first, then copy the snippet.
+
+Every application-code snippet must include Python, Go, Java, TypeScript, and Rust through
+`<SdkTabs>` / `<SdkSnippet>`. Keep the snippets semantically equivalent and link each tab to its
+runnable example source.

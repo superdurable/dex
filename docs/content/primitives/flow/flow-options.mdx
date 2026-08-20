@@ -30,12 +30,38 @@ Dex allows you to customize the behavior of a Flow execution.
 
 <SdkTabs
   examples={{
+    python: 'examples/python/dex_examples/primitives/flow/controller.py',
     go: 'examples/go/primitives/flow/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
+    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
+    rust: 'examples/rust/src/primitives/flow/controller.rs',
   }}>
+  <SdkSnippet lang="python">
+
+```python
+def example_start_flow_options() -> StartFlowOptions:
+    return StartFlowOptions(
+        timeout=timedelta(minutes=30),
+        timeout_policy=FlowTimeoutPolicy.FAIL,
+        start_delay=timedelta(minutes=5),
+        id_reuse_policy=IdReusePolicy.DISALLOW,
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(minutes=1),
+            backoff_coefficient=2,
+            maximum_interval=timedelta(minutes=10),
+            maximum_attempts=3,
+        ),
+        config_override=FlowConfig(step_durability=StepDurability.SYNC),
+        ignore_already_started=True,
+        request_id="start-order-123",
+    ).with_attribute(status, "queued")
+```
+
+</SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-func reliableStartFlowOptions() (sdk.StartFlowOptions, error) {
+func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
 	initialStatus, err := sdk.InitialAttribute(Status, "queued")
 	if err != nil {
 		return sdk.StartFlowOptions{}, err
@@ -65,7 +91,85 @@ func reliableStartFlowOptions() (sdk.StartFlowOptions, error) {
 }
 ```
 
-  </SdkSnippet>
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+private static StartFlowOptions exampleStartFlowOptions() {
+    return StartFlowOptions.newBuilder()
+            .timeout(Duration.ofMinutes(30))
+            .timeoutPolicy(FlowTimeoutPolicy.FAIL)
+            .startDelay(Duration.ofMinutes(5))
+            .idReusePolicy(IdReusePolicy.DISALLOW)
+            .retryPolicy(
+                    RetryPolicy.newBuilder()
+                            .initialInterval(Duration.ofMinutes(1))
+                            .backoffCoefficient(2)
+                            .maximumInterval(Duration.ofMinutes(10))
+                            .maximumAttempts(3)
+                            .build())
+            .addAttribute(ExampleFlow.status, "queued")
+            .configOverride(
+                    FlowConfig.newBuilder()
+                            .stepDurability(StepDurability.SYNC)
+                            .build())
+            .ignoreAlreadyStarted(true)
+            .requestId("start-order-123")
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export function exampleStartFlowOptions(): StartFlowOptions {
+  return {
+    timeoutMs: 30 * 60_000,
+    timeoutPolicy: FlowTimeoutPolicy.FAIL,
+    startDelayMs: 5 * 60_000,
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    retryPolicy: {
+      initialIntervalMs: 60_000,
+      backoffCoefficient: 2,
+      maximumIntervalMs: 10 * 60_000,
+      maximumAttempts: 3,
+    },
+    attributes: [InitialAttribute.of(status, "queued")],
+    configOverride: {
+      stepDurability: "sync",
+    },
+    ignoreAlreadyStarted: true,
+    requestId: "start-order-123",
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+pub fn example_start_flow_options() -> StartFlowOptions {
+    StartFlowOptions::new()
+        .timeout(Duration::from_secs(30 * 60))
+        .timeout_policy(FlowTimeoutPolicy::Fail)
+        .start_delay(Duration::from_secs(5 * 60))
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .retry_policy(
+            RetryPolicy::new()
+                .initial_interval(Duration::from_secs(60))
+                .backoff_coefficient(2.0)
+                .maximum_interval(Duration::from_secs(10 * 60))
+                .maximum_attempts(3),
+        )
+        .initial_attribute(&status(), "queued".to_owned())
+        .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
+        .ignore_already_started(true)
+        .request_id("start-order-123")
+}
+```
+
+</SdkSnippet>
 </SdkTabs>
 
 ### Timeout and TimeoutPolicy {#timeout-and-timeout-policy}
@@ -123,12 +227,25 @@ At start, **ConfigOverride** applies the supplied **FlowConfig** fields over the
 
 **UpdateFlowConfig** is available while the Flow is active. It is a partial update: send only the fields you want to change. The update affects later Flow decisions and does not recall work that Dex already dispatched.
 
-The following Go example moves future Step and RPC calls to a canary Worker. SDKs that expose this operation use their native naming convention.
-
 <SdkTabs
   examples={{
+    python: 'examples/python/dex_examples/primitives/flow/controller.py',
     go: 'examples/go/primitives/flow/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
+    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
+    rust: 'examples/rust/src/primitives/flow/controller.rs',
   }}>
+  <SdkSnippet lang="python">
+
+```python
+async def reroute_active_flow(client: AsyncClient, flow_id: str) -> None:
+    await client.update_flow_config(
+        flow_id,
+        FlowConfig(worker_target=WorkerTarget("worker-canary:8803")),
+    )
+```
+
+</SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
@@ -139,7 +256,43 @@ func rerouteActiveFlow(ctx context.Context, client *sdk.Client, flowID string) e
 }
 ```
 
-  </SdkSnippet>
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+private static void rerouteActiveFlow(final Client client, final String flowId) {
+    client.updateFlowConfig(
+            flowId,
+            FlowConfig.newBuilder()
+                    .workerTarget(new WorkerTarget("worker-canary:8803", false))
+                    .build());
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export async function rerouteActiveFlow(client: Client, flowId: string): Promise<void> {
+  await client.updateFlowConfig(flowId, {
+    workerTarget: { address: "worker-canary:8803" },
+  });
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+pub fn reroute_active_flow(client: &Client, flow_id: &str) -> SdkResult<()> {
+    client.update_flow_config(
+        flow_id,
+        FlowConfig::new().worker_target(WorkerTarget::new("worker-canary:8803")),
+    )
+}
+```
+
+</SdkSnippet>
 </SdkTabs>
 
 ## SubFlow options {#subflow-options}

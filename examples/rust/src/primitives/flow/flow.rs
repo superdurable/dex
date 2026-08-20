@@ -19,7 +19,7 @@ use dex_sdk::{
 
 pub const DESCRIBE: Rpc<(), String> = Rpc::new("Describe");
 
-fn status() -> Attribute<String> {
+pub(crate) fn status() -> Attribute<String> {
     Attribute::new("status")
 }
 

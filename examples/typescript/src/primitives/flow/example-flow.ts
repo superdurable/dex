@@ -65,7 +65,7 @@ class ExampleStep implements Step<number> {
   }
 }
 
-const status = new Attribute("status", stringCodec);
+export const status = new Attribute("status", stringCodec);
 const notify = new Channel("notify", voidCodec);
 
 export class ExampleFlow implements Flow<number> {

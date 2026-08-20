@@ -53,7 +53,7 @@ func startFlowOptions() sdk.StartFlowOptions {
 	}
 }
 
-func reliableStartFlowOptions() (sdk.StartFlowOptions, error) {
+func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
 	initialStatus, err := sdk.InitialAttribute(Status, "queued")
 	if err != nil {
 		return sdk.StartFlowOptions{}, err

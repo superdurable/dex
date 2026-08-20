@@ -18,8 +18,12 @@ package io.superdurable.dex.primitives.flow;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowConfig;
+import io.superdurable.dex.FlowTimeoutPolicy;
+import io.superdurable.dex.IdReusePolicy;
+import io.superdurable.dex.RetryPolicy;
 import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.StepDurability;
+import io.superdurable.dex.WorkerTarget;
 import java.time.Duration;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,6 +39,37 @@ public final class FlowController {
     public FlowController(final Client client, final ExampleFlow exampleFlow) {
         this.client = client;
         this.exampleFlow = exampleFlow;
+    }
+
+    private static StartFlowOptions exampleStartFlowOptions() {
+        return StartFlowOptions.newBuilder()
+                .timeout(Duration.ofMinutes(30))
+                .timeoutPolicy(FlowTimeoutPolicy.FAIL)
+                .startDelay(Duration.ofMinutes(5))
+                .idReusePolicy(IdReusePolicy.DISALLOW)
+                .retryPolicy(
+                        RetryPolicy.newBuilder()
+                                .initialInterval(Duration.ofMinutes(1))
+                                .backoffCoefficient(2)
+                                .maximumInterval(Duration.ofMinutes(10))
+                                .maximumAttempts(3)
+                                .build())
+                .addAttribute(ExampleFlow.status, "queued")
+                .configOverride(
+                        FlowConfig.newBuilder()
+                                .stepDurability(StepDurability.SYNC)
+                                .build())
+                .ignoreAlreadyStarted(true)
+                .requestId("start-order-123")
+                .build();
+    }
+
+    private static void rerouteActiveFlow(final Client client, final String flowId) {
+        client.updateFlowConfig(
+                flowId,
+                FlowConfig.newBuilder()
+                        .workerTarget(new WorkerTarget("worker-canary:8803", false))
+                        .build());
     }
 
     @GetMapping("/start")
