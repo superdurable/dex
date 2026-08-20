@@ -6,128 +6,142 @@ slug: /primitives/flow/flow-options
 
 # Flow options
 
-Dex allows you to customize the behavior of a Flow execution.
+**StartFlowOptions** controls one start request. **FlowConfig** controls the runtime behavior of the resulting Flow.
 
-- **StartFlowOptions** apply when a client starts a Flow (or SubFlow). They are immutable after start.
-  - They control timeout, ID reuse, cron schedule, initial Attributes, request idempotency, and optional config overrides for that execution.
-- **FlowConfig** provide runtime behavior. They are mutable after start.
-  - Step durability defaults, Worker routing, active-Step search indexing, continue-as-new thresholds, and Attribute Store projection targets.
-
-Use [Client APIs](/primitives/client-apis) to start Flows and update config on running executions where your SDK exposes **UpdateFlowConfig**.
+At start, **ConfigOverride** applies the supplied **FlowConfig** fields over the server default. While a Flow is active, **UpdateFlowConfig** applies supplied fields over its current configuration. In both cases, omitted fields stay unchanged.
 
 ## StartFlowOptions {#start-flow-options}
 
-Common fields:
+| Field | Purpose |
+|-------|---------|
+| **Timeout** | Durable soft Flow timeout. Omit it or set zero to disable it. |
+| **TimeoutPolicy** | What happens when a positive timeout expires. |
+| **IDReusePolicy** | Whether a new start may use an existing Flow ID. |
+| **RequestID** | Idempotency key for retrying one start request. SDKs generate a UUID when omitted. |
+| **AlreadyStarted** | How an idempotent retry handles an already-started Flow. |
+| **CronSchedule** | Backend-supported cron expression for recurring starts. |
+| **RetryPolicy** | Retry policy for one Flow execution after failure. |
+| **StartDelay** | Delay before the start Step becomes eligible to run. |
+| **Attributes** | Initial Attribute and Attribute-map values. |
+| **FlowConfig** | Per-execution Flow configuration, supplied through **ConfigOverride**. |
 
-| Field              | Purpose                                                                                                                                                |
-|--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Timeout**        | Dex soft timeout enforced by a durable timer. Zero disables it.                                                                                        |
-| **TimeoutPolicy**  | **FAIL**, **CANCEL**, or **HANDLER** when timeout is positive. Defaults to **HANDLER** when the Flow implements a timeout handler, otherwise **FAIL**. |
-| **IDReusePolicy**  | Whether the same Flow ID may attach to, replace, or be rejected against an existing execution.                                                         |
-| **CronSchedule**   | Server cron expression for recurring runs.                                                                                                             |
-| **StartDelay**     | Postpone the first Step after start acceptance.                                                                                                        |
-| **RetryPolicy**    | Whole-Flow retry timing after terminal failure.                                                                                                        |
-| **Attributes**     | Initial Attribute and Attribute-map values encoded at start.                                                                                           |
-| **FlowConfig**     | The iniital **FlowConfig** for this execution.                                                                                                         |
-| **RequestID**      | Stable business idempotency key used with IdReusePolicy                                                                                                |
-| **AlreadyStartedOptions** | Decide the behavior when the Flow ID is already started, used with IdReusePolicy.                                                                      |
-
-Soft Flow timeout behavior matches [Client APIs — soft Flow timeout](/primitives/client-apis#soft-flow-timeout).
+The [Go Flow example](https://github.com/superdurable/dex/tree/main/examples/go/primitives/flow/controller.go) combines a timeout, delayed start, retry policy, initial Attribute, FlowConfig override, and idempotent start request.
 
 <SdkTabs
   examples={{
-    python: 'examples/python/dex_examples/primitives/flow/controller.py',
     go: 'examples/go/primitives/flow/controller.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
-    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
-    rust: 'examples/rust/src/primitives/flow/controller.rs',
   }}>
-<SdkSnippet lang="python">
-
-```python
-def start_flow_options() -> StartFlowOptions:
-    return StartFlowOptions(
-        timeout=timedelta(hours=1),
-        config_override=FlowConfig(step_durability=StepDurability.SYNC),
-    )
-```
-
-</SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-func startFlowOptions() sdk.StartFlowOptions {
-	timeout := time.Hour
+func reliableStartFlowOptions() (sdk.StartFlowOptions, error) {
+	initialStatus, err := sdk.InitialAttribute(Status, "queued")
+	if err != nil {
+		return sdk.StartFlowOptions{}, err
+	}
+	timeout := 30 * time.Minute
+	startDelay := 5 * time.Minute
+	requestID := "start-order-123"
 	stepDurability := sdk.StepDurabilitySync
 	return sdk.StartFlowOptions{
-		Timeout: &timeout,
+		Timeout:       &timeout,
+		TimeoutPolicy: sdk.TimeoutFail,
+		StartDelay:    &startDelay,
+		IDReusePolicy: sdk.IDReuseDisallow,
+		RetryPolicy: &sdk.FlowRetryPolicy{
+			InitialInterval:    time.Minute,
+			BackoffCoefficient: 2,
+			MaximumInterval:    10 * time.Minute,
+			MaximumAttempts:    3,
+		},
+		Attributes: []sdk.InitialAttributeDef{initialStatus},
 		ConfigOverride: &sdk.FlowConfig{
 			StepDurability: &stepDurability,
 		},
-	}
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+		RequestID:      &requestID,
+	}, nil
 }
 ```
 
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-StartFlowOptions.newBuilder()
-    .timeout(Duration.ofHours(1))
-    .configOverride(
-        FlowConfig.newBuilder()
-            .stepDurability(StepDurability.SYNC)
-            .build())
-    .build()
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-function startFlowOptions(): StartFlowOptions {
-  return startOptions({
-    configOverride: {
-      stepDurability: "sync",
-    },
-  });
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-fn start_flow_options() -> StartFlowOptions {
-    StartFlowOptions::new()
-        .timeout(Duration::from_secs(3_600))
-        .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
-}
-```
-
-</SdkSnippet>
+  </SdkSnippet>
 </SdkTabs>
+
+### Timeout and TimeoutPolicy {#timeout-and-timeout-policy}
+
+**Timeout** is a durable timer for the whole Flow. A policy is valid only with a positive timeout. **FAIL** fails the Flow with a timeout error, which may be retried by **RetryPolicy**. **CANCEL** cancels the Flow and does not retry it. **HANDLER** invokes the Flow timeout handler once.
+
+When the SDK can inspect the Flow definition, the default policy is **HANDLER** when the Flow implements a timeout handler and **FAIL** otherwise. **HANDLER** without a timeout handler is invalid. Continue-as-new preserves the existing timeout deadline. A retry starts a new timeout budget.
+
+### Flow ID, RequestID, and AlreadyStarted {#flow-id-request-id-and-already-started}
+
+**IDReusePolicy** answers a business-lifecycle question: may a new start use this Flow ID? **RequestID** answers a transport question: is this call a retry of the same start request?
+
+| ID reuse policy | Result |
+|-----------------|--------|
+| **IDReuseDefault** | Use the server policy. The StartFlow default permits reuse when no run is active. |
+| **IDReuseAllowIfPreviousFailed** | Reuse only after a failed run. |
+| **IDReuseAllowIfNotRunning** | Reuse after any closed run, but not while one is active. |
+| **IDReuseDisallow** | Reject every reuse of the Flow ID. |
+| **IDReuseTerminateIfRunning** | Terminate an active run before starting its replacement. |
+
+Use a stable **RequestID** when a caller may retry after losing the StartFlow response. Send the same Flow ID, start input, options, and RequestID again. With **AlreadyStarted.IgnoreError** enabled, Dex returns the existing Run ID only when that existing Flow was started with the same RequestID. A different RequestID remains an already-started conflict; **AlreadyStarted** does not attach to an unrelated Flow.
+
+### RetryPolicy and CronSchedule {#retry-policy-and-cron-schedule}
+
+**RetryPolicy** controls retries of one Flow execution after it fails. **MaximumAttempts** includes the initial execution. **InitialInterval**, **BackoffCoefficient**, and **MaximumInterval** define exponential backoff. A timeout with **FAIL** is one failure that can use this policy; a timeout with **CANCEL** is not retried.
+
+**CronSchedule** asks the configured backend to start recurring executions. It is separate from Flow retry: retries recover a failed execution, while cron creates future scheduled executions. Backend scheduling behavior, including overlap and missed-run handling, is backend-defined. See the [cron schedule pattern](/design-patterns/cron) before using it in production.
+
+### StartDelay {#start-delay}
+
+**StartDelay** accepts the Flow start now and postpones when its start Step becomes eligible. Use it for a one-off deferred start, such as waiting five minutes before processing a newly created order. It does not create a recurring schedule; use **CronSchedule** for that.
+
+### Attributes {#attributes}
+
+**Attributes** initialize durable state before the start Step runs. Each initial value must correspond to an Attribute or Attribute map declared in the Flow persistence schema. Attribute-map values also require an instance key. Dex rejects undeclared names, duplicate values for the same physical key, and definitions whose map, index, or synchronization settings differ from the registered Attribute.
+
+Build initial values with the SDK's **InitialAttribute** and Attribute-map helper rather than manually encoding them. The start Step can read the initialized values normally.
 
 ## FlowConfig {#flow-config}
 
-**FlowConfig** fields override server defaults for one Flow execution:
+Use **ConfigOverride** in **StartFlowOptions** to customize one Flow's initial effective configuration. Its fields patch the deployment's default **FlowConfig**; it does not replace that configuration wholesale.
 
-| Field | Purpose |
-|-------|---------|
-| **ActiveStepSearchMode** | Which active Step types Dex indexes for Flow search. |
-| **ContinueAsNewThreshold** | Event-count threshold that triggers continue-as-new. |
-| **ContinueAsNewPageSizeBytes** | History byte cap carried into continue-as-new. |
-| **StepDurability** | Default persistence durability for Step writes. |
-| **WorkerTarget** | WorkerService endpoint for future Step and RPC invocations. |
-| **AttributeStoreName** | Server-configured Attribute Store for opted-in Attribute projections. |
+| Field | Behavior |
+|-------|----------|
+| **ActiveStepSearchMode** | Index all active Steps, only Steps that have run **WaitFor**, or no active Steps. The default indexes Steps with **WaitFor**. |
+| **ContinueAsNewThreshold** | Number of tracked events before Dex automatically continues as new. Zero disables automatic continue-as-new. |
+| **ContinueAsNewPageSizeBytes** | Page size for state transferred during continue-as-new. Zero uses 1 MiB. |
+| **StepDurability** | Default durability for Step writes. A Step-level override wins; recovery paths use synchronous durability unless explicitly overridden. |
+| **WorkerTarget** | WorkerService endpoint for later Step and RPC calls. Use it to move future work to a new Worker. |
+| **AttributeStoreName** | Server-configured Attribute Store for Attributes that opt in to asynchronous projection. An explicit empty value disables future projections. |
 
-Omit a field to keep the current or server default. An explicit empty **AttributeStoreName** disables future asynchronous SQL projection while keeping the field present on the wire.
+### Update FlowConfig with a Client {#update-flow-config-with-a-client}
 
-See the [entity store](/design-patterns/entity-store) pattern for **AttributeStoreName** with synced Attributes, and [cron schedule](/design-patterns/cron) for **CronSchedule** on start.
+**UpdateFlowConfig** is available while the Flow is active. It is a partial update: send only the fields you want to change. The update affects later Flow decisions and does not recall work that Dex already dispatched.
+
+The following Go example moves future Step and RPC calls to a canary Worker. SDKs that expose this operation use their native naming convention.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/flow/controller.go',
+  }}>
+  <SdkSnippet lang="go">
+
+```go
+func rerouteActiveFlow(ctx context.Context, client *sdk.Client, flowID string) error {
+	return client.UpdateFlowConfig(ctx, flowID, sdk.FlowConfig{
+		WorkerTarget: &sdk.WorkerTarget{Address: "worker-canary:8803"},
+	})
+}
+```
+
+  </SdkSnippet>
+</SdkTabs>
 
 ## SubFlow options {#subflow-options}
 
-[SubFlow](/primitives/subflow) conditions reuse the same timeout, retry, initial Attribute, and **ConfigOverride** shape through **SubFlowOptions**, plus a **reuse policy** for generated child Flow IDs. SubFlow start IDs are server-owned; callers cannot override them.
+[SubFlow](/primitives/subflow) conditions use **SubFlowOptions** for timeout, retry, initial Attributes, and **FlowConfig** overrides. A SubFlow also has a reuse policy for its generated Flow ID. Dex owns SubFlow start IDs, so callers cannot override them.
 
 ## Operational APIs {#operational-apis}
 

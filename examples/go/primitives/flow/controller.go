@@ -21,6 +21,7 @@
 package flow
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -50,6 +51,41 @@ func startFlowOptions() sdk.StartFlowOptions {
 			StepDurability: &stepDurability,
 		},
 	}
+}
+
+func reliableStartFlowOptions() (sdk.StartFlowOptions, error) {
+	initialStatus, err := sdk.InitialAttribute(Status, "queued")
+	if err != nil {
+		return sdk.StartFlowOptions{}, err
+	}
+	timeout := 30 * time.Minute
+	startDelay := 5 * time.Minute
+	requestID := "start-order-123"
+	stepDurability := sdk.StepDurabilitySync
+	return sdk.StartFlowOptions{
+		Timeout:       &timeout,
+		TimeoutPolicy: sdk.TimeoutFail,
+		StartDelay:    &startDelay,
+		IDReusePolicy: sdk.IDReuseDisallow,
+		RetryPolicy: &sdk.FlowRetryPolicy{
+			InitialInterval:    time.Minute,
+			BackoffCoefficient: 2,
+			MaximumInterval:    10 * time.Minute,
+			MaximumAttempts:    3,
+		},
+		Attributes: []sdk.InitialAttributeDef{initialStatus},
+		ConfigOverride: &sdk.FlowConfig{
+			StepDurability: &stepDurability,
+		},
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+		RequestID:      &requestID,
+	}, nil
+}
+
+func rerouteActiveFlow(ctx context.Context, client *sdk.Client, flowID string) error {
+	return client.UpdateFlowConfig(ctx, flowID, sdk.FlowConfig{
+		WorkerTarget: &sdk.WorkerTarget{Address: "worker-canary:8803"},
+	})
 }
 
 func (controller *controller) start(request *gin.Context) {

@@ -6,9 +6,9 @@ slug: /primitives/flow/basic
 
 # Flow Basics
 
-A **Flow** is the top component that you register as a Dex application.
+A **Flow** is the top-level component that you register with Dex.
 
-It defines [Steps](/primitives/step) run in the background, [Attributes](/primitives/attribute) and [Channels](/primitives/channel) provide data persistence, and [RPCs](/primitives/rpc) that provide durable communication.
+It defines the [Steps](/primitives/step) that run in the background, the [Attributes](/primitives/attribute) and [Channels](/primitives/channel) that persist state, and the [RPCs](/primitives/rpc) that provide durable communication.
 
 ## Implement a Flow {#implement-a-flow}
 
@@ -156,18 +156,17 @@ impl Flow for ExampleFlow {
 </SdkSnippet>
 </SdkTabs>
 
-## Identifiers and Terminologies {#identifiers-and-terminologies}}
+## Identifiers {#identifiers}
 
-Below is the key identifiers and terminologies that are widely used in Dex.
+Dex uses these identifiers throughout its APIs and documentation.
 
-| Identifier | Who sets it                           | Meaning                        |
-|----------|---------------------------------------|-----------------------------------------------------------------|
-| **Flow** | N/A                                   | Depends on the context, it usually means FlowType or FlowID        |
-| **FlowType** | Application (via Flow implementation) | Stable type name Dex uses to route Worker calls and search results.     |
+| Identifier | Who sets it | Meaning |
+|----------|-------------|---------|
+| **FlowType** | Application (via Flow implementation) | Stable type name Dex uses to route Worker calls and search results. |
 | **Flow ID** | Application client on start           | Business identity for one logical Flow. Reuse policy controls whether a new run may replace or attach to an existing ID. |
-| **Run ID** | Dex Server                            | Identity of one run attempt. Time travel and continue-as-new start a fresh Run ID while optionally keeping the same Flow ID. |
-| **StepType** | Application (via Step implementation) | Stable name for a Step definition inside the Flow.     |
-| **StepExecutionID** | Dex Server                            | One execution instance of a Step type, formatted as **StepType-Number**.             |
+| **Run ID** | Dex | Identity of one run attempt. Time travel and continue-as-new start a fresh Run ID while optionally keeping the same Flow ID. |
+| **StepType** | Application (via Step implementation) | Stable name for a Step definition inside the Flow. |
+| **StepExecutionID** | Dex | One execution instance of a Step type, formatted as **StepType-Number**. |
 
 
 ## Steps {#steps}
@@ -184,4 +183,4 @@ The persistence schema lists every [Attribute](/primitives/attribute) and [Chann
 
 ## RPC handlers {#rpc-handlers}
 
- Dex registers RPC methods under their method names (or explicit RPC names in Rust). Clients call them with [InvokeRPC](/primitives/rpc); then Dex server dispatch the call and the handlers run on the Worker.
+Dex registers RPC methods under their method names (or explicit RPC names in Rust). Clients call them with [InvokeRPC](/primitives/rpc); Dex then dispatches the call to the Worker.

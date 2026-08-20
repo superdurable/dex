@@ -6,9 +6,9 @@ slug: /primitives/flow
 
 # Flow
 
-**Flow** 是 Dex 的顶层 durable 程序。一个 Flow 拥有 typed [Step](/primitives/step)、由 [Attribute](/primitives/attribute) 与 [Channel](/primitives/channel) 组成的 persistence schema，以及可选的 [RPC](/primitives/rpc) handler。
+**Flow** 是 Dex 的顶层 primitive 与概念。
 
-- [基础](/primitives/flow/basic) — 标识符、Flow 接口，以及 Step 与 persistence 如何组合
-- [Flow options](/primitives/flow/flow-options) — **StartFlowOptions**、**FlowConfig**、timeout、retry 与运行时覆盖
+A Flow 通常是一个业务实体。它包含一些 [Step](/primitives/step)、由 [Attribute](/primitives/attribute) 与 [Channel](/primitives/channel) 组成的 persistence schema，以及可选的 [RPC](/primitives/rpc) handler。
 
-可运行示例位于 **examples/go**、**examples/java**、**examples/python**、**examples/typescript** 和 **examples/rust**。
+- [基础](/primitives/flow/basic) — 基础概念与 interface
+- [Flow options](/primitives/flow/flow-options) — 高级 **StartFlowOptions**、**FlowConfig**
