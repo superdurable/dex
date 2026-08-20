@@ -258,16 +258,6 @@ impl Flow for ExampleFlow {
 
 **IDReusePolicy** 决定这个 Flow ID 已存在时该怎么做。**RequestID** 表示这次调用是否在重试同一次启动请求。
 
-| ID reuse policy | 结果 |
-|-----------------|------|
-| **IDReuseDefault** | 使用 Dex Server policy。没有 active run 时，StartFlow 允许复用。 |
-| **IDReuseAllowIfPreviousFailed** | 只在上次 run 失败后复用该 ID。 |
-| **IDReuseAllowIfNotRunning** | 任意 closed run 后都可复用，但 active run 期间不行。 |
-| **IDReuseDisallow** | 永不复用该 ID。 |
-| **IDReuseTerminateIfRunning** | 停止 active run，再启动 replacement。 |
-
-调用方可能在丢失 StartFlow response 后重试时，应使用稳定的 **RequestID**。重试时发送相同的 Flow ID、start input、options 与 RequestID。启用 **AlreadyStartedOptions.IgnoreError** 后，Dex 只会在已有 Flow 使用相同 RequestID 启动时返回其 Run ID。不同 RequestID 仍会得到 already-started error。
-
 #### 这些选项如何一起工作
 
 这些选项依次回答不同的问题：
