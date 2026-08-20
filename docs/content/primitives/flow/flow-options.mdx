@@ -25,7 +25,7 @@ Use [Client APIs](/primitives/client-apis) to start Flows and update config on r
 | **TimeoutPolicy** | What happens when a positive timeout expires. |
 | **IDReusePolicy** | Whether a new start may use an existing Flow ID. |
 | **RequestID** | Idempotency key for retrying one start request. SDKs generate a UUID when omitted. |
-| **AlreadyStarted** | How an idempotent retry handles an already-started Flow. |
+| **AlreadyStartedOptions** | How an idempotent retry handles an already-started Flow. |
 | **CronSchedule** | Backend-supported cron expression for recurring starts. |
 | **RetryPolicy** | Retry policy for one Flow execution after failure. |
 | **StartDelay** | Delay before the start Step becomes eligible to run. |
@@ -78,7 +78,7 @@ func reliableStartFlowOptions() (sdk.StartFlowOptions, error) {
 
 When the SDK can inspect the Flow definition, the default policy is **HANDLER** when the Flow implements a timeout handler and **FAIL** otherwise. **HANDLER** without a timeout handler is invalid. Continue-as-new preserves the existing timeout deadline. A retry starts a new timeout budget.
 
-### Flow ID, RequestID, and AlreadyStarted {#flow-id-request-id-and-already-started}
+### Flow ID, RequestID, and AlreadyStartedOptions {#flow-id-request-id-and-already-started}
 
 **IDReusePolicy** answers a business-lifecycle question: may a new start use this Flow ID? **RequestID** answers a transport question: is this call a retry of the same start request?
 
@@ -90,7 +90,7 @@ When the SDK can inspect the Flow definition, the default policy is **HANDLER** 
 | **IDReuseDisallow** | Reject every reuse of the Flow ID. |
 | **IDReuseTerminateIfRunning** | Terminate an active run before starting its replacement. |
 
-Use a stable **RequestID** when a caller may retry after losing the StartFlow response. Send the same Flow ID, start input, options, and RequestID again. With **AlreadyStarted.IgnoreError** enabled, Dex returns the existing Run ID only when that existing Flow was started with the same RequestID. A different RequestID remains an already-started conflict; **AlreadyStarted** does not attach to an unrelated Flow.
+Use a stable **RequestID** when a caller may retry after losing the StartFlow response. Send the same Flow ID, start input, options, and RequestID again. With **AlreadyStartedOptions.IgnoreError** enabled, Dex returns the existing Run ID only when that existing Flow was started with the same RequestID. A different RequestID remains an already-started conflict; **AlreadyStartedOptions** does not attach to an unrelated Flow.
 
 ### RetryPolicy and CronSchedule {#retry-policy-and-cron-schedule}
 

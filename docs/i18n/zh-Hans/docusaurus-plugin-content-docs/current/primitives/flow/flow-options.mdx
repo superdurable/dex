@@ -25,7 +25,7 @@ Dex 允许你自定义 Flow execution 的行为。
 | **TimeoutPolicy** | 正数 timeout 到期时的行为。 |
 | **IDReusePolicy** | 新启动能否使用已有 Flow ID。 |
 | **RequestID** | 重试同一次启动请求的幂等键。省略时 SDK 会生成 UUID。 |
-| **AlreadyStarted** | 幂等重试遇到已启动的 Flow 时的处理方式。 |
+| **AlreadyStartedOptions** | 幂等重试遇到已启动的 Flow 时的处理方式。 |
 | **CronSchedule** | 由 backend 支持、用于周期性启动的 cron 表达式。 |
 | **RetryPolicy** | 单次 Flow execution 失败后的重试策略。 |
 | **StartDelay** | start Step 变为可执行前的延迟。 |
@@ -78,7 +78,7 @@ func reliableStartFlowOptions() (sdk.StartFlowOptions, error) {
 
 SDK 能检查 Flow 定义时，默认 policy 是：Flow 实现 timeout handler 时使用 **HANDLER**，否则使用 **FAIL**。没有 timeout handler 时使用 **HANDLER** 无效。continue-as-new 会保留已有 timeout deadline；一次 retry 会获得新的 timeout budget。
 
-### Flow ID、RequestID 与 AlreadyStarted {#flow-id-request-id-and-already-started}
+### Flow ID、RequestID 与 AlreadyStartedOptions {#flow-id-request-id-and-already-started}
 
 **IDReusePolicy** 回答业务生命周期问题：新的启动是否可以使用这个 Flow ID？**RequestID** 回答传输问题：这次调用是否是同一启动请求的重试？
 
@@ -90,7 +90,7 @@ SDK 能检查 Flow 定义时，默认 policy 是：Flow 实现 timeout handler �
 | **IDReuseDisallow** | 拒绝 Flow ID 的所有复用。 |
 | **IDReuseTerminateIfRunning** | 启动 replacement 前终止 active run。 |
 
-调用方在丢失 StartFlow response 后可能重试时，应使用稳定的 **RequestID**。再次发送相同的 Flow ID、start input、options 与 RequestID。启用 **AlreadyStarted.IgnoreError** 后，Dex 只会在已有 Flow 使用相同 RequestID 启动时返回其 Run ID。不同 RequestID 仍是 already-started conflict；**AlreadyStarted** 不会 attach 到无关的 Flow。
+调用方在丢失 StartFlow response 后可能重试时，应使用稳定的 **RequestID**。再次发送相同的 Flow ID、start input、options 与 RequestID。启用 **AlreadyStartedOptions.IgnoreError** 后，Dex 只会在已有 Flow 使用相同 RequestID 启动时返回其 Run ID。不同 RequestID 仍是 already-started conflict；**AlreadyStartedOptions** 不会 attach 到无关的 Flow。
 
 ### RetryPolicy 与 CronSchedule {#retry-policy-and-cron-schedule}
 
