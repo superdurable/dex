@@ -86,7 +86,7 @@ StartFlowOptions.newBuilder()
 function startFlowOptions(): StartFlowOptions {
   return startOptions({
     configOverride: {
-      stepDurability: StepDurability.Sync,
+      stepDurability: "sync",
     },
   });
 }

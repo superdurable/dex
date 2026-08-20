@@ -33,34 +33,36 @@ from dex import (
     rpc,
 )
 
-approval = Channel("Approval", str)
-
-
 class ChannelWaitStep(Step[int]):
+    def __init__(self, approval: Channel[str]) -> None:
+        self.approval = approval
+
     def wait_for(self, context: Context, input: int) -> Wait:
         del context
         return Wait.any_of(
-            approval.for_one(),
+            self.approval.for_one(),
             Timer.by_duration(timedelta(seconds=input)),
         )
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        approvals = approval.results(context)
+        approvals = self.approval.results(context)
         if approvals:
             return graceful_complete(approvals[0])
         return go_to(self, input)
 
 
 class ChannelFlow(Flow[int]):
+    approval = Channel("Approval", str)
+
     def __init__(self) -> None:
-        self.wait_for_approval = ChannelWaitStep()
+        self.wait_for_approval = ChannelWaitStep(self.approval)
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.wait_for_approval)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(approval)
+        return PersistenceSchema.of(self.approval)
 
     @rpc
     def approve(self, context: Context) -> None:
-        approval.publish(context, "approved")
+        self.approval.publish(context, "approved")

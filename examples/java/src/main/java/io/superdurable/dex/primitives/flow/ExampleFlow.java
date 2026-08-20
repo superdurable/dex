@@ -30,7 +30,7 @@ import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
 @Component
-public final class ExampleFlow implements Flow<Integer> {
+public class ExampleFlow implements Flow<Integer> {
     public static final Attribute<String> status = Attribute.define("status", String.class);
     public static final Channel<Void> notify = Channel.define("notify", Void.class);
 

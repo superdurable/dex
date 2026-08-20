@@ -13,4 +13,5 @@
 // limitations under the License.
 
 pub mod controller;
+#[allow(clippy::module_inception)]
 pub mod flow;

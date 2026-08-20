@@ -46,10 +46,6 @@ from dex_examples.products.engagement.status import Status
 
 STATUS_SEARCH_KEY = "CustomKeywordField"
 
-opt_out_reminder = Channel[None]("OptOutReminder", type(None))
-complete_process = Channel[None]("CompleteProcess", type(None))
-
-
 def current_time_millis() -> int:
     return int(time.time() * 1000)
 
@@ -74,7 +70,7 @@ class Reminder(Step[None]):
         del context, input
         return Wait.any_of(
             Timer.by_duration(timedelta(seconds=5)),
-            opt_out_reminder.for_one(),
+            self.flow.opt_out_reminder.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
@@ -82,7 +78,7 @@ class Reminder(Step[None]):
         status = self.flow.engagement_status.get(context)
         if status is not Status.INITIATED:
             return dead_end()
-        if opt_out_reminder.results(context):
+        if self.flow.opt_out_reminder.results(context):
             self.flow.update_status(context, status, "user opted out of reminders")
             return dead_end()
         self.flow.service.send_email(
@@ -101,7 +97,7 @@ class ProcessTimeout(Step[None]):
         del context, input
         return Wait.any_of(
             Timer.by_duration(timedelta(days=60)),
-            complete_process.for_one(),
+            self.flow.complete_process.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
@@ -145,6 +141,8 @@ class EngagementFlow(Flow[EngagementInput]):
     )
     last_update_timestamp = Attribute("LastUpdateTimeMillis", int)
     notes = Attribute("notes", str)
+    opt_out_reminder = Channel[None]("OptOutReminder", type(None))
+    complete_process = Channel[None]("CompleteProcess", type(None))
 
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
@@ -167,8 +165,8 @@ class EngagementFlow(Flow[EngagementInput]):
             self.engagement_status,
             self.last_update_timestamp,
             self.notes,
-            opt_out_reminder,
-            complete_process,
+            self.opt_out_reminder,
+            self.complete_process,
         )
 
     @rpc
@@ -200,7 +198,7 @@ class EngagementFlow(Flow[EngagementInput]):
                 f'current status is "{status}"'
             )
         self.update_status(context, Status.ACCEPTED, note)
-        complete_process.publish(context, None)
+        self.complete_process.publish(context, None)
         return RPCResult(
             Status.ACCEPTED,
             next_steps=(

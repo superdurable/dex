@@ -12,19 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod flow;
 pub mod attribute;
 pub mod channel;
 pub mod client_apis;
 pub mod custom_retry;
 pub mod durability;
+pub mod flow;
 pub mod heartbeat;
-pub mod proceed_on_wait_failure;
 pub mod options_override;
+pub mod proceed_on_wait_failure;
 pub mod rpc;
-pub mod step_execution_local;
 pub mod step;
 pub mod step_decision;
+pub mod step_execution_local;
 pub mod subflow;
 pub mod timer;
 pub mod wait_types;

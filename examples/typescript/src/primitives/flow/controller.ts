@@ -16,7 +16,7 @@
 
 import { Router } from "express";
 
-import { StepDurability, type Client, type StartFlowOptions } from "@superdurable/dex";
+import { type Client, type StartFlowOptions } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
 import { exampleFlow } from "./example-flow.js";
@@ -24,7 +24,7 @@ import { exampleFlow } from "./example-flow.js";
 function startFlowOptions(): StartFlowOptions {
   return startOptions({
     configOverride: {
-      stepDurability: StepDurability.Sync,
+      stepDurability: "sync",
     },
   });
 }

@@ -36,6 +36,10 @@ import {
 class FinishStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
+  public getStepType(): string {
+    return "FinishStep";
+  }
+
   public execute(context: Context, input: number): StepDecision {
     status.set(context, "done");
     return gracefulComplete(input + 1);
@@ -46,6 +50,10 @@ class ExampleStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public constructor(private readonly finish: FinishStep) {}
+
+  public getStepType(): string {
+    return "ExampleStep";
+  }
 
   public waitFor(context: Context, _input: number): Wait {
     status.set(context, "running");
@@ -68,8 +76,8 @@ export class ExampleFlow implements Flow<number> {
     return "ExampleFlow";
   }
 
-  public getSteps() {
-    return StepList.startStep(this.example).otherSteps(this.finish);
+  public getSteps(): StepList<number> {
+    return StepList.startStep<number>(this.example).otherSteps(this.finish);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
