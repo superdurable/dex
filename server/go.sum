@@ -3533,8 +3533,8 @@ github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD
 github.com/substrait-io/substrait-go v0.4.2/go.mod h1:qhpnLmrcvAnlZsUyPXZRqldiHapPTXC3t7xFgDi3aQg=
 github.com/superdurable/dex/blob-cache-go v0.1.0 h1:+c3H5YBWG3DlICOHbgT9IUM5vTlfLYGP5Vd5sWr7WTY=
 github.com/superdurable/dex/blob-cache-go v0.1.0/go.mod h1:Atepb7+sztvDCztVKmlvEKCSKFCkHKtDhoFYjaFmtEw=
-github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.1 h1:xd7YsUcCxII+kaSkKL1VdKlprSyV59P0WAqx8ug3I28=
-github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.1/go.mod h1:man3WG0HjtUkJVJn2TR82mFEK0F9PfDAZl3W1m4vkws=
+github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.2 h1:IgZOO5uZ/KSHso/GQdGoQvRhClpY9kawow5PtpqfEiY=
+github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.2/go.mod h1:man3WG0HjtUkJVJn2TR82mFEK0F9PfDAZl3W1m4vkws=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=
 github.com/tidwall/match v1.1.1/go.mod h1:eRSPERbgtNPcGhD8UCthc6PmLEQXEWd3PRB5JTxsfmM=
 github.com/tidwall/pretty v1.2.0/go.mod h1:ITEVvHYasfjBbM0u2Pg8T2nJnzm8xPwvNhhsoaGGjNU=

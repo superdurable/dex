@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/superdurable/dex v0.0.0
 	github.com/superdurable/dex/web v0.0.0
-	go.temporal.io/sdk v1.47.0
+	go.temporal.io/sdk v1.47.1-superdurable.2
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 )
@@ -112,4 +112,4 @@ replace github.com/superdurable/dex => ../server
 
 replace github.com/superdurable/dex/web => ../web
 
-replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.1
+replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.2

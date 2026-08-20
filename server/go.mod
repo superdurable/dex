@@ -2,7 +2,7 @@ module github.com/superdurable/dex
 
 go 1.26.0
 
-replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.1
+replace go.temporal.io/sdk => github.com/superdurable/temporal-sdk-go v1.47.1-superdurable.2
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3
@@ -18,7 +18,7 @@ require (
 	github.com/uber-go/tally/v4 v4.1.1
 	github.com/uber/cadence-idl v0.0.0-20250616185004-cc6f52f87bc6
 	github.com/urfave/cli v1.22.5
-	go.temporal.io/sdk v1.47.0
+	go.temporal.io/sdk v1.47.1-superdurable.2
 	go.temporal.io/sdk/contrib/tally v0.1.0
 	go.temporal.io/sdk/contrib/tools/workflowcheck v0.0.0-20220331154559-fd0d1eb548eb
 	go.uber.org/cadence v1.3.0
