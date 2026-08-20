@@ -1,0 +1,326 @@
+---
+title: Durable Step
+sidebar_label: Basic
+slug: /primitives/step/basic
+---
+
+# Durable Step
+
+Every Step type implements up to two small methods. WaitFor registers durable Conditions and returns a Wait. When a Condition completes, Dex rehydrates the Step and calls Execute. Execute returns a **StepDecision** that moves the Flow forward.
+
+## WaitFor and Execute {#waitfor-and-execute}
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/step/step_flow.py',
+    go: 'examples/go/primitives/step/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/step/StepFlow.java',
+    typescript: 'examples/typescript/src/primitives/step/step-flow.ts',
+    rust: 'examples/rust/src/primitives/step/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def wait_for(self, context, input):
+    return Wait.any_of(
+        self.unblock.for_one(),
+        Timer.by_duration(timedelta(seconds=30)),
+    )
+
+def execute(self, context, input):
+    if input.ok:
+        return go_to(SuccessStep(), input)
+    return go_to(self, input.retry())
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (s StepA) WaitFor(_ dex.Context, _ Input) (*dex.Wait, error) {
+	return dex.AnyOf(
+		unblock.ForOne(),
+		dex.Timer(30*time.Second),
+	), nil
+}
+
+func (s StepA) Execute(_ dex.Context, input Input) (*dex.StepDecision, error) {
+	if input.OK {
+		return dex.GoTo(SuccessStep{}, input), nil
+	}
+	return dex.GoTo(s, input.Retry()), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public Wait waitFor(Context context, Order input) {
+    return Wait.anyOf(
+        unblock.forOne(),
+        Timer.byDuration(Duration.ofSeconds(30)));
+}
+
+public StepDecision execute(Context context, Order input) {
+    if (input.ok()) {
+        return StepDecision.goTo(successStep, input);
+    }
+    return StepDecision.goTo(this, input.retry());
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+waitFor(_context: Context, _input: Order): Wait {
+  return Wait.anyOf(
+    this.unblock.forOne(),
+    Timer.byDuration(30_000),
+  );
+}
+
+execute(_context: Context, input: Order): StepDecision {
+  if (input.ok) {
+    return goTo(successStep, input);
+  }
+  return goTo(this, input);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+async fn wait_for(&self, _ctx: &Context, _input: i32) -> Result<Wait, HandlerError> {
+    Ok(Wait::any_of(vec![
+        self.unblock.for_one(),
+        Timer::by_duration(Duration::from_secs(30)),
+    ]))
+}
+
+async fn execute(&self, _ctx: &Context, input: i32) -> Result<StepDecision, HandlerError> {
+    if input > 0 {
+        return Ok(go_to(SuccessStep, input));
+    }
+    Ok(go_to(self.clone(), input))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+See [Timer](/primitives/timer), [Channel](/primitives/channel), and [SubFlow](/primitives/subflow) for the Conditions a Step can wait on.
+
+## anyOf — first condition wins {#anyof}
+
+anyOf resumes the Step when **any** listed Condition completes. The first completion wins. Other Conditions may keep running — notably a losing [SubFlow](/primitives/subflow) child may continue until cancelled.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
+    go: 'examples/go/primitives/wait-types/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
+    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
+    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.any_of(
+    self.flow.channel_a.for_one(condition_id="signal"),
+    Timer.by_duration(timeout, condition_id="timeout"),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.AnyOf(
+	SignalA.ForOne(dex.WithConditionID("signal")),
+	dex.Timer(timeout, dex.WithConditionID("timeout")),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.anyOf(
+        channelA.forOne("signal"),
+        Timer.byDuration(timeout, "timeout"));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.anyOf(
+  this.flow.channelA.forOne("signal"),
+  Timer.byDuration(timeoutMs, "timeout"),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::any_of([
+    signal_a_channel().for_one().with_id("signal"),
+    Timer::by_duration(timeout).with_id("timeout"),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## allOf — every condition must complete {#allof}
+
+allOf resumes only after **every** Condition completes.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
+    go: 'examples/go/primitives/wait-types/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
+    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
+    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.all_of(
+    self.flow.channel_a.for_one(condition_id="signal-a"),
+    self.flow.channel_b.for_one(condition_id="signal-b"),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.AllOf(
+	SignalA.ForOne(dex.WithConditionID("signal-a")),
+	SignalB.ForOne(dex.WithConditionID("signal-b")),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.allOf(
+        channelA.forOne("signal-a"),
+        channelB.forOne("signal-b"));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.allOf(
+  this.flow.channelA.forOne("signal-a"),
+  this.flow.channelB.forOne("signal-b"),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::all_of([
+    signal_a_channel().for_one().with_id("signal-a"),
+    signal_b_channel().for_one().with_id("signal-b"),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+
+## StepDecision (movements) {#stepdecision-movements}
+
+Execute returns a **StepDecision** — a movement to one or more next Steps, or a close decision. A single decision can target many Steps, which is how you express branch, loop, and parallel work. See the [parallel](/design-patterns/parallel) and [scalable-parallel](/design-patterns/scalable-parallel) patterns.
+
+Close decisions, cancellation, Flow output, and forceCompleteIfChannelsEmpty are on [Step decision](/primitives/step/step-decision).
+
+## Durable input {#durable-input}
+
+The start Step receives the Flow input. Every later Step receives the input from the movement that scheduled it. Step input travels with the graph; it is not a hidden global.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/step/step_flow.py',
+    go: 'examples/go/primitives/step/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/step/StepFlow.java',
+    typescript: 'examples/typescript/src/primitives/step/step-flow.ts',
+    rust: 'examples/rust/src/primitives/step/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: int) -> StepDecision:
+    del context
+    return go_to(self.second, input + 1)
+
+def execute(self, context: Context, input: int) -> StepDecision:
+    del context
+    return graceful_complete(input + 1)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (stepFirstStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GoTo(stepSecondStep{}, input+1), nil
+}
+
+func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(input + 1), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    return StepDecision.goTo(second, input + 1);
+}
+
+public StepDecision execute(final Context context, final Integer input) {
+    return StepDecision.gracefulComplete(input + 1);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(_context: Context, input: number): StepDecision {
+  return goTo(this.flow.secondStep, input + 1);
+}
+
+public execute(_context: Context, input: number): StepDecision {
+  return gracefulComplete(input + 1);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    Ok(StepDecision::go_to(&StepSecond, input + 1))
+}
+
+fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    Ok(StepDecision::graceful_complete(input + 1))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>

@@ -1,0 +1,468 @@
+---
+title: Step decision
+sidebar_label: Step decision
+slug: /primitives/step/step-decision
+---
+
+# Step decision
+
+A **StepDecision** moves the Flow to one or more next Steps, closes the Flow, cancels other Steps, or atomically completes when Channels are empty.
+
+## GoToMulti {#gotomulti}
+
+Return multiple movements in one decision to fan out parallel work. The default step-decision sample starts three carrier Steps and a winner Step in the same call.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/step-decision/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java',
+    python: 'examples/python/dex_examples/primitives/step_decision/step_decision_flow.py',
+    typescript: 'examples/typescript/src/primitives/step-decision/step-decision-flow.ts',
+    rust: 'examples/rust/src/primitives/step_decision/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+return dex.GoToMulti(
+	dex.MovementOf(carrierAStep{}, Quote{Carrier: "A", Price: 10}),
+	dex.MovementOf(carrierBStep{}, Quote{Carrier: "B", Price: 12}),
+	dex.MovementOf(winnerStep{}, quote),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return StepDecision.goToMulti(
+        StepMovement.of(carrierAStep, quoteA),
+        StepMovement.of(carrierBStep, quoteB),
+        StepMovement.of(winnerStep, winnerQuote));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+return go_to_multi(
+    StepMovement.of(self.flow.carrier_a, Quote(carrier="A", price=10)),
+    StepMovement.of(self.flow.carrier_b, Quote(carrier="B", price=12)),
+    StepMovement.of(self.flow.winner, quote),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return goToMulti(
+  StepMovement.of(this.flow.carrierAStep, { carrier: "A", price: 10 }),
+  StepMovement.of(this.flow.carrierBStep, { carrier: "B", price: 12 }),
+  StepMovement.of(this.flow.winnerStep, quote),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(StepDecision::go_to_many([
+    StepMovement::to(&CarrierAStep, quote_a),
+    StepMovement::to(&CarrierBStep, quote_b),
+    StepMovement::to(&WinnerStep, winner_quote),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+
+## Close decisions {#close-decisions}
+
+| Decision | Flow stays open? | Output |
+| --- | --- | --- |
+| GracefulComplete(output) | No — closes after other active Steps finish | Optional Flow output |
+| DeadEnd() | Yes — branch stops; resume via RPC, Channel, or external work | None |
+| ForceFail(reason) | No — fails the Flow immediately | Failure reason |
+| ForceComplete(output) | No — completes the Flow immediately | Optional Flow output |
+
+Use **GracefulComplete** when this branch owns the final result. Use **DeadEnd** only when something outside the graph will resume the Flow later. **ForceFail** and **ForceComplete** override sibling Steps — useful for timeout races.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/step-decision/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java',
+    python: 'examples/python/dex_examples/primitives/step_decision/step_decision_flow.py',
+    typescript: 'examples/typescript/src/primitives/step-decision/step-decision-flow.ts',
+    rust: 'examples/rust/src/primitives/step_decision/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+case "graceful":
+	return dex.GracefulComplete("done"), nil
+case "dead-end":
+	return dex.GoToMulti(
+		dex.MovementOf(branchWorkerStep{}, "left"),
+		dex.MovementOf(branchWorkerStep{}, "right"),
+	), nil
+
+func (branchWorkerStep) Execute(_ dex.Context, _ string) (*dex.StepDecision, error) {
+	return dex.DeadEnd(), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+case "graceful" -> {
+    return StepDecision.gracefulComplete("done");
+}
+case "dead-end" -> {
+    return StepDecision.goToMulti(
+            StepMovement.of(branchWorkerStep, "left"),
+            StepMovement.of(branchWorkerStep, "right"));
+}
+
+return StepDecision.deadEnd();
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+if mode == "graceful":
+    return graceful_complete("done")
+if mode == "dead-end":
+    return go_to_multi(
+        StepMovement.of(self.flow.branch_worker, "left"),
+        StepMovement.of(self.flow.branch_worker, "right"),
+    )
+
+return dead_end()
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+if (mode === "graceful") {
+  return gracefulComplete("done");
+}
+if (mode === "dead-end") {
+  return goToMulti(
+    StepMovement.of(this.flow.branchWorkerStep, "left"),
+    StepMovement.of(this.flow.branchWorkerStep, "right"),
+  );
+}
+
+return deadEnd();
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+"graceful" => Ok(StepDecision::graceful_complete(String::from("done"))),
+"dead-end" => Ok(StepDecision::go_to_many([
+    StepMovement::to(&BranchWorkerStep, "left".to_string()),
+    StepMovement::to(&BranchWorkerStep, "right".to_string()),
+])),
+
+Ok(StepDecision::dead_end())
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/patterns/timeout/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/timeout/FlowGracefulTimeout.java',
+    python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
+    typescript: 'examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts',
+    rust: 'examples/rust/src/patterns/timeout/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (timeoutStep) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	return dex.ForceFail("Workflow did not finish the task in time"), nil
+}
+
+func (taskStep) Execute(
+	ctx dex.Context,
+	_ bool,
+) (*dex.StepDecision, error) {
+	return dex.ForceComplete("Workflow completed successfully"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Void input) {
+    return StepDecision.forceFail("Workflow did not finish the task in time");
+}
+
+public StepDecision execute(final Context context, final Boolean workflowSuccessful) {
+    return StepDecision.forceComplete("Workflow completed successfully");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: None) -> StepDecision:
+    del context, input
+    return force_fail("Workflow did not finish the task in time")
+
+def execute(self, context: Context, input: bool) -> StepDecision:
+    del context, input
+    return force_complete("Workflow completed successfully")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(_context: Context, _input: void): StepDecision {
+  return forceFail("Workflow did not finish the task in time");
+}
+
+public execute(_context: Context, _workflowSuccessful: boolean): StepDecision {
+  return forceComplete("Workflow completed successfully");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+    Ok(StepDecision::force_fail("task exceeded graceful timeout"))
+}
+
+fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<StepDecision> {
+    Ok(StepDecision::force_complete("task-completed".to_string()))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+
+## Step output and FlowResults {#step-output-and-flowresults}
+
+GracefulComplete(output) sets the Flow output when this branch closes the Flow. When a Step waits on a [SubFlow](/primitives/subflow), read the child output in Execute via SubFlowResult / getConditionResults / condition_result (see [Waiting condition — SubFlow results](/primitives/step/waiting-condition#condition-results)).
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/subflow/subflow_flow.py',
+    go: 'examples/go/primitives/subflow/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java',
+    typescript: 'examples/typescript/src/primitives/subflow/subflow-flow.ts',
+    rust: 'examples/rust/src/primitives/subflow/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: int) -> StepDecision:
+    del input
+    result = SubFlow.get_condition_results(context)
+    output = result.single_output(int)
+    return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var output int
+	if err := result.DecodeSingleOutput(&output); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    final Integer output =
+            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
+    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(context: Context, _input: number): StepDecision {
+  const result = SubFlow.getConditionResults(context);
+  const output = result.singleOutput(doubleCodec);
+  return gracefulComplete(`${SubFlow.getFlowId(context)}|${output}`);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let result = SubFlow::condition_result(context)?;
+    let output: i32 = result.single_output()?;
+    Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Cancellation on StepDecision {#cancellation-on-stepdecision}
+
+Return the winner's next movement **and** cancel losing Step types in the same decision. Cancel all executions of a Step type, or only same-source sibling executions.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/step-decision/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepdecision/StepDecisionFlow.java',
+    python: 'examples/python/dex_examples/primitives/step_decision/step_decision_flow.py',
+    typescript: 'examples/typescript/src/primitives/step-decision/step-decision-flow.ts',
+    rust: 'examples/rust/src/primitives/step_decision/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (winnerStep) Execute(_ dex.Context, quote Quote) (*dex.StepDecision, error) {
+	return dex.GoTo(recordQuoteStep{}, quote).
+		CancelSteps(carrierAStep{}, carrierBStep{}), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return StepDecision.goTo(recordQuote, quote)
+        .withCancelingSteps(carrierA, carrierB);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+return (
+    go_to(self.flow.record_quote, quote)
+    .with_canceling_steps(self.flow.carrier_a, self.flow.carrier_b)
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return withCancelingSteps(
+  goTo(this.flow.recordQuoteStep, quote),
+  this.flow.carrierAStep,
+  this.flow.carrierBStep,
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(StepDecision::go_to(&RecordQuoteStep, quote)
+    .cancel_step(&CarrierAStep)
+    .cancel_step(&CarrierBStep))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+An RPC can cancel Steps from the handler result as well. See [RPC](/primitives/rpc).
+
+## forceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
+
+This special decision atomically checks whether **all listed Channels are empty**. If so, Dex completes the Flow (with optional output). Otherwise it performs the movement list instead. Channels must follow single-consumer semantics.
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/patterns/drain-channels/signal/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/signal/DrainSignalChannelsFlow.java',
+    python: 'examples/python/dex_examples/patterns/drain-channels/signal/drain_signal_channels_flow.py',
+    typescript: 'examples/typescript/src/patterns/drain-channels/signal/drain-signal-channels-flow.ts',
+    rust: 'examples/rust/src/patterns/drain_channels/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+return dex.ForceCompleteIfChannelsEmpty(
+	nil,
+	[]dex.ChannelDef{QueueSignalChannel},
+	dex.MovementOf(processSignalStep{}, ""),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return StepDecision.forceCompleteIfChannelsEmpty(
+        null,
+        StepMovement.of(processSignal, null),
+        queueSignalChannel);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+return force_complete_if_channels_empty(
+    None,
+    StepMovement.of(self, None),
+    self.queue_signal_channel,
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return forceCompleteIfChannelsEmpty(
+  null,
+  StepMovement.of(this, undefined),
+  this.flow.queueSignalChannel,
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(StepDecision::force_complete_if_channels_empty(
+    (),
+    StepMovement::to(&DrainSignal, ()),
+    [signal_queue().when_empty()],
+))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+See the [drain signal channels](/design-patterns/drain-signal-channels) pattern for a full runnable Flow.

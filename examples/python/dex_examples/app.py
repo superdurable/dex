@@ -75,11 +75,19 @@ from dex_examples.patterns.wait_for_state_completion.wait_for_state_completion_f
 from dex_examples.primitives.attribute.attribute_flow import AttributeFlow
 from dex_examples.primitives.channel.channel_flow import ChannelFlow
 from dex_examples.primitives.client_apis.client_apis_flow import ClientApisFlow
+from dex_examples.primitives.custom_retry.custom_retry_flow import CustomRetryFlow
+from dex_examples.primitives.durability.durability_flow import DurabilityFlow
+from dex_examples.primitives.heartbeat.heartbeat_flow import HeartbeatFlow
+from dex_examples.primitives.options_override.options_override_flow import (
+    OptionsOverrideFlow,
+)
 from dex_examples.primitives.rpc.rpc_flow import RpcFlow
 from dex_examples.primitives.step.retry_flow import RetryFlow
 from dex_examples.primitives.step.step_flow import StepFlow
+from dex_examples.primitives.step_decision.step_decision_flow import StepDecisionFlow
 from dex_examples.primitives.subflow.subflow_flow import SubFlowChildFlow, SubFlowParentFlow
 from dex_examples.primitives.timer.timer_flow import TimerFlow
+from dex_examples.primitives.wait_types.wait_types_flow import WaitTypesFlow
 from dex_examples.products.ai_agent_email.ai_agent_flow import EmailAgentFlow
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.job_post.job_post_flow import JobPostFlow
@@ -142,6 +150,12 @@ class ExampleApp:
 
         self.step = StepFlow()
         self.step_retry = RetryFlow()
+        self.custom_retry = CustomRetryFlow()
+        self.durability = DurabilityFlow()
+        self.heartbeat = HeartbeatFlow()
+        self.options_override = OptionsOverrideFlow()
+        self.step_decision = StepDecisionFlow()
+        self.wait_types = WaitTypesFlow()
         self.attribute = AttributeFlow()
         self.channel = ChannelFlow()
         self.timer = TimerFlow()
@@ -186,6 +200,12 @@ class ExampleApp:
             self.parent_flow_v2,
             self.step,
             self.step_retry,
+            self.custom_retry,
+            self.durability,
+            self.heartbeat,
+            self.options_override,
+            self.step_decision,
+            self.wait_types,
             self.attribute,
             self.channel,
             self.timer,

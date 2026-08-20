@@ -1,0 +1,254 @@
+---
+title: Waiting condition
+sidebar_label: Waiting condition
+slug: /primitives/step/waiting-condition
+---
+
+# Waiting condition
+
+WaitFor returns a **Wait** built from durable **Conditions** — [Timer](/primitives/timer), [Channel](/primitives/channel), [SubFlow](/primitives/subflow), and combinations of them. This page covers OR-of-AND waits and reading Condition results after the Wait completes.
+
+## anyCombinationOf — OR of AND groups {#anycombinationof}
+
+anyCombinationOf expresses an OR of AND groups. Build each inner group as an all_of combination. **Every** Condition in the combination needs a non-empty **condition ID** so Dex can track which branch satisfied the Wait.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
+    go: 'examples/go/primitives/wait-types/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
+    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
+    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.any_combination_of(
+    ConditionCombination.of(
+        self.flow.channel_a.for_one(condition_id="signal-a"),
+        Timer.by_duration(timeout, condition_id="timeout"),
+    ),
+    ConditionCombination.of(
+        self.flow.channel_b.for_one(condition_id="signal-b"),
+    ),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.AnyComboOf(
+	dex.Combo(
+		SignalA.ForOne(dex.WithConditionID("signal-a")),
+		dex.Timer(timeout, dex.WithConditionID("timeout")),
+	),
+	dex.Combo(
+		SignalB.ForOne(dex.WithConditionID("signal-b")),
+	),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.anyCombinationOf(
+        ConditionCombination.of(
+                channelA.forOne("signal-a"),
+                Timer.byDuration(timeout, "timeout")),
+        ConditionCombination.of(channelB.forOne("signal-b")));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.anyCombinationOf(
+  ConditionCombination.of(
+    this.flow.channelA.forOne("signal-a"),
+    Timer.byDuration(timeoutMs, "timeout"),
+  ),
+  ConditionCombination.of(this.flow.channelB.forOne("signal-b")),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::any_combination_of([
+    ConditionCombination::all_of([
+        signal_a_channel().for_one().with_id("signal-a"),
+        Timer::by_duration(timeout).with_id("timeout"),
+    ]),
+    ConditionCombination::all_of([signal_b_channel().for_one().with_id("signal-b")]),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+
+## ConditionResults {#condition-results}
+
+After WaitFor completes, Execute can read what satisfied the Wait. For a [Channel](/primitives/channel), use GetConditionResults / results / condition_results to read published messages. For a [SubFlow](/primitives/subflow), use SubFlowResult / getConditionResults / condition_result to decode the child Flow output.
+
+### Channel results
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+    go: 'examples/go/primitives/channel/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+    rust: 'examples/rust/src/primitives/channel/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: int) -> StepDecision:
+    approvals = self.approval.results(context)
+    if approvals:
+        return graceful_complete(approvals[0])
+    return go_to(self, input)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
+	results, err := Approval.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) > 0 {
+		return dex.GracefulComplete(results[0]), nil
+	}
+	return dex.GoTo(channelWaitStep{}, input), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    final List<String> approvals = approval.getConditionResults(context);
+    if (!approvals.isEmpty()) {
+        return StepDecision.gracefulComplete(approvals.get(0));
+    }
+    return StepDecision.goTo(waitForApproval, input);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(context: Context, input: number): StepDecision {
+  const approvals = this.flow.approval.results(context);
+  if (approvals.length > 0) {
+    return gracefulComplete(approvals[0]!);
+  }
+  return goTo(this.flow.waitStep, input);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    let approvals = approval().condition_results(context)?;
+    if let Some(value) = approvals.first() {
+        return Ok(StepDecision::graceful_complete(value.clone()));
+    }
+    Ok(StepDecision::go_to(&ChannelWait, input))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### SubFlow results
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/subflow/subflow_flow.py',
+    go: 'examples/go/primitives/subflow/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java',
+    typescript: 'examples/typescript/src/primitives/subflow/subflow-flow.ts',
+    rust: 'examples/rust/src/primitives/subflow/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: int) -> StepDecision:
+    del input
+    result = SubFlow.get_condition_results(context)
+    output = result.single_output(int)
+    return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var output int
+	if err := result.DecodeSingleOutput(&output); err != nil {
+		return nil, err
+	}
+	flowID, err := dex.SubFlowID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    final Integer output =
+            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
+    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(context: Context, _input: number): StepDecision {
+  const result = SubFlow.getConditionResults(context);
+  const output = result.singleOutput(doubleCodec);
+  const flowId = SubFlow.getFlowId(context);
+  return gracefulComplete(`${flowId}|${output}`);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let result = SubFlow::condition_result(context)?;
+    let output: i32 = result
+        .single_output()
+        .map_err(|error| HandlerError::new(error.to_string()))?;
+    let flow_id = SubFlow::flow_id_at(context, 0)?;
+    Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>

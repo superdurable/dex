@@ -299,6 +299,60 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
+            name: "primitives/step/custom-retry",
+            path: "/primitives/step/custom-retry/start",
+            query: query_with(
+                &client.new_flow_id("primitive-step-custom-retry"),
+                &[("readyAfterAttempt", "1")],
+            ),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
+            name: "primitives/step/durability",
+            path: "/primitives/step/durability/start",
+            query: query_with(
+                &client.new_flow_id("primitive-step-durability"),
+                &[("mode", "sync")],
+            ),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
+            name: "primitives/step/heartbeat",
+            path: "/primitives/step/heartbeat/start",
+            query: query_with(
+                &client.new_flow_id("primitive-step-heartbeat"),
+                &[("batches", "0")],
+            ),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
+            name: "primitives/step/options-override",
+            path: "/primitives/step/options-override/start",
+            query: query_with(
+                &client.new_flow_id("primitive-step-options-override"),
+                &[("input", "smoke")],
+            ),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
+            name: "primitives/step/step-decision",
+            path: "/primitives/step/step-decision/start",
+            query: query_with(
+                &client.new_flow_id("primitive-step-decision"),
+                &[("mode", "graceful")],
+            ),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
+            name: "primitives/step/wait-types",
+            path: "/primitives/step/wait-types/start",
+            query: query_with(
+                &client.new_flow_id("primitive-step-wait-types"),
+                &[("mode", "any"), ("timeoutSeconds", "1")],
+            ),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "primitives/attribute",
             path: "/primitives/attribute/start",
             query: query_with(

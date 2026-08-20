@@ -38,11 +38,17 @@ import { waitForStateCompletionFlow } from "./patterns/wait-for-state-completion
 import { attributeFlow } from "./primitives/attribute/attribute-flow.js";
 import { channelFlow } from "./primitives/channel/channel-flow.js";
 import { clientApisFlow } from "./primitives/client-apis/client-apis-flow.js";
+import { customRetryFlow } from "./primitives/custom-retry/custom-retry-flow.js";
+import { durabilityFlow } from "./primitives/durability/durability-flow.js";
+import { heartbeatFlow } from "./primitives/heartbeat/heartbeat-flow.js";
+import { optionsOverrideFlow } from "./primitives/options-override/options-override-flow.js";
 import { rpcFlow } from "./primitives/rpc/rpc-flow.js";
 import { retryFlow } from "./primitives/step/retry-flow.js";
 import { stepFlow } from "./primitives/step/step-flow.js";
+import { stepDecisionFlow } from "./primitives/step-decision/step-decision-flow.js";
 import { subFlowChildFlow, subFlowParentFlow } from "./primitives/subflow/subflow-flow.js";
 import { timerFlow } from "./primitives/timer/timer-flow.js";
+import { waitTypesFlow } from "./primitives/wait-types/wait-types-flow.js";
 import { engagementFlow } from "./products/engagement/engagement-flow.js";
 import { jobPostFlow } from "./products/job-post/job-post-flow.js";
 import { orchestrationFlow } from "./products/microservices/orchestration-flow.js";
@@ -89,6 +95,12 @@ export const allExampleFlows: readonly Flow<any>[] = [
   waitForStateCompletionFlow,
   stepFlow,
   retryFlow,
+  customRetryFlow,
+  durabilityFlow,
+  heartbeatFlow,
+  optionsOverrideFlow,
+  stepDecisionFlow,
+  waitTypesFlow,
   attributeFlow,
   channelFlow,
   timerFlow,
@@ -134,6 +146,12 @@ export {
   waitForStateCompletionFlow,
   stepFlow,
   retryFlow,
+  customRetryFlow,
+  durabilityFlow,
+  heartbeatFlow,
+  optionsOverrideFlow,
+  stepDecisionFlow,
+  waitTypesFlow,
   attributeFlow,
   channelFlow,
   timerFlow,

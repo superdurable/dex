@@ -40,10 +40,16 @@ import (
 	"github.com/superdurable/dex/examples/go/primitives/attribute"
 	"github.com/superdurable/dex/examples/go/primitives/channel"
 	"github.com/superdurable/dex/examples/go/primitives/client-apis"
+	"github.com/superdurable/dex/examples/go/primitives/custom-retry"
+	"github.com/superdurable/dex/examples/go/primitives/durability"
+	"github.com/superdurable/dex/examples/go/primitives/heartbeat"
+	"github.com/superdurable/dex/examples/go/primitives/options-override"
 	"github.com/superdurable/dex/examples/go/primitives/rpc"
 	"github.com/superdurable/dex/examples/go/primitives/step"
+	"github.com/superdurable/dex/examples/go/primitives/step-decision"
 	"github.com/superdurable/dex/examples/go/primitives/subflow"
 	"github.com/superdurable/dex/examples/go/primitives/timer"
+	"github.com/superdurable/dex/examples/go/primitives/wait-types"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
@@ -96,15 +102,21 @@ var (
 	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
 	GracefulTimeout        *timeout.FlowGracefulTimeout
 
-	Step          *step.StepFlow
-	StepRetry     *step.RetryFlow
-	Attribute     *attribute.AttributeFlow
-	Channel       *channel.ChannelFlow
-	Timer         *timer.TimerFlow
-	Rpc           *rpc.RpcFlow
-	SubFlowChild  *subflow.SubFlowChildFlow
-	SubFlowParent *subflow.SubFlowParentFlow
-	ClientApis    *clientapis.ClientApisFlow
+	Step            *step.StepFlow
+	StepRetry       *step.RetryFlow
+	CustomRetry     *customretry.CustomRetryFlow
+	Durability      *durability.DurabilityFlow
+	Heartbeat       *heartbeat.HeartbeatFlow
+	OptionsOverride *optionsoverride.OptionsOverrideFlow
+	StepDecision    *stepdecision.StepDecisionFlow
+	WaitTypes       *waittypes.WaitTypesFlow
+	Attribute       *attribute.AttributeFlow
+	Channel         *channel.ChannelFlow
+	Timer           *timer.TimerFlow
+	Rpc             *rpc.RpcFlow
+	SubFlowChild    *subflow.SubFlowChildFlow
+	SubFlowParent   *subflow.SubFlowParentFlow
+	ClientApis      *clientapis.ClientApisFlow
 )
 
 // New constructs every sample flow. getClient may return nil until the Client
@@ -158,6 +170,12 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 
 	Step = step.NewStepFlow()
 	StepRetry = step.NewRetryFlow()
+	CustomRetry = customretry.NewCustomRetryFlow()
+	Durability = durability.NewDurabilityFlow()
+	Heartbeat = heartbeat.NewHeartbeatFlow()
+	OptionsOverride = optionsoverride.NewOptionsOverrideFlow()
+	StepDecision = stepdecision.NewStepDecisionFlow()
+	WaitTypes = waittypes.NewWaitTypesFlow()
 	Attribute = attribute.NewAttributeFlow()
 	Channel = channel.NewChannelFlow()
 	Timer = timer.NewTimerFlow()
@@ -203,6 +221,12 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		GracefulTimeout,
 		Step,
 		StepRetry,
+		CustomRetry,
+		Durability,
+		Heartbeat,
+		OptionsOverride,
+		StepDecision,
+		WaitTypes,
 		Attribute,
 		Channel,
 		Timer,

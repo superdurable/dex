@@ -1,0 +1,679 @@
+---
+title: Step options
+sidebar_label: Step options
+slug: /primitives/step/step-options
+---
+
+# Step options
+
+在 StepOptions 上独立配置 WaitFor 与 Execute：方法 timeout、retry policy、retry 耗尽后的 failure policy、durability、heartbeat 与按 movement 覆盖。
+
+## Timeout、retry 与 failure policy {#timeout-retry-and-failure-policy}
+
+**Retry policy** 与 **failure policy** 回答不同问题：
+
+- **Retry policy** — Dex 在**同一** Step execution 上重复调用**同一**方法，直到 attempt 耗尽。
+- **Failure policy** — retry 结束**之后**发生什么：失败 Flow、仍运行 Execute，或路由到 recovery Step。
+
+在 StepOptions 上独立配置 WaitFor 与 Execute。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/step/retry_flow.py',
+    go: 'examples/go/primitives/step/retry_flow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/step/RetryFlow.java',
+    typescript: 'examples/typescript/src/primitives/step/retry-flow.ts',
+    rust: 'examples/rust/src/primitives/step/retry_flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(
+            initial_interval=timedelta(seconds=1),
+            backoff_coefficient=2,
+            maximum_attempts=5,
+        ),
+    )
+
+def execute(self, context, ready_after_attempt: int) -> StepDecision:
+    if context.attempt < ready_after_attempt:
+        raise RuntimeError(f"not ready on attempt {context.attempt}")
+    return graceful_complete("ready")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (retryStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumAttempts:    5,
+		},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeRetry(RetryPolicy.newBuilder()
+                    .initialInterval(Duration.ofSeconds(1))
+                    .backoffCoefficient(2)
+                    .maximumAttempts(5)
+                    .build())
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    executeRetry: {
+      initialIntervalMs: 1000,
+      backoffCoefficient: 2,
+      maximumAttempts: 5,
+    },
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_retry(
+        RetryPolicy::new()
+            .initial_interval(Duration::from_secs(1))
+            .backoff_coefficient(2.0)
+            .maximum_attempts(5),
+    )
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### WaitFor failure policy
+
+WaitFor retry 耗尽时：
+
+- **PROCEED** — Execute 在**同一 workflow run** 中运行。失败的 WaitFor 与该 Execute 之间不能 continue-as-new。
+- **失败 Flow** — 未配置 proceed 时的默认行为。
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/options-override/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/optionsoverride/OptionsOverrideFlow.java',
+    python: 'examples/python/dex_examples/primitives/options_override/options_override_flow.py',
+    typescript: 'examples/typescript/src/primitives/options-override/options-override-flow.ts',
+    rust: 'examples/rust/src/primitives/options_override/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+override := &dex.StepOptions{
+	WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
+	WaitForFailure: dex.ProceedOnWaitForFailure,
+}
+return dex.GoTo(overrideSecondStep{}, payload, dex.WithStepOptions(override)), nil
+
+func (overrideSecondStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if !ctx.WaitForMethodFailed() {
+		return nil, fmt.Errorf("waitFor failure was not reported")
+	}
+	return dex.GracefulComplete(input + "_state2"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final StepOptions override = StepOptions.newBuilder()
+        .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+        .waitForFailure(WaitForFailurePolicy.PROCEED)
+        .build();
+return StepDecision.goToMulti(StepMovement.of(second, payload, override));
+
+if (!context.waitForMethodFailed()) {
+    throw new IllegalStateException("waitFor failure was not reported");
+}
+return StepDecision.gracefulComplete(input + "_state2");
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+override = StepOptions(
+    wait_for_retry=RetryPolicy(maximum_attempts=2),
+    wait_for_failure=WaitForFailurePolicy.PROCEED,
+)
+return go_to_multi(StepMovement.of(self.second, payload, options=override))
+
+if not context.wait_for_method_failed():
+    raise RuntimeError("waitFor failure was not reported")
+return graceful_complete(f"{input}_state2")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const override: StepOptions = {
+  waitForRetry: { maximumAttempts: 2 },
+  waitForFailure: "proceed",
+};
+return goToMulti(StepMovement.of(this.flow.secondStep, payload, override));
+
+if (!context.waitForMethodFailed()) {
+  throw new Error("waitFor failure was not reported");
+}
+return gracefulComplete(`${input}_state2`);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+let override_options = StepOptions::new()
+    .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
+    .wait_for_failure(WaitForFailurePolicy::Proceed);
+Ok(StepDecision::go_to_many([StepMovement::to_with_options(
+    &OverrideSecondStep,
+    payload,
+    override_options,
+)]))
+
+if !context.wait_for_method_failed() {
+    return Err(HandlerError::new("waitFor failure was not reported"));
+}
+Ok(StepDecision::graceful_complete(format!("{input}_state2")))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Execute failure policy
+
+Execute retry 耗尽时，onExecuteFailureProceedTo / ExecuteFailure.proceedTo(...) 将**recovery Step** 入队，typed input 不变。Recovery Step 是普通 Step——补偿只是更多 Step。
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/patterns/recovery/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/recovery/FailureRecoveryFlow.java',
+    python: 'examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py',
+    typescript: 'examples/typescript/src/patterns/recovery/failure-recovery-flow.ts',
+    rust: 'examples/rust/src/patterns/recovery/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (updateItemQuantityStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(updateQuantityRecoveryStep{}, nil),
+		ExecuteRetry:   &dex.RetryPolicy{MaximumAttempts: 5},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .onExecuteFailureProceedTo(updateQuantityRecovery)
+            .executeRetry(RetryPolicy.newBuilder().maximumAttempts(5).build())
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_retry=RetryPolicy(maximum_attempts=5)
+    ).on_execute_failure_proceed_to(self.update_quantity_recovery)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    executeFailure: ExecuteFailure.proceedTo(this.flow.updateQuantityRecoveryStep, {
+      executeRetry: { maximumAttempts: 5 },
+    }),
+    executeRetry: { maximumAttempts: 5 },
+  };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_retry(RetryPolicy::new().maximum_attempts(3))
+        .on_execute_failure_proceed_to(&Compensate)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+见 [failure recovery](/design-patterns/recovery) 模式与 [money-transfer](/use-cases/money-transfer) 用例。
+
+### Recovery WaitFor / Execute 可读内容
+
+| 可用 | 语义 |
+| --- | --- |
+| **Step input** | 失败 Step 的 durable input 随 recovery movement 原样传递。 |
+| **RecoveryErrorInfo** | **最终**失败 attempt 的 error_type + detail。设计上不含 stack trace。 |
+| **waitForMethodFailed()** | WaitFor-proceed 路径上，**同一** Step 的 Execute 可知 WaitFor 失败。配合 getRecoveryError()。 |
+| **优先级** | 若 recovery Step 的 WaitFor 也失败并 proceed，其 Execute 收到**较新的 WaitFor 失败**，而非原 Execute 失败。 |
+| **Backend 失败** | 无 Worker 响应的 timeout 使用 Temporal 或 Cadence backend failure type。 |
+| **Worker 错误** | 结构化 detail 与 error_type；stack trace 留在 history / last failure info，不在 RecoveryErrorInfo。 |
+
+Recovery error 在 recovery Step movement 的入队与 **continue-as-new** 后仍保留。
+
+### Step Failed 事件与 last failure info
+
+- 终态事件 **StepExecuteFailed** / **StepWaitForFailed** 在 Step 最终失败时携带 failure output。
+- **Retry 期间**（failure policy 运行前），Step 事件与 live Flow 状态暴露 **lastFailureInfo**——最近一次 attempt 的错误（type、detail、worker 元数据）。
+- 在 Dex Web 中打开事件详情，可在 retry 进行中查看 **Last failure**。Flow 概览中的活跃 Step 也显示 lastFailureInfo。
+
+Last failure info 描述 **retry attempt**。Failure policy 决定 retry 结束后的行为。
+
+### Custom retry
+
+**不是** failure policy——handler 可在保留当前 attempt 失败的同时请求**下一次 retry 间隔**。
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/custom-retry/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/customretry/CustomRetryFlow.java',
+    python: 'examples/python/dex_examples/primitives/custom_retry/custom_retry_flow.py',
+    typescript: 'examples/typescript/src/primitives/custom-retry/custom-retry-flow.ts',
+    rust: 'examples/rust/src/primitives/custom_retry/flow.rs',
+  }}>
+<SdkSnippet lang="java">
+
+```java
+throw RetryAfterException.after(
+        Duration.ofSeconds(7),
+        new RuntimeException("retry later"));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+if ctx.Attempt() < int32(readyAfterAttempt) {
+	cause := fmt.Errorf("not ready on attempt %d", ctx.Attempt())
+	return nil, dex.RetryAfter(7*time.Second, cause)
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+from dex._grpc_errors import retry_after
+
+if context.attempt < ready_after_attempt:
+    raise retry_after(7, RuntimeError(f"not ready on attempt {context.attempt}"))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+if (context.attempt < readyAfterAttempt) {
+  const cause = new Error(`not ready on attempt ${context.attempt}`);
+  throw retryAfter(7, cause);
+}
+return gracefulComplete("ready");
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
+    return Err(HandlerError::retry_after(
+        7,
+        format!("not ready on attempt {}", context.attempt()),
+    ));
+}
+Ok(StepDecision::graceful_complete(String::from("ready")))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+- **Temporal** 将延迟用于下一次 Activity retry，不改变 retry 上限或 method timeout。
+- **Cadence** 以 INVALID_USER_FLOW_CODE 拒绝动态间隔。
+- 在 Temporal 上，**当前 attempt 失败**（而非 RetryAfterException 本身）是上报的 Worker 错误，出现在 lastFailureInfo。
+
+Worker SDK 在 WorkerErrorResponse 上附加 stack_trace 时，Dex Web 在 **Last failure** 下以 originalWorkerErrorStackTrace 显示。
+
+
+## Durability {#durability}
+
+每个 Step 方法可覆盖持久化 durability：**SYNC** 在 handler 返回前等待 Dex 确认 staged write；**ASYNC** 允许 handler 接受结果后再持久化。
+
+未设置时，Dex 使用 FlowConfig 的 Flow 默认，再使用 server 默认。
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/durability/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/durability/DurabilityFlow.java',
+    python: 'examples/python/dex_examples/primitives/durability/durability_flow.py',
+    typescript: 'examples/typescript/src/primitives/durability/durability-flow.ts',
+    rust: 'examples/rust/src/primitives/durability/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (syncWorkStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilitySync}
+}
+
+func (asyncWorkStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteDurability: dex.StepDurabilityAsync}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeDurability(StepDurability.SYNC)
+            .build();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(execute_durability=StepDurability.SYNC)
+
+def get_step_options(self) -> StepOptions:
+    return StepOptions(execute_durability=StepDurability.ASYNC)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return { executeDurability: "sync" };
+}
+
+public getStepOptions(): StepOptions {
+  return { executeDurability: "async" };
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_durability(StepDurability::Sync)
+}
+
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_durability(StepDurability::Async)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+
+### Local-activity 窗口
+
+**ASYNC** Step 先作为 local activity 运行。Dex 保持当前 Workflow Task 打开，直到 local 阶段返回或达到 local 优化 timeout（约七秒）。该 task 被占用时，sibling Step 的 durable timer 可能比 SYNC 更晚启动。
+
+若 local activity 先成功返回，Dex 在处理 local 阶段内触发的 timer 之前先处理该结果。
+
+配置了 **failure policy recovery 路径**的方法默认为 SYNC。FlowConfig 不能将该默认覆盖为 ASYNC；仅当 recovery 开始后重放失败方法可接受时，才设置显式 method 级覆盖。
+
+:::note Timers and ASYNC Steps
+
+ASYNC Execute 不会阻止 Flow 其他处已注册的 Timer Condition 按时触发。需要与长时 ASYNC 工作无关的 durable deadline 时，优先 **Timer**。handler 可在 local 阶段快速完成或可接受略延迟的 timer 处理时，优先 **ASYNC Execute**。见 [Timer](/primitives/timer)。
+
+:::
+
+## Heartbeat {#heartbeat}
+
+heartbeat_timeout / HeartbeatTimeout 为常规 WaitFor 与 Execute activity 启用协作式取消。activity 活跃期间 Dex 约每秒调用一次 backend heartbeat API。
+
+在 StepOptions 上配置正整数秒。零或未设置则禁用 heartbeat。Local activity 忽略该选项；ASYNC 回退到常规 execution 时使用。
+
+无 heartbeat 时，Dex 可能要等到完整 **method timeout** 才检测到 worker crash。短 heartbeat（如 10s）加长 execute timeout（如 60s）时，crash 可在约一个 heartbeat 间隔内调度下一次 retry，而不必等满一分钟。
+
+取消通过 heartbeat channel 与 Context 取消到达 handler。无 heartbeat 时，handler 可能运行到自然返回或完整 method timeout。
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/heartbeat/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stepheartbeat/StepHeartbeatFlow.java',
+    python: 'examples/python/dex_examples/primitives/heartbeat/heartbeat_flow.py',
+    typescript: 'examples/typescript/src/primitives/heartbeat/heartbeat-flow.ts',
+    rust: 'examples/rust/src/primitives/heartbeat/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+func (heartbeatStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteMethodTimeout: 60 * time.Second,
+		HeartbeatTimeout:       10 * time.Second,
+		ExecuteRetry:           &dex.RetryPolicy{MaximumAttempts: 3},
+	}
+}
+
+func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecision, error) {
+	for batch := 0; batch < batches; batch++ {
+		select {
+		case <-ctx.Done():
+			return dex.DeadEnd(), nil
+		default:
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return dex.GracefulComplete("processed"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+private final StepOptions options = StepOptions.newBuilder()
+        .executeTimeout(Duration.ofSeconds(60))
+        .heartbeatTimeout(Duration.ofSeconds(10))
+        .build();
+
+@Override
+public StepDecision execute(Context context, Job job) {
+    while (hasNextBatch(job)) {
+        if (Thread.interrupted()) {
+            break;
+        }
+        processBatch(job);
+    }
+    return StepDecision.deadEnd();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+options = StepOptions(heartbeat_timeout=timedelta(seconds=10))
+
+def execute(self, context: Context, job: Job) -> StepDecision:
+    while has_next_batch(job):
+        if context.is_cancellation_requested():
+            break
+        process_batch(job)
+    return dead_end()
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions(): StepOptions {
+  return {
+    executeMethodTimeoutMs: 60_000,
+    heartbeatTimeoutMs: 10_000,
+    executeRetry: { maximumAttempts: 3 },
+  };
+}
+
+public async execute(context: Context, batches: number): Promise<StepDecision> {
+  for (let batch = 0; batch < batches; batch++) {
+    if (context.cancellationSignal.aborted) {
+      return deadEnd();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+  }
+  return gracefulComplete("processed");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .execute_method_timeout(Duration::from_secs(60))
+        .heartbeat_timeout(Duration::from_secs(10))
+        .execute_retry(RetryPolicy::new().maximum_attempts(3))
+}
+
+fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<StepDecision> {
+    for _batch in 0..batches {
+        if context.is_cancelled() {
+            return Ok(StepDecision::dead_end());
+        }
+        thread::sleep(Duration::from_secs(2));
+    }
+    Ok(StepDecision::graceful_complete(String::from("processed")))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+
+Heartbeat 使取消能尽快到达常规 activity；不能使外部 API 调用原子化。按需组合 timeout、幂等或补偿。
+
+## 按 movement 覆盖 StepOptions {#per-movement-stepoptions-override}
+
+已注册的 StepOptions 适用于 Step 类型的每次 execution。有时某个 **movement** 需要不同的 retry 或 failure 行为——例如 fan-out 子 Step 在 WaitFor 失败时应 proceed，而 sibling 失败 Flow。
+
+在 **StepMovement** / goToMulti / WithStepOptions 上传递 override，使仅该次调度的 execution 使用覆盖。
+
+<SdkTabs
+  examples={{
+    go: 'examples/go/primitives/options-override/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/optionsoverride/OptionsOverrideFlow.java',
+    python: 'examples/python/dex_examples/primitives/options_override/options_override_flow.py',
+    typescript: 'examples/typescript/src/primitives/options-override/options-override-flow.ts',
+    rust: 'examples/rust/src/primitives/options_override/flow.rs',
+  }}>
+<SdkSnippet lang="go">
+
+```go
+override := &dex.StepOptions{
+	WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
+	WaitForFailure: dex.ProceedOnWaitForFailure,
+}
+return dex.GoTo(overrideSecondStep{}, payload, dex.WithStepOptions(override)), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final StepOptions options = StepOptions.newBuilder()
+        .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+        .waitForFailure(WaitForFailurePolicy.PROCEED)
+        .build();
+return StepDecision.goToMulti(StepMovement.of(second, output, options));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="python">
+
+```python
+options = StepOptions(
+    wait_for_retry=RetryPolicy(maximum_attempts=2),
+    wait_for_failure=WaitForFailurePolicy.PROCEED,
+)
+return go_to_multi(StepMovement.of(second_step, output, options))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const override: StepOptions = {
+  waitForRetry: { maximumAttempts: 2 },
+  waitForFailure: "proceed",
+};
+return goToMulti(StepMovement.of(this.flow.secondStep, payload, override));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+let override_options = StepOptions::new()
+    .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
+    .wait_for_failure(WaitForFailurePolicy::Proceed);
+Ok(StepDecision::go_to_many([StepMovement::to_with_options(
+    &OverrideSecondStep,
+    payload,
+    override_options,
+)]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+目标 Step 已注册 options 仍适用于未覆盖字段。Recovery movement 也可携带自己的 override。
+
+
+movement override 选择 failure policy recovery 路径时，[Durability](#durability) 中的 durability 默认适用于该方法。

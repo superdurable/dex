@@ -88,6 +88,12 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 Minimal examples under [`primitives/`](./src/main/java/io/superdurable/dex/primitives):
 
 - [Step](./src/main/java/io/superdurable/dex/primitives/step)
+- [Step custom retry](./src/main/java/io/superdurable/dex/primitives/customretry)
+- [Step durability](./src/main/java/io/superdurable/dex/primitives/durability)
+- [Step heartbeat](./src/main/java/io/superdurable/dex/primitives/stepheartbeat)
+- [Step options override](./src/main/java/io/superdurable/dex/primitives/optionsoverride)
+- [Step decision](./src/main/java/io/superdurable/dex/primitives/stepdecision)
+- [Step wait types](./src/main/java/io/superdurable/dex/primitives/waittypes)
 - [Attribute](./src/main/java/io/superdurable/dex/primitives/attribute)
 - [Timer](./src/main/java/io/superdurable/dex/primitives/timer)
 - [Channel](./src/main/java/io/superdurable/dex/primitives/channel)
