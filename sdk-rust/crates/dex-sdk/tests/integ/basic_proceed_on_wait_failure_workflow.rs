@@ -41,7 +41,10 @@ impl Step for FailingWaitStep {
     type Input = String;
 
     fn wait_for(&self, _context: &mut Context, _input: String) -> HandlerResult<Wait> {
-        Err(HandlerError::new("wait failure"))
+        Err(HandlerError::new(
+            "BasicProceedOnWaitFailureFailure",
+            "wait failure",
+        ))
     }
 
     fn execute(&self, _context: &mut Context, input: String) -> HandlerResult<StepDecision> {

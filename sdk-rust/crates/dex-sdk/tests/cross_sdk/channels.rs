@@ -99,9 +99,10 @@ impl Step for InterStepChannelConsumer {
         let first = self.first.condition_results(context)?;
         let second = self.second.condition_results(context)?;
         if !first.is_empty() || second != [2] {
-            return Err(HandlerError::new(format!(
-                "unexpected channel results: first={first:?} second={second:?}"
-            )));
+            return Err(HandlerError::new(
+                "ChannelsFailure",
+                format!("unexpected channel results: first={first:?} second={second:?}"),
+            ));
         }
         Ok(StepDecision::graceful_complete(second[0]))
     }
@@ -180,9 +181,10 @@ impl Step for ChannelFirstStep {
         let first = self.first.condition_results(context)?;
         let second = self.second.condition_results(context)?;
         if !first.is_empty() || second != [10] {
-            return Err(HandlerError::new(format!(
-                "unexpected first-step channel results: first={first:?} second={second:?}"
-            )));
+            return Err(HandlerError::new(
+                "ChannelsFailure",
+                format!("unexpected first-step channel results: first={first:?} second={second:?}"),
+            ));
         }
         Ok(StepDecision::go_to(
             &ChannelSecondStep {
@@ -211,14 +213,20 @@ impl Step for ChannelSecondStep {
 
     fn execute(&self, context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
         if !context.has_any_timer_fired() || !context.has_timer_fired(0) {
-            return Err(HandlerError::new("skipped timer was not reported as fired"));
+            return Err(HandlerError::new(
+                "ChannelsFailure",
+                "skipped timer was not reported as fired",
+            ));
         }
         let first = self.first.condition_results(context)?;
         let second = self.second.condition_results(context)?;
         if first != [100] || !second.is_empty() {
-            return Err(HandlerError::new(format!(
-                "unexpected second-step channel results: first={first:?} second={second:?}"
-            )));
+            return Err(HandlerError::new(
+                "ChannelsFailure",
+                format!(
+                    "unexpected second-step channel results: first={first:?} second={second:?}"
+                ),
+            ));
         }
         Ok(StepDecision::graceful_complete(first[0]))
     }
@@ -247,7 +255,10 @@ impl Step for TimerStep {
 
     fn execute(&self, context: &mut Context, input: u64) -> HandlerResult<StepDecision> {
         if !context.has_any_timer_fired() || !context.has_timer_fired(0) {
-            return Err(HandlerError::new("natural timer was not reported as fired"));
+            return Err(HandlerError::new(
+                "ChannelsFailure",
+                "natural timer was not reported as fired",
+            ));
         }
         Ok(StepDecision::graceful_complete(input + 1))
     }

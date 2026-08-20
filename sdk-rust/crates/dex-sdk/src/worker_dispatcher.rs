@@ -32,8 +32,8 @@ use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::wait::{Condition, ConditionKind, Wait, WaitKind};
 use crate::{
-    HandlerError, HandlerResult, Registry, RetryPolicy, StepDurability, SubFlowReusePolicy,
-    WaitForFailurePolicy,
+    HandlerError, HandlerResult, Registry, RetryPolicy, SdkError, StepDurability,
+    SubFlowReusePolicy, WaitForFailurePolicy,
 };
 
 const TIMEOUT_HANDLER_STEP_TYPE: &str = "sys:timeout_handler";
@@ -60,14 +60,20 @@ impl WorkerDispatcher {
             .get(request.step_type.as_str())
             .cloned()
             .ok_or_else(|| {
-                HandlerError::new(format!("Step is not registered: {}", request.step_type))
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("Step is not registered: {}", request.step_type),
+                )
             })?;
         let mut context = Context::new(
             InvocationMethod::WaitFor,
             flow.clone(),
-            request
-                .context
-                .ok_or_else(|| HandlerError::new("Worker request Context is required"))?,
+            request.context.ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    "Worker request Context is required",
+                )
+            })?,
             request.attributes,
             Vec::new(),
             None,
@@ -75,7 +81,7 @@ impl WorkerDispatcher {
         )?;
         let input = request
             .step_input
-            .ok_or_else(|| HandlerError::new("Step input is required"))?;
+            .ok_or_else(|| HandlerError::new("dex_sdk::HandlerError", "Step input is required"))?;
         let cancellation = context.cancellation();
         let registry = self.registry.clone();
         run_handler(cancellation, move || {
@@ -110,14 +116,20 @@ impl WorkerDispatcher {
             .get(request.step_type.as_str())
             .cloned()
             .ok_or_else(|| {
-                HandlerError::new(format!("Step is not registered: {}", request.step_type))
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("Step is not registered: {}", request.step_type),
+                )
             })?;
         let mut context = Context::new(
             InvocationMethod::Execute,
             flow.clone(),
-            request
-                .context
-                .ok_or_else(|| HandlerError::new("Worker request Context is required"))?,
+            request.context.ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    "Worker request Context is required",
+                )
+            })?,
             request.attributes,
             request.step_exe_locals,
             request.condition_results,
@@ -125,7 +137,7 @@ impl WorkerDispatcher {
         )?;
         let input = request
             .step_input
-            .ok_or_else(|| HandlerError::new("Step input is required"))?;
+            .ok_or_else(|| HandlerError::new("dex_sdk::HandlerError", "Step input is required"))?;
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
             let decision = flow.handler.execute(step.name, &mut context, &input)?;
@@ -151,17 +163,26 @@ impl WorkerDispatcher {
         flow: RegisteredFlow,
     ) -> HandlerResult<InvokeExecuteMethodResponse> {
         if request.step_input.is_some() {
-            return Err(HandlerError::new("timeout handler input must be absent"));
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "timeout handler input must be absent",
+            ));
         }
         if !flow.handler.has_timeout_handler() {
-            return Err(HandlerError::new("Flow has no timeout handler"));
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "Flow has no timeout handler",
+            ));
         }
         let mut context = Context::new(
             InvocationMethod::Execute,
             flow.clone(),
-            request
-                .context
-                .ok_or_else(|| HandlerError::new("Worker request Context is required"))?,
+            request.context.ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    "Worker request Context is required",
+                )
+            })?,
             request.attributes,
             request.step_exe_locals,
             request.condition_results,
@@ -202,14 +223,20 @@ impl WorkerDispatcher {
             .get(request.rpc_name.as_str())
             .cloned()
             .ok_or_else(|| {
-                HandlerError::new(format!("RPC is not registered: {}", request.rpc_name))
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("RPC is not registered: {}", request.rpc_name),
+                )
             })?;
         let mut context = Context::new(
             InvocationMethod::Rpc,
             flow.clone(),
-            request
-                .context
-                .ok_or_else(|| HandlerError::new("Worker request Context is required"))?,
+            request.context.ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    "Worker request Context is required",
+                )
+            })?,
             request.attributes,
             Vec::new(),
             None,
@@ -217,7 +244,7 @@ impl WorkerDispatcher {
         )?;
         let input = request
             .input
-            .ok_or_else(|| HandlerError::new("RPC input is required"))?;
+            .ok_or_else(|| HandlerError::new("dex_sdk::HandlerError", "RPC input is required"))?;
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
             let result = rpc.handler.invoke(&mut context, &input)?;
@@ -304,7 +331,10 @@ impl WorkerDispatcher {
             for flow_result in &mut conditions.sub_flow_results {
                 for completion in &mut flow_result.results {
                     values.push(completion.completed_step_output.take().ok_or_else(|| {
-                        HandlerError::new("SubFlow Step completion output is required")
+                        HandlerError::new(
+                            "dex_sdk::HandlerError",
+                            "SubFlow Step completion output is required",
+                        )
                     })?);
                 }
             }
@@ -370,7 +400,12 @@ where
     let _cancel_on_drop = CancelOnDrop(cancellation);
     tokio::task::spawn_blocking(handler)
         .await
-        .map_err(|error| HandlerError::new(format!("user handler task failed: {error}")))?
+        .map_err(|error| {
+            HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("user handler task failed: {error}"),
+            )
+        })?
 }
 
 struct CancelOnDrop(InvocationCancellation);
@@ -389,7 +424,10 @@ pub(crate) fn map_step_options(
         .execute_failure_step
         .map(|target| {
             let target = flow.steps.get(target).ok_or_else(|| {
-                HandlerError::new(format!("execute failure Step is not registered: {target}"))
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("execute failure Step is not registered: {target}"),
+                )
             })?;
             Ok((
                 target.name,
@@ -443,8 +481,9 @@ fn map_retry(retry: RetryPolicy) -> HandlerResult<ProtoRetryPolicy> {
         initial_interval_seconds: optional_seconds(retry.initial_interval)?,
         backoff_coefficient: retry.backoff_coefficient.unwrap_or_default() as f32,
         maximum_interval_seconds: optional_seconds(retry.maximum_interval)?,
-        maximum_attempts: i32::try_from(retry.maximum_attempts.unwrap_or_default())
-            .map_err(|_| HandlerError::new("maximum attempts exceed int32"))?,
+        maximum_attempts: i32::try_from(retry.maximum_attempts.unwrap_or_default()).map_err(
+            |_| HandlerError::new("dex_sdk::HandlerError", "maximum attempts exceed int32"),
+        )?,
         total_duration_seconds: optional_seconds(retry.total_duration)?,
     })
 }
@@ -482,6 +521,7 @@ fn map_wait(
         WaitKind::AnyCombinationOf(combinations) => {
             if combinations.is_empty() {
                 return Err(HandlerError::new(
+                    "dex_sdk::HandlerError",
                     "Wait requires at least one Condition combination",
                 ));
             }
@@ -520,7 +560,10 @@ fn map_decision(
     let mut mapped = match decision.kind {
         StepDecisionKind::Next(movements) => {
             if movements.is_empty() {
-                return Err(HandlerError::new("go_to_many requires a movement"));
+                return Err(HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    "go_to_many requires a movement",
+                ));
             }
             Ok(ProtoStepDecision {
                 next_steps: map_movements(flow, movements)?,
@@ -583,6 +626,7 @@ fn map_cancellation_step_types(
     for step_type in selected {
         if !flow.steps.contains_key(step_type) {
             return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
                 "cancellation Step does not belong to Flow",
             ));
         }
@@ -621,10 +665,12 @@ fn map_movements(
 }
 
 fn map_movement(flow: &RegisteredFlow, movement: StepMovement) -> HandlerResult<ProtoStepMovement> {
-    let target = flow
-        .steps
-        .get(movement.target_step_type)
-        .ok_or_else(|| HandlerError::new("Step movement target does not belong to Flow"))?;
+    let target = flow.steps.get(movement.target_step_type).ok_or_else(|| {
+        HandlerError::new(
+            "dex_sdk::HandlerError",
+            "Step movement target does not belong to Flow",
+        )
+    })?;
     let step_input = movement.encode_input().map_err(handler_error)?;
     let options = movement
         .options_override
@@ -670,14 +716,21 @@ impl<'a> ConditionMapper<'a> {
         let id = condition.id.unwrap_or_default();
         if id_required && id.is_empty() {
             return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
                 "any_combination_of requires every Condition to have an ID",
             ));
         }
         if id_was_provided && id.is_empty() {
-            return Err(HandlerError::new("empty Condition ID"));
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "empty Condition ID",
+            ));
         }
         if !id.is_empty() && self.used_ids.contains(&id) {
-            return Err(HandlerError::new("duplicate Condition ID"));
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "duplicate Condition ID",
+            ));
         }
         if !id.is_empty() {
             self.used_ids.insert(id.clone());
@@ -696,20 +749,27 @@ impl<'a> ConditionMapper<'a> {
                 at_most,
             } => {
                 let definition = self.flow.persistence.get(&name).ok_or_else(|| {
-                    HandlerError::new(format!("Channel is not registered: {name}"))
+                    HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        format!("Channel is not registered: {name}"),
+                    )
                 })?;
                 let channel_name = match definition.kind {
                     PersistenceKind::Channel if instance.is_none() => name,
                     PersistenceKind::ChannelMap => physical_name(
                         &name,
                         instance.as_deref().ok_or_else(|| {
-                            HandlerError::new(format!("ChannelMap {name} requires an instance"))
+                            HandlerError::new(
+                                "dex_sdk::HandlerError",
+                                format!("ChannelMap {name} requires an instance"),
+                            )
                         })?,
                     ),
                     _ => {
-                        return Err(HandlerError::new(format!(
-                            "Channel is not registered: {name}"
-                        )));
+                        return Err(HandlerError::new(
+                            "dex_sdk::HandlerError",
+                            format!("Channel is not registered: {name}"),
+                        ));
                     }
                 };
                 self.channels.push(ChannelCondition {
@@ -725,16 +785,19 @@ impl<'a> ConditionMapper<'a> {
                     .flow(definition.flow_type)
                     .map_err(handler_error)?;
                 if target.type_id != definition.type_id {
-                    return Err(HandlerError::new(format!(
-                        "SubFlow {} does not match the registered Rust type",
-                        definition.flow_type
-                    )));
+                    return Err(HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        format!(
+                            "SubFlow {} does not match the registered Rust type",
+                            definition.flow_type
+                        ),
+                    ));
                 }
                 let start = target.start_step.as_ref().ok_or_else(|| {
-                    HandlerError::new(format!(
-                        "SubFlow {} has no starting Step",
-                        definition.flow_type
-                    ))
+                    HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        format!("SubFlow {} has no starting Step", definition.flow_type),
+                    )
                 })?;
                 let step_options =
                     map_step_options(target, target.handler.step_options(start.name)?)?;
@@ -746,8 +809,9 @@ impl<'a> ConditionMapper<'a> {
                     step_input: Some(definition.input),
                     step_options: Some(step_options),
                     options: Some(options),
-                    sub_flow_index: i32::try_from(self.sub_flows.len())
-                        .map_err(|_| HandlerError::new("too many SubFlow Conditions"))?,
+                    sub_flow_index: i32::try_from(self.sub_flows.len()).map_err(|_| {
+                        HandlerError::new("dex_sdk::HandlerError", "too many SubFlow Conditions")
+                    })?,
                 });
             }
         }
@@ -772,10 +836,10 @@ fn map_sub_flow_options(
         .map(|attribute| {
             let logical_name = attribute.key.split('/').next().unwrap_or(&attribute.key);
             if !target.persistence.contains_key(logical_name) {
-                return Err(HandlerError::new(format!(
-                    "SubFlow Attribute is not registered: {}",
-                    attribute.key
-                )));
+                return Err(HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("SubFlow Attribute is not registered: {}", attribute.key),
+                ));
             }
             Ok(AttributeWrite {
                 key: attribute.key.clone(),
@@ -816,10 +880,12 @@ fn take_entry_values(entries: &mut [Kv]) -> HandlerResult<Vec<dex_protocol::dex:
     entries
         .iter_mut()
         .map(|entry| {
-            entry
-                .value
-                .take()
-                .ok_or_else(|| HandlerError::new(format!("{} has no Value", entry.key)))
+            entry.value.take().ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("{} has no Value", entry.key),
+                )
+            })
         })
         .collect()
 }
@@ -830,14 +896,15 @@ fn restore_entry_values(
 ) -> HandlerResult<()> {
     let mut values = values.into_iter();
     for entry in entries {
-        entry.value = Some(
-            values
-                .next()
-                .ok_or_else(|| HandlerError::new("hydrated Value count mismatch"))?,
-        );
+        entry.value = Some(values.next().ok_or_else(|| {
+            HandlerError::new("dex_sdk::HandlerError", "hydrated Value count mismatch")
+        })?);
     }
     if values.next().is_some() {
-        return Err(HandlerError::new("hydrated Value count mismatch"));
+        return Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            "hydrated Value count mismatch",
+        ));
     }
     Ok(())
 }
@@ -848,21 +915,25 @@ fn restore_n_entry_values(
     count: usize,
 ) -> HandlerResult<()> {
     if entries.len() != count {
-        return Err(HandlerError::new("hydrated Value count mismatch"));
+        return Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            "hydrated Value count mismatch",
+        ));
     }
     for entry in entries {
-        entry.value = Some(
-            values
-                .next()
-                .ok_or_else(|| HandlerError::new("hydrated Value count mismatch"))?,
-        );
+        entry.value = Some(values.next().ok_or_else(|| {
+            HandlerError::new("dex_sdk::HandlerError", "hydrated Value count mismatch")
+        })?);
     }
     Ok(())
 }
 
 fn require_conditions(conditions: &[Condition]) -> HandlerResult<()> {
     if conditions.is_empty() {
-        Err(HandlerError::new("Wait requires at least one Condition"))
+        Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            "Wait requires at least one Condition",
+        ))
     } else {
         Ok(())
     }
@@ -871,7 +942,9 @@ fn require_conditions(conditions: &[Condition]) -> HandlerResult<()> {
 fn optional_count(value: Option<usize>) -> HandlerResult<Option<i32>> {
     value
         .map(|value| {
-            i32::try_from(value).map_err(|_| HandlerError::new("channel count exceeds int32"))
+            i32::try_from(value).map_err(|_| {
+                HandlerError::new("dex_sdk::HandlerError", "channel count exceeds int32")
+            })
         })
         .transpose()
 }
@@ -885,20 +958,28 @@ fn optional_seconds(value: Option<Duration>) -> HandlerResult<i32> {
 
 fn seconds32(duration: Duration) -> HandlerResult<i32> {
     if duration.subsec_nanos() != 0 {
-        return Err(HandlerError::new("Duration must use whole seconds"));
+        return Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            "Duration must use whole seconds",
+        ));
     }
-    i32::try_from(duration.as_secs()).map_err(|_| HandlerError::new("Duration exceeds int32"))
+    i32::try_from(duration.as_secs())
+        .map_err(|_| HandlerError::new("dex_sdk::HandlerError", "Duration exceeds int32"))
 }
 
 fn seconds64(duration: Duration) -> HandlerResult<i64> {
     if duration.subsec_nanos() != 0 {
-        return Err(HandlerError::new("Duration must use whole seconds"));
+        return Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            "Duration must use whole seconds",
+        ));
     }
-    i64::try_from(duration.as_secs()).map_err(|_| HandlerError::new("Duration exceeds int64"))
+    i64::try_from(duration.as_secs())
+        .map_err(|_| HandlerError::new("dex_sdk::HandlerError", "Duration exceeds int64"))
 }
 
-fn handler_error(error: impl std::fmt::Display) -> HandlerError {
-    HandlerError::new(error.to_string())
+fn handler_error(error: SdkError) -> HandlerError {
+    HandlerError::from_error(error)
 }
 
 #[allow(dead_code)]

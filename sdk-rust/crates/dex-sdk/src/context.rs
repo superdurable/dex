@@ -117,6 +117,7 @@ impl Context {
     pub(crate) fn sub_flow_result(&self, index: usize) -> HandlerResult<FlowResult> {
         if self.method != InvocationMethod::Execute {
             return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
                 "SubFlow results are available only during execute",
             ));
         }
@@ -125,9 +126,12 @@ impl Context {
             .as_ref()
             .and_then(|results| results.sub_flow_results.get(index))
             .ok_or_else(|| {
-                HandlerError::new(format!("SubFlow result index is unavailable: {index}"))
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("SubFlow result index is unavailable: {index}"),
+                )
             })?;
-        FlowResult::from_proto(result).map_err(|error| HandlerError::new(error.to_string()))
+        FlowResult::from_proto(result).map_err(HandlerError::from_error)
     }
 
     pub(crate) fn sub_flow_id(&self, index: usize) -> HandlerResult<String> {
@@ -181,7 +185,12 @@ impl Context {
             .get(key)
             .and_then(|entry| entry.value.as_ref())
             .or_else(|| self.locals.get(key))
-            .ok_or_else(|| HandlerError::new(format!("step-execution local {key} is missing")))?;
+            .ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("step-execution local {key} is missing"),
+                )
+            })?;
         value_mapper::decode_handler(value)
     }
 
@@ -195,9 +204,10 @@ impl Context {
     pub fn record_event<T: Value>(&mut self, name: &str, value: T) -> HandlerResult<()> {
         require_name(name, "event name")?;
         if !self.event_names.insert(name.to_string()) {
-            return Err(HandlerError::new(format!(
-                "event was already recorded: {name}"
-            )));
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("event was already recorded: {name}"),
+            ));
         }
         self.events.push(Kv {
             key: name.to_string(),
@@ -362,6 +372,7 @@ impl Context {
     ) -> HandlerResult<Vec<String>> {
         if self.method != InvocationMethod::Rpc {
             return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
                 "ChannelMap introspection requires an RPC invocation",
             ));
         }
@@ -443,10 +454,12 @@ impl Context {
     ) -> HandlerResult<Option<T>> {
         let key = self.registered_name(name, kind, instance)?;
         if let Some(write) = self.attribute_writes.get(&key) {
-            let value = write
-                .value
-                .as_ref()
-                .ok_or_else(|| HandlerError::new(format!("Attribute write {key} has no Value")))?;
+            let value = write.value.as_ref().ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("Attribute write {key} has no Value"),
+                )
+            })?;
             if matches!(value.kind, Some(value::Kind::NullValue(_))) {
                 return Ok(None);
             }
@@ -544,25 +557,33 @@ impl Context {
         instance: Option<&str>,
     ) -> HandlerResult<String> {
         let definition = self.flow.persistence.get(name).ok_or_else(|| {
-            HandlerError::new(format!(
-                "persistence definition does not belong to Flow: {name}"
-            ))
+            HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("persistence definition does not belong to Flow: {name}"),
+            )
         })?;
         if definition.kind != kind {
-            return Err(HandlerError::new(format!(
-                "persistence definition kind does not match: {name}"
-            )));
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("persistence definition kind does not match: {name}"),
+            ));
         }
         match kind {
             PersistenceKind::AttributeMap | PersistenceKind::ChannelMap => instance
                 .map(|instance| physical_name(name, instance))
-                .ok_or_else(|| HandlerError::new(format!("{name} requires an instance"))),
+                .ok_or_else(|| {
+                    HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        format!("{name} requires an instance"),
+                    )
+                }),
             PersistenceKind::Attribute | PersistenceKind::Channel if instance.is_none() => {
                 Ok(name.to_string())
             }
-            _ => Err(HandlerError::new(format!(
-                "static persistence definition cannot use an instance: {name}"
-            ))),
+            _ => Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("static persistence definition cannot use an instance: {name}"),
+            )),
         }
     }
 }
@@ -573,7 +594,10 @@ fn sorted_instance_keys(
 ) -> HandlerResult<Vec<String>> {
     let mut keys = physical_keys
         .iter()
-        .map(|key| decode_instance(key, prefix).map_err(HandlerError::new))
+        .map(|key| {
+            decode_instance(key, prefix)
+                .map_err(|error| HandlerError::new("dex_sdk::HandlerError", error))
+        })
         .collect::<HandlerResult<Vec<_>>>()?;
     keys.sort();
     Ok(keys)
@@ -631,11 +655,17 @@ fn map_values(kind: &str, entries: Vec<Kv>) -> HandlerResult<HashMap<String, Pro
     let mut mapped = HashMap::new();
     for entry in entries {
         require_name(&entry.key, kind)?;
-        let value = entry
-            .value
-            .ok_or_else(|| HandlerError::new(format!("{kind} {} has no Value", entry.key)))?;
+        let value = entry.value.ok_or_else(|| {
+            HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("{kind} {} has no Value", entry.key),
+            )
+        })?;
         if mapped.insert(entry.key.clone(), value).is_some() {
-            return Err(HandlerError::new(format!("duplicate {kind} {}", entry.key)));
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("duplicate {kind} {}", entry.key),
+            ));
         }
     }
     Ok(mapped)
@@ -643,7 +673,10 @@ fn map_values(kind: &str, entries: Vec<Kv>) -> HandlerResult<HashMap<String, Pro
 
 fn require_name(value: &str, kind: &str) -> HandlerResult<()> {
     if value.is_empty() {
-        Err(HandlerError::new(format!("{kind} is required")))
+        Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            format!("{kind} is required"),
+        ))
     } else {
         Ok(())
     }

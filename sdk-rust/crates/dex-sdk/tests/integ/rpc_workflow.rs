@@ -127,7 +127,7 @@ impl RpcWorkflow {
 
     fn require_context(context: &Context) -> HandlerResult<()> {
         if context.flow_id().is_empty() || context.run_id().is_empty() {
-            return Err(HandlerError::new("invalid RPC context"));
+            return Err(HandlerError::new("RpcFailure", "invalid RPC context"));
         }
         Ok(())
     }

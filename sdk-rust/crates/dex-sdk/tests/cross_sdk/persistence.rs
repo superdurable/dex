@@ -138,7 +138,10 @@ impl Step for PersistenceFirstStep {
             || self.decimal.get_required(context)? != 2.1
             || self.datetime.get_required(context)? != input.datetime
         {
-            return Err(HandlerError::new("unexpected initial attributes"));
+            return Err(HandlerError::new(
+                "PersistenceFailure",
+                "unexpected initial attributes",
+            ));
         }
         self.data.set(context, input)?;
         self.text.set(context, "a string".to_string())?;
@@ -153,11 +156,17 @@ impl Step for PersistenceFirstStep {
         input: PersistenceModel,
     ) -> HandlerResult<StepDecision> {
         if self.integer.get_required(context)? != 1 {
-            return Err(HandlerError::new("wait_for integer write was not visible"));
+            return Err(HandlerError::new(
+                "PersistenceFailure",
+                "wait_for integer write was not visible",
+            ));
         }
         let data = self.data.get_required(context)?;
         if data.text != input.text || data.number != input.number {
-            return Err(HandlerError::new("wait_for data write was not visible"));
+            return Err(HandlerError::new(
+                "PersistenceFailure",
+                "wait_for data write was not visible",
+            ));
         }
         self.datetime.set(context, data.datetime)?;
         self.boolean.set(context, true)?;
@@ -200,7 +209,10 @@ impl Step for PersistenceSecondStep {
         if self.datetime.get_required(context)? != data.datetime
             || !self.boolean.get_required(context)?
         {
-            return Err(HandlerError::new("persisted values did not round trip"));
+            return Err(HandlerError::new(
+                "PersistenceFailure",
+                "persisted values did not round trip",
+            ));
         }
         self.decimal.set(context, 1.0)?;
         self.full_text.set(context, "Hail Dex!".to_string())?;
@@ -209,7 +221,10 @@ impl Step for PersistenceSecondStep {
 
     fn execute(&self, context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
         if self.full_text.get_required(context)? != "Hail Dex!" {
-            return Err(HandlerError::new("unexpected persisted text"));
+            return Err(HandlerError::new(
+                "PersistenceFailure",
+                "unexpected persisted text",
+            ));
         }
         self.keyword.set(context, "Dex".to_string())?;
         Ok(StepDecision::graceful_complete("done".to_string()))

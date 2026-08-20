@@ -101,7 +101,10 @@ impl Step for PersistenceStep {
     fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
         let local: String = context.step_execution_local("local")?;
         if local != input {
-            return Err(HandlerError::new("step execution local did not round trip"));
+            return Err(HandlerError::new(
+                "PersistenceFailure",
+                "step execution local did not round trip",
+            ));
         }
         self.keyword.set(context, input)?;
         self.integer.set(context, 1)?;

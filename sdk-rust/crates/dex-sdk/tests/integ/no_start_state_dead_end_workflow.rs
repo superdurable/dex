@@ -45,7 +45,10 @@ impl NoStartStateDeadEndWorkflow {
 
     fn invoke(&self, context: &mut Context, _input: String) -> HandlerResult<RpcResult<i64>> {
         if context.flow_id().is_empty() || context.run_id().is_empty() {
-            return Err(HandlerError::new("invalid RPC context"));
+            return Err(HandlerError::new(
+                "NoStartStateDeadEndFailure",
+                "invalid RPC context",
+            ));
         }
         Ok(RpcResult::new(100).then(StepMovement::to(&self.complete, ())))
     }

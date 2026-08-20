@@ -45,7 +45,7 @@ func (workerRetryAfterWaitForStep) WaitFor(
 	if ctx.Attempt() == 1 {
 		return nil, dex.RetryAfter(
 			retryAfterDelay,
-			errors.New(waitForRetryAfterDetail),
+			dex.ErrorWithStack(errors.New(waitForRetryAfterDetail)),
 		)
 	}
 	return dex.SkipWaitImmediately(), nil
@@ -81,7 +81,7 @@ func (workerRetryAfterExecuteStep) Execute(
 	if ctx.Attempt() == 1 {
 		return nil, dex.RetryAfter(
 			retryAfterDelay,
-			errors.New(executeRetryAfterDetail),
+			dex.ErrorWithStack(errors.New(executeRetryAfterDetail)),
 		)
 	}
 	return dex.GracefulComplete("execute-retry-after"), nil

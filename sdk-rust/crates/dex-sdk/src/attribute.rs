@@ -84,8 +84,12 @@ impl<T> Attribute<T> {
     where
         T: Value,
     {
-        self.get(context)?
-            .ok_or_else(|| HandlerError::new(format!("attribute {} is missing", self.name)))
+        self.get(context)?.ok_or_else(|| {
+            HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("attribute {} is missing", self.name),
+            )
+        })
     }
 
     /// Stages `value` for durable persistence in the current invocation.
@@ -205,7 +209,10 @@ impl<T> AttributeMap<T> {
         T: Value,
     {
         self.get(context, instance)?.ok_or_else(|| {
-            HandlerError::new(format!("attribute {}[{instance}] is missing", self.name))
+            HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!("attribute {}[{instance}] is missing", self.name),
+            )
         })
     }
 

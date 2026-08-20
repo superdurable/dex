@@ -60,6 +60,7 @@ impl Step for WorkerRetryAfterWaitForStep {
         if context.attempt() == 1 {
             return Err(HandlerError::retry_after(
                 RETRY_AFTER_SECONDS,
+                "WorkerRetryAfter",
                 WAIT_FOR_RETRY_AFTER_DETAIL,
             ));
         }
@@ -112,6 +113,7 @@ impl Step for WorkerRetryAfterExecuteStep {
         if context.attempt() == 1 {
             return Err(HandlerError::retry_after(
                 RETRY_AFTER_SECONDS,
+                "WorkerRetryAfter",
                 EXECUTE_RETRY_AFTER_DETAIL,
             ));
         }

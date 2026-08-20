@@ -43,7 +43,10 @@ impl Step for WorkflowUncompletedStateFailureStep {
     }
 
     fn execute(&self, _context: &mut Context, _input: i32) -> HandlerResult<StepDecision> {
-        Err(HandlerError::new("test api failing"))
+        Err(HandlerError::new(
+            "WorkflowUncompletedStateFailureFailure",
+            "test api failing",
+        ))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {

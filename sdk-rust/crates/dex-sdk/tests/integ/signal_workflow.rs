@@ -82,7 +82,10 @@ impl Step for FirstStep {
 
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
         if !self.second.condition_results(context)?.is_empty() {
-            return Err(HandlerError::new("second signal should still be waiting"));
+            return Err(HandlerError::new(
+                "SignalFailure",
+                "second signal should still be waiting",
+            ));
         }
         let value = self.first.condition_results(context)?[0];
         Ok(StepDecision::go_to(
@@ -118,16 +121,25 @@ impl Step for CombinationStep {
 
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
         if !self.second.condition_results(context)?.is_empty() {
-            return Err(HandlerError::new("second signal should still be waiting"));
+            return Err(HandlerError::new(
+                "SignalFailure",
+                "second signal should still be waiting",
+            ));
         }
         if self.third.condition_results(context)?.len() != 1 {
-            return Err(HandlerError::new("null signal was not received"));
+            return Err(HandlerError::new(
+                "SignalFailure",
+                "null signal was not received",
+            ));
         }
         if self.signal_map.condition_results(context, "one")?.len() != 1 {
-            return Err(HandlerError::new("mapped signal was not received"));
+            return Err(HandlerError::new(
+                "SignalFailure",
+                "mapped signal was not received",
+            ));
         }
         if !context.has_any_timer_fired() {
-            return Err(HandlerError::new("timer was not fired"));
+            return Err(HandlerError::new("SignalFailure", "timer was not fired"));
         }
         Ok(StepDecision::graceful_complete(
             input + self.first.condition_results(context)?[0],

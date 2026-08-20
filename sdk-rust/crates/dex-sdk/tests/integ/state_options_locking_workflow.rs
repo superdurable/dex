@@ -137,7 +137,10 @@ impl Step for CompleteStep {
 
     fn execute(&self, context: &mut Context, parallelism: i32) -> HandlerResult<StepDecision> {
         if self.completed.condition_results(context)?.len() != parallelism as usize {
-            return Err(HandlerError::new("not all locked Steps completed"));
+            return Err(HandlerError::new(
+                "StateOptionsLockingFailure",
+                "not all locked Steps completed",
+            ));
         }
         Ok(StepDecision::graceful_complete(format!(
             "{}:{}",
