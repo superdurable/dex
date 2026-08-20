@@ -41,7 +41,10 @@ impl Step for FailingNoWaitStep {
     type Input = i32;
 
     fn execute(&self, _context: &mut Context, _input: i32) -> HandlerResult<StepDecision> {
-        Err(HandlerError::new("execute failure"))
+        Err(HandlerError::new(
+            "StateRecoveryNoWaitFailure",
+            "execute failure",
+        ))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {

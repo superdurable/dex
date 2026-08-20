@@ -78,12 +78,18 @@ impl Step for CompleteStep {
 
     fn wait_for(&self, _context: &mut Context, input: String) -> HandlerResult<Wait> {
         *self.output.lock().expect("second output lock") = format!("{input}_state2_start");
-        Err(HandlerError::new("state 2 wait failure"))
+        Err(HandlerError::new(
+            "StateOptionsOverrideFailure",
+            "state 2 wait failure",
+        ))
     }
 
     fn execute(&self, context: &mut Context, _input: String) -> HandlerResult<StepDecision> {
         if !context.wait_for_method_failed() {
-            return Err(HandlerError::new("waitFor failure was not reported"));
+            return Err(HandlerError::new(
+                "StateOptionsOverrideFailure",
+                "waitFor failure was not reported",
+            ));
         }
         let mut output = self.output.lock().expect("second output lock");
         output.push_str("_state2_decide");

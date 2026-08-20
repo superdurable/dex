@@ -34,7 +34,7 @@ impl Step for ExecuteRecoveryFailStep {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, _input: String) -> HandlerResult<StepDecision> {
-        Err(HandlerError::new("planned Execute failure"))
+        Err(HandlerError::new("StateFailure", "planned Execute failure"))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
@@ -74,7 +74,7 @@ impl Step for WaitForFailureStep {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, (): ()) -> HandlerResult<Wait> {
-        Err(HandlerError::new("test WaitFor failing"))
+        Err(HandlerError::new("StateFailure", "test WaitFor failing"))
     }
 
     fn execute(&self, _context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
@@ -105,7 +105,10 @@ impl Step for WaitForTimeoutStep {
 
     fn wait_for(&self, context: &mut Context, (): ()) -> HandlerResult<Wait> {
         context.wait_for_cancellation();
-        Err(HandlerError::new("wait_for invocation was cancelled"))
+        Err(HandlerError::new(
+            "StateFailure",
+            "wait_for invocation was cancelled",
+        ))
     }
 
     fn execute(&self, _context: &mut Context, (): ()) -> HandlerResult<StepDecision> {

@@ -39,7 +39,10 @@ impl Step for BasicAbnormalExitStep {
     type Input = i32;
 
     fn execute(&self, _context: &mut Context, _input: i32) -> HandlerResult<StepDecision> {
-        Err(HandlerError::new("abnormal exit"))
+        Err(HandlerError::new(
+            "BasicAbnormalExitFailure",
+            "abnormal exit",
+        ))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {

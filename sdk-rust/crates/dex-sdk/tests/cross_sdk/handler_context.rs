@@ -46,7 +46,10 @@ impl Step for HandlerContextFirstStep {
 
 fn validate_attempt_metadata(context: &Context) -> HandlerResult<()> {
     if context.attempt() < 1 || context.first_attempt_at() == SystemTime::UNIX_EPOCH {
-        return Err(HandlerError::new("invalid first-step attempt metadata"));
+        return Err(HandlerError::new(
+            "HandlerContextFailure",
+            "invalid first-step attempt metadata",
+        ));
     }
     Ok(())
 }

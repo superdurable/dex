@@ -43,12 +43,15 @@ impl RpcNoStateWorkflow {
     }
 
     fn fail(&self, _context: &mut Context, input: String) -> HandlerResult<RpcResult<i64>> {
-        Err(HandlerError::new(input))
+        Err(HandlerError::new("RpcNoStateFailure", input))
     }
 
     fn invoke(&self, context: &mut Context, _input: String) -> HandlerResult<RpcResult<i64>> {
         if context.flow_id().is_empty() || context.run_id().is_empty() {
-            return Err(HandlerError::new("invalid RPC context"));
+            return Err(HandlerError::new(
+                "RpcNoStateFailure",
+                "invalid RPC context",
+            ));
         }
         Ok(RpcResult::new(RpcWorkflow::RPC_OUTPUT))
     }

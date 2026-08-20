@@ -53,6 +53,7 @@ impl Step for AnyCommandCombinationStep {
 
     fn wait_for(&self, _context: &mut Context, _input: i32) -> HandlerResult<Wait> {
         Err(HandlerError::new(
+            "UnknownConditionId",
             "Found unknown condition ID in the combination list",
         ))
     }

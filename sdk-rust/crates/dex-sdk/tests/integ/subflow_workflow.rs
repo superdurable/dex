@@ -312,6 +312,6 @@ fn sub_flow_with_options<SomeFlow: Flow>(
     SubFlow::run_with_options(flow, input, options).map_err(handler_error)
 }
 
-fn handler_error(error: impl std::fmt::Display) -> HandlerError {
-    HandlerError::new(error.to_string())
+fn handler_error(error: dex_sdk::SdkError) -> HandlerError {
+    HandlerError::from_error(error)
 }

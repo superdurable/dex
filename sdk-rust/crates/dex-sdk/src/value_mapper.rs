@@ -120,5 +120,5 @@ fn value_error(message: impl Into<String>) -> SdkError {
 }
 
 fn handler_mapping_error(error: SdkError) -> HandlerError {
-    HandlerError::new(error.to_string())
+    HandlerError::from_error(error)
 }

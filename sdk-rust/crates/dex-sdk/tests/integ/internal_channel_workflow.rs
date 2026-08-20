@@ -109,14 +109,18 @@ impl Step for ConsumeStep {
 
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
         if !self.second_channel.condition_results(context)?.is_empty() {
-            return Err(HandlerError::new("second channel should still be waiting"));
+            return Err(HandlerError::new(
+                "InternalChannelFailure",
+                "second channel should still be waiting",
+            ));
         }
         let first = self.first_channel.condition_results(context)?[0];
         let mapped = self.channel_map.condition_results(context, "one")?[0];
         if mapped != 3 {
-            return Err(HandlerError::new(format!(
-                "mapped channel returned {mapped}"
-            )));
+            return Err(HandlerError::new(
+                "InternalChannelFailure",
+                format!("mapped channel returned {mapped}"),
+            ));
         }
         Ok(StepDecision::graceful_complete(input + first))
     }

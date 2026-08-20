@@ -214,9 +214,9 @@ impl<SomeFlow: Flow> ErasedFlow for TypedFlow<SomeFlow> {
     }
 
     fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
-        let handler = self
-            .timeout_handler
-            .ok_or_else(|| crate::HandlerError::new("Flow has no timeout handler"))?;
+        let handler = self.timeout_handler.ok_or_else(|| {
+            crate::HandlerError::new("dex_sdk::HandlerError", "Flow has no timeout handler")
+        })?;
         handler(self.flow.as_ref(), context)
     }
     fn wait_for(
@@ -229,7 +229,10 @@ impl<SomeFlow: Flow> ErasedFlow for TypedFlow<SomeFlow> {
             .steps()
             .find(step_type)
             .ok_or_else(|| {
-                crate::HandlerError::new(format!("Step is not registered: {step_type}"))
+                crate::HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("Step is not registered: {step_type}"),
+                )
             })?
             .wait_for(context, input)
     }
@@ -244,7 +247,10 @@ impl<SomeFlow: Flow> ErasedFlow for TypedFlow<SomeFlow> {
             .steps()
             .find(step_type)
             .ok_or_else(|| {
-                crate::HandlerError::new(format!("Step is not registered: {step_type}"))
+                crate::HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("Step is not registered: {step_type}"),
+                )
             })?
             .execute(context, input)
     }
@@ -255,7 +261,10 @@ impl<SomeFlow: Flow> ErasedFlow for TypedFlow<SomeFlow> {
             .steps()
             .find(step_type)
             .ok_or_else(|| {
-                crate::HandlerError::new(format!("Step is not registered: {step_type}"))
+                crate::HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("Step is not registered: {step_type}"),
+                )
             })?
             .options())
     }

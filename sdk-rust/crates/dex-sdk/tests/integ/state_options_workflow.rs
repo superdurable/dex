@@ -155,9 +155,10 @@ fn require_attribute(
 ) -> HandlerResult<()> {
     let actual = attribute.get_required(context)?;
     if actual != expected {
-        return Err(HandlerError::new(format!(
-            "Attribute was {actual}, expected {expected}"
-        )));
+        return Err(HandlerError::new(
+            "StateOptionsFailure",
+            format!("Attribute was {actual}, expected {expected}"),
+        ));
     }
     Ok(())
 }

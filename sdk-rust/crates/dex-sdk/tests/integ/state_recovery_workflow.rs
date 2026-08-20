@@ -45,7 +45,7 @@ impl Step for FailingStep {
     }
 
     fn execute(&self, _context: &mut Context, _input: i32) -> HandlerResult<StepDecision> {
-        Err(HandlerError::new("execute failure"))
+        Err(HandlerError::new("StateRecoveryFailure", "execute failure"))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {

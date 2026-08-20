@@ -183,6 +183,7 @@ func integrationFlows() []dex.Flow {
 		stepCancellationFlow{},
 		workerRetryAfterWaitForFlow{},
 		workerRetryAfterExecuteFlow{},
+		workerOriginStackWaitForFlow{},
 	}
 }
 
