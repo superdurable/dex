@@ -6,6 +6,8 @@ slug: /primitives/flow/flow-options
 
 # Flow options
 
+Dex 允许你自定义 Flow execution 的行为。
+
 **StartFlowOptions** 控制一次启动请求。**FlowConfig** 控制由此产生的 Flow 的运行时行为。
 
 启动时，**ConfigOverride** 会把提供的 **FlowConfig** 字段覆盖到服务端默认值上。Flow 活跃期间，**UpdateFlowConfig** 会把提供的字段覆盖到其当前配置上。两种情况下，省略的字段都保持不变。
