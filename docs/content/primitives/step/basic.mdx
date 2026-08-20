@@ -476,7 +476,7 @@ When WaitFor method retries are exhausted:
 - **FailFlow** — Fail the flow. This is the default.
 - **PROCEED** — Continue to invoke Execute.
 
-With **PROCEED**, the same Step's **Execute** receives the durable input unchanged. **waitForMethodFailed()** returns true. **getRecoveryError()** has the error_type and detail from the final failed WaitFor attempt. It has no stack trace.
+With **PROCEED**, the same Step's **Execute** receives the durable input unchanged. **waitForMethodFailed()** returns true. **getRecoveryError()** has the error_type and detail from the final failed WaitFor attempt.
 
 Without a Worker response, error_type comes from Temporal or Cadence. For a Worker error, it has the Worker error_type and detail. The stack trace stays in history / last failure info.
 
@@ -683,9 +683,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 See the [failure recovery](/design-patterns/recovery) pattern and [money-transfer](/use-cases/money-transfer) use case.
 
-The recovery Step receives the failed Step's durable input unchanged. **getRecoveryError()** has the error_type and detail from the final failed Execute attempt. It survives queueing and **continue-as-new**.
-
-If the recovery Step's WaitFor also fails and proceeds, its Execute receives the newer WaitFor failure, not the original Execute failure.
+The recovery Step receives the failed Step's durable input unchanged. **getRecoveryError()** has the error_type and detail from the final failed Execute attempt.
 
 ### Step Failed events and last failure info
 

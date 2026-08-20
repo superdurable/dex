@@ -393,7 +393,7 @@ WaitFor method retry 耗尽时：
 - **FailFlow** — 失败 Flow。这是默认行为。
 - **PROCEED** — 继续调用 Execute。
 
-使用 **PROCEED** 时，同一 Step 的 **Execute** 收到不变的 durable input。**waitForMethodFailed()** 返回 true。**getRecoveryError()** 包含最后一次失败 WaitFor attempt 的 error_type 和 detail，不含 stack trace。
+使用 **PROCEED** 时，同一 Step 的 **Execute** 收到不变的 durable input。**waitForMethodFailed()** 返回 true。**getRecoveryError()** 包含最后一次失败 WaitFor attempt 的 error_type 和 detail。
 
 没有 Worker 响应时，error_type 来自 Temporal 或 Cadence。对于 Worker error，它包含 Worker 的 error_type 和 detail。stack trace 留在 history / last failure info。
 
@@ -600,9 +600,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 见 [failure recovery](/design-patterns/recovery) 模式与 [money-transfer](/use-cases/money-transfer) 用例。
 
-recovery Step 收到失败 Step 不变的 durable input。**getRecoveryError()** 包含最后一次失败 Execute attempt 的 error_type 和 detail。它会经过入队和 **continue-as-new** 保留。
-
-如果 recovery Step 的 WaitFor 也失败并 proceed，它的 Execute 收到较新的 WaitFor failure，而不是原 Execute failure。
+recovery Step 收到失败 Step 不变的 durable input。**getRecoveryError()** 包含最后一次失败 Execute attempt 的 error_type 和 detail。
 
 ### Step Failed 事件与 last failure info
 
