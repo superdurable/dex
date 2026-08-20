@@ -178,56 +178,62 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 
 ### Timeout 与 TimeoutPolicy {#timeout-and-timeout-policy}
 
-**Timeout** 是整个 Flow 的 durable timer。只有正数 timeout 才能指定 policy。**FAIL** 会以 timeout error 失败 Flow，随后可由 **RetryPolicy** 重试。**CANCEL** 会取消 Flow，不会重试。**HANDLER** 会调用一次 Flow timeout handler。
+**Timeout** 是整个 Flow 的一个 durable timer。只有 **Timeout** 为正数时才能设置 **TimeoutPolicy**。
 
-SDK 能检查 Flow 定义时，默认 policy 是：Flow 实现 timeout handler 时使用 **HANDLER**，否则使用 **FAIL**。没有 timeout handler 时使用 **HANDLER** 无效。continue-as-new 会保留已有 timeout deadline；一次 retry 会获得新的 timeout budget。
+- **FAIL** — 以 timeout error 失败 Flow。**RetryPolicy** 可以重试它。
+- **CANCEL** — 取消 Flow，不会重试。
+- **HANDLER** — 调用一次 Flow timeout handler。
+
+Flow 有 timeout handler 时，Dex 默认使用 **HANDLER**；否则使用 **FAIL**。没有 handler 时使用 **HANDLER** 无效。continue-as-new 会保留当前 deadline。一次 retry 会获得新的 timeout budget。
 
 ### Flow ID、RequestID 与 AlreadyStartedOptions {#flow-id-request-id-and-already-started}
 
-**IDReusePolicy** 回答业务生命周期问题：新的启动是否可以使用这个 Flow ID？**RequestID** 回答传输问题：这次调用是否是同一启动请求的重试？
+**IDReusePolicy** 决定这个 Flow ID 已存在时该怎么做。**RequestID** 表示这次调用是否在重试同一次启动请求。
 
 | ID reuse policy | 结果 |
 |-----------------|------|
-| **IDReuseDefault** | 使用服务端 policy。StartFlow 的默认值允许在没有 active run 时复用。 |
-| **IDReuseAllowIfPreviousFailed** | 仅在上次 run 失败后复用。 |
-| **IDReuseAllowIfNotRunning** | 任意 closed run 后都可复用，但不能在 active run 期间复用。 |
-| **IDReuseDisallow** | 拒绝 Flow ID 的所有复用。 |
-| **IDReuseTerminateIfRunning** | 启动 replacement 前终止 active run。 |
+| **IDReuseDefault** | 使用 Dex Server policy。没有 active run 时，StartFlow 允许复用。 |
+| **IDReuseAllowIfPreviousFailed** | 只在上次 run 失败后复用该 ID。 |
+| **IDReuseAllowIfNotRunning** | 任意 closed run 后都可复用，但 active run 期间不行。 |
+| **IDReuseDisallow** | 永不复用该 ID。 |
+| **IDReuseTerminateIfRunning** | 停止 active run，再启动 replacement。 |
 
-调用方在丢失 StartFlow response 后可能重试时，应使用稳定的 **RequestID**。再次发送相同的 Flow ID、start input、options 与 RequestID。启用 **AlreadyStartedOptions.IgnoreError** 后，Dex 只会在已有 Flow 使用相同 RequestID 启动时返回其 Run ID。不同 RequestID 仍是 already-started conflict；**AlreadyStartedOptions** 不会 attach 到无关的 Flow。
+调用方可能在丢失 StartFlow response 后重试时，应使用稳定的 **RequestID**。重试时发送相同的 Flow ID、start input、options 与 RequestID。启用 **AlreadyStartedOptions.IgnoreError** 后，Dex 只会在已有 Flow 使用相同 RequestID 启动时返回其 Run ID。不同 RequestID 仍会得到 already-started error。这个选项不会 attach 到无关的 Flow。
 
 ### RetryPolicy 与 CronSchedule {#retry-policy-and-cron-schedule}
 
-**RetryPolicy** 控制一次 Flow execution 失败后的重试。**MaximumAttempts** 包含首次 execution。**InitialInterval**、**BackoffCoefficient** 与 **MaximumInterval** 定义指数退避。使用 **FAIL** 的 timeout 是可使用该策略的一次 failure；使用 **CANCEL** 的 timeout 不会重试。
+**RetryPolicy** 会在一次 Flow execution 失败后重试它。**MaximumAttempts** 包含首次 execution。**InitialInterval**、**BackoffCoefficient** 与 **MaximumInterval** 设置指数退避。**FAIL** timeout 可以使用这个 retry policy；**CANCEL** timeout 不可以。
 
-**CronSchedule** 请求已配置的 backend 启动周期性 execution。它与 Flow retry 独立：retry 用于恢复失败的 execution，cron 用于创建未来计划执行。包括 overlap 与漏掉运行在内的 backend 调度行为由 backend 定义。生产使用前请阅读 [cron schedule pattern](/design-patterns/cron)。
+**CronSchedule** 请求已配置的 backend 按计划启动新的 execution。它不是 Flow retry。retry 用来恢复一次失败的 execution；cron 创建之后的 execution。overlap 与漏掉运行怎么处理由 backend 决定。生产使用前请阅读 [cron schedule pattern](/design-patterns/cron)。
 
 ### StartDelay {#start-delay}
 
-**StartDelay** 会立即接受 Flow start，并推迟 start Step 何时变为可执行。适合一次性延迟启动，例如新订单创建后五分钟再处理。它不会创建周期性 schedule；请使用 **CronSchedule** 实现周期性运行。
+**StartDelay** 会立即接受 Flow start，然后等待 start Step 可以运行。它适合一次性延迟，例如新订单创建五分钟后再处理。它不会重复；周期性工作请使用 **CronSchedule**。
 
 ### Attributes {#attributes}
 
-**Attributes** 在 start Step 运行前初始化 durable state。每个初始值必须对应 Flow persistence schema 中已声明的 Attribute 或 Attribute map。Attribute-map 值还必须提供 instance key。Dex 会拒绝未声明的名称、同一 physical key 的重复值，以及 map、index 或同步设置与已注册 Attribute 不一致的定义。
+**Attributes** 会在 start Step 运行前写入 durable state。每个值必须匹配 Flow persistence schema 中的 Attribute 或 Attribute map。Attribute map 还需要 instance key。Dex 会拒绝未声明的名称、重复的 physical key，以及与已注册 map、index 或同步设置不一致的定义。
 
-请通过 SDK 的 **InitialAttribute** 与 Attribute-map helper 创建初始值，而不是手动编码。start Step 可按常规方式读取已初始化的值。
+请使用 SDK 的 **InitialAttribute** 与 Attribute-map helper。start Step 读取这些值的方式和其它 Attribute 一样。
 
 ## FlowConfig {#flow-config}
 
-在 **StartFlowOptions** 中使用 **ConfigOverride** 定制一个 Flow 的初始有效配置。其字段会覆盖 deployment 的默认 **FlowConfig**，并非整体替换该配置。
+在 **StartFlowOptions** 中使用 **ConfigOverride** 修改一个 Flow 的初始配置。它只修改提供的字段，不会整体替换 **FlowConfig**。
+
+启动时，Dex 会把提供的字段覆盖到 Dex Server 默认值上。省略的字段保留默认值。
 
 | 字段 | 行为 |
 |------|------|
-| **ActiveStepSearchMode** | 索引所有 active Step、仅索引已运行 **WaitFor** 的 Step，或不索引 active Step。默认只索引带 **WaitFor** 的 Step。 |
-| **ContinueAsNewThreshold** | Dex 自动 continue-as-new 前追踪的事件数。零会禁用自动 continue-as-new。 |
-| **ContinueAsNewPageSizeBytes** | continue-as-new 期间传输状态的页大小。零使用 1 MiB。 |
-| **StepDurability** | Step 写入的默认 durability。Step 级别 override 优先；恢复路径除非显式覆盖，否则使用 synchronous durability。 |
-| **WorkerTarget** | 后续 Step 与 RPC 调用的 WorkerService endpoint。可用它将未来工作移到新 Worker。 |
-| **AttributeStoreName** | 为 opt-in 异步投影的 Attribute 选择服务端已配置的 Attribute Store。显式空值会禁用未来投影。 |
+| **ActiveStepSearchMode** | 索引所有 active Step、只索引运行过 **WaitFor** 的 Step，或不索引 active Step。默认只索引带 **WaitFor** 的 Step。 |
+| **ContinueAsNewThreshold** | 追踪到这个事件数后 continue as new。零会关闭它。 |
+| **ContinueAsNewPageSizeBytes** | 限制 continue-as-new 带入的每一页 state。零使用 1 MiB。 |
+| **StepDurability** | Step 写入的默认 durability。Step override 优先。除非显式覆盖，recovery 使用 synchronous durability。 |
+| **WorkerTarget** | 后续 Step 与 RPC 调用的 WorkerService endpoint。可用它把后续工作移到新 Worker。 |
+| **AttributeStoreName** | Dex Server Attribute Store，供 opt-in 异步投影的 Attribute 使用。空值会关闭后续投影。 |
 
 ### 用 Client 更新 FlowConfig {#update-flow-config-with-a-client}
 
-Flow 活跃时可调用 **UpdateFlowConfig**。这是 partial update：只发送要修改的字段。更新影响之后的 Flow decision，不会撤回 Dex 已派发的工作。
+Flow active 时可以调用 **UpdateFlowConfig**。只发送要修改的字段。修改会影响之后的 Flow decision，Dex 不会撤回已经派发的工作。
 
 <SdkTabs
   examples={{
@@ -299,8 +305,8 @@ pub fn reroute_active_flow(client: &Client, flow_id: &str) -> SdkResult<()> {
 
 ## SubFlow options {#subflow-options}
 
-[SubFlow](/primitives/subflow) condition 通过 **SubFlowOptions** 使用 timeout、retry、初始 Attribute 与 **FlowConfig** override。SubFlow 还有其生成 Flow ID 的 reuse policy。Dex 负责 SubFlow start ID，调用方无法覆盖。
+[SubFlow](/primitives/subflow) condition 使用 **SubFlowOptions** 设置 timeout、retry、初始 Attribute 与 **FlowConfig** override。SubFlow 还有生成 Flow ID 的 reuse policy。Dex 负责这个 start ID，调用方无法覆盖。
 
 ## Operational APIs {#operational-apis}
 
-启动和配置 Flow 只是生命周期的一部分。[Client APIs](/primitives/client-apis) 还涵盖 search、RPC 与 Channel interaction、wait、stop、timer skip、time travel 与 continue-as-new。
+[Client APIs](/primitives/client-apis) 还可以 search Flow、调用 RPC、publish Channel、wait、stop、skip timer、time travel 与 continue as new。
