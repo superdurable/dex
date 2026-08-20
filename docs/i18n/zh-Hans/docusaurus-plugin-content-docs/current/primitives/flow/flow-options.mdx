@@ -180,7 +180,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 - **CANCEL** — 取消 Flow，不会重试。
 - **HANDLER** — 调用一次 Flow timeout handler。
 
-Flow 有 timeout handler 时，Dex 默认使用 **HANDLER**；否则使用 **FAIL**。没有 handler 时使用 **HANDLER** 无效。一次 retry 会获得新的 timeout budget。
+当 Dex SDK 以正数 timeout 启动 Flow，并且 **TimeoutPolicy** 保持 **DEFAULT** 时，有 timeout handler 就使用 **HANDLER**；否则使用 **FAIL**。没有 handler 时使用 **HANDLER** 无效。一次 retry 会获得新的 timeout budget。
 
 把 **TimeoutPolicy** 设为 **HANDLER**，timeout 触发时就会运行下面的代码。这个 handler 记录 Flow 结束的原因，再用应用自己的原因失败该 Flow。
 
