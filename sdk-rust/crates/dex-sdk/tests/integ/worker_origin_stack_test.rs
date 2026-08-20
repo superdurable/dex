@@ -29,13 +29,9 @@ fn test_wait_for_origin_stack_trace() {
         .start_flow(&workflow, &flow_id, ())
         .expect("start waitFor origin-stack Flow");
     let failure = await_live_worker_failure(&flow_id, &run_id);
-    if failure.details.is_some() {
+    if let Some(details) = &failure.details {
         assert_worker_failure_stack_trace(&failure, ORIGIN_STACK_DETAIL);
-        let stack_trace = &failure
-            .details
-            .as_ref()
-            .expect("Step failure details")
-            .original_worker_error_stack_trace;
+        let stack_trace = &details.original_worker_error_stack_trace;
         assert!(
             stack_trace.contains("origin_stack_failure"),
             "expected construction-site frame, got {stack_trace}"
