@@ -30,6 +30,7 @@ from .worker_retry_after_flow import (
 
 WAIT_TIMEOUT = timedelta(seconds=30)
 
+
 def test_wait_for_retry_after_stack_trace_and_delay() -> None:
     flow = WorkerRetryAfterWaitForFlow()
     with DexDevTestEnvironment(flow) as environment:
@@ -43,6 +44,7 @@ def test_wait_for_retry_after_stack_trace_and_delay() -> None:
         elapsed = time.monotonic() - started_at
         assert elapsed >= RETRY_AFTER_SECONDS
         assert elapsed < RETRY_POLICY_INTERVAL_SECONDS
+
 
 def test_execute_retry_after_stack_trace_and_delay() -> None:
     flow = WorkerRetryAfterExecuteFlow()
