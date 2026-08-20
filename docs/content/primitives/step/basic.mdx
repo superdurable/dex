@@ -1,12 +1,12 @@
 ---
-title: Durable Step
-sidebar_label: Basic
+title: Durable Step Basic Features
+sidebar_label: Basics
 slug: /primitives/step/basic
 ---
 
-# Durable Step
+# Durable Step Basic Features
 
-Every Step type implements up to two small methods. WaitFor registers durable Conditions and returns a Wait. When a Condition completes, Dex rehydrates the Step and calls Execute. Execute returns a **StepDecision** that moves the Flow forward.
+This page covers the **default** waiting condition, Step decision, and Step options (including default retry). Every Step type implements up to two small methods. WaitFor registers durable Conditions and returns a Wait. When a Condition completes, Dex rehydrates the Step and calls Execute. Execute returns a **StepDecision** that moves the Flow forward.
 
 ## WaitFor and Execute {#waitfor-and-execute}
 
@@ -244,7 +244,7 @@ Ok(Wait::all_of([
 
 Execute returns a **StepDecision** — a movement to one or more next Steps, or a close decision. A single decision can target many Steps, which is how you express branch, loop, and parallel work. See the [parallel](/design-patterns/parallel) and [scalable-parallel](/design-patterns/scalable-parallel) patterns.
 
-Close decisions, cancellation, Flow output, and forceCompleteIfChannelsEmpty are on [Step decision](/primitives/step/step-decision).
+Close decisions, cancellation, Flow output, and forceCompleteIfChannelsEmpty are on [Advanced Step decision](/primitives/step/step-decision). Customize timeouts, retry, and related policies on [Advanced Step options](/primitives/step/step-options).
 
 ## Durable input {#durable-input}
 

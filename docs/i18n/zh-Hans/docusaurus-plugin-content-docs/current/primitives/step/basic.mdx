@@ -1,12 +1,12 @@
 ---
-title: Durable Step
+title: Durable Step 基础功能
 sidebar_label: 基础
 slug: /primitives/step/basic
 ---
 
-# Durable Step
+# Durable Step 基础功能
 
-每种 Step 类型最多实现 两个短方法。WaitFor 注册 durable Condition 并返回 Wait。Condition 完成后，Dex 重新 hydrate 该 Step 并调用 Execute。Execute 返回 **StepDecision** 推动 Flow 前进。
+本页介绍**默认**等待条件、Step decision 与 Step options（含默认 retry）。每种 Step 类型最多实现两个短方法。WaitFor 注册 durable Condition 并返回 Wait。Condition 完成后，Dex 重新 hydrate 该 Step 并调用 Execute。Execute 返回 **StepDecision** 推动 Flow 前进。
 
 ## WaitFor and Execute {#waitfor-and-execute}
 
@@ -244,7 +244,7 @@ Ok(Wait::all_of([
 
 Execute 返回 **StepDecision**——指向一个或多个后续 Step 的 movement，或关闭决策。一次决策可指向多个 Step，用于表达分支、循环与并行。见 [parallel](/design-patterns/parallel) 与 [scalable-parallel](/design-patterns/scalable-parallel) 模式。
 
-关闭决策、取消、Flow 输出与 forceCompleteIfChannelsEmpty 见 [Step decision](/primitives/step/step-decision)。
+关闭决策、取消、Flow 输出与 forceCompleteIfChannelsEmpty 见 [高级 Step decision](/primitives/step/step-decision)。超时、retry 及相关策略的自定义见 [高级 Step options](/primitives/step/step-options)。
 
 ## Durable input {#durable-input}
 

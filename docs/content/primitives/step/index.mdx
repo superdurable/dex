@@ -8,9 +8,9 @@ slug: /primitives/step
 
 A **Step** is the unit of durable control flow. Dex schedules Steps in the background, retries failed methods, and recovers from exhaustion according to your policies. Each Step type waits (WaitFor), runs work (Execute), then returns a **StepDecision** that moves the Flow forward.
 
-- [Basic](/primitives/step/basic) — WaitFor, Execute, anyOf / allOf, durable input, and StepDecision overview
-- [Waiting condition](/primitives/step/waiting-condition) — anyCombinationOf and reading Condition results after WaitFor
-- [Step decision](/primitives/step/step-decision) — movements, close decisions, output, cancellation, and forceCompleteIfChannelsEmpty
-- [Step options](/primitives/step/step-options) — timeout, retry, failure policy, durability, heartbeat, and per-movement overrides
+- [Basics](/primitives/step/basic) — default waiting condition, Step decision, and Step options (including default retry)
+- [Advanced waiting condition](/primitives/step/waiting-condition) — anyCombinationOf and reading Condition results after WaitFor
+- [Advanced Step decision](/primitives/step/step-decision) — movements, close decisions, output, cancellation, and forceCompleteIfChannelsEmpty
+- [Advanced Step options](/primitives/step/step-options) — timeout, retry, failure policy, durability, heartbeat, and per-movement overrides
 
 Runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust.
