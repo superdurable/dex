@@ -74,7 +74,10 @@ impl ParentFlow {
         let capacity = capacity().get(context)?.unwrap_or(100);
         let available = capacity.saturating_sub(parent_queue().size(context)?);
         if tasks.len() > available {
-            return Err(dex_sdk::HandlerError::new("parent task queue is full"));
+            return Err(dex_sdk::HandlerError::new(
+                "ScalableParallel",
+                "parent task queue is full",
+            ));
         }
         for task in tasks {
             parent_queue().publish(context, task)?;

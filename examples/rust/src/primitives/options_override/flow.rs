@@ -63,12 +63,18 @@ impl Step for OverrideSecondStep {
     }
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Err(HandlerError::new("state 2 wait failure"))
+        Err(HandlerError::new(
+            "OptionsOverride",
+            "state 2 wait failure",
+        ))
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         if !context.wait_for_method_failed() {
-            return Err(HandlerError::new("waitFor failure was not reported"));
+            return Err(HandlerError::new(
+                "OptionsOverride",
+                "waitFor failure was not reported",
+            ));
         }
         Ok(StepDecision::graceful_complete(format!("{input}_state2")))
     }

@@ -57,7 +57,7 @@ func (customRetryStep) GetStepOptions() *dex.StepOptions {
 func (customRetryStep) Execute(ctx dex.Context, readyAfterAttempt int) (*dex.StepDecision, error) {
 	if ctx.Attempt() < int32(readyAfterAttempt) {
 		cause := fmt.Errorf("not ready on attempt %d", ctx.Attempt())
-		return nil, dex.RetryAfter(7*time.Second, cause)
+		return nil, dex.RetryAfter(7*time.Second, dex.ErrorWithStack(cause))
 	}
 	return dex.GracefulComplete("ready"), nil
 }

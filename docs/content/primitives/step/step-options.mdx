@@ -199,7 +199,10 @@ Ok(StepDecision::go_to_many([StepMovement::to_with_options(
 )]))
 
 if !context.wait_for_method_failed() {
-    return Err(HandlerError::new("waitFor failure was not reported"));
+    return Err(HandlerError::new(
+        "OptionsOverride",
+        "waitFor failure was not reported",
+    ));
 }
 Ok(StepDecision::graceful_complete(format!("{input}_state2")))
 ```
@@ -330,7 +333,7 @@ throw RetryAfterException.after(
 ```go
 if ctx.Attempt() < int32(readyAfterAttempt) {
 	cause := fmt.Errorf("not ready on attempt %d", ctx.Attempt())
-	return nil, dex.RetryAfter(7*time.Second, cause)
+	return nil, dex.RetryAfter(7*time.Second, dex.ErrorWithStack(cause))
 }
 ```
 
@@ -362,6 +365,7 @@ return gracefulComplete("ready");
 if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
     return Err(HandlerError::retry_after(
         7,
+        "CustomRetry",
         format!("not ready on attempt {}", context.attempt()),
     ));
 }
@@ -375,7 +379,7 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 - **Cadence** rejects dynamic intervals with INVALID_USER_FLOW_CODE.
 - On Temporal, the **current attempt failure** (not RetryAfterException itself) is the reported Worker error and appears in lastFailureInfo.
 
-When the Worker SDK attaches stack_trace on WorkerErrorResponse, Dex Web shows it under **Last failure** as originalWorkerErrorStackTrace.
+When the Worker SDK attaches stack_trace on WorkerErrorResponse, Dex Web shows it under **Last failure** as originalWorkerErrorStackTrace. Go apps that want an origin stack wrap the cause with `dex.ErrorWithStack` (nest it under `RetryAfter` when using custom retry). Rust `HandlerError` constructors capture a construction-site stack automatically.
 
 
 ## Durability {#durability}

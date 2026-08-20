@@ -96,7 +96,10 @@ impl Step for WaitTypesStep {
                 ]),
                 ConditionCombination::all_of([signal_b_channel().for_one().with_id("signal-b")]),
             ])),
-            _ => Err(HandlerError::new(format!("unknown wait mode {}", input.mode))),
+            _ => Err(HandlerError::new(
+                "WaitTypes",
+                format!("unknown wait mode {}", input.mode),
+            )),
         }
     }
 

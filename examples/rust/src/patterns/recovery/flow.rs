@@ -54,7 +54,7 @@ impl Step for Reserve {
     type Input = String;
 
     fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        Err(HandlerError::new("reservation failed"))
+        Err(HandlerError::new("Recovery", "reservation failed"))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {

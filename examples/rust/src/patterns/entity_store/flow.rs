@@ -127,16 +127,25 @@ impl Flow for UserProfileFlow {
 
 fn validate_profile(profile: &UserProfile) -> HandlerResult<()> {
     if profile.display_name.trim().is_empty() {
-        return Err(HandlerError::new("displayName is required"));
+        return Err(HandlerError::new(
+            "EntityStore",
+            "displayName is required",
+        ));
     }
     if profile.email.trim().is_empty() {
-        return Err(HandlerError::new("email is required"));
+        return Err(HandlerError::new("EntityStore", "email is required"));
     }
     if profile.last_logged_in_time.trim().is_empty() {
-        return Err(HandlerError::new("lastLoggedInTime is required"));
+        return Err(HandlerError::new(
+            "EntityStore",
+            "lastLoggedInTime is required",
+        ));
     }
     if profile.metadata.source.trim().is_empty() {
-        return Err(HandlerError::new("metadata.source is required"));
+        return Err(HandlerError::new(
+            "EntityStore",
+            "metadata.source is required",
+        ));
     }
     Ok(())
 }

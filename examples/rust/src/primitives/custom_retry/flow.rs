@@ -48,6 +48,7 @@ impl Step for CustomRetryStep {
         if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
             return Err(HandlerError::retry_after(
                 7,
+                "CustomRetry",
                 format!("not ready on attempt {}", context.attempt()),
             ));
         }

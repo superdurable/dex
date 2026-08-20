@@ -199,7 +199,10 @@ Ok(StepDecision::go_to_many([StepMovement::to_with_options(
 )]))
 
 if !context.wait_for_method_failed() {
-    return Err(HandlerError::new("waitFor failure was not reported"));
+    return Err(HandlerError::new(
+        "OptionsOverride",
+        "waitFor failure was not reported",
+    ));
 }
 Ok(StepDecision::graceful_complete(format!("{input}_state2")))
 ```
@@ -330,7 +333,7 @@ throw RetryAfterException.after(
 ```go
 if ctx.Attempt() < int32(readyAfterAttempt) {
 	cause := fmt.Errorf("not ready on attempt %d", ctx.Attempt())
-	return nil, dex.RetryAfter(7*time.Second, cause)
+	return nil, dex.RetryAfter(7*time.Second, dex.ErrorWithStack(cause))
 }
 ```
 
@@ -362,6 +365,7 @@ return gracefulComplete("ready");
 if i32::try_from(context.attempt()).unwrap_or(i32::MAX) < ready_after_attempt {
     return Err(HandlerError::retry_after(
         7,
+        "CustomRetry",
         format!("not ready on attempt {}", context.attempt()),
     ));
 }
@@ -375,7 +379,7 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 - **Cadence** 以 INVALID_USER_FLOW_CODE 拒绝动态间隔。
 - 在 Temporal 上，**当前 attempt 失败**（而非 RetryAfterException 本身）是上报的 Worker 错误，出现在 lastFailureInfo。
 
-Worker SDK 在 WorkerErrorResponse 上附加 stack_trace 时，Dex Web 在 **Last failure** 下以 originalWorkerErrorStackTrace 显示。
+Worker SDK 在 WorkerErrorResponse 上附加 stack_trace 时，Dex Web 在 **Last failure** 下以 originalWorkerErrorStackTrace 显示。Go 应用若要上报 origin stack，用 `dex.ErrorWithStack` 包装 cause（配合 custom retry 时嵌在 `RetryAfter` 里）。Rust 的 `HandlerError` 构造函数会自动捕获 construction-site stack。
 
 
 ## Durability {#durability}

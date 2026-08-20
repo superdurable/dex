@@ -241,9 +241,9 @@ dependencies = [
 
 [[package]]
 name = "dex-blob-cache"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b7e9590550bd2f7280b0e74f178c69f6da9b081140ea7f39742ba13a087ddc4"
+checksum = "486da76cf69035d017785352bd45ee5d7c6b1dbffab3d69eb6ea818231274c80"
 dependencies = [
  "crc32c",
  "sha2",
@@ -267,9 +267,9 @@ dependencies = [
 
 [[package]]
 name = "dex-protocol"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63d7fadf945c4c8bf6edd2b54222a2c0d8f7b1c073abfcc4a8d752ca78625d2a"
+checksum = "8435ede4fe36c4d628e3ff0463eddae18c6ee6c55936f0bec83c9669f41598a4"
 dependencies = [
  "prost",
  "prost-types",
@@ -281,9 +281,9 @@ dependencies = [
 
 [[package]]
 name = "dex-sdk"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9da1b5caa1eca0f1078c4de4137975cce6f83a7490650ef00e5628fd9f0316f7"
+checksum = "b9af169926f4bf0c68655c1e8f4ed17ed964440575369b9298bdea4454f470ef"
 dependencies = [
  "dex-blob-cache",
  "dex-protocol",
@@ -346,7 +346,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1358,7 +1358,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1675,7 +1675,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
