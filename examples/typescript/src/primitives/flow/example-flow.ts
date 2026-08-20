@@ -20,6 +20,7 @@ import {
   StepList,
   Wait,
   doubleCodec,
+  forceFail,
   goTo,
   gracefulComplete,
   rpc,
@@ -82,6 +83,11 @@ export class ExampleFlow implements Flow<number> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return { attributes: [status], channels: [notify] };
+  }
+
+  public handleTimeout(context: Context): StepDecision {
+    status.set(context, "timed out");
+    return forceFail("processing deadline reached");
   }
 
   @rpc({ outputCodec: stringCodec })

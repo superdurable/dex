@@ -44,7 +44,7 @@ def start_flow_options() -> StartFlowOptions:
 def example_start_flow_options() -> StartFlowOptions:
     return StartFlowOptions(
         timeout=timedelta(minutes=30),
-        timeout_policy=FlowTimeoutPolicy.FAIL,
+        timeout_policy=FlowTimeoutPolicy.HANDLER,
         start_delay=timedelta(minutes=5),
         id_reuse_policy=IdReusePolicy.DISALLOW,
         retry_policy=RetryPolicy(

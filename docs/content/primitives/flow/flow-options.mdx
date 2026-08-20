@@ -42,7 +42,7 @@ Dex allows you to customize the behavior of a Flow execution.
 def example_start_flow_options() -> StartFlowOptions:
     return StartFlowOptions(
         timeout=timedelta(minutes=30),
-        timeout_policy=FlowTimeoutPolicy.FAIL,
+        timeout_policy=FlowTimeoutPolicy.HANDLER,
         start_delay=timedelta(minutes=5),
         id_reuse_policy=IdReusePolicy.DISALLOW,
         retry_policy=RetryPolicy(
@@ -72,7 +72,7 @@ func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
 	stepDurability := sdk.StepDurabilitySync
 	return sdk.StartFlowOptions{
 		Timeout:       &timeout,
-		TimeoutPolicy: sdk.TimeoutFail,
+		TimeoutPolicy: sdk.TimeoutHandler,
 		StartDelay:    &startDelay,
 		IDReusePolicy: sdk.IDReuseDisallow,
 		RetryPolicy: &sdk.FlowRetryPolicy{
@@ -98,7 +98,7 @@ func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
 private static StartFlowOptions exampleStartFlowOptions() {
     return StartFlowOptions.newBuilder()
             .timeout(Duration.ofMinutes(30))
-            .timeoutPolicy(FlowTimeoutPolicy.FAIL)
+            .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
             .startDelay(Duration.ofMinutes(5))
             .idReusePolicy(IdReusePolicy.DISALLOW)
             .retryPolicy(
@@ -126,7 +126,7 @@ private static StartFlowOptions exampleStartFlowOptions() {
 export function exampleStartFlowOptions(): StartFlowOptions {
   return {
     timeoutMs: 30 * 60_000,
-    timeoutPolicy: FlowTimeoutPolicy.FAIL,
+    timeoutPolicy: FlowTimeoutPolicy.HANDLER,
     startDelayMs: 5 * 60_000,
     idReusePolicy: IdReusePolicy.DISALLOW,
     retryPolicy: {
@@ -152,7 +152,7 @@ export function exampleStartFlowOptions(): StartFlowOptions {
 pub fn example_start_flow_options() -> StartFlowOptions {
     StartFlowOptions::new()
         .timeout(Duration::from_secs(30 * 60))
-        .timeout_policy(FlowTimeoutPolicy::Fail)
+        .timeout_policy(FlowTimeoutPolicy::Handler)
         .start_delay(Duration::from_secs(5 * 60))
         .id_reuse_policy(IdReusePolicy::Disallow)
         .retry_policy(
@@ -181,6 +181,78 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 - **HANDLER** — run the Flow timeout handler once.
 
 Dex uses **HANDLER** by default when the Flow has a timeout handler. Otherwise it uses **FAIL**. **HANDLER** is invalid when the Flow has no handler. Continue-as-new keeps the current deadline. A retry starts with a new timeout budget.
+
+Set **TimeoutPolicy** to **HANDLER** to run this code when the timeout fires. This handler records why the Flow ended, then fails it with an application reason.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
+    go: 'examples/go/primitives/flow/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
+    typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
+    rust: 'examples/rust/src/primitives/flow/flow.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+def handle_timeout(self, context: Context) -> StepDecision:
+    status.set(context, "timed out")
+    return force_fail("processing deadline reached")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (*ExampleFlow) HandleTimeout(ctx dex.Context) (*dex.StepDecision, error) {
+	if err := Status.Set(ctx, "timed out"); err != nil {
+		return nil, err
+	}
+	return dex.ForceFail("processing deadline reached"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepDecision handleTimeout(final Context context) {
+    status.set(context, "timed out");
+    return StepDecision.forceFail("processing deadline reached");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public handleTimeout(context: Context): StepDecision {
+  status.set(context, "timed out");
+  return forceFail("processing deadline reached");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+impl ExampleFlow {
+    fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
+        status().set(context, "timed out".to_string())?;
+        Ok(StepDecision::force_fail("processing deadline reached"))
+    }
+}
+
+impl Flow for ExampleFlow {
+    fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
+        Some(Self::handle_timeout)
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ### Flow ID, RequestID, and AlreadyStartedOptions {#flow-id-request-id-and-already-started}
 

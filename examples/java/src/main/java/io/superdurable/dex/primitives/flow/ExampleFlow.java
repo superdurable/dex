@@ -47,6 +47,12 @@ public class ExampleFlow implements Flow<Integer> {
         return PersistenceSchema.of(status, notify);
     }
 
+    @Override
+    public StepDecision handleTimeout(final Context context) {
+        status.set(context, "timed out");
+        return StepDecision.forceFail("processing deadline reached");
+    }
+
     @RPC
     public RPCResult<String> describe(final Context context) {
         return RPCResult.of(status.get(context));

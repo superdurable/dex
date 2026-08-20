@@ -64,7 +64,7 @@ func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
 	stepDurability := sdk.StepDurabilitySync
 	return sdk.StartFlowOptions{
 		Timeout:       &timeout,
-		TimeoutPolicy: sdk.TimeoutFail,
+		TimeoutPolicy: sdk.TimeoutHandler,
 		StartDelay:    &startDelay,
 		IDReusePolicy: sdk.IDReuseDisallow,
 		RetryPolicy: &sdk.FlowRetryPolicy{

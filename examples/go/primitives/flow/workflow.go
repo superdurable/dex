@@ -57,6 +57,13 @@ func (*ExampleFlow) Describe(ctx dex.Context, _ dex.None) (*dex.RPCResult[string
 	return &dex.RPCResult[string]{Output: value}, nil
 }
 
+func (*ExampleFlow) HandleTimeout(ctx dex.Context) (*dex.StepDecision, error) {
+	if err := Status.Set(ctx, "timed out"); err != nil {
+		return nil, err
+	}
+	return dex.ForceFail("processing deadline reached"), nil
+}
+
 type ExampleStep struct {
 	dex.StepDefaults
 }

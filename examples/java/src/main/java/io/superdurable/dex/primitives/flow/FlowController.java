@@ -44,7 +44,7 @@ public final class FlowController {
     private static StartFlowOptions exampleStartFlowOptions() {
         return StartFlowOptions.newBuilder()
                 .timeout(Duration.ofMinutes(30))
-                .timeoutPolicy(FlowTimeoutPolicy.FAIL)
+                .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
                 .startDelay(Duration.ofMinutes(5))
                 .idReusePolicy(IdReusePolicy.DISALLOW)
                 .retryPolicy(

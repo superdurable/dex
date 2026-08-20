@@ -51,7 +51,7 @@ fn start_flow_options() -> StartFlowOptions {
 pub fn example_start_flow_options() -> StartFlowOptions {
     StartFlowOptions::new()
         .timeout(Duration::from_secs(30 * 60))
-        .timeout_policy(FlowTimeoutPolicy::Fail)
+        .timeout_policy(FlowTimeoutPolicy::Handler)
         .start_delay(Duration::from_secs(5 * 60))
         .id_reuse_policy(IdReusePolicy::Disallow)
         .retry_policy(

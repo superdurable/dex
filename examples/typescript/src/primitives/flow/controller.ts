@@ -38,7 +38,7 @@ function startFlowOptions(): StartFlowOptions {
 export function exampleStartFlowOptions(): StartFlowOptions {
   return {
     timeoutMs: 30 * 60_000,
-    timeoutPolicy: FlowTimeoutPolicy.FAIL,
+    timeoutPolicy: FlowTimeoutPolicy.HANDLER,
     startDelayMs: 5 * 60_000,
     idReusePolicy: IdReusePolicy.DISALLOW,
     retryPolicy: {

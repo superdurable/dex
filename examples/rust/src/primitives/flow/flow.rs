@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use dex_sdk::{
-    Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
-    Step, StepDecision, StepList, Wait,
+    Attribute, Channel, Context, Flow, FlowTimeoutHandler, HandlerResult, PersistenceSchema, Rpc,
+    RpcList, RpcResult, Step, StepDecision, StepList, Wait,
 };
 
 pub const DESCRIBE: Rpc<(), String> = Rpc::new("Describe");
@@ -38,6 +38,11 @@ impl ExampleFlow {
         let value = status().get(context)?.unwrap_or_default();
         Ok(RpcResult::new(value))
     }
+
+    fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
+        status().set(context, "timed out".to_string())?;
+        Ok(StepDecision::force_fail("processing deadline reached"))
+    }
 }
 
 impl Flow for ExampleFlow {
@@ -51,6 +56,10 @@ impl Flow for ExampleFlow {
         PersistenceSchema::new()
             .attribute(&status())
             .channel(&notify())
+    }
+
+    fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
+        Some(Self::handle_timeout)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
