@@ -23,6 +23,10 @@ Do not use `### Java` / `### Go` headings, stacked fenced blocks per language,
 or a single-language sample when the same API exists in other SDKs.
 
 Exempt: `bash` / `text` fences, tables of API names, and IDL excerpts.
+
+In prose outside fenced blocks, do not use inline backticks for API names,
+methods, types, or identifiers. Use **bold** instead. See
+`.cursor/rules/docs-writing.mdc`.
 Use the exact SDK nouns and call sites; do not invent APIs.
 
 Application snippets must be copied from runnable files under `examples/`.

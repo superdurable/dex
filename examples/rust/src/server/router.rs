@@ -57,6 +57,7 @@ pub fn build_router(client: SharedClient) -> axum::Router {
             client.clone(),
         ))
         .merge(patterns::timeout::controller::mount(client.clone()))
+        .merge(primitives::flow::controller::mount(client.clone()))
         .merge(primitives::step::controller::mount(client.clone()))
         .merge(primitives::custom_retry::controller::mount(client.clone()))
         .merge(primitives::durability::controller::mount(client.clone()))

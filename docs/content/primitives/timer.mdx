@@ -9,11 +9,11 @@ A **Timer** is a durable sleep Condition that resumes a waiting Step. Sleep for 
 
 ## Why you need it
 
-Reminders, trials, timeouts, and delayed work all need a clock that survives process death. A Timer is that clock, expressed as a `WaitFor` Condition.
+Reminders, trials, timeouts, and delayed work all need a clock that survives process death. A Timer is that clock, expressed as a **WaitFor** Condition.
 
 ## Wait on a duration
 
-Use `Timer.by_duration` (or calendar APIs) inside `WaitFor`.
+Use **Timer.by_duration** (or calendar APIs) inside **WaitFor**.
 
 Choose an SDK (preference is sticky in this browser; default Python).
 
@@ -55,9 +55,9 @@ waitFor(_context: Context, _input: void): Wait {
 </SdkSnippet>
 </SdkTabs>
 
-Combine a Timer with a Channel or SubFlow in `Wait.any_of` / `all_of` so a Step can proceed on the first of several events. See [Step waiting](/primitives/step/basic#waitfor-and-execute).
+Combine a Timer with a Channel or SubFlow in **Wait.any_of** / **all_of** so a Step can proceed on the first of several events. See [Step waiting](/primitives/step/basic#waitfor-and-execute).
 
-Clients can skip a pending Timer with `SkipTimer`. See [Client APIs](/primitives/client-apis) and the [resettable timer](/design-patterns/resettable-timer) pattern.
+Clients can skip a pending Timer with **SkipTimer**. See [Client APIs](/primitives/client-apis) and the [resettable timer](/design-patterns/resettable-timer) pattern.
 
 An ASYNC Step's local activity can delay a sibling from starting its Timer, or delay processing a Timer that already elapsed, until the Workflow Task resumes. Use SYNC durability when timer precision is required. See [Step options](/primitives/step/step-options#heartbeat).
 

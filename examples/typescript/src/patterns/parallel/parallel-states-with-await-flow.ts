@@ -35,6 +35,8 @@ import { type JobSeeker } from "./job-seeker.js";
 
 export const NOTIFY_CHANNEL = "test_notify_channel";
 
+const notifyChannel = new Channel(NOTIFY_CHANNEL, stringCodec);
+
 const countInputCodec = doubleCodec;
 
 class Starting implements Step<number> {
@@ -80,7 +82,7 @@ class NotifyUser implements Step<JobSeeker> {
     const message = `[FAKE] Notifying user of something: ${jobSeeker.id}`;
     console.log(message);
     context.recordEvent("notification", message, stringCodec);
-    this.flow.notifyChannel.publish(context, "I sent something");
+    notifyChannel.publish(context, "I sent something");
     return deadEnd();
   }
 }
@@ -95,7 +97,7 @@ class AwaitAllUsersNotified implements Step<number> {
   }
 
   public waitFor(_context: Context, countOfJobSeekers: number): Wait {
-    return Wait.until(this.flow.notifyChannel.forN(countOfJobSeekers));
+    return Wait.until(notifyChannel.forN(countOfJobSeekers));
   }
 
   public execute(context: Context, countOfJobSeekers: number): StepDecision {
@@ -106,8 +108,6 @@ class AwaitAllUsersNotified implements Step<number> {
 }
 
 export class ParallelStatesWithAwaitFlow implements Flow<number> {
-  public readonly notifyChannel = new Channel(NOTIFY_CHANNEL, stringCodec);
-
   private readonly starting = new Starting(this);
   private readonly notifyUser = new NotifyUser(this);
   private readonly awaitAllUsersNotified = new AwaitAllUsersNotified(this);
@@ -132,7 +132,7 @@ export class ParallelStatesWithAwaitFlow implements Flow<number> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [this.notifyChannel] };
+    return { channels: [notifyChannel] };
   }
 }
 

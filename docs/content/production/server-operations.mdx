@@ -27,13 +27,13 @@ This supervises Temporal, Dex Server, and Dex Web for local use. See [CLI README
 
 ## Configuration
 
-Server configuration is YAML/typed config for the Go server (not every knob is exposed on `dexcli dev`). For Docker-based deploys, see archived notes under `docs/archive/` and current `server/config` docs in the repo.
+Server configuration is YAML/typed config for the Go server (not every knob is exposed on **dexcli dev**). For Docker-based deploys, see archived notes under **docs/archive/** and current **server/config** docs in the repo.
 
-The blob section is named `blobStore`; the former `externalStorage` key is not
-accepted. `BlobStoreConfig` contains `BlobStoreConfigEntry` values.
+The blob section is named **blobStore**; the former **externalStorage** key is not
+accepted. **BlobStoreConfig** contains **BlobStoreConfigEntry** values.
 
-An optional `blobStore.blobCache` caches only S3-backed Attribute objects. A
-non-empty `directory` enables it, must be exclusive to one Server process, and
+An optional **blobStore.blobCache** caches only S3-backed Attribute objects. A
+non-empty **directory** enables it, must be exclusive to one Server process, and
 defaults to a 1 GiB budget. Ristretto attempts SampledLFU eviction until an
 eligible object fits, while TinyLFU may reject a colder candidate to preserve
 hot entries. Oversized and rejected objects bypass the cache without failing
@@ -47,4 +47,4 @@ requirements.
 
 ## Backends
 
-Dex currently interprets on Temporal (primary for `dexcli`) and can target Cadence in server builds that enable it. Production ops for the underlying workflow engine (persistence, multi-cluster, upgrades) follow that engine’s runbooks; Dex adds Flow-level semantics on top.
+Dex currently interprets on Temporal (primary for **dexcli**) and can target Cadence in server builds that enable it. Production ops for the underlying workflow engine (persistence, multi-cluster, upgrades) follow that engine’s runbooks; Dex adds Flow-level semantics on top.

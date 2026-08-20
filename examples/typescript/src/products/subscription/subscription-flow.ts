@@ -51,11 +51,12 @@ const customerCodec = jsonCodec<Customer>({
   decode: decodeCustomer,
 });
 
+export const cancelSubscription = new Channel("cancel-subscription", voidCodec);
+export const updateChargeAmount = new Channel("update-charge-amount", doubleCodec);
+
 export class SubscriptionFlow implements Flow<Customer> {
   public readonly billingPeriodNumber = new Attribute("billing-period-number", doubleCodec);
   public readonly customerDetails = new Attribute("customer", customerCodec);
-  public readonly cancelSubscription = new Channel("cancel-subscription", voidCodec);
-  public readonly updateChargeAmount = new Channel("update-charge-amount", doubleCodec);
 
   public readonly initialize = new Initialize(this);
   public readonly trial = new Trial(this);
@@ -81,7 +82,7 @@ export class SubscriptionFlow implements Flow<Customer> {
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.billingPeriodNumber, this.customerDetails],
-      channels: [this.cancelSubscription, this.updateChargeAmount],
+      channels: [cancelSubscription, updateChargeAmount],
     };
   }
 
@@ -166,7 +167,7 @@ class Cancel implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.until(this.flow.cancelSubscription.forOne());
+    return Wait.until(cancelSubscription.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
@@ -184,11 +185,11 @@ class UpdateChargeAmount implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.until(this.flow.updateChargeAmount.forOne());
+    return Wait.until(updateChargeAmount.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    const amounts = this.flow.updateChargeAmount.results(context);
+    const amounts = updateChargeAmount.results(context);
     const amount = SubscriptionBilling.requireSingleChargeAmount(amounts);
     const customer = this.flow.customerDetails.get(context);
     SubscriptionBilling.applyChargeAmount(customer, amount);

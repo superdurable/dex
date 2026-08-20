@@ -76,14 +76,21 @@ from dex_examples.primitives.attribute.attribute_flow import AttributeFlow
 from dex_examples.primitives.channel.channel_flow import ChannelFlow
 from dex_examples.primitives.client_apis.client_apis_flow import ClientApisFlow
 from dex_examples.primitives.custom_retry.custom_retry_flow import CustomRetryFlow
+from dex_examples.primitives.flow.example_flow import ExampleFlow
 from dex_examples.primitives.durability.durability_flow import DurabilityFlow
 from dex_examples.primitives.heartbeat.heartbeat_flow import HeartbeatFlow
 from dex_examples.primitives.options_override.options_override_flow import (
     OptionsOverrideFlow,
 )
+from dex_examples.primitives.proceed_on_wait_failure.proceed_on_wait_failure_flow import (
+    ProceedOnWaitFailureFlow,
+)
 from dex_examples.primitives.rpc.rpc_flow import RpcFlow
 from dex_examples.primitives.step.retry_flow import RetryFlow
 from dex_examples.primitives.step.step_flow import StepFlow
+from dex_examples.primitives.step_execution_local.step_execution_local_flow import (
+    StepExecutionLocalFlow,
+)
 from dex_examples.primitives.step_decision.step_decision_flow import StepDecisionFlow
 from dex_examples.primitives.subflow.subflow_flow import SubFlowChildFlow, SubFlowParentFlow
 from dex_examples.primitives.timer.timer_flow import TimerFlow
@@ -148,12 +155,15 @@ class ExampleApp:
         self.request_receiver = RequestReceiverFlow(client_provider, self.parent_flow)
         self.parent_flow_v2 = ParentFlowV2(client_provider, self.child_flow)
 
+        self.example_flow = ExampleFlow()
         self.step = StepFlow()
         self.step_retry = RetryFlow()
         self.custom_retry = CustomRetryFlow()
         self.durability = DurabilityFlow()
         self.heartbeat = HeartbeatFlow()
         self.options_override = OptionsOverrideFlow()
+        self.proceed_on_wait_failure = ProceedOnWaitFailureFlow()
+        self.step_execution_local = StepExecutionLocalFlow()
         self.step_decision = StepDecisionFlow()
         self.wait_types = WaitTypesFlow()
         self.attribute = AttributeFlow()
@@ -198,12 +208,15 @@ class ExampleApp:
             self.parent_flow,
             self.request_receiver,
             self.parent_flow_v2,
+            self.example_flow,
             self.step,
             self.step_retry,
             self.custom_retry,
             self.durability,
             self.heartbeat,
             self.options_override,
+            self.proceed_on_wait_failure,
+            self.step_execution_local,
             self.step_decision,
             self.wait_types,
             self.attribute,

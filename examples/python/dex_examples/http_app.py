@@ -64,6 +64,7 @@ from dex_examples.primitives.heartbeat.controller import create_heartbeat_bluepr
 from dex_examples.primitives.options_override.controller import (
     create_options_override_blueprint,
 )
+from dex_examples.primitives.flow.controller import create_flow_blueprint
 from dex_examples.primitives.rpc.controller import create_rpc_blueprint
 from dex_examples.primitives.step.controller import create_step_blueprint
 from dex_examples.primitives.step_decision.controller import create_step_decision_blueprint
@@ -130,6 +131,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_timeout_blueprint(app_state))
     quart_app.register_blueprint(create_resource_control_blueprint(app_state))
 
+    quart_app.register_blueprint(create_flow_blueprint(app_state))
     quart_app.register_blueprint(create_step_blueprint(app_state))
     quart_app.register_blueprint(create_custom_retry_blueprint(app_state))
     quart_app.register_blueprint(create_durability_blueprint(app_state))

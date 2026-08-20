@@ -15,11 +15,13 @@
  */
 
 import {
+  Channel,
   StepList,
   Wait,
   doubleCodec,
   goTo,
   gracefulComplete,
+  stringCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -27,18 +29,19 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-class StepFirst implements Step<number> {
+const approval = new Channel("Approval", stringCodec);
+
+class ExampleStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public constructor(private readonly flow: StepFlow) {}
 
   public getStepType(): string {
-    return "StepFirst";
+    return "ExampleStep";
   }
 
-  public waitFor(context: Context, input: number): Wait {
-    context.setStepExecutionLocal("input", input, doubleCodec);
-    return Wait.skipImmediately();
+  public waitFor(_context: Context, _input: number): Wait {
+    return Wait.until(approval.forOne());
   }
 
   public execute(_context: Context, input: number): StepDecision {
@@ -59,7 +62,7 @@ class StepSecond implements Step<number> {
 }
 
 export class StepFlow implements Flow<number> {
-  private readonly first = new StepFirst(this);
+  private readonly example = new ExampleStep(this);
   private readonly second = new StepSecond();
 
   public get secondStep(): Step<number> {
@@ -71,11 +74,11 @@ export class StepFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return StepList.startStep(this.first).otherSteps(this.second);
+    return StepList.startStep(this.example).otherSteps(this.second);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return {};
+    return { channels: [approval] };
   }
 }
 

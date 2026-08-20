@@ -22,6 +22,8 @@ package step
 
 import "github.com/superdurable/dex/sdk-go/dex"
 
+var Approval = dex.DefineChannel[string]("Approval")
+
 type StepFlow struct {
 	dex.FlowDefaults
 }
@@ -32,27 +34,24 @@ func NewStepFlow() *StepFlow {
 
 func (*StepFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(stepFirstStep{}),
+		dex.DefineStartStep(ExampleStep{}),
 		dex.DefineStep(stepSecondStep{}),
 	}
 }
 
 func (*StepFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{}
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{Approval}}
 }
 
-type stepFirstStep struct {
+type ExampleStep struct {
 	dex.StepDefaults
 }
 
-func (stepFirstStep) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
-	if err := ctx.SetStepExecutionLocal("input", input); err != nil {
-		return nil, err
-	}
-	return dex.SkipWaitImmediately(), nil
+func (ExampleStep) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
+	return dex.Until(Approval.ForOne()), nil
 }
 
-func (stepFirstStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
 	return dex.GoTo(stepSecondStep{}, input+1), nil
 }
 

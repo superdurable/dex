@@ -1,26 +1,31 @@
 ---
-title: Durable Step 基础功能
+title: Step 基础功能
 sidebar_label: 基础
 slug: /primitives/step/basic
 ---
 
-# Durable Step 基础功能
+import StepWaitExecuteDiagram from '@site/src/components/primitives/step/StepWaitExecuteDiagram';
+import StepDecisionMovementsDiagram from '@site/src/components/primitives/step/StepDecisionMovementsDiagram';
 
-本页介绍 Step 的默认形态：typed input、可选的 `WaitFor`、必需的 `Execute`、通过 `StepDecision` 做 movement，以及默认 `StepOptions` 行为。
+# Step 基础功能
+
+本页介绍 Step 的默认形态：typed input、可选的 **WaitFor**、必需的 **Execute**、通过 **StepDecision** 做 movement，以及默认 **StepOptions** 行为。
 
 Dex Step 由原生代码实现。实现该 Step 的 struct 或 class 决定 **StepType**。在大多数语言里，SDK 默认从原生类型名推导 StepType；你也可以显式覆盖。
 
-同一个 Step type 可以在同一个 Flow 中执行多次。每次执行都是一个 **StepExecution**，对应一个 **StepExecutionID**，格式是 `<StepType>-<Number>`，由 Dex 分配并维护。
+同一个 Step type 可以在同一个 Flow 中执行多次。每次执行都是一个 **StepExecution**，对应一个 **StepExecutionID**，格式是 **StepType**-**Number**，由 Dex 分配并维护。
 
 ## WaitFor and Execute {#waitfor-and-execute}
 
 Step implementation 通常只有一个或两个小方法：**WaitFor** -> **Execute**。
 
-`WaitFor` 是可选的。它向 Dex Server 返回 durable `Wait`。Dex 持久化该 waiting state，代表应用持续评估这些条件；条件满足后再调用 `Execute`。
+**WaitFor** 是可选的。它向 Dex Server 返回 durable **Wait**。Dex 持久化该 waiting state，代表应用持续评估这些条件；条件满足后再调用 **Execute**。
 
-如果 Step 没有实现 `WaitFor`，则会直接调用 `Execute`。
+如果 Step 没有实现 **WaitFor**，则会直接调用 **Execute**。
 
-`Execute` 是必需的。它返回 `StepDecision`，用于流转到下一个 Step、分支到多个 Step，或关闭 Flow。
+**Execute** 是必需的。它返回 **StepDecision**，用于流转到下一个 Step、分支到多个 Step，或关闭 Flow。
+
+<StepWaitExecuteDiagram />
 
 <SdkTabs
   examples={{
@@ -33,19 +38,22 @@ Step implementation 通常只有一个或两个小方法：**WaitFor** -> **Exec
 <SdkSnippet lang="python">
 
 ```python
+approval = Channel("Approval", str)
+
+
 class StepSecond(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
         return graceful_complete(input + 1)
 
 
-class StepFirst(Step[int]):
+class ExampleStep(Step[int]):
     def __init__(self, second: StepSecond) -> None:
         self.second = second
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        context.set_step_execution_local("input", input)
-        return Wait.skip_immediately()
+        del context, input
+        return Wait.until(approval.for_one())
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
@@ -56,18 +64,17 @@ class StepFirst(Step[int]):
   <SdkSnippet lang="go">
 
 ```go
-type stepFirstStep struct {
+var Approval = dex.DefineChannel[string]("Approval")
+
+type ExampleStep struct {
 	dex.StepDefaults
 }
 
-func (stepFirstStep) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
-	if err := ctx.SetStepExecutionLocal("input", input); err != nil {
-		return nil, err
-	}
-	return dex.SkipWaitImmediately(), nil
+func (ExampleStep) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
+	return dex.Until(Approval.ForOne()), nil
 }
 
-func (stepFirstStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
 	return dex.GoTo(stepSecondStep{}, input+1), nil
 }
 
@@ -84,7 +91,7 @@ func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, erro
   <SdkSnippet lang="java">
 
 ```java
-final class StepFirst implements Step<Integer> {
+final class ExampleStep implements Step<Integer> {
     @Override
     public Class<Integer> getInputType() {
         return Integer.class;
@@ -92,8 +99,7 @@ final class StepFirst implements Step<Integer> {
 
     @Override
     public Wait waitFor(final Context context, final Integer input) {
-        context.setStepExecutionLocal("input", input, Integer.class);
-        return Wait.skipImmediately();
+        return Wait.until(approval.forOne());
     }
 
     @Override
@@ -119,18 +125,19 @@ static final class StepSecond implements Step<Integer> {
   <SdkSnippet lang="typescript">
 
 ```typescript
-class StepFirst implements Step<number> {
+const approval = new Channel("Approval", stringCodec);
+
+class ExampleStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public constructor(private readonly flow: StepFlow) {}
 
   public getStepType(): string {
-    return "StepFirst";
+    return "ExampleStep";
   }
 
-  public waitFor(context: Context, input: number): Wait {
-    context.setStepExecutionLocal("input", input, doubleCodec);
-    return Wait.skipImmediately();
+  public waitFor(_context: Context, _input: number): Wait {
+    return Wait.until(approval.forOne());
   }
 
   public execute(_context: Context, input: number): StepDecision {
@@ -155,15 +162,18 @@ class StepSecond implements Step<number> {
   <SdkSnippet lang="rust">
 
 ```rust
-#[derive(Default)]
-struct StepFirst;
+fn approval() -> Channel<String> {
+    Channel::new("Approval")
+}
 
-impl Step for StepFirst {
+#[derive(Default)]
+struct ExampleStep;
+
+impl Step for ExampleStep {
     type Input = i32;
 
-    fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        context.set_step_execution_local("input", input)?;
-        Ok(Wait::skip_immediately())
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(approval().for_one()))
     }
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
@@ -204,7 +214,7 @@ anyOf 在**任一** listed Condition 完成时恢复 Step。先完成的胜出�
 
 ```python
 return Wait.any_of(
-    self.flow.channel_a.for_one(),
+    channel_a.for_one(),
     Timer.by_duration(timeout),
 )
 ```
@@ -233,7 +243,7 @@ return Wait.anyOf(
 
 ```typescript
 return Wait.anyOf(
-  this.flow.channelA.forOne(),
+  channelA.forOne(),
   Timer.byDuration(timeoutMs),
 );
 ```
@@ -267,8 +277,8 @@ allOf 仅在**每个** Condition 都完成后恢复。
 
 ```python
 return Wait.all_of(
-    self.flow.channel_a.for_one(),
-    self.flow.channel_b.for_one(),
+    channel_a.for_one(),
+    channel_b.for_one(),
 )
 ```
 
@@ -296,8 +306,8 @@ return Wait.allOf(
 
 ```typescript
 return Wait.allOf(
-  this.flow.channelA.forOne(),
-  this.flow.channelB.forOne(),
+  channelA.forOne(),
+  channelB.forOne(),
 );
 ```
 
@@ -317,7 +327,11 @@ Ok(Wait::all_of([
 
 ## StepDecision（movement）{#stepdecision-movements}
 
-Execute 返回 **StepDecision**——指向一个或多个后续 Step 的 movement，或关闭决策。一次决策可指向多个 Step，用于表达分支、循环与并行。见 [parallel](/design-patterns/parallel) 与 [scalable-parallel](/design-patterns/scalable-parallel) 模式。
+Execute 返回 **StepDecision**——指向一个或多个后续 Step 的 movement，或关闭决策。一次决策可指向多个 Step，用于表达分支、循环与并行。
+
+<StepDecisionMovementsDiagram />
+
+见 [parallel](/design-patterns/parallel) 与 [scalable-parallel](/design-patterns/scalable-parallel) 模式。
 
 关闭决策、取消、Flow 输出与 forceCompleteIfChannelsEmpty 见 [Step decision](/primitives/step/step-decision)。超时、retry 及相关策略的自定义见 [Step options](/primitives/step/step-options)。
 
@@ -349,7 +363,7 @@ def execute(self, context: Context, input: int) -> StepDecision:
   <SdkSnippet lang="go">
 
 ```go
-func (stepFirstStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
 	return dex.GoTo(stepSecondStep{}, input+1), nil
 }
 

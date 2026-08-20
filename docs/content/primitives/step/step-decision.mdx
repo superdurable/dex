@@ -260,7 +260,7 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 
 ## Step output and FlowResults {#step-output-and-flowresults}
 
-GracefulComplete(output) sets the Flow output when this branch closes the Flow. When a Step waits on a [SubFlow](/primitives/subflow), read the child output in Execute via SubFlowResult / getConditionResults / condition_result (see [waiting condition — SubFlow results](/primitives/step/waiting-condition#condition-results)).
+GracefulComplete(output) sets the Flow output when this branch closes the Flow. When a Step waits on a [SubFlow](/primitives/subflow), read the child output in Execute via SubFlowResult / getConditionResults / condition_result (see [Waiting — SubFlow results](/primitives/step/waiting-condition#condition-results)).
 
 <SdkTabs
   examples={{

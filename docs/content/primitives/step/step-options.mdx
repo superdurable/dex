@@ -6,7 +6,7 @@ slug: /primitives/step/step-options
 
 # Step options
 
-Configure WaitFor and Execute independently on StepOptions: method timeouts, retry policies, failure policies when retries are exhausted, durability, heartbeat, and per-movement overrides.
+Configure WaitFor and Execute independently on StepOptions: method timeouts, retry policies, failure policies when retries are exhausted, durability, heartbeat, and StepOptions override per StepExecution.
 
 ### Custom retry
 
@@ -80,7 +80,7 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 - **Cadence** rejects dynamic intervals with INVALID_USER_FLOW_CODE.
 - On Temporal, the **current attempt failure** (not RetryAfterException itself) is the reported Worker error and appears in lastFailureInfo.
 
-When the Worker SDK attaches stack_trace on WorkerErrorResponse, Dex Web shows it under **Last failure** as originalWorkerErrorStackTrace. Go apps that want an origin stack wrap the cause with `dex.ErrorWithStack` (nest it under `RetryAfter` when using custom retry). Rust `HandlerError` constructors capture a construction-site stack automatically.
+When the Worker SDK attaches stack_trace on WorkerErrorResponse, Dex Web shows it under **Last failure** as originalWorkerErrorStackTrace. Go apps that want an origin stack wrap the cause with **dex.ErrorWithStack** (nest it under **RetryAfter** when using custom retry). Rust **HandlerError** constructors capture a construction-site stack automatically.
 
 
 ## Durability {#durability}
@@ -304,7 +304,7 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 
 Heartbeats make cancellation reach a regular activity promptly; they do not make external API calls atomic. Combine timeouts, idempotency, or compensation where needed.
 
-## Per-movement StepOptions override {#per-movement-stepoptions-override}
+## StepOptions override per StepExecution {#stepoptions-override-per-stepexecution}
 
 Registered StepOptions apply to every execution of a Step type. Sometimes one **movement** needs different retry or failure behavior — for example, a fan-out child that should proceed on WaitFor failure while siblings fail the Flow.
 

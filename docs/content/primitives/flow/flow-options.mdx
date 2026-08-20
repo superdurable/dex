@@ -1,0 +1,132 @@
+---
+title: Flow options
+sidebar_label: Flow options
+slug: /primitives/flow/flow-options
+---
+
+# Flow options
+
+Dex separates **start-time options** from **runtime Flow configuration**.
+
+- **StartFlowOptions** apply when a client starts a Flow (or SubFlow). They control timeout, ID reuse, cron schedule, initial Attributes, request idempotency, and optional config overrides for that execution.
+- **FlowConfig** overrides mutable runtime behavior: Step durability defaults, Worker routing, active-Step search indexing, continue-as-new thresholds, and Attribute Store projection targets.
+
+Use [Client APIs](/primitives/client-apis) to start Flows and update config on running executions where your SDK exposes **UpdateFlowConfig**.
+
+## StartFlowOptions {#start-flow-options}
+
+Common fields:
+
+| Field | Purpose |
+|-------|---------|
+| **Timeout** | Dex soft timeout enforced by a durable timer. Zero disables it. |
+| **TimeoutPolicy** | **FAIL**, **CANCEL**, or **HANDLER** when timeout is positive. Defaults to **HANDLER** when the Flow implements a timeout handler, otherwise **FAIL**. |
+| **IDReusePolicy** | Whether the same Flow ID may attach to, replace, or be rejected against an existing execution. |
+| **CronSchedule** | Server cron expression for recurring runs. |
+| **StartDelay** | Postpone the first Step after start acceptance. |
+| **RetryPolicy** | Whole-Flow retry timing after terminal failure. |
+| **Attributes** | Initial Attribute and Attribute-map values encoded at start. |
+| **ConfigOverride** | Replace registered **FlowConfig** fields for this execution. |
+| **RequestID** | Stable business idempotency key; SDKs generate a UUID when omitted. |
+| **AlreadyStarted** | Return the existing run instead of failing when the Flow ID is already active. |
+
+Soft Flow timeout behavior matches [Client APIs — soft Flow timeout](/primitives/client-apis#soft-flow-timeout).
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/controller.py',
+    go: 'examples/go/primitives/flow/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java',
+    typescript: 'examples/typescript/src/primitives/flow/controller.ts',
+    rust: 'examples/rust/src/primitives/flow/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def start_flow_options() -> StartFlowOptions:
+    return StartFlowOptions(
+        timeout=timedelta(hours=1),
+        config_override=FlowConfig(step_durability=StepDurability.SYNC),
+    )
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func startFlowOptions() sdk.StartFlowOptions {
+	timeout := time.Hour
+	stepDurability := sdk.StepDurabilitySync
+	return sdk.StartFlowOptions{
+		Timeout: &timeout,
+		ConfigOverride: &sdk.FlowConfig{
+			StepDurability: &stepDurability,
+		},
+	}
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+StartFlowOptions.newBuilder()
+    .timeout(Duration.ofHours(1))
+    .configOverride(
+        FlowConfig.newBuilder()
+            .stepDurability(StepDurability.SYNC)
+            .build())
+    .build()
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+function startFlowOptions(): StartFlowOptions {
+  return startOptions({
+    configOverride: {
+      stepDurability: StepDurability.Sync,
+    },
+  });
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn start_flow_options() -> StartFlowOptions {
+    StartFlowOptions::new()
+        .timeout(Duration::from_secs(3_600))
+        .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## FlowConfig {#flow-config}
+
+**FlowConfig** fields override server defaults for one Flow execution:
+
+| Field | Purpose |
+|-------|---------|
+| **ActiveStepSearchMode** | Which active Step types Dex indexes for Flow search. |
+| **ContinueAsNewThreshold** | Event-count threshold that triggers continue-as-new. |
+| **ContinueAsNewPageSizeBytes** | History byte cap carried into continue-as-new. |
+| **StepDurability** | Default persistence durability for Step writes. |
+| **WorkerTarget** | WorkerService endpoint for future Step and RPC invocations. |
+| **AttributeStoreName** | Server-configured Attribute Store for opted-in Attribute projections. |
+
+Omit a field to keep the current or server default. An explicit empty **AttributeStoreName** disables future asynchronous SQL projection while keeping the field present on the wire.
+
+See the [entity store](/design-patterns/entity-store) pattern for **AttributeStoreName** with synced Attributes, and [cron schedule](/design-patterns/cron) for **CronSchedule** on start.
+
+## SubFlow options {#subflow-options}
+
+[SubFlow](/primitives/subflow) conditions reuse the same timeout, retry, initial Attribute, and **ConfigOverride** shape through **SubFlowOptions**, plus a **reuse policy** for generated child Flow IDs. SubFlow start IDs are server-owned; callers cannot override them.
+
+## Operational APIs {#operational-apis}
+
+Starting and configuring a Flow is only half of the lifecycle. [Client APIs](/primitives/client-apis) also cover search, RPC and Channel interaction, waits, stop, timer skip, time travel, and continue-as-new.

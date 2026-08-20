@@ -17,6 +17,12 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'category',
+          label: 'Flow',
+          link: {type: 'doc', id: 'primitives/flow/index'},
+          items: ['primitives/flow/basic', 'primitives/flow/flow-options'],
+        },
+        {
+          type: 'category',
           label: 'Step',
           link: {type: 'doc', id: 'primitives/step/index'},
           items: [

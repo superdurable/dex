@@ -16,6 +16,7 @@
 
 package io.superdurable.dex.primitives.step;
 
+import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -27,20 +28,21 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class StepFlow implements Flow<Integer> {
-    private final StepFirst first = new StepFirst();
+    private final Channel<String> approval = Channel.define("Approval", String.class);
+    private final ExampleStep exampleStep = new ExampleStep();
     private final StepSecond second = new StepSecond();
 
     @Override
     public StepList<Integer> getSteps() {
-        return StepList.startStep(first).otherSteps(second);
+        return StepList.startStep(exampleStep).otherSteps(second);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of();
+        return PersistenceSchema.of(approval);
     }
 
-    final class StepFirst implements Step<Integer> {
+    final class ExampleStep implements Step<Integer> {
         @Override
         public Class<Integer> getInputType() {
             return Integer.class;
@@ -48,8 +50,7 @@ public final class StepFlow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer input) {
-            context.setStepExecutionLocal("input", input, Integer.class);
-            return Wait.skipImmediately();
+            return Wait.until(approval.forOne());
         }
 
         @Override

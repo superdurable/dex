@@ -19,7 +19,7 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { reminderFlow } from "./reminder-flow.js";
+import { reminderFlow, optOutReminder } from "./reminder-flow.js";
 
 export function createRemindersRouter(client: Client): Router {
   const router = Router();
@@ -46,7 +46,7 @@ export function createRemindersRouter(client: Client): Router {
 
   router.get("/optout", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    await client.publish(workflowId, reminderFlow.optOutReminder, undefined);
+    await client.publish(workflowId, optOutReminder, undefined);
     response.send("done");
   });
 

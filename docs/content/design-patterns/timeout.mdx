@@ -10,7 +10,7 @@ Bound work with graceful timeout and dead-end paths.
 
 ## Overview
 
-The `FlowGracefulTimeout` serves as an example of managing tasks using a timeout mechanism. This Flow ensures that tasks are completed within a designated time frame. If a task exceeds this duration, the Flow can forcibly terminate to prevent endless execution or a log can be emitted and the Step can return `StepDecision.deadEnd()`.
+The **FlowGracefulTimeout** serves as an example of managing tasks using a timeout mechanism. This Flow ensures that tasks are completed within a designated time frame. If a task exceeds this duration, the Flow can forcibly terminate to prevent endless execution or a log can be emitted and the Step can return **StepDecision.deadEnd()**.
 
 ## Flow Details
 
@@ -21,9 +21,9 @@ The `FlowGracefulTimeout` serves as an example of managing tasks using a timeout
 
 ### Flow Steps
 
-- **InitStep**: Accepts a `Boolean` indicating whether the Flow should simulate a successful or long-running task that exceeds the timeout. Transitions to both `TimeoutStep` and `TaskStep` simultaneously, allowing them to run in parallel.
+- **InitStep**: Accepts a **Boolean** indicating whether the Flow should simulate a successful or long-running task that exceeds the timeout. Transitions to both **TimeoutStep** and **TaskStep** simultaneously, allowing them to run in parallel.
 - **TimeoutStep**: Waits for a timer to complete, set to 1 minute. If the timer completes before the task, it forcefully fails the Flow, indicating that the task did not finish in time.
-- **TaskStep**: Represents the main task execution within the Flow. Accepts a `Boolean` to determine if the task should complete successfully or exceed the timeout. If simulating a delay, waits for a timer longer than the timeout (65 seconds) fails the Flow. If the task completes successfully, it forcefully completes the Flow, closing the timeout Step thread.
+- **TaskStep**: Represents the main task execution within the Flow. Accepts a **Boolean** to determine if the task should complete successfully or exceed the timeout. If simulating a delay, waits for a timer longer than the timeout (65 seconds) fails the Flow. If the task completes successfully, it forcefully completes the Flow, closing the timeout Step thread.
 
 ### Usage
 
@@ -31,14 +31,14 @@ The `FlowGracefulTimeout` serves as an example of managing tasks using a timeout
 ```http request
 http://localhost:8080/patterns/timeout/start?workflowId=handleTimeoutFlow
 ```
-2. If you want the timeout Step to be triggered add the parameter `successfulWorkflow=false`
+2. If you want the timeout Step to be triggered add the parameter **successfulWorkflow=false**
 ```http request
 http://localhost:8080/patterns/timeout/start?workflowId=handleTimeoutFlow&successfulWorkflow=false
 ```
 
 ## Code examples
 
-Full runnable samples live under `examples/{go,java,python,typescript,rust}` (HTTP prefix `/patterns/<name>/...` where applicable). Try them from the examples playground (`examples/playground`); see `examples/README.md`.
+Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix /patterns/name/... where applicable). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
 
 <SdkTabs>
 <SdkSnippet lang="python">

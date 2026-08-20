@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use dex_sdk::{Context, Flow, HandlerResult, Step, StepDecision, StepList, Wait};
+use dex_sdk::{
+    Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Wait,
+};
+
+fn approval() -> Channel<String> {
+    Channel::new("Approval")
+}
 
 #[derive(Default)]
 pub struct StepFlow {
-    first: StepFirst,
+    example: ExampleStep,
     second: StepSecond,
 }
 
@@ -24,19 +30,22 @@ impl Flow for StepFlow {
     type StartInput = i32;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.first).and(&self.second)
+        StepList::start(&self.example).and(&self.second)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new().channel(&approval())
     }
 }
 
 #[derive(Default)]
-struct StepFirst;
+struct ExampleStep;
 
-impl Step for StepFirst {
+impl Step for ExampleStep {
     type Input = i32;
 
-    fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        context.set_step_execution_local("input", input)?;
-        Ok(Wait::skip_immediately())
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(approval().for_one()))
     }
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {

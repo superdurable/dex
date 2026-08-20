@@ -9,13 +9,13 @@ slug: /primitives/client-apis
 
 ## Why you need it
 
-Starting work, sending a message, reading Attributes, waiting for a Step, searching Flows, and time-traveling after a bug all happen from HTTP handlers, CLIs, and other services — not from inside `Execute`.
+Starting work, sending a message, reading Attributes, waiting for a Step, searching Flows, and time-traveling after a bug all happen from HTTP handlers, CLIs, and other services — not from inside **Execute**.
 
 ## Start, inspect, and search
 
-- `StartFlow` — start a Flow run
-- `GetAttributes` / `SetAttributes` — read or write durable Attributes
-- `SearchFlows` — query Flows, including Indexed Attributes and `DexParentFlowID` for SubFlows
+- **StartFlow** — start a Flow run
+- **GetAttributes** / **SetAttributes** — read or write durable Attributes
+- **SearchFlows** — query Flows, including Indexed Attributes and **DexParentFlowID** for SubFlows
 
 <SdkTabs>
 <SdkSnippet lang="python">
@@ -54,25 +54,25 @@ await client.searchFlows(query, pageSize);
 
 ## Interact with a running Flow
 
-- `InvokeRPC` — call a Flow [RPC](/primitives/rpc) handler on the Worker
-- `PublishToChannel` — publish messages to a [Channel](/primitives/channel)
+- **InvokeRPC** — call a Flow [RPC](/primitives/rpc) handler on the Worker
+- **PublishToChannel** — publish messages to a [Channel](/primitives/channel)
 
 ## Wait from a client
 
-- `WaitForFlow` — block until the Flow reaches a terminal status
-- `WaitForStepCompletion` — unblock after a particular Step while the Flow continues
+- **WaitForFlow** — block until the Flow reaches a terminal status
+- **WaitForStepCompletion** — unblock after a particular Step while the Flow continues
 - singleton Attribute equality waits — wait until an Attribute or AttributeMap instance equals a value
 
 Java, Python, and TypeScript use overloaded Attribute-equality helpers for
 singleton Attributes and AttributeMap instances. Go uses
-`WaitForAttributeEqual` and `WaitForAttributeMapInstanceEqual`; Rust uses the
+**WaitForAttributeEqual** and **WaitForAttributeMapInstanceEqual**; Rust uses the
 corresponding snake-case names. All forms target the current run, generate a
 request ID, and accept expected values encoded as string, bool, integer, or
 double. JSON, bytes, and null are rejected locally. A long-poll expiry uses
 each SDK's long-poll timeout error.
 
-Java identifies Step executions with `StepExecutionId.of(stepType)` or
-`StepExecutionId.of(stepType, executionNumber)`.
+Java identifies Step executions with **StepExecutionId.of(stepType)** or
+**StepExecutionId.of(stepType, executionNumber)**.
 
 Clients can wait until a Step execution finishes while the Flow continues. Useful when an HTTP request should unblock after a particular Step without waiting for the whole Flow.
 
@@ -82,20 +82,20 @@ Start-time options include IDs, timeouts, retry/ID reuse policies, and search/in
 
 ### Soft Flow timeout
 
-`flow_timeout_seconds` is enforced by Dex with a durable timer. It is not a
+**flow_timeout_seconds** is enforced by Dex with a durable timer. It is not a
 Temporal or Cadence execution timeout, so Dex can still flush Attribute Store
 writes, report SubFlow completion, and publish terminal metrics after it fires.
 Zero disables the timeout. A positive timeout supports three policies:
 
-- `FAIL` fails the Flow with `FLOW_ERROR_TYPE_FLOW_TIMEOUT`. Normal Flow retry
+- **FAIL** fails the Flow with **FLOW_ERROR_TYPE_FLOW_TIMEOUT**. Normal Flow retry
   policy applies.
-- `CANCEL` cancels the Flow and does not retry it.
-- `HANDLER` invokes the Flow's optional timeout hook once. The hook returns a
+- **CANCEL** cancels the Flow and does not retry it.
+- **HANDLER** invokes the Flow's optional timeout hook once. The hook returns a
   normal Step decision, so it can transition, dead-end, gracefully complete,
   force-complete, or force-fail the Flow.
 
-SDKs default a positive timeout to `HANDLER` when the registered Flow provides
-the hook and to `FAIL` otherwise. Explicit `HANDLER` is rejected by the SDK
+SDKs default a positive timeout to **HANDLER** when the registered Flow provides
+the hook and to **FAIL** otherwise. Explicit **HANDLER** is rejected by the SDK
 when the Flow has no hook. A non-default policy without a positive timeout is
 invalid.
 
@@ -103,22 +103,22 @@ The timeout budget begins when each actual workflow run starts. Backend retry
 and cron runs receive a new budget. Continue-as-new preserves the absolute
 deadline and the same timeout-handler Step execution.
 
-Every positive timeout is represented by one internal `sys:timeout_handler`
-Step. Dex creates its single timer directly, and `SkipTimer` can fire it early
-by index. `FAIL` and `CANCEL` terminate inside the interpreter; only `HANDLER`
-calls Worker Execute. The `sys:` namespace is reserved for Dex, and application
-Step types cannot contain `:`.
+Every positive timeout is represented by one internal **sys:timeout_handler**
+Step. Dex creates its single timer directly, and **SkipTimer** can fire it early
+by index. **FAIL** and **CANCEL** terminate inside the interpreter; only **HANDLER**
+calls Worker Execute. The **sys:** namespace is reserved for Dex, and application
+Step types cannot contain **:**.
 
 Graceful completion considers only application Steps. Once requested, it
 cancels a waiting or executing timeout Step after all application work ends.
 
 ## Flow config
 
-Runtime Flow configuration can be updated for some knobs (see `UpdateFlowConfig`). Prefer documenting the specific fields your SDK exposes rather than inventing server internals.
+Runtime Flow configuration can be updated for some knobs (see **UpdateFlowConfig**). Prefer documenting the specific fields your SDK exposes rather than inventing server internals.
 
-The SDK field is `AttributeStoreName` in Go, `attributeStoreName` in Java and
-TypeScript, and `attribute_store_name` in Python and Rust. Each maps to the
-optional protocol field `attribute_sync_config_name` and selects a
+The SDK field is **AttributeStoreName** in Go, **attributeStoreName** in Java and
+TypeScript, and **attribute_store_name** in Python and Rust. Each maps to the
+optional protocol field **attribute_sync_config_name** and selects a
 Server-configured Custom Attribute Store.
 
 An omitted field preserves the current setting. An explicit empty string keeps
@@ -128,10 +128,10 @@ unknown name is rejected by StartFlow and UpdateFlowConfig.
 
 ## Control execution
 
-- `StopFlow` — cancel or terminate a run
-- `SkipTimer` — fire a pending [Timer](/primitives/timer) early
-- `TimeTravel` — create a new run from an earlier Step after a fix
-- `TriggerContinueAsNew` — bound history by starting a fresh run that carries state forward
+- **StopFlow** — cancel or terminate a run
+- **SkipTimer** — fire a pending [Timer](/primitives/timer) early
+- **TimeTravel** — create a new run from an earlier Step after a fix
+- **TriggerContinueAsNew** — bound history by starting a fresh run that carries state forward
 
 <SdkTabs>
 <SdkSnippet lang="python">
@@ -172,7 +172,7 @@ See [application operations](/production/application-operations) and [versioning
 
 ## How Dex implements it
 
-The Dex server exposes FlowService RPCs (`StartFlow`, `SearchFlows`, `TimeTravel`, `TriggerContinueAsNew`, …) on top of Temporal/Cadence. See `docs/design/idl-renames.md` for the IDL names.
+The Dex server exposes FlowService RPCs (**StartFlow**, **SearchFlows**, **TimeTravel**, **TriggerContinueAsNew**, …) on top of Temporal/Cadence. See **docs/design/idl-renames.md** for the IDL names.
 
 ## Traditional workarounds
 

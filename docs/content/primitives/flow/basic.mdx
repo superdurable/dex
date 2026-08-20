@@ -1,0 +1,198 @@
+---
+title: Flow Basics
+sidebar_label: Basics
+slug: /primitives/flow/basic
+---
+
+# Flow Basics
+
+A **Flow** is the durable application you register with Dex. It defines which [Steps](/primitives/step) run, which [Attributes](/primitives/attribute) and [Channels](/primitives/channel) persist, and which [RPC](/primitives/rpc) handlers clients can call while the Flow is active.
+
+Most SDKs derive **FlowType** from the native type name unless you override it. You start a Flow with a client-supplied **Flow ID**; Dex assigns a **Run ID** for each execution attempt. Each Step run is a **StepExecution** identified by **StepType** and **StepExecutionID**.
+
+## Identifiers {#identifiers}
+
+| Identifier | Who sets it | Meaning |
+|------------|-------------|---------|
+| **FlowType** | Application (via Flow implementation) | Stable type name Dex uses to route Worker calls and search results. |
+| **Flow ID** | Application client on start | Business identity for one logical Flow. Reuse policy controls whether a new run may replace or attach to an existing ID. |
+| **Run ID** | Dex / execution engine | Identity of one run attempt. Time travel and continue-as-new start a fresh Run ID while optionally keeping the same Flow ID. |
+| **StepType** | Application (via Step implementation) | Stable name for a Step definition inside the Flow. |
+| **StepExecutionID** | Dex | One execution instance of a Step type, formatted as **StepType-Number**. |
+
+See [Client APIs](/primitives/client-apis) for starting Flows, waiting on Step completions, and searching by Flow ID or indexed Attributes.
+
+## Implement a Flow {#implement-a-flow}
+
+A Flow implementation registers four concerns:
+
+1. **Steps** — the start Step and every other Step type the Flow may enter.
+2. **Persistence schema** — every Attribute and Channel the Flow reads or writes.
+3. **RPC handlers** — methods clients invoke through **InvokeRPC**.
+4. **Optional timeout handler** — application code Dex calls once when a positive soft timeout expires (see [Flow options](/primitives/flow/flow-options)).
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
+    go: 'examples/go/primitives/flow/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
+    typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
+    rust: 'examples/rust/src/primitives/flow/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+status = Attribute("status", str)
+notify = Channel("notify", None)
+
+
+class ExampleFlow(Flow[int]):
+    def __init__(self) -> None:
+        self.finish = FinishStep()
+        self.example = ExampleStep(self.finish)
+
+    def get_steps(self) -> StepList[int]:
+        return StepList.start_step(self.example).other_steps(self.finish)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(status, notify)
+
+    @rpc
+    def describe(self, context: Context) -> RPCResult[str]:
+        return RPCResult.of(status.get(context))
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+type ExampleFlow struct {
+	dex.FlowDefaults
+}
+
+func (*ExampleFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(ExampleStep{}),
+		dex.DefineStep(FinishStep{}),
+	}
+}
+
+func (*ExampleFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Status},
+		Channels:   []dex.ChannelDef{Notify},
+	}
+}
+
+func (*ExampleFlow) Describe(ctx dex.Context, _ dex.None) (*dex.RPCResult[string], error) {
+	value, err := Status.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: value}, nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Component
+public final class ExampleFlow implements Flow<Integer> {
+    public static final Attribute<String> status = Attribute.define("status", String.class);
+    public static final Channel<Void> notify = Channel.define("notify", Void.class);
+
+    @Override
+    public StepList<Integer> getSteps() {
+        return StepList.startStep(exampleStep).otherSteps(finishStep);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(status, notify);
+    }
+
+    @RPC
+    public RPCResult<String> describe(final Context context) {
+        return RPCResult.of(status.get(context));
+    }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+export class ExampleFlow implements Flow<number> {
+  public getSteps() {
+    return StepList.startStep(this.example).otherSteps(this.finish);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { attributes: [status], channels: [notify] };
+  }
+
+  @rpc({ outputCodec: stringCodec })
+  public describe(context: Context): RPCResult<string> {
+    return { output: status.get(context) ?? "" };
+  }
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+impl Flow for ExampleFlow {
+    type StartInput = i32;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.example).and(&self.finish)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .attribute(&status())
+            .channel(&notify())
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().function(DESCRIBE, Self::describe)
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Steps {#steps}
+
+**GetSteps** / **get_steps** / **steps** registers one start Step and every other Step type the Flow may reach through [StepDecision](/primitives/step/basic#stepdecision-movements) movements. The start Step input type is also the Flow start input.
+
+An empty Step list, or a list with no start Step, is valid when the Flow is driven entirely by RPCs that later move into Steps.
+
+See [Step basics](/primitives/step/basic) for **WaitFor**, **Execute**, and default Step options.
+
+## Persistence schema {#persistence-schema}
+
+The persistence schema lists every [Attribute](/primitives/attribute) and [Channel](/primitives/channel) used from Steps or RPCs. Dex rejects reads and writes to names that are not declared.
+
+Attributes hold typed durable variables. Channels carry messages into waiting Steps and accept client publishes.
+
+## RPC handlers {#rpc-handlers}
+
+RPC methods are ordinary methods on the Flow implementation. Dex registers them under their method names (or explicit RPC names in Rust). Clients call them with [InvokeRPC](/primitives/rpc); handlers run on the Worker with a durable [Context](/primitives/step/basic) and may read or write declared Attributes and Channels.
+
+## SubFlows and Timers {#related-primitives}
+
+Flows also compose other primitives:
+
+- [SubFlow](/primitives/subflow) — start a child Flow from a Step wait condition.
+- [Timer](/primitives/timer) — durable delays and deadlines inside Step **WaitFor**.
+- [Client APIs](/primitives/client-apis) — start, inspect, search, and control Flow instances from outside the Worker.
+
+## Step identifiers inside a Flow {#step-identifiers}
+
+**StepType** comes from the Step implementation, usually the native type name. **StepExecutionID** identifies one run of that Step type inside a Flow execution (**ExampleStep-1**, **ExampleStep-2**, …). Step input is persisted per StepExecution, so parallel or repeated Steps stay distinguishable.
+
+The start Step input is also the Flow start input passed to **StartFlow**.

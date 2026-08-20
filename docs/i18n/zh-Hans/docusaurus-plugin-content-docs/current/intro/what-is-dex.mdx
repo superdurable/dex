@@ -29,9 +29,9 @@ Dex 是结构化编程，只有少数几个概念作为 [durable primitives](/pr
 
 - **ChargeStep** 调支付 API，Step 级 retry。成功后原子进入 ShipStep。
 - **ShipStep** 等待卖家 **Channel** 或 **Timer**。Timer 先到：发提醒，继续等。批准到了：发货。发货 retry 用尽：进 **RefundStep**。
-- **RPC `approve`** 往卖家 Channel 发消息。
+- **RPC approve** 往卖家 Channel 发消息。
 - 店面 **start** handler 用 Client 的 **wait-for-Step-completion** API 等 ChargeStep 完成——不是自己轮询状态。
-- **Attribute `order-status`** 可检索，客服能搜卡住的订单。
+- **Attribute order-status** 可检索，客服能搜卡住的订单。
 
 <SdkTabs
   examples={{
@@ -750,7 +750,7 @@ fn seller_ok() -> Channel<String> {
 </SdkSnippet>
 </SdkTabs>
 
-前端要等「已付款」。`GET /products/order-processing/start` 先启动 Flow，等 ChargeStep 完成后再返回：
+前端要等「已付款」。**GET /products/order-processing/start** 先启动 Flow，等 ChargeStep 完成后再返回：
 
 <SdkTabs
   examples={{

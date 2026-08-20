@@ -260,7 +260,7 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 
 ## Step 输出与 FlowResults {#step-output-and-flowresults}
 
-本分支关闭 Flow 时，GracefulComplete(output) 设置 Flow 输出。Step 等待 [SubFlow](/primitives/subflow) 时，在 Execute 中通过 SubFlowResult / getConditionResults / condition_result 读取子输出（见 [等待条件 — SubFlow 结果](/primitives/step/waiting-condition#condition-results)）。
+本分支关闭 Flow 时，GracefulComplete(output) 设置 Flow 输出。Step 等待 [SubFlow](/primitives/subflow) 时，在 Execute 中通过 SubFlowResult / getConditionResults / condition_result 读取子输出（见 [等待 — SubFlow 结果](/primitives/step/waiting-condition#condition-results)）。
 
 <SdkTabs
   examples={{

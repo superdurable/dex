@@ -10,7 +10,7 @@
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
+ * See the License for the applicable language governing permissions and
  * limitations under the License.
  */
 
@@ -38,10 +38,11 @@ export interface WaitTypesInput {
 
 const waitTypesInputCodec = jsonCodec<WaitTypesInput>();
 
+const channelA = new Channel("SignalA", stringCodec);
+const channelB = new Channel("SignalB", stringCodec);
+
 class WaitTypesStep implements Step<WaitTypesInput> {
   public readonly inputCodec = waitTypesInputCodec;
-
-  public constructor(private readonly flow: WaitTypesFlow) {}
 
   public getStepType(): string {
     return "WaitTypesStep";
@@ -51,23 +52,23 @@ class WaitTypesStep implements Step<WaitTypesInput> {
     const timeoutMs = input.timeoutSeconds * 1000;
     if (input.mode === "any") {
       return Wait.anyOf(
-        this.flow.channelA.forOne("signal"),
+        channelA.forOne("signal"),
         Timer.byDuration(timeoutMs, "timeout"),
       );
     }
     if (input.mode === "all") {
       return Wait.allOf(
-        this.flow.channelA.forOne("signal-a"),
-        this.flow.channelB.forOne("signal-b"),
+        channelA.forOne("signal-a"),
+        channelB.forOne("signal-b"),
       );
     }
     if (input.mode === "combo") {
       return Wait.anyCombinationOf(
         ConditionCombination.of(
-          this.flow.channelA.forOne("signal-a"),
+          channelA.forOne("signal-a"),
           Timer.byDuration(timeoutMs, "timeout"),
         ),
-        ConditionCombination.of(this.flow.channelB.forOne("signal-b")),
+        ConditionCombination.of(channelB.forOne("signal-b")),
       );
     }
     throw new Error(`unknown wait mode ${input.mode}`);
@@ -79,9 +80,7 @@ class WaitTypesStep implements Step<WaitTypesInput> {
 }
 
 export class WaitTypesFlow implements Flow<WaitTypesInput> {
-  public readonly channelA = new Channel("SignalA", stringCodec);
-  public readonly channelB = new Channel("SignalB", stringCodec);
-  private readonly waitTypes = new WaitTypesStep(this);
+  private readonly waitTypes = new WaitTypesStep();
 
   public getFlowType(): string {
     return "WaitTypesFlow";
@@ -92,17 +91,17 @@ export class WaitTypesFlow implements Flow<WaitTypesInput> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [this.channelA, this.channelB] };
+    return { channels: [channelA, channelB] };
   }
 
   @rpc()
   public signalA(context: Context): void {
-    this.channelA.publish(context, "signal-a");
+    channelA.publish(context, "signal-a");
   }
 
   @rpc()
   public signalB(context: Context): void {
-    this.channelB.publish(context, "signal-b");
+    channelB.publish(context, "signal-b");
   }
 }
 

@@ -10,11 +10,11 @@ the Flow or enters an application-defined recovery path.
 
 ## WaitFor recovery
 
-`WaitForFailurePolicy.PROCEED` continues to Execute after the final WaitFor
+**WaitForFailurePolicy.PROCEED** continues to Execute after the final WaitFor
 failure. Execute runs in the same workflow run; continue-as-new cannot occur
 between the failed WaitFor call and that Execute call. Existing
-`context.waitForMethodFailed()` code continues to identify this path, and
-`context.getRecoveryError()` provides its type and detail.
+**context.waitForMethodFailed()** code continues to identify this path, and
+**context.getRecoveryError()** provides its type and detail.
 
 ```java
 @Override
@@ -37,8 +37,8 @@ public StepDecision execute(Context context, Order input) {
 
 ## Execute recovery Step
 
-Configure a recovery Step with `onExecuteFailureProceedTo`. The failed
-Execute's `RecoveryErrorInfo` is available to both WaitFor and Execute in that
+Configure a recovery Step with **onExecuteFailureProceedTo**. The failed
+Execute's **RecoveryErrorInfo** is available to both WaitFor and Execute in that
 recovery Step. Dex persists it with the queued movement, so it remains available
 after continue-as-new.
 
@@ -57,9 +57,9 @@ receives that newer WaitFor failure instead of the original Execute failure.
 
 ## Durability
 
-A method with a failure-policy recovery path defaults to `SYNC`. The
+A method with a failure-policy recovery path defaults to **SYNC**. The
 FlowConfig durability cannot override this default. An explicit method-level
-Step option remains authoritative and can select `ASYNC` when the application
+Step option remains authoritative and can select **ASYNC** when the application
 accepts replay of the earlier method after recovery has begun.
 
 ## Dynamic retry delay
@@ -73,18 +73,18 @@ throw RetryAfterException.after(Duration.ofSeconds(30), currentFailure);
 
 Temporal applies this value to the next Activity retry without changing retry
 limits or method timeouts. Cadence rejects a dynamic interval with an
-`INVALID_USER_FLOW_CODE` validation error. On Temporal, the current attempt
-failure, rather than `RetryAfterException`, is exposed as the Worker error.
+**INVALID_USER_FLOW_CODE** validation error. On Temporal, the current attempt
+failure, rather than **RetryAfterException**, is exposed as the Worker error.
 
 ## Backend failures
 
 When a Worker returns structured error details, recovery receives its detail
 and type. Stack traces remain available in failure history, while retry delays
 are used only for retry scheduling. For timeouts and other failures without a
-Worker response, Dex creates `RecoveryErrorInfo` whose type is the Temporal or
+Worker response, Dex creates **RecoveryErrorInfo** whose type is the Temporal or
 Cadence backend failure type.
 
-Full runnable samples live under `examples/{go,java,python,typescript,rust}` (HTTP prefix `/patterns/recovery/...`). Try them from the examples playground (`examples/playground`); see `examples/README.md`.
+Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix **/patterns/recovery/...**). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
 
 ## Related
 

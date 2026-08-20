@@ -40,13 +40,16 @@ import (
 	"github.com/superdurable/dex/examples/go/primitives/attribute"
 	"github.com/superdurable/dex/examples/go/primitives/channel"
 	"github.com/superdurable/dex/examples/go/primitives/client-apis"
+	"github.com/superdurable/dex/examples/go/primitives/flow"
 	"github.com/superdurable/dex/examples/go/primitives/custom-retry"
 	"github.com/superdurable/dex/examples/go/primitives/durability"
 	"github.com/superdurable/dex/examples/go/primitives/heartbeat"
 	"github.com/superdurable/dex/examples/go/primitives/options-override"
+	"github.com/superdurable/dex/examples/go/primitives/proceed-on-wait-failure"
 	"github.com/superdurable/dex/examples/go/primitives/rpc"
 	"github.com/superdurable/dex/examples/go/primitives/step"
 	"github.com/superdurable/dex/examples/go/primitives/step-decision"
+	"github.com/superdurable/dex/examples/go/primitives/step-execution-local"
 	"github.com/superdurable/dex/examples/go/primitives/subflow"
 	"github.com/superdurable/dex/examples/go/primitives/timer"
 	"github.com/superdurable/dex/examples/go/primitives/wait-types"
@@ -103,11 +106,14 @@ var (
 	GracefulTimeout        *timeout.FlowGracefulTimeout
 
 	Step            *step.StepFlow
+	ExampleFlow     *flow.ExampleFlow
 	StepRetry       *step.RetryFlow
 	CustomRetry     *customretry.CustomRetryFlow
 	Durability      *durability.DurabilityFlow
 	Heartbeat       *heartbeat.HeartbeatFlow
 	OptionsOverride *optionsoverride.OptionsOverrideFlow
+	ProceedOnWaitFailure *proceedonwaitfailure.ProceedOnWaitFailureFlow
+	StepExecutionLocal   *stepexecutionlocal.StepExecutionLocalFlow
 	StepDecision    *stepdecision.StepDecisionFlow
 	WaitTypes       *waittypes.WaitTypesFlow
 	Attribute       *attribute.AttributeFlow
@@ -169,11 +175,14 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()
 
 	Step = step.NewStepFlow()
+	ExampleFlow = flow.NewExampleFlow()
 	StepRetry = step.NewRetryFlow()
 	CustomRetry = customretry.NewCustomRetryFlow()
 	Durability = durability.NewDurabilityFlow()
 	Heartbeat = heartbeat.NewHeartbeatFlow()
 	OptionsOverride = optionsoverride.NewOptionsOverrideFlow()
+	ProceedOnWaitFailure = proceedonwaitfailure.NewProceedOnWaitFailureFlow()
+	StepExecutionLocal = stepexecutionlocal.NewStepExecutionLocalFlow()
 	StepDecision = stepdecision.NewStepDecisionFlow()
 	WaitTypes = waittypes.NewWaitTypesFlow()
 	Attribute = attribute.NewAttributeFlow()
@@ -220,11 +229,14 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		WaitForStateCompletion,
 		GracefulTimeout,
 		Step,
+		ExampleFlow,
 		StepRetry,
 		CustomRetry,
 		Durability,
 		Heartbeat,
 		OptionsOverride,
+		ProceedOnWaitFailure,
+		StepExecutionLocal,
 		StepDecision,
 		WaitTypes,
 		Attribute,

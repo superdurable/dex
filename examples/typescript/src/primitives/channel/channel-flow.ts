@@ -31,10 +31,10 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
+const approval = new Channel("Approval", stringCodec);
+
 class ChannelWait implements Step<number> {
   public readonly inputCodec = doubleCodec;
-
-  public constructor(private readonly flow: ChannelFlow) {}
 
   public getStepType(): string {
     return "ChannelWait";
@@ -42,43 +42,38 @@ class ChannelWait implements Step<number> {
 
   public waitFor(_context: Context, input: number): Wait {
     return Wait.anyOf(
-      this.flow.approval.forOne(),
+      approval.forOne(),
       Timer.byDuration(input * 1000),
     );
   }
 
   public execute(context: Context, input: number): StepDecision {
-    const approvals = this.flow.approval.results(context);
+    const approvals = approval.results(context);
     if (approvals.length > 0) {
       return gracefulComplete(approvals[0]!);
     }
-    return goTo(this.flow.waitStep, input);
+    return goTo(channelWaitStep, input);
   }
 }
 
+const channelWaitStep = new ChannelWait();
+
 export class ChannelFlow implements Flow<number> {
-  public readonly approval = new Channel("Approval", stringCodec);
-  private readonly wait = new ChannelWait(this);
-
-  public get waitStep(): Step<number> {
-    return this.wait;
-  }
-
   public getFlowType(): string {
     return "ChannelFlow";
   }
 
   public getSteps() {
-    return StepList.startStep(this.wait);
+    return StepList.startStep(channelWaitStep);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [this.approval] };
+    return { channels: [approval] };
   }
 
   @rpc()
   public approve(context: Context): void {
-    this.approval.publish(context, "approved");
+    approval.publish(context, "approved");
   }
 }
 

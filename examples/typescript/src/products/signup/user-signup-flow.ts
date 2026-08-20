@@ -41,10 +41,11 @@ import { signupFormCodec, type SignupForm } from "./signup-form.js";
 
 const VERIFY_TIMER_MS = 24_000;
 
+const verify = new Channel("Verify", voidCodec);
+
 export class UserSignupFlow implements Flow<SignupForm> {
   public readonly form = new Attribute("Form", signupFormCodec);
   public readonly status = new Attribute("Status", stringCodec);
-  public readonly verify = new Channel("Verify", voidCodec);
 
   public readonly submit = new Submit(this);
   public readonly verifyStep = new Verify(this);
@@ -62,7 +63,7 @@ export class UserSignupFlow implements Flow<SignupForm> {
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.form, this.status],
-      channels: [this.verify],
+      channels: [verify],
     };
   }
 
@@ -72,7 +73,7 @@ export class UserSignupFlow implements Flow<SignupForm> {
       return { output: "already verified" };
     }
     this.status.set(context, "verified");
-    this.verify.publish(context, undefined);
+    verify.publish(context, undefined);
     return { output: "done" };
   }
 }
@@ -100,12 +101,12 @@ class Verify implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), this.flow.verify.forOne());
+    return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), verify.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
     const signupForm = this.flow.form.get(context);
-    if (this.flow.verify.results(context).length > 0) {
+    if (verify.results(context).length > 0) {
       this.flow.service.sendEmail(signupForm.email, "welcome", "welcome to Indeed!");
       return gracefulComplete("done");
     }

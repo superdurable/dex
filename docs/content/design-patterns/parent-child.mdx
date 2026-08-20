@@ -80,19 +80,19 @@ class ProcessInvoice implements Step<Invoice> {
 </SdkSnippet>
 </SdkTabs>
 
-`Wait.allOf` provides fan-out/fan-in without manual dynamic Channels. `Wait.anyOf` returns a
-`RUNNING` snapshot for an unfinished loser; its generated Flow ID lets application code inspect or
+**Wait.allOf** provides fan-out/fan-in without manual dynamic Channels. **Wait.anyOf** returns a
+**RUNNING** snapshot for an unfinished loser; its generated Flow ID lets application code inspect or
 stop that independent execution.
 
-Dex resolves an existing execution using `SubFlowReusePolicy`, safely survives local activity
+Dex resolves an existing execution using **SubFlowReusePolicy**, safely survives local activity
 retries, and carries partial results across continue-as-new. Parent completion does not cancel
 SubFlows.
 
 See [SubFlow](/primitives/subflow) for reuse behavior, lifecycle limitations,
 options, and cleanup. The runnable Java sample is under
-`examples/java/src/main/java/io/superdurable/dex/patterns/parentchild`. Samples also live under `examples/{go,python,typescript,rust}` (HTTP prefix `/patterns/parent-child/...`). Try them from the examples playground (`examples/playground`); see `examples/README.md`.
+**examples/java/src/main/java/io/superdurable/dex/patterns/parentchild**. Samples also live under examples/go, examples/python, examples/typescript, and examples/rust (HTTP prefix **/patterns/parent-child/...**). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
 
-Every SDK exposes the same timeout and timeout-policy fields on `SubFlowOptions`.
+Every SDK exposes the same timeout and timeout-policy fields on **SubFlowOptions**.
 Use fail, cancel, or handler to override the child Flow's registered default. The
 child completes terminal coordination and reports its failed, canceled, or
 handler-produced result to the parent before closing. Continue-as-new preserves

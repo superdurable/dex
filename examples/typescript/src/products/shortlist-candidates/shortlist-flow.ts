@@ -51,6 +51,8 @@ export const SIGNAL_REVOKE_SHORTLIST = "SHORTLIST_SIGNAL_RevokeShortlist";
 
 const SEND_EMAIL_WAIT_MS = 5 * 60 * 1_000;
 
+export const revokeShortlist = new Channel(SIGNAL_REVOKE_SHORTLIST, voidCodec);
+
 export class ShortlistFlow implements Flow<ShortlistInput> {
   public readonly employerId = new Attribute(SA_KEY_EMPLOYER_ID, stringCodec, {
     type: IndexType.KEYWORD,
@@ -58,7 +60,6 @@ export class ShortlistFlow implements Flow<ShortlistInput> {
   });
   public readonly candidateId = new Attribute(SA_KEY_CANDIDATE_ID, stringCodec);
   public readonly emailSentTimestamp = new Attribute(DA_EMAIL_SENT_TIMESTAMP, int64Codec);
-  public readonly revokeShortlist = new Channel(SIGNAL_REVOKE_SHORTLIST, voidCodec);
 
   public readonly shortlist = new Shortlist(this);
   public readonly sendEmail = new SendEmail(this);
@@ -76,7 +77,7 @@ export class ShortlistFlow implements Flow<ShortlistInput> {
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.employerId, this.candidateId, this.emailSentTimestamp],
-      channels: [this.revokeShortlist],
+      channels: [revokeShortlist],
     };
   }
 
@@ -111,7 +112,7 @@ class SendEmail implements Step<void> {
   public waitFor(_context: Context, _input: void): Wait {
     return Wait.anyOf(
       Timer.byDuration(SEND_EMAIL_WAIT_MS),
-      this.flow.revokeShortlist.forOne(),
+      revokeShortlist.forOne(),
     );
   }
 
@@ -119,7 +120,7 @@ class SendEmail implements Step<void> {
     const employer = this.flow.employerId.get(context);
     const candidate = this.flow.candidateId.get(context);
 
-    if (this.flow.revokeShortlist.results(context).length > 0) {
+    if (revokeShortlist.results(context).length > 0) {
       console.log(`Not sending the email to ${employer}-${candidate} because of revoking`);
       return forceComplete();
     }

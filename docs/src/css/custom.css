@@ -1634,3 +1634,140 @@ code {
   color: #e4c37a;
 }
 
+.flow-graph-arrow-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.flow-graph-arrow-label {
+  color: #71867f;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-align: center;
+}
+
+.flow-graph-card-decision {
+  border-color: #6b8fd4;
+  background: #eef3fb;
+}
+
+.flow-graph-grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr;
+  gap: 1.25rem;
+}
+
+.flow-graph-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.flow-graph-panel-title {
+  margin-bottom: 0.55rem;
+  color: #71867f;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.flow-graph-panel-body {
+  padding: 0.85rem 0.65rem 1rem;
+  border: 1px solid #d8e2df;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.flow-graph-split-compact {
+  width: 100%;
+}
+
+.flow-graph-split-compact .flow-graph-split-bar {
+  width: min(88%, 16rem);
+}
+
+.flow-graph-split-compact .flow-graph-split-branch .flow-graph-card {
+  width: min(100%, 11rem);
+}
+
+@media (min-width: 996px) {
+  .flow-graph-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1200px) {
+  .flow-graph-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .flow-graph-grid-movements {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.flow-graph-loop-def {
+  position: relative;
+  display: grid;
+  width: 100%;
+  max-width: 24rem;
+  margin: 0 auto;
+  grid-template-columns: minmax(0, 1fr) 3.5rem;
+  align-items: stretch;
+}
+
+.flow-graph-loop-def-steps {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+
+.flow-graph-loop-def-connector {
+  width: 100%;
+  height: 100%;
+  min-height: 13.5rem;
+  align-self: stretch;
+  stroke: #7f9690;
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
+.flow-graph-loop-def-connector path:last-child {
+  fill: #7f9690;
+  stroke: none;
+}
+
+[data-theme='dark'] .flow-graph-loop-def-connector {
+  stroke: #8aa59d;
+}
+
+[data-theme='dark'] .flow-graph-loop-def-connector path:last-child {
+  fill: #8aa59d;
+}
+
+[data-theme='dark'] .flow-graph-arrow-label,
+[data-theme='dark'] .flow-graph-panel-title {
+  color: var(--muted);
+}
+
+[data-theme='dark'] .flow-graph-panel-body {
+  border-color: var(--line);
+  background: rgba(18, 28, 24, 0.55);
+}
+
+[data-theme='dark'] .flow-graph-card-decision {
+  border-color: #6b8fd4;
+  background: #1a2740;
+}
+

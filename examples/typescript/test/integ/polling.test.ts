@@ -20,6 +20,11 @@ import test from "node:test";
 import { stringCodec } from "@superdurable/dex";
 
 import {
+  taskACompleted,
+  taskBCompleted,
+} from "../../src/products/polling/polling-flow.js";
+
+import {
   acquireIntegEnvironment,
   releaseIntegEnvironment,
 } from "./environment.js";
@@ -44,8 +49,8 @@ test("pollingStartAndChannels", async () => {
   );
   assert.ok(runId.length > 0);
 
-  await environment.client.publish(flowId, flow.taskACompleted, undefined);
-  await environment.client.publish(flowId, flow.taskBCompleted, undefined);
+  await environment.client.publish(flowId, taskACompleted, undefined);
+  await environment.client.publish(flowId, taskBCompleted, undefined);
 
   const output = await environment.client.waitForFlow(flowId, 45_000).then((result) =>
     result.singleOutput(stringCodec),

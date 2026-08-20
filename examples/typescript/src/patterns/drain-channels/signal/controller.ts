@@ -20,7 +20,7 @@ import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../../config/env.js";
 import { isFlowMissingOrInactive } from "../../../service-errors.js";
-import { drainSignalChannelsFlow } from "./drain-signal-channels-flow.js";
+import { drainSignalChannelsFlow, queueSignalChannel } from "./drain-signal-channels-flow.js";
 
 export function createDrainSignalRouter(client: Client): Router {
   const router = Router();
@@ -31,7 +31,7 @@ export function createDrainSignalRouter(client: Client): Router {
     try {
       await client.publish(
         workflowId,
-        drainSignalChannelsFlow.queueSignalChannel,
+        queueSignalChannel,
         "signal from startorsignal endpoint",
       );
       message = "Signaled the workflow";

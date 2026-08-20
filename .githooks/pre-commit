@@ -1,0 +1,6 @@
+#!/bin/sh
+# Reject inline backticks in product-doc prose outside fenced code blocks.
+set -e
+
+root=$(git rev-parse --show-toplevel)
+python3 "$root/script/docs_no_inline_backticks.py" --staged

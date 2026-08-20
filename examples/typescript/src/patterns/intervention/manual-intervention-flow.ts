@@ -37,6 +37,10 @@ export const SIGNAL_CHANNEL_COMMAND_RETRY = "signal_channel_command_retry";
 export const SIGNAL_CHANNEL_COMMAND_SKIP = "signal_channel_command_skip";
 export const NUMBER_OF_RETRIES = "number_of_retries";
 
+const dataChannel = new Channel(INTERNAL_CHANNEL_COMMAND, stringCodec);
+const retrySignal = new Channel(SIGNAL_CHANNEL_COMMAND_RETRY, voidCodec);
+const skipSignal = new Channel(SIGNAL_CHANNEL_COMMAND_SKIP, voidCodec);
+
 class Init implements Step<void> {
   public constructor(private readonly flow: ManualInterventionFlow) {}
 
@@ -61,7 +65,7 @@ class GetData implements Step<boolean> {
 
   public waitFor(_context: Context, _isRetry: boolean): Wait {
     console.log("Waiting for incoming data");
-    return Wait.until(this.flow.dataChannel.forOne());
+    return Wait.until(dataChannel.forOne());
   }
 
   public execute(context: Context, isRetry: boolean): StepDecision {
@@ -78,7 +82,7 @@ class GetData implements Step<boolean> {
   }
 
   private pretendApiCall(context: Context): void {
-    const results = this.flow.dataChannel.results(context);
+    const results = dataChannel.results(context);
     if (results.length > 0) {
       const data = results[0];
       console.log(`Received data result: ${data}`);
@@ -97,11 +101,11 @@ class ErrorStep implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(this.flow.retrySignal.forOne(), this.flow.skipSignal.forOne());
+    return Wait.anyOf(retrySignal.forOne(), skipSignal.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    const retry = this.flow.retrySignal.results(context).length > 0;
+    const retry = retrySignal.results(context).length > 0;
     console.log(
       `signal received: ${retry ? SIGNAL_CHANNEL_COMMAND_RETRY : SIGNAL_CHANNEL_COMMAND_SKIP}`,
     );
@@ -126,9 +130,6 @@ class Final implements Step<void> {
 }
 
 export class ManualInterventionFlow implements Flow<void> {
-  public readonly dataChannel = new Channel(INTERNAL_CHANNEL_COMMAND, stringCodec);
-  public readonly retrySignal = new Channel(SIGNAL_CHANNEL_COMMAND_RETRY, voidCodec);
-  public readonly skipSignal = new Channel(SIGNAL_CHANNEL_COMMAND_SKIP, voidCodec);
   public readonly numberOfRetries = new Attribute(NUMBER_OF_RETRIES, doubleCodec);
 
   private readonly initStep = new Init(this);
@@ -163,7 +164,7 @@ export class ManualInterventionFlow implements Flow<void> {
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.numberOfRetries],
-      channels: [this.dataChannel, this.retrySignal, this.skipSignal],
+      channels: [dataChannel, retrySignal, skipSignal],
     };
   }
 }

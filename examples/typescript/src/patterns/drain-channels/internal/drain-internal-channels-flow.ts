@@ -48,6 +48,11 @@ export const PROCESS_DATA_STATE_EXECUTION_COUNTER = "process_data_state_executio
 const mongoDocumentInputCodec = jsonCodec<MongoDocument>(mongoDocumentCodec);
 const stringInputCodec = stringCodec;
 
+const upsertMongoData = new Channel(
+  UPSERT_MONGO_DATA_INTERNAL_CHANNEL,
+  mongoDocumentInputCodec,
+);
+
 class Init implements Step<string> {
   public readonly inputCodec = stringInputCodec;
 
@@ -74,11 +79,11 @@ class UpsertMongoRecord implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.until(this.flow.upsertMongoData.forOne());
+    return Wait.until(upsertMongoData.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    const documents = this.flow.upsertMongoData.results(context);
+    const documents = upsertMongoData.results(context);
     if (documents.length === 0) {
       throw new Error("No document was sent");
     }
@@ -126,7 +131,7 @@ class ProcessData implements Step<string> {
         break;
     }
 
-    this.flow.upsertMongoData.publish(context, {
+    upsertMongoData.publish(context, {
       id: input,
       status,
       finalCommand: false,
@@ -154,7 +159,7 @@ class Finalize implements Step<void> {
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    this.flow.upsertMongoData.publish(context, {
+    upsertMongoData.publish(context, {
       id: "documentId-1",
       status: "FINALIZED",
       finalCommand: true,
@@ -167,10 +172,6 @@ export class DrainInternalChannelsFlow implements Flow<string> {
   public readonly processDataStateExecutionCounter = new Attribute(
     PROCESS_DATA_STATE_EXECUTION_COUNTER,
     doubleCodec,
-  );
-  public readonly upsertMongoData = new Channel(
-    UPSERT_MONGO_DATA_INTERNAL_CHANNEL,
-    mongoDocumentInputCodec,
   );
 
   private readonly initStep = new Init(this);
@@ -210,7 +211,7 @@ export class DrainInternalChannelsFlow implements Flow<string> {
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.processDataStateExecutionCounter],
-      channels: [this.upsertMongoData],
+      channels: [upsertMongoData],
     };
   }
 }

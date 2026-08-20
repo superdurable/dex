@@ -29,9 +29,9 @@ The flow will charge the buyer, then wait for seller approval (with reminders), 
 
 - **ChargeStep** calls the payment API with Step-level retry. On success, move to ShipStep atomically.
 - **ShipStep** waits for a seller **Channel** or a **Timer**. Timer first: send a reminder and keep waiting. Approval: ship. Exhausted ship retries: **RefundStep**.
-- **RPC `approve`** publishes the seller Channel.
+- **RPC approve** publishes the seller Channel.
 - The storefront **start** handler waits for ChargeStep with the Client **wait-for-Step-completion** API — not a homemade status poll.
-- **Attribute `order-status`** is indexed so support can search stuck orders.
+- **Attribute order-status** is indexed so support can search stuck orders.
 
 <SdkTabs
   examples={{
@@ -750,7 +750,7 @@ fn seller_ok() -> Channel<String> {
 </SdkSnippet>
 </SdkTabs>
 
-Frontend wait for “payment received”. `GET /products/order-processing/start` starts the Flow, then waits for ChargeStep before it returns:
+Frontend wait for “payment received”. **GET /products/order-processing/start** starts the Flow, then waits for ChargeStep before it returns:
 
 <SdkTabs
   examples={{

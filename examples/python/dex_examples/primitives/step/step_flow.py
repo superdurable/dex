@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 from dex import (
+    Channel,
     Context,
     Flow,
+    PersistenceSchema,
     Step,
     StepDecision,
     StepList,
@@ -27,6 +29,8 @@ from dex import (
     graceful_complete,
 )
 
+approval = Channel("Approval", str)
+
 
 class StepSecond(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
@@ -34,13 +38,13 @@ class StepSecond(Step[int]):
         return graceful_complete(input + 1)
 
 
-class StepFirst(Step[int]):
+class ExampleStep(Step[int]):
     def __init__(self, second: StepSecond) -> None:
         self.second = second
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        context.set_step_execution_local("input", input)
-        return Wait.skip_immediately()
+        del context, input
+        return Wait.until(approval.for_one())
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
@@ -50,7 +54,10 @@ class StepFirst(Step[int]):
 class StepFlow(Flow[int]):
     def __init__(self) -> None:
         self.second = StepSecond()
-        self.first = StepFirst(self.second)
+        self.example = ExampleStep(self.second)
 
     def get_steps(self) -> StepList[int]:
-        return StepList.start_step(self.first).other_steps(self.second)
+        return StepList.start_step(self.example).other_steps(self.second)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(approval)

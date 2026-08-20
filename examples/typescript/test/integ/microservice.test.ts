@@ -19,6 +19,8 @@ import test from "node:test";
 
 import { stringCodec } from "@superdurable/dex";
 
+import { ready } from "../../src/products/microservices/orchestration-flow.js";
+
 import {
   acquireIntegEnvironment,
   awaitCondition,
@@ -55,7 +57,7 @@ test("microserviceStartRpcAndChannel", async () => {
   const previous = await environment.client.invokeRPC(flow.swap, flowId, "updated-data");
   assert.equal(previous, "initial-data");
 
-  await environment.client.publish(flowId, flow.ready, undefined);
+  await environment.client.publish(flowId, ready, undefined);
   const output = await environment.client.waitForFlow(flowId, 45_000).then((result) =>
     result.singleOutput(stringCodec),
   );

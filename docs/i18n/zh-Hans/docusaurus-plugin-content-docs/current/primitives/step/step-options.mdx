@@ -6,7 +6,7 @@ slug: /primitives/step/step-options
 
 # Step options
 
-在 StepOptions 上独立配置 WaitFor 与 Execute：方法 timeout、retry policy、retry 耗尽后的 failure policy、durability、heartbeat 与按 movement 覆盖。
+在 StepOptions 上独立配置 WaitFor 与 Execute：方法 timeout、retry policy、retry 耗尽后的 failure policy、durability、heartbeat 与按 StepExecution 覆盖 StepOptions。
 
 ## Timeout、retry 与 failure policy {#timeout-retry-and-failure-policy}
 
@@ -115,26 +115,31 @@ WaitFor retry 耗尽时：
 
 <SdkTabs
   examples={{
-    go: 'examples/go/primitives/options-override/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/optionsoverride/OptionsOverrideFlow.java',
-    python: 'examples/python/dex_examples/primitives/options_override/options_override_flow.py',
-    typescript: 'examples/typescript/src/primitives/options-override/options-override-flow.ts',
-    rust: 'examples/rust/src/primitives/options_override/flow.rs',
+    go: 'examples/go/primitives/proceed-on-wait-failure/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/proceedonwaitfailure/ProceedOnWaitFailureFlow.java',
+    python: 'examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py',
+    typescript: 'examples/typescript/src/primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts',
+    rust: 'examples/rust/src/primitives/proceed_on_wait_failure/flow.rs',
   }}>
 <SdkSnippet lang="go">
 
 ```go
-override := &dex.StepOptions{
-	WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
-	WaitForFailure: dex.ProceedOnWaitForFailure,
+func (failingWaitStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
+		WaitForFailure: dex.ProceedOnWaitForFailure,
+	}
 }
-return dex.GoTo(overrideSecondStep{}, payload, dex.WithStepOptions(override)), nil
 
-func (overrideSecondStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+func (failingWaitStep) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
+	return nil, fmt.Errorf("planned WaitFor failure")
+}
+
+func (failingWaitStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
 	if !ctx.WaitForMethodFailed() {
 		return nil, fmt.Errorf("waitFor failure was not reported")
 	}
-	return dex.GracefulComplete(input + "_state2"), nil
+	return dex.GoTo(finishStep{}, input+"_recovered"), nil
 }
 ```
 
@@ -142,69 +147,94 @@ func (overrideSecondStep) Execute(ctx dex.Context, input string) (*dex.StepDecis
   <SdkSnippet lang="java">
 
 ```java
-final StepOptions override = StepOptions.newBuilder()
-        .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
-        .waitForFailure(WaitForFailurePolicy.PROCEED)
-        .build();
-return StepDecision.goToMulti(StepMovement.of(second, payload, override));
-
-if (!context.waitForMethodFailed()) {
-    throw new IllegalStateException("waitFor failure was not reported");
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+            .waitForFailure(WaitForFailurePolicy.PROCEED)
+            .build();
 }
-return StepDecision.gracefulComplete(input + "_state2");
+
+@Override
+public Wait waitFor(final Context context, final String input) {
+    throw new IllegalStateException("planned WaitFor failure");
+}
+
+@Override
+public StepDecision execute(final Context context, final String input) {
+    if (!context.waitForMethodFailed()) {
+        throw new IllegalStateException("waitFor failure was not reported");
+    }
+    return StepDecision.goTo(finish, input + "_recovered");
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="python">
 
 ```python
-override = StepOptions(
-    wait_for_retry=RetryPolicy(maximum_attempts=2),
-    wait_for_failure=WaitForFailurePolicy.PROCEED,
-)
-return go_to_multi(StepMovement.of(self.second, payload, options=override))
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        wait_for_retry=RetryPolicy(maximum_attempts=2),
+        wait_for_failure=WaitForFailurePolicy.PROCEED,
+    )
 
-if not context.wait_for_method_failed():
-    raise RuntimeError("waitFor failure was not reported")
-return graceful_complete(f"{input}_state2")
+def wait_for(self, context: Context, input: str) -> Wait:
+    del context, input
+    raise RuntimeError("planned WaitFor failure")
+
+def execute(self, context: Context, input: str) -> StepDecision:
+    if not context.wait_for_method_failed():
+        raise RuntimeError("waitFor failure was not reported")
+    return go_to(self.finish, f"{input}_recovered")
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
 ```typescript
-const override: StepOptions = {
-  waitForRetry: { maximumAttempts: 2 },
-  waitForFailure: "proceed",
-};
-return goToMulti(StepMovement.of(this.flow.secondStep, payload, override));
-
-if (!context.waitForMethodFailed()) {
-  throw new Error("waitFor failure was not reported");
+public getStepOptions(): StepOptions {
+  return {
+    waitForRetry: { maximumAttempts: 2 },
+    waitForFailure: "proceed",
+  };
 }
-return gracefulComplete(`${input}_state2`);
+
+public waitFor(_context: Context, _input: string): Wait {
+  throw new Error("planned WaitFor failure");
+}
+
+public execute(context: Context, input: string): StepDecision {
+  if (!context.waitForMethodFailed()) {
+    throw new Error("waitFor failure was not reported");
+  }
+  return goTo(this.finish, `${input}_recovered`);
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="rust">
 
 ```rust
-let override_options = StepOptions::new()
-    .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
-    .wait_for_failure(WaitForFailurePolicy::Proceed);
-Ok(StepDecision::go_to_many([StepMovement::to_with_options(
-    &OverrideSecondStep,
-    payload,
-    override_options,
-)]))
-
-if !context.wait_for_method_failed() {
-    return Err(HandlerError::new(
-        "OptionsOverride",
-        "waitFor failure was not reported",
-    ));
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .wait_for_failure(WaitForFailurePolicy::Proceed)
+        .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
 }
-Ok(StepDecision::graceful_complete(format!("{input}_state2")))
+
+fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    Err(HandlerError::new("ProceedOnWaitFailure", "planned WaitFor failure"))
+}
+
+fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    if !context.wait_for_method_failed() {
+        return Err(HandlerError::new(
+            "ProceedOnWaitFailure",
+            "waitFor failure was not reported",
+        ));
+    }
+    Ok(StepDecision::go_to(&FinishStep, format!("{input}_recovered")))
+}
 ```
 
 </SdkSnippet>
@@ -379,7 +409,7 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 - **Cadence** 以 INVALID_USER_FLOW_CODE 拒绝动态间隔。
 - 在 Temporal 上，**当前 attempt 失败**（而非 RetryAfterException 本身）是上报的 Worker 错误，出现在 lastFailureInfo。
 
-Worker SDK 在 WorkerErrorResponse 上附加 stack_trace 时，Dex Web 在 **Last failure** 下以 originalWorkerErrorStackTrace 显示。Go 应用若要上报 origin stack，用 `dex.ErrorWithStack` 包装 cause（配合 custom retry 时嵌在 `RetryAfter` 里）。Rust 的 `HandlerError` 构造函数会自动捕获 construction-site stack。
+Worker SDK 在 WorkerErrorResponse 上附加 stack_trace 时，Dex Web 在 **Last failure** 下以 originalWorkerErrorStackTrace 显示。Go 应用若要上报 origin stack，用 **dex.ErrorWithStack** 包装 cause（配合 custom retry 时嵌在 **RetryAfter** 里）。Rust 的 **HandlerError** 构造函数会自动捕获 construction-site stack。
 
 
 ## Durability {#durability}
@@ -603,7 +633,7 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 
 Heartbeat 使取消能尽快到达常规 activity；不能使外部 API 调用原子化。按需组合 timeout、幂等或补偿。
 
-## 按 movement 覆盖 StepOptions {#per-movement-stepoptions-override}
+## 按 StepExecution 覆盖 StepOptions {#stepoptions-override-per-stepexecution}
 
 已注册的 StepOptions 适用于 Step 类型的每次 execution。有时某个 **movement** 需要不同的 retry 或 failure 行为——例如 fan-out 子 Step 在 WaitFor 失败时应 proceed，而 sibling 失败 Flow。
 

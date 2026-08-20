@@ -17,7 +17,7 @@ import ExecutionApproachDiagram from '@site/src/components/intro/ExecutionApproa
 
 今天我们有各种 durable 的数据库 / 存储——PostgreSQL、MySQL、S3。
 
-它们提供 `persist` 数据的 API，以及 `retrieve` 数据的 API。这些 API 是 **被动的**。
+它们提供 **persist** 数据的 API，以及 **retrieve** 数据的 API。这些 API 是 **被动的**。
 
 做一个可靠的后端，通常有两个核心要求：
 1. 要跑在多台机器上，保证可用性、吞吐和规模（不能单点）
@@ -59,7 +59,7 @@ function processOrder(order){
 
 ### Fix 1 —— 数据库行 + 轮询 Worker
 
-于是一个聪明的工程师想到：插入一行（`status = pending`），先返回给客户端，让后台 Worker 来领任务。
+于是一个聪明的工程师想到：插入一行（**status = pending**），先返回给客户端，让后台 Worker 来领任务。
 
 <ExecutionApproachDiagram approach="table-poll" />
 
@@ -69,8 +69,8 @@ function processOrder(order){
 
 ### Fix 2 —— 步骤之间用消息队列
 
-更有经验的后端工程师通常会演进到使用消息队列：`charge-request` 和 `ship-requests`。
-订单从发布到 `charge-requests` 开始，消费完再发布到 `ship-requests`。
+更有经验的后端工程师通常会演进到使用消息队列：**charge-request** 和 **ship-requests**。
+订单从发布到 **charge-requests** 开始，消费完再发布到 **ship-requests**。
 
 <ExecutionApproachDiagram approach="message-queue" />
 

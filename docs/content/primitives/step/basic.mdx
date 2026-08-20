@@ -1,16 +1,19 @@
 ---
-title: Durable Step Basic Features
+title: Step Basic Features
 sidebar_label: Basics
 slug: /primitives/step/basic
 ---
 
-# Durable Step Basic Features
+import StepWaitExecuteDiagram from '@site/src/components/primitives/step/StepWaitExecuteDiagram';
+import StepDecisionMovementsDiagram from '@site/src/components/primitives/step/StepDecisionMovementsDiagram';
 
-**Step** is the basic building block of background execution. This page covers the default shape of a Step: typed input, optional `WaitFor`, required `Execute`, movement with `StepDecision`, and the default `StepOptions` behavior.
+# Step Basic Features
+
+**Step** is the basic building block of background execution. This page covers the default shape of a Step: typed input, optional **WaitFor**, required **Execute**, movement with **StepDecision**, and the default **StepOptions** behavior.
 
 A Dex Step is implemented by native code. The struct or class that implements the Step determines the **StepType**. In most languages, the SDK derives the StepType from the native type name unless you override it.
 
-The same Step type can execute multiple times in one Flow. Each execution is a **StepExecution**, identified by a **StepExecutionID** in the form `<StepType>-<Number>`. Dex assigns and maintains that identifier.
+The same Step type can execute multiple times in one Flow. Each execution is a **StepExecution**, identified by a **StepExecutionID** in the form **StepType**-**Number**. Dex assigns and maintains that identifier.
 
 ## Step input {#step-input}
 
@@ -27,13 +30,13 @@ For most languages, step input is strongly typed, when writing code to start a f
 
 A Step implementation has one or two small methods: **WaitFor** -> **Execute**.
 
-`WaitFor` is optional. It returns a durable `Wait` to Dex Server. Dex persists that waiting state, evaluates the conditions on your behalf, and invokes `Execute` after the wait is satisfied.
+**WaitFor** is optional. It returns a durable **Wait** to Dex Server. Dex persists that waiting state, evaluates the conditions on your behalf, and invokes **Execute** after the wait is satisfied.
 
-If a Step does not implement `WaitFor`, `Execute` runs immediately.
+If a Step does not implement **WaitFor**, **Execute** runs immediately.
 
-`Execute` is required. It returns a `StepDecision` that moves to the next Step, branches to several Steps, or closes the Flow.
+**Execute** is required. It returns a **StepDecision** that moves to the next Step, branches to several Steps, or closes the Flow.
 
-// TODO insert a diagram here to illustrate the waitFor method->condition waiting -> execute method -> decision
+<StepWaitExecuteDiagram />
 
 <SdkTabs
   examples={{
@@ -46,19 +49,22 @@ If a Step does not implement `WaitFor`, `Execute` runs immediately.
 <SdkSnippet lang="python">
 
 ```python
+approval = Channel("Approval", str)
+
+
 class StepSecond(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
         return graceful_complete(input + 1)
 
 
-class StepFirst(Step[int]):
+class ExampleStep(Step[int]):
     def __init__(self, second: StepSecond) -> None:
         self.second = second
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        context.set_step_execution_local("input", input)
-        return Wait.skip_immediately()
+        del context, input
+        return Wait.until(approval.for_one())
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
@@ -69,18 +75,17 @@ class StepFirst(Step[int]):
   <SdkSnippet lang="go">
 
 ```go
-type stepFirstStep struct {
+var Approval = dex.DefineChannel[string]("Approval")
+
+type ExampleStep struct {
 	dex.StepDefaults
 }
 
-func (stepFirstStep) WaitFor(ctx dex.Context, input int) (*dex.Wait, error) {
-	if err := ctx.SetStepExecutionLocal("input", input); err != nil {
-		return nil, err
-	}
-	return dex.SkipWaitImmediately(), nil
+func (ExampleStep) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
+	return dex.Until(Approval.ForOne()), nil
 }
 
-func (stepFirstStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
+func (ExampleStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
 	return dex.GoTo(stepSecondStep{}, input+1), nil
 }
 
@@ -97,7 +102,7 @@ func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, erro
   <SdkSnippet lang="java">
 
 ```java
-final class StepFirst implements Step<Integer> {
+final class ExampleStep implements Step<Integer> {
     @Override
     public Class<Integer> getInputType() {
         return Integer.class;
@@ -105,8 +110,7 @@ final class StepFirst implements Step<Integer> {
 
     @Override
     public Wait waitFor(final Context context, final Integer input) {
-        context.setStepExecutionLocal("input", input, Integer.class);
-        return Wait.skipImmediately();
+        return Wait.until(approval.forOne());
     }
 
     @Override
@@ -132,18 +136,19 @@ static final class StepSecond implements Step<Integer> {
   <SdkSnippet lang="typescript">
 
 ```typescript
-class StepFirst implements Step<number> {
+const approval = new Channel("Approval", stringCodec);
+
+class ExampleStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public constructor(private readonly flow: StepFlow) {}
 
   public getStepType(): string {
-    return "StepFirst";
+    return "ExampleStep";
   }
 
-  public waitFor(context: Context, input: number): Wait {
-    context.setStepExecutionLocal("input", input, doubleCodec);
-    return Wait.skipImmediately();
+  public waitFor(_context: Context, _input: number): Wait {
+    return Wait.until(approval.forOne());
   }
 
   public execute(_context: Context, input: number): StepDecision {
@@ -168,15 +173,18 @@ class StepSecond implements Step<number> {
   <SdkSnippet lang="rust">
 
 ```rust
-#[derive(Default)]
-struct StepFirst;
+fn approval() -> Channel<String> {
+    Channel::new("Approval")
+}
 
-impl Step for StepFirst {
+#[derive(Default)]
+struct ExampleStep;
+
+impl Step for ExampleStep {
     type Input = i32;
 
-    fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        context.set_step_execution_local("input", input)?;
-        Ok(Wait::skip_immediately())
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(approval().for_one()))
     }
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
@@ -232,7 +240,7 @@ Note:
 
 ```python
 return Wait.any_of(
-    self.flow.channel_a.for_one(),
+    channel_a.for_one(),
     Timer.by_duration(timeout),
 )
 ```
@@ -261,7 +269,7 @@ return Wait.anyOf(
 
 ```typescript
 return Wait.anyOf(
-  this.flow.channelA.forOne(),
+  channelA.forOne(),
   Timer.byDuration(timeoutMs),
 );
 ```
@@ -291,8 +299,8 @@ Ok(Wait::any_of([
 
 ```python
 return Wait.all_of(
-    self.flow.channel_a.for_one(),
-    self.flow.channel_b.for_one(),
+    channel_a.for_one(),
+    channel_b.for_one(),
 )
 ```
 
@@ -320,8 +328,8 @@ return Wait.allOf(
 
 ```typescript
 return Wait.allOf(
-  this.flow.channelA.forOne(),
-  this.flow.channelB.forOne(),
+  channelA.forOne(),
+  channelB.forOne(),
 );
 ```
 
@@ -345,7 +353,7 @@ A StepDecision can go to a single or multiple next steps.
 
 This is how you build branching, looping, and parallel work.
 
-// TODO: insert diagram to illustrate branch loop and parallel step decision here.
+<StepDecisionMovementsDiagram />
 
 See more in the [parallel](/design-patterns/parallel) and [scalable-parallel](/design-patterns/scalable-parallel) patterns.
 
@@ -470,26 +478,31 @@ When WaitFor retries are exhausted:
 
 <SdkTabs
   examples={{
-    go: 'examples/go/primitives/options-override/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/optionsoverride/OptionsOverrideFlow.java',
-    python: 'examples/python/dex_examples/primitives/options_override/options_override_flow.py',
-    typescript: 'examples/typescript/src/primitives/options-override/options-override-flow.ts',
-    rust: 'examples/rust/src/primitives/options_override/flow.rs',
+    go: 'examples/go/primitives/proceed-on-wait-failure/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/proceedonwaitfailure/ProceedOnWaitFailureFlow.java',
+    python: 'examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py',
+    typescript: 'examples/typescript/src/primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts',
+    rust: 'examples/rust/src/primitives/proceed_on_wait_failure/flow.rs',
   }}>
 <SdkSnippet lang="go">
 
 ```go
-override := &dex.StepOptions{
-	WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
-	WaitForFailure: dex.ProceedOnWaitForFailure,
+func (failingWaitStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForRetry:   &dex.RetryPolicy{MaximumAttempts: 2},
+		WaitForFailure: dex.ProceedOnWaitForFailure,
+	}
 }
-return dex.GoTo(overrideSecondStep{}, payload, dex.WithStepOptions(override)), nil
 
-func (overrideSecondStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+func (failingWaitStep) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
+	return nil, fmt.Errorf("planned WaitFor failure")
+}
+
+func (failingWaitStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
 	if !ctx.WaitForMethodFailed() {
 		return nil, fmt.Errorf("waitFor failure was not reported")
 	}
-	return dex.GracefulComplete(input + "_state2"), nil
+	return dex.GoTo(finishStep{}, input+"_recovered"), nil
 }
 ```
 
@@ -497,69 +510,94 @@ func (overrideSecondStep) Execute(ctx dex.Context, input string) (*dex.StepDecis
   <SdkSnippet lang="java">
 
 ```java
-final StepOptions override = StepOptions.newBuilder()
-        .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
-        .waitForFailure(WaitForFailurePolicy.PROCEED)
-        .build();
-return StepDecision.goToMulti(StepMovement.of(second, payload, override));
-
-if (!context.waitForMethodFailed()) {
-    throw new IllegalStateException("waitFor failure was not reported");
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+            .waitForFailure(WaitForFailurePolicy.PROCEED)
+            .build();
 }
-return StepDecision.gracefulComplete(input + "_state2");
+
+@Override
+public Wait waitFor(final Context context, final String input) {
+    throw new IllegalStateException("planned WaitFor failure");
+}
+
+@Override
+public StepDecision execute(final Context context, final String input) {
+    if (!context.waitForMethodFailed()) {
+        throw new IllegalStateException("waitFor failure was not reported");
+    }
+    return StepDecision.goTo(finish, input + "_recovered");
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="python">
 
 ```python
-override = StepOptions(
-    wait_for_retry=RetryPolicy(maximum_attempts=2),
-    wait_for_failure=WaitForFailurePolicy.PROCEED,
-)
-return go_to_multi(StepMovement.of(self.second, payload, options=override))
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        wait_for_retry=RetryPolicy(maximum_attempts=2),
+        wait_for_failure=WaitForFailurePolicy.PROCEED,
+    )
 
-if not context.wait_for_method_failed():
-    raise RuntimeError("waitFor failure was not reported")
-return graceful_complete(f"{input}_state2")
+def wait_for(self, context: Context, input: str) -> Wait:
+    del context, input
+    raise RuntimeError("planned WaitFor failure")
+
+def execute(self, context: Context, input: str) -> StepDecision:
+    if not context.wait_for_method_failed():
+        raise RuntimeError("waitFor failure was not reported")
+    return go_to(self.finish, f"{input}_recovered")
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
 ```typescript
-const override: StepOptions = {
-  waitForRetry: { maximumAttempts: 2 },
-  waitForFailure: "proceed",
-};
-return goToMulti(StepMovement.of(this.flow.secondStep, payload, override));
-
-if (!context.waitForMethodFailed()) {
-  throw new Error("waitFor failure was not reported");
+public getStepOptions(): StepOptions {
+  return {
+    waitForRetry: { maximumAttempts: 2 },
+    waitForFailure: "proceed",
+  };
 }
-return gracefulComplete(`${input}_state2`);
+
+public waitFor(_context: Context, _input: string): Wait {
+  throw new Error("planned WaitFor failure");
+}
+
+public execute(context: Context, input: string): StepDecision {
+  if (!context.waitForMethodFailed()) {
+    throw new Error("waitFor failure was not reported");
+  }
+  return goTo(this.finish, `${input}_recovered`);
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="rust">
 
 ```rust
-let override_options = StepOptions::new()
-    .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
-    .wait_for_failure(WaitForFailurePolicy::Proceed);
-Ok(StepDecision::go_to_many([StepMovement::to_with_options(
-    &OverrideSecondStep,
-    payload,
-    override_options,
-)]))
-
-if !context.wait_for_method_failed() {
-    return Err(HandlerError::new(
-        "OptionsOverride",
-        "waitFor failure was not reported",
-    ));
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new()
+        .wait_for_failure(WaitForFailurePolicy::Proceed)
+        .wait_for_retry(RetryPolicy::new().maximum_attempts(2))
 }
-Ok(StepDecision::graceful_complete(format!("{input}_state2")))
+
+fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    Err(HandlerError::new("ProceedOnWaitFailure", "planned WaitFor failure"))
+}
+
+fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    if !context.wait_for_method_failed() {
+        return Err(HandlerError::new(
+            "ProceedOnWaitFailure",
+            "waitFor failure was not reported",
+        ));
+    }
+    Ok(StepDecision::go_to(&FinishStep, format!("{input}_recovered")))
+}
 ```
 
 </SdkSnippet>

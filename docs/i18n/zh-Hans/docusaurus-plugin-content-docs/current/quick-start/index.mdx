@@ -17,14 +17,14 @@ brew update && brew upgrade superdurable/tap/dexcli   # when you want the latest
 dexcli dev
 ```
 
-`dexcli` 会启动 Dex Server、Dex Web，以及内部的 workflow backend。这些端口空闲时的默认地址：
+**dexcli** 会启动 Dex Server、Dex Web，以及内部的 workflow backend。这些端口空闲时的默认地址：
 
 | Service | Address |
 | --- | --- |
-| Dex Web | `http://127.0.0.1:8802` |
-| Dex Server | `127.0.0.1:8801` |
+| Dex Web | **http://127.0.0.1:8802** |
+| Dex Server | **127.0.0.1:8801** |
 
-同一台机器上再开一个 `dexcli dev` 会绑到别的空闲端口，并用自己的 SQLite。把打印出来的 Dex Server 地址传给 `--server`。flag 和持久化选项见 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)。
+同一台机器上再开一个 **dexcli dev** 会绑到别的空闲端口，并用自己的 SQLite。把打印出来的 Dex Server 地址传给 **--server**。flag 和持久化选项见 [CLI README](https://github.com/superdurable/dex/blob/main/cli/README.md)。
 
 ## 2. Flow、Step、RPC、constructor 依赖
 
@@ -771,7 +771,7 @@ fn seller_ok() -> Channel<String> {
 
 ## 3. Worker 和 Client
 
-把 Registry、Worker、Client 指到 `dexcli`（`127.0.0.1:8801`）。用 service 构造 Flow，再注册。
+把 Registry、Worker、Client 指到 **dexcli**（**127.0.0.1:8801**）。用 service 构造 Flow，再注册。
 
 <SdkTabs
   examples={{
@@ -944,7 +944,7 @@ export const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyServi
 
 ## 4. Controller
 
-start handler 启动 Flow，再用 Client 的 wait-for-Step-completion API 等 ChargeStep。approve 往卖家 Channel 发消息。describe 读 `order-status`。Client 和 Flow 来自 constructor 或 factory 参数。
+start handler 启动 Flow，再用 Client 的 wait-for-Step-completion API 等 ChargeStep。approve 往卖家 Channel 发消息。describe 读 **order-status**。Client 和 Flow 来自 constructor 或 factory 参数。
 
 <SdkTabs
   examples={{
@@ -1245,7 +1245,7 @@ async fn describe(
 
 ## 5. 运行
 
-保持 `dexcli dev` 在跑。另开一个终端：
+保持 **dexcli dev** 在跑。另开一个终端：
 
 <SdkTabs>
 <SdkSnippet lang="python">
@@ -1297,13 +1297,13 @@ cargo run --locked
 curl -s 'http://127.0.0.1:8080/products/order-processing/start'
 ```
 
-从 JSON 里复制 `flowID`。打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，找到这条 Flow，打开详情。ShipStep 在等待。
+从 JSON 里复制 **flowID**。打开 [http://127.0.0.1:8802](http://127.0.0.1:8802)，找到这条 Flow，打开详情。ShipStep 在等待。
 
 ```bash
 curl -s "http://127.0.0.1:8080/products/order-processing/approve?workflowId=FLOW_ID"
 ```
 
-把 `FLOW_ID` 换成 start 的返回值。这条 Flow 会发货并完成。
+把 **FLOW_ID** 换成 start 的返回值。这条 Flow 会发货并完成。
 
 ## 6. Dex Web
 

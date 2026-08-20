@@ -45,6 +45,7 @@ import { createDurabilityRouter } from "./primitives/durability/controller.js";
 import { createHeartbeatRouter } from "./primitives/heartbeat/controller.js";
 import { createOptionsOverrideRouter } from "./primitives/options-override/controller.js";
 import { createRpcRouter } from "./primitives/rpc/controller.js";
+import { createFlowRouter } from "./primitives/flow/controller.js";
 import { createStepRouter } from "./primitives/step/controller.js";
 import { createStepDecisionRouter } from "./primitives/step-decision/controller.js";
 import { createSubflowRouter } from "./primitives/subflow/controller.js";
@@ -115,6 +116,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/patterns/drain-channels/signal", createDrainSignalRouter(client));
   app.use("/patterns/wait-for-state-completion", createWaitForStateCompletionRouter(client));
   app.use("/patterns/timeout", createTimeoutRouter(client));
+  app.use("/primitives/flow", createFlowRouter(client));
   app.use("/primitives/step", createStepRouter(client));
   app.use("/primitives/step/custom-retry", createCustomRetryRouter(client));
   app.use("/primitives/step/durability", createDurabilityRouter(client));

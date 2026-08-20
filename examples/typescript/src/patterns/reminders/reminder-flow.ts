@@ -46,6 +46,9 @@ export const INTERNAL_CHANNEL_COMPLETE_PROCESS = "CompleteProcess";
 
 const REMINDER_WAIT_MS = 5_000;
 
+export const optOutReminder = new Channel(SIGNAL_NAME_OPT_OUT_REMINDER, voidCodec);
+export const completeProcess = new Channel(INTERNAL_CHANNEL_COMPLETE_PROCESS, voidCodec);
+
 class Init implements Step<void> {
   public constructor(private readonly flow: ReminderFlow) {}
 
@@ -75,7 +78,7 @@ class ProcessTimeout implements Step<void> {
   public waitFor(_context: Context, _input: void): Wait {
     return Wait.anyOf(
       Timer.byDuration(60 * DAY_MS),
-      this.flow.completeProcess.forOne(),
+      completeProcess.forOne(),
     );
   }
 
@@ -100,7 +103,7 @@ class Reminder implements Step<void> {
   public waitFor(_context: Context, _input: void): Wait {
     return Wait.anyOf(
       Timer.byDuration(REMINDER_WAIT_MS),
-      this.flow.optOutReminder.forOne(),
+      optOutReminder.forOne(),
     );
   }
 
@@ -111,7 +114,7 @@ class Reminder implements Step<void> {
       return forceComplete("done");
     }
 
-    if (this.flow.optOutReminder.results(context).length > 0) {
+    if (optOutReminder.results(context).length > 0) {
       this.service.updateExternalSystem("user opted out - no more reminders");
       return forceComplete("done - opt out");
     }
@@ -123,8 +126,6 @@ class Reminder implements Step<void> {
 
 export class ReminderFlow implements Flow<void> {
   public readonly status = new Attribute(DA_STATUS, stringCodec);
-  public readonly optOutReminder = new Channel(SIGNAL_NAME_OPT_OUT_REMINDER, voidCodec);
-  public readonly completeProcess = new Channel(INTERNAL_CHANNEL_COMPLETE_PROCESS, voidCodec);
 
   private readonly initStep: Init;
   private readonly processTimeout: ProcessTimeout;
@@ -158,7 +159,7 @@ export class ReminderFlow implements Flow<void> {
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.status],
-      channels: [this.optOutReminder, this.completeProcess],
+      channels: [optOutReminder, completeProcess],
     };
   }
 
@@ -169,7 +170,7 @@ export class ReminderFlow implements Flow<void> {
       throw new Error("can only accept in INITIATED status");
     }
     this.status.set(context, "ACCEPTED");
-    this.completeProcess.publish(context, undefined);
+    completeProcess.publish(context, undefined);
   }
 }
 

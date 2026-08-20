@@ -31,12 +31,12 @@ import {
 
 export const QUEUE_SIGNAL_CHANNEL = "queueSignalChannel";
 
+export const queueSignalChannel = new Channel(QUEUE_SIGNAL_CHANNEL, stringCodec);
+
 const signalInputCodec = optionalCodec(stringCodec);
 
 class ProcessSignal implements Step<string | undefined> {
   public readonly inputCodec = signalInputCodec;
-
-  public constructor(private readonly flow: DrainSignalChannelsFlow) {}
 
   public getStepType(): string {
     return "ProcessSignal";
@@ -44,7 +44,7 @@ class ProcessSignal implements Step<string | undefined> {
 
   public waitFor(_context: Context, input: string | undefined): Wait {
     if (input === undefined) {
-      return Wait.until(this.flow.queueSignalChannel.forOne());
+      return Wait.until(queueSignalChannel.forOne());
     }
     return Wait.skipImmediately();
   }
@@ -53,7 +53,7 @@ class ProcessSignal implements Step<string | undefined> {
     if (input !== undefined) {
       console.log(`DrainSignalChannelsFlow process signal value: ${input}`);
     } else {
-      const values = this.flow.queueSignalChannel.results(context);
+      const values = queueSignalChannel.results(context);
       if (values.length === 0) {
         throw new Error("No signal request found");
       }
@@ -72,15 +72,13 @@ class ProcessSignal implements Step<string | undefined> {
     return forceCompleteIfChannelsEmpty(
       null,
       StepMovement.of(this, undefined),
-      this.flow.queueSignalChannel,
+      queueSignalChannel,
     );
   }
 }
 
 export class DrainSignalChannelsFlow implements Flow<string | undefined> {
-  public readonly queueSignalChannel = new Channel(QUEUE_SIGNAL_CHANNEL, stringCodec);
-
-  private readonly processSignal = new ProcessSignal(this);
+  private readonly processSignal = new ProcessSignal();
 
   public getFlowType(): string {
     return "DrainSignalChannelsFlow";
@@ -91,7 +89,7 @@ export class DrainSignalChannelsFlow implements Flow<string | undefined> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [this.queueSignalChannel] };
+    return { channels: [queueSignalChannel] };
   }
 }
 

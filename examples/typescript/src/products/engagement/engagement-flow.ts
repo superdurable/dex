@@ -56,6 +56,9 @@ export const STATUS_SEARCH_KEY = "CustomKeywordField";
 const PROCESS_TIMEOUT_MS = 60 * DAY_MS;
 const REMINDER_MS = 5_000;
 
+export const optOutReminder = new Channel("OptOutReminder", voidCodec);
+export const completeProcess = new Channel("CompleteProcess", voidCodec);
+
 export class EngagementFlow implements Flow<EngagementInput> {
   public readonly employerId = new Attribute("EmployerId", stringCodec);
   public readonly jobSeekerId = new Attribute("JobSeekerId", stringCodec);
@@ -65,8 +68,6 @@ export class EngagementFlow implements Flow<EngagementInput> {
   });
   public readonly lastUpdateTimestamp = new Attribute("LastUpdateTimeMillis", int64Codec);
   public readonly notes = new Attribute("notes", optionalCodec(stringCodec));
-  public readonly optOutReminder = new Channel("OptOutReminder", voidCodec);
-  public readonly completeProcess = new Channel("CompleteProcess", voidCodec);
 
   public readonly initialize = new Initialize(this);
   public readonly processTimeout = new ProcessTimeout(this);
@@ -96,7 +97,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
         this.lastUpdateTimestamp,
         this.notes,
       ],
-      channels: [this.optOutReminder, this.completeProcess],
+      channels: [optOutReminder, completeProcess],
     };
   }
 
@@ -129,7 +130,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
       );
     }
     this.updateStatus(context, Status.ACCEPTED, note);
-    this.completeProcess.publish(context, undefined);
+    completeProcess.publish(context, undefined);
     return {
       output: Status.ACCEPTED,
       nextSteps: [StepMovement.of(this.notifyExternalSystem, Status.ACCEPTED)],
@@ -187,7 +188,7 @@ class ProcessTimeout implements Step<void> {
   public waitFor(_context: Context, _input: void): Wait {
     return Wait.anyOf(
       Timer.byDuration(PROCESS_TIMEOUT_MS),
-      this.flow.completeProcess.forOne(),
+      completeProcess.forOne(),
     );
   }
 
@@ -212,7 +213,7 @@ class Reminder implements Step<void> {
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(Timer.byDuration(REMINDER_MS), this.flow.optOutReminder.forOne());
+    return Wait.anyOf(Timer.byDuration(REMINDER_MS), optOutReminder.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
@@ -220,7 +221,7 @@ class Reminder implements Step<void> {
     if (status !== Status.INITIATED) {
       return deadEnd();
     }
-    if (this.flow.optOutReminder.results(context).length > 0) {
+    if (optOutReminder.results(context).length > 0) {
       this.flow.updateStatus(context, status, "user opted out of reminders");
       return deadEnd();
     }
