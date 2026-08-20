@@ -248,8 +248,10 @@ struct GoogleRpcStatus {
 
 fn worker_status(error: HandlerError) -> Status {
     let message = error.to_string();
-    let stack_trace =
-        truncate_stack_trace(&format!("{message}\n{}", std::backtrace::Backtrace::capture()));
+    let stack_trace = truncate_stack_trace(&format!(
+        "{message}\n{}",
+        std::backtrace::Backtrace::capture()
+    ));
     let worker_error = WorkerErrorResponse {
         detail: message.clone(),
         error_type: error.error_type().to_string(),
