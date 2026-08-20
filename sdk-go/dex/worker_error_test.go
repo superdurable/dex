@@ -50,12 +50,26 @@ func TestFinishWorkerCallAttachesStackTraceAndRetryAfter(t *testing.T) {
 	if workerError.GetRetryAfterSeconds() != 7 {
 		t.Fatalf("retry after = %d, want 7", workerError.GetRetryAfterSeconds())
 	}
-	if workerError.GetStackTrace() == "" {
-		t.Fatal("expected stack trace")
+	assertMissingApplicationStack(t, workerError.GetStackTrace())
+}
+
+func TestFinishWorkerCallPlainErrorSkipsWrapSiteStack(t *testing.T) {
+	err := finishWorkerCall(testLogger{}, nil, errors.New("plain boom"))
+	if err == nil {
+		t.Fatal("expected error")
 	}
-	if !strings.Contains(workerError.GetStackTrace(), "boom") {
-		t.Fatalf("stack trace missing cause: %q", workerError.GetStackTrace())
+	rpcStatus, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("expected gRPC status, got %T", err)
 	}
+	workerError, ok := rpcStatus.Details()[0].(*dexpb.WorkerErrorResponse)
+	if !ok {
+		t.Fatalf("expected WorkerErrorResponse, got %T", rpcStatus.Details()[0])
+	}
+	if workerError.GetDetail() != "plain boom" {
+		t.Fatalf("detail = %q, want plain boom", workerError.GetDetail())
+	}
+	assertMissingApplicationStack(t, workerError.GetStackTrace())
 }
 
 func TestFinishWorkerCallPrefersOriginStack(t *testing.T) {
@@ -129,4 +143,17 @@ func TestTruncateStackTrace(t *testing.T) {
 
 func originFailureWithStack() error {
 	return ErrorWithStack(errors.New("origin boom"))
+}
+
+func assertMissingApplicationStack(t *testing.T, stackTrace string) {
+	t.Helper()
+	if !strings.Contains(stackTrace, "dex.ErrorWithStack") {
+		t.Fatalf("stack missing ErrorWithStack hint: %q", stackTrace)
+	}
+	if strings.Contains(stackTrace, "finishWorkerCall") {
+		t.Fatalf("plain error must not include wrap-site stack: %q", stackTrace)
+	}
+	if strings.Contains(stackTrace, "stackTraceFromError") {
+		t.Fatalf("plain error must not include wrap-site stack: %q", stackTrace)
+	}
 }

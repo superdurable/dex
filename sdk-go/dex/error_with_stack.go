@@ -17,8 +17,9 @@ import (
 // ErrorWithStack wraps err with a stack captured at this call site.
 //
 // Use it when returning a plain Go error from waitFor or execute and you want
-// Dex to record the origin stack instead of the Worker wrap-site stack. Plain
-// errors are not Dex-owned, so capture is opt-in.
+// Dex to record an origin stack. Plain errors are not Dex-owned, so capture is
+// opt-in; without this wrapper Dex reports that no application stack was
+// captured instead of inventing a Worker wrap-site stack.
 //
 // Prefer nesting ErrorWithStack inside RetryAfter so RetryAfter remains the
 // protocol marker and the stack lives on the cause:

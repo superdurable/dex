@@ -146,7 +146,9 @@ func stackTraceFromError(cause error) string {
 	if errors.As(cause, &withStack) {
 		return withStack.stackTrace()
 	}
-	return fmt.Sprintf("%+v\n%s", cause, debug.Stack())
+	// Plain errors have no origin stack. Do not capture the Worker wrap site;
+	// that frame is not useful for diagnosing application failures.
+	return "no application stack captured; wrap with dex.ErrorWithStack(err) at the failure site"
 }
 
 func stackTraceFromPanic(recovered any) string {
