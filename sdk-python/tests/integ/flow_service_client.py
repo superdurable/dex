@@ -1,15 +1,18 @@
-# Copyright (c) 2026 Super Durable, Inc.
+# Portions of this file are derived from indeedeng/iwf-java-sdk.
+# Those portions are licensed under the Apache License, Version 2.0.
+# See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
 #
-# Licensed under the Super Durable Source License 1.0.
-# You may not use this file except in compliance with the License.
-# See the LICENSE file in the repository root.
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+# Modifications are licensed under the Super Durable Source License 1.0.
+# Third-Party Materials remain under the Apache License, Version 2.0.
+# See LICENSE and LEGACY_NOTICES.md.
 
 from __future__ import annotations
 
 import os
 import time
+from typing import cast
 
 import grpc
 from dex.dexpb import dex_pb2 as pb
@@ -19,8 +22,7 @@ from dex.dexpb import dex_pb2_grpc as pb_grpc
 def flow_service_client() -> pb_grpc.FlowServiceStub:
     server_address = os.environ.get("DEX_SERVER_ADDRESS", "127.0.0.1:8801")
     channel = grpc.insecure_channel(server_address)
-    return pb_grpc.FlowServiceStub(channel)
-
+    return pb_grpc.FlowServiceStub(channel)  # type: ignore[no-untyped-call]
 
 def await_live_worker_failure(
     flow_id: str,
@@ -38,10 +40,9 @@ def await_live_worker_failure(
             if step.HasField("last_failure_info") and step.last_failure_info.HasField(
                 "details"
             ):
-                return step.last_failure_info
+                return cast(pb.StepMethodFailure, step.last_failure_info)
         time.sleep(0.05)
     raise AssertionError("active Step did not expose retry failure")
-
 
 def assert_worker_failure_stack_trace(
     failure: pb.StepMethodFailure,

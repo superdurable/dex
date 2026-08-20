@@ -1,10 +1,12 @@
-// Copyright (c) 2026 Super Durable, Inc.
+// Portions of this file are derived from indeedeng/iwf-java-sdk.
+// Those portions are licensed under the Apache License, Version 2.0.
+// See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
 //
-// Licensed under the Super Durable Source License 1.0.
-// You may not use this file except in compliance with the License.
-// See the LICENSE file in the repository root.
+// Modifications Copyright (c) 2026 Super Durable, Inc.
 //
-// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+// Modifications are licensed under the Super Durable Source License 1.0.
+// Third-Party Materials remain under the Apache License, Version 2.0.
+// See LICENSE and LEGACY_NOTICES.md.
 
 use std::time::{Duration, Instant};
 
@@ -46,10 +48,7 @@ pub(crate) fn assert_worker_failure_stack_trace(
     expected_detail: &str,
 ) {
     assert_eq!(1, failure.attempt);
-    let details = failure
-        .details
-        .as_ref()
-        .expect("Step failure details");
+    let details = failure.details.as_ref().expect("Step failure details");
     assert_eq!(expected_detail, details.original_worker_error_detail);
     let stack_trace = &details.original_worker_error_stack_trace;
     assert!(!stack_trace.is_empty());

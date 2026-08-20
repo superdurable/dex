@@ -1,10 +1,12 @@
-# Copyright (c) 2026 Super Durable, Inc.
+# Portions of this file are derived from indeedeng/iwf-java-sdk.
+# Those portions are licensed under the Apache License, Version 2.0.
+# See LICENSES/Apache-2.0.txt and LEGACY_NOTICES.md.
 #
-# Licensed under the Super Durable Source License 1.0.
-# You may not use this file except in compliance with the License.
-# See the LICENSE file in the repository root.
+# Modifications Copyright (c) 2026 Super Durable, Inc.
 #
-# SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+# Modifications are licensed under the Super Durable Source License 1.0.
+# Third-Party Materials remain under the Apache License, Version 2.0.
+# See LICENSE and LEGACY_NOTICES.md.
 
 import time
 from datetime import timedelta
@@ -28,7 +30,6 @@ from .worker_retry_after_flow import (
 
 WAIT_TIMEOUT = timedelta(seconds=30)
 
-
 def test_wait_for_retry_after_stack_trace_and_delay() -> None:
     flow = WorkerRetryAfterWaitForFlow()
     with DexDevTestEnvironment(flow) as environment:
@@ -42,7 +43,6 @@ def test_wait_for_retry_after_stack_trace_and_delay() -> None:
         elapsed = time.monotonic() - started_at
         assert elapsed >= RETRY_AFTER_SECONDS
         assert elapsed < RETRY_POLICY_INTERVAL_SECONDS
-
 
 def test_execute_retry_after_stack_trace_and_delay() -> None:
     flow = WorkerRetryAfterExecuteFlow()
