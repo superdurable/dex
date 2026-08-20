@@ -142,6 +142,10 @@ func workerStatusError(
 }
 
 func stackTraceFromError(cause error) string {
+	var withStack *errorWithStack
+	if errors.As(cause, &withStack) {
+		return withStack.stackTrace()
+	}
 	return fmt.Sprintf("%+v\n%s", cause, debug.Stack())
 }
 

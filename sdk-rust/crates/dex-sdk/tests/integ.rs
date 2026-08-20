@@ -109,6 +109,10 @@ mod subflow_workflow;
 mod timer_test;
 #[path = "integ/timer_workflow.rs"]
 mod timer_workflow;
+#[path = "integ/worker_origin_stack_test.rs"]
+mod worker_origin_stack_test;
+#[path = "integ/worker_origin_stack_workflow.rs"]
+mod worker_origin_stack_workflow;
 #[path = "integ/worker_retry_after_test.rs"]
 mod worker_retry_after_test;
 #[path = "integ/worker_retry_after_workflow.rs"]
