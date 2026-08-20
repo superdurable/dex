@@ -6,10 +6,12 @@ slug: /primitives/flow/flow-options
 
 # Flow options
 
-Dex separates **start-time options** from **runtime Flow configuration**.
+Dex allows you to customize the behavior of a Flow execution.
 
-- **StartFlowOptions** apply when a client starts a Flow (or SubFlow). They control timeout, ID reuse, cron schedule, initial Attributes, request idempotency, and optional config overrides for that execution.
-- **FlowConfig** overrides mutable runtime behavior: Step durability defaults, Worker routing, active-Step search indexing, continue-as-new thresholds, and Attribute Store projection targets.
+- **StartFlowOptions** apply when a client starts a Flow (or SubFlow). They are immutable after start.
+  - They control timeout, ID reuse, cron schedule, initial Attributes, request idempotency, and optional config overrides for that execution.
+- **FlowConfig** provide runtime behavior. They are mutable after start.
+  - Step durability defaults, Worker routing, active-Step search indexing, continue-as-new thresholds, and Attribute Store projection targets.
 
 Use [Client APIs](/primitives/client-apis) to start Flows and update config on running executions where your SDK exposes **UpdateFlowConfig**.
 
@@ -17,18 +19,18 @@ Use [Client APIs](/primitives/client-apis) to start Flows and update config on r
 
 Common fields:
 
-| Field | Purpose |
-|-------|---------|
-| **Timeout** | Dex soft timeout enforced by a durable timer. Zero disables it. |
-| **TimeoutPolicy** | **FAIL**, **CANCEL**, or **HANDLER** when timeout is positive. Defaults to **HANDLER** when the Flow implements a timeout handler, otherwise **FAIL**. |
-| **IDReusePolicy** | Whether the same Flow ID may attach to, replace, or be rejected against an existing execution. |
-| **CronSchedule** | Server cron expression for recurring runs. |
-| **StartDelay** | Postpone the first Step after start acceptance. |
-| **RetryPolicy** | Whole-Flow retry timing after terminal failure. |
-| **Attributes** | Initial Attribute and Attribute-map values encoded at start. |
-| **ConfigOverride** | Replace registered **FlowConfig** fields for this execution. |
-| **RequestID** | Stable business idempotency key; SDKs generate a UUID when omitted. |
-| **AlreadyStarted** | Return the existing run instead of failing when the Flow ID is already active. |
+| Field              | Purpose                                                                                                                                                |
+|--------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Timeout**        | Dex soft timeout enforced by a durable timer. Zero disables it.                                                                                        |
+| **TimeoutPolicy**  | **FAIL**, **CANCEL**, or **HANDLER** when timeout is positive. Defaults to **HANDLER** when the Flow implements a timeout handler, otherwise **FAIL**. |
+| **IDReusePolicy**  | Whether the same Flow ID may attach to, replace, or be rejected against an existing execution.                                                         |
+| **CronSchedule**   | Server cron expression for recurring runs.                                                                                                             |
+| **StartDelay**     | Postpone the first Step after start acceptance.                                                                                                        |
+| **RetryPolicy**    | Whole-Flow retry timing after terminal failure.                                                                                                        |
+| **Attributes**     | Initial Attribute and Attribute-map values encoded at start.                                                                                           |
+| **FlowConfig**     | The iniital **FlowConfig** for this execution.                                                                                                         |
+| **RequestID**      | Stable business idempotency key used with IdReusePolicy                                                                                                |
+| **AlreadyStartedOptions** | Decide the behavior when the Flow ID is already started, used with IdReusePolicy.                                                                      |
 
 Soft Flow timeout behavior matches [Client APIs — soft Flow timeout](/primitives/client-apis#soft-flow-timeout).
 

@@ -6,9 +6,9 @@ slug: /primitives/flow
 
 # Flow
 
-**Flow** is the top-level durable program in Dex. A Flow owns typed Steps, a persistence schema of [Attributes](/primitives/attribute) and [Channels](/primitives/channel), and optional [RPC](/primitives/rpc) handlers.
+**Flow** is the top-level primitive and concept in Dex.
 
-- [Basics](/primitives/flow/basic) — identifiers, the Flow interface, and how Steps and persistence fit together
-- [Flow options](/primitives/flow/flow-options) — **StartFlowOptions**, **FlowConfig**, timeout, retry, and runtime overrides
+A Flow is usually a business entity. It contains some [Steps](/primitives/step), a persistence schema of [Attributes](/primitives/attribute) and [Channels](/primitives/channel), and optional [RPC](/primitives/rpc) handlers.
 
-Runnable samples live under **examples/go**, **examples/java**, **examples/python**, **examples/typescript**, and **examples/rust**.
+- [Basics](/primitives/flow/basic) — basic concepts and interface
+- [Flow options](/primitives/flow/flow-options) — advanced **StartFlowOptions**, **FlowConfig**
