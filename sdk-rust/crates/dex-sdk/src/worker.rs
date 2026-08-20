@@ -30,6 +30,9 @@ use crate::value_hydrator::ValueHydrator;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::{BlobCache, HandlerError, Registry, SdkError, SdkResult, WorkerOptions, WorkerTarget};
 
+const MAX_WORKER_STACK_TRACE_BYTES: usize = 16 * 1024;
+const STACK_TRACE_TRUNCATION_MARKER: &str = "\n... stack trace truncated by Dex Rust SDK ...";
+
 const CREATED: u8 = 0;
 const RUNNING: u8 = 1;
 const STOPPED: u8 = 2;
@@ -243,10 +246,14 @@ struct GoogleRpcStatus {
 
 fn worker_status(error: HandlerError) -> Status {
     let message = error.to_string();
-    let detail = WorkerErrorResponse {
+    let stack_trace = truncate_stack_trace(&format!(
+        "{message}\n{}",
+        std::backtrace::Backtrace::force_capture()
+    ));
+    let worker_error = WorkerErrorResponse {
         detail: message.clone(),
         error_type: error.error_type().to_string(),
-        stack_trace: std::backtrace::Backtrace::force_capture().to_string(),
+        stack_trace,
         retry_after_seconds: error.retry_after_seconds(),
     };
     let status = GoogleRpcStatus {
@@ -254,10 +261,26 @@ fn worker_status(error: HandlerError) -> Status {
         message: message.clone(),
         details: vec![Any {
             type_url: "type.googleapis.com/dex.WorkerErrorResponse".to_string(),
-            value: detail.encode_to_vec(),
+            value: worker_error.encode_to_vec(),
         }],
     };
     Status::with_details(Code::Unknown, message, status.encode_to_vec().into())
+}
+
+fn truncate_stack_trace(value: &str) -> String {
+    let encoded = value.as_bytes();
+    if encoded.len() <= MAX_WORKER_STACK_TRACE_BYTES {
+        return value.to_string();
+    }
+    let mut prefix_length = MAX_WORKER_STACK_TRACE_BYTES - STACK_TRACE_TRUNCATION_MARKER.len();
+    while prefix_length > 0 && encoded[prefix_length] & 0xc0 == 0x80 {
+        prefix_length -= 1;
+    }
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&encoded[..prefix_length]),
+        STACK_TRACE_TRUNCATION_MARKER
+    )
 }
 
 fn endpoint_address(address: &str) -> String {

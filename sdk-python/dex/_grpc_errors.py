@@ -149,10 +149,11 @@ def _worker_error_status(error: BaseException) -> status_pb2.Status:
         reported = error.cause
 
     message = str(reported) or type(reported).__name__
+    stack_trace_source = error if retry_after_error is not None else reported
     worker_error = pb.WorkerErrorResponse(
         detail=message,
         error_type=f"{type(reported).__module__}.{type(reported).__qualname__}",
-        stack_trace=_worker_stack_trace(reported),
+        stack_trace=_worker_stack_trace(stack_trace_source),
     )
     if retry_after_error is not None:
         worker_error.retry_after_seconds = retry_after_error.after_seconds

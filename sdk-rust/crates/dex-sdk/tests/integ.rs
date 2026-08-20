@@ -117,3 +117,9 @@ mod workflow_uncompleted_state_failure_workflow;
 mod workflow_uncompleted_state_timeout_workflow;
 #[path = "integ/workflow_uncompleted_test.rs"]
 mod workflow_uncompleted_test;
+#[path = "integ/flow_service_client.rs"]
+mod flow_service_client;
+#[path = "integ/worker_retry_after_workflow.rs"]
+mod worker_retry_after_workflow;
+#[path = "integ/worker_retry_after_test.rs"]
+mod worker_retry_after_test;
