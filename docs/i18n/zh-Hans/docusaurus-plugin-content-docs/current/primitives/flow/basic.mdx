@@ -88,7 +88,6 @@ func (*ExampleFlow) Describe(ctx dex.Context, _ dex.None) (*dex.RPCResult[string
   <SdkSnippet lang="java">
 
 ```java
-@Component
 public class ExampleFlow implements Flow<Integer> {
     public static final Attribute<String> status = Attribute.define("status", String.class);
     public static final Channel<Void> notify = Channel.define("notify", Void.class);
