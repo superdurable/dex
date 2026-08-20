@@ -28,6 +28,7 @@ from dex import (
     StepList,
     Wait,
     go_to,
+    force_fail,
     graceful_complete,
     rpc,
 )
@@ -67,6 +68,10 @@ class ExampleFlow(Flow[int]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(status, notify)
+
+    def handle_timeout(self, context: Context) -> StepDecision:
+        status.set(context, "timed out")
+        return force_fail("processing deadline reached")
 
     @rpc
     def describe(self, context: Context) -> RPCResult[str]:

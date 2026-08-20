@@ -18,11 +18,14 @@ use axum::{
     response::IntoResponse,
     routing::get,
 };
-use dex_sdk::{FlowConfig, StartFlowOptions, StepDurability};
+use dex_sdk::{
+    Client, FlowConfig, FlowTimeoutPolicy, IdReusePolicy, RetryPolicy, SdkResult, StartFlowOptions,
+    StepDurability, WorkerTarget,
+};
 use serde::Deserialize;
 use std::time::Duration;
 
-use crate::primitives::flow::flow::ExampleFlow;
+use crate::primitives::flow::flow::{ExampleFlow, status};
 use crate::server::helpers::{SharedClient, StartResponse, map_sdk_error, ok_json, run_blocking};
 
 #[derive(Deserialize)]
@@ -43,6 +46,32 @@ fn start_flow_options() -> StartFlowOptions {
     StartFlowOptions::new()
         .timeout(Duration::from_secs(3_600))
         .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
+}
+
+pub fn example_start_flow_options() -> StartFlowOptions {
+    StartFlowOptions::new()
+        .timeout(Duration::from_secs(30 * 60))
+        .timeout_policy(FlowTimeoutPolicy::Handler)
+        .start_delay(Duration::from_secs(5 * 60))
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .retry_policy(
+            RetryPolicy::new()
+                .initial_interval(Duration::from_secs(60))
+                .backoff_coefficient(2.0)
+                .maximum_interval(Duration::from_secs(10 * 60))
+                .maximum_attempts(3),
+        )
+        .initial_attribute(&status(), "queued".to_owned())
+        .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
+        .ignore_already_started(true)
+        .request_id("start-order-123")
+}
+
+pub fn reroute_active_flow(client: &Client, flow_id: &str) -> SdkResult<()> {
+    client.update_flow_config(
+        flow_id,
+        FlowConfig::new().worker_target(WorkerTarget::new("worker-canary:8803")),
+    )
 }
 
 async fn start(

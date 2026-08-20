@@ -16,16 +16,49 @@
 
 import { Router } from "express";
 
-import { type Client, type StartFlowOptions } from "@superdurable/dex";
+import {
+  FlowTimeoutPolicy,
+  IdReusePolicy,
+  InitialAttribute,
+  type Client,
+  type StartFlowOptions,
+} from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { exampleFlow } from "./example-flow.js";
+import { exampleFlow, status } from "./example-flow.js";
 
 function startFlowOptions(): StartFlowOptions {
   return startOptions({
     configOverride: {
       stepDurability: "sync",
     },
+  });
+}
+
+export function exampleStartFlowOptions(): StartFlowOptions {
+  return {
+    timeoutMs: 30 * 60_000,
+    timeoutPolicy: FlowTimeoutPolicy.HANDLER,
+    startDelayMs: 5 * 60_000,
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    retryPolicy: {
+      initialIntervalMs: 60_000,
+      backoffCoefficient: 2,
+      maximumIntervalMs: 10 * 60_000,
+      maximumAttempts: 3,
+    },
+    attributes: [InitialAttribute.of(status, "queued")],
+    configOverride: {
+      stepDurability: "sync",
+    },
+    ignoreAlreadyStarted: true,
+    requestId: "start-order-123",
+  };
+}
+
+export async function rerouteActiveFlow(client: Client, flowId: string): Promise<void> {
+  await client.updateFlowConfig(flowId, {
+    workerTarget: { address: "worker-canary:8803" },
   });
 }
 

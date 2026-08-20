@@ -16,17 +16,53 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from dex import FlowConfig, StartFlowOptions, StepDurability
+from dex import (
+    AsyncClient,
+    FlowConfig,
+    FlowTimeoutPolicy,
+    IdReusePolicy,
+    RetryPolicy,
+    StartFlowOptions,
+    StepDurability,
+    WorkerTarget,
+)
 from quart import Blueprint, Response
 
 from dex_examples.app import ExampleApp
 from dex_examples.shared.query import required_int_query, required_query, started_flow
+
+from .example_flow import status
 
 
 def start_flow_options() -> StartFlowOptions:
     return StartFlowOptions(
         timeout=timedelta(hours=1),
         config_override=FlowConfig(step_durability=StepDurability.SYNC),
+    )
+
+
+def example_start_flow_options() -> StartFlowOptions:
+    return StartFlowOptions(
+        timeout=timedelta(minutes=30),
+        timeout_policy=FlowTimeoutPolicy.HANDLER,
+        start_delay=timedelta(minutes=5),
+        id_reuse_policy=IdReusePolicy.DISALLOW,
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(minutes=1),
+            backoff_coefficient=2,
+            maximum_interval=timedelta(minutes=10),
+            maximum_attempts=3,
+        ),
+        config_override=FlowConfig(step_durability=StepDurability.SYNC),
+        ignore_already_started=True,
+        request_id="start-order-123",
+    ).with_attribute(status, "queued")
+
+
+async def reroute_active_flow(client: AsyncClient, flow_id: str) -> None:
+    await client.update_flow_config(
+        flow_id,
+        FlowConfig(worker_target=WorkerTarget("worker-canary:8803")),
     )
 
 

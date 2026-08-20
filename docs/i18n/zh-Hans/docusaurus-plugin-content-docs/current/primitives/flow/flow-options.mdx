@@ -6,31 +6,27 @@ slug: /primitives/flow/flow-options
 
 # Flow options
 
-Dex 把 **start 时选项** 与 **运行时 Flow 配置** 分开。
+Dex 允许你自定义 Flow execution 的行为。
 
-- **StartFlowOptions** 在客户端 start Flow（或 SubFlow）时生效，控制 timeout、ID reuse、cron schedule、初始 Attribute、request 幂等，以及该次 execution 可选的 config override。
-- **FlowConfig** 覆盖可变运行时行为：Step durability 默认值、Worker 路由、active Step 搜索索引、continue-as-new 阈值，以及 Attribute Store 投影目标。
-
-启动与配置 Flow 之外，运行中更新 config 见 [Client APIs](/primitives/client-apis) 与各 SDK 的 **UpdateFlowConfig**（若暴露）。
+- **StartFlowOptions** 在客户端启动 Flow（或 SubFlow）时生效，启动后不可变。
+  - 它们控制 timeout、ID reuse、cron schedule、初始 Attribute、request 幂等，以及该次 execution 的可选 config override。
+- **FlowConfig** 提供运行时行为，启动后可变。
+  - 包括 Step durability 默认值、Worker 路由、active-Step 搜索索引、continue-as-new 阈值与 Attribute Store projection target。
 
 ## StartFlowOptions {#start-flow-options}
 
-常用字段：
-
 | 字段 | 作用 |
 |------|------|
-| **Timeout** | Dex soft timeout，由 durable timer 执行。零表示禁用。 |
-| **TimeoutPolicy** | 正数 timeout 到期时的 **FAIL**、**CANCEL** 或 **HANDLER**。Flow 有 timeout handler 时默认 **HANDLER**，否则 **FAIL**。 |
-| **IDReusePolicy** | 同一 Flow ID 能否 attach、替换或拒绝已有 execution。 |
-| **CronSchedule** | 服务端 cron 表达式，用于周期性 run。 |
-| **StartDelay** | start 接受后推迟第一个 Step。 |
-| **RetryPolicy** | terminal failure 后的整 Flow retry 节奏。 |
-| **Attributes** | start 时编码的初始 Attribute 与 Attribute-map 值。 |
-| **ConfigOverride** | 替换该次 execution 的已注册 **FlowConfig** 字段。 |
-| **RequestID** | 稳定的业务幂等键；省略时 SDK 生成 UUID。 |
-| **AlreadyStarted** | Flow ID 已活跃时返回已有 run，而非失败。 |
-
-Soft Flow timeout 语义与 [Client APIs — soft Flow timeout](/primitives/client-apis#soft-flow-timeout) 一致。
+| **Timeout** | Flow timeout。省略或设为零可禁用。 |
+| **TimeoutPolicy** | Flow timeout 触发时的行为。 |
+| **IDReusePolicy** | 启动时如何复用已有 Flow ID。 |
+| **RequestID** | 重试同一次启动请求的幂等键。 |
+| **AlreadyStartedOptions** | 如何处理已启动的 Flow。 |
+| **CronSchedule** | 用于周期性启动的 cron 表达式。 |
+| **RetryPolicy** | 单次 Flow execution 失败后的重试策略。 |
+| **StartDelay** | start Step 运行前的延迟。 |
+| **Attributes** | 初始 Attribute 值。 |
+| **FlowConfig** | 每次 execution 的 Flow 配置。 |
 
 <SdkTabs
   examples={{
@@ -40,29 +36,58 @@ Soft Flow timeout 语义与 [Client APIs — soft Flow timeout](/primitives/clie
     typescript: 'examples/typescript/src/primitives/flow/controller.ts',
     rust: 'examples/rust/src/primitives/flow/controller.rs',
   }}>
-<SdkSnippet lang="python">
+  <SdkSnippet lang="python">
 
 ```python
-def start_flow_options() -> StartFlowOptions:
+def example_start_flow_options() -> StartFlowOptions:
     return StartFlowOptions(
-        timeout=timedelta(hours=1),
+        timeout=timedelta(minutes=30),
+        timeout_policy=FlowTimeoutPolicy.HANDLER,
+        start_delay=timedelta(minutes=5),
+        id_reuse_policy=IdReusePolicy.DISALLOW,
+        retry_policy=RetryPolicy(
+            initial_interval=timedelta(minutes=1),
+            backoff_coefficient=2,
+            maximum_interval=timedelta(minutes=10),
+            maximum_attempts=3,
+        ),
         config_override=FlowConfig(step_durability=StepDurability.SYNC),
-    )
+        ignore_already_started=True,
+        request_id="start-order-123",
+    ).with_attribute(status, "queued")
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-func startFlowOptions() sdk.StartFlowOptions {
-	timeout := time.Hour
+func exampleStartFlowOptions() (sdk.StartFlowOptions, error) {
+	initialStatus, err := sdk.InitialAttribute(Status, "queued")
+	if err != nil {
+		return sdk.StartFlowOptions{}, err
+	}
+	timeout := 30 * time.Minute
+	startDelay := 5 * time.Minute
+	requestID := "start-order-123"
 	stepDurability := sdk.StepDurabilitySync
 	return sdk.StartFlowOptions{
-		Timeout: &timeout,
+		Timeout:       &timeout,
+		TimeoutPolicy: sdk.TimeoutHandler,
+		StartDelay:    &startDelay,
+		IDReusePolicy: sdk.IDReuseDisallow,
+		RetryPolicy: &sdk.FlowRetryPolicy{
+			InitialInterval:    time.Minute,
+			BackoffCoefficient: 2,
+			MaximumInterval:    10 * time.Minute,
+			MaximumAttempts:    3,
+		},
+		Attributes: []sdk.InitialAttributeDef{initialStatus},
 		ConfigOverride: &sdk.FlowConfig{
 			StepDurability: &stepDurability,
 		},
-	}
+		AlreadyStarted: &sdk.AlreadyStartedOptions{IgnoreError: true},
+		RequestID:      &requestID,
+	}, nil
 }
 ```
 
@@ -70,25 +95,53 @@ func startFlowOptions() sdk.StartFlowOptions {
   <SdkSnippet lang="java">
 
 ```java
-StartFlowOptions.newBuilder()
-    .timeout(Duration.ofHours(1))
-    .configOverride(
-        FlowConfig.newBuilder()
-            .stepDurability(StepDurability.SYNC)
-            .build())
-    .build()
+private static StartFlowOptions exampleStartFlowOptions() {
+    return StartFlowOptions.newBuilder()
+            .timeout(Duration.ofMinutes(30))
+            .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
+            .startDelay(Duration.ofMinutes(5))
+            .idReusePolicy(IdReusePolicy.DISALLOW)
+            .retryPolicy(
+                    RetryPolicy.newBuilder()
+                            .initialInterval(Duration.ofMinutes(1))
+                            .backoffCoefficient(2)
+                            .maximumInterval(Duration.ofMinutes(10))
+                            .maximumAttempts(3)
+                            .build())
+            .addAttribute(ExampleFlow.status, "queued")
+            .configOverride(
+                    FlowConfig.newBuilder()
+                            .stepDurability(StepDurability.SYNC)
+                            .build())
+            .ignoreAlreadyStarted(true)
+            .requestId("start-order-123")
+            .build();
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
 ```typescript
-function startFlowOptions(): StartFlowOptions {
-  return startOptions({
+export function exampleStartFlowOptions(): StartFlowOptions {
+  return {
+    timeoutMs: 30 * 60_000,
+    timeoutPolicy: FlowTimeoutPolicy.HANDLER,
+    startDelayMs: 5 * 60_000,
+    idReusePolicy: IdReusePolicy.DISALLOW,
+    retryPolicy: {
+      initialIntervalMs: 60_000,
+      backoffCoefficient: 2,
+      maximumIntervalMs: 10 * 60_000,
+      maximumAttempts: 3,
+    },
+    attributes: [InitialAttribute.of(status, "queued")],
     configOverride: {
       stepDurability: "sync",
     },
-  });
+    ignoreAlreadyStarted: true,
+    requestId: "start-order-123",
+  };
 }
 ```
 
@@ -96,37 +149,174 @@ function startFlowOptions(): StartFlowOptions {
   <SdkSnippet lang="rust">
 
 ```rust
-fn start_flow_options() -> StartFlowOptions {
+pub fn example_start_flow_options() -> StartFlowOptions {
     StartFlowOptions::new()
-        .timeout(Duration::from_secs(3_600))
+        .timeout(Duration::from_secs(30 * 60))
+        .timeout_policy(FlowTimeoutPolicy::Handler)
+        .start_delay(Duration::from_secs(5 * 60))
+        .id_reuse_policy(IdReusePolicy::Disallow)
+        .retry_policy(
+            RetryPolicy::new()
+                .initial_interval(Duration::from_secs(60))
+                .backoff_coefficient(2.0)
+                .maximum_interval(Duration::from_secs(10 * 60))
+                .maximum_attempts(3),
+        )
+        .initial_attribute(&status(), "queued".to_owned())
         .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
+        .ignore_already_started(true)
+        .request_id("start-order-123")
 }
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
+### Timeout 与 TimeoutPolicy {#timeout-and-timeout-policy}
+
+**Timeout** 是整个 Flow 的一个 durable timer。只有 **Timeout** 为正数时才能设置 **TimeoutPolicy**。
+
+- **FAIL** — 以 timeout error 失败 Flow。**RetryPolicy** 可以重试它。
+- **CANCEL** — 取消 Flow，不会重试。
+- **HANDLER** — 调用一次 Flow timeout handler。
+
+提供正数 **Timeout** 时，Dex SDK 默认使用 **FAIL**。Flow 有 timeout handler 时，则使用 **HANDLER**。没有 handler 时使用 **HANDLER** 无效。一次 retry 会获得新的 timeout budget。
+
+把 **TimeoutPolicy** 设为 **HANDLER**，timeout 触发时就会运行下面的代码。这个 handler 记录 Flow 结束的原因，再用应用自己的原因失败该 Flow。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/flow/example_flow.py',
+    go: 'examples/go/primitives/flow/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/ExampleFlow.java',
+    typescript: 'examples/typescript/src/primitives/flow/example-flow.ts',
+    rust: 'examples/rust/src/primitives/flow/flow.rs',
+  }}>
+  <SdkSnippet lang="python">
+
+```python
+def handle_timeout(self, context: Context) -> StepDecision:
+    status.set(context, "timed out")
+    return force_fail("processing deadline reached")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (*ExampleFlow) HandleTimeout(ctx dex.Context) (*dex.StepDecision, error) {
+	if err := Status.Set(ctx, "timed out"); err != nil {
+		return nil, err
+	}
+	return dex.ForceFail("processing deadline reached"), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+@Override
+public StepDecision handleTimeout(final Context context) {
+    status.set(context, "timed out");
+    return StepDecision.forceFail("processing deadline reached");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public handleTimeout(context: Context): StepDecision {
+  status.set(context, "timed out");
+  return forceFail("processing deadline reached");
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+impl ExampleFlow {
+    fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
+        status().set(context, "timed out".to_string())?;
+        Ok(StepDecision::force_fail("processing deadline reached"))
+    }
+}
+
+impl Flow for ExampleFlow {
+    fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
+        Some(Self::handle_timeout)
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Flow ID、RequestID 与 AlreadyStartedOptions {#flow-id-request-id-and-already-started}
+
+**IDReusePolicy** 决定这个 Flow ID 已存在时该怎么做。**RequestID** 表示这次调用是否在重试同一次启动请求。
+
+#### 这些选项如何一起工作
+
+这些选项依次回答不同的问题：
+
+1. **RequestID** 标识一次 start request。省略时，SDK 会生成新的 UUID，所以另一次 StartFlow 调用是新的 request。只在重试完全相同的 start 时复用它。Dex 比较的是 RequestID，不比较 start input 或 options。
+2. **IDReusePolicy** 决定这个 request 能否用该 Flow ID 启动另一个 run。
+3. **AlreadyStartedOptions.IgnoreError** 只在 ID reuse policy 因 already-started 拒绝启动时生效。只有 RequestID 相同时，它才返回已有的 Run ID。
+
+| 重试请求 | **AlreadyStartedOptions.IgnoreError** | ID reuse policy 拒绝启动时 |
+|----------|---------------------------------------|----------------------------|
+| 不提供 **RequestID**，或提供新的 **RequestID** | 关闭或开启 | SDK 发送新的 UUID。Dex 返回 already-started error。 |
+| 相同 **RequestID** | 关闭 | Dex 返回 already-started error。 |
+| 相同 **RequestID** | 开启 | Dex 返回已有 Run ID。 |
+
+ID reuse policy 决定 Dex 是否会首先拒绝启动：
+
+| **IDReusePolicy** | 已有 active Flow | 已有 closed Flow |
+|-------------------|------------------|------------------|
+| **IDReuseDefault** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 启动新的 run。 |
+| **IDReuseAllowIfPreviousFailed** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 只有上一次 run 失败后才启动新的 run；否则拒绝。 |
+| **IDReuseAllowIfNotRunning** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 启动新的 run。 |
+| **IDReuseDisallow** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回已有 Run ID。 | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回已有 Run ID。 |
+| **IDReuseTerminateIfRunning** | 终止 active run 并启动 replacement。不会产生 already-started error。 | 启动新的 run。 |
+
+#### Dex Server 的逻辑
+
+Dex Server 要求 **RequestID** 非空。省略时，SDK 会在发送请求前生成它。服务端将它记录在 Flow run 中，再使用请求的 ID reuse policy 让已配置的 backend 启动 Flow。**IDReuseDefault** 使用服务端默认行为：没有 active run 时启动新的 run。
+
+如果 backend 返回 Flow 已启动，Dex 会检查 **AlreadyStartedOptions.IgnoreError**。启用时，Dex 读取已有 run 记录的 RequestID。只有两个 RequestID 相同时才返回该 Run ID；否则仍然返回 already-started error。
+
+### RetryPolicy 与 CronSchedule {#retry-policy-and-cron-schedule}
+
+**RetryPolicy** 会在一次 Flow execution 失败后重试它。**MaximumAttempts** 包含首次 execution。**InitialInterval**、**BackoffCoefficient** 与 **MaximumInterval** 设置指数退避。**FAIL** timeout 可以使用这个 retry policy；**CANCEL** timeout 不可以。
+
+**CronSchedule** 按计划启动新的 execution。retry 用来恢复一次失败的 execution，而 cron 创建之后的 execution。overlap 与漏掉运行怎么处理由 backend 决定。
+
+### StartDelay {#start-delay}
+
+**StartDelay** 会立即接受要启动的 Flow，但在 **StartStep** 可以运行前等待。它适合一次性延迟，例如新订单创建五分钟后再处理。周期性 schedule 请使用 **CronSchedule**。
+
+### Attributes {#attributes}
+
+**Attributes** 写入初始值。每个值必须匹配 Flow persistence schema 中的 Attribute 或 Attribute map。
+
 ## FlowConfig {#flow-config}
 
-**FlowConfig** 字段覆盖某次 Flow execution 的服务端默认值：
+在 **StartFlowOptions** 中使用 **ConfigOverride** 修改一个 Flow 的初始配置。它只修改提供的字段，不会整体替换 **FlowConfig**。
 
-| 字段 | 作用 |
+启动时，Dex 会把提供的字段覆盖到 Dex Server 默认值上。省略的字段保留默认值。
+
+| 字段 | 行为 |
 |------|------|
-| **ActiveStepSearchMode** | Dex 为 Flow 搜索索引哪些 active Step type。 |
-| **ContinueAsNewThreshold** | 触发 continue-as-new 的事件数阈值。 |
-| **ContinueAsNewPageSizeBytes** | continue-as-new 携带的历史字节上限。 |
-| **StepDurability** | Step 写入的默认 persistence durability。 |
-| **WorkerTarget** | 后续 Step 与 RPC 调用的 WorkerService 端点。 |
-| **AttributeStoreName** | 已 opt-in Attribute 投影所用的服务端 Attribute Store。 |
+| **ActiveStepSearchMode** | 索引所有 active Step、只索引运行过 **WaitFor** 的 Step，或不索引 active Step。默认只索引带 **WaitFor** 的 Step。 |
+| **ContinueAsNewThreshold** | 追踪到这个事件数后 continue as new。零会关闭它。 |
+| **ContinueAsNewPageSizeBytes** | 限制 continue-as-new 带入的每一页 state。零使用 1 MiB。 |
+| **StepDurability** | Step 写入的默认 durability。Step override 优先。除非在 **StepOptions** 中覆盖，recovery 使用 synchronous durability。 |
+| **WorkerTarget** | 用于 Step 和 RPC invocation 的 WorkerService endpoint。 |
+| **AttributeStoreName** | Dex Server Attribute Store，供 opt-in attribute sync 的 Attribute 使用。 |
 
-省略字段表示保留当前值或服务端默认。显式传入空 **AttributeStoreName** 会禁用未来的异步 SQL 投影，但字段仍在协议上 present。
+### 用 Client 更新 FlowConfig {#update-flow-config-with-a-client}
 
-**AttributeStoreName** 与 synced Attribute 的用法见 [entity store](/design-patterns/entity-store) pattern；start 上的 **CronSchedule** 见 [cron schedule](/design-patterns/cron)。
-
-## SubFlow options {#subflow-options}
-
-[SubFlow](/primitives/subflow) condition 通过 **SubFlowOptions** 复用相同的 timeout、retry、初始 Attribute 与 **ConfigOverride** 形态，并额外包含子 Flow ID 的 **reuse policy**。SubFlow 的 start ID 由服务端生成，调用方不能覆盖。
-
-## 运维 API {#operational-apis}
-
-启动与配置只是生命周期的一部分。[Client APIs](/primitives/client-apis) 还涵盖 search、RPC 与 Channel 交互、wait、stop、timer skip、time travel 与 continue-as-new。
+Flow active 时可以调用 **UpdateFlowConfig**。只发送要修改的字段。它们会与已有配置合并。

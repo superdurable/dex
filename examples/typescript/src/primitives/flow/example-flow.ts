@@ -20,6 +20,7 @@ import {
   StepList,
   Wait,
   doubleCodec,
+  forceFail,
   goTo,
   gracefulComplete,
   rpc,
@@ -65,7 +66,7 @@ class ExampleStep implements Step<number> {
   }
 }
 
-const status = new Attribute("status", stringCodec);
+export const status = new Attribute("status", stringCodec);
 const notify = new Channel("notify", voidCodec);
 
 export class ExampleFlow implements Flow<number> {
@@ -82,6 +83,11 @@ export class ExampleFlow implements Flow<number> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return { attributes: [status], channels: [notify] };
+  }
+
+  public handleTimeout(context: Context): StepDecision {
+    status.set(context, "timed out");
+    return forceFail("processing deadline reached");
   }
 
   @rpc({ outputCodec: stringCodec })
