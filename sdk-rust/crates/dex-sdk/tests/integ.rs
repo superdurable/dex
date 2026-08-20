@@ -31,6 +31,8 @@ mod basic_workflow;
 mod conditional_complete_test;
 #[path = "integ/conditional_complete_workflow.rs"]
 mod conditional_complete_workflow;
+#[path = "integ/flow_service_client.rs"]
+mod flow_service_client;
 #[path = "integ/internal_channel_test.rs"]
 mod internal_channel_test;
 #[path = "integ/internal_channel_waiting_workflow.rs"]
@@ -107,6 +109,10 @@ mod subflow_workflow;
 mod timer_test;
 #[path = "integ/timer_workflow.rs"]
 mod timer_workflow;
+#[path = "integ/worker_retry_after_test.rs"]
+mod worker_retry_after_test;
+#[path = "integ/worker_retry_after_workflow.rs"]
+mod worker_retry_after_workflow;
 #[path = "integ/workflow_uncompleted_empty_decision_workflow.rs"]
 mod workflow_uncompleted_empty_decision_workflow;
 #[path = "integ/workflow_uncompleted_force_fail_workflow.rs"]

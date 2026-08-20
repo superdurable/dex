@@ -181,6 +181,8 @@ func integrationFlows() []dex.Flow {
 		subFlowFailingFlow{},
 		subFlowImmediateFlow{},
 		stepCancellationFlow{},
+		workerRetryAfterWaitForFlow{},
+		workerRetryAfterExecuteFlow{},
 	}
 }
 

@@ -15,11 +15,16 @@ import (
 	"errors"
 	"fmt"
 	"runtime/debug"
+	"time"
 
 	"github.com/superdurable/dex/sdk-go/gen/dexpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const maxWorkerStackTraceBytes = 16 * 1024
+
+var stackTraceTruncationMarker = []byte("\n... stack trace truncated by Dex Go SDK ...")
 
 type workerFailure struct {
 	code  codes.Code
@@ -45,23 +50,52 @@ func finishWorkerCall(logger Logger, recovered any, err error) error {
 			"panic", recovered,
 			"stack", string(debug.Stack()),
 		)
+		panicErr := fmt.Errorf("panic: %v", recovered)
 		return workerStatusError(
 			logger,
 			codes.Internal,
-			fmt.Errorf("panic: %v", recovered),
+			panicErr,
 			fmt.Sprintf("%T", recovered),
+			stackTraceFromPanic(recovered),
+			nil,
+			panicErr.Error(),
 		)
 	}
 	if err == nil {
 		return nil
 	}
 
-	code, cause := classifyWorkerError(err)
-	detail := cause.Error()
-	if rpcStatus, ok := status.FromError(cause); ok {
+	reported, retryAfter := reportedWorkerFailure(err)
+	code, classified := classifyWorkerError(reported)
+	detail := classified.Error()
+	if rpcStatus, ok := status.FromError(classified); ok {
 		detail = rpcStatus.Message()
 	}
-	return workerStatusError(logger, code, cause, fmt.Sprintf("%T", cause), detail)
+	return workerStatusError(
+		logger,
+		code,
+		classified,
+		workerErrorType(reported),
+		stackTraceFromError(classified),
+		retryAfter,
+		detail,
+	)
+}
+
+func workerErrorType(reported error) string {
+	var failure *workerFailure
+	if errors.As(reported, &failure) {
+		return fmt.Sprintf("%T", failure.cause)
+	}
+	return fmt.Sprintf("%T", reported)
+}
+
+func reportedWorkerFailure(err error) (error, *RetryAfterError) {
+	var retryAfter *RetryAfterError
+	if errors.As(err, &retryAfter) {
+		return retryAfter.Cause, retryAfter
+	}
+	return err, nil
 }
 
 func classifyWorkerError(err error) (codes.Code, error) {
@@ -84,22 +118,45 @@ func classifyWorkerError(err error) (codes.Code, error) {
 func workerStatusError(
 	logger Logger,
 	code codes.Code,
-	cause error,
+	reported error,
 	errorType string,
-	details ...string,
+	stackTrace string,
+	retryAfter *RetryAfterError,
+	detail string,
 ) error {
-	detail := cause.Error()
-	if len(details) > 0 {
-		detail = details[0]
+	workerError := &dexpb.WorkerErrorResponse{
+		Detail:     detail,
+		ErrorType:  errorType,
+		StackTrace: truncateStackTrace(stackTrace),
+	}
+	if retryAfter != nil {
+		workerError.RetryAfterSeconds = int32(retryAfter.After / time.Second)
 	}
 	rpcStatus := status.New(code, detail)
-	withDetails, err := rpcStatus.WithDetails(&dexpb.WorkerErrorResponse{
-		Detail:    detail,
-		ErrorType: errorType,
-	})
+	withDetails, err := rpcStatus.WithDetails(workerError)
 	if err != nil {
 		logger.Error("attach Worker error details", "error", err)
 		return rpcStatus.Err()
 	}
 	return withDetails.Err()
+}
+
+func stackTraceFromError(cause error) string {
+	return fmt.Sprintf("%+v\n%s", cause, debug.Stack())
+}
+
+func stackTraceFromPanic(recovered any) string {
+	return fmt.Sprintf("panic: %v\n%s", recovered, debug.Stack())
+}
+
+func truncateStackTrace(value string) string {
+	encoded := []byte(value)
+	if len(encoded) <= maxWorkerStackTraceBytes {
+		return value
+	}
+	prefixLength := maxWorkerStackTraceBytes - len(stackTraceTruncationMarker)
+	for prefixLength > 0 && encoded[prefixLength]&0xc0 == 0x80 {
+		prefixLength--
+	}
+	return string(encoded[:prefixLength]) + string(stackTraceTruncationMarker)
 }

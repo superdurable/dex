@@ -25,6 +25,7 @@ import {
   WorkerInvocationError,
   type ErrorSubStatus as ErrorSubStatusValue,
 } from "./errors.js";
+import { RetryAfterError } from "./retry-after.js";
 
 const statusDetailsKey = "grpc-status-details-bin";
 
@@ -34,13 +35,19 @@ interface AnyDetail {
 }
 
 export function workerServiceError(failure: unknown): GrpcServiceError {
-  const cause = failure instanceof Error ? failure : new Error(String(failure));
+  const retryAfterError = failure instanceof RetryAfterError ? failure : undefined;
+  const cause =
+    retryAfterError?.cause instanceof Error
+      ? retryAfterError.cause
+      : failure instanceof Error
+        ? failure
+        : new Error(String(failure));
   const detail = cause.message || cause.name;
   const worker = WorkerErrorResponse.encode({
     detail,
     errorType: cause.name,
     stackTrace: cause.stack ?? "",
-    retryAfterSeconds: 0,
+    retryAfterSeconds: retryAfterError?.afterSeconds ?? 0,
   }).finish();
   const metadata = new Metadata();
   metadata.set(
