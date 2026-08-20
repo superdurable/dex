@@ -289,12 +289,13 @@ Execute 返回 **StepDecision**——指向一个或多个后续 Step 的 moveme
 
 ## StepOptions {#stepoptions}
 
-**Retry policy** 与 **failure policy** 回答不同问题：
+大多数时候，需要自定义 failure handling —— timeout、retry 与 failure policy。还有 heartbeat、durability 等更高级的 [Step options](/primitives/step/step-options)。
 
-- **Retry policy** — Dex 在**同一** Step execution 上重复调用**同一**方法，直到 attempt 耗尽。
-- **Failure policy** — retry 结束**之后**发生什么：失败 Flow、仍运行 Execute，或路由到 recovery Step。
+* Timeout 自定义一次方法（WaitFor/Execute）调用 attempt 的 timeout。
+* **Retry policy** — 在**同一** Step execution 上重复调用**同一**方法，直到 attempt 耗尽。
+- **Failure policy** — 决定 retry 结束**之后**发生什么。默认失败 Flow，但 WaitFor 仍可运行 Execute，Execute 也可以前往 recovery Step。
 
-在 StepOptions 上独立配置 WaitFor 与 Execute。
+通过在 Step 方法中实现返回 StepOptions 来配置。
 
 <SdkTabs
   examples={{
@@ -387,10 +388,14 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ### WaitFor failure policy
 
-WaitFor retry 耗尽时：
+WaitFor method retry 耗尽时：
 
-- **PROCEED** — Execute 在**同一 workflow run** 中运行。失败的 WaitFor 与该 Execute 之间不能 continue-as-new。
-- **失败 Flow** — 未配置 proceed 时的默认行为。
+- **FailFlow** — 失败 Flow。这是默认行为。
+- **PROCEED** — 继续调用 Execute。
+
+使用 **PROCEED** 时，同一 Step 的 **Execute** 收到不变的 durable input。**waitForMethodFailed()** 返回 true。**getRecoveryError()** 包含最后一次失败 WaitFor attempt 的 error_type 和 detail，不含 stack trace。
+
+没有 Worker 响应时，error_type 来自 Temporal 或 Cadence。对于 Worker error，它包含 Worker 的 error_type 和 detail。stack trace 留在 history / last failure info。
 
 <SdkTabs
   examples={{
@@ -521,7 +526,7 @@ fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<St
 
 ### Execute failure policy
 
-Execute retry 耗尽时，onExecuteFailureProceedTo / ExecuteFailure.proceedTo(...) 将**recovery Step** 入队，typed input 不变。Recovery Step 是普通 Step——补偿只是更多 Step。
+Execute method retry 耗尽时，onExecuteFailureProceedTo / ExecuteFailure.proceedTo(...) 前往带有相同 input 的 **recovery Step**。
 
 <SdkTabs
   examples={{
@@ -595,18 +600,9 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 见 [failure recovery](/design-patterns/recovery) 模式与 [money-transfer](/use-cases/money-transfer) 用例。
 
-### Recovery WaitFor / Execute 可读内容
+recovery Step 收到失败 Step 不变的 durable input。**getRecoveryError()** 包含最后一次失败 Execute attempt 的 error_type 和 detail。它会经过入队和 **continue-as-new** 保留。
 
-| 可用 | 语义 |
-| --- | --- |
-| **Step input** | 失败 Step 的 durable input 随 recovery movement 原样传递。 |
-| **RecoveryErrorInfo** | **最终**失败 attempt 的 error_type + detail。设计上不含 stack trace。 |
-| **waitForMethodFailed()** | WaitFor-proceed 路径上，**同一** Step 的 Execute 可知 WaitFor 失败。配合 getRecoveryError()。 |
-| **优先级** | 若 recovery Step 的 WaitFor 也失败并 proceed，其 Execute 收到**较新的 WaitFor 失败**，而非原 Execute 失败。 |
-| **Backend 失败** | 无 Worker 响应的 timeout 使用 Temporal 或 Cadence backend failure type。 |
-| **Worker 错误** | 结构化 detail 与 error_type；stack trace 留在 history / last failure info，不在 RecoveryErrorInfo。 |
-
-Recovery error 在 recovery Step movement 的入队与 **continue-as-new** 后仍保留。
+如果 recovery Step 的 WaitFor 也失败并 proceed，它的 Execute 收到较新的 WaitFor failure，而不是原 Execute failure。
 
 ### Step Failed 事件与 last failure info
 
