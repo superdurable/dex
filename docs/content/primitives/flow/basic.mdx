@@ -163,9 +163,9 @@ Dex uses these identifiers throughout its APIs and documentation.
 |----------|-------------|---------|
 | **FlowType** | Application (via Flow implementation) | Stable type name Dex uses to route Worker calls and search results. |
 | **Flow ID** | Application client on start           | Business identity for one logical Flow. Reuse policy controls whether a new run may replace or attach to an existing ID. |
-| **Run ID** | Dex | Identity of one run attempt. Time travel and continue-as-new start a fresh Run ID while optionally keeping the same Flow ID. |
+| **Run ID** | Dex Server | Identity of one run attempt. Time travel and continue-as-new start a fresh Run ID while optionally keeping the same Flow ID. |
 | **StepType** | Application (via Step implementation) | Stable name for a Step definition inside the Flow. |
-| **StepExecutionID** | Dex | One execution instance of a Step type, formatted as **StepType-Number**. |
+| **StepExecutionID** | Dex Server | One execution instance of a Step type, formatted as **StepType-Number**. |
 
 
 ## Steps {#steps}
