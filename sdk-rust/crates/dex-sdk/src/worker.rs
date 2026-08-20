@@ -30,7 +30,9 @@ use crate::value_hydrator::ValueHydrator;
 use crate::worker_dispatcher::WorkerDispatcher;
 use crate::{BlobCache, HandlerError, Registry, SdkError, SdkResult, WorkerOptions, WorkerTarget};
 
-const MAX_WORKER_STACK_TRACE_BYTES: usize = 16 * 1024;
+// Keep worker error status small enough for default gRPC trailer limits after
+// the server wraps WorkerErrorResponse in ServiceErrorResponse.
+const MAX_WORKER_STACK_TRACE_BYTES: usize = 4 * 1024;
 const STACK_TRACE_TRUNCATION_MARKER: &str = "\n... stack trace truncated by Dex Rust SDK ...";
 
 const CREATED: u8 = 0;
@@ -246,10 +248,8 @@ struct GoogleRpcStatus {
 
 fn worker_status(error: HandlerError) -> Status {
     let message = error.to_string();
-    let stack_trace = truncate_stack_trace(&format!(
-        "{message}\n{}",
-        std::backtrace::Backtrace::force_capture()
-    ));
+    let stack_trace =
+        truncate_stack_trace(&format!("{message}\n{}", std::backtrace::Backtrace::capture()));
     let worker_error = WorkerErrorResponse {
         detail: message.clone(),
         error_type: error.error_type().to_string(),
