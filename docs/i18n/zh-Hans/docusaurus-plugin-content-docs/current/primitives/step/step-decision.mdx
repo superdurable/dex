@@ -1,10 +1,10 @@
 ---
-title: 高级 Step decision
-sidebar_label: 高级 Step decision
+title: Step decision
+sidebar_label: Step decision
 slug: /primitives/step/step-decision
 ---
 
-# 高级 Step decision
+# Step decision
 
 **StepDecision** 可将 Flow 移到一个或多个后续 Step、关闭 Flow、取消其他 Step，或在 Channel 为空时原子地完成 Flow。
 
@@ -260,7 +260,7 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 
 ## Step 输出与 FlowResults {#step-output-and-flowresults}
 
-本分支关闭 Flow 时，GracefulComplete(output) 设置 Flow 输出。Step 等待 [SubFlow](/primitives/subflow) 时，在 Execute 中通过 SubFlowResult / getConditionResults / condition_result 读取子输出（见 [高级等待条件 — SubFlow 结果](/primitives/step/waiting-condition#condition-results)）。
+本分支关闭 Flow 时，GracefulComplete(output) 设置 Flow 输出。Step 等待 [SubFlow](/primitives/subflow) 时，在 Execute 中通过 SubFlowResult / getConditionResults / condition_result 读取子输出（见 [等待条件 — SubFlow 结果](/primitives/step/waiting-condition#condition-results)）。
 
 <SdkTabs
   examples={{

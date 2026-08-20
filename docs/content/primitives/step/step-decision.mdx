@@ -1,10 +1,10 @@
 ---
-title: Advanced Step decision
-sidebar_label: Advanced Step decision
+title: Step decision
+sidebar_label: Step decision
 slug: /primitives/step/step-decision
 ---
 
-# Advanced Step decision
+# Step decision
 
 A **StepDecision** moves the Flow to one or more next Steps, closes the Flow, cancels other Steps, or atomically completes when Channels are empty.
 
@@ -260,7 +260,7 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 
 ## Step output and FlowResults {#step-output-and-flowresults}
 
-GracefulComplete(output) sets the Flow output when this branch closes the Flow. When a Step waits on a [SubFlow](/primitives/subflow), read the child output in Execute via SubFlowResult / getConditionResults / condition_result (see [Advanced waiting condition — SubFlow results](/primitives/step/waiting-condition#condition-results)).
+GracefulComplete(output) sets the Flow output when this branch closes the Flow. When a Step waits on a [SubFlow](/primitives/subflow), read the child output in Execute via SubFlowResult / getConditionResults / condition_result (see [waiting condition — SubFlow results](/primitives/step/waiting-condition#condition-results)).
 
 <SdkTabs
   examples={{
