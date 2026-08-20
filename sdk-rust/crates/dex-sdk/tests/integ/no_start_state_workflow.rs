@@ -29,7 +29,10 @@ impl NoStartStateWorkflow {
 
     fn invoke(&self, context: &mut Context, _input: String) -> HandlerResult<RpcResult<i64>> {
         if context.flow_id().is_empty() || context.run_id().is_empty() {
-            return Err(HandlerError::new("invalid RPC context"));
+            return Err(HandlerError::new(
+                "NoStartStateFailure",
+                "invalid RPC context",
+            ));
         }
         Ok(RpcResult::new(Self::RPC_OUTPUT).then(StepMovement::to(&self.triggered, ())))
     }

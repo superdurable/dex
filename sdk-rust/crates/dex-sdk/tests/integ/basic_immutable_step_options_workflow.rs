@@ -58,12 +58,18 @@ impl Step for FailingWaitStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, input: i32) -> HandlerResult<Wait> {
-        Err(HandlerError::new(format!("expected wait failure {input}")))
+        Err(HandlerError::new(
+            "BasicImmutableStepOptionsFailure",
+            format!("expected wait failure {input}"),
+        ))
     }
 
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
         if !context.wait_for_method_failed() {
-            return Err(HandlerError::new("wait failure was not reported"));
+            return Err(HandlerError::new(
+                "BasicImmutableStepOptionsFailure",
+                "wait failure was not reported",
+            ));
         }
         if input == 1 {
             return Ok(StepDecision::go_to(self, 2));

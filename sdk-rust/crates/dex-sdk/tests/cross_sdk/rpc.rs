@@ -64,7 +64,7 @@ impl RpcWorkflow {
     }
 
     fn fail(&self, _context: &mut Context, _input: i32) -> HandlerResult<RpcResult<i32>> {
-        Err(HandlerError::new("planned RPC failure"))
+        Err(HandlerError::new("RpcFailure", "planned RPC failure"))
     }
 }
 
@@ -103,12 +103,16 @@ impl Step for RpcStep {
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
         let values = self.channel.condition_results(context)?;
         if values != [input + 1] {
-            return Err(HandlerError::new(format!(
-                "unexpected RPC channel values {values:?}"
-            )));
+            return Err(HandlerError::new(
+                "RpcFailure",
+                format!("unexpected RPC channel values {values:?}"),
+            ));
         }
         if self.status.get_required(context)? != "invoked" {
-            return Err(HandlerError::new("RPC attribute write was not committed"));
+            return Err(HandlerError::new(
+                "RpcFailure",
+                "RPC attribute write was not committed",
+            ));
         }
         Ok(StepDecision::graceful_complete(values[0] + 1))
     }

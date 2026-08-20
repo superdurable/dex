@@ -304,7 +304,10 @@ impl Step for CancellationWinner {
     fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
         if self.0.scenario == CancellationScenario::LocalExecute {
             if !self.0.blocking_started.wait(Duration::from_secs(10)) {
-                return Err(HandlerError::new("local loser did not start"));
+                return Err(HandlerError::new(
+                    "StepCancellationFailure",
+                    "local loser did not start",
+                ));
             }
             thread::sleep(Duration::from_secs(1));
         }
@@ -390,7 +393,10 @@ impl Step for CancellationSelectorWinner {
             .selector_waits_registered
             .wait(Duration::from_secs(10))
         {
-            return Err(HandlerError::new("selector Steps did not reach waiting"));
+            return Err(HandlerError::new(
+                "StepCancellationFailure",
+                "selector Steps did not reach waiting",
+            ));
         }
         let decision = StepDecision::go_to(&CancellationFinal, self.0.scenario.name().to_string());
         if self.0.scenario == CancellationScenario::GlobalSelector {

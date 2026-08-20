@@ -8,6 +8,8 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::time::Duration;
 
 use dex_sdk::{
@@ -65,6 +67,17 @@ impl Step for WorkerOriginStackWaitForStep {
     }
 }
 
+#[derive(Debug)]
+struct OriginStackFailure;
+
+impl Display for OriginStackFailure {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(ORIGIN_STACK_DETAIL)
+    }
+}
+
+impl Error for OriginStackFailure {}
+
 fn origin_stack_failure() -> HandlerError {
-    HandlerError::new(ORIGIN_STACK_DETAIL)
+    HandlerError::from_error(OriginStackFailure)
 }
