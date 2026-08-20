@@ -102,7 +102,7 @@ func connectToExternalDexService(t *testing.T, testConfig DexServiceTestConfig) 
 	}
 	cfg := createTestConfig(t, testConfig)
 	dataConverter := dexconverter.NewTemporalDataConverter()
-	temporalClient := createTemporalClient(t, dataConverter)
+	temporalClient := createTemporalClient(t, dataConverter, nil)
 	unifiedClient := temporalapi.NewTemporalClient(
 		temporalClient,
 		testNamespace,

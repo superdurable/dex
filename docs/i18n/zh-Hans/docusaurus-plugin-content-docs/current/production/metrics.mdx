@@ -1,0 +1,63 @@
+---
+title: 指标
+---
+
+# 指标
+
+Dex Server 使用 Dex 命名空间导出 Temporal Worker 指标，并增加 Flow 语义标签。最终 Prometheus 指标名都以 **dex_** 开头；Dex 不会同时保留旧的 **temporal_\*** 指标，也不会再添加旧的 **temporal_samples_** scope 前缀。
+
+## 指标名与标签
+
+| Temporal SDK 指标 | Dex 指标 | 新增标签 |
+| --- | --- | --- |
+| Step activity 的 **temporal_activity_&lt;suffix&gt;** | **dex_sync_step_&lt;suffix&gt;** | **flow_type**、**step_type** |
+| StartSubFlow 的 **temporal_activity_&lt;suffix&gt;** | **dex_sync_start_sub_flow_&lt;suffix&gt;** | **flow_type**、**sub_flow_type** |
+| Worker RPC 的 **temporal_activity_&lt;suffix&gt;** | **dex_sync_invoke_rpc_&lt;suffix&gt;** | **flow_type**、**rpc_name** |
+| 其他 **temporal_activity_&lt;suffix&gt;** | **dex_sync_sys_step_&lt;suffix&gt;** | **flow_type** |
+| **temporal_local_activity_&lt;suffix&gt;** | 将上面对应名称的前缀改为 **dex_async_** | 与上面对应的标签相同 |
+| Flow 的 **temporal_workflow_&lt;suffix&gt;** | **dex_flow_&lt;suffix&gt;** | **flow_type** |
+| system workflow 的 **temporal_workflow_&lt;suffix&gt;** | **dex_sys_flow_&lt;suffix&gt;** | 无 |
+| 其他 **temporal_&lt;suffix&gt;** | **dex_&lt;suffix&gt;** | 无 |
+
+普通 Temporal activity 使用 **sync** 名称段，Temporal local activity 使用 **async**。SDK 原有的 **workflow_type**、**activity_type**、**task_queue**、**namespace** 等标签在相应指标上仍然保留。
+
+当某个指标族需要某个标签、但运行时没有对应值时，Dex 统一使用字面值 **"none"**。例如，不属于任何 Flow 的 system activity 使用 **flow_type="none"**。这样同一个 Prometheus 指标族始终具有稳定的标签键集合。
+
+Provider 从已经解码的 workflow 和 activity input 中取得标签值。Flow 值会从 Flow workflow 传播到普通 activity 和 local activity，并支持跨 Worker 与 Continue-As-New。activity 自身提供的非空 Flow 值优先于传播值。
+
+## Prometheus 查询
+
+按类型统计完成的 Flow：
+
+```promql
+sum(rate(dex_flow_completed[5m])) by (flow_type)
+```
+
+按 Flow 与 Step 类型统计同步 Step 失败：
+
+```promql
+sum(rate(dex_sync_step_execution_failed[5m])) by (flow_type, step_type)
+```
+
+当 Tally Prometheus reporter 将 timer 导出为 summary 时，同步 Step 执行延迟的 P95：
+
+```promql
+dex_sync_step_execution_latency{quantile="0.95"}
+```
+
+Flow 之外的 system activity 失败：
+
+```promql
+sum(rate(dex_sync_sys_step_execution_failed{flow_type="none"}[5m]))
+```
+
+## Dashboard 与告警迁移
+
+部署定制 SDK 前：
+
+1. 按上表将 **temporal_samples_temporal_\*** 和 **temporal_\*** selector 替换为对应的 **dex_\*** 名称。
+2. 将只依赖 **workflow_type**、**activity_type** 的 join 或 group 调整为使用 **flow_type**，以及相应的 **step_type**、**sub_flow_type** 或 **rpc_name**。
+3. 明确 system activity 面板是否应包含或排除 **flow_type="none"**。
+4. 将 recording rule、dashboard 和告警与 Dex Server 升级一起发布。新旧指标名不会并行导出。
+
+Flow、Step、SubFlow 和 RPC 类型值必须保持有限集合。不要把 execution ID、request ID 或其他无界值作为类型名，否则 Prometheus 会为每个标签组合创建新的 time series。

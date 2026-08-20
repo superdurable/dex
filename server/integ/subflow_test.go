@@ -85,15 +85,20 @@ func doTestSubFlowCondition(
 	backendType service.BackendType,
 	reusePolicy dexpb.SubFlowReusePolicy,
 	shouldRestart bool,
+	configureTest ...func(*DexServiceTestConfig),
 ) {
 	handler := &subFlowHandler{reusePolicy: reusePolicy}
 	workerTarget := startWorker(t, handler)
-	runtime := startDexService(t, DexServiceTestConfig{
+	testConfig := DexServiceTestConfig{
 		BackendType:        backendType,
 		LazyLoading:        ptr.Any(false),
 		LocalBlobDirectory: t.TempDir(),
 		LocalBlobThreshold: 10,
-	})
+	}
+	for _, configure := range configureTest {
+		configure(&testConfig)
+	}
+	runtime := startDexService(t, testConfig)
 	flowClient := runtime.FlowClient
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

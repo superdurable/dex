@@ -67,7 +67,6 @@ func newPrometheusScope(
 		CachedReporter:  reporter,
 		Separator:       prometheus.DefaultSeparator,
 		SanitizeOptions: &sanitizeOptions,
-		Prefix:          "temporal_samples",
 	}
 	scope, closer := tally.NewRootScope(scopeOpts, time.Second)
 

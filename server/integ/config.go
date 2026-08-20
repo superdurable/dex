@@ -17,6 +17,7 @@ import (
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/ptr"
+	"go.temporal.io/sdk/client"
 )
 
 const testNamespace = "default"
@@ -35,6 +36,7 @@ type DexServiceTestConfig struct {
 	BlobStoreEnabled                       *bool
 	IncludeRPCInputOutputIntoHistory       bool
 	UseTemporalSynchronousUpdateForAllRPCs bool
+	TemporalMetricsHandler                 client.MetricsHandler
 	// LazyLoading overrides BlobStore.LazyLoading.
 	// Nil uses EffectiveLazyLoading default (true).
 	LazyLoading *bool

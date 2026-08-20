@@ -1,0 +1,63 @@
+---
+title: Metrics
+---
+
+# Metrics
+
+Dex Server exposes Temporal worker metrics with Dex names and Flow-aware labels. The final Prometheus metric names start with **dex_**; Dex does not also emit the former **temporal_\*** names or add the former **temporal_samples_** scope prefix.
+
+## Metric names and labels
+
+| Temporal SDK metric | Dex metric | Added labels |
+| --- | --- | --- |
+| **temporal_activity_&lt;suffix&gt;** for a Step activity | **dex_sync_step_&lt;suffix&gt;** | **flow_type**, **step_type** |
+| **temporal_activity_&lt;suffix&gt;** for StartSubFlow | **dex_sync_start_sub_flow_&lt;suffix&gt;** | **flow_type**, **sub_flow_type** |
+| **temporal_activity_&lt;suffix&gt;** for a Worker RPC | **dex_sync_invoke_rpc_&lt;suffix&gt;** | **flow_type**, **rpc_name** |
+| Other **temporal_activity_&lt;suffix&gt;** metrics | **dex_sync_sys_step_&lt;suffix&gt;** | **flow_type** |
+| **temporal_local_activity_&lt;suffix&gt;** | The corresponding name above with **dex_async_** | The corresponding labels above |
+| **temporal_workflow_&lt;suffix&gt;** for a Flow | **dex_flow_&lt;suffix&gt;** | **flow_type** |
+| **temporal_workflow_&lt;suffix&gt;** for a system workflow | **dex_sys_flow_&lt;suffix&gt;** | None |
+| Other **temporal_&lt;suffix&gt;** metrics | **dex_&lt;suffix&gt;** | None |
+
+Regular Temporal activities use the **sync** name segment. Temporal local activities use **async**. Existing SDK labels such as **workflow_type**, **activity_type**, **task_queue**, and **namespace** remain available where the SDK supplies them.
+
+Dex uses the literal value **"none"** when a label applies to a metric family but no runtime value is available. For example, a system activity that was not started by a Flow has **flow_type="none"**. This keeps the Prometheus label keys stable for every metric family.
+
+Provider values come from decoded workflow and activity inputs. Flow values propagate from a Flow workflow to its regular and local activities, including across Workers and Continue-As-New runs. An activity-specific non-empty Flow value takes precedence over the propagated value.
+
+## Prometheus queries
+
+Completed Flows by type:
+
+```promql
+sum(rate(dex_flow_completed[5m])) by (flow_type)
+```
+
+Failed synchronous Steps by Flow and Step type:
+
+```promql
+sum(rate(dex_sync_step_execution_failed[5m])) by (flow_type, step_type)
+```
+
+The 95th-percentile synchronous Step execution latency when the configured Tally Prometheus reporter exports timers as summaries:
+
+```promql
+dex_sync_step_execution_latency{quantile="0.95"}
+```
+
+System activity failures outside a Flow:
+
+```promql
+sum(rate(dex_sync_sys_step_execution_failed{flow_type="none"}[5m]))
+```
+
+## Dashboard and alert migration
+
+Before deploying the customized SDK:
+
+1. Replace **temporal_samples_temporal_\*** and **temporal_\*** selectors with the corresponding **dex_\*** names from the table.
+2. Replace joins or grouping based only on **workflow_type** and **activity_type** with **flow_type** and the relevant **step_type**, **sub_flow_type**, or **rpc_name** label.
+3. Decide whether system activity panels should include or exclude **flow_type="none"**.
+4. Roll out recording rules, dashboards, and alerts together with the Dex Server upgrade. The old and new metric names are not emitted in parallel.
+
+Keep Flow, Step, SubFlow, and RPC type values bounded. Do not use execution IDs, request IDs, or other unbounded values as type names because Prometheus creates a time series for each label combination.
