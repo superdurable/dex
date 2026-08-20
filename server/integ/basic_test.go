@@ -81,12 +81,17 @@ func doTestBasicFlow(
 	t *testing.T,
 	backendType service.BackendType,
 	flowConfig *dexpb.FlowConfig,
+	configureTest ...func(*DexServiceTestConfig),
 ) {
 	workerHandler := basic.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startDexService(t, DexServiceTestConfig{
+	testConfig := DexServiceTestConfig{
 		BackendType: backendType,
-	})
+	}
+	for _, configure := range configureTest {
+		configure(&testConfig)
+	}
+	runtime := startDexService(t, testConfig)
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

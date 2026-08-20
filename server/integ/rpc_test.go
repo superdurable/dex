@@ -126,15 +126,20 @@ func doTestRpcWorkflow(
 	t *testing.T,
 	backendType service.BackendType,
 	flowConfig *dexpb.FlowConfig,
+	configureTest ...func(*DexServiceTestConfig),
 ) {
 	assertions := assert.New(t)
 
 	workerHandler := rpc.NewHandler()
 	workerTarget := startWorker(t, workerHandler)
-	runtime := startDexService(t, DexServiceTestConfig{
+	testConfig := DexServiceTestConfig{
 		BackendType:    backendType,
 		MemoEncryption: false,
-	})
+	}
+	for _, configure := range configureTest {
+		configure(&testConfig)
+	}
+	runtime := startDexService(t, testConfig)
 	flowClient := runtime.FlowClient
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

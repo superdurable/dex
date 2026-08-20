@@ -54,7 +54,7 @@ jobs:
         run: rustup toolchain install 1.97.1 --profile minimal
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25.x"
+          go-version: "1.26.x"
           cache: false
       - uses: actions/setup-node@v6
         with:

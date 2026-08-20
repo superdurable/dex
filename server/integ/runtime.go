@@ -181,7 +181,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		if testConfig.MemoEncryption {
 			dataConverter = encryptionDataConverter
 		}
-		temporalClient := createTemporalClient(t, dataConverter)
+		temporalClient := createTemporalClient(t, dataConverter, testConfig.TemporalMetricsHandler)
 		store, err = blobstore.NewBlobStore(
 			s3Client,
 			testNamespace,
@@ -398,12 +398,14 @@ func startApiServer(
 func createTemporalClient(
 	t *testing.T,
 	dataConverter converter.DataConverter,
+	metricsHandler client.MetricsHandler,
 ) client.Client {
 	t.Helper()
 	temporalClient, err := client.Dial(client.Options{
-		HostPort:      *temporalHostPort,
-		Namespace:     testNamespace,
-		DataConverter: dataConverter,
+		HostPort:       *temporalHostPort,
+		Namespace:      testNamespace,
+		DataConverter:  dataConverter,
+		MetricsHandler: metricsHandler,
 	})
 	require.NoError(t, err)
 	return temporalClient

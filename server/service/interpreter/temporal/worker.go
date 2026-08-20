@@ -15,15 +15,18 @@ import (
 	"fmt"
 
 	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
 	uclient "github.com/superdurable/dex/service/client"
 	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/event"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/interpreter"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 )
 
 type InterpreterWorker struct {
@@ -135,13 +138,26 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) error {
 	iw.worker = worker.New(iw.temporalClient, iw.taskQueue, options)
 	worker.EnableVerboseLogging(iw.cfg.Interpreter.VerboseDebug)
 
-	iw.worker.RegisterWorkflow(iw.Engine)
+	iw.worker.RegisterWorkflowWithOptions(iw.Engine, workflow.RegisterOptions{
+		FlowTypeProvider: interpreterWorkflowFlowType,
+	})
 	iw.worker.RegisterWorkflow(iw.BlobStoreCleanup)
-	iw.worker.RegisterActivity(iw.activities.InvokeWaitForMethod)
-	iw.worker.RegisterActivity(iw.activities.InvokeExecuteMethod)
+	iw.worker.RegisterActivityWithOptions(iw.activities.InvokeWaitForMethod, activity.RegisterOptions{
+		FlowTypeProvider: waitForMethodFlowType,
+		StepTypeProvider: waitForMethodStepType,
+	})
+	iw.worker.RegisterActivityWithOptions(iw.activities.InvokeExecuteMethod, activity.RegisterOptions{
+		FlowTypeProvider: executeMethodFlowType,
+		StepTypeProvider: executeMethodStepType,
+	})
 	iw.worker.RegisterActivity(iw.activities.DumpFlowForContinueAsNew)
-	iw.worker.RegisterActivity(iw.activities.InvokeWorkerRPC)
-	iw.worker.RegisterActivity(iw.activities.StartSubFlow)
+	iw.worker.RegisterActivityWithOptions(iw.activities.InvokeWorkerRPC, activity.RegisterOptions{
+		FlowTypeProvider: invokeWorkerRPCFlowType,
+		RPCNameProvider:  invokeWorkerRPCName,
+	})
+	iw.worker.RegisterActivityWithOptions(iw.activities.StartSubFlow, activity.RegisterOptions{
+		SubFlowTypeProvider: startSubFlowType,
+	})
 	iw.worker.RegisterActivity(iw.activities.ReportSubFlowCompletion)
 	iw.worker.RegisterActivity(iw.activities.CleanupBlobsAfterAllRunsDeleted)
 	iw.worker.RegisterActivity(iw.activities.SyncAttributeBatch)
@@ -173,4 +189,36 @@ func (iw *InterpreterWorker) start(disableStickyCache bool) error {
 		}
 	}
 	return nil
+}
+
+func interpreterWorkflowFlowType(input any) string {
+	return input.(*dexpb.InterpreterWorkflowInput).GetFlowType()
+}
+
+func waitForMethodFlowType(input any) string {
+	return input.(*dexpb.InvokeWaitForMethodActivityInput).GetRequest().GetFlowType()
+}
+
+func waitForMethodStepType(input any) string {
+	return input.(*dexpb.InvokeWaitForMethodActivityInput).GetRequest().GetStepType()
+}
+
+func executeMethodFlowType(input any) string {
+	return input.(*dexpb.InvokeExecuteMethodActivityInput).GetRequest().GetFlowType()
+}
+
+func executeMethodStepType(input any) string {
+	return input.(*dexpb.InvokeExecuteMethodActivityInput).GetRequest().GetStepType()
+}
+
+func invokeWorkerRPCFlowType(input any) string {
+	return input.(*dexpb.InvokeWorkerRPCActivityInput).GetRpcPrep().GetFlowType()
+}
+
+func invokeWorkerRPCName(input any) string {
+	return input.(*dexpb.InvokeWorkerRPCActivityInput).GetRequest().GetRpcName()
+}
+
+func startSubFlowType(input any) string {
+	return input.(*dexpb.StartSubFlowActivityInput).GetCondition().GetSubFlowType()
 }
