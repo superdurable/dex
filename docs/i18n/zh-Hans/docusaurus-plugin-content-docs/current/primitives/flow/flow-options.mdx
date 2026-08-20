@@ -268,6 +268,36 @@ impl Flow for ExampleFlow {
 
 调用方可能在丢失 StartFlow response 后重试时，应使用稳定的 **RequestID**。重试时发送相同的 Flow ID、start input、options 与 RequestID。启用 **AlreadyStartedOptions.IgnoreError** 后，Dex 只会在已有 Flow 使用相同 RequestID 启动时返回其 Run ID。不同 RequestID 仍会得到 already-started error。
 
+#### 这些选项如何一起工作
+
+这些选项依次回答不同的问题：
+
+1. **RequestID** 标识一次 start request。省略时，SDK 会生成新的 UUID，所以另一次 StartFlow 调用是新的 request。只在重试完全相同的 start 时复用它。Dex 比较的是 RequestID，不比较 start input 或 options。
+2. **IDReusePolicy** 决定这个 request 能否用该 Flow ID 启动另一个 run。
+3. **AlreadyStartedOptions.IgnoreError** 只在 ID reuse policy 因 already-started 拒绝启动时生效。只有 RequestID 相同时，它才返回已有的 Run ID。
+
+| 重试请求 | **AlreadyStartedOptions.IgnoreError** | ID reuse policy 拒绝启动时 |
+|----------|---------------------------------------|----------------------------|
+| 不提供 **RequestID**，或提供新的 **RequestID** | 关闭或开启 | SDK 发送新的 UUID。Dex 返回 already-started error。 |
+| 相同 **RequestID** | 关闭 | Dex 返回 already-started error。 |
+| 相同 **RequestID** | 开启 | Dex 返回已有 Run ID。 |
+
+ID reuse policy 决定 Dex 是否会首先拒绝启动：
+
+| **IDReusePolicy** | 已有 active Flow | 已有 closed Flow |
+|-------------------|------------------|------------------|
+| **IDReuseDefault** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 启动新的 run。 |
+| **IDReuseAllowIfPreviousFailed** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 只有上一次 run 失败后才启动新的 run；否则拒绝。 |
+| **IDReuseAllowIfNotRunning** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回 active Run ID。 | 启动新的 run。 |
+| **IDReuseDisallow** | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回已有 Run ID。 | 拒绝启动。RequestID 相同且启用 **IgnoreError** 时返回已有 Run ID。 |
+| **IDReuseTerminateIfRunning** | 终止 active run 并启动 replacement。不会产生 already-started error。 | 启动新的 run。 |
+
+#### Dex Server 的逻辑
+
+Dex Server 要求 **RequestID** 非空。省略时，SDK 会在发送请求前生成它。服务端将它记录在 Flow run 中，再使用请求的 ID reuse policy 让已配置的 backend 启动 Flow。**IDReuseDefault** 使用服务端默认行为：没有 active run 时启动新的 run。
+
+如果 backend 返回 Flow 已启动，Dex 会检查 **AlreadyStartedOptions.IgnoreError**。启用时，Dex 读取已有 run 记录的 RequestID。只有两个 RequestID 相同时才返回该 Run ID；否则仍然返回 already-started error。
+
 ### RetryPolicy 与 CronSchedule {#retry-policy-and-cron-schedule}
 
 **RetryPolicy** 会在一次 Flow execution 失败后重试它。**MaximumAttempts** 包含首次 execution。**InitialInterval**、**BackoffCoefficient** 与 **MaximumInterval** 设置指数退避。**FAIL** timeout 可以使用这个 retry policy；**CANCEL** timeout 不可以。
