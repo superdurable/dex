@@ -480,7 +480,6 @@ Temporal CLI was not found; reinstall dexcli with Homebrew
 - 更新根 `README.md`：将 `brew install dexcli` 作为最短本地启动路径。
 - 重写 `web/README.md`：Go Web server、Vite build、embedded assets 和 contributor development flow。
 - 更新 `server/CONTRIBUTING.md`：server bootstrap、`dexcli` integration tests 和 Temporal prerequisite。
-- 更新 `server/lite/README.md` 或相应文档：说明 Docker lite 与 `dexcli dev` 的定位；确认替代后再删除旧脚本。
 - 更新 `docs/README.md` 链接本文。
 
 ## 14. UI/UX

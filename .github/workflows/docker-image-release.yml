@@ -44,11 +44,3 @@ jobs:
           push: true
           platforms: linux/arm64,linux/amd64
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/dex-server:${{ steps.meta.outputs.tag }}
-      - name: Build and push lite
-        uses: docker/build-push-action@v7
-        with:
-          context: ./server
-          push: true
-          platforms: linux/arm64,linux/amd64
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/dex-server-lite:${{ steps.meta.outputs.tag }}
-          file: server/lite/Dockerfile
