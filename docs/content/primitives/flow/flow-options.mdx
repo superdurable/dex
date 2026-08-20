@@ -180,7 +180,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
 - **CANCEL** — cancel the Flow. It does not retry.
 - **HANDLER** — run the Flow timeout handler once.
 
-When a Dex SDK starts a Flow with a positive timeout and **TimeoutPolicy** is left at **DEFAULT**, it uses **HANDLER** when the Flow has a timeout handler. Otherwise it uses **FAIL**. **HANDLER** is invalid when the Flow has no handler. A retry starts with a new timeout budget.
+With a positive **Timeout**, a Dex SDK uses **FAIL** by default. If the Flow has a timeout handler, it uses **HANDLER** instead. **HANDLER** is invalid when the Flow has no handler. A retry starts with a new timeout budget.
 
 Set **TimeoutPolicy** to **HANDLER** to run this code when the timeout fires. This handler records why the Flow ended, then fails it with an application reason.
 
