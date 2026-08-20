@@ -302,11 +302,3 @@ At start, Dex applies the supplied fields over the Dex Server defaults. Omitted 
 ### Update FlowConfig with a Client {#update-flow-config-with-a-client}
 
 Call **UpdateFlowConfig** while the Flow is active. Send only the fields you want to change. The change applies to later Flow decisions. Dex does not recall work it already dispatched.
-
-## SubFlow options {#subflow-options}
-
-[SubFlow](/primitives/subflow) conditions use **SubFlowOptions** for timeout, retry, initial Attributes, and **FlowConfig** overrides. A SubFlow also has a reuse policy for its generated Flow ID. Dex owns that start ID. The caller cannot override it.
-
-## Operational APIs {#operational-apis}
-
-[Client APIs](/primitives/client-apis) also let you search Flows, call RPCs, publish Channels, wait, stop, skip timers, time travel, and continue as new.

@@ -302,11 +302,3 @@ impl Flow for ExampleFlow {
 ### 用 Client 更新 FlowConfig {#update-flow-config-with-a-client}
 
 Flow active 时可以调用 **UpdateFlowConfig**。只发送要修改的字段。修改会影响之后的 Flow decision，Dex 不会撤回已经派发的工作。
-
-## SubFlow options {#subflow-options}
-
-[SubFlow](/primitives/subflow) condition 使用 **SubFlowOptions** 设置 timeout、retry、初始 Attribute 与 **FlowConfig** override。SubFlow 还有生成 Flow ID 的 reuse policy。Dex 负责这个 start ID，调用方无法覆盖。
-
-## Operational APIs {#operational-apis}
-
-[Client APIs](/primitives/client-apis) 还可以 search Flow、调用 RPC、publish Channel、wait、stop、skip timer、time travel 与 continue as new。
