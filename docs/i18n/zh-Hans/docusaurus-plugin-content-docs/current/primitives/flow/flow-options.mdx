@@ -8,29 +8,25 @@ slug: /primitives/flow/flow-options
 
 Dex 允许你自定义 Flow execution 的行为。
 
-启动时，**ConfigOverride** 会把提供的 **FlowConfig** 字段覆盖到服务端默认值上。省略的字段保留其服务端默认值。
-
 - **StartFlowOptions** 在客户端启动 Flow（或 SubFlow）时生效，启动后不可变。
   - 它们控制 timeout、ID reuse、cron schedule、初始 Attribute、request 幂等，以及该次 execution 的可选 config override。
 - **FlowConfig** 提供运行时行为，启动后可变。
   - 包括 Step durability 默认值、Worker 路由、active-Step 搜索索引、continue-as-new 阈值与 Attribute Store projection target。
 
-通过 [Client APIs](/primitives/client-apis) 启动 Flow，并在 SDK 提供 **UpdateFlowConfig** 时更新运行中 execution 的 config。
-
 ## StartFlowOptions {#start-flow-options}
 
 | 字段 | 作用 |
 |------|------|
-| **Timeout** | durable 的 soft Flow timeout。省略或设为零可禁用。 |
-| **TimeoutPolicy** | 正数 timeout 到期时的行为。 |
-| **IDReusePolicy** | 新启动能否使用已有 Flow ID。 |
-| **RequestID** | 重试同一次启动请求的幂等键。省略时 SDK 会生成 UUID。 |
-| **AlreadyStartedOptions** | 幂等重试遇到已启动的 Flow 时的处理方式。 |
-| **CronSchedule** | 由 backend 支持、用于周期性启动的 cron 表达式。 |
+| **Timeout** | Flow timeout。省略或设为零可禁用。 |
+| **TimeoutPolicy** | Flow timeout 触发时的行为。 |
+| **IDReusePolicy** | 启动时如何复用已有 Flow ID。 |
+| **RequestID** | 重试同一次启动请求的幂等键。 |
+| **AlreadyStartedOptions** | 如何处理已启动的 Flow。 |
+| **CronSchedule** | 用于周期性启动的 cron 表达式。 |
 | **RetryPolicy** | 单次 Flow execution 失败后的重试策略。 |
-| **StartDelay** | start Step 变为可执行前的延迟。 |
-| **Attributes** | 初始 Attribute 与 Attribute-map 值。 |
-| **FlowConfig** | 每次 execution 的 Flow 配置，通过 **ConfigOverride** 提供。 |
+| **StartDelay** | start Step 运行前的延迟。 |
+| **Attributes** | 初始 Attribute 值。 |
+| **FlowConfig** | 每次 execution 的 Flow 配置。 |
 
 <SdkTabs
   examples={{
