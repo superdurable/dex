@@ -24,6 +24,7 @@ def flow_service_client() -> pb_grpc.FlowServiceStub:
     channel = grpc.insecure_channel(server_address)
     return pb_grpc.FlowServiceStub(channel)  # type: ignore[no-untyped-call]
 
+
 def await_live_worker_failure(
     flow_id: str,
     run_id: str,
@@ -43,6 +44,7 @@ def await_live_worker_failure(
                 return cast(pb.StepMethodFailure, step.last_failure_info)
         time.sleep(0.05)
     raise AssertionError("active Step did not expose retry failure")
+
 
 def assert_worker_failure_stack_trace(
     failure: pb.StepMethodFailure,

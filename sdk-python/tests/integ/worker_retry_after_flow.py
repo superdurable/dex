@@ -31,6 +31,7 @@ EXECUTE_RETRY_AFTER_DETAIL = "python execute retry-after failure"
 RETRY_AFTER_SECONDS = 2
 RETRY_POLICY_INTERVAL_SECONDS = 10
 
+
 def _retry_after_step_options(*, wait_for: bool) -> StepOptions:
     retry = RetryPolicy(
         initial_interval=timedelta(seconds=RETRY_POLICY_INTERVAL_SECONDS),
@@ -47,11 +48,13 @@ def _retry_after_step_options(*, wait_for: bool) -> StepOptions:
         execute_durability=StepDurability.SYNC,
     )
 
+
 class WorkerRetryAfterWaitForStep(Step[None]):
     def get_step_options(self) -> StepOptions:
         return _retry_after_step_options(wait_for=True)
 
-    def wait_for(self, context: Context, _input: None) -> Wait:
+    def wait_for(self, context: Context, input: None) -> Wait:
+        del input
         if context.attempt == 1:
             raise retry_after(
                 RETRY_AFTER_SECONDS,
@@ -59,15 +62,16 @@ class WorkerRetryAfterWaitForStep(Step[None]):
             )
         return Wait.skip_immediately()
 
-    def execute(self, context: Context, _input: None) -> StepDecision:
-        del context
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del context, input
         return graceful_complete("wait-retry-after")
+
 
 class WorkerRetryAfterExecuteStep(Step[None]):
     def get_step_options(self) -> StepOptions:
         return _retry_after_step_options(wait_for=False)
 
-    def execute(self, context: Context, _input: None) -> StepDecision:
+    def execute(self, context: Context, input: None) -> StepDecision:
         if context.attempt == 1:
             raise retry_after(
                 RETRY_AFTER_SECONDS,
@@ -75,12 +79,14 @@ class WorkerRetryAfterExecuteStep(Step[None]):
             )
         return graceful_complete("execute-retry-after")
 
+
 class WorkerRetryAfterWaitForFlow(Flow[None]):
     def __init__(self) -> None:
         self.start = WorkerRetryAfterWaitForStep()
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(self.start)
+
 
 class WorkerRetryAfterExecuteFlow(Flow[None]):
     def __init__(self) -> None:
