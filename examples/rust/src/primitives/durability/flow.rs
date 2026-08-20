@@ -15,8 +15,8 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Context, Flow, HandlerResult, Step, StepDecision, StepList, StepDurability, StepOptions,
-    Timer, Wait,
+    Context, Flow, HandlerResult, Step, StepDecision, StepDurability, StepList, StepOptions, Timer,
+    Wait,
 };
 
 #[derive(Default)]
@@ -64,7 +64,10 @@ impl Step for SyncWorkStep {
     }
 
     fn execute(&self, _context: &mut Context, mode: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::go_to(&FinishDurabilityStep, format!("sync:{mode}")))
+        Ok(StepDecision::go_to(
+            &FinishDurabilityStep,
+            format!("sync:{mode}"),
+        ))
     }
 }
 

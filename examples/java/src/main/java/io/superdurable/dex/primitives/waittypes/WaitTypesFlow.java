@@ -50,7 +50,7 @@ final class WaitTypesInput {
 }
 
 @Component
-public final class WaitTypesFlow implements Flow<WaitTypesInput> {
+public class WaitTypesFlow implements Flow<WaitTypesInput> {
     public final Channel<String> channelA = Channel.define("SignalA", String.class);
     public final Channel<String> channelB = Channel.define("SignalB", String.class);
     private final WaitTypesStep waitTypes = new WaitTypesStep();

@@ -80,9 +80,7 @@ async fn signal_a(
     Query(query): Query<SignalQuery>,
 ) -> impl IntoResponse {
     let workflow_id = query.workflow_id;
-    match run_blocking(move || {
-        client.invoke_rpc_without_input(&workflow_id, WAIT_TYPES_SIGNAL_A)
-    }) {
+    match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, WAIT_TYPES_SIGNAL_A)) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }
@@ -93,9 +91,7 @@ async fn signal_b(
     Query(query): Query<SignalQuery>,
 ) -> impl IntoResponse {
     let workflow_id = query.workflow_id;
-    match run_blocking(move || {
-        client.invoke_rpc_without_input(&workflow_id, WAIT_TYPES_SIGNAL_B)
-    }) {
+    match run_blocking(move || client.invoke_rpc_without_input(&workflow_id, WAIT_TYPES_SIGNAL_B)) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }

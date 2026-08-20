@@ -63,10 +63,7 @@ impl Step for OverrideSecondStep {
     }
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Err(HandlerError::new(
-            "OptionsOverride",
-            "state 2 wait failure",
-        ))
+        Err(HandlerError::new("OptionsOverride", "state 2 wait failure"))
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {

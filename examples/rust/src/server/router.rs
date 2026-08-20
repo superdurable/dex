@@ -61,7 +61,9 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         .merge(primitives::custom_retry::controller::mount(client.clone()))
         .merge(primitives::durability::controller::mount(client.clone()))
         .merge(primitives::heartbeat::controller::mount(client.clone()))
-        .merge(primitives::options_override::controller::mount(client.clone()))
+        .merge(primitives::options_override::controller::mount(
+            client.clone(),
+        ))
         .merge(primitives::step_decision::controller::mount(client.clone()))
         .merge(primitives::wait_types::controller::mount(client.clone()))
         .merge(primitives::attribute::controller::mount(client.clone()))

@@ -85,9 +85,7 @@ impl Step for SubFlowParentStep {
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
         let result = SubFlow::condition_result(context)?;
-        let output: i32 = result
-            .single_output()
-            .map_err(HandlerError::from_error)?;
+        let output: i32 = result.single_output().map_err(HandlerError::from_error)?;
         let flow_id = SubFlow::flow_id_at(context, 0)?;
         Ok(StepDecision::graceful_complete(format!(
             "{flow_id}|{output}"

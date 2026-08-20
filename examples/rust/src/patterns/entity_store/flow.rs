@@ -127,10 +127,7 @@ impl Flow for UserProfileFlow {
 
 fn validate_profile(profile: &UserProfile) -> HandlerResult<()> {
     if profile.display_name.trim().is_empty() {
-        return Err(HandlerError::new(
-            "EntityStore",
-            "displayName is required",
-        ));
+        return Err(HandlerError::new("EntityStore", "displayName is required"));
     }
     if profile.email.trim().is_empty() {
         return Err(HandlerError::new("EntityStore", "email is required"));

@@ -50,10 +50,7 @@ impl PollingFlow {
         match task.as_str() {
             "a" => task_a().publish(context, ()),
             "b" => task_b().publish(context, ()),
-            _ => Err(dex_sdk::HandlerError::new(
-                "Polling",
-                "task must be a or b",
-            )),
+            _ => Err(dex_sdk::HandlerError::new("Polling", "task must be a or b")),
         }
     }
 }
