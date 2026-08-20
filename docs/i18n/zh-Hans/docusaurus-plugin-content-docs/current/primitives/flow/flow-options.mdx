@@ -292,17 +292,15 @@ Dex Server 要求 **RequestID** 非空。省略时，SDK 会在发送请求前�
 
 **RetryPolicy** 会在一次 Flow execution 失败后重试它。**MaximumAttempts** 包含首次 execution。**InitialInterval**、**BackoffCoefficient** 与 **MaximumInterval** 设置指数退避。**FAIL** timeout 可以使用这个 retry policy；**CANCEL** timeout 不可以。
 
-**CronSchedule** 请求已配置的 backend 按计划启动新的 execution。它不是 Flow retry。retry 用来恢复一次失败的 execution；cron 创建之后的 execution。overlap 与漏掉运行怎么处理由 backend 决定。生产使用前请阅读 [cron schedule pattern](/design-patterns/cron)。
+**CronSchedule** 按计划启动新的 execution。retry 用来恢复一次失败的 execution，而 cron 创建之后的 execution。overlap 与漏掉运行怎么处理由 backend 决定。
 
 ### StartDelay {#start-delay}
 
-**StartDelay** 会立即接受 Flow start，然后等待 start Step 可以运行。它适合一次性延迟，例如新订单创建五分钟后再处理。它不会重复；周期性工作请使用 **CronSchedule**。
+**StartDelay** 会立即接受要启动的 Flow，但在 **StartStep** 可以运行前等待。它适合一次性延迟，例如新订单创建五分钟后再处理。周期性 schedule 请使用 **CronSchedule**。
 
 ### Attributes {#attributes}
 
-**Attributes** 会在 start Step 运行前写入 durable state。每个值必须匹配 Flow persistence schema 中的 Attribute 或 Attribute map。Attribute map 还需要 instance key。Dex 会拒绝未声明的名称、重复的 physical key，以及与已注册 map、index 或同步设置不一致的定义。
-
-请使用 SDK 的 **InitialAttribute** 与 Attribute-map helper。start Step 读取这些值的方式和其它 Attribute 一样。
+**Attributes** 写入初始值。每个值必须匹配 Flow persistence schema 中的 Attribute 或 Attribute map。
 
 ## FlowConfig {#flow-config}
 
@@ -315,10 +313,10 @@ Dex Server 要求 **RequestID** 非空。省略时，SDK 会在发送请求前�
 | **ActiveStepSearchMode** | 索引所有 active Step、只索引运行过 **WaitFor** 的 Step，或不索引 active Step。默认只索引带 **WaitFor** 的 Step。 |
 | **ContinueAsNewThreshold** | 追踪到这个事件数后 continue as new。零会关闭它。 |
 | **ContinueAsNewPageSizeBytes** | 限制 continue-as-new 带入的每一页 state。零使用 1 MiB。 |
-| **StepDurability** | Step 写入的默认 durability。Step override 优先。除非显式覆盖，recovery 使用 synchronous durability。 |
-| **WorkerTarget** | 后续 Step 与 RPC 调用的 WorkerService endpoint。可用它把后续工作移到新 Worker。 |
-| **AttributeStoreName** | Dex Server Attribute Store，供 opt-in 异步投影的 Attribute 使用。空值会关闭后续投影。 |
+| **StepDurability** | Step 写入的默认 durability。Step override 优先。除非在 **StepOptions** 中覆盖，recovery 使用 synchronous durability。 |
+| **WorkerTarget** | 用于 Step 和 RPC invocation 的 WorkerService endpoint。 |
+| **AttributeStoreName** | Dex Server Attribute Store，供 opt-in attribute sync 的 Attribute 使用。 |
 
 ### 用 Client 更新 FlowConfig {#update-flow-config-with-a-client}
 
-Flow active 时可以调用 **UpdateFlowConfig**。只发送要修改的字段。修改会影响之后的 Flow decision，Dex 不会撤回已经派发的工作。
+Flow active 时可以调用 **UpdateFlowConfig**。只发送要修改的字段。它们会与已有配置合并。
