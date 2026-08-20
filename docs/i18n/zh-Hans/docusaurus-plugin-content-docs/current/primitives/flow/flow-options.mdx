@@ -8,9 +8,14 @@ slug: /primitives/flow/flow-options
 
 Dex 允许你自定义 Flow execution 的行为。
 
-**StartFlowOptions** 控制一次启动请求。**FlowConfig** 控制由此产生的 Flow 的运行时行为。
+启动时，**ConfigOverride** 会把提供的 **FlowConfig** 字段覆盖到服务端默认值上。省略的字段保留其服务端默认值。
 
-启动时，**ConfigOverride** 会把提供的 **FlowConfig** 字段覆盖到服务端默认值上。Flow 活跃期间，**UpdateFlowConfig** 会把提供的字段覆盖到其当前配置上。两种情况下，省略的字段都保持不变。
+- **StartFlowOptions** 在客户端启动 Flow（或 SubFlow）时生效，启动后不可变。
+  - 它们控制 timeout、ID reuse、cron schedule、初始 Attribute、request 幂等，以及该次 execution 的可选 config override。
+- **FlowConfig** 提供运行时行为，启动后可变。
+  - 包括 Step durability 默认值、Worker 路由、active-Step 搜索索引、continue-as-new 阈值与 Attribute Store projection target。
+
+通过 [Client APIs](/primitives/client-apis) 启动 Flow，并在 SDK 提供 **UpdateFlowConfig** 时更新运行中 execution 的 config。
 
 ## StartFlowOptions {#start-flow-options}
 

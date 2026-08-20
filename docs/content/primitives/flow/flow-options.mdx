@@ -8,9 +8,14 @@ slug: /primitives/flow/flow-options
 
 Dex allows you to customize the behavior of a Flow execution.
 
-**StartFlowOptions** controls one start request. **FlowConfig** controls the runtime behavior of the resulting Flow.
+At start, **ConfigOverride** applies the supplied **FlowConfig** fields over the server default. Omitted fields retain their server default values.
 
-At start, **ConfigOverride** applies the supplied **FlowConfig** fields over the server default. While a Flow is active, **UpdateFlowConfig** applies supplied fields over its current configuration. In both cases, omitted fields stay unchanged.
+- **StartFlowOptions** apply when a client starts a Flow (or SubFlow). They are immutable after start.
+  - They control timeout, ID reuse, cron schedule, initial Attributes, request idempotency, and optional config overrides for that execution.
+- **FlowConfig** provide runtime behavior. They are mutable after start.
+  - Step durability defaults, Worker routing, active-Step search indexing, continue-as-new thresholds, and Attribute Store projection targets.
+
+Use [Client APIs](/primitives/client-apis) to start Flows and update config on running executions where your SDK exposes **UpdateFlowConfig**.
 
 ## StartFlowOptions {#start-flow-options}
 
