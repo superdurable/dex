@@ -55,15 +55,15 @@ func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	), nil
 }
 
-func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
+func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GracefulComplete("approval timed out"), nil
+	}
 	results, err := Approval.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if len(results) > 0 {
-		return dex.GracefulComplete(results[0]), nil
-	}
-	return dex.GoTo(channelWaitStep{}, input), nil
+	return dex.GracefulComplete(results[0]), nil
 }
 
 func (*ChannelFlow) Approve(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {

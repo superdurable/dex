@@ -66,11 +66,11 @@ public class ChannelFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            final List<String> approvals = approval.getConditionResults(context);
-            if (!approvals.isEmpty()) {
-                return StepDecision.gracefulComplete(approvals.get(0));
+            if (context.hasTimerFired()) {
+                return StepDecision.gracefulComplete("approval timed out");
             }
-            return StepDecision.goTo(waitForApproval, input);
+            final List<String> approvals = approval.getConditionResults(context);
+            return StepDecision.gracefulComplete(approvals.get(0));
         }
     }
 }

@@ -378,7 +378,7 @@ Most of the times, you need to customize failing handling -- timeout, retry and 
 * **Retry policy** — re-invokes the **same** method on the **same** Step execution until attempts are exhausted.
 - **Failure policy** — decide what happens **after** retries end. Default is to fail the Flow. But WaitFor can run Execute anyway, or Execute can go to a recovery Step.
 
-Configure WaitFor and Execute by implementing the step method to return a StepOptions.
+Configure by implementing the step method to return a StepOptions.
 
 <SdkTabs
   examples={{
@@ -471,10 +471,12 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ### WaitFor failure policy
 
-When WaitFor retries are exhausted:
+When WaitFor method retries are exhausted:
 
-- **PROCEED** — Execute runs in the **same workflow run**. Continue-as-new cannot occur between the failed WaitFor and that Execute.
-- **Fail the Flow** — default when not configured to proceed.
+- **FailFlow** — Fail the flow. This is the default.
+- **PROCEED** — Continue to invoke Execute.
+
+With **PROCEED**, the same Step's **Execute** receives the durable input unchanged. **waitForMethodFailed()** returns true. **getRecoveryError()** has the error_type and detail from the final failed WaitFor attempt.
 
 <SdkTabs
   examples={{
@@ -605,7 +607,7 @@ fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<St
 
 ### Execute failure policy
 
-When Execute retries are exhausted, onExecuteFailureProceedTo / ExecuteFailure.proceedTo(...) queues a **recovery Step** with the same typed input. Recovery Steps are ordinary Steps — compensations are just more Steps.
+When Execute method retries are exhausted, onExecuteFailureProceedTo / ExecuteFailure.proceedTo(...) proceed to a **recovery Step** with the same input.
 
 <SdkTabs
   examples={{
@@ -679,18 +681,7 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 See the [failure recovery](/design-patterns/recovery) pattern and [money-transfer](/use-cases/money-transfer) use case.
 
-### What recovery WaitFor / Execute can read
-
-| Available | Semantics |
-| --- | --- |
-| **Step input** | The failed Step's durable input travels with the recovery movement unchanged. |
-| **RecoveryErrorInfo** | error_type + detail for the **final** failed attempt. No stack trace — by design. |
-| **waitForMethodFailed()** | On the WaitFor-proceed path, Execute on the **same** Step knows WaitFor failed. Pair with getRecoveryError(). |
-| **Precedence** | If the recovery Step's WaitFor also fails and proceeds, its Execute receives the **newer WaitFor failure**, not the original Execute failure. |
-| **Backend failures** | Timeouts without a Worker response use the Temporal or Cadence backend failure type. |
-| **Worker errors** | Structured detail and error_type; stack trace stays in history / last failure info, not in RecoveryErrorInfo. |
-
-Recovery error survives queueing and **continue-as-new** on recovery Step movements.
+The recovery Step receives the failed Step's durable input unchanged. **getRecoveryError()** has the error_type and detail from the final failed Execute attempt.
 
 ### Step Failed events and last failure info
 
