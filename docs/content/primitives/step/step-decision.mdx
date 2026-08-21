@@ -6,11 +6,11 @@ slug: /primitives/step/step-decision
 
 # Step decision
 
-A **StepDecision** moves the Flow to one or more next Steps, closes the Flow, cancels other Steps, or atomically completes when Channels are empty.
+This page covers more advanced features for StepDecision than the basic features.
 
 ## GoToMulti {#gotomulti}
 
-Return multiple movements in one decision to fan out parallel work. The default step-decision sample starts three carrier Steps and a winner Step in the same call.
+Return multiple next Steps in one decision to fan out parallel work. The default step-decision sample starts three carrier Steps and a winner Step in the same call.
 
 <SdkTabs
   examples={{
