@@ -6,11 +6,11 @@ slug: /primitives/step/step-decision
 
 # Step decision
 
-A **StepDecision** moves the Flow to one or more next Steps, closes the Flow, cancels other Steps, or atomically completes when Channels are empty.
+This page covers the advanced **StepDecision** features. See the [basic page](/primitives/step/basic) for the basic features.
 
-## GoToMulti {#gotomulti}
+## Multiple next Steps {#gotomulti}
 
-Return multiple movements in one decision to fan out parallel work. The default step-decision sample starts three carrier Steps and a winner Step in the same call.
+**GoTo** starts one next Step. **GoToMulti** starts multiple next Steps. Use it to fan out work that can run in parallel. Each Step movement has its own input and can also have its own Step options.
 
 <SdkTabs
   examples={{
@@ -79,14 +79,18 @@ Ok(StepDecision::go_to_many([
 
 ## Close decisions {#close-decisions}
 
-| Decision | Flow stays open? | Output |
-| --- | --- | --- |
-| GracefulComplete(output) | No — closes after other active Steps finish | Optional Flow output |
-| DeadEnd() | Yes — branch stops; resume via RPC, Channel, or external work | None |
-| ForceFail(reason) | No — fails the Flow immediately | Failure reason |
-| ForceComplete(output) | No — completes the Flow immediately | Optional Flow output |
+| Decision | What it does |
+| --- | --- |
+| **GracefulComplete** | Stops this branch and triggers the Flow to prepare for completion. When all branches and Steps are stopped, the Flow completes. |
+| **DeadEnd** | Stops this branch only. |
+| **ForceComplete** | Completes the Flow immediately. |
+| **ForceFail** | Fails the Flow immediately. |
 
-Use **GracefulComplete** when this branch owns the final result. Use **DeadEnd** only when something outside the graph will resume the Flow later. **ForceFail** and **ForceComplete** override sibling Steps — useful for timeout races.
+**GracefulComplete** and **ForceComplete** can return an output. **ForceFail** returns a failure reason. The Flow result returns each output with the Step type and Step execution ID. When multiple Steps complete gracefully, all their outputs return together.
+
+A Flow can have no active Steps and still keep running. **DeadEnd** stops this branch without making a decision that triggers the Flow to complete.
+
+Use **GracefulComplete** when you want the remaining active Steps and branches to finish gracefully. Use **DeadEnd** when you do not want this branch to make a decision that triggers the Flow to complete. Use **ForceComplete** or **ForceFail** when you want to make an immediate decision.
 
 <SdkTabs
   examples={{
@@ -257,85 +261,14 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 </SdkSnippet>
 </SdkTabs>
 
+## Cancellation {#cancellation-on-stepdecision}
 
-## Step output and FlowResults {#step-output-and-flowresults}
+Return a **StepDecision** that can cancel other active Steps.
 
-GracefulComplete(output) sets the Flow output when this branch closes the Flow. When a Step waits on a [SubFlow](/primitives/subflow), read the child output in Execute via SubFlowResult / getConditionResults / condition_result (see [Waiting — SubFlow results](/primitives/step/waiting-condition#condition-results)).
+There are two types of cancellation:
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/subflow/subflow_flow.py',
-    go: 'examples/go/primitives/subflow/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java',
-    typescript: 'examples/typescript/src/primitives/subflow/subflow-flow.ts',
-    rust: 'examples/rust/src/primitives/subflow/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def execute(self, context: Context, input: int) -> StepDecision:
-    del input
-    result = SubFlow.get_condition_results(context)
-    output = result.single_output(int)
-    return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	result, err := dex.SubFlowResult(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var output int
-	if err := result.DecodeSingleOutput(&output); err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-public StepDecision execute(final Context context, final Integer input) {
-    final Integer output =
-            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
-    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public execute(context: Context, _input: number): StepDecision {
-  const result = SubFlow.getConditionResults(context);
-  const output = result.singleOutput(doubleCodec);
-  return gracefulComplete(`${SubFlow.getFlowId(context)}|${output}`);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-    let result = SubFlow::condition_result(context)?;
-    let output: i32 = result.single_output()?;
-    Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-## Cancellation on StepDecision {#cancellation-on-stepdecision}
-
-Return the winner's next movement **and** cancel losing Step types in the same decision. Cancel all executions of a Step type, or only same-source sibling executions.
+- **CancelSteps** selects active Steps by Step type.
+- **CancelSiblingSteps** selects active Steps that were triggered by the same parent Step execution.
 
 <SdkTabs
   examples={{
@@ -395,11 +328,11 @@ Ok(StepDecision::go_to(&RecordQuoteStep, quote)
 </SdkSnippet>
 </SdkTabs>
 
-An RPC can cancel Steps from the handler result as well. See [RPC](/primitives/rpc).
+## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
 
-## forceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
+**ForceCompleteIfChannelsEmpty** atomically checks if Channels are empty. If they are, it completes the Flow. Otherwise, it goes to other Steps.
 
-This special decision atomically checks whether **all listed Channels are empty**. If so, Dex completes the Flow (with optional output). Otherwise it performs the movement list instead. Channels must follow single-consumer semantics.
+Use it when you want to drain the Channels and complete the Flow, so that the Flow can stay short. See [drain signal channels](/design-patterns/drain-signal-channels) for the full example.
 
 <SdkTabs
   examples={{
@@ -464,5 +397,3 @@ Ok(StepDecision::force_complete_if_channels_empty(
 
 </SdkSnippet>
 </SdkTabs>
-
-See the [drain signal channels](/design-patterns/drain-signal-channels) pattern for a full runnable Flow.

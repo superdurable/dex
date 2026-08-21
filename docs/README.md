@@ -11,12 +11,8 @@ npm install
 npm start
 ```
 
-`npm start` only serves English. The language switcher needs both locales, so use a production build:
-
-```bash
-npm run build
-npm run serve
-```
+`npm start` builds and serves both English and Simplified Chinese. Do not run
+`docusaurus start` for review: it only serves English.
 
 Published pages live under [`content/`](content/). Site config:
 `docusaurus.config.ts`, `sidebars.ts`, `src/`.

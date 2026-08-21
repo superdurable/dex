@@ -6,11 +6,11 @@ slug: /primitives/step/step-options
 
 # Step options
 
-Configure WaitFor and Execute independently on StepOptions: method timeouts, retry policies, failure policies when retries are exhausted, durability, heartbeat, and StepOptions override per StepExecution.
+This page covers the advanced **StepOptions** features to deeply customize your Step type. See the [Basic Step](/primitives/step/basic#stepoptions) page for the basic features.
 
-## Custom retry
+## Retry After
 
-**Not** a failure policy — handlers can request the **next retry interval** while preserving the current attempt failure.
+Use **RetryAfter** if you want to deeply customize the retry behavior. It overrides the retry schedule of the **RetryPolicy**.
 
 <SdkTabs
   examples={{
@@ -25,7 +25,7 @@ Configure WaitFor and Execute independently on StepOptions: method timeouts, ret
 ```java
 throw RetryAfterException.after(
         Duration.ofSeconds(7),
-        new RuntimeException("retry later"));
+        new IllegalStateException("not ready on attempt " + context.getAttempt()));
 ```
 
 </SdkSnippet>
@@ -76,18 +76,17 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 </SdkSnippet>
 </SdkTabs>
 
-- **Temporal** applies the delay to the next Activity retry without changing retry limits or method timeouts.
-- **Cadence** rejects dynamic intervals with INVALID_USER_FLOW_CODE.
-- On Temporal, the **current attempt failure** (not RetryAfterException itself) is the reported Worker error and appears in lastFailureInfo.
-
-When the Worker SDK attaches stack_trace on WorkerErrorResponse, Dex Web shows it under **Last failure** as originalWorkerErrorStackTrace. Go apps that want an origin stack wrap the cause with **dex.ErrorWithStack** (nest it under **RetryAfter** when using custom retry). Rust **HandlerError** constructors capture a construction-site stack automatically.
-
-
 ## Durability {#durability}
 
-Each Step method can override persistence durability: **SYNC** waits for Dex to acknowledge staged writes before the handler returns; **ASYNC** permits persistence after the handler accepts the result.
+**SYNC** durability records the Step completion in Dex Server and persists it to storage synchronously.
 
-When unset, Dex uses the Flow default from FlowConfig, then the server default.
+**ASYNC** durability does this asynchronously. Every few seconds, Dex Server flushes accumulated Step completions and persists them. It provides much higher throughput because it removes a lot of overhead from the backend database and server.
+
+A Step should usually be idempotent, so **ASYNC** durability is generally safe to use. It is the default for most Steps.
+
+Steps with a recovery failure policy default to **SYNC** durability. The business may assume that once a Flow enters the following Execute method or recovery Step, it does not go back to the previous method.
+
+Set the default durability with **FlowConfig**. This default does not apply to a method with a recovery failure policy. To override the durability for that method, set it in the Step's **StepOptions**.
 
 <SdkTabs
   examples={{
@@ -161,30 +160,14 @@ fn options(&self) -> StepOptions<Self::Input> {
 </SdkSnippet>
 </SdkTabs>
 
-
-### Local-activity window
-
-An **ASYNC** Step first runs as a local activity. Dex keeps the current Workflow Task open until the local stage returns or hits the local optimization timeout (about seven seconds). While that task is occupied, sibling Steps may start their durable timers later than they would with SYNC.
-
-If the local activity returns successfully first, Dex processes that result before any timer that fired during the local stage.
-
-Methods with a configured **failure-policy recovery path** default to SYNC. FlowConfig cannot override that default to ASYNC; set an explicit method-level override only when replaying the failed method after recovery begins is acceptable.
-
-:::note Timers and ASYNC Steps
-
-ASYNC Execute does not block Timer Conditions that are already registered elsewhere in the Flow from firing on schedule. Prefer a **Timer** when you need a durable deadline independent of long-running ASYNC work. Prefer **ASYNC Execute** when the handler can finish quickly in the local stage or when slightly deferred timer processing is acceptable. See [Timer](/primitives/timer).
-
-:::
-
 ## Heartbeat {#heartbeat}
 
-heartbeat_timeout / HeartbeatTimeout enables cooperative cancellation for regular WaitFor and Execute activities. Dex calls the backend heartbeat API about once per second while the activity is active.
+**Heartbeat** lets a Step with a long method timeout fail and schedule the next attempt earlier, or being canceled earlier.
 
-Configure a positive whole-second value on StepOptions. Zero or unset disables heartbeats. Local activities ignore the option; ASYNC fallback to regular execution uses it.
+Set a **HeartbeatTimeout** to use it.
 
-Without a heartbeat, Dex may not detect a crashed worker until the full **method timeout** elapses. With a short heartbeat (for example 10s) and a long execute timeout (for example 60s), a crash can schedule the next retry in roughly one heartbeat interval instead of waiting the full minute.
 
-Cancellation reaches the handler through the heartbeat channel and Context cancellation. Without heartbeats, a handler may run until its natural return or full method timeout.
+For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds instead of waiting for the full 60 seconds. Similarly, a Step that is being canceled does not have to wait for the full timeout, fail, or complete first.
 
 <SdkTabs
   examples={{
@@ -222,20 +205,29 @@ func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecisi
   <SdkSnippet lang="java">
 
 ```java
-private final StepOptions options = StepOptions.newBuilder()
-        .executeTimeout(Duration.ofSeconds(60))
-        .heartbeatTimeout(Duration.ofSeconds(10))
-        .build();
+@Override
+public StepDecision execute(final Context context, final Integer batches) {
+    for (int batch = 0; batch < batches; batch++) {
+        if (context.isCancellationRequested()) {
+            return StepDecision.deadEnd();
+        }
+        try {
+            Thread.sleep(Duration.ofSeconds(2).toMillis());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return StepDecision.deadEnd();
+        }
+    }
+    return StepDecision.gracefulComplete("processed");
+}
 
 @Override
-public StepDecision execute(Context context, Job job) {
-    while (hasNextBatch(job)) {
-        if (Thread.interrupted()) {
-            break;
-        }
-        processBatch(job);
-    }
-    return StepDecision.deadEnd();
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeMethodTimeout(Duration.ofSeconds(60))
+            .heartbeatTimeout(Duration.ofSeconds(10))
+            .executeRetry(RetryPolicy.newBuilder().maximumAttempts(3).build())
+            .build();
 }
 ```
 
@@ -243,14 +235,19 @@ public StepDecision execute(Context context, Job job) {
   <SdkSnippet lang="python">
 
 ```python
-options = StepOptions(heartbeat_timeout=timedelta(seconds=10))
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_method_timeout=timedelta(seconds=60),
+        heartbeat_timeout=timedelta(seconds=10),
+        execute_retry=RetryPolicy(maximum_attempts=3),
+    )
 
-def execute(self, context: Context, job: Job) -> StepDecision:
-    while has_next_batch(job):
+async def execute(self, context: Context, batches: int) -> StepDecision:
+    for _batch in range(batches):
         if context.is_cancellation_requested():
-            break
-        process_batch(job)
-    return dead_end()
+            return dead_end()
+        await asyncio.sleep(2)
+    return graceful_complete("processed")
 ```
 
 </SdkSnippet>
@@ -261,7 +258,9 @@ public getStepOptions(): StepOptions {
   return {
     executeMethodTimeoutMs: 60_000,
     heartbeatTimeoutMs: 10_000,
-    executeRetry: { maximumAttempts: 3 },
+    executeRetry: {
+      maximumAttempts: 3,
+    },
   };
 }
 
@@ -301,14 +300,21 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 </SdkSnippet>
 </SdkTabs>
 
+Heartbeat makes cancellation reach a regular handler earlier. It does not make an external API call atomic. Use idempotency or compensation when the API needs it.
 
-Heartbeats make cancellation reach a regular activity promptly; they do not make external API calls atomic. Combine timeouts, idempotency, or compensation where needed.
+## Attribute locks
 
-## StepOptions override per StepExecution {#stepoptions-override-per-stepexecution}
+Concurrent Steps and RPC invocations can read and write the same Attribute. This can lead to race conditions. To avoid this, use Attribute locks. Dex Server ensures only one Step execution or RPC handling can acquire the lock at a time.
 
-Registered StepOptions apply to every execution of a Step type. Sometimes one **movement** needs different retry or failure behavior — for example, a fan-out child that should proceed on WaitFor failure while siblings fail the Flow.
+**WaitFor** and **Execute** have separate lock sets. Set them by returning **StepOptions**.
 
-Pass override options on **StepMovement** / goToMulti / WithStepOptions so only that scheduled execution uses the override.
+See [Attribute locking](/primitives/attribute#locking) for more details.
+
+## Provide StepOptions Dynamically {#stepoptions-override-per-stepexecution}
+
+The **StepOptions** returned by a Step implementation apply to every Step execution by default. Sometimes it is useful to override them dynamically for a certain Step execution.
+
+Provide the **StepOptions** override when a **StepDecision** goes to the next Steps.
 
 <SdkTabs
   examples={{
@@ -377,8 +383,3 @@ Ok(StepDecision::go_to_many([StepMovement::to_with_options(
 
 </SdkSnippet>
 </SdkTabs>
-
-The target Step's registered options still apply for fields you do not override. Recovery movements can carry their own override as well.
-
-
-When a movement override selects a failure-policy recovery path, durability defaults described in [Durability](#durability) apply to that method.

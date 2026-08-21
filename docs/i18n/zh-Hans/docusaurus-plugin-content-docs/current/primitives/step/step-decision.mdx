@@ -6,11 +6,11 @@ slug: /primitives/step/step-decision
 
 # Step decision
 
-**StepDecision** 可将 Flow 移到一个或多个后续 Step、关闭 Flow、取消其他 Step，或在 Channel 为空时原子地完成 Flow。
+本页介绍 **StepDecision** 的进阶功能。基础功能见[基础页面](/primitives/step/basic)。
 
-## GoToMulti {#gotomulti}
+## 多个后续 Step {#gotomulti}
 
-一次决策返回多个 movement 以并行 fan-out。默认 step-decision 示例在同一次调用中启动三个 carrier Step 与一个 winner Step。
+**GoTo** 启动一个后续 Step。**GoToMulti** 启动多个后续 Step。用它 fan-out 可并行的工作。每个 Step movement 有各自的输入，也可以有各自的 Step options。
 
 <SdkTabs
   examples={{
@@ -79,14 +79,18 @@ Ok(StepDecision::go_to_many([
 
 ## 关闭决策 {#close-decisions}
 
-| 决策 | Flow 保持打开？ | 输出 |
-| --- | --- | --- |
-| GracefulComplete(output) | 否——其他活跃 Step 结束后关闭 | 可选 Flow 输出 |
-| DeadEnd() | 是——分支停止；通过 RPC、Channel 或外部工作恢复 | 无 |
-| ForceFail(reason) | 否——立即失败 Flow | 失败原因 |
-| ForceComplete(output) | 否——立即完成 Flow | 可选 Flow output |
+| 决策 | 行为 |
+| --- | --- |
+| **GracefulComplete** | 停止当前分支，并触发 Flow 为完成做准备。所有分支和 Step 都停止后，Flow 完成。 |
+| **DeadEnd** | 只停止当前分支。 |
+| **ForceComplete** | 立即完成 Flow。 |
+| **ForceFail** | 立即让 Flow 失败。 |
 
-本分支拥有最终结果时用 **GracefulComplete**。仅当图外会有东西稍后恢复 Flow 时用 **DeadEnd**。**ForceFail** 与 **ForceComplete** 覆盖 sibling Step——适用于 timeout 竞态。
+**GracefulComplete** 和 **ForceComplete** 可以返回 output。**ForceFail** 返回 failure reason。Flow result 会连同 Step type 和 Step execution ID 一起返回每个 output。多个 Step graceful complete 时，它们的所有 output 会一起返回。
+
+Flow 可以没有任何 active Step，但仍继续运行。**DeadEnd** 停止当前分支，不做出会触发 Flow 完成的决策。
+
+希望剩余 active Step 和分支 graceful finish 时，使用 **GracefulComplete**。不希望当前分支做出会触发 Flow 完成的决策时，使用 **DeadEnd**。希望立即做出决定时，使用 **ForceComplete** 或 **ForceFail**。
 
 <SdkTabs
   examples={{
@@ -257,85 +261,14 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 </SdkSnippet>
 </SdkTabs>
 
+## Cancellation {#cancellation-on-stepdecision}
 
-## Step 输出与 FlowResults {#step-output-and-flowresults}
+返回一个可以取消其他 active Step 的 **StepDecision**。
 
-本分支关闭 Flow 时，GracefulComplete(output) 设置 Flow 输出。Step 等待 [SubFlow](/primitives/subflow) 时，在 Execute 中通过 SubFlowResult / getConditionResults / condition_result 读取子输出（见 [等待 — SubFlow 结果](/primitives/step/waiting-condition#condition-results)）。
+有两种 cancellation：
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/subflow/subflow_flow.py',
-    go: 'examples/go/primitives/subflow/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java',
-    typescript: 'examples/typescript/src/primitives/subflow/subflow-flow.ts',
-    rust: 'examples/rust/src/primitives/subflow/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def execute(self, context: Context, input: int) -> StepDecision:
-    del input
-    result = SubFlow.get_condition_results(context)
-    output = result.single_output(int)
-    return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	result, err := dex.SubFlowResult(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var output int
-	if err := result.DecodeSingleOutput(&output); err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-public StepDecision execute(final Context context, final Integer input) {
-    final Integer output =
-            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
-    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public execute(context: Context, _input: number): StepDecision {
-  const result = SubFlow.getConditionResults(context);
-  const output = result.singleOutput(doubleCodec);
-  return gracefulComplete(`${SubFlow.getFlowId(context)}|${output}`);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-    let result = SubFlow::condition_result(context)?;
-    let output: i32 = result.single_output()?;
-    Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-## Cancellation on StepDecision {#cancellation-on-stepdecision}
-
-在同一次决策中返回胜者的下一 movement **并**取消失败的 Step 类型。可取消某 Step 类型的全部 execution，或仅取消同源 sibling execution。
+- **CancelSteps** 按 Step type 选择 active Step。
+- **CancelSiblingSteps** 选择由同一个 parent Step execution 触发的 active Step。
 
 <SdkTabs
   examples={{
@@ -395,11 +328,11 @@ Ok(StepDecision::go_to(&RecordQuoteStep, quote)
 </SdkSnippet>
 </SdkTabs>
 
-RPC 也可从 handler 结果取消 Step。见 [RPC](/primitives/rpc)。
+## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
 
-## forceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
+**ForceCompleteIfChannelsEmpty** 原子检查 Channel 是否为空。若为空，它完成 Flow。否则，它转到其他 Step。
 
-该特殊决策原子检查**所列 Channel 是否均为空**。若是，Dex 完成 Flow（可选 output）；否则执行 movement 列表。Channel 须遵循单消费者语义。
+当你想 drain Channel 并完成 Flow，从而让 Flow 保持短小，使用它。完整例子见 [drain signal channels](/design-patterns/drain-signal-channels)。
 
 <SdkTabs
   examples={{
@@ -464,5 +397,3 @@ Ok(StepDecision::force_complete_if_channels_empty(
 
 </SdkSnippet>
 </SdkTabs>
-
-完整可运行 Flow 见 [drain signal channels](/design-patterns/drain-signal-channels) 模式。
