@@ -526,8 +526,9 @@ open the packaged Rust BlobCache library and perform a cache round trip.
 ./validate-publication.sh 0.0.3-local
 ```
 
-The command requires JDK 17, Rust 1.97+, and Maven. Published classes still
-target Java 8.
+The command requires JDK 17+ (to run Gradle 9), Rust 1.97+, and Maven. Build
+and test JDKs are Gradle toolchains downloaded automatically. Published
+classes still target Java 8.
 
 ### Validate public API documentation
 

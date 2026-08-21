@@ -32,7 +32,10 @@ dexcli dev
 The Worker synchronizes all registered Indexed Attributes with Dex before it
 opens its listener; no backend CLI registration is required.
 
-Use JDK 17. Defaults connect to Dex at `localhost:8801`. Override with
+Use JDK 17+ to run Gradle; the examples build and run on the newest Java
+release by default (the toolchain downloads automatically), and
+`-PjavaVersion=17` (or 21, 25, ...) selects another JDK.
+Defaults connect to Dex at `localhost:8801`. Override with
 `DEX_FLOW_SERVICE_ADDRESS`, `DEX_WORKER_BIND_ADDRESS`, `DEX_WORKER_TARGET`,
 `DEX_EXAMPLES_HTTP_ADDRESS`, `DEX_BLOB_CACHE_DIR`.
 

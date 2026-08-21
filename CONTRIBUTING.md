@@ -27,7 +27,8 @@ Go SDK + samples use root [`go.work`](go.work). `blob-cache-go` remains outside 
 ## Prerequisites
 
 - Go 1.24+ (see `server/go.mod`; root `go.work` pins the workspace)
-- Java 8+ and Gradle wrapper (for `sdk-java` / `examples/java`)
+- JDK 17+ and Gradle wrapper (for `sdk-java` / `examples/java`; test JDKs
+  are Gradle toolchains downloaded automatically)
 - Python 3.9+ and uv (for `sdk-python` / `examples/python`)
 - Docker (for integration tests / local Temporal+Cadence stacks)
 
