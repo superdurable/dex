@@ -41,6 +41,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	cfg.explicitLocalFlags["dex-port"] = true
 	cfg.explicitLocalFlags["web-port"] = true
 	cfg.LogDirectory = t.TempDir()
+	cfg.VerboseEngineLog = true
 	output := &synchronizedBuffer{}
 	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -149,6 +150,9 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	}
 	if !strings.Contains(logText, cfg.sqliteDBDirectory()) {
 		t.Fatalf("workflow engine log missing DB directory: %s", logText)
+	}
+	if !strings.Contains(logText, "level=INFO") {
+		t.Fatalf("workflow engine log missing Temporal Server info logs: %s", logText)
 	}
 	dexLog, err := os.ReadFile(cfg.dexServerLogPath())
 	if err != nil {

@@ -46,6 +46,7 @@ var flagOrder = []string{
 	"web-port",
 	"sqlite-db-filename",
 	"server-log-folder",
+	"verbose-engine-log",
 	"external-temporal-address",
 	"external-temporal-namespace",
 }
@@ -69,6 +70,8 @@ type Config struct {
 	SQLiteDBFilename string
 	// LogDirectory defaults to a temp directory deleted on clean exit.
 	LogDirectory string
+	// VerboseEngineLog defaults to false and writes Temporal Server info logs to temporal-engine-server.log in local mode.
+	VerboseEngineLog bool
 	// StateDirectory defaults to $HOME/.dex and stores auto-assigned Temporal SQLite files.
 	StateDirectory string
 	// BlobStoreDirectory defaults to $HOME/.dex/blobs unless SQLiteDBFilename selects its adjacent dex.blobs store.
@@ -123,6 +126,12 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"",
 		"keep server logs in this folder (default temp folder, deleted on exit)",
 	)
+	flags.BoolVar(
+		&cfg.VerboseEngineLog,
+		"verbose-engine-log",
+		false,
+		"write Temporal Server logs to temporal-engine-server.log",
+	)
 	flags.StringVar(&cfg.ExternalTemporalAddress, "external-temporal-address", "", "external Temporal host:port")
 	flags.StringVar(
 		&cfg.TemporalNamespace,
@@ -143,7 +152,7 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 	cfg.explicitLocalFlags = make(map[string]bool)
 	flags.Visit(func(item *flag.Flag) {
 		switch item.Name {
-		case "dex-port", "web-port", "sqlite-db-filename", "server-log-folder", "external-temporal-namespace":
+		case "dex-port", "web-port", "sqlite-db-filename", "server-log-folder", "verbose-engine-log", "external-temporal-namespace":
 			cfg.explicitLocalFlags[item.Name] = true
 		case "blob-store-dir":
 			cfg.blobStoreDirectoryDefault = false
@@ -220,7 +229,7 @@ func (c *Config) validate() error {
 		if _, _, err := net.SplitHostPort(c.ExternalTemporalAddress); err != nil {
 			return fmt.Errorf("external Temporal address must be host:port: %w", err)
 		}
-		for _, name := range []string{"sqlite-db-filename"} {
+		for _, name := range []string{"sqlite-db-filename", "verbose-engine-log"} {
 			if c.explicitLocalFlags[name] {
 				return fmt.Errorf("--%s cannot be used with --external-temporal-address", name)
 			}

@@ -49,6 +49,9 @@ func startTemporalProcess(cfg *Config, logs io.Writer) (*temporalProcess, error)
 	if cfg.SQLiteDBFilename != "" {
 		arguments = append(arguments, "--db-filename", cfg.SQLiteDBFilename)
 	}
+	if cfg.VerboseEngineLog {
+		arguments = append(arguments, "--log-level", "info")
+	}
 	if logs == nil {
 		logs = io.Discard
 	}
