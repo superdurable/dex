@@ -1,20 +1,20 @@
 ---
-title: Attribute basics
-sidebar_label: Basics
+title: Attribute 基础
+sidebar_label: 基础
 slug: /primitives/attribute
 ---
 
-# Attribute basics
+# Attribute 基础
 
-An **Attribute** is durable, typed state owned by one Flow. A Step or RPC reads it from **Context**, changes it, and returns its normal result. Dex persists the change with that result.
+**Attribute** 是一个 Flow 拥有的、带类型的 durable state。Step 或 RPC 从 **Context** 读取它，修改它，然后返回正常结果。Dex 会把修改和这个结果一起持久化。
 
-Use an Attribute for state that later Steps, RPCs, or Clients need to see: an order status, a selected plan, or the current approval. It stays with the Flow when a Worker restarts, a Step retries, or the Flow continues as new.
+当后续 Step、RPC 或 Client 都需要看到某个状态时，就用 Attribute：比如订单状态、选择的套餐，或者当前审批结果。Worker 重启、Step retry、Flow continue-as-new 后，它都还属于这个 Flow。
 
-## Define an Attribute {#define-an-attribute}
+## 定义 Attribute {#define-an-attribute}
 
-Define Attributes on the Flow, then list them in its persistence schema. That declaration is the contract for the Flow's durable state. Dex rejects a Step, RPC, or Client that tries to use an undeclared Attribute.
+在 Flow 上定义 Attribute，然后把它列入 persistence schema。这份声明就是 Flow durable state 的 contract。Step、RPC 或 Client 尝试使用未声明的 Attribute 时，Dex 会拒绝。
 
-A handler reads the values from its current invocation and stages writes in the same invocation. If the handler attempt fails, the staged writes do not become Flow state. If it returns normally, Dex commits the writes together with the resulting Step decision or RPC result.
+Handler 从当前 invocation 读取 Attribute，并在同一个 invocation 里暂存写入。如果 handler attempt 失败，这些暂存写入不会成为 Flow state；如果它正常返回，Dex 会把这些写入与 Step decision 或 RPC result 一起提交。
 
 <SdkTabs
   examples={{
@@ -205,33 +205,33 @@ impl Step for AttributeStep {
 </SdkSnippet>
 </SdkTabs>
 
-The runnable sample is available at [examples/go/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/go/primitives/attribute), [examples/java/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/attribute), [examples/python/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/attribute), [examples/typescript/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/attribute), and [examples/rust/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/attribute).
+可运行示例位于 [examples/go/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/go/primitives/attribute)、[examples/java/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/attribute)、[examples/python/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/attribute)、[examples/typescript/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/attribute) 与 [examples/rust/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/attribute)。
 
-## What should be an Attribute? {#what-should-be-an-attribute}
+## 什么应该是 Attribute？ {#what-should-be-an-attribute}
 
-| Value | Use it when |
+| 值 | 使用场景 |
 | --- | --- |
-| **Attribute** | The Flow needs durable state that more than one Step, RPC, or Client can read or update. |
-| **Step input and output** | The value only moves along a particular Step path. |
-| **Step execution local** | The value only belongs to one Step execution. |
-| **Channel** | You need to deliver one or more messages, not hold the latest state. |
+| **Attribute** | Flow 需要一份 durable state，且不止一个 Step、RPC 或 Client 会读取或更新它。 |
+| **Step input / output** | 值只沿着一条具体的 Step path 传递。 |
+| **Step execution local** | 值只属于一个 Step execution。 |
+| **Channel** | 需要传递一条或多条消息，而不是保存最新状态。 |
 
-An Attribute is the latest value, not an event log. Do not append every business event to one large Attribute. Use a Channel for messages, or store a large body in your own database or Blob Store and keep a small identifier in the Attribute.
+Attribute 保存的是最新值，不是 event log。不要把每一条业务事件都 append 到一个很大的 Attribute 里。消息应该用 Channel；大 body 放到自己的 database 或 Blob Store，Attribute 里只放一个小的 identifier。
 
-## Initial state and Client access {#initial-state-and-client-access}
+## 初始状态与 Client 访问 {#initial-state-and-client-access}
 
-**StartFlowOptions** can set initial Attributes when the Flow is created. Initial values and Flow creation are one operation, so the first Step sees them immediately. See [Flow options](/primitives/flow/flow-options#attributes).
+**StartFlowOptions** 可以在创建 Flow 时设置初始 Attribute。初始值与创建 Flow 是一个操作，所以第一个 Step 立刻能看到它们。见 [Flow options](/primitives/flow/flow-options#attributes)。
 
-Clients use **GetAttributes** and **SetAttributes** with the same registered Attribute definition. A Client can also use **WaitForAttributeEqual** to wait until a singleton Attribute or one AttributeMap instance reaches a scalar value. These are Flow operations through Dex Server; they do not read or write an application database directly. See [Client APIs](/primitives/client-apis).
+Client 使用同一个已注册的 Attribute definition 调用 **GetAttributes** 和 **SetAttributes**。Client 也可以用 **WaitForAttributeEqual**，等待一个 singleton Attribute 或某个 AttributeMap instance 变成指定 scalar value。这些都是通过 Dex Server 的 Flow operation，不会直接读写 application database。见 [Client APIs](/primitives/client-apis)。
 
 ## AttributeMap {#attributemap}
 
-An **AttributeMap** is a family of Attributes with keys decided at runtime. Define and register the map once, then provide an instance key for each read, write, deletion, or lock.
+**AttributeMap** 是一组 key 在运行时才确定的 Attribute。只定义并注册一次 map；每次读、写、删除或 lock 时提供一个 instance key。
 
-For example, an invoice Flow may have one **payment-status** map. **payment-status** for **invoice-1** and **payment-status** for **invoice-2** are independent durable values. Updating one does not rewrite the other. An AttributeMap is useful for a changing set of small values; it is not a replacement for a queryable application table.
+例如 invoice Flow 可以有一个 **payment-status** map。**invoice-1** 的 **payment-status** 与 **invoice-2** 的 **payment-status** 是独立的 durable value。更新一个不会重写另一个。AttributeMap 适合不断变化的一组小值；它不能替代可查询的 application table。
 
-The map name and instance key form Dex's physical Attribute name. Dex escapes the instance key, so application code should always use the SDK definition instead of constructing that name itself. You can list the existing instance keys from a Step or RPC. The list includes writes staged by that invocation.
+map name 与 instance key 组成 Dex 的 physical Attribute name。Dex 会 escape instance key，所以 application code 应始终使用 SDK definition，不要自己拼这个 name。Step 或 RPC 可以列出已有 instance key；这个列表也包含当前 invocation 暂存的写入。
 
-## Next
+## 下一步
 
-Read [Attribute advanced](/primitives/attribute/advanced) for search indexes, Attribute Store projection, and locking concurrent read-modify-write operations.
+继续阅读 [Attribute advanced](/primitives/attribute/advanced)，了解 search index、Attribute Store projection 与并发 read-modify-write 的 locking。

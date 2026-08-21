@@ -32,7 +32,12 @@ const sidebars: SidebarsConfig = {
             'primitives/step/step-options',
           ],
         },
-        'primitives/attribute',
+        {
+          type: 'category',
+          label: 'Attribute',
+          link: {type: 'doc', id: 'primitives/attribute'},
+          items: ['primitives/attribute', 'primitives/attribute/advanced'],
+        },
         'primitives/rpc',
         'primitives/channel',
         'primitives/timer',
