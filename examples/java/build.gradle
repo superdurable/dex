@@ -1,13 +1,20 @@
 plugins {
     id "java"
-    id "org.springframework.boot" version "2.7.18"
-    id "io.spring.dependency-management" version "1.0.15.RELEASE"
+    id "org.springframework.boot" version "3.5.3"
+    id "io.spring.dependency-management" version "1.1.7"
 }
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(17)
+        // Examples track the newest Java release; -PjavaVersion overrides.
+        languageVersion = JavaLanguageVersion.of(
+                providers.gradleProperty("javaVersion").getOrElse("26"))
     }
+}
+
+// Spring's ASM cannot parse the newest class files yet; runtime stays newest.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
 }
 
 repositories {
@@ -25,7 +32,7 @@ dependencies {
     implementation "com.fasterxml.jackson.core:jackson-core"
 
     testImplementation "org.springframework.boot:spring-boot-starter-test"
-    testImplementation "org.junit.jupiter:junit-jupiter:5.8.2"
+    testImplementation "org.junit.jupiter:junit-jupiter"
 }
 
 tasks.named("test") {

@@ -3,7 +3,7 @@
  *
  * This generated file contains a sample Java library project to get you started.
  * For more details take a look at the 'Building Java & JVM projects' chapter in the Gradle
- * User Manual available at https://docs.gradle.org/8.14.4/userguide/building_java_projects.html
+ * User Manual available at https://docs.gradle.org/9.7.1/userguide/building_java_projects.html
  */
 
 plugins {
@@ -22,8 +22,9 @@ version = providers.gradleProperty('releaseVersion').getOrElse('0.0.3-SNAPSHOT')
 def artifactVersion = version.toString()
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_1_8
-    targetCompatibility = JavaVersion.VERSION_1_8
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
     withJavadocJar()
     withSourcesJar()
 }
@@ -33,10 +34,19 @@ checkstyle {
     configFile = file('config/checkstyle/public-api-javadocs.xml')
 }
 
+// Published classes stay consumable from Java 8 applications.
 tasks.withType(JavaCompile).configureEach {
-    if (JavaVersion.current().isJava9Compatible()) {
-        options.release = 8
-    }
+    options.release = 8
+}
+
+// -PtestJavaVersion picks the test JVM; bytecode stays Java 8.
+def testLauncher = javaToolchains.launcherFor {
+    languageVersion = providers.gradleProperty('testJavaVersion')
+            .map { JavaLanguageVersion.of(it) }
+            .getOrElse(JavaLanguageVersion.of(25))
+}
+tasks.withType(Test).configureEach {
+    javaLauncher = testLauncher
 }
 
 repositories {
@@ -185,9 +195,7 @@ tasks.named('javadoc') {
     failOnError = true
     // Checkstyle owns public-API coverage; doclint validates links and markup without private noise.
     options.addStringOption('Xdoclint:all,-missing', '-quiet')
-    if (JavaVersion.current().isJava9Compatible()) {
-        options.addBooleanOption('Werror', true)
-    }
+    options.addBooleanOption('Werror', true)
 }
 
 tasks.named('checkstyleMain') {

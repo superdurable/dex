@@ -21,21 +21,26 @@ concurrency:
 
 jobs:
   unit:
-    name: Build + unit tests
+    name: Build + unit tests (Java ${{ matrix.java-version }})
     runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'linux-dind-light' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        java-version: ["17", "21", "25", "26"]
     defaults:
       run:
         working-directory: examples/java
     steps:
       - uses: actions/checkout@v7
+      # Gradle 9 needs JDK 17+; matrix JDKs are auto-provisioned toolchains.
       - uses: actions/setup-java@v5
         with:
           distribution: zulu
-          java-version: "17"
+          java-version: "25"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
       - name: Build and unit tests
-        run: ./gradlew test --tests 'io.superdurable.dex.products.*' --refresh-dependencies
+        run: ./gradlew test --tests 'io.superdurable.dex.products.*' --refresh-dependencies "-PjavaVersion=${{ matrix.java-version }}"
       - name: Verify published SDK coordinate
         run: |
           ./gradlew dependencyInsight --dependency dex-sdk --configuration compileClasspath \
@@ -73,7 +78,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: zulu
-          java-version: "17"
+          java-version: "25"
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v6
       - name: Integration tests with dexcli dev
