@@ -70,10 +70,7 @@ public class ChannelFlow implements Flow<Integer> {
                 return StepDecision.gracefulComplete("approval timed out");
             }
             final List<String> approvals = approval.getConditionResults(context);
-            if (!approvals.isEmpty()) {
-                return StepDecision.gracefulComplete(approvals.get(0));
-            }
-            return StepDecision.goTo(waitForApproval, input);
+            return StepDecision.gracefulComplete(approvals.get(0));
         }
     }
 }

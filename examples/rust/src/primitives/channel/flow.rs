@@ -65,16 +65,13 @@ impl Step for ChannelWait {
         ]))
     }
 
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
         if context.has_any_timer_fired() {
             return Ok(StepDecision::graceful_complete(
                 "approval timed out".to_owned(),
             ));
         }
         let approvals = approval().condition_results(context)?;
-        if let Some(value) = approvals.first() {
-            return Ok(StepDecision::graceful_complete(value.clone()));
-        }
-        Ok(StepDecision::go_to(&ChannelWait, input))
+        Ok(StepDecision::graceful_complete(approvals[0].clone()))
     }
 }

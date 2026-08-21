@@ -41,9 +41,7 @@ class ChannelWaitStep(Step[int]):
         if context.has_timer_fired():
             return graceful_complete("approval timed out")
         approvals = self.approval.results(context)
-        if approvals:
-            return graceful_complete(approvals[0])
-        return go_to(self, input)
+        return graceful_complete(approvals[0])
 ```
 
 </SdkSnippet>
@@ -63,7 +61,7 @@ func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	), nil
 }
 
-func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
+func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
 		return dex.GracefulComplete("approval timed out"), nil
 	}
@@ -71,10 +69,7 @@ func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, e
 	if err != nil {
 		return nil, err
 	}
-	if len(results) > 0 {
-		return dex.GracefulComplete(results[0]), nil
-	}
-	return dex.GoTo(channelWaitStep{}, input), nil
+	return dex.GracefulComplete(results[0]), nil
 }
 ```
 
@@ -101,10 +96,7 @@ final class ChannelWaitStep implements Step<Integer> {
             return StepDecision.gracefulComplete("approval timed out");
         }
         final List<String> approvals = approval.getConditionResults(context);
-        if (!approvals.isEmpty()) {
-            return StepDecision.gracefulComplete(approvals.get(0));
-        }
-        return StepDecision.goTo(waitForApproval, input);
+        return StepDecision.gracefulComplete(approvals.get(0));
     }
 }
 ```
@@ -129,15 +121,12 @@ class ChannelWait implements Step<number> {
     );
   }
 
-  public execute(context: Context, input: number): StepDecision {
+  public execute(context: Context, _input: number): StepDecision {
     if (context.hasTimerFired()) {
       return gracefulComplete("approval timed out");
     }
     const approvals = approval.results(context);
-    if (approvals.length > 0) {
-      return gracefulComplete(approvals[0]!);
-    }
-    return goTo(channelWaitStep, input);
+    return gracefulComplete(approvals[0]!);
   }
 }
 
@@ -165,17 +154,14 @@ impl Step for ChannelWait {
         ]))
     }
 
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
         if context.has_any_timer_fired() {
             return Ok(StepDecision::graceful_complete(
                 "approval timed out".to_owned(),
             ));
         }
         let approvals = approval().condition_results(context)?;
-        if let Some(value) = approvals.first() {
-            return Ok(StepDecision::graceful_complete(value.clone()));
-        }
-        Ok(StepDecision::go_to(&ChannelWait, input))
+        Ok(StepDecision::graceful_complete(approvals[0].clone()))
     }
 }
 ```
