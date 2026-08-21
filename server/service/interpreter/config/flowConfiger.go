@@ -117,7 +117,7 @@ func (fc *FlowConfiger) ResolveExecuteDurability(opts *dexpb.StepOptions) dexpb.
 	)
 }
 
-// resolveDurability applies step, recovery, flow, then synchronous precedence.
+// resolveDurability applies step, recovery, flow, then asynchronous precedence.
 func resolveDurability(
 	override dexpb.StepDurability,
 	recoveryEnabled bool,
@@ -132,7 +132,7 @@ func resolveDurability(
 	if flowLevel != dexpb.StepDurability_STEP_DURABILITY_UNSPECIFIED {
 		return flowLevel
 	}
-	return dexpb.StepDurability_STEP_DURABILITY_SYNC
+	return dexpb.StepDurability_STEP_DURABILITY_ASYNC
 }
 
 // ValidateFlowConfig rejects negative sizes and unknown enum numbers.

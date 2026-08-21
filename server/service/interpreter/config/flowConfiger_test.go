@@ -46,8 +46,8 @@ func TestFlowConfiger_ZeroDefaults(t *testing.T) {
 	assert.Equal(t,
 		dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR,
 		flowConfiger.EffectiveActiveStepSearchMode())
-	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveWaitForDurability(nil))
-	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveExecuteDurability(nil))
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveWaitForDurability(nil))
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(nil))
 }
 
 func TestFlowConfiger_DurabilityPrecedence(t *testing.T) {
