@@ -6,9 +6,7 @@ slug: /primitives/attribute
 
 # Attribute 基础
 
-**Attribute** 是一个 Flow 拥有的、带类型的 durable state。Step 或 RPC 从 **Context** 读取它，修改它，然后返回正常结果。Dex 会把修改和这个结果一起持久化。
-
-当后续 Step、RPC 或 Client 都需要看到某个状态时，就用 Attribute：比如订单状态、选择的套餐，或者当前审批结果。Worker 重启、Step retry、Flow continue-as-new 后，它都还属于这个 Flow。
+**Attribute** 用于存储 Flow execution 中的数据。Step 和 RPC 可以读写 Attribute。可选的 index 让 Attribute 可搜索；可选的 synchronization feature 让 Attribute 与 application database 同步。
 
 ## 定义 Attribute {#define-an-attribute}
 
