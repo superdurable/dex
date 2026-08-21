@@ -328,11 +328,11 @@ Ok(StepDecision::go_to(&RecordQuoteStep, quote)
 </SdkSnippet>
 </SdkTabs>
 
-## forceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
+## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
 
-某个 Step 要 drain 一个或多个 Channel 时，使用 **ForceCompleteIfChannelsEmpty**。Dex 将所有列出的 Channel 当作一次决策来检查。它们都为空时，Flow 以提供的 output 完成；否则 Dex 执行 fallback movement，继续 drain。
+**ForceCompleteIfChannelsEmpty** 原子检查 Channel 是否为空。若为空，它完成 Flow。否则，它转到其他 Step。
 
-被检查的 Channel 必须只有一个 consumer。完整可运行 Flow 见 [drain signal channels](/design-patterns/drain-signal-channels)。
+当你想 drain Channel 并完成 Flow，从而让 Flow 保持短小，使用它。完整例子见 [drain signal channels](/design-patterns/drain-signal-channels)。
 
 <SdkTabs
   examples={{

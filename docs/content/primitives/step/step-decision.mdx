@@ -328,11 +328,11 @@ Ok(StepDecision::go_to(&RecordQuoteStep, quote)
 </SdkSnippet>
 </SdkTabs>
 
-## forceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
+## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
 
-Use **ForceCompleteIfChannelsEmpty** when a Step drains one or more Channels. Dex checks every listed Channel as one decision. If they are all empty, the Flow completes with the supplied output. Otherwise Dex runs the fallback movements and the drain continues.
+**ForceCompleteIfChannelsEmpty** atomically checks if Channels are empty. If they are, it completes the Flow. Otherwise, it goes to other Steps.
 
-The guarded Channels must have a single consumer. See [drain signal channels](/design-patterns/drain-signal-channels) for the full runnable Flow.
+Use it when you want to drain the Channels and complete the Flow, so that the Flow can stay short. See [drain signal channels](/design-patterns/drain-signal-channels) for the full example.
 
 <SdkTabs
   examples={{
