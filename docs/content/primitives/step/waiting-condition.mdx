@@ -6,11 +6,179 @@ slug: /primitives/step/waiting-condition
 
 # Waiting
 
-WaitFor returns a **Wait** built from durable **Conditions** — [Timer](/primitives/timer), [Channel](/primitives/channel), [SubFlow](/primitives/subflow), and combinations of them. This page covers OR-of-AND waits and reading Condition results after the Wait completes.
+This page covers more advanced features for **WaitFor** than the basic features.
 
-## anyCombinationOf — OR of AND groups {#anycombinationof}
 
-anyCombinationOf expresses an OR of AND groups. Build each inner group as an all_of combination. **Every** Condition in the combination needs a non-empty **condition ID** so Dex can track which branch satisfied the Wait.
+
+## ConditionResults {#condition-results}
+
+After WaitFor completes, Execute can read what satisfied the Wait. For a [Channel](/primitives/channel), use GetConditionResults / results / condition_results to read published messages. For a [SubFlow](/primitives/subflow), use SubFlowResult / getConditionResults / condition_result to decode the child Flow output.
+
+### Channel results
+
+<SdkTabs
+examples={{
+python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+go: 'examples/go/primitives/channel/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+rust: 'examples/rust/src/primitives/channel/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: int) -> StepDecision:
+    approvals = self.approval.results(context)
+    if approvals:
+        return graceful_complete(approvals[0])
+    return go_to(self, input)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
+	results, err := Approval.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) > 0 {
+		return dex.GracefulComplete(results[0]), nil
+	}
+	return dex.GoTo(channelWaitStep{}, input), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    final List<String> approvals = approval.getConditionResults(context);
+    if (!approvals.isEmpty()) {
+        return StepDecision.gracefulComplete(approvals.get(0));
+    }
+    return StepDecision.goTo(waitForApproval, input);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(context: Context, input: number): StepDecision {
+  const approvals = approval.results(context);
+  if (approvals.length > 0) {
+    return gracefulComplete(approvals[0]!);
+  }
+  return goTo(channelWaitStep, input);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    let approvals = approval().condition_results(context)?;
+    if let Some(value) = approvals.first() {
+        return Ok(StepDecision::graceful_complete(value.clone()));
+    }
+    Ok(StepDecision::go_to(&ChannelWait, input))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### SubFlow results
+
+<SdkTabs
+examples={{
+python: 'examples/python/dex_examples/primitives/subflow/subflow_flow.py',
+go: 'examples/go/primitives/subflow/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java',
+typescript: 'examples/typescript/src/primitives/subflow/subflow-flow.ts',
+rust: 'examples/rust/src/primitives/subflow/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+def execute(self, context: Context, input: int) -> StepDecision:
+    del input
+    result = SubFlow.get_condition_results(context)
+    output = result.single_output(int)
+    return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var output int
+	if err := result.DecodeSingleOutput(&output); err != nil {
+		return nil, err
+	}
+	flowID, err := dex.SubFlowID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    final Integer output =
+            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
+    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+public execute(context: Context, _input: number): StepDecision {
+  const result = SubFlow.getConditionResults(context);
+  const output = result.singleOutput(doubleCodec);
+  const flowId = SubFlow.getFlowId(context);
+  return gracefulComplete(`${flowId}|${output}`);
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    let result = SubFlow::condition_result(context)?;
+    let output: i32 = result
+        .single_output()
+        .map_err(HandlerError::from_error)?;
+    let flow_id = SubFlow::flow_id_at(context, 0)?;
+    Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## anyCombinationOf {#anycombinationof}
+
+anyCombinationOf expresses an OR of AND groups. Build each inner group as an all_of combination.
+
+Note:
+**Every** Condition in the combination requires a unique **condition ID**.
 
 <SdkTabs
   examples={{
@@ -90,173 +258,11 @@ Ok(Wait::any_combination_of([
 </SdkTabs>
 
 
-## ConditionResults {#condition-results}
-
-After WaitFor completes, Execute can read what satisfied the Wait. For a [Channel](/primitives/channel), use GetConditionResults / results / condition_results to read published messages. For a [SubFlow](/primitives/subflow), use SubFlowResult / getConditionResults / condition_result to decode the child Flow output.
-
-### Channel results
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
-    go: 'examples/go/primitives/channel/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
-    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
-    rust: 'examples/rust/src/primitives/channel/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def execute(self, context: Context, input: int) -> StepDecision:
-    approvals = self.approval.results(context)
-    if approvals:
-        return graceful_complete(approvals[0])
-    return go_to(self, input)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
-	results, err := Approval.GetConditionResults(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(results) > 0 {
-		return dex.GracefulComplete(results[0]), nil
-	}
-	return dex.GoTo(channelWaitStep{}, input), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-public StepDecision execute(final Context context, final Integer input) {
-    final List<String> approvals = approval.getConditionResults(context);
-    if (!approvals.isEmpty()) {
-        return StepDecision.gracefulComplete(approvals.get(0));
-    }
-    return StepDecision.goTo(waitForApproval, input);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public execute(context: Context, input: number): StepDecision {
-  const approvals = approval.results(context);
-  if (approvals.length > 0) {
-    return gracefulComplete(approvals[0]!);
-  }
-  return goTo(channelWaitStep, input);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-    let approvals = approval().condition_results(context)?;
-    if let Some(value) = approvals.first() {
-        return Ok(StepDecision::graceful_complete(value.clone()));
-    }
-    Ok(StepDecision::go_to(&ChannelWait, input))
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-### SubFlow results
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/subflow/subflow_flow.py',
-    go: 'examples/go/primitives/subflow/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/subflow/SubFlowParentFlow.java',
-    typescript: 'examples/typescript/src/primitives/subflow/subflow-flow.ts',
-    rust: 'examples/rust/src/primitives/subflow/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-def execute(self, context: Context, input: int) -> StepDecision:
-    del input
-    result = SubFlow.get_condition_results(context)
-    output = result.single_output(int)
-    return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	result, err := dex.SubFlowResult(ctx)
-	if err != nil {
-		return nil, err
-	}
-	var output int
-	if err := result.DecodeSingleOutput(&output); err != nil {
-		return nil, err
-	}
-	flowID, err := dex.SubFlowID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-public StepDecision execute(final Context context, final Integer input) {
-    final Integer output =
-            SubFlow.getConditionResults(context).getSingleOutput(Integer.class);
-    return StepDecision.gracefulComplete(SubFlow.getFlowId(context) + "|" + output);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-public execute(context: Context, _input: number): StepDecision {
-  const result = SubFlow.getConditionResults(context);
-  const output = result.singleOutput(doubleCodec);
-  const flowId = SubFlow.getFlowId(context);
-  return gracefulComplete(`${flowId}|${output}`);
-}
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-    let result = SubFlow::condition_result(context)?;
-    let output: i32 = result
-        .single_output()
-        .map_err(HandlerError::from_error)?;
-    let flow_id = SubFlow::flow_id_at(context, 0)?;
-    Ok(StepDecision::graceful_complete(format!("{flow_id}|{output}")))
-}
-```
-
-</SdkSnippet>
-</SdkTabs>
-
 ## Step execution local {#step-execution-local}
 
-**SetStepExecutionLocal** stores a value on this **StepExecution** so **Execute** can read it with **GetStepExecutionLocal**. Use it when **WaitFor** computes something **Execute** needs and you do not want a Flow-level **Attribute**.
+**SetStepExecutionLocal** stores a value on this **StepExecution** so **Execute** can read it with **GetStepExecutionLocal**. Use it when **WaitFor** computes something **Execute** needs but a Flow-level **Attribute** is overkill.
 
+Note:
 Step input is already passed to both methods. Do not copy input into a local.
 
 <SdkTabs
@@ -354,7 +360,8 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 
 ## Skip immediately {#skip-immediately}
 
-Return **SkipWaitImmediately** when **Execute** should run without waiting on durable conditions. Omitting **WaitFor** has the same effect; explicit skip is rarely needed.
+A special Wait is **SkipWaitImmediately**. It won't wait for any condition.
+This is sometimes needed when you build a dynamic WaitFor method that in certain branch you don't want to wait for anything.
 
 <SdkTabs
   examples={{

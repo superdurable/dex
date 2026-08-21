@@ -478,8 +478,6 @@ When WaitFor method retries are exhausted:
 
 With **PROCEED**, the same Step's **Execute** receives the durable input unchanged. **waitForMethodFailed()** returns true. **getRecoveryError()** has the error_type and detail from the final failed WaitFor attempt.
 
-Without a Worker response, error_type comes from Temporal or Cadence. For a Worker error, it has the Worker error_type and detail. The stack trace stays in history / last failure info.
-
 <SdkTabs
   examples={{
     go: 'examples/go/primitives/proceed-on-wait-failure/workflow.go',
