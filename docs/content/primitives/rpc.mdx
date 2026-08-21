@@ -5,41 +5,46 @@ slug: /primitives/rpc
 
 # RPC
 
-An **RPC** is a Worker handler for external read/write against a running Flow. Callers read durable state, mutate it, publish Channels, cancel Steps, and optionally move the Flow — atomically from the caller’s point of view.
+An **RPC** is an external entry point on an active Flow. An application calls it through the Client. Dex Server sends the call to the Flow's Worker, where the method can read or change durable Flow state.
 
-## Why you need it
+Use a Step when the Flow moves itself. Use an RPC when an external user or service needs to approve an order, submit input, cancel work, or ask a running Flow for its state.
 
-External callers need a single request that can inspect and change a live Flow without a separate read API, write API, and “signal” endpoint.
+## Define an RPC
 
-## Declare and invoke
+Add an RPC method to the Flow. It receives **Context** and zero or one typed input. It returns a typed **RPCResult**; procedure-style RPCs can return no output.
 
-Declare **@rpc** / RPC methods on the Flow; invoke via client **InvokeRPC**.
+This RPC stores the submitted message and publishes an internal Channel. The Flow's waiting Step can then continue.
 
-Choose an SDK (preference is sticky in this browser; default Python).
-
-<SdkTabs>
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc',
+    go: 'examples/go/primitives/rpc',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc',
+    typescript: 'examples/typescript/src/primitives/rpc',
+    rust: 'examples/rust/src/primitives/rpc',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
 @rpc
-def nudge(self, context, message: str) -> RPCResult:
-    status.set(context, "nudged")
-    unblock.publish(context, message)
-    return RPCResult(output="ok")
+def trigger(self, context: Context, input: str) -> RPCResult[str]:
+    self.data.set(context, input)
+    self.internal.publish(context, None)
+    return RPCResult(input)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-func (f *MyFlow) Nudge(ctx dex.Context, message string) (*dex.RPCResult[string], error) {
-	if err := status.Set(ctx, "nudged"); err != nil {
+func (*RpcFlow) Trigger(ctx dex.Context, input string) (*dex.RPCResult[string], error) {
+	if err := Data.Set(ctx, input); err != nil {
 		return nil, err
 	}
-	if err := unblock.Publish(ctx, message); err != nil {
+	if err := Internal.Publish(ctx, nil); err != nil {
 		return nil, err
 	}
-	return &dex.RPCResult[string]{Output: "ok"}, nil
+	return &dex.RPCResult[string]{Output: input}, nil
 }
 ```
 
@@ -47,11 +52,11 @@ func (f *MyFlow) Nudge(ctx dex.Context, message string) (*dex.RPCResult[string],
   <SdkSnippet lang="java">
 
 ```java
-@RPC(name = "nudge")
-public RPCResult<String> nudge(Context context, String message) {
-    status.set(context, "nudged");
-    unblock.publish(context, message);
-    return RPCResult.of("ok");
+@RPC
+public RPCResult<String> trigger(final Context context, final String input) {
+    data.set(context, input);
+    internal.publish(context, null);
+    return RPCResult.of(input);
 }
 ```
 
@@ -59,46 +64,134 @@ public RPCResult<String> nudge(Context context, String message) {
   <SdkSnippet lang="typescript">
 
 ```typescript
-@rpc({ name: "nudge", inputCodec: stringCodec, outputCodec: stringCodec })
-nudge(context: Context, message: string): RPCResult<string> {
-  this.status.set(context, "nudged");
-  this.unblock.publish(context, message);
-  return { output: "ok" };
+@rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+public trigger(context: Context, input: string): RPCResult<string> {
+  this.data.set(context, input);
+  internal.publish(context, undefined);
+  return { output: input };
 }
+```
 
-// Client (Promise-based):
-await client.invokeRPC(flow.nudge, flowId, "hello");
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+impl RpcFlow {
+    fn trigger(&self, context: &mut Context, input: String) -> HandlerResult<RpcResult<String>> {
+        data().set(context, input.clone())?;
+        internal().publish(context, ())?;
+        Ok(RpcResult::new(input))
+    }
+}
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-RPCs run through the server to the Worker (**InvokeRPC** → Worker **InvokeWorkerRPC**). They are not Step executions; they do not upsert Step locals.
+An RPC is not a Step. It does not run **WaitFor** or **Execute**, and it does not create a **StepExecution**. It can read and write declared Attributes, publish Channels, and return a result that cancels Step types or starts next Steps. Dex applies Attribute and Channel writes first, then cancellation, then next Steps.
 
-An RPC can also cancel Step executions and start next Steps. See [Step cancellation](/primitives/step/step-decision#cancellation-on-stepdecision). For serializing Attribute access from RPCs, see [Attribute locking](/primitives/attribute#locking) and [RPC locking](#rpc-locking).
+## Invoke an RPC
 
-## How Dex implements it
+Pass the registered RPC method, Flow ID, and typed input to the Client. The call waits until the Worker handler returns. On success, the Client decodes **RPCResult.output**.
 
-Non-locking RPCs use a query, Worker call, and optional result signal by default.
-Temporal can route all RPCs through one synchronous Workflow Update by setting
-**api.useTemporalSynchronousUpdateForAllRPCs: true**. Locking RPCs always use the
-Update and are unavailable on Cadence. Once terminal finalization begins, the
-Update validator rejects new RPCs. Large input and output values are stored in
-the configured Blob Store and hydrated when displayed or returned through an SDK.
-Keep the default signal path when Temporal Update concurrency is more important
-than validator rejection and atomic effect commits.
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc',
+    go: 'examples/go/primitives/rpc',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc',
+    typescript: 'examples/typescript/src/primitives/rpc',
+    rust: 'examples/rust/src/primitives/rpc',
+  }}>
+<SdkSnippet lang="python">
 
-Successful Updates always contain RPC input and output. Signal history includes
-them only when **api.includeRPCInputOutputIntoHistory** is enabled. Values above the
-Blob Store threshold are stored as references and hydrated by Dex clients, Dex
-Web, and dexcli.
+```python
+result = await app_state.client.invoke_rpc(
+    app_state.rpc.trigger,
+    required_query("workflowId"),
+    required_query("message"),
+)
+return result
+```
 
-## RPC locking
+</SdkSnippet>
+  <SdkSnippet lang="go">
 
-RPC atomicity means the Worker handler runs with requested Attribute locks so concurrent Steps/RPCs cannot interleave conflicting writes.
+```go
+var output string
+err := controller.client.InvokeRPC(
+	request.Request.Context(),
+	flowID,
+	controller.flow.Trigger,
+	message,
+	&output,
+	sdk.InvokeOptions{},
+)
+httputil.RespondString(request, output, err)
+```
 
-Lock only the Attributes you need. Over-locking reduces concurrency; under-locking races.
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final RpcFlow stub = client.newRpcStub(RpcFlow.class, workflowId);
+return ResponseEntity.ok(client.invokeRPC(stub::trigger, message));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const result = await client.invokeRPC(rpcFlow.trigger, workflowId, message);
+response.send(result);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+match run_blocking(move || client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)) {
+    Ok(result) => ok_text(result),
+    Err(error) => map_sdk_error(error).into_response(),
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+The target Flow must still be active. A missing or completed Flow is rejected. If the Worker handler fails or exceeds its timeout, the Client returns a Worker invocation error.
+
+An RPC call has a request ID. Retrying by calling the Client again is a new RPC call, so make any external business side effect idempotent when the caller may retry after a lost response.
+
+## Advanced
+
+### RPC timeout
+
+An RPC timeout limits one Worker handler invocation. It is not a Flow timeout and does not close the Flow. Set one when the caller needs a shorter bound than the Dex Server default.
+
+Python, Java, TypeScript, and Rust declare the timeout with the RPC handler. Go passes it in **InvokeOptions** for each Client invocation. When the application does not set a timeout, Dex Server uses its default.
+
+Timeout is not a retry policy. A timed-out handler returns an error to the caller. If the endpoint retries the Client call, it should use an idempotency key in its own business operation.
+
+### Attribute locks
+
+RPCs do not lock Attributes by default. A simple write, such as the example above, does not need a lock. A read-modify-write operation usually does.
+
+For example, an RPC that reads a balance, adds an amount, and writes the balance back must lock that Attribute. Otherwise a Step or another RPC can read the same old balance and overwrite the first result.
+
+Declare only the Attributes or AttributeMap instances the RPC changes as a read-modify-write unit. Python, Java, TypeScript, and Rust declare locks with the RPC handler. Go passes **InvokeOptions.LockAttributes** to **InvokeRPC**.
+
+Dex Server attempts to acquire all requested locks before the Worker handler runs. It does not wait for them. If one is already held, the call returns an RPC lock-conflict error; the caller can retry with its own backoff. Locks apply within one Flow and are released when the invocation finishes.
+
+Locking RPCs require Temporal. Cadence does not support them.
+
+### How Dex Server runs an RPC
+
+Dex Server resolves the active Run, loads the Flow state, and dispatches the handler to the Worker. The Worker returns the output together with Attribute writes, Channel messages, cancellation, and next-Step movements. Dex Server then records those Flow changes.
+
+For a normal RPC without locks, Dex Server uses a query, Worker call, and signal to apply Flow changes. A Temporal deployment can set **api.useTemporalSynchronousUpdateForAllRPCs** to run every RPC through a synchronous Update. Locking RPCs always use that Update path. Once terminal finalization begins, the Update path rejects new RPCs.
+
+You normally do not need to choose this path. Keep the default unless you operate Dex Server and need the Update path's validation and commit behavior for every RPC.
 
 ## Traditional workarounds
 
-Without Dex: separate read APIs, write APIs, and “signal” endpoints with careful locking — often inconsistent under concurrency.
+Without RPC, an application usually builds separate read APIs, write APIs, and signal endpoints around a Flow, then adds its own concurrency control. Those APIs can observe or change different versions of the Flow. An RPC keeps the external operation next to the Flow code and lets Dex Server deliver it to the right Worker.
