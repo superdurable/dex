@@ -162,7 +162,9 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-**HeartbeatTimeout** 帮助 Dex 发现执行普通 Activity 的 worker 已经停止。**WaitFor** 或 **Execute** 运行期间，Dex 会 heartbeat。heartbeat 停止后，Dex 不必等到完整 method timeout 才 retry。
+**HeartbeatTimeout** 让拥有较长 method timeout 的 Step 更早失败并安排下一次 attempt。设置 heartbeat timeout 即可使用它。例如，**Execute** method timeout 为 60 秒，**HeartbeatTimeout** 为 10 秒时，Dex 大约 10 秒后就能 retry 这个 Step，而不必等完整的 60 秒。
+
+它也让 Dex 更早 cancel Step。正在被 cancel 的 Step 不必等到完整 timeout、失败或完成后才被 cancel。
 
 例如，**ExecuteMethodTimeout** 为 60 秒、**HeartbeatTimeout** 为 10 秒时，worker 挂掉后大约 10 秒就能 retry，而不是等一分钟。使用正整数秒 timeout。未设置时关闭 heartbeat。
 
