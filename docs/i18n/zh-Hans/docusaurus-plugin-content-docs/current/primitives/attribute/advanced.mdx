@@ -84,13 +84,9 @@ public readonly attributeStoreConfig: FlowConfig = { attributeStoreName: "profil
 <SdkSnippet lang="rust">
 
 ```rust
-fn status() -> Attribute<String> {
-    Attribute::new("primitive-attribute-status").indexed(AttributeIndex::keyword())
-}
-
-fn email() -> Attribute<String> {
-    Attribute::new("primitive-attribute-email").sync_to_attribute_store()
-}
+let status = Attribute::new("primitive-attribute-status")
+    .indexed(AttributeIndex::keyword());
+let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
 
 pub fn attribute_store_config() -> FlowConfig {
     FlowConfig::new().attribute_store_name("profiles")
@@ -194,7 +190,7 @@ public getStepOptions() {
 
 ```rust
 fn options(&self) -> StepOptions<Self::Input> {
-    StepOptions::new().execute_lock(message().lock())
+    StepOptions::new().execute_lock(self.message.lock())
 }
 ```
 

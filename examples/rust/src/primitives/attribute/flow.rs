@@ -17,25 +17,32 @@ use dex_sdk::{
     StepDecision, StepList, StepOptions, Wait,
 };
 
-fn message() -> Attribute<String> {
-    Attribute::new("primitive-attribute-message")
-}
-
-fn status() -> Attribute<String> {
-    Attribute::new("primitive-attribute-status").indexed(AttributeIndex::keyword())
-}
-
-fn email() -> Attribute<String> {
-    Attribute::new("primitive-attribute-email").sync_to_attribute_store()
-}
-
 pub fn attribute_store_config() -> FlowConfig {
     FlowConfig::new().attribute_store_name("profiles")
 }
 
-#[derive(Default)]
 pub struct AttributeFlow {
+    message: Attribute<String>,
+    status: Attribute<String>,
+    email: Attribute<String>,
     start: AttributeStep,
+}
+
+impl Default for AttributeFlow {
+    fn default() -> Self {
+        let message = Attribute::new("primitive-attribute-message");
+        let status = Attribute::new("primitive-attribute-status")
+            .indexed(AttributeIndex::keyword());
+        let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
+        Self {
+            start: AttributeStep {
+                message: message.clone(),
+            },
+            message,
+            status,
+            email,
+        }
+    }
 }
 
 impl Flow for AttributeFlow {
@@ -47,30 +54,31 @@ impl Flow for AttributeFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&message())
-            .attribute(&status())
-            .attribute(&email())
+            .attribute(&self.message)
+            .attribute(&self.status)
+            .attribute(&self.email)
     }
 }
 
-#[derive(Default)]
-struct AttributeStep;
+struct AttributeStep {
+    message: Attribute<String>,
+}
 
 impl Step for AttributeStep {
     type Input = String;
 
     fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_lock(message().lock())
+        StepOptions::new().execute_lock(self.message.lock())
     }
 
     fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        message().set(context, input)?;
+        self.message.set(context, input)?;
         Ok(Wait::skip_immediately())
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
         Ok(StepDecision::graceful_complete(
-            message().get_required(context)?,
+            self.message.get_required(context)?,
         ))
     }
 }
