@@ -966,7 +966,8 @@ impl Client {
             } else {
                 None
             };
-        Ok(FlowStartOptions {
+        #[allow(clippy::needless_update)]
+        let flow_start_options = FlowStartOptions {
             id_reuse_policy: match options.id_reuse_policy {
                 IdReusePolicy::Default => ProtoIdReusePolicy::Unspecified,
                 IdReusePolicy::AllowIfPreviousFailed => {
@@ -988,7 +989,8 @@ impl Client {
                 ignore_already_started_error: options.ignore_already_started,
             }),
             ..Default::default()
-        })
+        };
+        Ok(flow_start_options)
     }
 
     fn map_flow_config(&self, config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {

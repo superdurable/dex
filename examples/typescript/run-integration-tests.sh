@@ -83,7 +83,8 @@ fi
 
 (
   cd "$repo_root/sdk-typescript"
-  npm pack --pack-destination "$binary_dir" >/dev/null
+  npm ci
+  npm pack --pack-destination "$binary_dir"
 )
 sdk_package="$binary_dir/superdurable-dex-$(node -p "require('$repo_root/sdk-typescript/package.json').version").tgz"
 
