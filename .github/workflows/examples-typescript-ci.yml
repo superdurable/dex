@@ -15,6 +15,9 @@ on:
 permissions:
   contents: read
 
+env:
+  RUSTUP_TOOLCHAIN: "1.97.1"
+
 concurrency:
   group: examples-typescript-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -83,6 +86,8 @@ jobs:
             cli/go.sum
             server/go.sum
             web/go.sum
+      - name: Install Rust
+        run: rustup toolchain install 1.97.1 --profile minimal
       - name: Install Temporal CLI runtime for dexcli dev
         uses: temporalio/setup-temporal@v0
       - name: Install dependencies
