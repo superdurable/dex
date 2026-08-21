@@ -18,7 +18,7 @@ import (
 	"io"
 )
 
-func Execute(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) error {
+func Execute(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer, version string) error {
 	cfg, err := parseConfig(args, stderr)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -26,6 +26,7 @@ func Execute(ctx context.Context, args []string, stdout io.Writer, stderr io.Wri
 		}
 		return err
 	}
+	cfg.version = version
 	supervisor := newSupervisor(cfg, stdout, stderr)
 	if err := supervisor.Run(ctx); err != nil {
 		return fmt.Errorf("Dex development environment failed: %w", err)

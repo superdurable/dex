@@ -165,6 +165,7 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 	}
 
 	s.printReady(webURL, listeners.dex.Addr().String(), blobStoreDirectory)
+	s.printUpdateNotice(runCtx)
 	if s.cfg.OpenBrowser {
 		if err := openBrowser(webURL); err != nil {
 			return s.shutdown(runCtx, cancelRun, webServer, dexRuntime, err)
@@ -335,6 +336,24 @@ func (s *supervisor) printReady(webURL string, dexAddress string, blobStoreDirec
 	}
 	fmt.Fprintln(s.stdout)
 	fmt.Fprintln(s.stdout, "Press Ctrl+C to stop.")
+}
+
+func (s *supervisor) printUpdateNotice(ctx context.Context) {
+	if !isReleaseVersion(s.cfg.version) {
+		return
+	}
+	go func() {
+		latestVersion, err := newReleaseChecker().Latest(ctx)
+		if err != nil || !isNewerVersion(latestVersion, s.cfg.version) {
+			return
+		}
+		fmt.Fprintf(
+			s.stderr,
+			"\n\033[1;33mA new dexcli version is available: %s (you have %s).\033[0m\n\033[1;36mUpgrade with: brew update && brew upgrade dexcli\033[0m\n",
+			latestVersion,
+			s.cfg.version,
+		)
+	}()
 }
 
 func reserveOwnedListeners(cfg *Config) (*ownedListeners, error) {
