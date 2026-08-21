@@ -162,13 +162,12 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-**HeartbeatTimeout** lets a Step with a long method timeout fail and schedule the next attempt earlier. Set a heartbeat timeout to use it. For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds instead of waiting for the full 60 seconds.
+**Heartbeat** lets a Step with a long method timeout fail and schedule the next attempt earlier, or being canceled earlier.
 
-It also lets Dex cancel a Step earlier. A Step that is being canceled does not have to wait for the full timeout, fail, or complete first.
+Set a **HeartbeatTimeout** to use it.
 
-For example, an **ExecuteMethodTimeout** of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets a dead worker retry in about 10 seconds instead of a minute. Use a positive whole-second timeout. An unset timeout disables heartbeats.
 
-Local Activities do not heartbeat. If an **ASYNC** method falls back to a regular Activity, the same heartbeat timeout applies there.
+For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds instead of waiting for the full 60 seconds. Similarly, a Step that is being canceled does not have to wait for the full timeout, fail, or complete first.
 
 <SdkTabs
   examples={{
