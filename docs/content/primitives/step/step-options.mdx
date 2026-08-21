@@ -304,11 +304,11 @@ Heartbeat makes cancellation reach a regular handler earlier. It does not make a
 
 ## Attribute locks
 
-Concurrent Steps and RPC invocations can read and write the same Attribute. This can lead to race conditions. To avoid this, use Edge View locks. Dex Server ensures only one Step execution or RPC handling can acquire the lock at a time.
+Concurrent Steps and RPC invocations can read and write the same Attribute. This can lead to race conditions. To avoid this, use Attribute locks. Dex Server ensures only one Step execution or RPC handling can acquire the lock at a time.
 
 **WaitFor** and **Execute** have separate lock sets. Set them by returning **StepOptions**.
 
-See [Edge View locking](/primitives/attribute#locking) for more details.
+See [Attribute locking](/primitives/attribute#locking) for more details.
 
 ## Override StepOptions for one Step execution {#stepoptions-override-per-stepexecution}
 

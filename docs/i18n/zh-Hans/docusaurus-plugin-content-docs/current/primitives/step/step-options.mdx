@@ -303,11 +303,11 @@ Heartbeat 能让取消更早到达普通 handler。它不会让外部 API 调用
 
 ## Attribute locks
 
-并发 Step 和 RPC invocation 可以读取和写入同一个 Attribute。这可能导致 race condition。要避免它，使用 Edge View lock。Dex Server 会确保同一时间只有一个 Step execution 或 RPC handling 能 acquire 这个 lock。
+并发 Step 和 RPC invocation 可以读取和写入同一个 Attribute。这可能导致 race condition。要避免它，使用 Attribute lock。Dex Server 会确保同一时间只有一个 Step execution 或 RPC handling 能 acquire 这个 lock。
 
 **WaitFor** 与 **Execute** 有独立的 lock set。通过返回 **StepOptions** 设置它们。
 
-更多细节见 [Edge View locking](/primitives/attribute#locking)。
+更多细节见 [Attribute locking](/primitives/attribute#locking)。
 
 ## Override StepOptions for one Step execution {#stepoptions-override-per-stepexecution}
 
