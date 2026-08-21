@@ -11,6 +11,9 @@ java {
 }
 
 repositories {
+    if (providers.gradleProperty("useCurrentSdk").isPresent()) {
+        mavenLocal()
+    }
     mavenCentral()
 }
 
