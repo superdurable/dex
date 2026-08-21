@@ -81,11 +81,6 @@ fi
   GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
 )
 
-(
-  cd "$repo_root/sdk-java"
-  ./gradlew publishToMavenLocal -PreleaseVersion=0.1.10 --no-daemon
-)
-
 docker compose -p "$compose_project" \
   -f "$entity_store_dir/docker-compose.yml" up --detach --wait
 entity_store_started=true
@@ -119,12 +114,8 @@ fi
 
 cd "$script_dir"
 export DEXCLI_PATH="$binary_dir/dexcli"
-gradle_args=(-PuseCurrentSdk test --tests 'io.superdurable.dex.integ.*' --tests 'io.superdurable.dex.integ.smoke.*' --info --no-daemon)
-if ((${#test_args[@]})); then
-  gradle_args+=("${test_args[@]}")
-fi
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  ./gradlew "${gradle_args[@]}"
+  ./gradlew test --tests 'io.superdurable.dex.integ.*' --tests 'io.superdurable.dex.integ.smoke.*' --info --no-daemon "${test_args[@]}"
 
 if $keep_running; then
   echo ""

@@ -293,7 +293,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dex-python-sdk", specifier = "==0.1.11" },
+    { name = "dex-python-sdk", specifier = "==0.2.0" },
     { name = "flask", specifier = ">=3.0,<4" },
     { name = "openai", specifier = ">=1.66.2,<2" },
     { name = "openai-agents", specifier = ">=0.0.4,<0.0.5" },
@@ -312,20 +312,20 @@ dev = [
 
 [[package]]
 name = "dex-python-sdk"
-version = "0.1.11"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "grpcio" },
     { name = "grpcio-status" },
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/83/93/f4d8672bd621e2a9f836363bcdef88bd5020ca98bb3181dc7a4ee6601d5c/dex_python_sdk-0.1.11.tar.gz", hash = "sha256:621a1dfdc3381e9371c0c704bec61b59cabb71b3d979e9cd1a3aa0ad9448368a", size = 148498, upload-time = "2026-08-20T01:20:21.158Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1d/5f/f61d7bc783c427c3e15d072c3bc3d6a8929f04c79fda51a2e2e881228caa/dex_python_sdk-0.2.0.tar.gz", hash = "sha256:02b7e809f045e3ded43919595374d55c32dda0127fdd19656e0235b63e8d6ce7", size = 148428, upload-time = "2026-08-21T23:40:37.817Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/57/d99f912b9287de765c38128b4e9e119e4b1e08925f3c7623ca826268ce55/dex_python_sdk-0.1.11-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:c922276f64bbe7fb86a9752f7d1cd16b39f77557d6b8d310e306405c2b03b928", size = 630636, upload-time = "2026-08-20T01:20:15.112Z" },
-    { url = "https://files.pythonhosted.org/packages/19/6a/74ad3b482eb024a1e12300f793273a6c2e3dbd5ec2826d88027355259a4f/dex_python_sdk-0.1.11-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:701d343cffff38e26285c90b26f5c195cecdfe8b48a12a0cac0b554d6ca178e5", size = 609154, upload-time = "2026-08-20T01:20:16.385Z" },
-    { url = "https://files.pythonhosted.org/packages/05/fc/0e13a49465291bea4442ac5554c0f3a369ce62a07de8ade842596df81ba9/dex_python_sdk-0.1.11-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:d2f94d1952652a98f9ece1a1a232d1bfcfaed0caab8f355152ec0a3cc05fb0f7", size = 672089, upload-time = "2026-08-20T01:20:17.699Z" },
-    { url = "https://files.pythonhosted.org/packages/8b/e8/f4f90a78cfb6c1e03ddd28a5e93c68842fff27869e08973e2fadfbf8e72f/dex_python_sdk-0.1.11-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:469654199c97353c5f2bf81062679bf14b0df747a44fd25f8545a754f0c47fe6", size = 674392, upload-time = "2026-08-20T01:20:18.843Z" },
-    { url = "https://files.pythonhosted.org/packages/ec/98/8a9003a44039523fd68a1208eacc13527f7d88abb31bc079915dd9ae7b40/dex_python_sdk-0.1.11-cp311-abi3-win_amd64.whl", hash = "sha256:1766bc697da3b5075c0e3459810a8495edd40c5fdc113171aac43121c50515b9", size = 518274, upload-time = "2026-08-20T01:20:20.077Z" },
+    { url = "https://files.pythonhosted.org/packages/c7/c1/347db4eba695703277c481641cb044a39bda27c6de36d3a2cf75509f42aa/dex_python_sdk-0.2.0-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:26e56ef54e7ae5111bd4b997bd78f2f14109db4d8bcdc842e8409b57c9ad5499", size = 630526, upload-time = "2026-08-21T23:40:31.593Z" },
+    { url = "https://files.pythonhosted.org/packages/ad/56/ba5f8a6130e1e9f4a8e74caa2e001de9029326ffc06fa39016e62fdb9a63/dex_python_sdk-0.2.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:1a1f9eb372f6592c585a9baaa832d0ffa10da66c79ccc1c3c572692790401c30", size = 609039, upload-time = "2026-08-21T23:40:32.829Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/b9/e31fc1381d10e1997d6b0b4f3f8979bcfb217b665c6e57967851fd4e14fb/dex_python_sdk-0.2.0-cp311-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:40b921022f1201dc31ad6b3478183b313e115f83f197c052ae187f0098c8b09c", size = 671981, upload-time = "2026-08-21T23:40:34.163Z" },
+    { url = "https://files.pythonhosted.org/packages/df/83/42625cdf9c7ad4cf019938efe2c5ba85ee53cf915c0732e69fcf9c1b9ab0/dex_python_sdk-0.2.0-cp311-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d1ce45c7c8e4bc89e5ffd436f9a6df9495f5ec483e7a84569fded31914f13362", size = 674281, upload-time = "2026-08-21T23:40:35.466Z" },
+    { url = "https://files.pythonhosted.org/packages/27/69/a2d41fa1c8254ebb9ef69e31fc2cb71d9e3e5cf0f93a99f7813648265a94/dex_python_sdk-0.2.0-cp311-abi3-win_amd64.whl", hash = "sha256:a336eee47e118894f792b63b350d23928547f3fc51939c33d2e4a32bb56ab1e2", size = 518157, upload-time = "2026-08-21T23:40:36.664Z" },
 ]
 
 [[package]]

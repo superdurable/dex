@@ -81,23 +81,6 @@ fi
   GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
 )
 
-(
-  cd "$repo_root/sdk-typescript"
-  npm ci
-  npm pack --pack-destination "$binary_dir"
-)
-sdk_package="$binary_dir/superdurable-dex-$(node -p "require('$repo_root/sdk-typescript/package.json').version").tgz"
-
-if [[ ! -f "$sdk_package" ]]; then
-  echo "current TypeScript SDK package was not created" >&2
-  exit 1
-fi
-
-(
-  cd "$script_dir"
-  npm install --no-save --package-lock=false "$sdk_package"
-)
-
 docker compose -p "$compose_project" \
   -f "$entity_store_dir/docker-compose.yml" up --detach --wait
 entity_store_started=true
