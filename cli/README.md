@@ -72,6 +72,10 @@ when it exits. Keep them with:
 dexcli dev --server-log-folder ./dex-logs
 ```
 
+When investigating the local Temporal Server, add `--verbose-engine-log`. It
+writes Temporal Server info logs to `temporal-engine-server.log` in that folder.
+Use `--server-log-folder` if you need the file after `dexcli` exits.
+
 Configure local Attribute Store projection with the same YAML section accepted
 by Dex Server:
 
@@ -103,6 +107,7 @@ must exist and be reachable before startup.
 --web-port int                     Dex Web port (default 8802)
 --sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)
 --server-log-folder string         keep server logs (default temp folder, deleted on exit)
+--verbose-engine-log               write Temporal Server logs to temporal-engine-server.log
 --external-temporal-address string      external Temporal host:port
 --external-temporal-namespace string    external Temporal namespace (default default)
 ```

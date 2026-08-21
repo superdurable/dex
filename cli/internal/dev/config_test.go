@@ -85,6 +85,26 @@ func TestServerLogFolderFlag(t *testing.T) {
 	}
 }
 
+func TestVerboseEngineLogFlag(t *testing.T) {
+	cfg, err := parseConfig([]string{"--verbose-engine-log"}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.VerboseEngineLog {
+		t.Fatal("expected verbose engine logs to be enabled")
+	}
+}
+
+func TestVerboseEngineLogRejectedWithExternalAddress(t *testing.T) {
+	_, err := parseConfig([]string{
+		"--external-temporal-address", "127.0.0.1:7233",
+		"--verbose-engine-log",
+	}, &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected --verbose-engine-log to fail with --external-temporal-address")
+	}
+}
+
 func TestSQLiteDBFilenameRejectedWithExternalAddress(t *testing.T) {
 	_, err := parseConfig([]string{
 		"--external-temporal-address", "127.0.0.1:7233",
