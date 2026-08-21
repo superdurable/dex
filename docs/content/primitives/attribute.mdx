@@ -6,7 +6,13 @@ slug: /primitives/attribute
 
 # Attribute basics
 
-An **Attribute** stores data within a Flow execution. Steps and RPCs can read or write Attributes. An optional index makes an Attribute searchable, and optional synchronization lets Attributes sync to your application database.
+An **Attribute** lets you store data within a Flow execution.
+
+Dex Attributes make it easy to store data. This is especially useful for intermediate data during a Flow execution, without the work of setting up and managing a database dependency.
+
+Each Attribute exists only for the lifetime of its Flow execution. Dex deletes it when it deletes the execution history, after the configurable retention period following Flow closure.
+
+However, Dex allows you to sync Attribute values to your application database as permanent storage. This also lets you build more powerful database indexes to query Attributes.
 
 ## Define an Attribute {#define-an-attribute}
 
