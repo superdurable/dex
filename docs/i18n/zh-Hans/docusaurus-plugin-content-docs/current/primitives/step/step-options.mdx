@@ -8,11 +8,9 @@ slug: /primitives/step/step-options
 
 本页介绍用于深度定制你的 Step type 的 **StepOptions** 进阶功能。基础功能见 [Basic Step](/primitives/step/basic#stepoptions) 页面。
 
-## Custom retry
+## Retry After
 
-通常由 **RetryPolicy** 决定下一次 retry 的间隔。被调用的服务告诉你何时再试时，可以用 custom retry，例如 rate limit 响应带有 retry-after 值。
-
-Custom retry 只改变下一次间隔。它不会重置 retry policy、attempt count 或 method timeout。
+如果要深度定制 retry behavior，使用 **RetryAfter**。它覆盖 **RetryPolicy** 的 retry schedule。
 
 <SdkTabs
   examples={{
@@ -77,8 +75,6 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 </SdkSnippet>
 </SdkTabs>
-
-Temporal 支持 custom retry。Cadence 不支持每次 attempt 的 retry 间隔，因此会拒绝它。
 
 ## Durability {#durability}
 

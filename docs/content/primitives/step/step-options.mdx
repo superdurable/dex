@@ -8,11 +8,9 @@ slug: /primitives/step/step-options
 
 This page covers the advanced **StepOptions** features to deeply customize your Step type. See the [Basic Step](/primitives/step/basic#stepoptions) page for the basic features.
 
-## Custom retry
+## Retry After
 
-Usually **RetryPolicy** decides the next retry interval. Use custom retry when the service you called tells you when to try again, for example a rate-limit response with a retry-after value.
-
-Custom retry only changes the next interval. It does not reset the retry policy, attempt count, or method timeout.
+Use **RetryAfter** if you want to deeply customize the retry behavior. It overrides the retry schedule of the **RetryPolicy**.
 
 <SdkTabs
   examples={{
@@ -77,8 +75,6 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 </SdkSnippet>
 </SdkTabs>
-
-Custom retry is supported by Temporal. Cadence rejects it because its backend does not support a per-attempt retry interval.
 
 ## Durability {#durability}
 
