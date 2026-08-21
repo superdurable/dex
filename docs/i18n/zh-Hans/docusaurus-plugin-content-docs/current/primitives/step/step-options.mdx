@@ -162,13 +162,11 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-**HeartbeatTimeout** 让拥有较长 method timeout 的 Step 更早失败并安排下一次 attempt。设置 heartbeat timeout 即可使用它。例如，**Execute** method timeout 为 60 秒，**HeartbeatTimeout** 为 10 秒时，Dex 大约 10 秒后就能 retry 这个 Step，而不必等完整的 60 秒。
+**Heartbeat** 让拥有较长 method timeout 的 Step 更早失败并安排下一次 attempt，或更早被 cancel。
 
-它也让 Dex 更早 cancel Step。正在被 cancel 的 Step 不必等到完整 timeout、失败或完成后才被 cancel。
+设置 **HeartbeatTimeout** 即可使用它。
 
-例如，**ExecuteMethodTimeout** 为 60 秒、**HeartbeatTimeout** 为 10 秒时，worker 挂掉后大约 10 秒就能 retry，而不是等一分钟。使用正整数秒 timeout。未设置时关闭 heartbeat。
-
-Local Activity 不会 heartbeat。**ASYNC** 方法 fallback 到普通 Activity 时，使用同一个 heartbeat timeout。
+例如，**Execute** method timeout 为 60 秒，**HeartbeatTimeout** 为 10 秒时，Dex 大约 10 秒后就能 retry 这个 Step，而不必等完整的 60 秒。类似地，正在被 cancel 的 Step 不必等到完整 timeout、失败或完成后才被 cancel。
 
 <SdkTabs
   examples={{
