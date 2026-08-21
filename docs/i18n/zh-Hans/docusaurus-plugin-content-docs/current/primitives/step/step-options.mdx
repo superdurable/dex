@@ -6,11 +6,21 @@ slug: /primitives/step/step-options
 
 # Step options
 
-在 StepOptions 上独立配置 WaitFor 与 Execute：方法 timeout、retry policy、retry 耗尽后的 failure policy、durability、heartbeat 与按 StepExecution 覆盖 StepOptions。
+**StepOptions** 用来定制一个 Step。**WaitFor** 与 **Execute** 各自有 timeout、retry、failure policy、durability 和 Attribute lock。
+
+常用的 timeout、retry 和 failure policy 在 [Basic Step](/primitives/step/basic#stepoptions) 里。这一页介绍其他选项。
+
+## Method timeout and retry
+
+**WaitForMethodTimeout** 和 **ExecuteMethodTimeout** 限制对应方法的一次 invocation。它们不限制 Step 等待 Channel、Timer 或 SubFlow condition 的时间。
+
+方法返回 error 或 timeout 时，Dex 会使用 **WaitForRetry** 或 **ExecuteRetry**。retry 会再次调用同一个 Step execution 的同一个方法。retry 耗尽后，由 failure policy 决定 Flow 是否失败、是否继续 **Execute**，或是否启动 recovery Step。见 [Basic Step](/primitives/step/basic#stepoptions)。
 
 ## Custom retry
 
-**不是** failure policy——handler 可在保留当前 attempt 失败的同时请求**下一次 retry 间隔**。
+通常由 **RetryPolicy** 决定下一次 retry 的间隔。被调用的服务告诉你何时再试时，可以用 custom retry，例如 rate limit 响应带有 retry-after 值。
+
+Custom retry 只改变下一次间隔。它不会重置 retry policy、attempt count 或 method timeout。
 
 <SdkTabs
   examples={{
@@ -25,7 +35,7 @@ slug: /primitives/step/step-options
 ```java
 throw RetryAfterException.after(
         Duration.ofSeconds(7),
-        new RuntimeException("retry later"));
+        new IllegalStateException("not ready on attempt " + context.getAttempt()));
 ```
 
 </SdkSnippet>
@@ -76,18 +86,15 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 </SdkSnippet>
 </SdkTabs>
 
-- **Temporal** 将延迟用于下一次 Activity retry，不改变 retry 上限或 method timeout。
-- **Cadence** 以 INVALID_USER_FLOW_CODE 拒绝动态间隔。
-- 在 Temporal 上，**当前 attempt 失败**（而非 RetryAfterException 本身）是上报的 Worker 错误，出现在 lastFailureInfo。
-
-Worker SDK 在 WorkerErrorResponse 上附加 stack_trace 时，Dex Web 在 **Last failure** 下以 originalWorkerErrorStackTrace 显示。Go 应用若要上报 origin stack，用 **dex.ErrorWithStack** 包装 cause（配合 custom retry 时嵌在 **RetryAfter** 里）。Rust 的 **HandlerError** 构造函数会自动捕获 construction-site stack。
-
+Temporal 支持 custom retry。Cadence 不支持每次 attempt 的 retry 间隔，因此会拒绝它。
 
 ## Durability {#durability}
 
-每个 Step 方法可覆盖持久化 durability：**SYNC** 在 handler 返回前等待 Dex 确认 staged write；**ASYNC** 允许 handler 接受结果后再持久化。
+**SYNC** 是默认值。Dex 将方法作为普通 Activity 运行，并在 Flow 继续前记录结果。
 
-未设置时，Dex 使用 FlowConfig 的 Flow 默认，再使用 server 默认。
+**ASYNC** 会先把方法作为 local Activity 运行。它能省掉短任务的一次 backend round trip。如果 local Activity 没有在 Dex 的 local window 内完成，就会 fallback 到普通 Activity。local attempt 与 fallback 共用同一个 retry budget。
+
+用 **FlowConfig** 设置 Flow 级默认值。某一个方法需要不同选择时，设置 **WaitForDurability** 或 **ExecuteDurability**。
 
 <SdkTabs
   examples={{
@@ -161,30 +168,17 @@ fn options(&self) -> StepOptions<Self::Input> {
 </SdkSnippet>
 </SdkTabs>
 
+**ASYNC** 方法的 local Activity 运行期间会占用当前 Workflow Task。这可能让 sibling Step 更晚注册 Timer，或更晚处理已经触发的 Timer。Timer 的时机重要时，用 **SYNC**。
 
-### Local-activity 窗口
-
-**ASYNC** Step 先作为 local activity 运行。Dex 保持当前 Workflow Task 打开，直到 local 阶段返回或达到 local 优化 timeout（约七秒）。该 task 被占用时，sibling Step 的 durable timer 可能比 SYNC 更晚启动。
-
-若 local activity 先成功返回，Dex 在处理 local 阶段内触发的 timer 之前先处理该结果。
-
-配置了 **failure policy recovery 路径**的方法默认为 SYNC。FlowConfig 不能将该默认覆盖为 ASYNC；仅当 recovery 开始后重放失败方法可接受时，才设置显式 method 级覆盖。
-
-:::note Timers and ASYNC Steps
-
-ASYNC Execute 不会阻止 Flow 其他处已注册的 Timer Condition 按时触发。需要与长时 ASYNC 工作无关的 durable deadline 时，优先 **Timer**。handler 可在 local 阶段快速完成或可接受略延迟的 timer 处理时，优先 **ASYNC Execute**。见 [Timer](/primitives/timer)。
-
-:::
+一个方法配置了 failure recovery policy 时，除非该方法明确选择 durability，Dex 会使用 **SYNC**。这样能在 **Execute** 或 recovery Step 开始前保护记录下来的 failure。
 
 ## Heartbeat {#heartbeat}
 
-heartbeat_timeout / HeartbeatTimeout 为常规 WaitFor 与 Execute activity 启用协作式取消。activity 活跃期间 Dex 约每秒调用一次 backend heartbeat API。
+**HeartbeatTimeout** 帮助 Dex 发现执行普通 Activity 的 worker 已经停止。**WaitFor** 或 **Execute** 运行期间，Dex 会 heartbeat。heartbeat 停止后，Dex 不必等到完整 method timeout 才 retry。
 
-在 StepOptions 上配置正整数秒。零或未设置则禁用 heartbeat。Local activity 忽略该选项；ASYNC 回退到常规 execution 时使用。
+例如，**ExecuteMethodTimeout** 为 60 秒、**HeartbeatTimeout** 为 10 秒时，worker 挂掉后大约 10 秒就能 retry，而不是等一分钟。使用正整数秒 timeout。未设置时关闭 heartbeat。
 
-无 heartbeat 时，Dex 可能要等到完整 **method timeout** 才检测到 worker crash。短 heartbeat（如 10s）加长 execute timeout（如 60s）时，crash 可在约一个 heartbeat 间隔内调度下一次 retry，而不必等满一分钟。
-
-取消通过 heartbeat channel 与 Context 取消到达 handler。无 heartbeat 时，handler 可能运行到自然返回或完整 method timeout。
+Local Activity 不会 heartbeat。**ASYNC** 方法 fallback 到普通 Activity 时，使用同一个 heartbeat timeout。
 
 <SdkTabs
   examples={{
@@ -222,20 +216,29 @@ func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecisi
   <SdkSnippet lang="java">
 
 ```java
-private final StepOptions options = StepOptions.newBuilder()
-        .executeTimeout(Duration.ofSeconds(60))
-        .heartbeatTimeout(Duration.ofSeconds(10))
-        .build();
+@Override
+public StepDecision execute(final Context context, final Integer batches) {
+    for (int batch = 0; batch < batches; batch++) {
+        if (context.isCancellationRequested()) {
+            return StepDecision.deadEnd();
+        }
+        try {
+            Thread.sleep(Duration.ofSeconds(2).toMillis());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return StepDecision.deadEnd();
+        }
+    }
+    return StepDecision.gracefulComplete("processed");
+}
 
 @Override
-public StepDecision execute(Context context, Job job) {
-    while (hasNextBatch(job)) {
-        if (Thread.interrupted()) {
-            break;
-        }
-        processBatch(job);
-    }
-    return StepDecision.deadEnd();
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeMethodTimeout(Duration.ofSeconds(60))
+            .heartbeatTimeout(Duration.ofSeconds(10))
+            .executeRetry(RetryPolicy.newBuilder().maximumAttempts(3).build())
+            .build();
 }
 ```
 
@@ -243,14 +246,19 @@ public StepDecision execute(Context context, Job job) {
   <SdkSnippet lang="python">
 
 ```python
-options = StepOptions(heartbeat_timeout=timedelta(seconds=10))
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_method_timeout=timedelta(seconds=60),
+        heartbeat_timeout=timedelta(seconds=10),
+        execute_retry=RetryPolicy(maximum_attempts=3),
+    )
 
-def execute(self, context: Context, job: Job) -> StepDecision:
-    while has_next_batch(job):
+async def execute(self, context: Context, batches: int) -> StepDecision:
+    for _batch in range(batches):
         if context.is_cancellation_requested():
-            break
-        process_batch(job)
-    return dead_end()
+            return dead_end()
+        await asyncio.sleep(2)
+    return graceful_complete("processed")
 ```
 
 </SdkSnippet>
@@ -261,7 +269,9 @@ public getStepOptions(): StepOptions {
   return {
     executeMethodTimeoutMs: 60_000,
     heartbeatTimeoutMs: 10_000,
-    executeRetry: { maximumAttempts: 3 },
+    executeRetry: {
+      maximumAttempts: 3,
+    },
   };
 }
 
@@ -301,14 +311,21 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 </SdkSnippet>
 </SdkTabs>
 
+Heartbeat 能让取消更早到达普通 handler。它不会让外部 API 调用原子化。API 需要时，使用幂等或补偿。
 
-Heartbeat 使取消能尽快到达常规 activity；不能使外部 API 调用原子化。按需组合 timeout、幂等或补偿。
+## Attribute locks
 
-## 按 StepExecution 覆盖 StepOptions {#stepoptions-override-per-stepexecution}
+并发的 Step 和 RPC 可以读取同一个 Attribute。一个 handler 要读写共享状态时，声明 **WaitForLockAttributes** 或 **ExecuteLockAttributes**。Dex 会等待列出的 Attribute 或 AttributeMap instance，然后在这个方法 invocation 期间持有这些 lock。
 
-已注册的 StepOptions 适用于 Step 类型的每次 execution。有时某个 **movement** 需要不同的 retry 或 failure 行为——例如 fan-out 子 Step 在 WaitFor 失败时应 proceed，而 sibling 失败 Flow。
+**WaitFor** 与 **Execute** 有独立的 lock set。方法返回时 lock 会释放；Step 等待 condition 时不会一直持有。Attribute definition 必须属于 Flow 的 persistence schema。
 
-在 **StepMovement** / goToMulti / WithStepOptions 上传递 override，使仅该次调度的 execution 使用覆盖。
+RPC 使用同一把 lock，见 [Attribute locking](/primitives/attribute#locking)。
+
+## Override StepOptions for one Step execution {#stepoptions-override-per-stepexecution}
+
+Step 返回的 **StepOptions** 适用于它的每次 execution。**StepMovement** 也可以为某一次 execution 携带 options。
+
+同一个 Step 处在不同 path 时很有用。这里，已注册的 Step 在一次 **WaitFor** attempt 后失败。movement 让这一次 execution 尝试两次，并在失败后继续 **Execute**。
 
 <SdkTabs
   examples={{
@@ -378,7 +395,4 @@ Ok(StepDecision::go_to_many([StepMovement::to_with_options(
 </SdkSnippet>
 </SdkTabs>
 
-目标 Step 已注册 options 仍适用于未覆盖字段。Recovery movement 也可携带自己的 override。
-
-
-movement override 选择 failure policy recovery 路径时，[Durability](#durability) 中的 durability 默认适用于该方法。
+为每次 execution 的 override 提供它需要的所有 option。这样即使已注册 Step 的 options 后来改变，这次 execution 的行为也很清楚。

@@ -6,11 +6,21 @@ slug: /primitives/step/step-options
 
 # Step options
 
-Configure WaitFor and Execute independently on StepOptions: method timeouts, retry policies, failure policies when retries are exhausted, durability, heartbeat, and StepOptions override per StepExecution.
+**StepOptions** customizes one Step. **WaitFor** and **Execute** each have their own timeout, retry, failure policy, durability, and Attribute locks.
+
+The common timeout, retry, and failure policy are covered in [Basic Step](/primitives/step/basic#stepoptions). This page covers the rest.
+
+## Method timeout and retry
+
+**WaitForMethodTimeout** and **ExecuteMethodTimeout** limit one invocation of the matching method. They do not limit how long the Step waits on a Channel, Timer, or SubFlow condition.
+
+When the method returns an error or times out, Dex applies **WaitForRetry** or **ExecuteRetry**. A retry invokes the same method again on the same Step execution. After retries exhaust, the failure policy decides whether the Flow fails, **Execute** proceeds, or a recovery Step starts. See [Basic Step](/primitives/step/basic#stepoptions).
 
 ## Custom retry
 
-**Not** a failure policy — handlers can request the **next retry interval** while preserving the current attempt failure.
+Usually **RetryPolicy** decides the next retry interval. Use custom retry when the service you called tells you when to try again, for example a rate-limit response with a retry-after value.
+
+Custom retry only changes the next interval. It does not reset the retry policy, attempt count, or method timeout.
 
 <SdkTabs
   examples={{
@@ -25,7 +35,7 @@ Configure WaitFor and Execute independently on StepOptions: method timeouts, ret
 ```java
 throw RetryAfterException.after(
         Duration.ofSeconds(7),
-        new RuntimeException("retry later"));
+        new IllegalStateException("not ready on attempt " + context.getAttempt()));
 ```
 
 </SdkSnippet>
@@ -76,18 +86,15 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 </SdkSnippet>
 </SdkTabs>
 
-- **Temporal** applies the delay to the next Activity retry without changing retry limits or method timeouts.
-- **Cadence** rejects dynamic intervals with INVALID_USER_FLOW_CODE.
-- On Temporal, the **current attempt failure** (not RetryAfterException itself) is the reported Worker error and appears in lastFailureInfo.
-
-When the Worker SDK attaches stack_trace on WorkerErrorResponse, Dex Web shows it under **Last failure** as originalWorkerErrorStackTrace. Go apps that want an origin stack wrap the cause with **dex.ErrorWithStack** (nest it under **RetryAfter** when using custom retry). Rust **HandlerError** constructors capture a construction-site stack automatically.
-
+Custom retry is supported by Temporal. Cadence rejects it because its backend does not support a per-attempt retry interval.
 
 ## Durability {#durability}
 
-Each Step method can override persistence durability: **SYNC** waits for Dex to acknowledge staged writes before the handler returns; **ASYNC** permits persistence after the handler accepts the result.
+**SYNC** is the default. Dex runs the method as a regular Activity and records the result before the Flow continues.
 
-When unset, Dex uses the Flow default from FlowConfig, then the server default.
+**ASYNC** first runs the method as a local Activity. It removes a backend round trip for short work. If the local Activity does not finish in Dex's local window, it falls back to a regular Activity. The local attempt and the fallback share the same retry budget.
+
+Set a Flow-wide default with **FlowConfig**. Set **WaitForDurability** or **ExecuteDurability** when one method needs a different choice.
 
 <SdkTabs
   examples={{
@@ -161,30 +168,17 @@ fn options(&self) -> StepOptions<Self::Input> {
 </SdkSnippet>
 </SdkTabs>
 
+An **ASYNC** method keeps the current Workflow Task busy while its local Activity runs. This can delay a sibling Step from registering a Timer, or delay processing a Timer that already fired. Use **SYNC** when that timing matters.
 
-### Local-activity window
-
-An **ASYNC** Step first runs as a local activity. Dex keeps the current Workflow Task open until the local stage returns or hits the local optimization timeout (about seven seconds). While that task is occupied, sibling Steps may start their durable timers later than they would with SYNC.
-
-If the local activity returns successfully first, Dex processes that result before any timer that fired during the local stage.
-
-Methods with a configured **failure-policy recovery path** default to SYNC. FlowConfig cannot override that default to ASYNC; set an explicit method-level override only when replaying the failed method after recovery begins is acceptable.
-
-:::note Timers and ASYNC Steps
-
-ASYNC Execute does not block Timer Conditions that are already registered elsewhere in the Flow from firing on schedule. Prefer a **Timer** when you need a durable deadline independent of long-running ASYNC work. Prefer **ASYNC Execute** when the handler can finish quickly in the local stage or when slightly deferred timer processing is acceptable. See [Timer](/primitives/timer).
-
-:::
+When a method has a failure recovery policy, Dex uses **SYNC** unless the method explicitly selects a durability. This protects the recorded failure before **Execute** or the recovery Step starts.
 
 ## Heartbeat {#heartbeat}
 
-heartbeat_timeout / HeartbeatTimeout enables cooperative cancellation for regular WaitFor and Execute activities. Dex calls the backend heartbeat API about once per second while the activity is active.
+**HeartbeatTimeout** helps Dex notice that a regular Activity worker has stopped. Dex heartbeats while **WaitFor** or **Execute** is running. If the heartbeat stops, Dex can retry without waiting for the full method timeout.
 
-Configure a positive whole-second value on StepOptions. Zero or unset disables heartbeats. Local activities ignore the option; ASYNC fallback to regular execution uses it.
+For example, an **ExecuteMethodTimeout** of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets a dead worker retry in about 10 seconds instead of a minute. Use a positive whole-second timeout. An unset timeout disables heartbeats.
 
-Without a heartbeat, Dex may not detect a crashed worker until the full **method timeout** elapses. With a short heartbeat (for example 10s) and a long execute timeout (for example 60s), a crash can schedule the next retry in roughly one heartbeat interval instead of waiting the full minute.
-
-Cancellation reaches the handler through the heartbeat channel and Context cancellation. Without heartbeats, a handler may run until its natural return or full method timeout.
+Local Activities do not heartbeat. If an **ASYNC** method falls back to a regular Activity, the same heartbeat timeout applies there.
 
 <SdkTabs
   examples={{
@@ -222,20 +216,29 @@ func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecisi
   <SdkSnippet lang="java">
 
 ```java
-private final StepOptions options = StepOptions.newBuilder()
-        .executeTimeout(Duration.ofSeconds(60))
-        .heartbeatTimeout(Duration.ofSeconds(10))
-        .build();
+@Override
+public StepDecision execute(final Context context, final Integer batches) {
+    for (int batch = 0; batch < batches; batch++) {
+        if (context.isCancellationRequested()) {
+            return StepDecision.deadEnd();
+        }
+        try {
+            Thread.sleep(Duration.ofSeconds(2).toMillis());
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            return StepDecision.deadEnd();
+        }
+    }
+    return StepDecision.gracefulComplete("processed");
+}
 
 @Override
-public StepDecision execute(Context context, Job job) {
-    while (hasNextBatch(job)) {
-        if (Thread.interrupted()) {
-            break;
-        }
-        processBatch(job);
-    }
-    return StepDecision.deadEnd();
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .executeMethodTimeout(Duration.ofSeconds(60))
+            .heartbeatTimeout(Duration.ofSeconds(10))
+            .executeRetry(RetryPolicy.newBuilder().maximumAttempts(3).build())
+            .build();
 }
 ```
 
@@ -243,14 +246,19 @@ public StepDecision execute(Context context, Job job) {
   <SdkSnippet lang="python">
 
 ```python
-options = StepOptions(heartbeat_timeout=timedelta(seconds=10))
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_method_timeout=timedelta(seconds=60),
+        heartbeat_timeout=timedelta(seconds=10),
+        execute_retry=RetryPolicy(maximum_attempts=3),
+    )
 
-def execute(self, context: Context, job: Job) -> StepDecision:
-    while has_next_batch(job):
+async def execute(self, context: Context, batches: int) -> StepDecision:
+    for _batch in range(batches):
         if context.is_cancellation_requested():
-            break
-        process_batch(job)
-    return dead_end()
+            return dead_end()
+        await asyncio.sleep(2)
+    return graceful_complete("processed")
 ```
 
 </SdkSnippet>
@@ -261,7 +269,9 @@ public getStepOptions(): StepOptions {
   return {
     executeMethodTimeoutMs: 60_000,
     heartbeatTimeoutMs: 10_000,
-    executeRetry: { maximumAttempts: 3 },
+    executeRetry: {
+      maximumAttempts: 3,
+    },
   };
 }
 
@@ -301,14 +311,21 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 </SdkSnippet>
 </SdkTabs>
 
+Heartbeat makes cancellation reach a regular handler earlier. It does not make an external API call atomic. Use idempotency or compensation when the API needs it.
 
-Heartbeats make cancellation reach a regular activity promptly; they do not make external API calls atomic. Combine timeouts, idempotency, or compensation where needed.
+## Attribute locks
 
-## StepOptions override per StepExecution {#stepoptions-override-per-stepexecution}
+Concurrent Steps and RPCs can read the same Attribute. When a handler reads and writes shared state, declare **WaitForLockAttributes** or **ExecuteLockAttributes**. Dex waits for the listed Attribute or AttributeMap instances, then holds those locks for that method invocation.
 
-Registered StepOptions apply to every execution of a Step type. Sometimes one **movement** needs different retry or failure behavior — for example, a fan-out child that should proceed on WaitFor failure while siblings fail the Flow.
+**WaitFor** and **Execute** have separate lock sets. The locks are released when that method returns; they do not stay held while the Step waits on a condition. The Attribute definitions must belong to the Flow persistence schema.
 
-Pass override options on **StepMovement** / goToMulti / WithStepOptions so only that scheduled execution uses the override.
+See [Attribute locking](/primitives/attribute#locking) for the same lock used by RPCs.
+
+## Override StepOptions for one Step execution {#stepoptions-override-per-stepexecution}
+
+The **StepOptions** returned by a Step apply every time that Step runs. A **StepMovement** can carry options for one execution instead.
+
+This is useful when the same Step is used in more than one path. Here the registered Step fails after one **WaitFor** attempt. The movement gives just this execution two attempts and lets it proceed to **Execute** after failure.
 
 <SdkTabs
   examples={{
@@ -378,7 +395,4 @@ Ok(StepDecision::go_to_many([StepMovement::to_with_options(
 </SdkSnippet>
 </SdkTabs>
 
-The target Step's registered options still apply for fields you do not override. Recovery movements can carry their own override as well.
-
-
-When a movement override selects a failure-policy recovery path, durability defaults described in [Durability](#durability) apply to that method.
+Give a per-execution override every option this execution needs. That keeps its behavior clear, even when the registered Step options change later.
