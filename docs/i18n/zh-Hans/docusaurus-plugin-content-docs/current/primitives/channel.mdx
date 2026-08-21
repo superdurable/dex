@@ -9,9 +9,9 @@ slug: /primitives/channel
 
 Channel 适合等外部事件，也适合让一个 Step 把工作交给另一个 Step。它是队列，不是广播 topic：一条消息最多唤醒一个匹配的 waiting Step。
 
-## 定义 Channel {#define-a-channel}
+## Persistence schema {#persistence-schema}
 
-Channel 有稳定的名字和消息类型。把它加到 Flow 的 persistence schema。Dex Server 会拒绝对 Flow 未声明的 Channel 做 publish、wait 或 read。
+Channel 有稳定的名字和消息类型。先定义它，再加到 Flow 的 persistence schema。只定义 Channel 不会把它注册到 Flow。Dex Server 会拒绝对 Flow persistence schema 未声明的 Channel 做 publish、wait 或 read。
 
 下面的例子有一个 **Approval** Channel。start Step 等一条 approval 或一个 Timer。**approve** RPC 发布 approval 消息。这个 Flow 也可以通过 Client 的 **PublishToChannel** API 直接接收消息。
 

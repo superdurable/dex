@@ -9,9 +9,9 @@ slug: /primitives/channel
 
 A Channel is useful when a Flow must wait for an external event, or when one Step hands work to another Step. It is a queue, not a broadcast topic: one message wakes at most one matching waiting Step.
 
-## Define a Channel {#define-a-channel}
+## Persistence schema {#persistence-schema}
 
-A Channel has a stable name and a message type. Add it to the Flow persistence schema. Dex Server rejects a publish, wait, or read that uses a Channel the Flow did not declare.
+A Channel has a stable name and a message type. Define it and add it to the Flow persistence schema. Defining a Channel alone does not register it with the Flow. Dex Server rejects a publish, wait, or read that uses a Channel the Flow did not declare in its persistence schema.
 
 This example has an **Approval** Channel. Its start Step waits for either one approval or a Timer. The **approve** RPC publishes the approval message. The same Flow can also receive a message directly through the Client **PublishToChannel** API.
 
