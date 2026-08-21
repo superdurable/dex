@@ -261,14 +261,14 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 </SdkSnippet>
 </SdkTabs>
 
-## Cancellation on StepDecision {#cancellation-on-stepdecision}
+## Cancellation {#cancellation-on-stepdecision}
 
-在同一次决策中返回胜者的下一 movement **并**取消失败的 Step。
+返回一个可以取消其他 active Step 的 **StepDecision**。
 
-- **CancelSteps** 选择当前 Flow 中所选 Step type 的全部 queued 或 active execution。
-- **CancelSiblingSteps** 只选择和当前 Step 由同一个 Step execution 调度的 execution。不同 fan-out 之间不应相互取消时使用它。
+有两种 cancellation：
 
-当前 **Execute** 成功后，Dex 才解析这次选择。已结束、已取消或不存在的 execution 不产生任何效果。当前决策新启动的 Step 不会被选择。如果两个 selector 包含同一个 Step type，**CancelSteps** 优先。
+- **CancelSteps** 按 Step type 选择 active Step。
+- **CancelSiblingSteps** 选择由同一个 parent Step execution 触发的 active Step。
 
 <SdkTabs
   examples={{

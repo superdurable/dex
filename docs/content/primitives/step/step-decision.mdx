@@ -261,14 +261,14 @@ fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<St
 </SdkSnippet>
 </SdkTabs>
 
-## Cancellation on StepDecision {#cancellation-on-stepdecision}
+## Cancellation {#cancellation-on-stepdecision}
 
-Return the winner's next movement **and** cancel losing Steps in the same decision.
+Return a **StepDecision** that can cancel other active Steps.
 
-- **CancelSteps** selects every queued or active execution of the selected Step types in this Flow.
-- **CancelSiblingSteps** selects only executions scheduled by the same Step execution as the current Step. Use it when separate fan-outs must not cancel each other's work.
+There are two types of cancellation:
 
-Dex resolves the selection after the current **Execute** succeeds. Finished, already canceled, and missing executions do nothing. Steps started by this decision are not selected. If both selectors name the same Step type, **CancelSteps** takes precedence.
+- **CancelSteps** selects active Steps by Step type.
+- **CancelSiblingSteps** selects active Steps that were triggered by the same parent Step execution.
 
 <SdkTabs
   examples={{
