@@ -4,6 +4,11 @@
       "github_handle": "longquanzheng",
       "agreement_type": "corporate",
       "agreement_date": "2026-08-04"
+    },
+    {
+      "github_handle": "yes-un",
+      "agreement_type": "corporate",
+      "agreement_date": "2026-08-21"
     }
   ],
   "exempt_bot_handles": [
