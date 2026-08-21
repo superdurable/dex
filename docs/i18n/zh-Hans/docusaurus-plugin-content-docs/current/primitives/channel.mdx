@@ -5,15 +5,15 @@ slug: /primitives/channel
 
 # Channel
 
-**Channel** is a durable FIFO queue inside one Flow. Steps, RPCs, and Clients append typed messages. A Step consumes messages by returning a Channel condition from **WaitFor**.
+**Channel** 是一条 Flow 内部 durable 的 FIFO 队列。Step、RPC 与 Client 都能往里面追加有类型的消息。Step 通过在 **WaitFor** 里返回 Channel condition 来消费消息。
 
-A Channel is useful when a Flow must wait for an external event, or when one Step hands work to another Step. It is a queue, not a broadcast topic: one message wakes at most one matching waiting Step.
+Channel 适合等外部事件，也适合让一个 Step 把工作交给另一个 Step。它是队列，不是广播 topic：一条消息最多唤醒一个匹配的 waiting Step。
 
-## Define a Channel {#define-a-channel}
+## 定义 Channel {#define-a-channel}
 
-A Channel has a stable name and a message type. Add it to the Flow persistence schema. Dex Server rejects a publish, wait, or read that uses a Channel the Flow did not declare.
+Channel 有稳定的名字和消息类型。把它加到 Flow 的 persistence schema。Dex Server 会拒绝对 Flow 未声明的 Channel 做 publish、wait 或 read。
 
-This example has an **Approval** Channel. Its start Step waits for either one approval or a Timer. The **approve** RPC publishes the approval message. The same Flow can also receive a message directly through the Client **PublishToChannel** API.
+下面的例子有一个 **Approval** Channel。start Step 等一条 approval 或一个 Timer。**approve** RPC 发布 approval 消息。这个 Flow 也可以通过 Client 的 **PublishToChannel** API 直接接收消息。
 
 <SdkTabs
 examples={{
@@ -273,48 +273,48 @@ impl Step for ChannelWait {
 </SdkSnippet>
 </SdkTabs>
 
-The Timer branch returns before reading Channel results. If the approval wins, the Channel condition has consumed one message, so the first result is present.
+Timer 分支会先返回，不会读取 Channel 结果。approval 胜出时，Channel condition 已消费一条消息，所以第一个结果一定存在。
 
-## Wait and consume {#wait-and-consume}
+## 等待并消费 {#wait-and-consume}
 
-Returning a Channel condition from **WaitFor** is a consume operation. Dex Server keeps messages until a waiting Step wins them, then removes the selected messages from the queue in FIFO order and passes them to **Execute** as Channel results.
+在 **WaitFor** 里返回 Channel condition 就是在消费。Dex Server 会保留消息，直到某个 waiting Step 赢得它们；然后按 FIFO 顺序从队列移除选中的消息，并以 Channel results 传给 **Execute**。
 
-| Condition | When it proceeds | What it consumes |
+| Condition | 何时继续 | 消费什么 |
 | --- | --- | --- |
-| **ForOne** | At least one message is queued. | Exactly one message. |
-| **ForN** | At least the requested number is queued. | Exactly that number of messages. |
-| **AtLeast** | At least the requested number is queued. | Every message currently available. |
-| **AtMost** | The queue has no more than the requested number. An empty queue matches. | Up to the requested number of messages. |
-| **AtLeastAtMost** | The queue has a number of messages in the inclusive range. | From the lower bound up to the upper bound. |
+| **ForOne** | 至少有一条消息。 | 恰好一条消息。 |
+| **ForN** | 至少有指定数量的消息。 | 恰好指定数量的消息。 |
+| **AtLeast** | 至少有指定数量的消息。 | 当时所有可用的消息。 |
+| **AtMost** | 队列不超过指定数量。空队列也匹配。 | 最多指定数量的消息。 |
+| **AtLeastAtMost** | 队列消息数落在闭区间内。 | 从下界到上界数量的消息。 |
 
-**AtMost** is not a wait for a new message. It can let **Execute** run immediately when the Channel is empty.
+**AtMost** 不是等待新消息。Channel 为空时，它也可以让 **Execute** 立即运行。
 
-Use **Wait.anyOf** when a Step can proceed on a Channel, a Timer, or a SubFlow. When the Timer wins, the Channel messages stay queued. Use **Wait.allOf** when every condition must be ready. See [Waiting](/primitives/step/waiting-condition) for combinations and condition IDs.
+Step 可以在 **Wait.anyOf** 里等 Channel、Timer 或 SubFlow 的任意一个。Timer 胜出时，Channel 消息会继续留在队列里。所有 condition 都必须 ready 时用 **Wait.allOf**。组合与 condition ID 见 [Waiting](/primitives/step/waiting-condition)。
 
-Do not use one Channel as a broadcast mechanism. If two waiting Steps target the same Channel, a message consumed by one Step is not available to the other. Use separate Channels when both Steps must see the event.
+不要把一个 Channel 当广播机制。如果两个 waiting Step 都在等同一个 Channel，一条被其中一个 Step 消费的消息不会再给另一个 Step。两个 Step 都需要看到事件时，用两个 Channel。
 
-## Read Channel results {#read-channel-results}
+## 读取 Channel 结果 {#read-channel-results}
 
-Read the values selected for the current Step execution through the Channel result method shown in the example. It returns only messages consumed by that Channel condition. If the Step proceeded because another condition won, the result for this Channel is empty.
+用例子里的 Channel result method 读取当前 Step execution 选中的值。它只返回这个 Channel condition 消费的消息。如果 Step 是因为其他 condition 胜出而继续，这个 Channel 的结果为空。
 
-**Size** reads the queued message count visible to the current Step or RPC invocation. It is useful for decisions made by that handler; it does not replace a **WaitFor** condition.
+**Size** 读取当前 Step 或 RPC invocation 可见的排队消息数。它适合该 handler 内的决策，但不能替代 **WaitFor** condition。
 
-## Publish messages {#publish-messages}
+## 发布消息 {#publish-messages}
 
-Inside a Step or RPC, call the Channel publish method with the handler **Context**. Dex appends the message when it accepts that handler result.
+在 Step 或 RPC 内，用 handler 的 **Context** 调 Channel 的 publish method。Dex 会在接受这个 handler result 时追加消息。
 
-Code outside a Worker can publish directly through the Client **PublishToChannel** API. A client publishes to an active Flow, and a batch keeps the order in which its values were supplied. See [Client APIs](/primitives/client-apis#interact-with-a-running-flow).
+Worker 外的代码可以用 Client **PublishToChannel** API 直接发布。Client 只能往 active Flow 发布；批量发布的值保持传入顺序。见 [Client APIs](/primitives/client-apis#interact-with-a-running-flow)。
 
-Messages can arrive before a Step starts waiting. Dex Server keeps them in the Channel until a later wait consumes them.
+消息可以先于 Step 的 wait 到达。Dex Server 会把它保留在 Channel 里，直到之后的 wait 消费它。
 
 ## ChannelMap {#channelmap}
 
-Use **ChannelMap** when one Flow has an unbounded set of independent queues, such as one Channel per order, customer, or job. A ChannelMap has one declared name and one value type. Each instance key has its own FIFO queue.
+一个 Flow 有一组数量不受限、彼此独立的队列时，用 **ChannelMap**，例如每个订单、客户或 job 一条 Channel。ChannelMap 只声明一个名字和一个值类型，每个 instance key 都有自己的 FIFO 队列。
 
-Every operation on a ChannelMap takes the instance key: publish, **ForOne**, **ForN**, range conditions, **Size**, and condition results. A wait on the **order-42** instance never consumes a message from **order-43**.
+ChannelMap 的每个操作都要带 instance key：publish、**ForOne**、**ForN**、范围 condition、**Size** 和 condition results。等 **order-42** instance 时，绝不会消费 **order-43** 的消息。
 
-During an RPC, a ChannelMap can also list its non-empty instance keys and count them. Those methods include messages published earlier in the same RPC, omit empty instances, and return keys in ascending order. They are RPC-only because they inspect the Flow's current queue state.
+在 RPC 内，ChannelMap 还可以列出非空 instance key 并计数。这些方法会包含同一个 RPC 之前发布的消息，省略空 instance，并按升序返回 key。它们只能在 RPC 内调用，因为它们读取的是 Flow 当前的队列状态。
 
-## What Dex Server stores {#what-dex-server-stores}
+## Dex Server 存什么 {#what-dex-server-stores}
 
-Dex Server stores Channel messages with the Flow state. It evaluates Channel conditions against that durable queue, removes messages only when a waiting Step wins them, and sends the selected values to the Worker for **Execute**. Worker restarts do not lose queued messages or a Step's pending wait.
+Dex Server 把 Channel 消息和 Flow state 一起存储。它针对这个 durable 队列判断 Channel condition，只有 waiting Step 赢得消息时才移除消息，并把选中的值发给 Worker 的 **Execute**。Worker 重启不会丢掉队列里的消息，也不会丢掉 Step 的 pending wait。
