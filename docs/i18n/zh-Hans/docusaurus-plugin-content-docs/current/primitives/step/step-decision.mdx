@@ -6,13 +6,11 @@ slug: /primitives/step/step-decision
 
 # Step decision
 
-本页介绍 **StepDecision** 的进阶功能。常见用法见[基础 Step](/primitives/step/basic)。
+本页介绍 **StepDecision** 的进阶功能。基础功能见[基础页面](/primitives/step/basic)。
 
 ## 多个后续 Step {#gotomulti}
 
-**GoTo** 启动一个后续 Step。**GoToMulti** 启动决策中的每个 movement。用它 fan-out 可并行的工作。每个 movement 有各自的输入，也可使用各自的 Step options。
-
-默认 step-decision 示例会同时启动两个 carrier Step 和一个 winner Step。
+**GoTo** 启动一个后续 Step。**GoToMulti** 启动多个后续 Step。用它 fan-out 可并行的工作。每个 Step movement 有各自的输入，也可以有各自的 Step options。
 
 <SdkTabs
   examples={{

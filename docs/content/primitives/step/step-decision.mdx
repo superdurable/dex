@@ -6,13 +6,11 @@ slug: /primitives/step/step-decision
 
 # Step decision
 
-This page covers the advanced **StepDecision** features. See [Basic Step](/primitives/step/basic) for the common path.
+This page covers the advanced **StepDecision** features. See the [basic page](/primitives/step/basic) for the basic features.
 
 ## Multiple next Steps {#gotomulti}
 
-**GoTo** starts one next Step. **GoToMulti** starts every movement in the decision. Use it to fan out work that can run in parallel. Each movement has its own input and can use its own Step options.
-
-The default step-decision sample starts two carrier Steps and a winner Step together.
+**GoTo** starts one next Step. **GoToMulti** starts multiple next Steps. Use it to fan out work that can run in parallel. Each Step movement has its own input and can also have its own Step options.
 
 <SdkTabs
   examples={{
