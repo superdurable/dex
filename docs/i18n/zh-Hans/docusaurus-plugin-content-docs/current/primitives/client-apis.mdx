@@ -1,0 +1,125 @@
+---
+title: Client
+sidebar_label: Client
+slug: /primitives/client-apis
+---
+
+# Client
+
+**Client** 是 Worker 外面的 application code 与 Dex Server 交互的方式。
+
+Client 启动 Flow，给它发送外部输入，等待它，读取它的状态，也可以控制它。它不会直接调用 Step。Dex Server 记录这个操作，并在需要时把 Step 或 RPC 工作发送给 Worker。
+
+## 启动 Flow
+
+**StartFlow** 接收一个已注册的 Flow、业务 **Flow ID**、它的启动输入和 **StartFlowOptions**。Dex Server 接受请求后，它返回 **Run ID**。它不会等 Flow 完成。
+
+**Flow ID** 标识一项逻辑工作，例如 **order-123**。Dex Server 为每次执行生成新的 **Run ID**。重试、time travel 和 continue-as-new 都可能创建新的 Run ID，同时保留同一个 Flow ID。
+
+关于 timeout、请求幂等、ID reuse、retry 和初始配置，见 [Flow options](/primitives/flow/flow-options)。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/client-apis/controller.py',
+    go: 'examples/go/primitives/client-apis/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java',
+    typescript: 'examples/typescript/src/primitives/client-apis/controller.ts',
+    rust: 'examples/rust/src/primitives/client_apis/controller.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+run_id = await app_state.client.start_flow(
+    app_state.client_apis,
+    flow_id,
+    required_query("keyword"),
+    start_options(),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+runID, err := controller.client.StartFlow(
+	request.Request.Context(),
+	controller.flow,
+	flowID,
+	keyword,
+	primitiveStartOptions(),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+final String runId =
+        client.startFlow(flow, workflowId, keyword, ExampleFlows.startOptions());
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+const runId = await client.startFlow(clientApisFlow, workflowId, keyword, startOptions());
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+let flow = ClientApisFlow::default();
+client
+    .start_flow(&flow, &flow_id, keyword)
+    .map(|run_id| StartResponse { flow_id, run_id })
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 给 active Flow 发送输入
+
+有三种方式发送外部输入：
+
+- **InvokeRPC** 调用 Worker 上已注册的 [RPC](/primitives/rpc) handler，并返回它的输出。调用方需要响应，或者 Flow 需要在一个 handler 里读写状态时，用它。
+- **PublishToChannel** 往 [Channel](/primitives/channel) 追加一条或多条 durable message。正在等待的 Step 可以稍后消费它们。
+- **SetAttribute** 写入一个已注册的 [Attribute](/primitives/attribute)。用 **GetAttribute** 读取一个 Attribute。各 SDK 也在合适的地方提供 AttributeMap 变体和批量 Attribute helper。
+
+RPC、Channel publish 和 Attribute write 都要求 Flow 仍然 active。读取 Attribute 则可以在 Flow 结束后进行。
+
+## 等待工作或状态 {#wait-for-work-or-state}
+
+- **WaitForFlow** 等待 Flow 到达 terminal status。它返回 status、失败详情（如果有），以及请求时指定的 Step completion output。long-poll timeout 表示 Flow 还没有结束；再次调用即可继续等。
+- **WaitForStepCompletion** 在 Flow 继续运行时等待一个 **StepExecutionID**。它只观察完成，不返回 Step output。一个 Step execution ID 是 **StepType-Number**；见 [Step basics](/primitives/step/basic)。
+- **WaitForAttributeEqual** 等待一个 Attribute 或一个 AttributeMap instance 等于 string、boolean、integer 或 double。它只适用于 active Flow。
+
+这样 HTTP handler 可以在调用方真正关心的工作完成后返回，不需要轮询另一套 status database。
+
+## 查看 Flow
+
+- **DescribeFlow** 返回当前或最近一次 Run 的 Flow ID、Run ID、Flow type、status 和 start time。
+- **SearchFlows** 返回符合 visibility query 的一页 Flow。每项包含 ID、type、status、timestamp 和 Indexed Attribute。原样传回返回的 page token，即可获取下一页。
+- **GetAttribute** 从已有 Flow 读取已注册的 durable state。它不要求 Flow 仍然 active。
+
+Search 用来找 Flow instance。**DescribeFlow** 用于一个已知 Flow ID。
+
+## 控制 Flow
+
+- **StopFlow** 结束一个 active Flow。cancel 请求它协作停止，terminate 立即停止，fail 记录 application failure reason。
+- **SkipTimer** 让一个待处理的 [Timer](/primitives/timer) 现在就 ready。指定 Step execution，以及 Timer 的 condition ID，或者它在 condition 中从零开始的位置。
+- **UpdateFlowConfig** 修改 active Flow 的部分 runtime setting。只发送要变的字段；Dex 会把它们合并进当前配置。见 [FlowConfig](/primitives/flow/flow-options#flow-config)。
+- **TriggerContinueAsNew** 请求一个 active Flow 用新的 Run ID continue-as-new，同时保留它的 Flow ID。
+- **TimeTravel** 从已有 Flow history 中选定的一点启动新的 Run ID。代码修复后、只重试失败 Step 不够时可以使用它。见 [application operations](/production/application-operations)。
+
+## 一个调用会落到哪个 Run？
+
+公共 Client API 接收的是 **Flow ID**，不是 Run ID。
+
+| 操作 | Flow 状态 |
+|---|---|
+| **InvokeRPC**、**PublishToChannel**、**SetAttribute**、**WaitForStepCompletion**、**WaitForAttributeEqual**、**StopFlow**、**SkipTimer**、**UpdateFlowConfig**、**TriggerContinueAsNew** | 要求 active Flow。 |
+| **GetAttribute**、**DescribeFlow**、**WaitForFlow**、**TimeTravel** | 已有 Flow 即可。Dex 使用它当前或最近一次 Run。 |
+| **SearchFlows** | 不接收 Flow ID；它搜索 Flow runs。 |
+
+所以 application code 里的 Client call 通常带 Flow ID；Run ID 则用于 start response、search result 或 operator investigation。

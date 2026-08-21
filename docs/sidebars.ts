@@ -37,7 +37,11 @@ const sidebars: SidebarsConfig = {
         'primitives/channel',
         'primitives/timer',
         'primitives/subflow',
-        'primitives/client-apis',
+        {
+          type: 'doc',
+          id: 'primitives/client-apis',
+          label: 'Client',
+        },
       ],
     },
     {
