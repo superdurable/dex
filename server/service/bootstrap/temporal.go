@@ -37,6 +37,7 @@ func (r *Runtime) createTemporalServices() (
 	clientOptions := client.Options{
 		HostPort:  temporalConfig.HostPort,
 		Namespace: temporalConfig.Namespace,
+		Logger:    newTemporalLogger(r.zapLogger),
 	}
 	metrics := client.MetricsNopHandler
 	if temporalConfig.Prometheus != nil {
