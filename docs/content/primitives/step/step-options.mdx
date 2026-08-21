@@ -78,11 +78,15 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 ## Durability {#durability}
 
-**SYNC** is the default. Dex runs the method as a regular Activity and records the result before the Flow continues.
+**SYNC** durability records the Step completion in Dex Server and persists it to storage synchronously.
 
-**ASYNC** first runs the method as a local Activity. It removes a backend round trip for short work. If the local Activity does not finish in Dex's local window, it falls back to a regular Activity. The local attempt and the fallback share the same retry budget.
+**ASYNC** durability does this asynchronously. Every few seconds, Dex Server flushes accumulated Step completions and persists them. It provides much higher throughput because it removes a lot of overhead from the backend database and server.
 
-Set a Flow-wide default with **FlowConfig**. Set **WaitForDurability** or **ExecuteDurability** when one method needs a different choice.
+A Step should usually be idempotent, so **ASYNC** durability is generally safe to use. It is the default for most Steps.
+
+Steps with a recovery failure policy default to **SYNC** durability. The business may assume that once a Flow enters the following **Execute** method or recovery Step, it does not go back to the previous method. **SYNC** persists the previous completion first.
+
+Set the default durability with **FlowConfig**. This default does not apply to a method with a recovery failure policy. To override the durability for that method, set it in the Step's **StepOptions**.
 
 <SdkTabs
   examples={{
@@ -155,10 +159,6 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 </SdkSnippet>
 </SdkTabs>
-
-An **ASYNC** method keeps the current Workflow Task busy while its local Activity runs. This can delay a sibling Step from registering a Timer, or delay processing a Timer that already fired. Use **SYNC** when that timing matters.
-
-When a method has a failure recovery policy, Dex uses **SYNC** unless the method explicitly selects a durability. This protects the recorded failure before **Execute** or the recovery Step starts.
 
 ## Heartbeat {#heartbeat}
 

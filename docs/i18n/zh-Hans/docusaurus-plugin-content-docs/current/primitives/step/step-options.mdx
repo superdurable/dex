@@ -78,11 +78,15 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 ## Durability {#durability}
 
-**SYNC** 是默认值。Dex 将方法作为普通 Activity 运行，并在 Flow 继续前记录结果。
+**SYNC** durability 会将 Step completion 同步记录到 Dex Server，并持久化到 storage。
 
-**ASYNC** 会先把方法作为 local Activity 运行。它能省掉短任务的一次 backend round trip。如果 local Activity 没有在 Dex 的 local window 内完成，就会 fallback 到普通 Activity。local attempt 与 fallback 共用同一个 retry budget。
+**ASYNC** durability 会异步完成这件事。每隔几秒，Dex Server 会 flush 累积的 Step completion 并持久化。它减少了 backend database 和 server 的大量开销，因此吞吐量高得多。
 
-用 **FlowConfig** 设置 Flow 级默认值。某一个方法需要不同选择时，设置 **WaitForDurability** 或 **ExecuteDurability**。
+Step 通常应当是 idempotent，所以一般可以安全使用 **ASYNC** durability。它是大多数 Step 的默认值。
+
+使用 recovery failure policy 的 Step 默认使用 **SYNC** durability。业务可能假设 Flow 进入后续的 **Execute** 方法或 recovery Step 后，不会再回到前一个方法。**SYNC** 会先持久化前一个 completion。
+
+用 **FlowConfig** 设置默认 durability。这个默认值不适用于使用 recovery failure policy 的方法。如需 override 这些方法的 durability，在该 Step 的 **StepOptions** 中设置。
 
 <SdkTabs
   examples={{
@@ -155,10 +159,6 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 </SdkSnippet>
 </SdkTabs>
-
-**ASYNC** 方法的 local Activity 运行期间会占用当前 Workflow Task。这可能让 sibling Step 更晚注册 Timer，或更晚处理已经触发的 Timer。Timer 的时机重要时，用 **SYNC**。
-
-一个方法配置了 failure recovery policy 时，除非该方法明确选择 durability，Dex 会使用 **SYNC**。这样能在 **Execute** 或 recovery Step 开始前保护记录下来的 failure。
 
 ## Heartbeat {#heartbeat}
 
