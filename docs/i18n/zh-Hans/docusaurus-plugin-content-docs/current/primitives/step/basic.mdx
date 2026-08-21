@@ -395,8 +395,6 @@ WaitFor method retry 耗尽时：
 
 使用 **PROCEED** 时，同一 Step 的 **Execute** 收到不变的 durable input。**waitForMethodFailed()** 返回 true。**getRecoveryError()** 包含最后一次失败 WaitFor attempt 的 error_type 和 detail。
 
-没有 Worker 响应时，error_type 来自 Temporal 或 Cadence。对于 Worker error，它包含 Worker 的 error_type 和 detail。stack trace 留在 history / last failure info。
-
 <SdkTabs
   examples={{
     go: 'examples/go/primitives/proceed-on-wait-failure/workflow.go',

@@ -45,6 +45,8 @@ class ChannelWaitStep(Step[int]):
         )
 
     def execute(self, context: Context, input: int) -> StepDecision:
+        if context.has_timer_fired():
+            return graceful_complete("approval timed out")
         approvals = self.approval.results(context)
         if approvals:
             return graceful_complete(approvals[0])

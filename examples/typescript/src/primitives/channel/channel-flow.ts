@@ -48,6 +48,9 @@ class ChannelWait implements Step<number> {
   }
 
   public execute(context: Context, input: number): StepDecision {
+    if (context.hasTimerFired()) {
+      return gracefulComplete("approval timed out");
+    }
     const approvals = approval.results(context);
     if (approvals.length > 0) {
       return gracefulComplete(approvals[0]!);

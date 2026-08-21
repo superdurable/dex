@@ -6,88 +6,7 @@ slug: /primitives/step/waiting-condition
 
 # 等待
 
-WaitFor 返回由 durable **Condition** 构成的 **Wait**——[Timer](/primitives/timer)、[Channel](/primitives/channel)、[SubFlow](/primitives/subflow) 及其组合。本页介绍 OR-of-AND 等待，以及 Wait 完成后读取 Condition 结果。
-
-## anyCombinationOf — AND 组的 OR {#anycombinationof}
-
-anyCombinationOf 表示 AND 组的 OR。每组内用 all_of 组合构建。**每个** Condition 都需要非空 **condition ID**，以便 Dex 追踪哪条分支满足了 Wait。
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
-    go: 'examples/go/primitives/wait-types/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
-    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
-    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
-  }}>
-<SdkSnippet lang="python">
-
-```python
-return Wait.any_combination_of(
-    ConditionCombination.of(
-        channel_a.for_one(condition_id="signal-a"),
-        Timer.by_duration(timeout, condition_id="timeout"),
-    ),
-    ConditionCombination.of(
-        channel_b.for_one(condition_id="signal-b"),
-    ),
-)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-return dex.AnyComboOf(
-	dex.Combo(
-		SignalA.ForOne(dex.WithConditionID("signal-a")),
-		dex.Timer(timeout, dex.WithConditionID("timeout")),
-	),
-	dex.Combo(
-		SignalB.ForOne(dex.WithConditionID("signal-b")),
-	),
-), nil
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-return Wait.anyCombinationOf(
-        ConditionCombination.of(
-                channelA.forOne("signal-a"),
-                Timer.byDuration(timeout, "timeout")),
-        ConditionCombination.of(channelB.forOne("signal-b")));
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-return Wait.anyCombinationOf(
-  ConditionCombination.of(
-    channelA.forOne("signal-a"),
-    Timer.byDuration(timeoutMs, "timeout"),
-  ),
-  ConditionCombination.of(channelB.forOne("signal-b")),
-);
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="rust">
-
-```rust
-Ok(Wait::any_combination_of([
-    ConditionCombination::all_of([
-        signal_a_channel().for_one().with_id("signal-a"),
-        Timer::by_duration(timeout).with_id("timeout"),
-    ]),
-    ConditionCombination::all_of([signal_b_channel().for_one().with_id("signal-b")]),
-]))
-```
-
-</SdkSnippet>
-</SdkTabs>
+本页介绍比基础功能更高级的 **WaitFor** 功能。
 
 
 ## ConditionResults {#condition-results}
@@ -107,18 +26,47 @@ WaitFor 完成后，Execute 可读取满足 Wait 的内容。对 [Channel](/prim
 <SdkSnippet lang="python">
 
 ```python
-def execute(self, context: Context, input: int) -> StepDecision:
-    approvals = self.approval.results(context)
-    if approvals:
-        return graceful_complete(approvals[0])
-    return go_to(self, input)
+class ChannelWaitStep(Step[int]):
+    def __init__(self, approval: Channel[str]) -> None:
+        self.approval = approval
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        del context
+        return Wait.any_of(
+            self.approval.for_one(),
+            Timer.by_duration(timedelta(seconds=input)),
+        )
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        if context.has_timer_fired():
+            return graceful_complete("approval timed out")
+        approvals = self.approval.results(context)
+        if approvals:
+            return graceful_complete(approvals[0])
+        return go_to(self, input)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
+var Approval = dex.DefineChannel[string]("Approval")
+
+type channelWaitStep struct {
+	dex.StepDefaults
+}
+
+func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+	return dex.AnyOf(
+		Approval.ForOne(),
+		dex.Timer(time.Duration(input)*time.Second),
+	), nil
+}
+
 func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GracefulComplete("approval timed out"), nil
+	}
 	results, err := Approval.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
@@ -134,12 +82,30 @@ func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, e
   <SdkSnippet lang="java">
 
 ```java
-public StepDecision execute(final Context context, final Integer input) {
-    final List<String> approvals = approval.getConditionResults(context);
-    if (!approvals.isEmpty()) {
-        return StepDecision.gracefulComplete(approvals.get(0));
+final class ChannelWaitStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
     }
-    return StepDecision.goTo(waitForApproval, input);
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.anyOf(
+                approval.forOne(),
+                Timer.byDuration(Duration.ofSeconds(input)));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        if (context.hasTimerFired()) {
+            return StepDecision.gracefulComplete("approval timed out");
+        }
+        final List<String> approvals = approval.getConditionResults(context);
+        if (!approvals.isEmpty()) {
+            return StepDecision.gracefulComplete(approvals.get(0));
+        }
+        return StepDecision.goTo(waitForApproval, input);
+    }
 }
 ```
 
@@ -147,25 +113,70 @@ public StepDecision execute(final Context context, final Integer input) {
   <SdkSnippet lang="typescript">
 
 ```typescript
-public execute(context: Context, input: number): StepDecision {
-  const approvals = approval.results(context);
-  if (approvals.length > 0) {
-    return gracefulComplete(approvals[0]!);
+const approval = new Channel("Approval", stringCodec);
+
+class ChannelWait implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "ChannelWait";
   }
-  return goTo(channelWaitStep, input);
+
+  public waitFor(_context: Context, input: number): Wait {
+    return Wait.anyOf(
+      approval.forOne(),
+      Timer.byDuration(input * 1000),
+    );
+  }
+
+  public execute(context: Context, input: number): StepDecision {
+    if (context.hasTimerFired()) {
+      return gracefulComplete("approval timed out");
+    }
+    const approvals = approval.results(context);
+    if (approvals.length > 0) {
+      return gracefulComplete(approvals[0]!);
+    }
+    return goTo(channelWaitStep, input);
+  }
 }
+
+const channelWaitStep = new ChannelWait();
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="rust">
 
 ```rust
-fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-    let approvals = approval().condition_results(context)?;
-    if let Some(value) = approvals.first() {
-        return Ok(StepDecision::graceful_complete(value.clone()));
+fn approval() -> Channel<String> {
+    Channel::new("Approval")
+}
+
+#[derive(Default)]
+struct ChannelWait;
+
+impl Step for ChannelWait {
+    type Input = i32;
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            approval().for_one(),
+            Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
+        ]))
     }
-    Ok(StepDecision::go_to(&ChannelWait, input))
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete(
+                "approval timed out".to_owned(),
+            ));
+        }
+        let approvals = approval().condition_results(context)?;
+        if let Some(value) = approvals.first() {
+            return Ok(StepDecision::graceful_complete(value.clone()));
+        }
+        Ok(StepDecision::go_to(&ChannelWait, input))
+    }
 }
 ```
 
@@ -253,10 +264,95 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 </SdkSnippet>
 </SdkTabs>
 
+## anyCombinationOf {#anycombinationof}
+
+anyCombinationOf 表示 AND 组的 OR。每组内用 all_of 组合构建。
+
+注意：
+组合中的**每个** Condition 都需要唯一的 **condition ID**。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/wait_types/wait_types_flow.py',
+    go: 'examples/go/primitives/wait-types/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/waittypes/WaitTypesFlow.java',
+    typescript: 'examples/typescript/src/primitives/wait-types/wait-types-flow.ts',
+    rust: 'examples/rust/src/primitives/wait_types/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+return Wait.any_combination_of(
+    ConditionCombination.of(
+        channel_a.for_one(condition_id="signal-a"),
+        Timer.by_duration(timeout, condition_id="timeout"),
+    ),
+    ConditionCombination.of(
+        channel_b.for_one(condition_id="signal-b"),
+    ),
+)
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="go">
+
+```go
+return dex.AnyComboOf(
+	dex.Combo(
+		SignalA.ForOne(dex.WithConditionID("signal-a")),
+		dex.Timer(timeout, dex.WithConditionID("timeout")),
+	),
+	dex.Combo(
+		SignalB.ForOne(dex.WithConditionID("signal-b")),
+	),
+), nil
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="java">
+
+```java
+return Wait.anyCombinationOf(
+        ConditionCombination.of(
+                channelA.forOne("signal-a"),
+                Timer.byDuration(timeout, "timeout")),
+        ConditionCombination.of(channelB.forOne("signal-b")));
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="typescript">
+
+```typescript
+return Wait.anyCombinationOf(
+  ConditionCombination.of(
+    channelA.forOne("signal-a"),
+    Timer.byDuration(timeoutMs, "timeout"),
+  ),
+  ConditionCombination.of(channelB.forOne("signal-b")),
+);
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+Ok(Wait::any_combination_of([
+    ConditionCombination::all_of([
+        signal_a_channel().for_one().with_id("signal-a"),
+        Timer::by_duration(timeout).with_id("timeout"),
+    ]),
+    ConditionCombination::all_of([signal_b_channel().for_one().with_id("signal-b")]),
+]))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
 ## Step execution local {#step-execution-local}
 
 **SetStepExecutionLocal** 把值存在当前 **StepExecution** 上，供 **Execute** 用 **GetStepExecutionLocal** 读取。适用于 **WaitFor** 算出了 **Execute** 需要的数据，又不想为此定义 Flow 级 **Attribute**。
 
+注意：
 Step input 本身会传给两个方法，不要把 input 再拷进 local。
 
 <SdkTabs
@@ -354,7 +450,7 @@ fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<S
 
 ## Skip immediately {#skip-immediately}
 
-当 **Execute** 需要立即运行、不等待 durable condition 时，返回 **SkipWaitImmediately**。省略 **WaitFor** 效果相同；显式 skip 很少用到。
+一种特殊的 Wait 是 **SkipWaitImmediately**。它不等待任何 condition。当构建 dynamic **WaitFor** 方法时，某些分支不需要等待，可以使用它。
 
 <SdkTabs
   examples={{

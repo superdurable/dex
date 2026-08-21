@@ -27,18 +27,47 @@ rust: 'examples/rust/src/primitives/channel/flow.rs',
 <SdkSnippet lang="python">
 
 ```python
-def execute(self, context: Context, input: int) -> StepDecision:
-    approvals = self.approval.results(context)
-    if approvals:
-        return graceful_complete(approvals[0])
-    return go_to(self, input)
+class ChannelWaitStep(Step[int]):
+    def __init__(self, approval: Channel[str]) -> None:
+        self.approval = approval
+
+    def wait_for(self, context: Context, input: int) -> Wait:
+        del context
+        return Wait.any_of(
+            self.approval.for_one(),
+            Timer.by_duration(timedelta(seconds=input)),
+        )
+
+    def execute(self, context: Context, input: int) -> StepDecision:
+        if context.has_timer_fired():
+            return graceful_complete("approval timed out")
+        approvals = self.approval.results(context)
+        if approvals:
+            return graceful_complete(approvals[0])
+        return go_to(self, input)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
+var Approval = dex.DefineChannel[string]("Approval")
+
+type channelWaitStep struct {
+	dex.StepDefaults
+}
+
+func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+	return dex.AnyOf(
+		Approval.ForOne(),
+		dex.Timer(time.Duration(input)*time.Second),
+	), nil
+}
+
 func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GracefulComplete("approval timed out"), nil
+	}
 	results, err := Approval.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
@@ -54,12 +83,30 @@ func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, e
   <SdkSnippet lang="java">
 
 ```java
-public StepDecision execute(final Context context, final Integer input) {
-    final List<String> approvals = approval.getConditionResults(context);
-    if (!approvals.isEmpty()) {
-        return StepDecision.gracefulComplete(approvals.get(0));
+final class ChannelWaitStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
     }
-    return StepDecision.goTo(waitForApproval, input);
+
+    @Override
+    public Wait waitFor(final Context context, final Integer input) {
+        return Wait.anyOf(
+                approval.forOne(),
+                Timer.byDuration(Duration.ofSeconds(input)));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        if (context.hasTimerFired()) {
+            return StepDecision.gracefulComplete("approval timed out");
+        }
+        final List<String> approvals = approval.getConditionResults(context);
+        if (!approvals.isEmpty()) {
+            return StepDecision.gracefulComplete(approvals.get(0));
+        }
+        return StepDecision.goTo(waitForApproval, input);
+    }
 }
 ```
 
@@ -67,25 +114,70 @@ public StepDecision execute(final Context context, final Integer input) {
   <SdkSnippet lang="typescript">
 
 ```typescript
-public execute(context: Context, input: number): StepDecision {
-  const approvals = approval.results(context);
-  if (approvals.length > 0) {
-    return gracefulComplete(approvals[0]!);
+const approval = new Channel("Approval", stringCodec);
+
+class ChannelWait implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "ChannelWait";
   }
-  return goTo(channelWaitStep, input);
+
+  public waitFor(_context: Context, input: number): Wait {
+    return Wait.anyOf(
+      approval.forOne(),
+      Timer.byDuration(input * 1000),
+    );
+  }
+
+  public execute(context: Context, input: number): StepDecision {
+    if (context.hasTimerFired()) {
+      return gracefulComplete("approval timed out");
+    }
+    const approvals = approval.results(context);
+    if (approvals.length > 0) {
+      return gracefulComplete(approvals[0]!);
+    }
+    return goTo(channelWaitStep, input);
+  }
 }
+
+const channelWaitStep = new ChannelWait();
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="rust">
 
 ```rust
-fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-    let approvals = approval().condition_results(context)?;
-    if let Some(value) = approvals.first() {
-        return Ok(StepDecision::graceful_complete(value.clone()));
+fn approval() -> Channel<String> {
+    Channel::new("Approval")
+}
+
+#[derive(Default)]
+struct ChannelWait;
+
+impl Step for ChannelWait {
+    type Input = i32;
+
+    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            approval().for_one(),
+            Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
+        ]))
     }
-    Ok(StepDecision::go_to(&ChannelWait, input))
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete(
+                "approval timed out".to_owned(),
+            ));
+        }
+        let approvals = approval().condition_results(context)?;
+        if let Some(value) = approvals.first() {
+            return Ok(StepDecision::graceful_complete(value.clone()));
+        }
+        Ok(StepDecision::go_to(&ChannelWait, input))
+    }
 }
 ```
 

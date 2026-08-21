@@ -56,6 +56,9 @@ func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 }
 
 func (channelWaitStep) Execute(ctx dex.Context, input int) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GracefulComplete("approval timed out"), nil
+	}
 	results, err := Approval.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
