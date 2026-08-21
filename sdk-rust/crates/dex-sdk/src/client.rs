@@ -987,6 +987,7 @@ impl Client {
             flow_already_started_options: Some(FlowAlreadyStartedOptions {
                 ignore_already_started_error: options.ignore_already_started,
             }),
+            ..Default::default()
         })
     }
 
