@@ -374,7 +374,7 @@ See more advanced [Step decision](/primitives/step/step-decision) for **DeadEnd*
 
 Most of the times, you need to customize failing handling -- timeout, retry and failure policy.  There are more advanced [Step options](/primitives/step/step-options) like heartbeat, durability etc.
 
-* Timeout customize the timeout of a single attempt of the method(WaitFor/Execute) invocation.
+* **Timeout** customize the timeout of a single attempt of the method(WaitFor/Execute) invocation.
 * **Retry policy** — re-invokes the **same** method on the **same** Step execution until attempts are exhausted.
 - **Failure policy** — decide what happens **after** retries end. Default is to fail the Flow. But WaitFor can run Execute anyway, or Execute can go to a recovery Step.
 

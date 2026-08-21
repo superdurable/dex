@@ -291,7 +291,7 @@ Execute 返回 **StepDecision**——指向一个或多个后续 Step 的 moveme
 
 大多数时候，需要自定义 failure handling —— timeout、retry 与 failure policy。还有 heartbeat、durability 等更高级的 [Step options](/primitives/step/step-options)。
 
-* Timeout 自定义一次方法（WaitFor/Execute）调用 attempt 的 timeout。
+* **Timeout** 自定义一次方法（WaitFor/Execute）调用 attempt 的 timeout。
 * **Retry policy** — 在**同一** Step execution 上重复调用**同一**方法，直到 attempt 耗尽。
 - **Failure policy** — 决定 retry 结束**之后**发生什么。默认失败 Flow，但 WaitFor 仍可运行 Execute，Execute 也可以前往 recovery Step。
 

@@ -8,12 +8,6 @@ slug: /primitives/step/step-options
 
 This page covers the advanced **StepOptions** features to deeply customize your Step type. See the [Basic Step](/primitives/step/basic#stepoptions) page for the basic features.
 
-## Method timeout and retry
-
-**WaitForMethodTimeout** and **ExecuteMethodTimeout** limit one invocation of the matching method. They do not limit how long the Step waits on a Channel, Timer, or SubFlow condition.
-
-When the method returns an error or times out, Dex applies **WaitForRetry** or **ExecuteRetry**. A retry invokes the same method again on the same Step execution. After retries exhaust, the failure policy decides whether the Flow fails, **Execute** proceeds, or a recovery Step starts. See [Basic Step](/primitives/step/basic#stepoptions).
-
 ## Custom retry
 
 Usually **RetryPolicy** decides the next retry interval. Use custom retry when the service you called tells you when to try again, for example a rate-limit response with a retry-after value.

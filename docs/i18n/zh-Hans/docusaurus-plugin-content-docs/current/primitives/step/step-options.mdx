@@ -8,12 +8,6 @@ slug: /primitives/step/step-options
 
 本页介绍用于深度定制你的 Step type 的 **StepOptions** 进阶功能。基础功能见 [Basic Step](/primitives/step/basic#stepoptions) 页面。
 
-## Method timeout and retry
-
-**WaitForMethodTimeout** 和 **ExecuteMethodTimeout** 限制对应方法的一次 invocation。它们不限制 Step 等待 Channel、Timer 或 SubFlow condition 的时间。
-
-方法返回 error 或 timeout 时，Dex 会使用 **WaitForRetry** 或 **ExecuteRetry**。retry 会再次调用同一个 Step execution 的同一个方法。retry 耗尽后，由 failure policy 决定 Flow 是否失败、是否继续 **Execute**，或是否启动 recovery Step。见 [Basic Step](/primitives/step/basic#stepoptions)。
-
 ## Custom retry
 
 通常由 **RetryPolicy** 决定下一次 retry 的间隔。被调用的服务告诉你何时再试时，可以用 custom retry，例如 rate limit 响应带有 retry-after 值。
