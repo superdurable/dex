@@ -313,7 +313,7 @@ Heartbeat 能让取消更早到达普通 handler。它不会让外部 API 调用
 
 Step implementation 返回的 **StepOptions** 默认适用于每一次 Step execution。有时为某一次 Step execution 动态 override 它们会很有用。
 
-要这样做，提供 **StepOptions** override，然后用 **StepDecision** 进入下一个 Step。
+让 **StepDecision** 进入下一个 Steps 时，提供 **StepOptions** override。
 
 <SdkTabs
   examples={{
