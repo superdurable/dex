@@ -81,14 +81,14 @@ Ok(StepDecision::go_to_many([
 
 | 决策 | 行为 |
 | --- | --- |
-| **GracefulComplete** | 停止当前分支。所有 active 和 queued Step 都结束后，Flow 才完成。 |
-| **DeadEnd** | 停止当前分支，并保持 Flow 打开。 |
-| **ForceComplete** | 不等待其他 Step，立即完成 Flow。 |
-| **ForceFail** | 不等待其他 Step，立即让 Flow 失败。 |
+| **GracefulComplete** | 停止当前分支，并触发 Flow 为完成做准备。所有分支和 Step 都停止后，Flow 完成。 |
+| **DeadEnd** | 只停止当前分支。 |
+| **ForceComplete** | 立即完成 Flow。 |
+| **ForceFail** | 立即让 Flow 失败。 |
 
-**GracefulComplete** 和 **ForceComplete** 可以返回 output。Flow result 会连同 Step type 和 Step execution ID 一起记录该 output。多个并行分支 graceful complete 时，应按这个 identity 识别每个结果，不要依赖结果列表中的顺序。
+**GracefulComplete** 和 **ForceComplete** 可以返回 output。**ForceFail** 返回 failure reason。Flow result 会连同 Step type 和 Step execution ID 一起返回每个 output。多个 Step graceful complete 时，它们的所有 output 会一起返回。
 
-剩余分支可以正常结束时，用 **GracefulComplete**。只在 RPC、Channel 或其他外部工作会恢复 Flow 时使用 **DeadEnd**。当某个分支决定整个 Flow 的结果时，例如 timeout 竞态，使用 **ForceComplete** 或 **ForceFail**。
+希望剩余 active Step 和分支 graceful finish 时，使用 **GracefulComplete**。不希望当前分支做出会触发 Flow 完成的决策时，使用 **DeadEnd**。希望立即做出决定时，使用 **ForceComplete** 或 **ForceFail**。
 
 <SdkTabs
   examples={{

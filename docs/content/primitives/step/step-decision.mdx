@@ -81,14 +81,14 @@ Ok(StepDecision::go_to_many([
 
 | Decision | What it does |
 | --- | --- |
-| **GracefulComplete** | Stops this branch. The Flow completes after every active and queued Step has finished. |
-| **DeadEnd** | Stops this branch and leaves the Flow open. |
-| **ForceComplete** | Completes the Flow immediately without waiting for other Steps. |
-| **ForceFail** | Fails the Flow immediately without waiting for other Steps. |
+| **GracefulComplete** | Stops this branch and triggers the Flow to prepare for completion. When all branches and Steps are stopped, the Flow completes. |
+| **DeadEnd** | Stops this branch only. |
+| **ForceComplete** | Completes the Flow immediately. |
+| **ForceFail** | Fails the Flow immediately. |
 
-**GracefulComplete** and **ForceComplete** can return an output. The Flow result records that output with the Step type and Step execution ID. When parallel branches complete gracefully, identify each result by that identity, not its order in the result list.
+**GracefulComplete** and **ForceComplete** can return an output. **ForceFail** returns a failure reason. The Flow result returns each output with the Step type and Step execution ID. When multiple Steps complete gracefully, all their outputs return together.
 
-Use **GracefulComplete** when the remaining branches can finish normally. Use **DeadEnd** only when an RPC, Channel, or other external work will resume the Flow. **ForceComplete** and **ForceFail** are useful when one branch decides the result for the whole Flow, such as a timeout race.
+Use **GracefulComplete** when you want the remaining active Steps and branches to finish gracefully. Use **DeadEnd** when you do not want this branch to make a decision that triggers the Flow to complete. Use **ForceComplete** or **ForceFail** when you want to make an immediate decision.
 
 <SdkTabs
   examples={{
