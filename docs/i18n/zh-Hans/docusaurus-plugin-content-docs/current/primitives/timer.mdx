@@ -5,14 +5,11 @@ slug: /primitives/timer
 
 # Timer
 
-A **Timer** is a durable Condition for **WaitFor**. It keeps a Step waiting
-until a duration elapses. Dex Server stores and schedules the Timer; it does not
-hold a Worker while the Step waits.
+**Timer** 是用于 **WaitFor** 的 durable Condition。它让 Step 等到一段时间过去。Dex Server 保存并调度 Timer；等待期间不会占住 Worker。
 
-## Wait for a duration
+## 等待一段时间
 
-Return **Wait.until** with a Timer. This Flow takes a number of seconds as its
-input, then runs **Execute** after that duration.
+在 **Wait.until** 中返回一个 Timer。下面这个 Flow 的输入是秒数，到时间后运行 **Execute**。
 
 <SdkTabs
   examples={{
@@ -120,15 +117,11 @@ impl Step for TimerStep {
 </SdkSnippet>
 </SdkTabs>
 
-Timer durations must be non-negative whole seconds. The TypeScript API accepts
-milliseconds, so its value must be divisible by 1,000. A zero-duration Timer is
-ready immediately.
+Timer 的时长必须是非负整数秒。TypeScript API 接受毫秒，因此传入值必须能被 1,000 整除。时长为零的 Timer 会立刻 ready。
 
-## Wait for work or a deadline
+## 等待工作或到期
 
-Most real waits have a deadline. **Wait.anyOf** lets a Channel or Timer finish
-the wait. **Execute** can then check whether a Timer fired before reading the
-Channel result.
+大多数等待都有一个截止时间。**Wait.anyOf** 让 Channel 或 Timer 任意一个完成等待。随后 **Execute** 可以先检查 Timer 是否触发，再读取 Channel 的结果。
 
 <SdkTabs
   examples={{
@@ -284,38 +277,18 @@ impl Step for ChannelWait {
 </SdkSnippet>
 </SdkTabs>
 
-**hasTimerFired** reports whether any Timer in the completed Wait fired. If the
-Wait has several Timers, use the indexed form to inspect one of them. **Wait.allOf**
-does the opposite of **Wait.anyOf**: it waits until every condition, including
-every Timer, completes.
+**hasTimerFired** 用于判断完成的 Wait 中是否有 Timer 已触发。如果 Wait 中有多个 Timer，使用带索引的形式检查其中一个。**Wait.allOf** 与 **Wait.anyOf** 相反：它会等到包括所有 Timer 在内的每一个 Condition 都完成。
 
-## Identify or skip a Timer
+## 标识或跳过 Timer
 
-Give a Timer a stable condition ID when code outside the Worker needs to target
-it. A **TimerID** or **TimerId** can select a Timer by that ID or by its
-zero-based position among the Timers in the Wait. Prefer a condition ID: a
-position changes when the Wait is reordered. Condition IDs must be unique within
-one Wait. Any-combination waits also require them.
+如果 Worker 外部的代码需要指定一个 Timer，就给它稳定的 condition ID。**TimerID** 或 **TimerId** 可以按这个 ID 选择 Timer，也可以按 Timer 在 Wait 中从零开始的位置选择。优先使用 condition ID：调整 Wait 的顺序会改变位置。一个 Wait 中的 condition ID 必须唯一。any-combination 等待也必须提供它们。
 
-Call **SkipTimer** with the Flow ID, **StepExecutionID** or **StepExecutionId**,
-and the Timer selector. It makes the selected pending Timer ready, so the Wait
-can proceed. Dex Server first reads the active Flow's pending Timers and rejects
-the call when the Flow is closed, the Step execution does not match, or the
-Timer is no longer pending. See [Client APIs](/primitives/client-apis) for the
-client operation.
+调用 **SkipTimer** 时传入 Flow ID、**StepExecutionID** 或 **StepExecutionId**，以及 Timer selector。它会让选中的 pending Timer ready，从而让 Wait 继续。Dex Server 先读取活跃 Flow 中 pending Timer；Flow 已关闭、Step execution 不匹配，或 Timer 已不再 pending 时，调用会被拒绝。客户端操作见 [Client APIs](/primitives/client-apis)。
 
-## How Timer time works
+## Timer 时间如何工作
 
-When **WaitFor** returns a Timer, Dex Server records an absolute deadline. The
-deadline is durable, so a Worker restart or **continue-as-new** does not start
-the duration again. The Timer becomes ready when workflow time reaches that
-deadline; **Execute** runs after Dex Server processes that event and a Worker
-can handle it. A Timer is durable scheduling, not a real-time guarantee.
+**WaitFor** 返回 Timer 后，Dex Server 会记录一个绝对 deadline。这个 deadline 是 durable 的，因此 Worker 重启或 **continue-as-new** 都不会重新开始计算时长。workflow time 到达 deadline 时 Timer 变为 ready；Dex Server 处理该事件并有 Worker 可以处理后，才会运行 **Execute**。Timer 是 durable scheduling，不是实时保证。
 
-For timing-sensitive work, use **SYNC** Step durability. With **ASYNC**
-durability, Dex Server may receive the **WaitFor** result later, which delays
-when it can schedule the Timer. See [Step options](/primitives/step/step-options#durability).
+对时间敏感的工作，使用 **SYNC** Step durability。使用 **ASYNC** durability 时，Dex Server 可能稍后才收到 **WaitFor** 的结果，因此也会稍后才能调度 Timer。参见 [Step options](/primitives/step/step-options#durability)。
 
-A Timer has one deadline. To extend a wait after new activity, create another
-Timer rather than changing the existing one. See the [resettable timer](/design-patterns/resettable-timer)
-pattern.
+一个 Timer 只有一个 deadline。要在新的 activity 到来后延长等待，请创建另一个 Timer，而不是修改已有的 Timer。参见 [resettable timer](/design-patterns/resettable-timer) pattern。
