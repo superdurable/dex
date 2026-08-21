@@ -13,6 +13,17 @@ brew install superdurable/tap/dexcli
 The Homebrew formula installs all runtime dependencies. Node.js is not required
 at runtime.
 
+When a released `dexcli` starts a local development environment, it checks the
+published `cli-v*` GitHub Releases in the background. If a newer version is
+available, the terminal shows a colored upgrade reminder:
+
+```bash
+brew update && brew upgrade dexcli
+```
+
+The check never delays startup. It is skipped for development builds and when
+GitHub cannot be reached.
+
 ## Start locally
 
 ```bash

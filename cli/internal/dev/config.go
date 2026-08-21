@@ -85,6 +85,7 @@ type Config struct {
 	explicitLocalFlags map[string]bool
 	// blobStoreDirectoryDefault defaults true and allows SQLiteDBFilename to select its adjacent store.
 	blobStoreDirectoryDefault bool
+	version                   string
 }
 
 func parseConfig(args []string, output io.Writer) (*Config, error) {
