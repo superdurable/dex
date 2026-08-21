@@ -17,12 +17,16 @@
 package io.superdurable.dex.primitives.attribute;
 
 import io.superdurable.dex.Attribute;
+import io.superdurable.dex.AttributeIndex;
+import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
+import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
@@ -30,6 +34,16 @@ import org.springframework.stereotype.Component;
 public final class AttributeFlow implements Flow<String> {
     private final Attribute<String> message =
             Attribute.define("primitive-attribute-message", String.class);
+    private final Attribute<String> status = Attribute.define(
+            "primitive-attribute-status",
+            String.class,
+            new AttributeIndex(AttributeIndex.Type.KEYWORD));
+    private final Attribute<String> email = Attribute.define(
+            "primitive-attribute-email",
+            String.class).syncToAttributeStore();
+    private final FlowConfig attributeStoreConfig = FlowConfig.newBuilder()
+            .attributeStoreName("profiles")
+            .build();
     private final AttributeStep start = new AttributeStep();
 
     @Override
@@ -39,13 +53,20 @@ public final class AttributeFlow implements Flow<String> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(message);
+        return PersistenceSchema.of(message, status, email);
     }
 
     final class AttributeStep implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder()
+                    .addExecuteLock(AttributeLock.of(message))
+                    .build();
         }
 
         @Override

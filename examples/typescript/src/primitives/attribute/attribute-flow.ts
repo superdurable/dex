@@ -16,6 +16,7 @@
 
 import {
   Attribute,
+  IndexType,
   StepList,
   Wait,
   goTo,
@@ -23,6 +24,7 @@ import {
   stringCodec,
   type Context,
   type Flow,
+  type FlowConfig,
   type PersistenceSchema,
   type Step,
   type StepDecision,
@@ -37,6 +39,10 @@ class AttributeStep implements Step<string> {
     return "AttributeStep";
   }
 
+  public getStepOptions() {
+    return { executeLockAttributes: [this.flow.message.lock()] };
+  }
+
   public waitFor(context: Context, input: string): Wait {
     this.flow.message.set(context, input);
     return Wait.skipImmediately();
@@ -49,6 +55,12 @@ class AttributeStep implements Step<string> {
 
 export class AttributeFlow implements Flow<string> {
   public readonly message = new Attribute("primitive-attribute-message", stringCodec);
+  public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
+    type: IndexType.KEYWORD,
+  });
+  public readonly email = new Attribute("primitive-attribute-email", stringCodec)
+    .syncToAttributeStore();
+  public readonly attributeStoreConfig: FlowConfig = { attributeStoreName: "profiles" };
   private readonly start = new AttributeStep(this);
 
   public getFlowType(): string {
@@ -60,7 +72,7 @@ export class AttributeFlow implements Flow<string> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.message] };
+    return { attributes: [this.message, this.status, this.email] };
   }
 }
 

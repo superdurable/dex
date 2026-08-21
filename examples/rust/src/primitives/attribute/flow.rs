@@ -13,11 +13,24 @@
 // limitations under the License.
 
 use dex_sdk::{
-    Attribute, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Wait,
+    Attribute, AttributeIndex, Context, Flow, FlowConfig, HandlerResult, PersistenceSchema, Step,
+    StepDecision, StepList, StepOptions, Wait,
 };
 
 fn message() -> Attribute<String> {
     Attribute::new("primitive-attribute-message")
+}
+
+fn status() -> Attribute<String> {
+    Attribute::new("primitive-attribute-status").indexed(AttributeIndex::keyword())
+}
+
+fn email() -> Attribute<String> {
+    Attribute::new("primitive-attribute-email").sync_to_attribute_store()
+}
+
+pub fn attribute_store_config() -> FlowConfig {
+    FlowConfig::new().attribute_store_name("profiles")
 }
 
 #[derive(Default)]
@@ -33,7 +46,10 @@ impl Flow for AttributeFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().attribute(&message())
+        PersistenceSchema::new()
+            .attribute(&message())
+            .attribute(&status())
+            .attribute(&email())
     }
 }
 
@@ -42,6 +58,10 @@ struct AttributeStep;
 
 impl Step for AttributeStep {
     type Input = String;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_lock(message().lock())
+    }
 
     fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
         message().set(context, input)?;

@@ -12,6 +12,94 @@ This page covers the parts of Attribute that change how a Flow is operated: sear
 
 An Attribute is not searchable unless you give its definition an **AttributeIndex**. Dex registers the index with the configured backend when the Worker starts, then updates it whenever that Attribute changes. You can use the field in **SearchFlows** queries.
 
+The same definition can opt into Attribute Store synchronization. Select the Server-configured Store with **FlowConfig** when starting the Flow or updating its configuration.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
+    go: 'examples/go/primitives/attribute/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
+    typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
+    rust: 'examples/rust/src/primitives/attribute/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class AttributeFlow(Flow[str]):
+    status = Attribute(
+        "primitive-attribute-status",
+        str,
+        index=AttributeIndex(IndexType.KEYWORD),
+    )
+    email = Attribute("primitive-attribute-email", str, sync_to_attribute_store=True)
+    attribute_store_config = FlowConfig(attribute_store_name="profiles")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var (
+	Status = dex.DefineAttribute[string](
+		"primitive-attribute-status",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
+	)
+	Email = dex.DefineAttribute[string](
+		"primitive-attribute-email",
+		dex.SyncToAttributeStore(),
+	)
+	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreName: ptr.Any("profiles")}
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+private final Attribute<String> status = Attribute.define(
+        "primitive-attribute-status",
+        String.class,
+        new AttributeIndex(AttributeIndex.Type.KEYWORD));
+private final Attribute<String> email = Attribute.define(
+        "primitive-attribute-email",
+        String.class).syncToAttributeStore();
+private final FlowConfig attributeStoreConfig = FlowConfig.newBuilder()
+        .attributeStoreName("profiles")
+        .build();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
+  type: IndexType.KEYWORD,
+});
+public readonly email = new Attribute("primitive-attribute-email", stringCodec)
+  .syncToAttributeStore();
+public readonly attributeStoreConfig: FlowConfig = { attributeStoreName: "profiles" };
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn status() -> Attribute<String> {
+    Attribute::new("primitive-attribute-status").indexed(AttributeIndex::keyword())
+}
+
+fn email() -> Attribute<String> {
+    Attribute::new("primitive-attribute-email").sync_to_attribute_store()
+}
+
+pub fn attribute_store_config() -> FlowConfig {
+    FlowConfig::new().attribute_store_name("profiles")
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
 Choose the index type from the value you plan to write:
 
 | Index type | Value |
@@ -53,6 +141,65 @@ Declare an Attribute lock on the Step method or RPC that performs that sequence.
 **WaitFor** and **Execute** have separate lock options. A lock held by **WaitFor** is released before the Flow starts waiting, and is not held until **Execute** later runs. Add the lock to the method that actually reads and changes the value.
 
 Keep the locked set small. Locking an unrelated Attribute reduces concurrency. Missing a conflicting Attribute leaves a race. Client **GetAttributes** followed by **SetAttributes** is not a locked read-modify-write operation; put that operation in an RPC when it must be serialized.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
+    go: 'examples/go/primitives/attribute/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
+    typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
+    rust: 'examples/rust/src/primitives/attribute/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(execute_lock_attributes=(self.flow.message.lock(),))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (attributeStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(Message)},
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@Override
+public StepOptions getStepOptions() {
+    return StepOptions.newBuilder()
+            .addExecuteLock(AttributeLock.of(message))
+            .build();
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public getStepOptions() {
+  return { executeLockAttributes: [this.flow.message.lock()] };
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn options(&self) -> StepOptions<Self::Input> {
+    StepOptions::new().execute_lock(message().lock())
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 RPC Attribute locking uses Temporal synchronous Updates and is unavailable with Cadence. Step Attribute locks work through normal Step execution.
 

@@ -20,11 +20,25 @@
 
 package attribute
 
-import "github.com/superdurable/dex/sdk-go/dex"
+import (
+	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
+)
 
 const messageAttributeName = "primitive-attribute-message"
 
-var Message = dex.DefineAttribute[string](messageAttributeName)
+var (
+	Message = dex.DefineAttribute[string](messageAttributeName)
+	Status  = dex.DefineAttribute[string](
+		"primitive-attribute-status",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
+	)
+	Email = dex.DefineAttribute[string](
+		"primitive-attribute-email",
+		dex.SyncToAttributeStore(),
+	)
+	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreName: ptr.Any("profiles")}
+)
 
 type AttributeFlow struct {
 	dex.FlowDefaults
@@ -39,11 +53,17 @@ func (*AttributeFlow) GetSteps() []dex.StepDef {
 }
 
 func (*AttributeFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Message}}
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Message, Status, Email}}
 }
 
 type attributeStep struct {
 	dex.StepDefaults
+}
+
+func (attributeStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(Message)},
+	}
 }
 
 func (attributeStep) WaitFor(ctx dex.Context, input string) (*dex.Wait, error) {

@@ -18,12 +18,16 @@ from __future__ import annotations
 
 from dex import (
     Attribute,
+    AttributeIndex,
     Context,
     Flow,
+    FlowConfig,
+    IndexType,
     PersistenceSchema,
     Step,
     StepDecision,
     StepList,
+    StepOptions,
     Wait,
     graceful_complete,
 )
@@ -37,6 +41,9 @@ class AttributeStep(Step[str]):
         self.flow.message.set(context, input)
         return Wait.skip_immediately()
 
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_lock_attributes=(self.flow.message.lock(),))
+
     def execute(self, context: Context, input: str) -> StepDecision:
         del input
         return graceful_complete(self.flow.message.get(context))
@@ -44,6 +51,13 @@ class AttributeStep(Step[str]):
 
 class AttributeFlow(Flow[str]):
     message = Attribute("primitive-attribute-message", str)
+    status = Attribute(
+        "primitive-attribute-status",
+        str,
+        index=AttributeIndex(IndexType.KEYWORD),
+    )
+    email = Attribute("primitive-attribute-email", str, sync_to_attribute_store=True)
+    attribute_store_config = FlowConfig(attribute_store_name="profiles")
 
     def __init__(self) -> None:
         self.start = AttributeStep(self)
@@ -52,4 +66,4 @@ class AttributeFlow(Flow[str]):
         return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.message)
+        return PersistenceSchema.of(self.message, self.status, self.email)
