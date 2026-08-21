@@ -84,7 +84,7 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 Step 通常应当是 idempotent，所以一般可以安全使用 **ASYNC** durability。它是大多数 Step 的默认值。
 
-使用 recovery failure policy 的 Step 默认使用 **SYNC** durability。业务可能假设 Flow 进入后续的 **Execute** 方法或 recovery Step 后，不会再回到前一个方法。**SYNC** 会先持久化前一个 completion。
+使用 recovery failure policy 的 Step 默认使用 **SYNC** durability。业务可能假设 Flow 进入后续的 Execute 方法或 recovery Step 后，不会再回到前一个方法。
 
 用 **FlowConfig** 设置默认 durability。这个默认值不适用于使用 recovery failure policy 的方法。如需 override 这些方法的 durability，在该 Step 的 **StepOptions** 中设置。
 

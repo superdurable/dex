@@ -84,7 +84,7 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 A Step should usually be idempotent, so **ASYNC** durability is generally safe to use. It is the default for most Steps.
 
-Steps with a recovery failure policy default to **SYNC** durability. The business may assume that once a Flow enters the following **Execute** method or recovery Step, it does not go back to the previous method. **SYNC** persists the previous completion first.
+Steps with a recovery failure policy default to **SYNC** durability. The business may assume that once a Flow enters the following Execute method or recovery Step, it does not go back to the previous method.
 
 Set the default durability with **FlowConfig**. This default does not apply to a method with a recovery failure policy. To override the durability for that method, set it in the Step's **StepOptions**.
 
