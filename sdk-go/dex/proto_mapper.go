@@ -131,7 +131,6 @@ func mapStartFlowOptions(
 	}
 	return timeout, timeoutPolicy, &dexpb.FlowStartOptions{
 		IdReusePolicy:         idReuse,
-		CronSchedule:          options.CronSchedule,
 		FlowStartDelaySeconds: startDelay,
 		RetryPolicy:           retry,
 		Attributes:            attributes,

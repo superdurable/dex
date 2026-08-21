@@ -150,8 +150,6 @@ type StartFlowOptions struct {
 	TimeoutPolicy FlowTimeoutPolicy
 	// IDReusePolicy controls reuse of an existing Flow ID.
 	IDReusePolicy IDReusePolicy
-	// CronSchedule is the server cron expression for recurring runs.
-	CronSchedule string
 	// StartDelay postpones the first Step after start acceptance.
 	StartDelay *time.Duration
 	// RetryPolicy configures whole-Flow retries after terminal failures.

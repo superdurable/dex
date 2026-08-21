@@ -21,8 +21,57 @@
 package cron
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/superdurable/dex/sdk-go/dex"
 )
+
+var (
+	Trigger = dex.DefineChannel[dex.None]("cron-schedule-trigger")
+	Skip    = dex.DefineChannel[dex.None]("cron-schedule-skip")
+)
+
+type IntervalUnit string
+
+const (
+	Minute IntervalUnit = "minute"
+	Hour   IntervalUnit = "hour"
+	Day    IntervalUnit = "day"
+)
+
+type Interval struct {
+	Value int
+	Unit  IntervalUnit
+}
+
+func (interval Interval) Duration() time.Duration {
+	switch interval.Unit {
+	case Minute:
+		return time.Duration(interval.Value) * time.Minute
+	case Hour:
+		return time.Duration(interval.Value) * time.Hour
+	case Day:
+		return time.Duration(interval.Value) * 24 * time.Hour
+	default:
+		return 0
+	}
+}
+
+type CronScheduleInput struct {
+	Interval Interval
+	RunCount int
+}
+
+type cronScheduleState struct {
+	Interval      Interval
+	RemainingRuns int
+}
+
+type cronScheduleRun struct {
+	RunNumber int
+	IsFinal   bool
+}
 
 type CronScheduleFlow struct {
 	dex.FlowDefaults
@@ -34,23 +83,100 @@ func NewCronScheduleFlow() *CronScheduleFlow {
 
 func (*CronScheduleFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(cronScheduleStep{}),
+		dex.DefineStartStep(startCronSchedule{}),
+		dex.DefineStep(waitForCronSchedule{}),
+		dex.DefineStep(runCronSchedule{}),
 	}
 }
 
 func (*CronScheduleFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{}
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{Trigger, Skip}}
 }
 
-type cronScheduleStep struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
+type startCronSchedule struct {
+	dex.StepDefaultsNoWaitFor[CronScheduleInput]
 }
 
-func (cronScheduleStep) Execute(
-	ctx dex.Context,
-	_ dex.None,
+func (startCronSchedule) Execute(
+	_ dex.Context,
+	input CronScheduleInput,
 ) (*dex.StepDecision, error) {
-	return dex.GracefulComplete(nil), nil
+	if input.RunCount <= 0 || input.Interval.Value <= 0 || input.Interval.Duration() <= 0 {
+		return dex.ForceFail("interval value and run count must be positive"), nil
+	}
+	return dex.GoTo(waitForCronSchedule{}, cronScheduleState{
+		Interval:      input.Interval,
+		RemainingRuns: input.RunCount,
+	}), nil
+}
+
+type waitForCronSchedule struct {
+	dex.StepDefaults
+}
+
+func (waitForCronSchedule) WaitFor(
+	_ dex.Context,
+	state cronScheduleState,
+) (*dex.Wait, error) {
+	return dex.AnyOf(
+		dex.Timer(state.Interval.Duration()),
+		Trigger.ForOne(),
+		Skip.ForOne(),
+	), nil
+}
+
+func (waitForCronSchedule) Execute(
+	ctx dex.Context,
+	state cronScheduleState,
+) (*dex.StepDecision, error) {
+	skipResults, err := Skip.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(skipResults) > 0 {
+		return nextCronSchedule(state), nil
+	}
+	return runCronScheduleNow(state), nil
+}
+
+func nextCronSchedule(state cronScheduleState) *dex.StepDecision {
+	if state.RemainingRuns == 1 {
+		return dex.GracefulComplete(nil)
+	}
+	state.RemainingRuns--
+	return dex.GoTo(waitForCronSchedule{}, state)
+}
+
+func runCronScheduleNow(state cronScheduleState) *dex.StepDecision {
+	run := cronScheduleRun{
+		RunNumber: state.RemainingRuns,
+		IsFinal:   state.RemainingRuns == 1,
+	}
+	if run.IsFinal {
+		return dex.GoTo(runCronSchedule{}, run)
+	}
+	state.RemainingRuns--
+	return dex.GoToMulti(
+		dex.MovementOf(runCronSchedule{}, run),
+		dex.MovementOf(waitForCronSchedule{}, state),
+	)
+}
+
+type runCronSchedule struct {
+	dex.StepDefaultsNoWaitFor[cronScheduleRun]
+}
+
+func (runCronSchedule) Execute(
+	ctx dex.Context,
+	run cronScheduleRun,
+) (*dex.StepDecision, error) {
+	if err := ctx.RecordEvent("cron-schedule-run", fmt.Sprintf("run-%d", run.RunNumber)); err != nil {
+		return nil, err
+	}
+	if run.IsFinal {
+		return dex.GracefulComplete(nil), nil
+	}
+	return dex.DeadEnd(), nil
 }
 
 var _ dex.Flow = (*CronScheduleFlow)(nil)

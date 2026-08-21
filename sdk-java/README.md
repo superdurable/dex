@@ -97,7 +97,7 @@ StartFlowOptions options = StartFlowOptions.newBuilder()
 `FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow retry; `CANCEL`
 cancels without retry. `SubFlowOptions` exposes the same `timeoutPolicy(...)`
 override. Continue-as-new preserves the deadline and handler execution, while
-retry and cron runs receive a fresh budget. A zero or absent timeout disables
+retry runs receive a fresh budget. A zero or absent timeout disables
 the feature.
 
 ### Canceling Step executions

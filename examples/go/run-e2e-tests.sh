@@ -133,12 +133,16 @@ if ! $dex_ready; then
 fi
 
 cd "$script_dir"
+(
+  cd "$test_dir"
+  go work init "$script_dir" "$repo_root/sdk-go" "$repo_root/blob-cache-go"
+)
 common_test_env=(
   DEX_FLOW_SERVICE_ADDRESS="$dex_address"
   DEX_WORKER_HOST=127.0.0.1
   GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}"
   GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}"
-  GOWORK=off
+  GOWORK="$test_dir/go.work"
 )
 integ_status=0
 env "${common_test_env[@]}" \

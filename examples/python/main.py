@@ -21,11 +21,14 @@ import asyncio
 from dex import FlowAlreadyStartedError, StartFlowOptions
 
 from dex_examples.app import ExampleApp
-from dex_examples.config import DEFAULT_TIMEOUT, ExamplesConfig
+from dex_examples.config import ExamplesConfig
 from dex_examples.http_app import create_app
-
-CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample"
-CRON_EXPRESSION = "0 * * * *"
+from dex_examples.patterns.cron.cron_schedule_flow import (
+    CRON_SCHEDULE_FLOW_ID,
+    CronScheduleInput,
+    Interval,
+    IntervalUnit,
+)
 
 
 async def main() -> None:
@@ -50,11 +53,10 @@ async def start_cron_schedule(app_state: ExampleApp) -> None:
         await app_state.client.start_flow(
             app_state.cron_schedule,
             CRON_SCHEDULE_FLOW_ID,
-            None,
-            StartFlowOptions(timeout=DEFAULT_TIMEOUT, cron_schedule=CRON_EXPRESSION),
+            CronScheduleInput(Interval(1, IntervalUnit.HOUR), 10),
+            StartFlowOptions(),
         )
     except FlowAlreadyStartedError:
-        # ignore_already_started resolves the current run, which cron schedules lack.
         pass
 
 

@@ -28,11 +28,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
+	"github.com/superdurable/dex/examples/go/patterns/cron"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
@@ -51,8 +51,8 @@ import (
 	primitivechannel "github.com/superdurable/dex/examples/go/primitives/channel"
 	primitiveclientapis "github.com/superdurable/dex/examples/go/primitives/client-apis"
 	primitivecustomretry "github.com/superdurable/dex/examples/go/primitives/custom-retry"
-	primitiveflow "github.com/superdurable/dex/examples/go/primitives/flow"
 	primitivedurability "github.com/superdurable/dex/examples/go/primitives/durability"
+	primitiveflow "github.com/superdurable/dex/examples/go/primitives/flow"
 	primitiveheartbeat "github.com/superdurable/dex/examples/go/primitives/heartbeat"
 	primitiveoptionsoverride "github.com/superdurable/dex/examples/go/primitives/options-override"
 	primitiveproceedonwaitfailure "github.com/superdurable/dex/examples/go/primitives/proceed-on-wait-failure"
@@ -285,23 +285,22 @@ func (server *sampleServer) close() error {
 }
 
 func startCronSchedule(client *sdk.Client) {
-	timeout := time.Hour
+	timeout := 24 * time.Hour
 	_, err := client.StartFlow(
 		context.Background(),
 		registry.CronSchedule,
 		"cron-schedule-sample",
-		nil,
+		cron.CronScheduleInput{
+			Interval: cron.Interval{Value: 1, Unit: cron.Hour},
+			RunCount: 10,
+		},
 		sdk.StartFlowOptions{
-			Timeout:      &timeout,
-			CronSchedule: "0 * * * *",
+			Timeout: &timeout,
 		},
 	)
 	if err != nil {
 		var duplicate *sdk.FlowAlreadyStartedError
 		if errors.As(err, &duplicate) {
-			return
-		}
-		if strings.Contains(err.Error(), "no run ID") {
 			return
 		}
 		panic(fmt.Errorf("start cron schedule sample: %w", err))

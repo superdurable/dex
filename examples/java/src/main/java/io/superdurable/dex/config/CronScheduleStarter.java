@@ -17,19 +17,15 @@
 package io.superdurable.dex.config;
 
 import io.superdurable.dex.Client;
-import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.patterns.cron.CronScheduleFlow;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-
 @Component
 public class CronScheduleStarter {
     public static final String CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample";
-    private static final String CRON_EXPRESSION = "0 * * * *";
 
     private final Client client;
     private final CronScheduleFlow cronScheduleFlow;
@@ -46,11 +42,9 @@ public class CronScheduleStarter {
             client.startFlow(
                     cronScheduleFlow,
                     CRON_SCHEDULE_FLOW_ID,
-                    null,
-                    StartFlowOptions.newBuilder()
-                            .timeout(Duration.ofHours(1))
-                            .cronSchedule(CRON_EXPRESSION)
-                            .build());
+                    new CronScheduleFlow.Input(
+                            new CronScheduleFlow.Interval(1, CronScheduleFlow.IntervalUnit.HOUR),
+                            10));
         } catch (final FlowAlreadyStartedException ignored) {
         }
     }

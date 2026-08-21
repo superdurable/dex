@@ -22,89 +22,77 @@ public interface FlowStartOptionsOrBuilder extends
   io.superdurable.gen.IdReusePolicy getIdReusePolicy();
 
   /**
-   * <code>string cron_schedule = 2;</code>
-   * @return The cronSchedule.
-   */
-  java.lang.String getCronSchedule();
-  /**
-   * <code>string cron_schedule = 2;</code>
-   * @return The bytes for cronSchedule.
-   */
-  com.google.protobuf.ByteString
-      getCronScheduleBytes();
-
-  /**
-   * <code>int32 flow_start_delay_seconds = 3;</code>
+   * <code>int32 flow_start_delay_seconds = 2;</code>
    * @return The flowStartDelaySeconds.
    */
   int getFlowStartDelaySeconds();
 
   /**
-   * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+   * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
    * @return Whether the retryPolicy field is set.
    */
   boolean hasRetryPolicy();
   /**
-   * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+   * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
    * @return The retryPolicy.
    */
   io.superdurable.gen.FlowRetryPolicy getRetryPolicy();
   /**
-   * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+   * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
    */
   io.superdurable.gen.FlowRetryPolicyOrBuilder getRetryPolicyOrBuilder();
 
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   java.util.List<io.superdurable.gen.AttributeWrite> 
       getAttributesList();
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   io.superdurable.gen.AttributeWrite getAttributes(int index);
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   int getAttributesCount();
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
       getAttributesOrBuilderList();
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   io.superdurable.gen.AttributeWriteOrBuilder getAttributesOrBuilder(
       int index);
 
   /**
-   * <code>.dex.FlowConfig flow_config_override = 6;</code>
+   * <code>.dex.FlowConfig flow_config_override = 5;</code>
    * @return Whether the flowConfigOverride field is set.
    */
   boolean hasFlowConfigOverride();
   /**
-   * <code>.dex.FlowConfig flow_config_override = 6;</code>
+   * <code>.dex.FlowConfig flow_config_override = 5;</code>
    * @return The flowConfigOverride.
    */
   io.superdurable.gen.FlowConfig getFlowConfigOverride();
   /**
-   * <code>.dex.FlowConfig flow_config_override = 6;</code>
+   * <code>.dex.FlowConfig flow_config_override = 5;</code>
    */
   io.superdurable.gen.FlowConfigOrBuilder getFlowConfigOverrideOrBuilder();
 
   /**
-   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
    * @return Whether the flowAlreadyStartedOptions field is set.
    */
   boolean hasFlowAlreadyStartedOptions();
   /**
-   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
    * @return The flowAlreadyStartedOptions.
    */
   io.superdurable.gen.FlowAlreadyStartedOptions getFlowAlreadyStartedOptions();
   /**
-   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
    */
   io.superdurable.gen.FlowAlreadyStartedOptionsOrBuilder getFlowAlreadyStartedOptionsOrBuilder();
 }

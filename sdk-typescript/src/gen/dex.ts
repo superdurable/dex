@@ -330,7 +330,6 @@ export interface FlowAlreadyStartedOptions {
 
 export interface FlowStartOptions {
   idReusePolicy: IdReusePolicy;
-  cronSchedule: string;
   flowStartDelaySeconds: number;
   retryPolicy: FlowRetryPolicy | undefined;
   attributes: AttributeWrite[];
@@ -2510,7 +2509,6 @@ export const FlowAlreadyStartedOptions: MessageFns<FlowAlreadyStartedOptions> = 
 function createBaseFlowStartOptions(): FlowStartOptions {
   return {
     idReusePolicy: 0,
-    cronSchedule: "",
     flowStartDelaySeconds: 0,
     retryPolicy: undefined,
     attributes: [],
@@ -2524,23 +2522,20 @@ export const FlowStartOptions: MessageFns<FlowStartOptions> = {
     if (message.idReusePolicy !== 0) {
       writer.uint32(8).int32(message.idReusePolicy);
     }
-    if (message.cronSchedule !== "") {
-      writer.uint32(18).string(message.cronSchedule);
-    }
     if (message.flowStartDelaySeconds !== 0) {
-      writer.uint32(24).int32(message.flowStartDelaySeconds);
+      writer.uint32(16).int32(message.flowStartDelaySeconds);
     }
     if (message.retryPolicy !== undefined) {
-      FlowRetryPolicy.encode(message.retryPolicy, writer.uint32(34).fork()).join();
+      FlowRetryPolicy.encode(message.retryPolicy, writer.uint32(26).fork()).join();
     }
     for (const v of message.attributes) {
-      AttributeWrite.encode(v!, writer.uint32(42).fork()).join();
+      AttributeWrite.encode(v!, writer.uint32(34).fork()).join();
     }
     if (message.flowConfigOverride !== undefined) {
-      FlowConfig.encode(message.flowConfigOverride, writer.uint32(50).fork()).join();
+      FlowConfig.encode(message.flowConfigOverride, writer.uint32(42).fork()).join();
     }
     if (message.flowAlreadyStartedOptions !== undefined) {
-      FlowAlreadyStartedOptions.encode(message.flowAlreadyStartedOptions, writer.uint32(58).fork()).join();
+      FlowAlreadyStartedOptions.encode(message.flowAlreadyStartedOptions, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -2561,19 +2556,19 @@ export const FlowStartOptions: MessageFns<FlowStartOptions> = {
           continue;
         }
         case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.cronSchedule = reader.string();
-          continue;
-        }
-        case 3: {
-          if (tag !== 24) {
+          if (tag !== 16) {
             break;
           }
 
           message.flowStartDelaySeconds = reader.int32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.retryPolicy = FlowRetryPolicy.decode(reader, reader.uint32());
           continue;
         }
         case 4: {
@@ -2581,7 +2576,7 @@ export const FlowStartOptions: MessageFns<FlowStartOptions> = {
             break;
           }
 
-          message.retryPolicy = FlowRetryPolicy.decode(reader, reader.uint32());
+          message.attributes.push(AttributeWrite.decode(reader, reader.uint32()));
           continue;
         }
         case 5: {
@@ -2589,19 +2584,11 @@ export const FlowStartOptions: MessageFns<FlowStartOptions> = {
             break;
           }
 
-          message.attributes.push(AttributeWrite.decode(reader, reader.uint32()));
+          message.flowConfigOverride = FlowConfig.decode(reader, reader.uint32());
           continue;
         }
         case 6: {
           if (tag !== 50) {
-            break;
-          }
-
-          message.flowConfigOverride = FlowConfig.decode(reader, reader.uint32());
-          continue;
-        }
-        case 7: {
-          if (tag !== 58) {
             break;
           }
 
@@ -2623,7 +2610,6 @@ export const FlowStartOptions: MessageFns<FlowStartOptions> = {
   fromPartial<I extends Exact<DeepPartial<FlowStartOptions>, I>>(object: I): FlowStartOptions {
     const message = createBaseFlowStartOptions();
     message.idReusePolicy = object.idReusePolicy ?? 0;
-    message.cronSchedule = object.cronSchedule ?? "";
     message.flowStartDelaySeconds = object.flowStartDelaySeconds ?? 0;
     message.retryPolicy = (object.retryPolicy !== undefined && object.retryPolicy !== null)
       ? FlowRetryPolicy.fromPartial(object.retryPolicy)

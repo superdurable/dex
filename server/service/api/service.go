@@ -204,9 +204,6 @@ func (s *serviceImpl) StartFlow(
 			}
 			workflowOptions.IdReusePolicy = ptr.Any(startOptions.GetIdReusePolicy())
 		}
-		if startOptions.GetCronSchedule() != "" {
-			workflowOptions.CronSchedule = ptr.Any(startOptions.GetCronSchedule())
-		}
 		workflowOptions.RetryPolicy = startOptions.GetRetryPolicy()
 		if startOptions.GetFlowStartDelaySeconds() < 0 {
 			return nil, makeInvalidRequestError("flow start delay must be non-negative")

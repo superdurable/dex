@@ -102,7 +102,7 @@ the shared playground.
 # Directory organization
 
 Each language tree groups Flows the same way. HTTP controllers use these
-prefixes (cron schedule and some Worker-only examples have no HTTP surface):
+prefixes (some Worker-only examples have no HTTP surface):
 
 | Category | Purpose | HTTP prefix |
 |----------|---------|-------------|

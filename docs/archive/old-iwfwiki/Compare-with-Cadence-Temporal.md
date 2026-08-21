@@ -89,7 +89,7 @@ Some notes:
 ## Non-workflow code
 Check [Client APIs](Client-APIs.md) for all the APIs that are equivalent to Cadence/Temporal client APIs.
 
-Features like `IdReusePolicy`, `CronSchedule`, `RetryPolicy` are also supported in Dex.
+Features like `IdReusePolicy` and `RetryPolicy` are also supported in Dex.
 
 What's more, there are features that are impossible in Cadence/Temporal are provided like reset workflow by StateId or StateExecutionId. 
 Because WorkflowState are explicitly defined, resetting API is a lot more friendly to use. 
@@ -114,4 +114,3 @@ So what about something else like:
 * Long-running activity with stateful recovery(heartbeat details): this is indeed a good one that we want to add. But this is not very commonly used yet. Please let us know if you really need it. For now a workaround is use a sub workflow instead(the sub workflow can report back the status with a signal).
 
 If you believe there is something else you really need, open a [ticket](https://github.com/indeedeng/iwf/issues) or join us in the [discussion](https://github.com/indeedeng/iwf/discussions).
-

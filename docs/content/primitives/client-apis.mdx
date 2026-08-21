@@ -100,7 +100,7 @@ when the Flow has no hook. A non-default policy without a positive timeout is
 invalid.
 
 The timeout budget begins when each actual workflow run starts. Backend retry
-and cron runs receive a new budget. Continue-as-new preserves the absolute
+and retries receive a new budget. Continue-as-new preserves the absolute
 deadline and the same timeout-handler Step execution.
 
 Every positive timeout is represented by one internal **sys:timeout_handler**

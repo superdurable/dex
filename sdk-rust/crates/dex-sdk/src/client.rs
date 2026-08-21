@@ -966,7 +966,8 @@ impl Client {
             } else {
                 None
             };
-        Ok(FlowStartOptions {
+        #[allow(clippy::needless_update)]
+        let flow_start_options = FlowStartOptions {
             id_reuse_policy: match options.id_reuse_policy {
                 IdReusePolicy::Default => ProtoIdReusePolicy::Unspecified,
                 IdReusePolicy::AllowIfPreviousFailed => {
@@ -976,7 +977,6 @@ impl Client {
                 IdReusePolicy::Disallow => ProtoIdReusePolicy::DisallowReuse,
                 IdReusePolicy::TerminateIfRunning => ProtoIdReusePolicy::AllowTerminateIfRunning,
             } as i32,
-            cron_schedule: options.cron_schedule.clone().unwrap_or_default(),
             flow_start_delay_seconds: optional_seconds(options.start_delay)?,
             retry_policy: options
                 .retry_policy
@@ -988,7 +988,9 @@ impl Client {
             flow_already_started_options: Some(FlowAlreadyStartedOptions {
                 ignore_already_started_error: options.ignore_already_started,
             }),
-        })
+            ..Default::default()
+        };
+        Ok(flow_start_options)
     }
 
     fn map_flow_config(&self, config: Option<&FlowConfig>) -> SdkResult<ProtoFlowConfig> {

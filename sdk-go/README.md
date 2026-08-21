@@ -159,7 +159,7 @@ options := dex.StartFlowOptions{
 
 The hook is Execute-only, receives no input, and runs at most once after its
 durable timer fires or is skipped. It may use `Context` normally and return any
-`StepDecision`. Continue-as-new preserves its deadline; retry and cron runs get
+`StepDecision`. Continue-as-new preserves its deadline; retry runs get
 a fresh timeout budget. Zero or nil timeout disables the feature.
 
 Use `dex.None` when a Step, RPC, or Channel has no application payload, and pass

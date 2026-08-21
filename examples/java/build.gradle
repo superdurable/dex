@@ -18,6 +18,9 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 repositories {
+    if (providers.gradleProperty("useCurrentSdk").isPresent()) {
+        mavenLocal()
+    }
     mavenCentral()
 }
 

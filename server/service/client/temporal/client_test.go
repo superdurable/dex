@@ -11,7 +11,6 @@
 package temporal
 
 import (
-	"errors"
 	"testing"
 	"time"
 
@@ -32,20 +31,5 @@ func TestAlreadyStartedErrorForWorkflow(t *testing.T) {
 	})
 
 	err := &serviceerror.WorkflowExecutionAlreadyStarted{}
-	assert.Equal(t, true, client.IsWorkflowAlreadyStartedError(err))
-}
-
-func TestAlreadyStartedErrorForCronWorkflow(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	mockRealTemporalClient := NewMockClient(ctrl)
-	mockDataConverter := NewMockDataConverter(ctrl)
-
-	client := NewTemporalClient(mockRealTemporalClient, "test-ns", mockDataConverter, false, &config.RetryPolicy{
-		InitialInterval: time.Second,
-		MaximumAttempts: 5,
-	})
-
-	err := errors.New("schedule with this ID is already registered")
-
 	assert.Equal(t, true, client.IsWorkflowAlreadyStartedError(err))
 }

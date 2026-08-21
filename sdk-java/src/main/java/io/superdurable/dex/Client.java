@@ -1086,7 +1086,6 @@ public final class Client implements AutoCloseable {
     FlowStartOptions mapStartOptions(final StartFlowOptions options) {
         final FlowStartOptions.Builder mapped = FlowStartOptions.newBuilder()
                 .setIdReusePolicy(mapIdReuse(options.getIdReusePolicy()))
-                .setCronSchedule(options.getCronSchedule() == null ? "" : options.getCronSchedule())
                 .setFlowAlreadyStartedOptions(FlowAlreadyStartedOptions.newBuilder()
                         .setIgnoreAlreadyStartedError(options.isIgnoreAlreadyStarted()));
         if (options.getStartDelay() != null) {

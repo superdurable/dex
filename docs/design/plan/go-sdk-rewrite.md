@@ -1195,7 +1195,7 @@ non-negative and rounds up when positive.
 Initial attributes are already constructed through `InitialAttribute` and
 `InitialAttributeMapValue`. Request assembly revalidates their physical names,
 encoded concrete values, index configuration, and uniqueness. Flow config,
-retry, reuse, cron, and already-started options use the Phase 2 mappers.
+retry, reuse, and already-started options use the Phase 2 mappers.
 
 The response must contain a non-empty run ID. `AlreadyStarted.IgnoreError`
 retains server behavior: the same flow ID returns the existing run only when
@@ -2508,7 +2508,6 @@ type StartFlowOptions struct {
 	Timeout        *time.Duration
 	TimeoutPolicy  FlowTimeoutPolicy
 	IDReusePolicy  IDReusePolicy
-	CronSchedule   string
 	StartDelay     *time.Duration
 	RetryPolicy    *FlowRetryPolicy
 	Attributes     []InitialAttributeDef
@@ -2642,8 +2641,8 @@ timeout uses `TimeoutHandler` when the registered Flow implements
 `FlowTimeoutHandler`; otherwise it uses `TimeoutFail`. Explicit
 `TimeoutHandler` without that capability fails locally. `TimeoutFail` produces
 `FlowErrorTypeFlowTimeout` and permits Flow retry, while `TimeoutCancel` does
-not retry. Continue-as-new preserves the absolute deadline; retry and cron runs
-receive a new budget.
+not retry. Continue-as-new preserves the absolute deadline; retry runs receive
+a new budget.
 `StartFlowOptions.StartDelay == nil` omits the start delay. Starting-step
 options come from the step wrapped by `DefineStartStep`; StartFlow has no
 separate step-options override.

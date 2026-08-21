@@ -436,22 +436,20 @@ class FlowAlreadyStartedOptions(_message.Message):
     def __init__(self, ignore_already_started_error: _Optional[bool] = ...) -> None: ...
 
 class FlowStartOptions(_message.Message):
-    __slots__ = ("id_reuse_policy", "cron_schedule", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override", "flow_already_started_options")
+    __slots__ = ("id_reuse_policy", "flow_start_delay_seconds", "retry_policy", "attributes", "flow_config_override", "flow_already_started_options")
     ID_REUSE_POLICY_FIELD_NUMBER: _ClassVar[int]
-    CRON_SCHEDULE_FIELD_NUMBER: _ClassVar[int]
     FLOW_START_DELAY_SECONDS_FIELD_NUMBER: _ClassVar[int]
     RETRY_POLICY_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTES_FIELD_NUMBER: _ClassVar[int]
     FLOW_CONFIG_OVERRIDE_FIELD_NUMBER: _ClassVar[int]
     FLOW_ALREADY_STARTED_OPTIONS_FIELD_NUMBER: _ClassVar[int]
     id_reuse_policy: IdReusePolicy
-    cron_schedule: str
     flow_start_delay_seconds: int
     retry_policy: FlowRetryPolicy
     attributes: _containers.RepeatedCompositeFieldContainer[AttributeWrite]
     flow_config_override: FlowConfig
     flow_already_started_options: FlowAlreadyStartedOptions
-    def __init__(self, id_reuse_policy: _Optional[_Union[IdReusePolicy, str]] = ..., cron_schedule: _Optional[str] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_already_started_options: _Optional[_Union[FlowAlreadyStartedOptions, _Mapping]] = ...) -> None: ...
+    def __init__(self, id_reuse_policy: _Optional[_Union[IdReusePolicy, str]] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_already_started_options: _Optional[_Union[FlowAlreadyStartedOptions, _Mapping]] = ...) -> None: ...
 
 class FlowConfig(_message.Message):
     __slots__ = ("active_step_search_mode", "continue_as_new_threshold", "continue_as_new_page_size_in_bytes", "step_durability", "worker_target", "attribute_sync_config_name")

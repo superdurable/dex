@@ -114,10 +114,19 @@ fi
 
 cd "$script_dir"
 export DEXCLI_PATH="$binary_dir/dexcli"
+pytest_args=(pytest -vv tests/)
+if ((${#test_args[@]})); then
+  pytest_args+=("${test_args[@]}")
+fi
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen pytest -vv tests/ "${test_args[@]}"
+  uv run --frozen --with-editable "$repo_root/sdk-python" "${pytest_args[@]}"
+
+sync_pytest_args=(pytest -vv sync-python/sync_tests/integ)
+if ((${#test_args[@]})); then
+  sync_pytest_args+=("${test_args[@]}")
+fi
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen pytest -vv sync-python/sync_tests/integ "${test_args[@]}"
+  uv run --frozen --with-editable "$repo_root/sdk-python" "${sync_pytest_args[@]}"
 
 if $keep_running; then
   echo ""

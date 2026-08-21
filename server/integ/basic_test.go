@@ -117,9 +117,6 @@ func doTestBasicFlow(
 		FlowStartOptions: withWorkerTarget(&dexpb.FlowStartOptions{
 			FlowConfigOverride: flowConfig,
 			IdReusePolicy:      dexpb.IdReusePolicy_ID_REUSE_POLICY_DISALLOW_REUSE,
-			// TODO: need more work to write integ test for cron
-			// manual testing for now by uncomment the following line
-			// CronSchedule: "* * * * *",
 			RetryPolicy: &dexpb.FlowRetryPolicy{
 				InitialIntervalSeconds: 11,
 				BackoffCoefficient:     11,

@@ -91,13 +91,21 @@ function requireOk(result: { status: number; text: string }, label: string): voi
   );
 }
 
-test("cron schedule starter registered sample flow", async () => {
-  // Cron schedules are Temporal schedules; describeFlow may not see the ID.
-  // Assert the starter path is idempotent (ignore already-registered).
-  const { startCronSchedule } = await import(
+test("cron schedule starter starts one finite flow", async () => {
+  const { CRON_SCHEDULE_FLOW_ID, startCronSchedule } = await import(
     "../../src/config/cron-schedule-starter.js"
   );
+  const { cronScheduleFlow } = await import(
+    "../../src/patterns/cron/cron-schedule-flow.js"
+  );
   await startCronSchedule(server.client);
+  await server.client.publish(
+    CRON_SCHEDULE_FLOW_ID,
+    cronScheduleFlow.trigger,
+    ...Array<void>(10).fill(undefined),
+  );
+  const result = await server.client.waitForFlow(CRON_SCHEDULE_FLOW_ID, 45_000);
+  assert.equal(result.status, "completed");
 });
 
 test("product moneytransfer start", async () => {

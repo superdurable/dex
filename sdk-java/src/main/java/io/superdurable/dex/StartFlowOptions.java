@@ -43,7 +43,6 @@ public final class StartFlowOptions {
     private final FlowTimeoutPolicy timeoutPolicy;
     private final Duration startDelay;
     private final IdReusePolicy idReusePolicy;
-    private final String cronSchedule;
     private final RetryPolicy retryPolicy;
     private final List<AttributeInitialization> attributes;
     private final FlowConfig configOverride;
@@ -60,7 +59,6 @@ public final class StartFlowOptions {
         this.timeoutPolicy = builder.timeoutPolicy;
         this.startDelay = builder.startDelay;
         this.idReusePolicy = builder.idReusePolicy;
-        this.cronSchedule = builder.cronSchedule;
         this.retryPolicy = builder.retryPolicy;
         this.attributes = Collections.unmodifiableList(
                 new ArrayList<AttributeInitialization>(builder.attributes));
@@ -94,10 +92,6 @@ public final class StartFlowOptions {
         return idReusePolicy;
     }
 
-    String getCronSchedule() {
-        return cronSchedule;
-    }
-
     RetryPolicy getRetryPolicy() {
         return retryPolicy;
     }
@@ -124,7 +118,6 @@ public final class StartFlowOptions {
         private FlowTimeoutPolicy timeoutPolicy = FlowTimeoutPolicy.DEFAULT;
         private Duration startDelay;
         private IdReusePolicy idReusePolicy = IdReusePolicy.DEFAULT;
-        private String cronSchedule;
         private RetryPolicy retryPolicy;
         private final List<AttributeInitialization> attributes =
                 new ArrayList<AttributeInitialization>();
@@ -180,17 +173,6 @@ public final class StartFlowOptions {
          */
         public Builder idReusePolicy(final IdReusePolicy value) {
             idReusePolicy = value;
-            return this;
-        }
-
-        /**
-         * Sets a server-understood cron schedule for recurring executions.
-         *
-         * @param value the cron expression, or {@code null} for no schedule
-         * @return this builder
-         */
-        public Builder cronSchedule(final String value) {
-            cronSchedule = value;
             return this;
         }
 

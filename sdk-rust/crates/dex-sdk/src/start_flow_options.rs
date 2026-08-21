@@ -68,7 +68,6 @@ pub struct StartFlowOptions {
     pub(crate) timeout_policy: FlowTimeoutPolicy,
     pub(crate) start_delay: Option<Duration>,
     pub(crate) id_reuse_policy: IdReusePolicy,
-    pub(crate) cron_schedule: Option<String>,
     pub(crate) retry_policy: Option<RetryPolicy>,
     pub(crate) config_override: Option<FlowConfig>,
     pub(crate) ignore_already_started: bool,
@@ -116,7 +115,6 @@ impl StartFlowOptions {
             timeout_policy: FlowTimeoutPolicy::Default,
             start_delay: None,
             id_reuse_policy: IdReusePolicy::Default,
-            cron_schedule: None,
             retry_policy: None,
             config_override: None,
             ignore_already_started: false,
@@ -148,12 +146,6 @@ impl StartFlowOptions {
     /// Sets how the server handles an existing Flow with the same ID.
     pub fn id_reuse_policy(mut self, value: IdReusePolicy) -> Self {
         self.id_reuse_policy = value;
-        self
-    }
-
-    /// Sets the server cron expression used to schedule recurring runs.
-    pub fn cron_schedule(mut self, value: impl Into<String>) -> Self {
-        self.cron_schedule = Some(value.into());
         self
     }
 
