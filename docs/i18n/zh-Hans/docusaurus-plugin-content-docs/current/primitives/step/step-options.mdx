@@ -311,9 +311,9 @@ Heartbeat 能让取消更早到达普通 handler。它不会让外部 API 调用
 
 ## 动态提供 StepOptions {#stepoptions-override-per-stepexecution}
 
-Step 返回的 **StepOptions** 适用于它的每次 execution。**StepMovement** 也可以为某一次 execution 携带 options。
+Step implementation 返回的 **StepOptions** 默认适用于每一次 Step execution。有时为某一次 Step execution 动态 override 它们会很有用。
 
-同一个 Step 处在不同 path 时很有用。这里，已注册的 Step 在一次 **WaitFor** attempt 后失败。movement 让这一次 execution 尝试两次，并在失败后继续 **Execute**。
+要这样做，提供 **StepOptions** override，然后用 **StepDecision** 进入下一个 Step。
 
 <SdkTabs
   examples={{

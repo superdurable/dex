@@ -312,9 +312,9 @@ See [Attribute locking](/primitives/attribute#locking) for more details.
 
 ## Provide StepOptions Dynamically {#stepoptions-override-per-stepexecution}
 
-The **StepOptions** returned by a Step apply every time that Step runs. A **StepMovement** can carry options for one execution instead.
+The **StepOptions** returned by a Step implementation apply to every Step execution by default. Sometimes it is useful to override them dynamically for a certain Step execution.
 
-This is useful when the same Step is used in more than one path. Here the registered Step fails after one **WaitFor** attempt. The movement gives just this execution two attempts and lets it proceed to **Execute** after failure.
+To do this, provide the **StepOptions** override, then use a **StepDecision** to go to the next Step.
 
 <SdkTabs
   examples={{
