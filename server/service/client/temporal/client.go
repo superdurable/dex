@@ -283,30 +283,6 @@ func (t *temporalClient) StartInterpreterWorkflow(
 		workflowOptions.RetryPolicy = mapToTemporalRetryPolicy(options.RetryPolicy)
 	}
 
-	if options.CronSchedule != nil && *options.CronSchedule != "" {
-		// use temporal schedule instead of cron
-		// https://temporal.io/blog/how-do-i-convert-my-cron-into-a-schedule
-		// workflowOptions.CronSchedule = *options.CronSchedule
-
-		_, err := t.tClient.ScheduleClient().Create(ctx, client.ScheduleOptions{
-			ID: "schedule for workflow: " + options.ID,
-			Spec: client.ScheduleSpec{
-				CronExpressions: []string{*options.CronSchedule},
-			},
-			Action: &client.ScheduleWorkflowAction{
-				ID:                    workflowOptions.ID,
-				TaskQueue:             workflowOptions.TaskQueue,
-				Workflow:              t.it.Engine,
-				Args:                  args,
-				RetryPolicy:           workflowOptions.RetryPolicy,
-				Memo:                  workflowOptions.Memo,
-				TypedSearchAttributes: workflowOptions.TypedSearchAttributes,
-			},
-		})
-
-		return "", err
-	}
-
 	if options.WorkflowStartDelay != nil {
 		workflowOptions.StartDelay = *options.WorkflowStartDelay
 	}

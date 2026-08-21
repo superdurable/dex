@@ -976,7 +976,6 @@ impl Client {
                 IdReusePolicy::Disallow => ProtoIdReusePolicy::DisallowReuse,
                 IdReusePolicy::TerminateIfRunning => ProtoIdReusePolicy::AllowTerminateIfRunning,
             } as i32,
-            cron_schedule: options.cron_schedule.clone().unwrap_or_default(),
             flow_start_delay_seconds: optional_seconds(options.start_delay)?,
             retry_policy: options
                 .retry_policy

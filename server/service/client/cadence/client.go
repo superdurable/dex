@@ -271,10 +271,6 @@ func (t *cadenceClient) StartInterpreterWorkflow(
 		workflowOptions.WorkflowIDReusePolicy = *workflowIdReusePolicy
 	}
 
-	if options.CronSchedule != nil {
-		workflowOptions.CronSchedule = *options.CronSchedule
-	}
-
 	if options.RetryPolicy != nil {
 		workflowOptions.RetryPolicy = mapToCadenceRetryPolicy(options.RetryPolicy)
 	}

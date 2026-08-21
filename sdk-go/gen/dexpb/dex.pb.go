@@ -2174,12 +2174,11 @@ func (x *FlowAlreadyStartedOptions) GetIgnoreAlreadyStartedError() bool {
 type FlowStartOptions struct {
 	state                     protoimpl.MessageState     `protogen:"open.v1"`
 	IdReusePolicy             IdReusePolicy              `protobuf:"varint,1,opt,name=id_reuse_policy,json=idReusePolicy,proto3,enum=dex.IdReusePolicy" json:"id_reuse_policy,omitempty"`
-	CronSchedule              string                     `protobuf:"bytes,2,opt,name=cron_schedule,json=cronSchedule,proto3" json:"cron_schedule,omitempty"`
-	FlowStartDelaySeconds     int32                      `protobuf:"varint,3,opt,name=flow_start_delay_seconds,json=flowStartDelaySeconds,proto3" json:"flow_start_delay_seconds,omitempty"`
-	RetryPolicy               *FlowRetryPolicy           `protobuf:"bytes,4,opt,name=retry_policy,json=retryPolicy,proto3" json:"retry_policy,omitempty"`
-	Attributes                []*AttributeWrite          `protobuf:"bytes,5,rep,name=attributes,proto3" json:"attributes,omitempty"`
-	FlowConfigOverride        *FlowConfig                `protobuf:"bytes,6,opt,name=flow_config_override,json=flowConfigOverride,proto3" json:"flow_config_override,omitempty"`
-	FlowAlreadyStartedOptions *FlowAlreadyStartedOptions `protobuf:"bytes,7,opt,name=flow_already_started_options,json=flowAlreadyStartedOptions,proto3" json:"flow_already_started_options,omitempty"`
+	FlowStartDelaySeconds     int32                      `protobuf:"varint,2,opt,name=flow_start_delay_seconds,json=flowStartDelaySeconds,proto3" json:"flow_start_delay_seconds,omitempty"`
+	RetryPolicy               *FlowRetryPolicy           `protobuf:"bytes,3,opt,name=retry_policy,json=retryPolicy,proto3" json:"retry_policy,omitempty"`
+	Attributes                []*AttributeWrite          `protobuf:"bytes,4,rep,name=attributes,proto3" json:"attributes,omitempty"`
+	FlowConfigOverride        *FlowConfig                `protobuf:"bytes,5,opt,name=flow_config_override,json=flowConfigOverride,proto3" json:"flow_config_override,omitempty"`
+	FlowAlreadyStartedOptions *FlowAlreadyStartedOptions `protobuf:"bytes,6,opt,name=flow_already_started_options,json=flowAlreadyStartedOptions,proto3" json:"flow_already_started_options,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -2219,13 +2218,6 @@ func (x *FlowStartOptions) GetIdReusePolicy() IdReusePolicy {
 		return x.IdReusePolicy
 	}
 	return IdReusePolicy_ID_REUSE_POLICY_UNSPECIFIED
-}
-
-func (x *FlowStartOptions) GetCronSchedule() string {
-	if x != nil {
-		return x.CronSchedule
-	}
-	return ""
 }
 
 func (x *FlowStartOptions) GetFlowStartDelaySeconds() int32 {
@@ -11281,17 +11273,16 @@ const file_dex_proto_rawDesc = "" +
 	"\x1bexecute_lock_attribute_keys\x18\r \x03(\tR\x18executeLockAttributeKeys\x12:\n" +
 	"\x19heartbeat_timeout_seconds\x18\x0e \x01(\x05R\x17heartbeatTimeoutSeconds\"\\\n" +
 	"\x19FlowAlreadyStartedOptions\x12?\n" +
-	"\x1cignore_already_started_error\x18\x01 \x01(\bR\x19ignoreAlreadyStartedError\"\xbe\x03\n" +
+	"\x1cignore_already_started_error\x18\x01 \x01(\bR\x19ignoreAlreadyStartedError\"\x99\x03\n" +
 	"\x10FlowStartOptions\x12:\n" +
-	"\x0fid_reuse_policy\x18\x01 \x01(\x0e2\x12.dex.IdReusePolicyR\ridReusePolicy\x12#\n" +
-	"\rcron_schedule\x18\x02 \x01(\tR\fcronSchedule\x127\n" +
-	"\x18flow_start_delay_seconds\x18\x03 \x01(\x05R\x15flowStartDelaySeconds\x127\n" +
-	"\fretry_policy\x18\x04 \x01(\v2\x14.dex.FlowRetryPolicyR\vretryPolicy\x123\n" +
+	"\x0fid_reuse_policy\x18\x01 \x01(\x0e2\x12.dex.IdReusePolicyR\ridReusePolicy\x127\n" +
+	"\x18flow_start_delay_seconds\x18\x02 \x01(\x05R\x15flowStartDelaySeconds\x127\n" +
+	"\fretry_policy\x18\x03 \x01(\v2\x14.dex.FlowRetryPolicyR\vretryPolicy\x123\n" +
 	"\n" +
-	"attributes\x18\x05 \x03(\v2\x13.dex.AttributeWriteR\n" +
+	"attributes\x18\x04 \x03(\v2\x13.dex.AttributeWriteR\n" +
 	"attributes\x12A\n" +
-	"\x14flow_config_override\x18\x06 \x01(\v2\x0f.dex.FlowConfigR\x12flowConfigOverride\x12_\n" +
-	"\x1cflow_already_started_options\x18\a \x01(\v2\x1e.dex.FlowAlreadyStartedOptionsR\x19flowAlreadyStartedOptions\"\xc3\x04\n" +
+	"\x14flow_config_override\x18\x05 \x01(\v2\x0f.dex.FlowConfigR\x12flowConfigOverride\x12_\n" +
+	"\x1cflow_already_started_options\x18\x06 \x01(\v2\x1e.dex.FlowAlreadyStartedOptionsR\x19flowAlreadyStartedOptions\"\xc3\x04\n" +
 	"\n" +
 	"FlowConfig\x12U\n" +
 	"\x17active_step_search_mode\x18\x01 \x01(\x0e2\x19.dex.ActiveStepSearchModeH\x00R\x14activeStepSearchMode\x88\x01\x01\x12>\n" +

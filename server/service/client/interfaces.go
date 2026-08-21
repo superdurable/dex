@@ -79,7 +79,6 @@ type StartWorkflowOptions struct {
 	ID            string
 	TaskQueue     string
 	IdReusePolicy *dexpb.IdReusePolicy
-	CronSchedule  *string
 	RetryPolicy   *dexpb.FlowRetryPolicy
 	// SearchAttributes are Temporal/Cadence indexed fields (already encoded as backend values).
 	SearchAttributes   map[string]interface{}

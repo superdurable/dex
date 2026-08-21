@@ -29,6 +29,11 @@ from dex_examples.patterns.parallel.job_seeker import JobSeeker
 from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )
+from dex_examples.patterns.cron.cron_schedule_flow import (
+    CronScheduleInput,
+    Interval,
+    IntervalUnit,
+)
 from dex_examples.patterns.wait_for_state_completion.job_seeker_data import (
     JobSeekerData,
 )
@@ -51,19 +56,21 @@ from dex import (
 pytestmark = pytest.mark.integ
 
 
-async def test_cron_schedule_starts(
+async def test_cron_schedule_completes(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = new_flow_id("cron")
-    # Cron schedules may return an empty run ID; success is that start does not raise.
+    flow_id = new_flow_id("cron-schedule")
     await client.start_flow(
         app.cron_schedule,
         flow_id,
-        None,
-        StartFlowOptions(timeout=timedelta(hours=1), cron_schedule="0 * * * *"),
+        CronScheduleInput(Interval(1, IntervalUnit.MINUTE), 2),
+        StartFlowOptions(),
     )
+    await client.publish(flow_id, app.cron_schedule.trigger, None, None)
+    result = await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
+    assert result.status == FlowStatus.COMPLETED
 
 
 async def test_drain_internal_channels(

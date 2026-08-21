@@ -24,11 +24,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"reflect"
 	"strconv"
 	"strings"
@@ -36,6 +34,7 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
+	"github.com/superdurable/dex/examples/go/patterns/cron"
 	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
@@ -254,7 +253,7 @@ func runPatternScenarios(
 		{"pattern/wait-for-state-completion", func() result { return verifyWaitForStateCompletion(ctx, client, stamp) }},
 		{"pattern/timeout-success", func() result { return verifyTimeoutSuccess(ctx, client, stamp) }},
 		{"pattern/timeout-fail", func() result { return verifyTimeoutFail(ctx, client, stamp) }},
-		{"pattern/cron-schedule", func() result { return verifyCron(ctx, client) }},
+		{"pattern/cron-schedule", func() result { return verifyCronSchedule(ctx, client) }},
 	}
 	for _, item := range cases {
 		if want(item.name) {
@@ -1256,79 +1255,36 @@ func verifyTimeoutFail(ctx context.Context, client *dex.Client, stamp string) re
 	return pass(name, "1m timeout ForceFail as designed")
 }
 
-func verifyCron(ctx context.Context, client *dex.Client) result {
+func verifyCronSchedule(ctx context.Context, client *dex.Client) result {
 	name := "pattern/cron-schedule"
-	cronID := fmt.Sprintf("cron-schedule-dv-%d", time.Now().UnixNano())
-	timeout := time.Hour
-	_, startErr := client.StartFlow(
-		ctx, registry.CronSchedule, cronID, nil,
-		dex.StartFlowOptions{Timeout: &timeout, CronSchedule: "*/1 * * * *"},
+	flowID := fmt.Sprintf("cron-schedule-dv-%d", time.Now().UnixNano())
+	_, err := client.StartFlow(
+		ctx,
+		registry.CronSchedule,
+		flowID,
+		cron.CronScheduleInput{
+			Interval: cron.Interval{Value: 1, Unit: cron.Minute},
+			RunCount: 2,
+		},
+		dex.StartFlowOptions{},
 	)
-	// Temporal Schedule.Create returns an empty run ID; SDK surfaces that after register.
-	if startErr != nil && !strings.Contains(startErr.Error(), "no run ID") {
-		return fail(name, "start cron "+cronID, startErr)
-	}
-	// Schedule ticks use WorkflowId "<id>-<RFC3339>"; wait for one and complete it.
-	tickID, err := waitForCronTickID(cronID, 90*time.Second)
 	if err != nil {
-		return fail(name, "wait for schedule tick", err)
+		return fail(name, "start "+flowID, err)
 	}
-	wait, err := client.WaitForFlow(ctx, tickID, dex.WaitForFlowOptions{
+	if err := client.PublishToChannel(ctx, flowID, cron.Trigger, nil, nil); err != nil {
+		return fail(name, "trigger "+flowID, err)
+	}
+	wait, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
 		NeedsResults: true,
-		Timeout:      60 * time.Second,
+		Timeout:      30 * time.Second,
 	})
 	if err != nil {
-		return fail(name, "WaitForFlow "+tickID, err)
+		return fail(name, "WaitForFlow "+flowID, err)
 	}
-	outcome := "completed"
-	if wait.Status == dex.FlowContinuedAsNew {
-		outcome = "continued as new"
-	} else if wait.Status != dex.FlowCompleted {
+	if wait.Status != dex.FlowCompleted {
 		return fail(name, fmt.Sprintf("status=%v msg=%s", wait.Status, wait.ErrorMessage), nil)
 	}
-	_ = client.StopFlow(ctx, cronID, dex.StopOptions{})
-	return pass(name, fmt.Sprintf("schedule tick %s id=%s", outcome, tickID))
-}
-
-func waitForCronTickID(cronID string, timeout time.Duration) (string, error) {
-	deadline := time.Now().Add(timeout)
-	query := fmt.Sprintf(`WorkflowId STARTS_WITH "%s-"`, cronID)
-	for time.Now().Before(deadline) {
-		command := exec.Command(
-			"temporal", "workflow", "list",
-			"--address", envOr("TEMPORAL_ADDRESS", "127.0.0.1:17233"),
-			"--query", query,
-			"--limit", "5",
-			"--output", "json",
-		)
-		output, err := command.Output()
-		if err == nil {
-			var rows []struct {
-				Execution struct {
-					WorkflowID string `json:"workflow_id"`
-				} `json:"execution"`
-			}
-			if jsonErr := json.Unmarshal(output, &rows); jsonErr == nil {
-				for _, row := range rows {
-					if strings.HasPrefix(row.Execution.WorkflowID, cronID+"-") {
-						return row.Execution.WorkflowID, nil
-					}
-				}
-			}
-			// Fallback: plain-text table parsing.
-			for _, line := range strings.Split(string(output), "\n") {
-				line = strings.TrimSpace(line)
-				if strings.HasPrefix(line, cronID+"-") {
-					fields := strings.Fields(line)
-					if len(fields) > 0 {
-						return fields[0], nil
-					}
-				}
-			}
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return "", fmt.Errorf("no Temporal schedule tick for %s within %s", cronID, timeout)
+	return pass(name, "completed two triggered durable timer runs")
 }
 
 func waitCompleted(

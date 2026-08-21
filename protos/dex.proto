@@ -243,12 +243,11 @@ message FlowAlreadyStartedOptions {
 
 message FlowStartOptions {
   IdReusePolicy id_reuse_policy = 1;
-  string cron_schedule = 2;
-  int32 flow_start_delay_seconds = 3;
-  FlowRetryPolicy retry_policy = 4;
-  repeated AttributeWrite attributes = 5;
-  FlowConfig flow_config_override = 6;
-  FlowAlreadyStartedOptions flow_already_started_options = 7;
+  int32 flow_start_delay_seconds = 2;
+  FlowRetryPolicy retry_policy = 3;
+  repeated AttributeWrite attributes = 4;
+  FlowConfig flow_config_override = 5;
+  FlowAlreadyStartedOptions flow_already_started_options = 6;
 }
 
 enum ActiveStepSearchMode {

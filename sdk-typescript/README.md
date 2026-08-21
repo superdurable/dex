@@ -126,7 +126,7 @@ await client.startFlow(orders, "order-42", input, {
 
 `FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow retry; `CANCEL`
 cancels without retry. Continue-as-new preserves the durable timer's deadline;
-retry and cron runs get a fresh budget. A zero or omitted timeout disables the
+retry runs get a fresh budget. A zero or omitted timeout disables the
 feature.
 
 Opt an Attribute or AttributeMap into Attribute Store synchronization, then

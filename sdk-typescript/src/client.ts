@@ -156,7 +156,6 @@ export class Client {
       requestId: options.requestId ?? crypto.randomUUID(),
       flowStartOptions: {
         idReusePolicy: mapIdReusePolicy(options.idReusePolicy),
-        cronSchedule: options.cronSchedule ?? "",
         flowStartDelaySeconds: seconds(options.startDelayMs),
         retryPolicy: mapFlowRetryPolicy(options.retryPolicy),
         attributes: (options.attributes ?? []).map((initial) => ({

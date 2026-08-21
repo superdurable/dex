@@ -29,7 +29,6 @@ private static final long serialVersionUID = 0L;
   }
   private FlowStartOptions() {
     idReusePolicy_ = 0;
-    cronSchedule_ = "";
     attributes_ = java.util.Collections.emptyList();
   }
 
@@ -70,49 +69,10 @@ private static final long serialVersionUID = 0L;
     return result == null ? io.superdurable.gen.IdReusePolicy.UNRECOGNIZED : result;
   }
 
-  public static final int CRON_SCHEDULE_FIELD_NUMBER = 2;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object cronSchedule_ = "";
-  /**
-   * <code>string cron_schedule = 2;</code>
-   * @return The cronSchedule.
-   */
-  @java.lang.Override
-  public java.lang.String getCronSchedule() {
-    java.lang.Object ref = cronSchedule_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      cronSchedule_ = s;
-      return s;
-    }
-  }
-  /**
-   * <code>string cron_schedule = 2;</code>
-   * @return The bytes for cronSchedule.
-   */
-  @java.lang.Override
-  public com.google.protobuf.ByteString
-      getCronScheduleBytes() {
-    java.lang.Object ref = cronSchedule_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      cronSchedule_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
-  }
-
-  public static final int FLOW_START_DELAY_SECONDS_FIELD_NUMBER = 3;
+  public static final int FLOW_START_DELAY_SECONDS_FIELD_NUMBER = 2;
   private int flowStartDelaySeconds_ = 0;
   /**
-   * <code>int32 flow_start_delay_seconds = 3;</code>
+   * <code>int32 flow_start_delay_seconds = 2;</code>
    * @return The flowStartDelaySeconds.
    */
   @java.lang.Override
@@ -120,10 +80,10 @@ private static final long serialVersionUID = 0L;
     return flowStartDelaySeconds_;
   }
 
-  public static final int RETRY_POLICY_FIELD_NUMBER = 4;
+  public static final int RETRY_POLICY_FIELD_NUMBER = 3;
   private io.superdurable.gen.FlowRetryPolicy retryPolicy_;
   /**
-   * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+   * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
    * @return Whether the retryPolicy field is set.
    */
   @java.lang.Override
@@ -131,7 +91,7 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+   * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
    * @return The retryPolicy.
    */
   @java.lang.Override
@@ -139,25 +99,25 @@ private static final long serialVersionUID = 0L;
     return retryPolicy_ == null ? io.superdurable.gen.FlowRetryPolicy.getDefaultInstance() : retryPolicy_;
   }
   /**
-   * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+   * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.FlowRetryPolicyOrBuilder getRetryPolicyOrBuilder() {
     return retryPolicy_ == null ? io.superdurable.gen.FlowRetryPolicy.getDefaultInstance() : retryPolicy_;
   }
 
-  public static final int ATTRIBUTES_FIELD_NUMBER = 5;
+  public static final int ATTRIBUTES_FIELD_NUMBER = 4;
   @SuppressWarnings("serial")
   private java.util.List<io.superdurable.gen.AttributeWrite> attributes_;
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   @java.lang.Override
   public java.util.List<io.superdurable.gen.AttributeWrite> getAttributesList() {
     return attributes_;
   }
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   @java.lang.Override
   public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
@@ -165,21 +125,21 @@ private static final long serialVersionUID = 0L;
     return attributes_;
   }
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   @java.lang.Override
   public int getAttributesCount() {
     return attributes_.size();
   }
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.AttributeWrite getAttributes(int index) {
     return attributes_.get(index);
   }
   /**
-   * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+   * <code>repeated .dex.AttributeWrite attributes = 4;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.AttributeWriteOrBuilder getAttributesOrBuilder(
@@ -187,10 +147,10 @@ private static final long serialVersionUID = 0L;
     return attributes_.get(index);
   }
 
-  public static final int FLOW_CONFIG_OVERRIDE_FIELD_NUMBER = 6;
+  public static final int FLOW_CONFIG_OVERRIDE_FIELD_NUMBER = 5;
   private io.superdurable.gen.FlowConfig flowConfigOverride_;
   /**
-   * <code>.dex.FlowConfig flow_config_override = 6;</code>
+   * <code>.dex.FlowConfig flow_config_override = 5;</code>
    * @return Whether the flowConfigOverride field is set.
    */
   @java.lang.Override
@@ -198,7 +158,7 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000002) != 0);
   }
   /**
-   * <code>.dex.FlowConfig flow_config_override = 6;</code>
+   * <code>.dex.FlowConfig flow_config_override = 5;</code>
    * @return The flowConfigOverride.
    */
   @java.lang.Override
@@ -206,17 +166,17 @@ private static final long serialVersionUID = 0L;
     return flowConfigOverride_ == null ? io.superdurable.gen.FlowConfig.getDefaultInstance() : flowConfigOverride_;
   }
   /**
-   * <code>.dex.FlowConfig flow_config_override = 6;</code>
+   * <code>.dex.FlowConfig flow_config_override = 5;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.FlowConfigOrBuilder getFlowConfigOverrideOrBuilder() {
     return flowConfigOverride_ == null ? io.superdurable.gen.FlowConfig.getDefaultInstance() : flowConfigOverride_;
   }
 
-  public static final int FLOW_ALREADY_STARTED_OPTIONS_FIELD_NUMBER = 7;
+  public static final int FLOW_ALREADY_STARTED_OPTIONS_FIELD_NUMBER = 6;
   private io.superdurable.gen.FlowAlreadyStartedOptions flowAlreadyStartedOptions_;
   /**
-   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
    * @return Whether the flowAlreadyStartedOptions field is set.
    */
   @java.lang.Override
@@ -224,7 +184,7 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000004) != 0);
   }
   /**
-   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
    * @return The flowAlreadyStartedOptions.
    */
   @java.lang.Override
@@ -232,7 +192,7 @@ private static final long serialVersionUID = 0L;
     return flowAlreadyStartedOptions_ == null ? io.superdurable.gen.FlowAlreadyStartedOptions.getDefaultInstance() : flowAlreadyStartedOptions_;
   }
   /**
-   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+   * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.FlowAlreadyStartedOptionsOrBuilder getFlowAlreadyStartedOptionsOrBuilder() {
@@ -256,23 +216,20 @@ private static final long serialVersionUID = 0L;
     if (idReusePolicy_ != io.superdurable.gen.IdReusePolicy.ID_REUSE_POLICY_UNSPECIFIED.getNumber()) {
       output.writeEnum(1, idReusePolicy_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(cronSchedule_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, cronSchedule_);
-    }
     if (flowStartDelaySeconds_ != 0) {
-      output.writeInt32(3, flowStartDelaySeconds_);
+      output.writeInt32(2, flowStartDelaySeconds_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(4, getRetryPolicy());
+      output.writeMessage(3, getRetryPolicy());
     }
     for (int i = 0; i < attributes_.size(); i++) {
-      output.writeMessage(5, attributes_.get(i));
+      output.writeMessage(4, attributes_.get(i));
     }
     if (((bitField0_ & 0x00000002) != 0)) {
-      output.writeMessage(6, getFlowConfigOverride());
+      output.writeMessage(5, getFlowConfigOverride());
     }
     if (((bitField0_ & 0x00000004) != 0)) {
-      output.writeMessage(7, getFlowAlreadyStartedOptions());
+      output.writeMessage(6, getFlowAlreadyStartedOptions());
     }
     getUnknownFields().writeTo(output);
   }
@@ -282,16 +239,13 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeEnumSize(1, idReusePolicy_);
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(cronSchedule_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, cronSchedule_);
-    }
     if (flowStartDelaySeconds_ != 0) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(3, flowStartDelaySeconds_);
+        .computeInt32Size(2, flowStartDelaySeconds_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(4, getRetryPolicy());
+        .computeMessageSize(3, getRetryPolicy());
     }
 
         {
@@ -304,11 +258,11 @@ private static final long serialVersionUID = 0L;
         }
     if (((bitField0_ & 0x00000002) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(6, getFlowConfigOverride());
+        .computeMessageSize(5, getFlowConfigOverride());
     }
     if (((bitField0_ & 0x00000004) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(7, getFlowAlreadyStartedOptions());
+        .computeMessageSize(6, getFlowAlreadyStartedOptions());
     }
     return size;
   }
@@ -335,8 +289,6 @@ private static final long serialVersionUID = 0L;
     io.superdurable.gen.FlowStartOptions other = (io.superdurable.gen.FlowStartOptions) obj;
 
     if (idReusePolicy_ != other.idReusePolicy_) return false;
-    if (!getCronSchedule()
-        .equals(other.getCronSchedule())) return false;
     if (getFlowStartDelaySeconds()
         != other.getFlowStartDelaySeconds()) return false;
     if (hasRetryPolicy() != other.hasRetryPolicy()) return false;
@@ -369,8 +321,6 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + ID_REUSE_POLICY_FIELD_NUMBER;
     hash = (53 * hash) + idReusePolicy_;
-    hash = (37 * hash) + CRON_SCHEDULE_FIELD_NUMBER;
-    hash = (53 * hash) + getCronSchedule().hashCode();
     hash = (37 * hash) + FLOW_START_DELAY_SECONDS_FIELD_NUMBER;
     hash = (53 * hash) + getFlowStartDelaySeconds();
     if (hasRetryPolicy()) {
@@ -530,7 +480,6 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       idReusePolicy_ = 0;
-      cronSchedule_ = "";
       flowStartDelaySeconds_ = 0;
       retryPolicy_ = null;
       if (retryPolicyBuilder_ != null) {
@@ -543,7 +492,7 @@ private static final long serialVersionUID = 0L;
         attributes_ = null;
         attributesBuilder_.clear();
       }
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000008);
       flowConfigOverride_ = null;
       if (flowConfigOverrideBuilder_ != null) {
         flowConfigOverrideBuilder_.dispose();
@@ -588,9 +537,9 @@ private static final long serialVersionUID = 0L;
 
     private void buildPartialRepeatedFields(io.superdurable.gen.FlowStartOptions result) {
       if (attributesBuilder_ == null) {
-        if (((bitField0_ & 0x00000010) != 0)) {
+        if (((bitField0_ & 0x00000008) != 0)) {
           attributes_ = java.util.Collections.unmodifiableList(attributes_);
-          bitField0_ = (bitField0_ & ~0x00000010);
+          bitField0_ = (bitField0_ & ~0x00000008);
         }
         result.attributes_ = attributes_;
       } else {
@@ -604,25 +553,22 @@ private static final long serialVersionUID = 0L;
         result.idReusePolicy_ = idReusePolicy_;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.cronSchedule_ = cronSchedule_;
-      }
-      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.flowStartDelaySeconds_ = flowStartDelaySeconds_;
       }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000008) != 0)) {
+      if (((from_bitField0_ & 0x00000004) != 0)) {
         result.retryPolicy_ = retryPolicyBuilder_ == null
             ? retryPolicy_
             : retryPolicyBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000020) != 0)) {
+      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.flowConfigOverride_ = flowConfigOverrideBuilder_ == null
             ? flowConfigOverride_
             : flowConfigOverrideBuilder_.build();
         to_bitField0_ |= 0x00000002;
       }
-      if (((from_bitField0_ & 0x00000040) != 0)) {
+      if (((from_bitField0_ & 0x00000020) != 0)) {
         result.flowAlreadyStartedOptions_ = flowAlreadyStartedOptionsBuilder_ == null
             ? flowAlreadyStartedOptions_
             : flowAlreadyStartedOptionsBuilder_.build();
@@ -646,11 +592,6 @@ private static final long serialVersionUID = 0L;
       if (other.idReusePolicy_ != 0) {
         setIdReusePolicyValue(other.getIdReusePolicyValue());
       }
-      if (!other.getCronSchedule().isEmpty()) {
-        cronSchedule_ = other.cronSchedule_;
-        bitField0_ |= 0x00000002;
-        onChanged();
-      }
       if (other.getFlowStartDelaySeconds() != 0) {
         setFlowStartDelaySeconds(other.getFlowStartDelaySeconds());
       }
@@ -661,7 +602,7 @@ private static final long serialVersionUID = 0L;
         if (!other.attributes_.isEmpty()) {
           if (attributes_.isEmpty()) {
             attributes_ = other.attributes_;
-            bitField0_ = (bitField0_ & ~0x00000010);
+            bitField0_ = (bitField0_ & ~0x00000008);
           } else {
             ensureAttributesIsMutable();
             attributes_.addAll(other.attributes_);
@@ -674,7 +615,7 @@ private static final long serialVersionUID = 0L;
             attributesBuilder_.dispose();
             attributesBuilder_ = null;
             attributes_ = other.attributes_;
-            bitField0_ = (bitField0_ & ~0x00000010);
+            bitField0_ = (bitField0_ & ~0x00000008);
             attributesBuilder_ = 
               com.google.protobuf.GeneratedMessage.alwaysUseFieldBuilders ?
                  internalGetAttributesFieldBuilder() : null;
@@ -720,24 +661,19 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000001;
               break;
             } // case 8
-            case 18: {
-              cronSchedule_ = input.readStringRequireUtf8();
+            case 16: {
+              flowStartDelaySeconds_ = input.readInt32();
               bitField0_ |= 0x00000002;
               break;
-            } // case 18
-            case 24: {
-              flowStartDelaySeconds_ = input.readInt32();
-              bitField0_ |= 0x00000004;
-              break;
-            } // case 24
-            case 34: {
+            } // case 16
+            case 26: {
               input.readMessage(
                   internalGetRetryPolicyFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000008;
+              bitField0_ |= 0x00000004;
               break;
-            } // case 34
-            case 42: {
+            } // case 26
+            case 34: {
               io.superdurable.gen.AttributeWrite m =
                   input.readMessage(
                       io.superdurable.gen.AttributeWrite.parser(),
@@ -749,21 +685,21 @@ private static final long serialVersionUID = 0L;
                 attributesBuilder_.addMessage(m);
               }
               break;
+            } // case 34
+            case 42: {
+              input.readMessage(
+                  internalGetFlowConfigOverrideFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000010;
+              break;
             } // case 42
             case 50: {
               input.readMessage(
-                  internalGetFlowConfigOverrideFieldBuilder().getBuilder(),
+                  internalGetFlowAlreadyStartedOptionsFieldBuilder().getBuilder(),
                   extensionRegistry);
               bitField0_ |= 0x00000020;
               break;
             } // case 50
-            case 58: {
-              input.readMessage(
-                  internalGetFlowAlreadyStartedOptionsFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              bitField0_ |= 0x00000040;
-              break;
-            } // case 58
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -833,81 +769,9 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private java.lang.Object cronSchedule_ = "";
-    /**
-     * <code>string cron_schedule = 2;</code>
-     * @return The cronSchedule.
-     */
-    public java.lang.String getCronSchedule() {
-      java.lang.Object ref = cronSchedule_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        cronSchedule_ = s;
-        return s;
-      } else {
-        return (java.lang.String) ref;
-      }
-    }
-    /**
-     * <code>string cron_schedule = 2;</code>
-     * @return The bytes for cronSchedule.
-     */
-    public com.google.protobuf.ByteString
-        getCronScheduleBytes() {
-      java.lang.Object ref = cronSchedule_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        cronSchedule_ = b;
-        return b;
-      } else {
-        return (com.google.protobuf.ByteString) ref;
-      }
-    }
-    /**
-     * <code>string cron_schedule = 2;</code>
-     * @param value The cronSchedule to set.
-     * @return This builder for chaining.
-     */
-    public Builder setCronSchedule(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      cronSchedule_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string cron_schedule = 2;</code>
-     * @return This builder for chaining.
-     */
-    public Builder clearCronSchedule() {
-      cronSchedule_ = getDefaultInstance().getCronSchedule();
-      bitField0_ = (bitField0_ & ~0x00000002);
-      onChanged();
-      return this;
-    }
-    /**
-     * <code>string cron_schedule = 2;</code>
-     * @param value The bytes for cronSchedule to set.
-     * @return This builder for chaining.
-     */
-    public Builder setCronScheduleBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      cronSchedule_ = value;
-      bitField0_ |= 0x00000002;
-      onChanged();
-      return this;
-    }
-
     private int flowStartDelaySeconds_ ;
     /**
-     * <code>int32 flow_start_delay_seconds = 3;</code>
+     * <code>int32 flow_start_delay_seconds = 2;</code>
      * @return The flowStartDelaySeconds.
      */
     @java.lang.Override
@@ -915,23 +779,23 @@ private static final long serialVersionUID = 0L;
       return flowStartDelaySeconds_;
     }
     /**
-     * <code>int32 flow_start_delay_seconds = 3;</code>
+     * <code>int32 flow_start_delay_seconds = 2;</code>
      * @param value The flowStartDelaySeconds to set.
      * @return This builder for chaining.
      */
     public Builder setFlowStartDelaySeconds(int value) {
 
       flowStartDelaySeconds_ = value;
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000002;
       onChanged();
       return this;
     }
     /**
-     * <code>int32 flow_start_delay_seconds = 3;</code>
+     * <code>int32 flow_start_delay_seconds = 2;</code>
      * @return This builder for chaining.
      */
     public Builder clearFlowStartDelaySeconds() {
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000002);
       flowStartDelaySeconds_ = 0;
       onChanged();
       return this;
@@ -941,14 +805,14 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowRetryPolicy, io.superdurable.gen.FlowRetryPolicy.Builder, io.superdurable.gen.FlowRetryPolicyOrBuilder> retryPolicyBuilder_;
     /**
-     * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+     * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
      * @return Whether the retryPolicy field is set.
      */
     public boolean hasRetryPolicy() {
-      return ((bitField0_ & 0x00000008) != 0);
+      return ((bitField0_ & 0x00000004) != 0);
     }
     /**
-     * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+     * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
      * @return The retryPolicy.
      */
     public io.superdurable.gen.FlowRetryPolicy getRetryPolicy() {
@@ -959,7 +823,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+     * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
      */
     public Builder setRetryPolicy(io.superdurable.gen.FlowRetryPolicy value) {
       if (retryPolicyBuilder_ == null) {
@@ -970,12 +834,12 @@ private static final long serialVersionUID = 0L;
       } else {
         retryPolicyBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+     * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
      */
     public Builder setRetryPolicy(
         io.superdurable.gen.FlowRetryPolicy.Builder builderForValue) {
@@ -984,16 +848,16 @@ private static final long serialVersionUID = 0L;
       } else {
         retryPolicyBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+     * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
      */
     public Builder mergeRetryPolicy(io.superdurable.gen.FlowRetryPolicy value) {
       if (retryPolicyBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0) &&
+        if (((bitField0_ & 0x00000004) != 0) &&
           retryPolicy_ != null &&
           retryPolicy_ != io.superdurable.gen.FlowRetryPolicy.getDefaultInstance()) {
           getRetryPolicyBuilder().mergeFrom(value);
@@ -1004,16 +868,16 @@ private static final long serialVersionUID = 0L;
         retryPolicyBuilder_.mergeFrom(value);
       }
       if (retryPolicy_ != null) {
-        bitField0_ |= 0x00000008;
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+     * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
      */
     public Builder clearRetryPolicy() {
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000004);
       retryPolicy_ = null;
       if (retryPolicyBuilder_ != null) {
         retryPolicyBuilder_.dispose();
@@ -1023,15 +887,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+     * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
      */
     public io.superdurable.gen.FlowRetryPolicy.Builder getRetryPolicyBuilder() {
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000004;
       onChanged();
       return internalGetRetryPolicyFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+     * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
      */
     public io.superdurable.gen.FlowRetryPolicyOrBuilder getRetryPolicyOrBuilder() {
       if (retryPolicyBuilder_ != null) {
@@ -1042,7 +906,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.FlowRetryPolicy retry_policy = 4;</code>
+     * <code>.dex.FlowRetryPolicy retry_policy = 3;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowRetryPolicy, io.superdurable.gen.FlowRetryPolicy.Builder, io.superdurable.gen.FlowRetryPolicyOrBuilder> 
@@ -1061,9 +925,9 @@ private static final long serialVersionUID = 0L;
     private java.util.List<io.superdurable.gen.AttributeWrite> attributes_ =
       java.util.Collections.emptyList();
     private void ensureAttributesIsMutable() {
-      if (!((bitField0_ & 0x00000010) != 0)) {
+      if (!((bitField0_ & 0x00000008) != 0)) {
         attributes_ = new java.util.ArrayList<io.superdurable.gen.AttributeWrite>(attributes_);
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000008;
        }
     }
 
@@ -1071,7 +935,7 @@ private static final long serialVersionUID = 0L;
         io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder> attributesBuilder_;
 
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public java.util.List<io.superdurable.gen.AttributeWrite> getAttributesList() {
       if (attributesBuilder_ == null) {
@@ -1081,7 +945,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public int getAttributesCount() {
       if (attributesBuilder_ == null) {
@@ -1091,7 +955,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public io.superdurable.gen.AttributeWrite getAttributes(int index) {
       if (attributesBuilder_ == null) {
@@ -1101,7 +965,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public Builder setAttributes(
         int index, io.superdurable.gen.AttributeWrite value) {
@@ -1118,7 +982,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public Builder setAttributes(
         int index, io.superdurable.gen.AttributeWrite.Builder builderForValue) {
@@ -1132,7 +996,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public Builder addAttributes(io.superdurable.gen.AttributeWrite value) {
       if (attributesBuilder_ == null) {
@@ -1148,7 +1012,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public Builder addAttributes(
         int index, io.superdurable.gen.AttributeWrite value) {
@@ -1165,7 +1029,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public Builder addAttributes(
         io.superdurable.gen.AttributeWrite.Builder builderForValue) {
@@ -1179,7 +1043,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public Builder addAttributes(
         int index, io.superdurable.gen.AttributeWrite.Builder builderForValue) {
@@ -1193,7 +1057,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public Builder addAllAttributes(
         java.lang.Iterable<? extends io.superdurable.gen.AttributeWrite> values) {
@@ -1208,12 +1072,12 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public Builder clearAttributes() {
       if (attributesBuilder_ == null) {
         attributes_ = java.util.Collections.emptyList();
-        bitField0_ = (bitField0_ & ~0x00000010);
+        bitField0_ = (bitField0_ & ~0x00000008);
         onChanged();
       } else {
         attributesBuilder_.clear();
@@ -1221,7 +1085,7 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public Builder removeAttributes(int index) {
       if (attributesBuilder_ == null) {
@@ -1234,14 +1098,14 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public io.superdurable.gen.AttributeWrite.Builder getAttributesBuilder(
         int index) {
       return internalGetAttributesFieldBuilder().getBuilder(index);
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public io.superdurable.gen.AttributeWriteOrBuilder getAttributesOrBuilder(
         int index) {
@@ -1251,7 +1115,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public java.util.List<? extends io.superdurable.gen.AttributeWriteOrBuilder> 
          getAttributesOrBuilderList() {
@@ -1262,14 +1126,14 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public io.superdurable.gen.AttributeWrite.Builder addAttributesBuilder() {
       return internalGetAttributesFieldBuilder().addBuilder(
           io.superdurable.gen.AttributeWrite.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public io.superdurable.gen.AttributeWrite.Builder addAttributesBuilder(
         int index) {
@@ -1277,7 +1141,7 @@ private static final long serialVersionUID = 0L;
           index, io.superdurable.gen.AttributeWrite.getDefaultInstance());
     }
     /**
-     * <code>repeated .dex.AttributeWrite attributes = 5;</code>
+     * <code>repeated .dex.AttributeWrite attributes = 4;</code>
      */
     public java.util.List<io.superdurable.gen.AttributeWrite.Builder> 
          getAttributesBuilderList() {
@@ -1290,7 +1154,7 @@ private static final long serialVersionUID = 0L;
         attributesBuilder_ = new com.google.protobuf.RepeatedFieldBuilder<
             io.superdurable.gen.AttributeWrite, io.superdurable.gen.AttributeWrite.Builder, io.superdurable.gen.AttributeWriteOrBuilder>(
                 attributes_,
-                ((bitField0_ & 0x00000010) != 0),
+                ((bitField0_ & 0x00000008) != 0),
                 getParentForChildren(),
                 isClean());
         attributes_ = null;
@@ -1302,14 +1166,14 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> flowConfigOverrideBuilder_;
     /**
-     * <code>.dex.FlowConfig flow_config_override = 6;</code>
+     * <code>.dex.FlowConfig flow_config_override = 5;</code>
      * @return Whether the flowConfigOverride field is set.
      */
     public boolean hasFlowConfigOverride() {
-      return ((bitField0_ & 0x00000020) != 0);
+      return ((bitField0_ & 0x00000010) != 0);
     }
     /**
-     * <code>.dex.FlowConfig flow_config_override = 6;</code>
+     * <code>.dex.FlowConfig flow_config_override = 5;</code>
      * @return The flowConfigOverride.
      */
     public io.superdurable.gen.FlowConfig getFlowConfigOverride() {
@@ -1320,7 +1184,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.FlowConfig flow_config_override = 6;</code>
+     * <code>.dex.FlowConfig flow_config_override = 5;</code>
      */
     public Builder setFlowConfigOverride(io.superdurable.gen.FlowConfig value) {
       if (flowConfigOverrideBuilder_ == null) {
@@ -1331,12 +1195,12 @@ private static final long serialVersionUID = 0L;
       } else {
         flowConfigOverrideBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowConfig flow_config_override = 6;</code>
+     * <code>.dex.FlowConfig flow_config_override = 5;</code>
      */
     public Builder setFlowConfigOverride(
         io.superdurable.gen.FlowConfig.Builder builderForValue) {
@@ -1345,16 +1209,16 @@ private static final long serialVersionUID = 0L;
       } else {
         flowConfigOverrideBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowConfig flow_config_override = 6;</code>
+     * <code>.dex.FlowConfig flow_config_override = 5;</code>
      */
     public Builder mergeFlowConfigOverride(io.superdurable.gen.FlowConfig value) {
       if (flowConfigOverrideBuilder_ == null) {
-        if (((bitField0_ & 0x00000020) != 0) &&
+        if (((bitField0_ & 0x00000010) != 0) &&
           flowConfigOverride_ != null &&
           flowConfigOverride_ != io.superdurable.gen.FlowConfig.getDefaultInstance()) {
           getFlowConfigOverrideBuilder().mergeFrom(value);
@@ -1365,16 +1229,16 @@ private static final long serialVersionUID = 0L;
         flowConfigOverrideBuilder_.mergeFrom(value);
       }
       if (flowConfigOverride_ != null) {
-        bitField0_ |= 0x00000020;
+        bitField0_ |= 0x00000010;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.FlowConfig flow_config_override = 6;</code>
+     * <code>.dex.FlowConfig flow_config_override = 5;</code>
      */
     public Builder clearFlowConfigOverride() {
-      bitField0_ = (bitField0_ & ~0x00000020);
+      bitField0_ = (bitField0_ & ~0x00000010);
       flowConfigOverride_ = null;
       if (flowConfigOverrideBuilder_ != null) {
         flowConfigOverrideBuilder_.dispose();
@@ -1384,15 +1248,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.FlowConfig flow_config_override = 6;</code>
+     * <code>.dex.FlowConfig flow_config_override = 5;</code>
      */
     public io.superdurable.gen.FlowConfig.Builder getFlowConfigOverrideBuilder() {
-      bitField0_ |= 0x00000020;
+      bitField0_ |= 0x00000010;
       onChanged();
       return internalGetFlowConfigOverrideFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.FlowConfig flow_config_override = 6;</code>
+     * <code>.dex.FlowConfig flow_config_override = 5;</code>
      */
     public io.superdurable.gen.FlowConfigOrBuilder getFlowConfigOverrideOrBuilder() {
       if (flowConfigOverrideBuilder_ != null) {
@@ -1403,7 +1267,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.FlowConfig flow_config_override = 6;</code>
+     * <code>.dex.FlowConfig flow_config_override = 5;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowConfig, io.superdurable.gen.FlowConfig.Builder, io.superdurable.gen.FlowConfigOrBuilder> 
@@ -1423,14 +1287,14 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowAlreadyStartedOptions, io.superdurable.gen.FlowAlreadyStartedOptions.Builder, io.superdurable.gen.FlowAlreadyStartedOptionsOrBuilder> flowAlreadyStartedOptionsBuilder_;
     /**
-     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
      * @return Whether the flowAlreadyStartedOptions field is set.
      */
     public boolean hasFlowAlreadyStartedOptions() {
-      return ((bitField0_ & 0x00000040) != 0);
+      return ((bitField0_ & 0x00000020) != 0);
     }
     /**
-     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
      * @return The flowAlreadyStartedOptions.
      */
     public io.superdurable.gen.FlowAlreadyStartedOptions getFlowAlreadyStartedOptions() {
@@ -1441,7 +1305,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
      */
     public Builder setFlowAlreadyStartedOptions(io.superdurable.gen.FlowAlreadyStartedOptions value) {
       if (flowAlreadyStartedOptionsBuilder_ == null) {
@@ -1452,12 +1316,12 @@ private static final long serialVersionUID = 0L;
       } else {
         flowAlreadyStartedOptionsBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
      */
     public Builder setFlowAlreadyStartedOptions(
         io.superdurable.gen.FlowAlreadyStartedOptions.Builder builderForValue) {
@@ -1466,16 +1330,16 @@ private static final long serialVersionUID = 0L;
       } else {
         flowAlreadyStartedOptionsBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
      */
     public Builder mergeFlowAlreadyStartedOptions(io.superdurable.gen.FlowAlreadyStartedOptions value) {
       if (flowAlreadyStartedOptionsBuilder_ == null) {
-        if (((bitField0_ & 0x00000040) != 0) &&
+        if (((bitField0_ & 0x00000020) != 0) &&
           flowAlreadyStartedOptions_ != null &&
           flowAlreadyStartedOptions_ != io.superdurable.gen.FlowAlreadyStartedOptions.getDefaultInstance()) {
           getFlowAlreadyStartedOptionsBuilder().mergeFrom(value);
@@ -1486,16 +1350,16 @@ private static final long serialVersionUID = 0L;
         flowAlreadyStartedOptionsBuilder_.mergeFrom(value);
       }
       if (flowAlreadyStartedOptions_ != null) {
-        bitField0_ |= 0x00000040;
+        bitField0_ |= 0x00000020;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
      */
     public Builder clearFlowAlreadyStartedOptions() {
-      bitField0_ = (bitField0_ & ~0x00000040);
+      bitField0_ = (bitField0_ & ~0x00000020);
       flowAlreadyStartedOptions_ = null;
       if (flowAlreadyStartedOptionsBuilder_ != null) {
         flowAlreadyStartedOptionsBuilder_.dispose();
@@ -1505,15 +1369,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
      */
     public io.superdurable.gen.FlowAlreadyStartedOptions.Builder getFlowAlreadyStartedOptionsBuilder() {
-      bitField0_ |= 0x00000040;
+      bitField0_ |= 0x00000020;
       onChanged();
       return internalGetFlowAlreadyStartedOptionsFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
      */
     public io.superdurable.gen.FlowAlreadyStartedOptionsOrBuilder getFlowAlreadyStartedOptionsOrBuilder() {
       if (flowAlreadyStartedOptionsBuilder_ != null) {
@@ -1524,7 +1388,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 7;</code>
+     * <code>.dex.FlowAlreadyStartedOptions flow_already_started_options = 6;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.FlowAlreadyStartedOptions, io.superdurable.gen.FlowAlreadyStartedOptions.Builder, io.superdurable.gen.FlowAlreadyStartedOptionsOrBuilder> 

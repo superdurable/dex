@@ -65,7 +65,7 @@ after E2E tests for manual HTTP exploration.
 ## Patterns
 
 Under [`dex_examples/patterns/`](./dex_examples/patterns/), including
-[cron](./dex_examples/patterns/cron),
+[Cron schedule](./dex_examples/patterns/cron),
 [polling](./dex_examples/patterns/polling),
 [resource-control](./dex_examples/patterns/resource-control) (Python only),
 and others.

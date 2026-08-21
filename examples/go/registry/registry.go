@@ -40,9 +40,9 @@ import (
 	"github.com/superdurable/dex/examples/go/primitives/attribute"
 	"github.com/superdurable/dex/examples/go/primitives/channel"
 	"github.com/superdurable/dex/examples/go/primitives/client-apis"
-	"github.com/superdurable/dex/examples/go/primitives/flow"
 	"github.com/superdurable/dex/examples/go/primitives/custom-retry"
 	"github.com/superdurable/dex/examples/go/primitives/durability"
+	"github.com/superdurable/dex/examples/go/primitives/flow"
 	"github.com/superdurable/dex/examples/go/primitives/heartbeat"
 	"github.com/superdurable/dex/examples/go/primitives/options-override"
 	"github.com/superdurable/dex/examples/go/primitives/proceed-on-wait-failure"
@@ -105,24 +105,24 @@ var (
 	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
 	GracefulTimeout        *timeout.FlowGracefulTimeout
 
-	Step            *step.StepFlow
-	ExampleFlow     *flow.ExampleFlow
-	StepRetry       *step.RetryFlow
-	CustomRetry     *customretry.CustomRetryFlow
-	Durability      *durability.DurabilityFlow
-	Heartbeat       *heartbeat.HeartbeatFlow
-	OptionsOverride *optionsoverride.OptionsOverrideFlow
+	Step                 *step.StepFlow
+	ExampleFlow          *flow.ExampleFlow
+	StepRetry            *step.RetryFlow
+	CustomRetry          *customretry.CustomRetryFlow
+	Durability           *durability.DurabilityFlow
+	Heartbeat            *heartbeat.HeartbeatFlow
+	OptionsOverride      *optionsoverride.OptionsOverrideFlow
 	ProceedOnWaitFailure *proceedonwaitfailure.ProceedOnWaitFailureFlow
 	StepExecutionLocal   *stepexecutionlocal.StepExecutionLocalFlow
-	StepDecision    *stepdecision.StepDecisionFlow
-	WaitTypes       *waittypes.WaitTypesFlow
-	Attribute       *attribute.AttributeFlow
-	Channel         *channel.ChannelFlow
-	Timer           *timer.TimerFlow
-	Rpc             *rpc.RpcFlow
-	SubFlowChild    *subflow.SubFlowChildFlow
-	SubFlowParent   *subflow.SubFlowParentFlow
-	ClientApis      *clientapis.ClientApisFlow
+	StepDecision         *stepdecision.StepDecisionFlow
+	WaitTypes            *waittypes.WaitTypesFlow
+	Attribute            *attribute.AttributeFlow
+	Channel              *channel.ChannelFlow
+	Timer                *timer.TimerFlow
+	Rpc                  *rpc.RpcFlow
+	SubFlowChild         *subflow.SubFlowChildFlow
+	SubFlowParent        *subflow.SubFlowParentFlow
+	ClientApis           *clientapis.ClientApisFlow
 )
 
 // New constructs every sample flow. getClient may return nil until the Client

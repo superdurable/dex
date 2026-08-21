@@ -9,7 +9,7 @@ slug: /primitives/flow/flow-options
 Dex 允许你自定义 Flow execution 的行为。
 
 - **StartFlowOptions** 在客户端启动 Flow（或 SubFlow）时生效，启动后不可变。
-  - 它们控制 timeout、ID reuse、cron schedule、初始 Attribute、request 幂等，以及该次 execution 的可选 config override。
+  - 它们控制 timeout、ID reuse、初始 Attribute、request 幂等，以及该次 execution 的可选 config override。
 - **FlowConfig** 提供运行时行为，启动后可变。
   - 包括 Step durability 默认值、Worker 路由、active-Step 搜索索引、continue-as-new 阈值与 Attribute Store projection target。
 
@@ -22,7 +22,6 @@ Dex 允许你自定义 Flow execution 的行为。
 | **IDReusePolicy** | 启动时如何复用已有 Flow ID。 |
 | **RequestID** | 重试同一次启动请求的幂等键。 |
 | **AlreadyStartedOptions** | 如何处理已启动的 Flow。 |
-| **CronSchedule** | 用于周期性启动的 cron 表达式。 |
 | **RetryPolicy** | 单次 Flow execution 失败后的重试策略。 |
 | **StartDelay** | start Step 运行前的延迟。 |
 | **Attributes** | 初始 Attribute 值。 |
@@ -288,15 +287,14 @@ Dex Server 要求 **RequestID** 非空。省略时，SDK 会在发送请求前�
 
 如果 backend 返回 Flow 已启动，Dex 会检查 **AlreadyStartedOptions.IgnoreError**。启用时，Dex 读取已有 run 记录的 RequestID。只有两个 RequestID 相同时才返回该 Run ID；否则仍然返回 already-started error。
 
-### RetryPolicy 与 CronSchedule {#retry-policy-and-cron-schedule}
+### RetryPolicy {#retry-policy}
 
 **RetryPolicy** 会在一次 Flow execution 失败后重试它。**MaximumAttempts** 包含首次 execution。**InitialInterval**、**BackoffCoefficient** 与 **MaximumInterval** 设置指数退避。**FAIL** timeout 可以使用这个 retry policy；**CANCEL** timeout 不可以。
 
-**CronSchedule** 按计划启动新的 execution。retry 用来恢复一次失败的 execution，而 cron 创建之后的 execution。overlap 与漏掉运行怎么处理由 backend 决定。
 
 ### StartDelay {#start-delay}
 
-**StartDelay** 会立即接受要启动的 Flow，但在 **StartStep** 可以运行前等待。它适合一次性延迟，例如新订单创建五分钟后再处理。周期性 schedule 请使用 **CronSchedule**。
+**StartDelay** 会立即接受要启动的 Flow，但在 **StartStep** 可以运行前等待。它适合一次性延迟，例如新订单创建五分钟后再处理。周期性工作请使用 durable **Timer** 循环。
 
 ### Attributes {#attributes}
 

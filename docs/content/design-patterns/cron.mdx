@@ -4,97 +4,34 @@ title: Cron schedule
 
 # Cron schedule
 
-Run a Flow on a recurring schedule without inventing a scheduler service.
+Run cron-like fixed-interval work in one durable Flow.
 
 ## Problem and approach
 
-Demonstrates starting a Dex flow with a cron schedule so each tick runs the
-flow like a recurring job.
+Start one Flow with a positive interval and run count. An interval is expressed
+in minutes, hours, or days. Each occurrence starts the next durable timer at
+the same time it starts the work, so the interval is measured from one run start
+to the next rather than from work completion. The sample starts ten hourly runs.
+Stop the Flow to cancel its active timer and end the loop.
 
-## Key components
+The Flow exposes **Trigger** and **Skip** Channels. Publish to Trigger to run
+the pending occurrence now. Publish to Skip to consume the pending occurrence
+without running its work. Both actions begin the next interval from that
+occurrence. A skipped occurrence consumes one run from the configured limit.
 
-1. **CronScheduleStarter** — on Spring **ApplicationReadyEvent**, starts flow ID
-   **cron-schedule-sample** with cron expression 0 \* \* \* \* (idempotent if
-   already started).
-2. **CronScheduleFlow** — the scheduled flow; each trigger runs its start step
-   and completes.
-
-## Useful links
-
-- [CRON Expression Format](https://pkg.go.dev/github.com/robfig/cron#hdr-CRON_Expression_Format)
-- [CRON Expression Tester](https://crontab.guru/)
-
-## How it starts
-
-**CronScheduleStarter** uses the shared Dex **Client** after the Worker is up:
-
-```java
-client.startFlow(
-    cronScheduleFlow,
-    "cron-schedule-sample",
-    null,
-    StartFlowOptions.newBuilder()
-        .timeout(Duration.ofHours(1))
-        .cronSchedule("0 * * * *")
-        .build());
-```
-
-If the flow is already running, **FLOW_ALREADY_STARTED** is ignored so restarts
-are safe.
-
-## Schedule management
-
-Inspect scheduled Flow executions in Dex Web (local
-**dexcli** Temporal or Temporal Cloud):
-
-- **Flows** — filter by Flow ID **cron-schedule-sample**
-- **Schedules** — pause, trigger, or delete
-
-To change the schedule: update **CronScheduleStarter**, deploy, delete the old
-schedule in the UI if needed, then restart the sample process so it recreates
-the schedule.
-
-## Current limitations
-
-Schedule overlap policy is not exposed and defaults to skip overlapping runs.
+This is a fixed-interval pattern, not calendar-aligned scheduling and not a
+cron-expression API. Work can overlap when it runs longer than the interval.
 
 ## Code examples
 
-Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix /patterns/name/... where applicable). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
-
-<SdkTabs>
-<SdkSnippet lang="python">
-
-```python
-# See examples/python/dex_examples/patterns/cron/
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-// See examples/go/patterns/cron/
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-// See examples/java/src/main/java/io/superdurable/dex/patterns/cron/
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-// @superdurable/dex ^0.1.3+ (async waitFor/execute/RPC OK).
-// See examples/typescript/src/patterns/cron/
-```
-
-</SdkSnippet>
-</SdkTabs>
+Runnable samples live in the Cron schedule pattern directories for
+[Python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/cron),
+[Go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/cron),
+[Java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/cron),
+[TypeScript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/cron),
+and [Rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns/cron).
 
 ## Related
 
-- [Durable Primitives](/primitives)
+- [Timer](/primitives/timer)
 - [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

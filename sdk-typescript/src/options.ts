@@ -151,8 +151,6 @@ export interface StartFlowOptions {
   readonly startDelayMs?: number;
   /** Flow ID reuse policy; uses `DEFAULT` when omitted. */
   readonly idReusePolicy?: IdReusePolicy;
-  /** Server-supported cron expression for recurring runs. */
-  readonly cronSchedule?: string;
   /** Optional Flow-level retry policy. */
   readonly retryPolicy?: RetryPolicy;
   /** Initial Attribute writes applied atomically with Flow creation. */

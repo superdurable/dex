@@ -1018,7 +1018,6 @@ class AsyncClient:
                 ),
                 IdReusePolicy.DISALLOW: pb.ID_REUSE_POLICY_DISALLOW_REUSE,
             }[options.id_reuse_policy],
-            cron_schedule=options.cron_schedule or "",
             flow_already_started_options=pb.FlowAlreadyStartedOptions(
                 ignore_already_started_error=options.ignore_already_started
             ),

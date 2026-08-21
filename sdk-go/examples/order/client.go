@@ -64,7 +64,6 @@ func startOrder(
 		dex.StartFlowOptions{
 			Timeout:       ptr.Any(24 * time.Hour),
 			IDReusePolicy: dex.IDReuseAllowIfPreviousFailed,
-			CronSchedule:  "",
 			StartDelay:    ptr.Any(5 * time.Second),
 			RetryPolicy: &dex.FlowRetryPolicy{
 				InitialInterval:    time.Second,

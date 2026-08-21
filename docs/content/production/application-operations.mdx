@@ -37,7 +37,7 @@ Inspect Dex start history for the configured timeout and resolved policy. Do
 not infer it from Temporal or Cadence execution settings: Temporal has no
 execution timeout for interpreter Flows, and Cadence uses its maximum value as
 an implementation detail. A continue-as-new run retains the original absolute
-deadline; retries and cron runs start with a fresh budget.
+deadline; retries start with a fresh budget.
 
 Every positive timeout uses one internal **sys:timeout_handler** timer visible in
 active-Step diagnostics. **SkipTimer** can fire it early by timer index. Mitigate

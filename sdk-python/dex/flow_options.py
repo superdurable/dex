@@ -95,7 +95,6 @@ class StartFlowOptions:
         timeout_policy: Action taken when a positive timeout expires.
         start_delay: Optional delay before the starting Step becomes eligible.
         id_reuse_policy: Flow ID reuse policy; defaults to ``DEFAULT``.
-        cron_schedule: Optional server-supported cron expression for recurring runs.
         retry_policy: Optional Flow-level retry policy.
         config_override: Optional FlowConfig applied over registered defaults.
         ignore_already_started: Return the existing run rather than raising
@@ -114,7 +113,6 @@ class StartFlowOptions:
     timeout_policy: FlowTimeoutPolicy = FlowTimeoutPolicy.DEFAULT
     start_delay: timedelta | None = None
     id_reuse_policy: IdReusePolicy = IdReusePolicy.DEFAULT
-    cron_schedule: str | None = None
     retry_policy: RetryPolicy | None = None
     _attribute_initializations: tuple[_AttributeInitialization, ...] = ()
     config_override: FlowConfig | None = None

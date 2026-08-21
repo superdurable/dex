@@ -17,7 +17,7 @@ src/
 ├── products/       # real-world business scenarios
 ├── patterns/       # design patterns
 ├── primitives/     # one minimal example per Dex primitive
-├── config/         # env and cron bootstrap
+├── config/         # env and Cron schedule bootstrap
 └── main.ts         # Worker and HTTP entrypoint
 ```
 

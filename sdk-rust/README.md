@@ -129,7 +129,7 @@ let options = StartFlowOptions::new()
 
 `Fail` produces `FlowErrorType::FlowTimeout` and permits Flow retry; `Cancel`
 cancels without retry. Continue-as-new preserves the deadline and handler
-execution, while retry and cron runs receive a fresh budget. An absent or zero
+execution, while retry runs receive a fresh budget. An absent or zero
 timeout disables the feature.
 
 ## Rust SDK runtime

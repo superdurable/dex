@@ -16,18 +16,16 @@
 
 import type { Client } from "@superdurable/dex";
 
-import { HOUR_MS } from "./env.js";
 import { cronScheduleFlow } from "../patterns/cron/cron-schedule-flow.js";
 import { isFlowAlreadyStarted } from "../service-errors.js";
 
 export const CRON_SCHEDULE_FLOW_ID = "cron-schedule-sample";
-export const CRON_EXPRESSION = "0 * * * *";
 
 export async function startCronSchedule(client: Client): Promise<void> {
   try {
-    await client.startFlow(cronScheduleFlow, CRON_SCHEDULE_FLOW_ID, undefined, {
-      timeoutMs: HOUR_MS,
-      cronSchedule: CRON_EXPRESSION,
+    await client.startFlow(cronScheduleFlow, CRON_SCHEDULE_FLOW_ID, {
+      interval: { value: 1, unit: "hour" as const },
+      runCount: 10,
     });
   } catch (error) {
     if (isFlowAlreadyStarted(error)) {

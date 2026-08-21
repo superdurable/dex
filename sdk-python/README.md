@@ -177,7 +177,7 @@ options = dex.StartFlowOptions(
 Register async hooks with `allow_async_handlers=True` and run them with
 `AsyncWorker`. `FAIL` produces `FlowErrorType.FLOW_TIMEOUT` and permits Flow
 retry; `CANCEL` cancels without retry. Continue-as-new preserves the deadline,
-while retry and cron runs receive a fresh budget. A zero or absent timeout
+while retry runs receive a fresh budget. A zero or absent timeout
 disables the feature.
 
 `Registry` validates every Flow, Step, RPC signature, durable name, lock, and

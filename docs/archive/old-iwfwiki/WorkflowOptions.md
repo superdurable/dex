@@ -30,37 +30,6 @@ WorkflowOptions.
 Note that the behavior is limited by Cadence/Temporal workflow retention, which is configured at domain/namespace level.
 If a workflow is deleted after retention expired, the workflowId can be started regardless of any Policy
 
-#### CRON Schedule
-
-Dex allows you to start a workflow with a fixed cron schedule like below
-
-```text
-// CronSchedule - Optional cron schedule for workflow. If a cron schedule is specified, the workflow will run
-// as a cron based on the schedule. The scheduling will be based on UTC time. The schedule for the next run only happens
-// after the current run is completed/failed/timeout. If a RetryPolicy is also supplied, and the workflow failed
-// or timed out, the workflow will be retried based on the retry policy. While the workflow is retrying, it won't
-// schedule its next run. If the next schedule is due while the workflow is running (or retrying), then it will skip
-that
-// schedule. Cron workflow will not stop until it is terminated or cancelled (by returning cadence.CanceledError).
-// The cron spec is as follows:
-// ┌───────────── minute (0 - 59)
-// │ ┌───────────── hour (0 - 23)
-// │ │ ┌───────────── day of the month (1 - 31)
-// │ │ │ ┌───────────── month (1 - 12)
-// │ │ │ │ ┌───────────── day of the week (0 - 6) (Sunday to Saturday)
-// │ │ │ │ │
-// │ │ │ │ │
-// * * * * *
-```
-
-NOTE:
-
-* Dex also
-  supports [more advanced cron expressions](https://pkg.go.dev/github.com/robfig/cron#hdr-CRON_Expression_Format)
-* The [crontab guru](https://crontab.guru/) site is useful for testing your cron expressions.
-* To cancel a cron schedule, use terminate of cancel type to stop the workflow execution.
-* By default, there is no cron schedule.
-
 #### RetryPolicy for workflow
 
 Workflow execution can have a backoff retry policy which will retry on failed or timeout.
