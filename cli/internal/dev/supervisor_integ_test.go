@@ -150,8 +150,12 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 	if !strings.Contains(logText, cfg.sqliteDBDirectory()) {
 		t.Fatalf("workflow engine log missing DB directory: %s", logText)
 	}
-	if _, err := os.Stat(cfg.dexServerLogPath()); err != nil {
+	dexLog, err := os.ReadFile(cfg.dexServerLogPath())
+	if err != nil {
 		t.Fatalf("Dex server log file missing: %v", err)
+	}
+	if !bytes.Contains(dexLog, []byte("Started Worker")) {
+		t.Fatalf("Dex server log missing Temporal worker logs: %s", dexLog)
 	}
 	if cfg.SQLiteDBFilename == "" {
 		t.Fatal("missing Temporal database")

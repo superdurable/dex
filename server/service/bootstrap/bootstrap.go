@@ -31,6 +31,7 @@ import (
 	"github.com/superdurable/dex/service/common/log/tag"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/indexsync"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
 
@@ -61,6 +62,7 @@ type Runtime struct {
 	attributeStore    *attributestore.Manager
 	blobStore         blobstore.BlobStore
 	logger            log.Logger
+	zapLogger         *zap.Logger
 	metricsCloser     io.Closer
 	serveError        chan error
 	indexSynchronizer *indexsync.Synchronizer
@@ -104,6 +106,7 @@ func New(cfg *config.Config, options *Options) (*Runtime, error) {
 		options:    options,
 		workerPool: workerPool,
 		logger:     logger,
+		zapLogger:  zapLogger,
 		serveError: make(chan error, 1),
 	}
 	attributeStore, err := attributestore.NewManager(context.Background(), &cfg.AttributeStore, logger)
