@@ -88,6 +88,8 @@ Ok(StepDecision::go_to_many([
 
 **GracefulComplete** and **ForceComplete** can return an output. **ForceFail** returns a failure reason. The Flow result returns each output with the Step type and Step execution ID. When multiple Steps complete gracefully, all their outputs return together.
 
+A Flow can have no active Steps and still keep running. **DeadEnd** stops this branch without making a decision that triggers the Flow to complete.
+
 Use **GracefulComplete** when you want the remaining active Steps and branches to finish gracefully. Use **DeadEnd** when you do not want this branch to make a decision that triggers the Flow to complete. Use **ForceComplete** or **ForceFail** when you want to make an immediate decision.
 
 <SdkTabs

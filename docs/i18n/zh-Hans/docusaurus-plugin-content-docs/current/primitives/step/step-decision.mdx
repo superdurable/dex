@@ -88,6 +88,8 @@ Ok(StepDecision::go_to_many([
 
 **GracefulComplete** 和 **ForceComplete** 可以返回 output。**ForceFail** 返回 failure reason。Flow result 会连同 Step type 和 Step execution ID 一起返回每个 output。多个 Step graceful complete 时，它们的所有 output 会一起返回。
 
+Flow 可以没有任何 active Step，但仍继续运行。**DeadEnd** 停止当前分支，不做出会触发 Flow 完成的决策。
+
 希望剩余 active Step 和分支 graceful finish 时，使用 **GracefulComplete**。不希望当前分支做出会触发 Flow 完成的决策时，使用 **DeadEnd**。希望立即做出决定时，使用 **ForceComplete** 或 **ForceFail**。
 
 <SdkTabs
