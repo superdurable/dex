@@ -13,6 +13,7 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
 type Copy = {
   label: string;
+  application: string;
   request: string;
   dispatch: string;
   result: string;
@@ -26,7 +27,8 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'RPC request travels from Client to Dex Server to Worker, then the result returns to Client',
+  label: 'An RPC travels between the Client and Worker in an Application through Dex Server',
+  application: 'Application',
   request: 'RPC request',
   dispatch: 'invoke RPC',
   result: 'RPC result',
@@ -40,7 +42,8 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  label: 'RPC 请求从 Client 经 Dex Server 到 Worker，结果再返回 Client',
+  label: 'RPC 在 Application 中的 Client 和 Worker 之间经 Dex Server 传递',
+  application: 'Application',
   request: 'RPC 请求',
   dispatch: '调用 RPC',
   result: 'RPC 结果',
@@ -54,40 +57,33 @@ const ZH: Copy = {
 };
 
 function Node({
-  kicker,
   title,
   detail,
   x,
+  y,
+  width,
+  height,
   fill = 'var(--surface-solid)',
   textFill = 'var(--text)',
   detailFill = 'var(--muted-strong)',
 }: {
-  kicker: string;
   title: string;
   detail: string;
   x: number;
+  y: number;
+  width: number;
+  height: number;
   fill?: string;
   textFill?: string;
   detailFill?: string;
 }): ReactNode {
   return (
     <g>
-      <rect x={x} y="80" width="205" height="120" rx="14" fill={fill} stroke="var(--line-strong)" />
-      <text
-        x={x + 102.5}
-        y="112"
-        fill={detailFill}
-        fontFamily="var(--ifm-font-family-monospace)"
-        fontSize="11"
-        fontWeight="650"
-        letterSpacing="1.4"
-        textAnchor="middle">
-        {kicker}
-      </text>
-      <text x={x + 102.5} y="146" fill={textFill} fontSize="19" fontWeight="700" textAnchor="middle">
+      <rect x={x} y={y} width={width} height={height} rx="14" fill={fill} stroke="var(--line-strong)" />
+      <text x={x + width / 2} y={y + height / 2 - 5} fill={textFill} fontSize="19" fontWeight="700" textAnchor="middle">
         {title}
       </text>
-      <text x={x + 102.5} y="174" fill={detailFill} fontSize="13" textAnchor="middle">
+      <text x={x + width / 2} y={y + height / 2 + 22} fill={detailFill} fontSize="13" textAnchor="middle">
         {detail}
       </text>
     </g>
@@ -136,7 +132,7 @@ export default function RpcRequestDiagram(): ReactNode {
   return (
     <div className="exec-diagram" role="img" aria-label={copy.label}>
       <svg
-        viewBox="0 0 880 260"
+        viewBox="0 0 880 310"
         preserveAspectRatio="xMidYMid meet"
         style={{display: 'block', height: 'auto', maxWidth: '100%', position: 'relative', width: '100%', zIndex: 1}}>
         <defs>
@@ -151,20 +147,50 @@ export default function RpcRequestDiagram(): ReactNode {
             <path d="M 0 0 L 9 4.5 L 0 9 Z" fill="var(--forest)" />
           </marker>
         </defs>
-        <Arrow from={225} to={337} y={112} label={copy.request} labelY={62} />
-        <Arrow from={542} to={654} y={112} label={copy.dispatch} labelY={62} />
-        <Arrow from={654} to={542} y={172} label={copy.result} labelY={226} />
-        <Arrow from={337} to={225} y={172} label={copy.response} labelY={226} />
-        <Node kicker="CLIENT" title={copy.client} detail={copy.clientDetail} x={20} />
-        <Node kicker="DEX SERVER" title={copy.server} detail={copy.serverDetail} fill="var(--lime-soft)" x={337} />
+        <rect
+          x="20"
+          y="25"
+          width="370"
+          height="260"
+          rx="18"
+          fill="var(--surface)"
+          stroke="var(--line-strong)"
+          strokeDasharray="7 6"
+        />
+        <text
+          x="48"
+          y="55"
+          fill="var(--forest)"
+          fontFamily="var(--ifm-font-family-monospace)"
+          fontSize="12"
+          fontWeight="650"
+          letterSpacing="1.4">
+          {copy.application.toUpperCase()}
+        </text>
+        <Arrow from={350} to={570} y={105} label={copy.request} labelY={91} />
+        <Arrow from={570} to={350} y={137} label={copy.response} labelY={162} />
+        <Arrow from={570} to={350} y={207} label={copy.dispatch} labelY={193} />
+        <Arrow from={350} to={570} y={239} label={copy.result} labelY={264} />
+        <Node title={copy.client} detail={copy.clientDetail} x={50} y={75} width={300} height={75} />
         <Node
-          kicker="WORKER"
           title={copy.worker}
           detail={copy.workerDetail}
+          x={50}
+          y={180}
+          width={300}
+          height={75}
           detailFill="#d7f6ab"
           fill="var(--forest)"
           textFill="#ffffff"
-          x={654}
+        />
+        <Node
+          title={copy.server}
+          detail={copy.serverDetail}
+          fill="var(--lime-soft)"
+          x={570}
+          y={100}
+          width={260}
+          height={145}
         />
       </svg>
     </div>
