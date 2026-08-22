@@ -3,11 +3,17 @@ title: Channel
 slug: /primitives/channel
 ---
 
+import ChannelScopeDiagram from '@site/src/components/primitives/channel/ChannelScopeDiagram';
+
 # Channel
 
-**Channel** is a durable FIFO queue inside one Flow. Steps, RPCs, and Clients append typed messages. A Step consumes messages by returning a Channel condition from **WaitFor**.
+**Channel** is a durable first-in, first-out (FIFO) queue inside one Flow execution. Steps, RPCs, and Clients append typed messages. A Step consumes messages by returning a Channel condition from **WaitFor**.
 
-A Channel is useful when a Flow must wait for an external event, or when one Step hands work to another Step. It is a queue, not a broadcast topic: one message wakes at most one matching waiting Step.
+A Channel keeps messages in arrival order. A message can be consumed by one matching wait, once. It is not copied to other waiting Steps.
+
+A Channel is scoped to one Flow execution. Another Flow execution has its own Channel queues; messages never cross between Flow executions.
+
+<ChannelScopeDiagram />
 
 ## Persistence schema {#persistence-schema}
 
