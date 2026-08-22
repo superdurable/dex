@@ -5,16 +5,16 @@ slug: /primitives/subflow
 
 # SubFlow
 
-A **SubFlow** is another Flow execution under the parent Flow.
+**SubFlow** 是 parent Flow 下的另一个 Flow execution。
 
-SubFlow has two main uses:
+SubFlow 有两个主要意义：
 
-1. Move complicated logic into a smaller Flow. This makes business logic easier to maintain and keeps its hierarchy clear.
-2. Fan out work. One Flow execution cannot concurrently execute too many operations, but it can delegate work to multiple SubFlows. Each SubFlow can run at the same time, so the parent can reach much higher concurrency.
+1. 把复杂逻辑抽象到更小的 Flow 中。这样业务逻辑更容易维护，层级结构也更清晰。
+2. Fan out 工作。一个 Flow execution 无法同时并发执行太多操作，但可以 delegate 给多个 SubFlow。每个 SubFlow 可以同时运行，所以 parent 可以达到更高的并发。
 
-## Start and wait for a SubFlow
+## 启动并等待 SubFlow
 
-The target Flow must be registered on the Worker, and its start Step must accept the input passed to **SubFlow**. **WaitFor** starts the child. **Execute** reads its result after the child completes.
+target Flow 必须注册在 Worker 上，而且它的 start Step 必须能接受传给 **SubFlow** 的 input。**WaitFor** 启动 child；child 完成后，**Execute** 读取结果。
 
 <SdkTabs
 examples={{
@@ -177,25 +177,25 @@ impl Step for SubFlowParentStep {
 </SdkSnippet>
 </SdkTabs>
 
-## Use SubFlows with other Conditions
+## 与其他 Condition 一起使用 SubFlow
 
-Use **allOf** to make the parent wait for all SubFlows to complete.
+使用 **allOf**，让 parent 等待所有 SubFlow 完成。
 
-Use **anyOf** when the parent does not need to wait for all SubFlows. A SubFlow keeps running after **WaitFor** has finished waiting. **Execute** can still get the SubFlow ID to stop it, or pass the SubFlow ID to another Step to decide how to handle it.
+使用 **anyOf** 时，parent 不会等待所有 SubFlow。**WaitFor** 已经结束等待后，SubFlow 仍会继续运行。**Execute** 仍然可以拿到 SubFlow ID 来停止它，或者把 SubFlow ID 传给其他 Step，由它决定如何处理。
 
-## SubFlowOptions and SubFlowReusePolicy
+## SubFlowOptions 和 SubFlowReusePolicy
 
-**SubFlowOptions** are the equivalent of **StartFlowOptions** on the **StartFlow** API. Most options are the same, except for **SubFlowReusePolicy**.
+**SubFlowOptions** 等同于 **StartFlow** API 上的 **StartFlowOptions**。大部分 option 都一样，只有 **SubFlowReusePolicy** 不同。
 
-Dex Server generates a SubFlow ID from the parent Flow ID, Step execution ID, and condition index. When a parent reuses a Flow ID with **IDReusePolicy**, or time travels, it can enter the same Step execution and try to start the same SubFlow ID again. **SubFlowReusePolicy** controls what happens in that case.
+Dex Server 会根据 parent Flow ID、Step execution ID 和 condition index 生成 SubFlow ID。当 parent 通过 **IDReusePolicy** 复用 Flow ID，或者 time travel 时，它可能会进入同一个 Step execution，再尝试启动相同的 SubFlow ID。**SubFlowReusePolicy** 决定这种情况如何处理。
 
-The default **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** is usually what a parent wants: continue waiting for a running child, use a successful child result, and restart a child that ended abnormally.
+默认的 **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** 通常就是 parent 想要的：继续等待 running child，使用成功 child 的 result，重新启动异常结束的 child。
 
-| Existing child Flow | **ATTACH** | **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** | **ALWAYS_RESTART** |
+| 已存在的 child Flow | **ATTACH** | **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** | **ALWAYS_RESTART** |
 | --- | --- | --- | --- |
-| No existing Flow | Start | Start | Start |
-| Running | Attach | Attach | Terminate and start |
-| Completed | Return its result | Return its result | Start |
-| Failed, canceled, timed out, or terminated | Return its result | Start | Start |
+| 没有已有 Flow | Start | Start | Start |
+| Running | Attach | Attach | Terminate 后 start |
+| Completed | 返回它的 result | 返回它的 result | Start |
+| Failed、canceled、timed out 或 terminated | 返回它的 result | Start | Start |
 
-Dex Server first compares the Request ID it generated for this child start. A matching Request ID always attaches to a running child or returns its terminal result, regardless of **ReusePolicy**. This makes a retry safe when Dex Server accepted the original start but the parent did not receive the response. For a different Request ID, Dex Server applies the selected **ReusePolicy** from the table.
+Dex Server 会先比较为这次 child start 生成的 Request ID。Request ID 相同，就一定会 attach 到 running child 或返回它的 terminal result，和 **ReusePolicy** 无关。这样，Dex Server 接受了原始 start 但 parent 没收到 response 时，retry 也是安全的。Request ID 不同时，Dex Server 才根据表格应用 **ReusePolicy**。
