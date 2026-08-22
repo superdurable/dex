@@ -498,15 +498,11 @@ let progress = AttributeMap::new("primitive-attribute-progress")
 </SdkSnippet>
 </SdkTabs>
 
-## Attribute Store projection {#attribute-store-projection}
+## Attribute Sync {#attribute-store-projection}
 
-有些 application 需要把同一份 Flow state 放到已有的 MySQL 或 PostgreSQL read model。Dex 可以把选中的 Attribute write 异步 projection 到 Server 配置的 **Attribute Store**。
+Dex Attribute 不是用来替代 database 的。Attribute Sync feature 会把 Attribute values 同步到 application database，无需你写一行代码。
 
-Server 配置 Store 和 destination table。Flow 通过 **FlowConfig** 选择它，每个 Attribute 或 AttributeMap definition 显式 opt in **SyncToAttributeStore** 或对应 SDK API。之后，初始值与 Step、RPC、Client 的写入都会被 projection。Flow Attribute 仍然是 authoritative：projection failure 不会 rollback Flow write，Dex 也不会 backfill 漏掉的写入。
-
-SQL row 是 latest-state projection。删除 synced Attribute 时，如果 column 允许，Dex 会 projection SQL **NULL**。修改 Attribute Store target 只影响之后的 write；已经排队的 mutation 保留 Dex 接收它时选择的 target。
-
-这适合 read model、reporting table，或者每个业务实体由一个长运行 Flow 编排的场景。如果 external update 必须和另一次 database write 处于同一个 business transaction，它就不合适。完整 pattern 见 [Entity Store](/design-patterns/entity-store)。
+这样就可以把 Attributes 作为 permanent storage 存到 database 中。这也让你可以构建更强大的 database indexes 来查询 Attribute。
 
 ## Locking {#locking}
 

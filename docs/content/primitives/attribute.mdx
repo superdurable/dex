@@ -498,15 +498,11 @@ let progress = AttributeMap::new("primitive-attribute-progress")
 </SdkSnippet>
 </SdkTabs>
 
-## Attribute Store projection {#attribute-store-projection}
+## Attribute Sync {#attribute-store-projection}
 
-Some applications need the same Flow state in their existing MySQL or PostgreSQL read model. Dex can asynchronously project selected Attribute writes to a Server-configured **Attribute Store**.
+Dex Attribute is not to replace your databases. Attribute Sync feature will sync the attribute values to your application database, without you writing a single line of code.
 
-The Server configures the Store and destination table. The Flow selects it through **FlowConfig**, and each Attribute or AttributeMap definition explicitly opts in to **SyncToAttributeStore** or its SDK equivalent. Initial values and writes from Steps, RPCs, and Clients are then projected. The Flow Attribute remains authoritative: projection failures do not roll back a Flow write, and Dex does not backfill missed writes.
-
-The SQL row is a latest-state projection. Deleting a synced Attribute projects SQL **NULL** when that column allows it. Changing the Attribute Store target changes future writes; mutations already queued keep the target selected when Dex accepted them.
-
-This fits a read model, reporting table, or an entity orchestrated by one long-running Flow. It does not fit an external update that must be in the same business transaction as another database write. See [Entity Store](/design-patterns/entity-store) for a complete pattern.
+So that you can store the attributes in your database as permanent storage. This also lets you build more powerful database indexes to query Attributes.
 
 ## Locking {#locking}
 
