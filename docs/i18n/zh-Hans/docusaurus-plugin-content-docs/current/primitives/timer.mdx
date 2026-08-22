@@ -5,7 +5,7 @@ slug: /primitives/timer
 
 # Timer
 
-Timer is **Durable Timer** persisted on the Dex Server. While waiting on the Timer, there is no resource consumed at the Worker side.
+Timer 是持久化在 Dex Server 上的 **Durable Timer**。等待 Timer 时，Worker 端不会消耗任何资源。
 
 <SdkTabs
   examples={{
@@ -116,9 +116,9 @@ impl Step for TimerExampleStep {
 </SdkSnippet>
 </SdkTabs>
 
-## How to skip a Timer
+## 如何跳过 Timer
 
-You can call **SkipTimer** with the Flow ID and Timer selector to skip a Timer. A skipped timer acts like timer has fired. This is helpful to manually trigger a timer for test simulation for production operation.
+可以用 Flow ID 和 Timer selector 调用 **SkipTimer** 跳过 Timer。被跳过的 Timer 就像已经触发一样。这有助于在测试模拟或生产运维中手动触发 Timer。
 
 <SdkTabs>
 <SdkSnippet lang="python">
