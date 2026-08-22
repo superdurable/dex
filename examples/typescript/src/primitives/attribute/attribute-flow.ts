@@ -59,13 +59,13 @@ class AttributeStep implements Step<string> {
 export class AttributeFlow implements Flow<string> {
   public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
     type: IndexType.KEYWORD,
-    indexKey: "order-status",
+    indexKey: "OrderStatus",
   });
   public readonly email = new Attribute("primitive-attribute-email", stringCodec)
     .syncToAttributeStore();
   public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
     type: IndexType.KEYWORD,
-    indexKey: "order-progress",
+    indexKey: "OrderProgress",
   });
   public readonly attributeStoreConfig: FlowConfig = { attributeStoreName: "profiles" };
   private readonly start = new AttributeStep(this);

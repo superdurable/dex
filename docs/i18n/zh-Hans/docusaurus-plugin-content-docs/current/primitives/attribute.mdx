@@ -50,7 +50,7 @@ class AttributeFlow(Flow[str]):
     status = Attribute(
         "primitive-attribute-status",
         str,
-        index=AttributeIndex(IndexType.KEYWORD, "order-status"),
+        index=AttributeIndex(IndexType.KEYWORD, "OrderStatus"),
     )
 
     def __init__(self) -> None:
@@ -69,7 +69,7 @@ class AttributeFlow(Flow[str]):
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "order-status"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderStatus"}),
 )
 
 type AttributeFlow struct {
@@ -108,7 +108,7 @@ public final class AttributeFlow implements Flow<String> {
             Attribute.define(
                     "primitive-attribute-status",
                     String.class,
-                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "order-status"));
+                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderStatus"));
     private final AttributeStep start = new AttributeStep();
 
     @Override
@@ -164,7 +164,7 @@ class AttributeStep implements Step<string> {
 export class AttributeFlow implements Flow<string> {
   public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
     type: IndexType.KEYWORD,
-    indexKey: "order-status",
+    indexKey: "OrderStatus",
   });
   private readonly start = new AttributeStep(this);
 
@@ -192,10 +192,10 @@ pub struct AttributeFlow {
 impl Default for AttributeFlow {
     fn default() -> Self {
         let status = Attribute::new("primitive-attribute-status")
-            .indexed(AttributeIndex::keyword().with_key("order-status"));
+            .indexed(AttributeIndex::keyword().with_key("OrderStatus"));
         let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
         let progress = AttributeMap::new("primitive-attribute-progress")
-            .indexed(AttributeIndex::keyword().with_key("order-progress"));
+            .indexed(AttributeIndex::keyword().with_key("OrderProgress"));
         Self {
             start: AttributeStep {
                 status: status.clone(),
@@ -335,7 +335,7 @@ Dex 让你可以为 Attribute 配置 index。有了 indexing，就可以在 **Se
 status = Attribute(
     "primitive-attribute-status",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "order-status"),
+    index=AttributeIndex(IndexType.KEYWORD, "OrderStatus"),
 )
 ```
 
@@ -345,7 +345,7 @@ status = Attribute(
 ```go
 var Status = dex.DefineAttribute[string](
 	"primitive-attribute-status",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "order-status"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderStatus"}),
 )
 ```
 
@@ -356,7 +356,7 @@ var Status = dex.DefineAttribute[string](
 private final Attribute<String> status = Attribute.define(
         "primitive-attribute-status",
         String.class,
-        new AttributeIndex(AttributeIndex.Type.KEYWORD, "order-status"));
+        new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderStatus"));
 ```
 
 </SdkSnippet>
@@ -365,7 +365,7 @@ private final Attribute<String> status = Attribute.define(
 ```typescript
 public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "order-status",
+  indexKey: "OrderStatus",
 });
 ```
 
@@ -374,7 +374,62 @@ public readonly status = new Attribute("primitive-attribute-status", stringCodec
 
 ```rust
 let status = Attribute::new("primitive-attribute-status")
-    .indexed(AttributeIndex::keyword().with_key("order-status"));
+    .indexed(AttributeIndex::keyword().with_key("OrderStatus"));
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+上面的 status Attribute 使用 **OrderStatus** 作为 index key。要找 status 为 completed 的 Flow run，可以使用这个 query：
+
+```text
+OrderStatus = 'completed'
+```
+
+将这个 query 传给 **SearchFlows**：
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+page = await app_state.client.search_flows(
+    required_query("query"),
+    20,
+    "",
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+page, err := controller.client.SearchFlows(
+	request.Request.Context(),
+	query,
+	20,
+	"",
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final SearchFlowsPage page = client.searchFlows(query, 20, "");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const page = await client.searchFlows(query, 20, "");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.search_flows(&query.query, 20)
 ```
 
 </SdkSnippet>
@@ -389,7 +444,7 @@ let status = Attribute::new("primitive-attribute-status")
 progress = AttributeMap(
     "primitive-attribute-progress",
     str,
-    index=AttributeIndex(IndexType.KEYWORD, "order-progress"),
+    index=AttributeIndex(IndexType.KEYWORD, "OrderProgress"),
 )
 ```
 
@@ -399,7 +454,7 @@ progress = AttributeMap(
 ```go
 var Progress = dex.DefineAttributeMap[string](
 	"primitive-attribute-progress",
-	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "order-progress"}),
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderProgress"}),
 )
 ```
 
@@ -411,7 +466,7 @@ private final AttributeMap<String> progress =
         AttributeMap.define(
                 "primitive-attribute-progress",
                 String.class,
-                new AttributeIndex(AttributeIndex.Type.KEYWORD, "order-progress"));
+                new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderProgress"));
 ```
 
 </SdkSnippet>
@@ -420,7 +475,7 @@ private final AttributeMap<String> progress =
 ```typescript
 public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
   type: IndexType.KEYWORD,
-  indexKey: "order-progress",
+  indexKey: "OrderProgress",
 });
 ```
 
@@ -429,7 +484,7 @@ public readonly progress = new AttributeMap("primitive-attribute-progress", stri
 
 ```rust
 let progress = AttributeMap::new("primitive-attribute-progress")
-    .indexed(AttributeIndex::keyword().with_key("order-progress"));
+    .indexed(AttributeIndex::keyword().with_key("OrderProgress"));
 ```
 
 </SdkSnippet>
