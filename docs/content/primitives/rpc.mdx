@@ -13,7 +13,7 @@ A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The **Work
 
 <RpcRequestDiagram />
 
-## Define an RPC
+## Define and Invoke an RPC
 
 RPC can read and write durable state through Attributes, publish Channels, and trigger a brand-new Step to run.
 
@@ -102,8 +102,6 @@ impl RpcFlow {
 ### TypeScript codecs
 
 TypeScript uses JSON when **inputCodec** or **outputCodec** is omitted. Provide a codec when the input or output is not JSON, including scalar values such as strings, numbers, booleans, and bigints.
-
-## Invoke an RPC
 
 <SdkTabs
   examples={{

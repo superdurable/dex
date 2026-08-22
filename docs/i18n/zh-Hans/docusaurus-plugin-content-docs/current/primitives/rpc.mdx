@@ -13,7 +13,7 @@ RPC 是 “Remote Procedure Call” 的缩写，允许外部系统与 Flow execu
 
 <RpcRequestDiagram />
 
-## 定义 RPC
+## 定义和调用 RPC
 
 RPC 可以通过 Attribute 读取和写入 durable state、向 Channel publish，也可以 trigger 一个全新的 Step 来运行。
 
@@ -102,8 +102,6 @@ impl RpcFlow {
 ### TypeScript codec
 
 TypeScript 未设置 **inputCodec** 或 **outputCodec** 时会使用 JSON。input 或 output 不是 JSON 时需要提供 codec，包括 string、number、boolean 和 bigint 等 scalar value。
-
-## 调用 RPC
 
 <SdkTabs
   examples={{
