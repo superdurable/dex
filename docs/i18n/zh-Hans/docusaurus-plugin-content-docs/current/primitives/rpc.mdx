@@ -105,8 +105,6 @@ TypeScript 未设置 **inputCodec** 或 **outputCodec** 时会使用 JSON。inpu
 
 ## 调用 RPC
 
-向 Client 传入已注册的 RPC method、Flow ID 和 typed input。调用会等待 Worker handler 返回；成功后 Client 解码 **RPCResult.output**。
-
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/primitives/rpc',
@@ -160,10 +158,6 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 
 </SdkSnippet>
 </SdkTabs>
-
-目标 Flow 必须仍然 active。不存在或已经完成的 Flow 会被拒绝。Worker handler 失败或超过 timeout 时，Client 会返回 Worker invocation error。
-
-每次 RPC 调用都有 request ID。再次调用 Client 来 retry 是一次新的 RPC 调用。因此如果调用方可能在丢失 response 后 retry，外部业务 side effect 要自己保证 idempotent。
 
 ## Advanced
 

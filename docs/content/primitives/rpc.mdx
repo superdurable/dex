@@ -105,8 +105,6 @@ TypeScript uses JSON when **inputCodec** or **outputCodec** is omitted. Provide 
 
 ## Invoke an RPC
 
-Pass the registered RPC method, Flow ID, and typed input to the Client. The call waits until the Worker handler returns. On success, the Client decodes **RPCResult.output**.
-
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/primitives/rpc',
@@ -160,10 +158,6 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 
 </SdkSnippet>
 </SdkTabs>
-
-The target Flow must still be active. A missing or completed Flow is rejected. If the Worker handler fails or exceeds its timeout, the Client returns a Worker invocation error.
-
-An RPC call has a request ID. Retrying by calling the Client again is a new RPC call, so make any external business side effect idempotent when the caller may retry after a lost response.
 
 ## Advanced
 
