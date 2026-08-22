@@ -5,14 +5,7 @@ slug: /primitives/timer
 
 # Timer
 
-A **Timer** is a durable Condition for **WaitFor**. It keeps a Step waiting
-until a duration elapses. Dex Server stores and schedules the Timer; it does not
-hold a Worker while the Step waits.
-
-## Wait for a duration
-
-Return **Wait.until** with a Timer. This Flow takes a number of seconds as its
-input, then runs **Execute** after that duration.
+Timer is **Durable Timer** persisted on the Dex Server. While waiting on the Timer, there is no resource consumed at the Worker side.
 
 <SdkTabs
   examples={{
@@ -25,13 +18,12 @@ input, then runs **Execute** after that duration.
 <SdkSnippet lang="python">
 
 ```python
-class TimerStep(Step[int]):
-    def wait_for(self, context: Context, input: int) -> Wait:
-        del context
+class TimerExampleStep(Step[int]):
+    def wait_for(self, _context: Context, input: int) -> Wait:
         return Wait.until(Timer.by_duration(timedelta(seconds=input)))
 
-    def execute(self, context: Context, input: int) -> StepDecision:
-        del context, input
+    def execute(self, context: Context, _input: int) -> StepDecision:
+        print(context.has_timer_fired())
         return graceful_complete("timer-fired")
 ```
 
@@ -39,15 +31,16 @@ class TimerStep(Step[int]):
   <SdkSnippet lang="go">
 
 ```go
-type timerStep struct {
+type TimerExampleStep struct {
 	dex.StepDefaults
 }
 
-func (timerStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
+func (TimerExampleStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(time.Duration(input) * time.Second)), nil
 }
 
-func (timerStep) Execute(_ dex.Context, _ int) (*dex.StepDecision, error) {
+func (TimerExampleStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	fmt.Println(ctx.HasTimerFired())
 	return dex.GracefulComplete("timer-fired"), nil
 }
 ```
@@ -56,7 +49,7 @@ func (timerStep) Execute(_ dex.Context, _ int) (*dex.StepDecision, error) {
   <SdkSnippet lang="java">
 
 ```java
-final class TimerStep implements Step<Integer> {
+final class TimerExampleStep implements Step<Integer> {
     @Override
     public Class<Integer> getInputType() {
         return Integer.class;
@@ -69,6 +62,7 @@ final class TimerStep implements Step<Integer> {
 
     @Override
     public StepDecision execute(final Context context, final Integer input) {
+        System.out.println(context.hasTimerFired());
         return StepDecision.gracefulComplete("timer-fired");
     }
 }
@@ -78,18 +72,19 @@ final class TimerStep implements Step<Integer> {
   <SdkSnippet lang="typescript">
 
 ```typescript
-class TimerStep implements Step<number> {
+class TimerExampleStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
   public getStepType(): string {
-    return "TimerStep";
+    return "TimerExampleStep";
   }
 
   public waitFor(_context: Context, input: number): Wait {
     return Wait.until(Timer.byDuration(input * 1000));
   }
 
-  public execute(_context: Context, _input: number): StepDecision {
+  public execute(context: Context, _input: number): StepDecision {
+    console.log(context.hasTimerFired());
     return gracefulComplete("timer-fired");
   }
 }
@@ -100,9 +95,9 @@ class TimerStep implements Step<number> {
 
 ```rust
 #[derive(Default)]
-struct TimerStep;
+struct TimerExampleStep;
 
-impl Step for TimerStep {
+impl Step for TimerExampleStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
@@ -111,7 +106,8 @@ impl Step for TimerStep {
         ))))
     }
 
-    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        println!("{}", context.has_any_timer_fired());
         Ok(StepDecision::graceful_complete("timer-fired".to_string()))
     }
 }
@@ -120,202 +116,65 @@ impl Step for TimerStep {
 </SdkSnippet>
 </SdkTabs>
 
-Timer durations must be non-negative whole seconds. The TypeScript API accepts
-milliseconds, so its value must be divisible by 1,000. A zero-duration Timer is
-ready immediately.
+## How to skip a Timer
 
-## Wait for work or a deadline
+You can call **SkipTimer** with the Flow ID and Timer selector to skip a Timer.
 
-Most real waits have a deadline. **Wait.anyOf** lets a Channel or Timer finish
-the wait. **Execute** can then check whether a Timer fired before reading the
-Channel result.
-
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
-    go: 'examples/go/primitives/channel/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
-    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
-    rust: 'examples/rust/src/primitives/channel/flow.rs',
-  }}>
+<SdkTabs>
 <SdkSnippet lang="python">
 
 ```python
-class ChannelWaitStep(Step[int]):
-    def __init__(self, approval: Channel[str]) -> None:
-        self.approval = approval
-
-    def wait_for(self, context: Context, input: int) -> Wait:
-        del context
-        return Wait.any_of(
-            self.approval.for_one(),
-            Timer.by_duration(timedelta(seconds=input)),
-        )
-
-    def execute(self, context: Context, input: int) -> StepDecision:
-        if context.has_timer_fired():
-            return graceful_complete("approval timed out")
-        approvals = self.approval.results(context)
-        return graceful_complete(approvals[0])
+client.skip_timer(
+    flow_id,
+    StepExecutionId("TimerExampleStep"),
+    TimerId.by_condition_index(0),
+)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-var Approval = dex.DefineChannel[string]("Approval")
-
-type channelWaitStep struct {
-	dex.StepDefaults
-}
-
-func (channelWaitStep) WaitFor(_ dex.Context, input int) (*dex.Wait, error) {
-	return dex.AnyOf(
-		Approval.ForOne(),
-		dex.Timer(time.Duration(input)*time.Second),
-	), nil
-}
-
-func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	if ctx.HasTimerFired() {
-		return dex.GracefulComplete("approval timed out"), nil
-	}
-	results, err := Approval.GetConditionResults(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(results[0]), nil
-}
+timerIndex := int32(0)
+err := client.SkipTimer(
+	ctx,
+	flowID,
+	dex.StepExecutionID{StepType: "TimerExampleStep"},
+	dex.TimerID{Index: &timerIndex},
+)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-final class ChannelWaitStep implements Step<Integer> {
-    @Override
-    public Class<Integer> getInputType() {
-        return Integer.class;
-    }
-
-    @Override
-    public Wait waitFor(final Context context, final Integer input) {
-        return Wait.anyOf(
-                approval.forOne(),
-                Timer.byDuration(Duration.ofSeconds(input)));
-    }
-
-    @Override
-    public StepDecision execute(final Context context, final Integer input) {
-        if (context.hasTimerFired()) {
-            return StepDecision.gracefulComplete("approval timed out");
-        }
-        final List<String> approvals = approval.getConditionResults(context);
-        return StepDecision.gracefulComplete(approvals.get(0));
-    }
-}
+client.skipTimer(
+        flowId,
+        StepExecutionId.of("TimerExampleStep"),
+        TimerId.byConditionIndex(0));
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
 ```typescript
-const approval = new Channel("Approval", stringCodec);
-
-class ChannelWait implements Step<number> {
-  public readonly inputCodec = doubleCodec;
-
-  public getStepType(): string {
-    return "ChannelWait";
-  }
-
-  public waitFor(_context: Context, input: number): Wait {
-    return Wait.anyOf(
-      approval.forOne(),
-      Timer.byDuration(input * 1000),
-    );
-  }
-
-  public execute(context: Context, _input: number): StepDecision {
-    if (context.hasTimerFired()) {
-      return gracefulComplete("approval timed out");
-    }
-    const approvals = approval.results(context);
-    return gracefulComplete(approvals[0]!);
-  }
-}
-
-const channelWaitStep = new ChannelWait();
+await client.skipTimer(
+  flowId,
+  StepExecutionId.of("TimerExampleStep"),
+  TimerId.byConditionIndex(0),
+);
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="rust">
 
 ```rust
-fn approval() -> Channel<String> {
-    Channel::new("Approval")
-}
-
-#[derive(Default)]
-struct ChannelWait;
-
-impl Step for ChannelWait {
-    type Input = i32;
-
-    fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([
-            approval().for_one(),
-            Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
-        ]))
-    }
-
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        if context.has_any_timer_fired() {
-            return Ok(StepDecision::graceful_complete(
-                "approval timed out".to_owned(),
-            ));
-        }
-        let approvals = approval().condition_results(context)?;
-        Ok(StepDecision::graceful_complete(approvals[0].clone()))
-    }
-}
+client.skip_timer(
+    &flow_id,
+    StepExecutionId::of(&TimerExampleStep),
+    TimerId::by_condition_index(0),
+)?;
 ```
 
 </SdkSnippet>
 </SdkTabs>
-
-**hasTimerFired** reports whether any Timer in the completed Wait fired. If the
-Wait has several Timers, use the indexed form to inspect one of them. **Wait.allOf**
-does the opposite of **Wait.anyOf**: it waits until every condition, including
-every Timer, completes.
-
-## Identify or skip a Timer
-
-Give a Timer a stable condition ID when code outside the Worker needs to target
-it. A **TimerID** or **TimerId** can select a Timer by that ID or by its
-zero-based position among the Timers in the Wait. Prefer a condition ID: a
-position changes when the Wait is reordered. Condition IDs must be unique within
-one Wait. Any-combination waits also require them.
-
-Call **SkipTimer** with the Flow ID, **StepExecutionID** or **StepExecutionId**,
-and the Timer selector. It makes the selected pending Timer ready, so the Wait
-can proceed. Dex Server first reads the active Flow's pending Timers and rejects
-the call when the Flow is closed, the Step execution does not match, or the
-Timer is no longer pending. See [Client APIs](/primitives/client-apis) for the
-client operation.
-
-## How Timer time works
-
-When **WaitFor** returns a Timer, Dex Server records an absolute deadline. The
-deadline is durable, so a Worker restart or **continue-as-new** does not start
-the duration again. The Timer becomes ready when workflow time reaches that
-deadline; **Execute** runs after Dex Server processes that event and a Worker
-can handle it. A Timer is durable scheduling, not a real-time guarantee.
-
-For timing-sensitive work, use **SYNC** Step durability. With **ASYNC**
-durability, Dex Server may receive the **WaitFor** result later, which delays
-when it can schedule the Timer. See [Step options](/primitives/step/step-options#durability).
-
-A Timer has one deadline. To extend a wait after new activity, create another
-Timer rather than changing the existing one. See the [resettable timer](/design-patterns/resettable-timer)
-pattern.
