@@ -309,7 +309,7 @@ Read the values selected for the current Step execution through the Channel resu
 
 Inside a Step or RPC, call the Channel publish method with the handler **Context**. Dex appends the message when it accepts that handler result.
 
-Code outside a Worker can publish directly through the Client **PublishToChannel** API. A client publishes to an active Flow, and a batch keeps the order in which its values were supplied. See [Client APIs](/primitives/client-apis#interact-with-a-running-flow).
+Code outside a Worker can publish directly through the Client **PublishToChannel** API. A client publishes to an active Flow, and a batch keeps the order in which its values were supplied. See [Client](/primitives/client/advanced#publish-to-a-channel).
 
 Messages can arrive before a Step starts waiting. Dex Server keeps them in the Channel until a later wait consumes them.
 
