@@ -504,6 +504,127 @@ Dex Attribute 不是用来替代 database 的。Attribute Sync feature 会把 At
 
 这样就可以把 Attributes 作为 permanent storage 存到 database 中。这也让你可以构建更强大的 database indexes 来查询 Attribute。
 
+标记每个需要同步的 Attribute：
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/patterns/entity-store/user_profile_flow.py', go: 'examples/go/patterns/entity-store/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/UserProfileFlow.java', typescript: 'examples/typescript/src/patterns/entity-store/user-profile-flow.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+display_name = Attribute("display_name", str, sync_to_attribute_store=True)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var DisplayName = dex.DefineAttribute[string](
+	"display_name",
+	dex.SyncToAttributeStore(),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public final Attribute<String> displayName =
+        Attribute.define("display_name", String.class).syncToAttributeStore();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public readonly displayName = new Attribute("display_name", stringCodec)
+  .syncToAttributeStore();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn display_name() -> Attribute<String> {
+    Attribute::new("display_name").sync_to_attribute_store()
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+首先，在 Dex Server 配置中定义 Attribute Store：
+
+```yaml
+attributeStore:
+  stores:
+    entityStore:
+      type: postgres
+      dsn: postgres://entity_store:entity_store@localhost:55432/entity_store?sslmode=disable
+      tableName: public.user_profiles
+```
+
+使用这个配置启动 Dex Server：
+
+```bash
+dexcli dev --attribute-store-config ./attribute-store.yaml
+```
+
+然后，在启动 Flow 时选择同一个 store name：
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/patterns/entity-store/controller.py', go: 'examples/go/patterns/entity-store/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/EntityStoreController.java', typescript: 'examples/typescript/src/patterns/entity-store/controller.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+options = StartFlowOptions(
+    config_override=FlowConfig(attribute_store_name="entityStore"),
+)
+await client.start_flow(flow, user_id, None, options)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+options := dex.StartFlowOptions{
+	ConfigOverride: &dex.FlowConfig{
+		AttributeStoreName: ptr.Any("entityStore"),
+	},
+}
+_, err := client.StartFlow(ctx, flow, userID, nil, options)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final StartFlowOptions options = StartFlowOptions.newBuilder()
+        .configOverride(FlowConfig.newBuilder()
+                .attributeStoreName("entityStore")
+                .build())
+        .build();
+final String runId = client.startFlow(flow, userId, null, options);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const runId = await client.startFlow(flow, userId, undefined, {
+  configOverride: { attributeStoreName: "entityStore" },
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let options = StartFlowOptions::new()
+    .config_override(FlowConfig::new().attribute_store_name("entityStore"));
+let run_id = client.start_flow_with_options(&flow, &user_id, (), options)?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
 ## Locking {#locking}
 
 一次 Attribute write 会和 Step 或 RPC result 一起 durable。但这不代表 read-modify-write sequence 就安全。在执行这个 sequence 的 Step method 或 RPC 上声明 Attribute lock。Dex 会在调用 handler 前一起获取请求的 lock，并在这次 invocation 结束时释放。
