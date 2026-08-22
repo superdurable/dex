@@ -6,13 +6,7 @@ slug: /primitives/client
 
 # Client
 
-**Client** 是 Worker 外面的 application code 与 Dex Server 交互的方式。
-
-它启动 Flow，发送外部输入，读取 durable state，等待工作，也可以控制已有执行。它不会直接调用 Step。Dex Server 记录请求，并在需要时把 Step 或 RPC 工作发送给 Worker。
-
-Client 用 **Flow ID** 标识逻辑工作。**StartFlow** 为这次执行返回 Dex Server 生成的 **Run ID**。retry、time travel 和 continue-as-new 都可能创建新的 Run ID，同时保留同一个 Flow ID。
+**Client** 是 Worker 外面的 application code 用来与 Dex Server 交互 Flow execution 的方式。
 
 - [Client basics](/primitives/client/basic) 介绍如何启动和停止 Flow、调用 RPC，以及读取或写入 Attribute。
 - [Client advanced](/primitives/client/advanced) 介绍 Channel input、wait、inspection、search 和 operator control。
-
-大多数会改变 Flow 的调用都要求 Flow 仍然 active。读取、**DescribeFlow**、**WaitForFlow** 和 **TimeTravel** 可以用于已有 Flow。**SearchFlows** 不针对某个 Flow。

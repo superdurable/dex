@@ -6,13 +6,7 @@ slug: /primitives/client
 
 # Client
 
-**Client** is how application code outside a Worker talks to Dex Server.
-
-It starts a Flow, sends it external input, reads durable state, waits for work, and controls an existing execution. It does not call a Step directly. Dex Server records the request and sends Step or RPC work to the Worker when needed.
-
-The Client uses a **Flow ID** to identify the logical work. **StartFlow** returns a Dex Server-generated **Run ID** for that execution. Retry, time travel, and continue-as-new can create another Run ID while keeping the Flow ID.
+**Client** is how application code outside a Worker interact with Dex Server on Flow executions.
 
 - [Client basics](/primitives/client/basic) covers starting and stopping a Flow, calling an RPC, and reading or writing an Attribute.
 - [Client advanced](/primitives/client/advanced) covers Channel input, waits, inspection, search, and operator controls.
-
-Most calls that change a Flow require an active Flow. Reads, **DescribeFlow**, **WaitForFlow**, and **TimeTravel** can use an existing Flow instead. **SearchFlows** does not target a Flow at all.
