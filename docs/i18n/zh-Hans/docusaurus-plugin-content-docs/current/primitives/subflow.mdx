@@ -5,9 +5,12 @@ slug: /primitives/subflow
 
 # SubFlow
 
-**SubFlow** 会从 parent Step 的 **WaitFor** 启动一个 Flow。这个 child 是一个正常的 Flow：有自己的 Flow ID、timeout、retry policy、Attribute 和生命周期。parent Step 会 durable 地等待，child 进入 terminal state 后，它的 **Execute** 才会运行。
+**SubFlow** 是 parent Flow 下的另一个 Flow execution。
 
-当一部分工作需要自己的 durable lifecycle，但 parent 仍然需要它的结果时，使用 SubFlow。比如 payment、fulfillment 或 approval 可以是独立 Flow，不必塞进 parent 的一个大 Step。
+SubFlow 有两个主要意义：
+
+1. 把复杂逻辑抽象到更小的 Flow 中。这样业务逻辑更容易维护，层级结构也更清晰。
+2. Fan out 工作。一个 Flow execution 无法同时并发执行太多操作，但可以 delegate 给多个 SubFlow。每个 SubFlow 可以同时运行，所以 parent 可以达到更高的并发。
 
 ## 启动并等待 SubFlow
 
@@ -174,35 +177,17 @@ impl Step for SubFlowParentStep {
 </SdkSnippet>
 </SdkTabs>
 
-不带 index 的结果 accessor 会读取当前 **Wait** 中第一个 SubFlow。一个 Wait 有多个 SubFlow 时，传它在 SubFlow 中从零开始的位置。结果包含 child Flow 的 status、error 信息和已完成 Step 的 output。
+## 与其他 Condition 一起使用 SubFlow
 
-## 与其他 Condition 组合
+使用 **allOf**，让 parent 等待所有 SubFlow 完成。
 
-parent 需要每个 child 时，使用 **allOf**。**Execute** 运行时，所有 SubFlow result 都已经 terminal。
+使用 **anyOf** 时，parent 不会等待所有 SubFlow。**WaitFor** 已经结束等待后，SubFlow 仍会继续运行。**Execute** 仍然可以拿到 SubFlow ID 来停止它，或者把 SubFlow ID 传给其他 Step，由它决定如何处理。
 
-当一个 result、**Timer** 或其他 Condition 就足以让 parent 前进时，使用 **anyOf**。winning Condition 会恢复 parent，但不会取消其他 Condition。如果其他 Condition 先完成，尚未完成的 SubFlow result 的 status 是 **RUNNING**，没有 output。
+## SubFlowOptions 和 SubFlowReusePolicy
 
-parent 完成、失败或取消时，SubFlow 会继续运行。如果业务需要停止未完成的 child，在 **Execute** 中拿到它由 Dex Server 生成的 Flow ID，再用 Client 停止该 Flow。child 可能会在 stop 到达 Dex Server 前完成，这种 race 是正常的。
+**SubFlowOptions** 等同于 **StartFlow** API 上的 **StartFlowOptions**。大部分 option 都一样，只有 **SubFlowReusePolicy** 不同。
 
-Dex Server 会生成 SubFlow 的 Flow ID 和 Request ID。你可以通过 **DexParentFlowID** Search Attribute，用 parent Flow ID 搜索 child Flow。
-
-## SubFlowOptions
-
-**SubFlowOptions** 是 child Flow 对应的 **StartFlow** start options。child 启动后，它们不能再修改。
-
-| Option | 作用 |
-| --- | --- |
-| **Timeout** 和 **TimeoutPolicy** | child Flow 的 deadline，以及它触发时的行为。timeout 默认会让 child 失败。如果 child 有 timeout handler 且没有设置 policy，Dex 会使用这个 handler。 |
-| **RetryPolicy** | child 失败后的 whole-Flow retry。不会 retry cancellation。 |
-| **StartDelay** | Dex Server 接受 child 后，到运行它的 start Step 前等待多久。delay 期间 parent 仍然在等待。 |
-| **Attributes** | child 的初始 Attribute 值。每个 Attribute 都必须属于 child Flow 的 persistence schema。 |
-| **FlowConfig** | 每个 child 的 override。child 会先继承 parent Flow 生效后的 **FlowConfig**；override 只修改它提供的字段。 |
-| **ReusePolicy** | 这个 SubFlow ID 已存在时的行为。 |
-| **ConditionID** | SubFlow 出现在 **anyCombinationOf** 时需要的 stable ID。**anyOf** 和 **allOf** 不需要。 |
-
-SubFlow 没有 **CronSchedule**、**IDReusePolicy**、**RequestID** 和 **AlreadyStartedOptions**。child start identity 由 Dex Server 管理，也由它处理 reuse。
-
-## ReusePolicy
+Dex Server 会根据 parent Flow ID、Step execution ID 和 condition index 生成 SubFlow ID。当 parent 通过 **IDReusePolicy** 复用 Flow ID，或者 time travel 时，它可能会进入同一个 Step execution，再尝试启动相同的 SubFlow ID。**SubFlowReusePolicy** 决定这种情况如何处理。
 
 默认的 **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** 通常就是 parent 想要的：继续等待 running child，使用成功 child 的 result，重新启动异常结束的 child。
 
@@ -214,5 +199,3 @@ SubFlow 没有 **CronSchedule**、**IDReusePolicy**、**RequestID** 和 **Alread
 | Failed、canceled、timed out 或 terminated | 返回它的 result | Start | Start |
 
 Dex Server 会先比较为这次 child start 生成的 Request ID。Request ID 相同，就一定会 attach 到 running child 或返回它的 terminal result，和 **ReusePolicy** 无关。这样，Dex Server 接受了原始 start 但 parent 没收到 response 时，retry 也是安全的。Request ID 不同时，Dex Server 才根据表格应用 **ReusePolicy**。
-
-Flow 的 timeout、retry 和 Flow configuration 的完整行为见 [Flow options](/primitives/flow/flow-options)。如何把 **SubFlow** 与 **Timer**、**Channel** 和其他 Condition 组合，见 [Waiting conditions](/primitives/step/waiting-condition)。

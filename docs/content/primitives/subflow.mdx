@@ -5,9 +5,12 @@ slug: /primitives/subflow
 
 # SubFlow
 
-A **SubFlow** starts one Flow from a parent Step's **WaitFor**. The child is a normal Flow: it has its own Flow ID, timeout, retry policy, Attributes, and lifecycle. The parent Step waits durably and its **Execute** runs when the child reaches a terminal state.
+A **SubFlow** is another Flow execution under the parent Flow.
 
-Use a SubFlow when part of the work needs its own durable lifecycle, but the parent still needs its result. A payment, fulfillment, or approval process can be a separate Flow instead of a large Step in the parent.
+SubFlow has two main uses:
+
+1. Move complicated logic into a smaller Flow. This makes business logic easier to maintain and keeps its hierarchy clear.
+2. Fan out work. One Flow execution cannot concurrently execute too many operations, but it can delegate work to multiple SubFlows. Each SubFlow can run at the same time, so the parent can reach much higher concurrency.
 
 ## Start and wait for a SubFlow
 
@@ -174,35 +177,17 @@ impl Step for SubFlowParentStep {
 </SdkSnippet>
 </SdkTabs>
 
-The result accessor without an index reads the first SubFlow in the current **Wait**. When a Wait contains more than one SubFlow, pass its zero-based SubFlow position. The result has the child Flow status, error information, and completed Step outputs.
+## Use SubFlows with other Conditions
 
-## Combine SubFlows with other Conditions
+Use **allOf** to make the parent wait for all SubFlows to complete.
 
-Use **allOf** when the parent needs every child. All SubFlow results are terminal when **Execute** runs.
+Use **anyOf** when the parent does not need to wait for all SubFlows. A SubFlow keeps running after **WaitFor** has finished waiting. **Execute** can still get the SubFlow ID to stop it, or pass the SubFlow ID to another Step to decide how to handle it.
 
-Use **anyOf** when one result, a **Timer**, or another Condition can move the parent forward. The winning Condition resumes the parent; it does not cancel the other Conditions. If another Condition wins, an unfinished SubFlow result has status **RUNNING** and no output.
+## SubFlowOptions and SubFlowReusePolicy
 
-A SubFlow keeps running when its parent completes, fails, or is canceled. If the business operation should stop an unfinished child, get its server-generated Flow ID in **Execute** and stop that Flow with a Client. The child can finish before the stop reaches Dex Server, so treat that race as normal.
+**SubFlowOptions** are the equivalent of **StartFlowOptions** on the **StartFlow** API. Most options are the same, except for **SubFlowReusePolicy**.
 
-Dex Server generates both the SubFlow Flow ID and Request ID. The child Flow is searchable with the parent Flow ID through the **DexParentFlowID** Search Attribute.
-
-## SubFlowOptions
-
-**SubFlowOptions** are the child-Flow equivalent of the start options on **StartFlow**. They are fixed once the child starts.
-
-| Option | What it controls |
-| --- | --- |
-| **Timeout** and **TimeoutPolicy** | The child Flow deadline and what happens when it fires. A timeout fails the child by default. If the child has a timeout handler and no policy is set, Dex uses that handler. |
-| **RetryPolicy** | Whole-Flow retries after the child fails. It does not retry cancellation. |
-| **StartDelay** | How long Dex Server waits after accepting the child before running its start Step. The parent remains waiting during the delay. |
-| **Attributes** | Initial Attribute values for the child. Each Attribute must belong to the child Flow's persistence schema. |
-| **FlowConfig** | Per-child overrides. The child first inherits the parent Flow's effective **FlowConfig**; the override changes only the fields it provides. |
-| **ReusePolicy** | What to do when this SubFlow ID already exists. |
-| **ConditionID** | The stable ID required when the SubFlow appears in **anyCombinationOf**. It is not needed for **anyOf** or **allOf**. |
-
-SubFlows do not have **CronSchedule**, **IDReusePolicy**, **RequestID**, or **AlreadyStartedOptions**. Dex Server owns the child start identity and resolves reuse itself.
-
-## ReusePolicy
+Dex Server generates a SubFlow ID from the parent Flow ID, Step execution ID, and condition index. When a parent reuses a Flow ID with **IDReusePolicy**, or time travels, it can enter the same Step execution and try to start the same SubFlow ID again. **SubFlowReusePolicy** controls what happens in that case.
 
 The default **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** is usually what a parent wants: continue waiting for a running child, use a successful child result, and restart a child that ended abnormally.
 
@@ -214,5 +199,3 @@ The default **RESTART_IF_PREVIOUS_EXITS_ABNORMALLY** is usually what a parent wa
 | Failed, canceled, timed out, or terminated | Return its result | Start | Start |
 
 Dex Server first compares the Request ID it generated for this child start. A matching Request ID always attaches to a running child or returns its terminal result, regardless of **ReusePolicy**. This makes a retry safe when Dex Server accepted the original start but the parent did not receive the response. For a different Request ID, Dex Server applies the selected **ReusePolicy** from the table.
-
-For the broader Flow timeout, retry, and Flow configuration behavior, see [Flow options](/primitives/flow/flow-options). For composing **SubFlow** with **Timer**, **Channel**, and other Conditions, see [Waiting conditions](/primitives/step/waiting-condition).
