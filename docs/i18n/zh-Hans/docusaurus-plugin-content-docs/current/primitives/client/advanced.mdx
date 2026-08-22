@@ -267,7 +267,7 @@ client.update_flow_config("order-123", FlowConfig::new().continue_as_new_thresho
 
 ## 触发 continue-as-new
 
-**TriggerContinueAsNew** 请求 active Flow 把 history 滚动到新的 run。Flow ID 保持不变。
+**TriggerContinueAsNew** 请求 active Flow 把 history 滚动到新的 run。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -304,7 +304,7 @@ client.trigger_continue_as_new("order-123")?;
 
 ## Time travel
 
-**TimeTravel** 从已有 Flow history 的某个点创建一个新 run。operator 在 code fix 后需要重新运行工作时使用它。Flow ID 保持不变。
+**TimeTravel** 从已有 Flow history 的某个点创建一个新 run。operator 在 code fix 后需要重新运行工作时使用它。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
 <SdkSnippet lang="python">
