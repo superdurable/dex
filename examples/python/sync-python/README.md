@@ -3,7 +3,7 @@
 Showcase of the **sync** Dex Python SDK surface (`Client` / `Worker`) next to
 the primary async examples under `examples/python/`.
 
-Targets [`dex-python-sdk==0.1.10`](https://pypi.org/project/dex-python-sdk/0.1.10/).
+Targets [`dex-python-sdk==0.2.0`](https://pypi.org/project/dex-python-sdk/0.2.0/).
 Requires Python 3.11+.
 
 The samples use concrete SDK errors for missing, inactive, and duplicate Flows

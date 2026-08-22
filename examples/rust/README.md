@@ -1,7 +1,7 @@
 # Rust examples
 
 This application mirrors the examples shared by the Java, Python, and TypeScript
-applications. It intentionally depends on the published `dex-sdk = "=0.1.12"`
+applications. It intentionally depends on the published `dex-sdk = "=0.2.0"`
 crate without a repository path override.
 
 ## Layout

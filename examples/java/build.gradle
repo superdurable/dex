@@ -18,15 +18,12 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 repositories {
-    if (providers.gradleProperty("useCurrentSdk").isPresent()) {
-        mavenLocal()
-    }
     mavenCentral()
 }
 
 dependencies {
     implementation "org.springframework.boot:spring-boot-starter-web"
-    implementation "io.superdurable:dex-sdk:0.1.10"
+    implementation "io.superdurable:dex-sdk:0.2.0"
 
     implementation "com.fasterxml.jackson.datatype:jackson-datatype-jsr310"
     implementation "com.fasterxml.jackson.datatype:jackson-datatype-jdk8"
