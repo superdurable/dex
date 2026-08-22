@@ -6,11 +6,11 @@ slug: /primitives/attribute
 
 # Attribute
 
-An **Attribute** lets you store data within a Flow execution, as persistence storage.
+An **Attribute** lets you store data within a Flow run, as persistence storage.
 
-This is especially useful for intermediate data during a Flow execution. It eliminates the work of setting up and managing a database dependency.
+This is especially useful for intermediate data during a Flow run. It eliminates the work of setting up and managing a database dependency.
 
-Dex Attribute is not to replace your databases. An obvious limitation is that Attribute exists only for the lifetime of its Flow execution. Dex deletes it when it deletes the Flow run, after the configurable retention period following Flow closure.
+Dex Attribute is not to replace your databases. An obvious limitation is that Attribute exists only for the lifetime of its Flow run. Dex deletes it when it deletes the Flow run, after the configurable retention period following Flow closure.
 
 However, Dex allows you to sync Attribute values to your application database as permanent storage. This also lets you build more powerful database indexes to query Attributes.
 
