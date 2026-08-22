@@ -6,19 +6,21 @@ slug: /primitives/attribute
 
 # Attribute basics
 
-An **Attribute** lets you store data within a Flow execution.
+An **Attribute** lets you store data within a Flow execution, as persistence storage.
 
-Dex Attributes make it easy to store data. This is especially useful for intermediate data during a Flow execution, without the work of setting up and managing a database dependency.
+This is especially useful for intermediate data during a Flow execution, without the work of setting up and managing a database dependency.
 
-Each Attribute exists only for the lifetime of its Flow execution. Dex deletes it when it deletes the execution history, after the configurable retention period following Flow closure.
+Dex Attribute is not to replace your databases. An obvious limitation is that Attribute exists only for the lifetime of its Flow execution. Dex deletes it when it deletes the execution history, after the configurable retention period following Flow closure.
 
 However, Dex allows you to sync Attribute values to your application database as permanent storage. This also lets you build more powerful database indexes to query Attributes.
 
-## Define an Attribute {#define-an-attribute}
+## Use an Attribute {#define-an-attribute}
 
-Define Attributes on the Flow, then list them in its persistence schema. That declaration is the contract for the Flow's durable state. Dex rejects a Step, RPC, or Client that tries to use an undeclared Attribute.
+Define Attributes as part of the persistence schema of a Flow.
 
-A handler reads the values from its current invocation and stages writes in the same invocation. If the handler attempt fails, the staged writes do not become Flow state. If it returns normally, Dex commits the writes together with the resulting Step decision or RPC result.
+Then you can use the attribute within Step or RPC implementation to read or write the attribute. An attribute must be declared via PersistenceSchema before use. Otherwise, the worker will reject the operations.
+
+When updating an attribute, setting it to null will delete it.
 
 <SdkTabs
   examples={{
