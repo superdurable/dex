@@ -435,7 +435,15 @@ client.search_flows(&query.query, 20)
 </SdkSnippet>
 </SdkTabs>
 
-An indexed **AttributeMap** must use an explicit index key. All its instances use the same fixed key in the search schema, so a dynamic instance key cannot be the query key.
+An indexed **AttributeMap** must use an explicit index key. It is not an index over all Map instances. Each instance write updates the same search field, so one instance can replace the value written by another instance. The Map instance key is not searchable.
+
+This does not turn the Map into a **KEYWORD_ARRAY**. **KEYWORD_ARRAY** indexes the string array from one write; Dex does not combine the values from all Map instances. After the example below writes the payment instance with value authorized, you can query the current search value with:
+
+```text
+OrderProgress = 'authorized'
+```
+
+If another Map instance later writes a different value, that value replaces the search value for **OrderProgress**. Use a regular Attribute with **KEYWORD_ARRAY** when you need to search a collection of values. Do not use an AttributeMap index to find every instance with a value.
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">

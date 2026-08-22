@@ -435,7 +435,15 @@ client.search_flows(&query.query, 20)
 </SdkSnippet>
 </SdkTabs>
 
-带 index 的 **AttributeMap** 必须设置显式 index key。它的所有 instance 都使用 search schema 中同一个固定 key，所以 dynamic instance key 不能作为 query key。
+带 index 的 **AttributeMap** 必须设置显式 index key。它不是所有 Map instance 的 index。每个 instance 的 write 都更新同一个 search field，所以一个 instance 可以替换另一个 instance 写入的值。Map instance key 不能被搜索。
+
+这不会把 Map 自动变成 **KEYWORD_ARRAY**。**KEYWORD_ARRAY** 只会 index 一次 write 传入的 string array；Dex 不会合并所有 Map instance 的值。下面的例子写入 payment instance 的值 authorized 后，可以用下面的 query 查询当前 search value：
+
+```text
+OrderProgress = 'authorized'
+```
+
+如果之后另一个 Map instance 写入不同的值，它会替换 **OrderProgress** 的 search value。需要搜索一组值时，应使用带 **KEYWORD_ARRAY** 的普通 Attribute。不要用 AttributeMap index 查找所有有某个值的 instance。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
