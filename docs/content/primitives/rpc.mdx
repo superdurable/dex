@@ -118,54 +118,44 @@ Pass the registered RPC method, Flow ID, and typed input to the Client. The call
 <SdkSnippet lang="python">
 
 ```python
-result = await app_state.client.invoke_rpc(
-    app_state.rpc.trigger,
-    required_query("workflowId"),
-    required_query("message"),
-)
-return result
+result = await client.invoke_rpc(flow.trigger, flow_id, message)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-var output string
-err := controller.client.InvokeRPC(
-	request.Request.Context(),
+var result string
+err := client.InvokeRPC(
+	ctx,
 	flowID,
-	controller.flow.Trigger,
+	flow.Trigger,
 	message,
-	&output,
+	&result,
 	sdk.InvokeOptions{},
 )
-httputil.RespondString(request, output, err)
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-final RpcFlow stub = client.newRpcStub(RpcFlow.class, workflowId);
-return ResponseEntity.ok(client.invokeRPC(stub::trigger, message));
+final RpcFlow flow = client.newRpcStub(RpcFlow.class, flowId);
+final String result = client.invokeRPC(flow::trigger, message);
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
 ```typescript
-const result = await client.invokeRPC(rpcFlow.trigger, workflowId, message);
-response.send(result);
+const result = await client.invokeRPC(flow.trigger, flowId, message);
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="rust">
 
 ```rust
-match run_blocking(move || client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)) {
-    Ok(result) => ok_text(result),
-    Err(error) => map_sdk_error(error).into_response(),
-}
+let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 ```
 
 </SdkSnippet>
