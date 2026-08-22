@@ -13,13 +13,9 @@ A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The **Work
 
 <RpcRequestDiagram />
 
-RPC can read and write durable state through Attributes, publish Channels, and trigger a brand-new Step to run.
-
 ## Define an RPC
 
-Add an RPC method to the Flow. It receives **Context** and zero or one typed input. It returns a typed **RPCResult**; procedure-style RPCs can return no output.
-
-This RPC stores the submitted message and publishes an internal Channel. The Flow's waiting Step can then continue.
+RPC can read and write durable state through Attributes, publish Channels, and trigger a brand-new Step to run.
 
 <SdkTabs
   examples={{

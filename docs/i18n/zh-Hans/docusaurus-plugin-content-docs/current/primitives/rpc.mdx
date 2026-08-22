@@ -13,13 +13,9 @@ RPC 是 “Remote Procedure Call” 的缩写，允许外部系统与 Flow execu
 
 <RpcRequestDiagram />
 
-RPC 可以通过 Attribute 读取和写入 durable state、向 Channel publish，也可以 trigger 一个全新的 Step 来运行。
-
 ## 定义 RPC
 
-在 Flow 上添加一个 RPC 方法。它接收 **Context** 和零或一个 typed input，返回 typed **RPCResult**；procedure-style RPC 也可以不返回 output。
-
-下面的 RPC 保存提交的 message，并发布一个内部 Channel。正在等待的 Step 就可以继续。
+RPC 可以通过 Attribute 读取和写入 durable state、向 Channel publish，也可以 trigger 一个全新的 Step 来运行。
 
 <SdkTabs
   examples={{
