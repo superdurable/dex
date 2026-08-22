@@ -142,6 +142,50 @@ let result = client.invoke_rpc("order-123", RPC_TRIGGER, "approved".to_owned())?
 </SdkSnippet>
 </SdkTabs>
 
+## Publish to a Channel
+
+**PublishToChannel** appends durable messages to a registered [Channel](/primitives/channel). A Step waiting on that Channel can consume the messages later. The Flow must be active.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/channel/channel_flow.py', go: 'examples/go/primitives/channel/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java', typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts', rust: 'examples/rust/src/primitives/channel/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.publish("order-123", approval, "approved")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err := client.PublishToChannel(ctx, "order-123", Approval, "approved")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+client.publish("order-123", approval, "approved");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+await client.publish("order-123", approval, "approved");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.publish("order-123", &approval(), "approved".to_owned())?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+For a ChannelMap, use the matching map overload and provide the instance name. The Go and Rust SDKs can publish a batch in one call.
+
 ## Get an Attribute
 
 **GetAttribute** reads a registered [Attribute](/primitives/attribute) from the current or latest run of an existing Flow. It returns no value when the Attribute has never been written. This read does not require an active Flow.

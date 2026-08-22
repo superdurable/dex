@@ -142,6 +142,50 @@ let result = client.invoke_rpc("order-123", RPC_TRIGGER, "approved".to_owned())?
 </SdkSnippet>
 </SdkTabs>
 
+## 发布到 Channel {#publish-to-a-channel}
+
+**PublishToChannel** 向已注册的 [Channel](/primitives/channel) 追加 durable message。等待该 Channel 的 Step 可以稍后消费这些消息。Flow 必须仍然 active。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/channel/channel_flow.py', go: 'examples/go/primitives/channel/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java', typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts', rust: 'examples/rust/src/primitives/channel/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.publish("order-123", approval, "approved")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err := client.PublishToChannel(ctx, "order-123", Approval, "approved")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+client.publish("order-123", approval, "approved");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+await client.publish("order-123", approval, "approved");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.publish("order-123", &approval(), "approved".to_owned())?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+对于 ChannelMap，使用对应的 map overload 并传入 instance。Go 和 Rust SDK 可以在一次调用里发布一批消息。
+
 ## 读取 Attribute
 
 **GetAttribute** 从已有 Flow 的 current 或 latest run 读取一个已注册的 [Attribute](/primitives/attribute)。如果 Attribute 从未写入，它不会返回值。读取不要求 Flow 仍然 active。

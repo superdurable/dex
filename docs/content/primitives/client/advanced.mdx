@@ -8,50 +8,6 @@ slug: /primitives/client/advanced
 
 These operations address an active Flow unless noted otherwise. They use the same **Flow ID** that your application used when it started the Flow.
 
-## Publish to a Channel
-
-**PublishToChannel** appends durable messages to a registered [Channel](/primitives/channel). A Step waiting on that Channel can consume the messages later. The Flow must be active.
-
-<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/channel/channel_flow.py', go: 'examples/go/primitives/channel/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java', typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts', rust: 'examples/rust/src/primitives/channel/flow.rs'}}>
-<SdkSnippet lang="python">
-
-```python
-await client.publish("order-123", approval, "approved")
-```
-
-</SdkSnippet>
-<SdkSnippet lang="go">
-
-```go
-err := client.PublishToChannel(ctx, "order-123", Approval, "approved")
-```
-
-</SdkSnippet>
-<SdkSnippet lang="java">
-
-```java
-client.publish("order-123", approval, "approved");
-```
-
-</SdkSnippet>
-<SdkSnippet lang="typescript">
-
-```typescript
-await client.publish("order-123", approval, "approved");
-```
-
-</SdkSnippet>
-<SdkSnippet lang="rust">
-
-```rust
-client.publish("order-123", &approval(), "approved".to_owned())?;
-```
-
-</SdkSnippet>
-</SdkTabs>
-
-For a ChannelMap, use the matching map overload and provide the instance name. The Go and Rust SDKs can publish a batch in one call.
-
 ## Wait for a Flow
 
 **WaitForFlow** waits for terminal Flow status. A bounded wait can return a long-poll timeout while the Flow is still open; call it again to keep waiting.
