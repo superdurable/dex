@@ -238,9 +238,7 @@ impl Step for AttributeStep {
 
 **AttributeMap** 是一组 key 在运行时才确定的 Attribute。它适合 Flow 需要一组不断变化的小值的场景，例如订单中每笔 payment 或每个 item 的 status。
 
-可以把一个 map 作为一个 Attribute value 存储。但改一个 field 时，Dex 必须把整个 map 作为一个 blob 重写。AttributeMap 则把每个 instance 存为独立 blob。更新 **payment** 不会重写 **shipping**。
-
-只定义并注册一次 map；每次读、写、删除或 lock 时提供一个 instance key。map name 与 instance key 组成 Dex 的 physical Attribute name。Dex 会 escape instance key，所以 application code 应始终使用 SDK definition，不要自己拼这个 name。
+**AttributeMap** 的原因是为了高效存储一组数据。每个 Attribute 在 Dex Server 中都作为一个 blob 存储。把所有数据放进一个 Attribute，意味着每次更新都会重写整个 blob。AttributeMap 让 Dex Server 将每个 instance 作为独立 blob 存储，从而获得更高效率。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">

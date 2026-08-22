@@ -238,9 +238,7 @@ impl Step for AttributeStep {
 
 An **AttributeMap** is a family of Attributes with keys decided at runtime. Use one when a Flow needs a changing set of small values, such as the status of each payment or each item in an order.
 
-You could store a map value in one Attribute. But changing one field means Dex must write the whole map as one blob again. An AttributeMap stores each instance in its own blob instead. Updating **payment** does not rewrite **shipping**.
-
-Define and register the map once, then provide an instance key for each read, write, deletion, or lock. The map name and instance key form Dex's physical Attribute name. Dex escapes the instance key, so application code should always use the SDK definition instead of constructing that name itself.
+The reason for **AttributeMap** is to efficiently store a collection of data. Each Attribute is stored as a blob in Dex Server. Putting all data into a single Attribute means every update rewrites the whole blob. AttributeMap lets Dex Server store each instance as an independent blob for higher efficiency.
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
