@@ -26,6 +26,7 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    StepMovement,
     Wait,
     go_to,
     graceful_complete,
@@ -53,22 +54,29 @@ class RpcCompleteStep(Step[int]):
         return graceful_complete(input + 1)
 
 
+class ExampleStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        del context
+        return graceful_complete(input)
+
+
 class RpcFlow(Flow[int]):
-    internal = Channel[None]("rpc-internal", type(None))
+    example_ch = Channel[None]("rpc-internal", type(None))
     data = Attribute("rpc-data", str)
 
     def __init__(self) -> None:
         self.second = RpcCompleteStep()
-        self.first = RpcWaitStep(self.internal, self.second)
+        self.example_step = ExampleStep()
+        self.first = RpcWaitStep(self.example_ch, self.second)
 
     def get_steps(self) -> StepList[int]:
-        return StepList.start_step(self.first).other_steps(self.second)
+        return StepList.start_step(self.first).other_steps(self.second, self.example_step)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.data, self.internal)
+        return PersistenceSchema.of(self.data, self.example_ch)
 
     @rpc
     def trigger(self, context: Context, input: str) -> RPCResult[str]:
         self.data.set(context, input)
-        self.internal.publish(context, None)
-        return RPCResult(input)
+        self.example_ch.publish(context, None)
+        return RPCResult(input, next_steps=(StepMovement.of(self.example_step, input),))

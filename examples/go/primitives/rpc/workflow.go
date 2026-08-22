@@ -23,8 +23,8 @@ package rpc
 import "github.com/superdurable/dex/sdk-go/dex"
 
 var (
-	Internal = dex.DefineChannel[dex.None]("rpc-internal")
-	Data     = dex.DefineAttribute[string]("rpc-data")
+	ExampleCh = dex.DefineChannel[dex.None]("rpc-internal")
+	Data      = dex.DefineAttribute[string]("rpc-data")
 )
 
 type RpcFlow struct {
@@ -39,13 +39,14 @@ func (*RpcFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(rpcWaitStep{}),
 		dex.DefineStep(rpcCompleteStep{}),
+		dex.DefineStep(exampleStep{}),
 	}
 }
 
 func (*RpcFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{Data},
-		Channels:   []dex.ChannelDef{Internal},
+		Channels:   []dex.ChannelDef{ExampleCh},
 	}
 }
 
@@ -54,7 +55,7 @@ type rpcWaitStep struct {
 }
 
 func (rpcWaitStep) WaitFor(_ dex.Context, _ int) (*dex.Wait, error) {
-	return dex.Until(Internal.ForOne()), nil
+	return dex.Until(ExampleCh.ForOne()), nil
 }
 
 func (rpcWaitStep) Execute(_ dex.Context, _ int) (*dex.StepDecision, error) {
@@ -69,14 +70,27 @@ func (rpcCompleteStep) Execute(_ dex.Context, input int) (*dex.StepDecision, err
 	return dex.GracefulComplete(input + 1), nil
 }
 
+type exampleStep struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (exampleStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(input), nil
+}
+
 func (*RpcFlow) Trigger(ctx dex.Context, input string) (*dex.RPCResult[string], error) {
 	if err := Data.Set(ctx, input); err != nil {
 		return nil, err
 	}
-	if err := Internal.Publish(ctx, nil); err != nil {
+	if err := ExampleCh.Publish(ctx, nil); err != nil {
 		return nil, err
 	}
-	return &dex.RPCResult[string]{Output: input}, nil
+	return &dex.RPCResult[string]{
+		Output: input,
+		NextSteps: []dex.StepMovement{
+			dex.MovementOf(exampleStep{}, input),
+		},
+	}, nil
 }
 
 var _ dex.Flow = (*RpcFlow)(nil)

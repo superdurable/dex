@@ -18,6 +18,7 @@ import {
   Attribute,
   Channel,
   StepList,
+  StepMovement,
   Wait,
   doubleCodec,
   goTo,
@@ -33,7 +34,7 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-const internal = new Channel("rpc-internal", voidCodec);
+const exampleCh = new Channel("rpc-internal", voidCodec);
 
 class RpcWait implements Step<number> {
   public readonly inputCodec = doubleCodec;
@@ -45,7 +46,7 @@ class RpcWait implements Step<number> {
   }
 
   public waitFor(_context: Context, _input: number): Wait {
-    return Wait.until(internal.forOne());
+    return Wait.until(exampleCh.forOne());
   }
 
   public execute(_context: Context, _input: number): StepDecision {
@@ -65,10 +66,23 @@ class RpcComplete implements Step<number> {
   }
 }
 
+class ExampleStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "ExampleStep";
+  }
+
+  public execute(_context: Context, input: string): StepDecision {
+    return gracefulComplete(input);
+  }
+}
+
 export class RpcFlow implements Flow<number> {
   public readonly data = new Attribute("rpc-data", stringCodec);
   private readonly wait = new RpcWait(this);
   private readonly complete = new RpcComplete();
+  private readonly exampleStep = new ExampleStep();
 
   public get completeStep(): Step<number> {
     return this.complete;
@@ -79,18 +93,18 @@ export class RpcFlow implements Flow<number> {
   }
 
   public getSteps() {
-    return StepList.startStep(this.wait).otherSteps(this.complete);
+    return StepList.startStep(this.wait).otherSteps(this.complete, this.exampleStep);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.data], channels: [internal] };
+    return { attributes: [this.data], channels: [exampleCh] };
   }
 
   @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
   public trigger(context: Context, input: string): RPCResult<string> {
     this.data.set(context, input);
-    internal.publish(context, undefined);
-    return { output: input };
+    exampleCh.publish(context, undefined);
+    return { output: input, nextSteps: [StepMovement.of(this.exampleStep, input)] };
   }
 }
 

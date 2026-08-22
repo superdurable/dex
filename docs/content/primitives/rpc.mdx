@@ -31,8 +31,8 @@ RPC can read and write durable state through Attributes, publish Channels, and t
 @rpc
 def trigger(self, context: Context, input: str) -> RPCResult[str]:
     self.data.set(context, input)
-    self.internal.publish(context, None)
-    return RPCResult(input)
+    self.example_ch.publish(context, None)
+    return RPCResult(input, next_steps=(StepMovement.of(self.example_step, input),))
 ```
 
 </SdkSnippet>
@@ -43,10 +43,15 @@ func (*RpcFlow) Trigger(ctx dex.Context, input string) (*dex.RPCResult[string], 
 	if err := Data.Set(ctx, input); err != nil {
 		return nil, err
 	}
-	if err := Internal.Publish(ctx, nil); err != nil {
+	if err := ExampleCh.Publish(ctx, nil); err != nil {
 		return nil, err
 	}
-	return &dex.RPCResult[string]{Output: input}, nil
+	return &dex.RPCResult[string]{
+		Output: input,
+		NextSteps: []dex.StepMovement{
+			dex.MovementOf(exampleStep{}, input),
+		},
+	}, nil
 }
 ```
 
@@ -57,8 +62,8 @@ func (*RpcFlow) Trigger(ctx dex.Context, input string) (*dex.RPCResult[string], 
 @RPC
 public RPCResult<String> trigger(final Context context, final String input) {
     data.set(context, input);
-    internal.publish(context, null);
-    return RPCResult.of(input);
+    exampleCh.publish(context, null);
+    return RPCResult.of(input, StepMovement.of(exampleStep, input));
 }
 ```
 
@@ -69,8 +74,8 @@ public RPCResult<String> trigger(final Context context, final String input) {
 @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
 public trigger(context: Context, input: string): RPCResult<string> {
   this.data.set(context, input);
-  internal.publish(context, undefined);
-  return { output: input };
+  exampleCh.publish(context, undefined);
+  return { output: input, nextSteps: [StepMovement.of(this.exampleStep, input)] };
 }
 ```
 
@@ -81,16 +86,14 @@ public trigger(context: Context, input: string): RPCResult<string> {
 impl RpcFlow {
     fn trigger(&self, context: &mut Context, input: String) -> HandlerResult<RpcResult<String>> {
         data().set(context, input.clone())?;
-        internal().publish(context, ())?;
-        Ok(RpcResult::new(input))
+        example_ch().publish(context, ())?;
+        Ok(RpcResult::new(input.clone()).then(StepMovement::to(&self.example_step, input)))
     }
 }
 ```
 
 </SdkSnippet>
 </SdkTabs>
-
-An RPC is not a Step. It does not run **WaitFor** or **Execute**, and it does not create a **StepExecution**. It can read and write declared Attributes, publish Channels, and return a result that cancels Step types or starts next Steps. Dex applies Attribute and Channel writes first, then cancellation, then next Steps.
 
 ## Invoke an RPC
 

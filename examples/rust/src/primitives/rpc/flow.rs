@@ -14,12 +14,12 @@
 
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
-    Step, StepDecision, StepList, Wait,
+    Step, StepDecision, StepList, StepMovement, Wait,
 };
 
 pub const RPC_TRIGGER: Rpc<String, String> = Rpc::new("RpcTrigger");
 
-fn internal() -> Channel<()> {
+fn example_ch() -> Channel<()> {
     Channel::new("rpc-internal")
 }
 
@@ -31,13 +31,14 @@ fn data() -> Attribute<String> {
 pub struct RpcFlow {
     wait: RpcWait,
     complete: RpcComplete,
+    example_step: ExampleStep,
 }
 
 impl RpcFlow {
     fn trigger(&self, context: &mut Context, input: String) -> HandlerResult<RpcResult<String>> {
         data().set(context, input.clone())?;
-        internal().publish(context, ())?;
-        Ok(RpcResult::new(input))
+        example_ch().publish(context, ())?;
+        Ok(RpcResult::new(input.clone()).then(StepMovement::to(&self.example_step, input)))
     }
 }
 
@@ -45,13 +46,15 @@ impl Flow for RpcFlow {
     type StartInput = i32;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.wait).and(&self.complete)
+        StepList::start(&self.wait)
+            .and(&self.complete)
+            .and(&self.example_step)
     }
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
             .attribute(&data())
-            .channel(&internal())
+            .channel(&example_ch())
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -66,7 +69,7 @@ impl Step for RpcWait {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(internal().for_one()))
+        Ok(Wait::until(example_ch().for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
@@ -82,5 +85,16 @@ impl Step for RpcComplete {
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         Ok(StepDecision::graceful_complete(input + 1))
+    }
+}
+
+#[derive(Default)]
+struct ExampleStep;
+
+impl Step for ExampleStep {
+    type Input = String;
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(input))
     }
 }
