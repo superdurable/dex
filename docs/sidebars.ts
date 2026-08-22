@@ -38,9 +38,10 @@ const sidebars: SidebarsConfig = {
         'primitives/timer',
         'primitives/subflow',
         {
-          type: 'doc',
-          id: 'primitives/client-apis',
+          type: 'category',
           label: 'Client',
+          link: {type: 'doc', id: 'primitives/client/index'},
+          items: ['primitives/client/basic', 'primitives/client/advanced'],
         },
       ],
     },
