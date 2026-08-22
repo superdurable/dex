@@ -142,7 +142,7 @@ let result = client.invoke_rpc("order-123", RPC_TRIGGER, "approved".to_owned())?
 
 ## Publish to a Channel
 
-**PublishToChannel** appends durable messages to a registered [Channel](/primitives/channel). A Step waiting on that Channel can consume the messages later. The Flow must be active.
+**PublishToChannel** appends messages to a registered durable [Channel](/primitives/channel). A Step waiting on that Channel can consume the messages later. The Flow must be active.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/channel/channel_flow.py', go: 'examples/go/primitives/channel/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java', typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts', rust: 'examples/rust/src/primitives/channel/flow.rs'}}>
 <SdkSnippet lang="python">

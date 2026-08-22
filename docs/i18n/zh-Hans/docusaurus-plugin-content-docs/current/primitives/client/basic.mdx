@@ -142,7 +142,7 @@ let result = client.invoke_rpc("order-123", RPC_TRIGGER, "approved".to_owned())?
 
 ## 发布到 Channel {#publish-to-a-channel}
 
-**PublishToChannel** 向已注册的 [Channel](/primitives/channel) 追加 durable message。等待该 Channel 的 Step 可以稍后消费这些消息。Flow 必须仍然 active。
+**PublishToChannel** 向已注册的 durable [Channel](/primitives/channel) 追加 message。等待该 Channel 的 Step 可以稍后消费这些消息。Flow 必须仍然 active。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/channel/channel_flow.py', go: 'examples/go/primitives/channel/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java', typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts', rust: 'examples/rust/src/primitives/channel/flow.rs'}}>
 <SdkSnippet lang="python">
