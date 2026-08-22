@@ -13,7 +13,7 @@ Starting work, sending a message, reading Attributes, waiting for a Step, search
 
 ## Start, inspect, and search
 
-- **StartFlow** — start a Flow run
+- **StartFlow** — start a Flow execution
 - **GetAttributes** / **SetAttributes** — read or write durable Attributes
 - **SearchFlows** — query Flows, including Indexed Attributes and **DexParentFlowID** for SubFlows
 
@@ -128,10 +128,10 @@ unknown name is rejected by StartFlow and UpdateFlowConfig.
 
 ## Control execution
 
-- **StopFlow** — cancel or terminate a run
+- **StopFlow** — cancel or terminate a Flow execution
 - **SkipTimer** — fire a pending [Timer](/primitives/timer) early
-- **TimeTravel** — create a new run from an earlier Step after a fix
-- **TriggerContinueAsNew** — bound history by starting a fresh run that carries state forward
+- **TimeTravel** — create a new Flow execution from an earlier Step after a fix
+- **TriggerContinueAsNew** — bound history by starting a fresh backend run that carries state forward
 
 <SdkTabs>
 <SdkSnippet lang="python">

@@ -283,7 +283,7 @@ The ID reuse policy determines whether Dex rejects the start in the first place:
 
 #### What Dex Server does
 
-Dex Server requires a non-empty **RequestID**. An SDK generates one before sending the request when you omit it. The server records it with the Flow run, then asks the configured backend to start the Flow using the requested ID reuse policy. **IDReuseDefault** uses the server default: start a new run when no run is active.
+Dex Server requires a non-empty **RequestID**. An SDK generates one before sending the request when you omit it. The server records it with the Flow execution, then asks the configured backend to start the Flow using the requested ID reuse policy. **IDReuseDefault** uses the server default: start a new Flow execution when no execution is active.
 
 If the backend reports that the Flow is already started, Dex checks **AlreadyStartedOptions.IgnoreError**. When it is on, Dex reads the existing run's recorded RequestID. It returns that Run ID only when the two RequestIDs match. Otherwise it returns the already-started error.
 
