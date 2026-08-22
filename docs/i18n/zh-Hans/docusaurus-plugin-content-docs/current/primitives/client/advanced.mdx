@@ -230,7 +230,7 @@ client.skip_timer("order-123", StepExecutionId::of(&charge_order), TimerId::by_c
 
 ## 更新 FlowConfig
 
-**UpdateFlowConfig** 改变 active Flow 上可变的 runtime behavior。只发送要改变的字段，其他字段保持不变。每个字段见 [FlowConfig](/primitives/flow/flow-options#flow-config)。
+**UpdateFlowConfig** 修改 **FlowConfig**。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
 <SdkSnippet lang="python">
