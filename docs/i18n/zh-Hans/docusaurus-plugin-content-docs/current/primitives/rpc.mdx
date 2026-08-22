@@ -7,15 +7,15 @@ import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDia
 
 # RPC
 
-RPC stands for “Remote Procedure Call”. It allows external systems to interact with a Flow execution.
+RPC 是 “Remote Procedure Call” 的缩写，允许外部系统与 Flow execution 交互。
 
-A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The **Worker** runs it, then returns the result to **Dex Server** to persist. **Dex Server** then returns the output to the **Client**.
+**Client** 发起 RPC。**Dex Server** 将它发送给 **Worker**。**Worker** 执行后，将结果返回给 **Dex Server** 持久化。**Dex Server** 再将输出返回给 **Client**。
 
 <RpcRequestDiagram />
 
-## Define and Invoke an RPC
+## 定义和调用 RPC
 
-RPC can read and write durable state through Attributes, publish Channels, and trigger a brand-new Step to run.
+RPC 可以通过 Attribute 读取和写入 durable state、向 Channel publish，也可以 trigger 一个全新的 Step 来运行。
 
 <SdkTabs
   examples={{
@@ -95,15 +95,15 @@ impl RpcFlow {
 </SdkSnippet>
 </SdkTabs>
 
-### Java and Kotlin
+### Java 和 Kotlin
 
-**Client.newRpcStub** creates a subclass of the Flow. A Java Flow class and its RPC methods must not be final. Kotlin makes both final by default, so declare the Flow class and its RPC methods with **open**.
+**Client.newRpcStub** 会创建 Flow 的子类。Java Flow class 和它的 RPC method 都不能是 final。Kotlin 默认将两者都设为 final，所以要将 Flow class 和它的 RPC method 声明为 **open**。
 
-### TypeScript codecs
+### TypeScript codec
 
-TypeScript uses JSON when **inputCodec** or **outputCodec** is omitted. Provide a codec when the input or output is not JSON, including scalar values such as strings, numbers, booleans, and bigints.
+TypeScript 未设置 **inputCodec** 或 **outputCodec** 时会使用 JSON。input 或 output 不是 JSON 时需要提供 codec，包括 string、number、boolean 和 bigint 等 scalar value。
 
-Then invoke the RPC like below example:
+然后像下面的例子一样调用 RPC：
 
 <SdkTabs
   examples={{
@@ -161,9 +161,9 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 
 ## RPC timeout
 
-An RPC timeout limits one Worker handler invocation.
+RPC timeout 限制一次 Worker handler invocation。
 
-Python, Java, TypeScript, and Rust declare the timeout with the RPC handler. Go passes it in **InvokeOptions** for each Client invocation. When the application does not set a timeout, Dex Server uses its default. The default maximum is 60 seconds.
+Python、Java、TypeScript 和 Rust 在 RPC handler 上声明 timeout。Go 在每次 Client 调用的 **InvokeOptions** 中传入。应用不设置 timeout 时，Dex Server 使用自己的 default。默认最大值为 60 秒。
 
 <SdkTabs
   examples={{
@@ -212,4 +212,4 @@ RpcList::new().function(RPC_TRIGGER.timeout(Duration::from_secs(30)), Self::trig
 
 ## Attribute locks
 
-See [Locking](/primitives/attribute#locking) for Attribute locks.
+Attribute lock 请参阅 [Locking](/primitives/attribute#locking)。

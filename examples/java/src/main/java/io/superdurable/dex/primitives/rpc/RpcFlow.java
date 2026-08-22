@@ -26,31 +26,33 @@ import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
+import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
 @Component
 public class RpcFlow implements Flow<Integer> {
-    public final Channel<Void> internal = Channel.define("rpc-internal", Void.class);
+    public final Channel<Void> exampleCh = Channel.define("rpc-internal", Void.class);
     public final Attribute<String> data = Attribute.define("rpc-data", String.class);
     private final RpcCompleteStep complete = new RpcCompleteStep();
+    private final ExampleStep exampleStep = new ExampleStep();
     private final RpcWaitStep wait = new RpcWaitStep();
 
     @Override
     public StepList<Integer> getSteps() {
-        return StepList.startStep(wait).otherSteps(complete);
+        return StepList.startStep(wait).otherSteps(complete, exampleStep);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(data, internal);
+        return PersistenceSchema.of(data, exampleCh);
     }
 
-    @RPC
+    @RPC(timeoutSeconds = 30)
     public RPCResult<String> trigger(final Context context, final String input) {
         data.set(context, input);
-        internal.publish(context, null);
-        return RPCResult.of(input);
+        exampleCh.publish(context, null);
+        return RPCResult.of(input, StepMovement.of(exampleStep, input));
     }
 
     final class RpcWaitStep implements Step<Integer> {
@@ -61,7 +63,7 @@ public class RpcFlow implements Flow<Integer> {
 
         @Override
         public Wait waitFor(final Context context, final Integer input) {
-            return Wait.until(internal.forOne());
+            return Wait.until(exampleCh.forOne());
         }
 
         @Override
@@ -79,6 +81,18 @@ public class RpcFlow implements Flow<Integer> {
         @Override
         public StepDecision execute(final Context context, final Integer input) {
             return StepDecision.gracefulComplete(input + 1);
+        }
+    }
+
+    static final class ExampleStep implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            return StepDecision.gracefulComplete(input);
         }
     }
 }
