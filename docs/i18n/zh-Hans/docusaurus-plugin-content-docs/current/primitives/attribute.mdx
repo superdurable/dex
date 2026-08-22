@@ -6,21 +6,21 @@ slug: /primitives/attribute
 
 # Attribute
 
-An **Attribute** lets you store data within a Flow run, as persistence storage.
+一个 **Attribute** 让你可以在一个 Flow run 内存储数据，作为 persistence storage。
 
-This is especially useful for intermediate data during a Flow run. It eliminates the work of setting up and managing a database dependency.
+这尤其适合在 Flow run 期间存储中间数据，省去设置和管理 database dependency 的工作。
 
-Dex Attribute is not to replace your databases. An obvious limitation is that Attribute exists only for the lifetime of its Flow run. Dex deletes it when it deletes the Flow run, after the configurable retention period following Flow closure.
+Dex Attribute 不是用来替代 database 的。一个明显的限制是，Attribute 只在它所属的 Flow run 生命周期内存在。Dex 会在 Flow 关闭后的 configurable retention period 结束后删除 Flow run 时，一并删除 Attribute。
 
-However, Dex allows you to sync Attribute values to your application database as permanent storage. This also lets you build more powerful database indexes to query Attributes.
+不过，Dex 允许你将 Attribute values 同步到 application database，作为 permanent storage。这也让你可以构建更强大的 database indexes 来查询 Attribute。
 
-## Use an Attribute {#define-an-attribute}
+## 使用 Attribute {#define-an-attribute}
 
-Define Attributes as part of the persistence schema of a Flow.
+将 Attribute 定义为 Flow persistence schema 的一部分。
 
-Then you can use the attribute within Step or RPC implementation to read or write the attribute. An attribute must be declared via PersistenceSchema before use. Otherwise, the worker will reject the operations.
+之后就可以在 Step 或 RPC implementation 内读写 Attribute。Attribute 必须先通过 PersistenceSchema 声明，否则 Worker 会拒绝这些操作。
 
-When updating an attribute, setting it to null will delete it.
+更新 Attribute 时，将它设为 null 会删除它。
 
 <SdkTabs
   examples={{
@@ -250,9 +250,9 @@ impl Step for AttributeStep {
 
 ## AttributeMap {#attributemap}
 
-An **AttributeMap** is a family of Attributes with keys decided at runtime. Use one when a Flow needs a changing set of small values, such as the status of each payment or each item in an order.
+**AttributeMap** 是一组 key 在运行时才确定的 Attribute。它适合 Flow 需要一组不断变化的小值的场景，例如订单中每笔 payment 或每个 item 的 status。
 
-The reason for **AttributeMap** is to efficiently store a collection of data. Each Attribute is stored as a blob in Dex Server. Putting all data into a single Attribute means every update rewrites the whole blob. AttributeMap lets Dex Server store each instance as an independent blob for higher efficiency.
+**AttributeMap** 的原因是为了高效存储一组数据。每个 Attribute 在 Dex Server 中都作为一个 blob 存储。把所有数据放进一个 Attribute，意味着每次更新都会重写整个 blob。AttributeMap 让 Dex Server 将每个 instance 作为独立 blob 存储，从而获得更高效率。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -308,25 +308,25 @@ self.progress
 
 ## Initial Attribute values {#initial-attribute-values}
 
-**StartFlowOptions** can set initial Attributes when the Flow is created. Initial values and Flow creation are one operation, so the first Step sees them immediately. See [Flow options](/primitives/flow/flow-options#attributes).
+**StartFlowOptions** 可以在创建 Flow 时设置初始 Attribute。初始值与创建 Flow 是一个操作，所以第一个 Step 立刻能看到它们。见 [Flow options](/primitives/flow/flow-options#attributes)。
 
-Clients use **GetAttributes** and **SetAttributes** with the same registered Attribute definition. A Client can also use **WaitForAttributeEqual** to wait until a singleton Attribute or one AttributeMap instance reaches a scalar value. See [Client APIs](/primitives/client-apis).
+Client 使用同一个已注册的 Attribute definition 调用 **GetAttributes** 和 **SetAttributes**。Client 也可以用 **WaitForAttributeEqual**，等待一个 singleton Attribute 或某个 AttributeMap instance 变成指定 scalar value。见 [Client APIs](/primitives/client-apis)。
 
-## Indexed Attributes {#indexed-attributes}
+## Indexed Attribute {#indexed-attributes}
 
-Dex lets you configure indexes for Attributes. With indexing, you can use the field in **SearchFlows** queries to find the Flow runs that match the query.
+Dex 让你可以为 Attribute 配置 index。有了 indexing，就可以在 **SearchFlows** query 中使用这个 field，找出匹配 query 的 Flow run。
 
-| Index type | Value |
+| Index type | 值 |
 | --- | --- |
-| **KEYWORD** | One exact string. |
-| **FULL_TEXT** | Text for tokenized search. |
-| **KEYWORD_ARRAY** | A list of exact strings. |
-| **INT**, **DOUBLE**, **BOOL** | The corresponding scalar value. |
-| **DATETIME** | A date and time value. |
+| **KEYWORD** | 一个精确字符串。 |
+| **FULL_TEXT** | 用于 tokenized search 的文本。 |
+| **KEYWORD_ARRAY** | 一组精确字符串。 |
+| **INT**、**DOUBLE**、**BOOL** | 对应的 scalar value。 |
+| **DATETIME** | 一个日期与时间值。 |
 
-An **index key** is the key in the search schema and the key you use in a query. Index keys are shared across Flow types.
+**index key** 是 search schema 中的 key，也是 query 中使用的 key。index key 跨 Flow type 共用。
 
-A regular Attribute uses its Attribute name as the index key by default. You can set an explicit index key instead.
+普通 Attribute 默认用 Attribute name 作为 index key。你也可以设置显式 index key。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -380,13 +380,13 @@ let status = Attribute::new("primitive-attribute-status")
 </SdkSnippet>
 </SdkTabs>
 
-For example, the status Attribute above uses **OrderStatus** as its index key. To find Flow runs whose status is completed, use this query:
+上面的 status Attribute 使用 **OrderStatus** 作为 index key。要找 status 为 completed 的 Flow run，可以使用这个 query：
 
 ```text
 OrderStatus = 'completed'
 ```
 
-Pass the query to **SearchFlows**:
+将这个 query 传给 **SearchFlows**：
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs' }}>
 <SdkSnippet lang="python">
@@ -435,15 +435,15 @@ client.search_flows("OrderStatus = 'completed'", 20)
 </SdkSnippet>
 </SdkTabs>
 
-An indexed **AttributeMap** must use an explicit index key. It is not an index over all Map instances. Each instance write updates the same search field, so one instance can replace the value written by another instance. The Map instance key is not searchable.
+带 index 的 **AttributeMap** 必须设置显式 index key。它不是所有 Map instance 的 index。每个 instance 的 write 都更新同一个 search field，所以一个 instance 可以替换另一个 instance 写入的值。Map instance key 不能被搜索。
 
-This does not turn the Map into a **KEYWORD_ARRAY**. **KEYWORD_ARRAY** indexes the string array from one write; Dex does not combine the values from all Map instances. After the example below writes the payment instance with value authorized, you can query the current search value with:
+这不会把 Map 自动变成 **KEYWORD_ARRAY**。**KEYWORD_ARRAY** 只会 index 一次 write 传入的 string array；Dex 不会合并所有 Map instance 的值。下面的例子写入 payment instance 的值 authorized 后，可以用下面的 query 查询当前 search value：
 
 ```text
 OrderProgress = 'authorized'
 ```
 
-If another Map instance later writes a different value, that value replaces the search value for **OrderProgress**. Use a regular Attribute with **KEYWORD_ARRAY** when you need to search a collection of values. Do not use an AttributeMap index to find every instance with a value.
+如果之后另一个 Map instance 写入不同的值，它会替换 **OrderProgress** 的 search value。需要搜索一组值时，应使用带 **KEYWORD_ARRAY** 的普通 Attribute。不要用 AttributeMap index 查找所有有某个值的 instance。
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -500,11 +500,11 @@ let progress = AttributeMap::new("primitive-attribute-progress")
 
 ## Attribute Sync {#attribute-store-projection}
 
-Dex Attribute is not to replace your databases. Attribute Sync feature will sync the attribute values to your application database, without you writing a single line of code.
+Dex Attribute 不是用来替代 database 的。Attribute Sync feature 会把 Attribute values 同步到 application database，无需你写一行代码。
 
-So that you can store the attributes in your database as permanent storage. This also lets you build more powerful database indexes to query Attributes.
+这样就可以把 Attributes 作为 permanent storage 存到 database 中。这也让你可以构建更强大的 database indexes 来查询 Attribute。
 
-Mark each Attribute that should sync:
+标记每个需要同步的 Attribute：
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/patterns/entity-store/user_profile_flow.py', go: 'examples/go/patterns/entity-store/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/UserProfileFlow.java', typescript: 'examples/typescript/src/patterns/entity-store/user-profile-flow.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -551,7 +551,7 @@ fn display_name() -> Attribute<String> {
 </SdkSnippet>
 </SdkTabs>
 
-First, define an Attribute Store in Dex Server configuration:
+首先，在 Dex Server 配置中定义 Attribute Store：
 
 ```yaml
 attributeStore:
@@ -562,13 +562,13 @@ attributeStore:
       tableName: public.user_profiles
 ```
 
-Start Dex Server with the configuration:
+使用这个配置启动 Dex Server：
 
 ```bash
 dexcli dev --attribute-store-config ./attribute-store.yaml
 ```
 
-Then choose the same store name when starting the Flow:
+然后，在启动 Flow 时选择同一个 store name：
 
 <SdkTabs examples={{ python: 'examples/python/dex_examples/patterns/entity-store/controller.py', go: 'examples/go/patterns/entity-store/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/entitystore/EntityStoreController.java', typescript: 'examples/typescript/src/patterns/entity-store/controller.ts', rust: 'examples/rust/src/patterns/entity_store/flow.rs' }}>
 <SdkSnippet lang="python">
@@ -627,7 +627,7 @@ let run_id = client.start_flow_with_options(&flow, &user_id, (), options)?;
 
 ## Locking {#locking}
 
-Concurrent Steps and RPC invocations can read and write the same Attribute. This can lead to race conditions. To avoid this, use Attribute locks. Dex Server ensures only one Step execution or RPC handling can acquire the lock at a time.
+Concurrent Step 和 RPC invocation 可以读取和写入同一个 Attribute。这会导致 race condition。为避免这种情况，请使用 Attribute lock。Dex Server 确保同一时间只有一个 Step execution 或 RPC handling 可以获取 lock。
 
 ### Lock **WaitFor**
 

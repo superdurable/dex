@@ -18,14 +18,21 @@ from __future__ import annotations
 
 from dex import (
     Attribute,
+    AttributeIndex,
+    AttributeMap,
     Context,
     Flow,
+    FlowConfig,
+    IndexType,
     PersistenceSchema,
+    RPCResult,
     Step,
     StepDecision,
     StepList,
+    StepOptions,
     Wait,
     graceful_complete,
+    rpc,
 )
 
 
@@ -34,16 +41,40 @@ class AttributeStep(Step[str]):
         self.flow = flow
 
     def wait_for(self, context: Context, input: str) -> Wait:
-        self.flow.message.set(context, input)
+        self.flow.status.set(context, "processing")
+        self.flow.progress.set(context, "payment", "authorized")
         return Wait.skip_immediately()
 
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            wait_for_lock_attributes=(
+                self.flow.status.lock(),
+                self.flow.progress.lock("payment"),
+            ),
+            execute_lock_attributes=(
+                self.flow.status.lock(),
+                self.flow.progress.lock("payment"),
+            ),
+        )
+
     def execute(self, context: Context, input: str) -> StepDecision:
-        del input
-        return graceful_complete(self.flow.message.get(context))
+        self.flow.status.set(context, "completed")
+        return graceful_complete(input)
 
 
 class AttributeFlow(Flow[str]):
-    message = Attribute("primitive-attribute-message", str)
+    status = Attribute(
+        "primitive-attribute-status",
+        str,
+        index=AttributeIndex(IndexType.KEYWORD, "OrderStatus"),
+    )
+    email = Attribute("primitive-attribute-email", str, sync_to_attribute_store=True)
+    progress = AttributeMap(
+        "primitive-attribute-progress",
+        str,
+        index=AttributeIndex(IndexType.KEYWORD, "OrderProgress"),
+    )
+    attribute_store_config = FlowConfig(attribute_store_name="profiles")
 
     def __init__(self) -> None:
         self.start = AttributeStep(self)
@@ -52,4 +83,10 @@ class AttributeFlow(Flow[str]):
         return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.message)
+        return PersistenceSchema.of(self.status, self.progress, self.email)
+
+    @rpc(lock_attributes=(status.lock(), progress.lock("payment")))
+    def update_status(self, context: Context, input: str) -> RPCResult[str]:
+        self.status.set(context, input)
+        self.progress.set(context, "payment", input)
+        return RPCResult(input)

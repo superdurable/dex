@@ -20,11 +20,26 @@
 
 package attribute
 
-import "github.com/superdurable/dex/sdk-go/dex"
+import (
+	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
+)
 
-const messageAttributeName = "primitive-attribute-message"
-
-var Message = dex.DefineAttribute[string](messageAttributeName)
+var (
+	Status = dex.DefineAttribute[string](
+		"primitive-attribute-status",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderStatus"}),
+	)
+	Email = dex.DefineAttribute[string](
+		"primitive-attribute-email",
+		dex.SyncToAttributeStore(),
+	)
+	Progress = dex.DefineAttributeMap[string](
+		"primitive-attribute-progress",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderProgress"}),
+	)
+	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreName: ptr.Any("profiles")}
+)
 
 type AttributeFlow struct {
 	dex.FlowDefaults
@@ -39,26 +54,51 @@ func (*AttributeFlow) GetSteps() []dex.StepDef {
 }
 
 func (*AttributeFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Message}}
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Status, Progress, Email}}
 }
 
 type attributeStep struct {
 	dex.StepDefaults
 }
 
+func (attributeStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForLockAttributes: []dex.AttributeLock{
+			dex.LockAttribute(Status),
+			dex.LockAttributeMap(Progress, "payment"),
+		},
+		ExecuteLockAttributes: []dex.AttributeLock{
+			dex.LockAttribute(Status),
+			dex.LockAttributeMap(Progress, "payment"),
+		},
+	}
+}
+
 func (attributeStep) WaitFor(ctx dex.Context, input string) (*dex.Wait, error) {
-	if err := Message.Set(ctx, input); err != nil {
+	if err := Status.Set(ctx, "processing"); err != nil {
+		return nil, err
+	}
+	if err := Progress.Set(ctx, "payment", "authorized"); err != nil {
 		return nil, err
 	}
 	return dex.SkipWaitImmediately(), nil
 }
 
-func (attributeStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
-	value, err := Message.Get(ctx)
-	if err != nil {
+func (attributeStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if err := Status.Set(ctx, "completed"); err != nil {
 		return nil, err
 	}
-	return dex.GracefulComplete(value), nil
+	return dex.GracefulComplete(input), nil
+}
+
+func (*AttributeFlow) UpdateStatus(ctx dex.Context, input string) (*dex.RPCResult[string], error) {
+	if err := Status.Set(ctx, input); err != nil {
+		return nil, err
+	}
+	if err := Progress.Set(ctx, "payment", input); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: input}, nil
 }
 
 var _ dex.Flow = (*AttributeFlow)(nil)

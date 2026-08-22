@@ -16,17 +16,32 @@
 
 import {
   Attribute,
+  AttributeMap,
+  IndexType,
   StepList,
   Wait,
   goTo,
   gracefulComplete,
+  rpc,
   stringCodec,
   type Context,
   type Flow,
+  type FlowConfig,
   type PersistenceSchema,
+  type RPCResult,
   type Step,
   type StepDecision,
 } from "@superdurable/dex";
+
+const status = new Attribute("primitive-attribute-status", stringCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: "OrderStatus",
+});
+const email = new Attribute("primitive-attribute-email", stringCodec).syncToAttributeStore();
+const progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: "OrderProgress",
+});
 
 class AttributeStep implements Step<string> {
   public readonly inputCodec = stringCodec;
@@ -37,18 +52,30 @@ class AttributeStep implements Step<string> {
     return "AttributeStep";
   }
 
+  public getStepOptions() {
+    return {
+      waitForLockAttributes: [this.flow.status.lock(), this.flow.progress.lock("payment")],
+      executeLockAttributes: [this.flow.status.lock(), this.flow.progress.lock("payment")],
+    };
+  }
+
   public waitFor(context: Context, input: string): Wait {
-    this.flow.message.set(context, input);
+    this.flow.status.set(context, "processing");
+    this.flow.progress.set(context, "payment", "authorized");
     return Wait.skipImmediately();
   }
 
-  public execute(context: Context, _input: string): StepDecision {
-    return gracefulComplete(this.flow.message.get(context));
+  public execute(context: Context, input: string): StepDecision {
+    this.flow.status.set(context, "completed");
+    return gracefulComplete(input);
   }
 }
 
 export class AttributeFlow implements Flow<string> {
-  public readonly message = new Attribute("primitive-attribute-message", stringCodec);
+  public readonly status = status;
+  public readonly email = email;
+  public readonly progress = progress;
+  public readonly attributeStoreConfig: FlowConfig = { attributeStoreName: "profiles" };
   private readonly start = new AttributeStep(this);
 
   public getFlowType(): string {
@@ -60,7 +87,18 @@ export class AttributeFlow implements Flow<string> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.message] };
+    return { attributes: [this.status, this.progress, this.email] };
+  }
+
+  @rpc({
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+    lockAttributes: [status.lock(), progress.lock("payment")],
+  })
+  public updateStatus(context: Context, input: string): RPCResult<string> {
+    this.status.set(context, input);
+    this.progress.set(context, "payment", input);
+    return { output: input };
   }
 }
 

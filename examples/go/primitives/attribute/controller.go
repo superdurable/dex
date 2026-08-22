@@ -21,6 +21,7 @@
 package attribute
 
 import (
+	"context"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -60,5 +61,20 @@ func (controller *controller) start(request *gin.Context) {
 		flowID,
 		message,
 		primitiveStartOptions(),
+	)
+}
+
+func invokeUpdateStatus(ctx context.Context, client *sdk.Client, flowID string) error {
+	var updated string
+	return client.InvokeRPC(
+		ctx,
+		flowID,
+		(*AttributeFlow).UpdateStatus,
+		"completed",
+		&updated,
+		sdk.InvokeOptions{LockAttributes: []sdk.AttributeLock{
+			sdk.LockAttribute(Status),
+			sdk.LockAttributeMap(Progress, "payment"),
+		}},
 	)
 }

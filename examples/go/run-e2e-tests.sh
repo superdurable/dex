@@ -39,8 +39,11 @@ script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
 dex_port="${DEX_EXAMPLES_DEX_PORT:-19801}"
 web_port="${DEX_EXAMPLES_WEB_PORT:-19901}"
+dataset_deal_dex_port="${DEX_EXAMPLES_DATASET_DEAL_DEX_PORT:-19803}"
+dataset_deal_web_port="${DEX_EXAMPLES_DATASET_DEAL_WEB_PORT:-19903}"
 postgres_port="${DEX_EXAMPLES_POSTGRES_PORT:-19432}"
-dex_address="127.0.0.1:${dex_port}"
+default_dex_address="127.0.0.1:${dex_port}"
+dataset_deal_dex_address="127.0.0.1:${dataset_deal_dex_port}"
 postgres_url="postgres://dataset_deal:dataset_deal@127.0.0.1:${postgres_port}/dataset_deal?sslmode=disable"
 compose_project="dataset-deal-e2e-$$"
 entity_store_dir="$repo_root/examples/entity-store"
@@ -49,6 +52,7 @@ log_file="/tmp/test-go-examples-e2e-services.log"
 test_dir=$(mktemp -d)
 binary_dir=$(mktemp -d)
 dexcli_pid=""
+dataset_deal_dex_log="$test_dir/dataset-deal-dex.log"
 entity_store_started=false
 dataset_deal_started=false
 : >"$log_file"
@@ -81,6 +85,9 @@ cleanup() {
   fi
   if [[ "$status" -ne 0 ]]; then
     cat "$log_file" >&2
+    if [[ -f "$dataset_deal_dex_log" ]]; then
+      cat "$dataset_deal_dex_log" >&2
+    fi
   fi
   rm -r "$test_dir" "$binary_dir"
 }
@@ -109,7 +116,7 @@ fi
   -dex-port "$dex_port" \
   -web-port "$web_port" \
   -open=false \
-  -sqlite-db-filename "$test_dir/temporal.db" \
+  -sqlite-db-filename "$test_dir/default-temporal.db" \
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 
@@ -134,7 +141,7 @@ fi
 
 cd "$script_dir"
 common_test_env=(
-  DEX_FLOW_SERVICE_ADDRESS="$dex_address"
+  DEX_FLOW_SERVICE_ADDRESS="$default_dex_address"
   DEX_WORKER_HOST=127.0.0.1
   GOCACHE="${GOCACHE:-$test_dir/gocache}"
   GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}"
@@ -144,14 +151,52 @@ integ_status=0
 env "${common_test_env[@]}" \
   go test -count=1 -race -v ./integ ${test_args[@]+"${test_args[@]}"} || integ_status=$?
 
+if [[ -n "$dexcli_pid" ]] && kill -0 "$dexcli_pid" 2>/dev/null; then
+  kill -TERM "$dexcli_pid"
+  wait "$dexcli_pid" || true
+fi
+dexcli_pid=""
+
 DATASET_DEAL_POSTGRES_PORT="$postgres_port" docker compose \
   -p "$compose_project" \
   -f "$script_dir/dataset-deal/docker-compose.yml" \
   up -d --wait
 dataset_deal_started=true
 
+"$binary_dir/dexcli" dev \
+  -attribute-store-config "$entity_store_dir/attribute-store.yaml" \
+  -bind-address 127.0.0.1 \
+  -dex-port "$dataset_deal_dex_port" \
+  -web-port "$dataset_deal_web_port" \
+  -open=false \
+  -sqlite-db-filename "$test_dir/dataset-deal-temporal.db" \
+  >>"$dataset_deal_dex_log" 2>&1 &
+dexcli_pid=$!
+
+dataset_deal_dex_ready=false
+for _ in {1..240}; do
+  if grep -q "Dex development environment is ready" "$dataset_deal_dex_log"; then
+    dataset_deal_dex_ready=true
+    break
+  fi
+  if ! kill -0 "$dexcli_pid" 2>/dev/null; then
+    echo "dataset deal dexcli exited before Dex became ready" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+if ! $dataset_deal_dex_ready; then
+  echo "Dataset Deal Dex did not become ready" >&2
+  exit 1
+fi
+
 dataset_deal_status=0
-env "${common_test_env[@]}" \
+env \
+DEX_FLOW_SERVICE_ADDRESS="$dataset_deal_dex_address" \
+DEX_WORKER_HOST=127.0.0.1 \
+GOCACHE="${GOCACHE:-/tmp/dex-examples-gocache}" \
+GOMODCACHE="${GOMODCACHE:-/tmp/dex-examples-gomodcache}" \
+GOWORK=off \
 DATASET_DEAL_POSTGRES_URL="$postgres_url" \
   go test -count=1 -race -v ./integ/datasetdeal ${test_args[@]+"${test_args[@]}"} || dataset_deal_status=$?
 
@@ -161,8 +206,8 @@ fi
 
 if $keep_running; then
   echo ""
-  echo "Dex Web:  http://127.0.0.1:${web_port}"
-  echo "dexcli:   --server ${dex_address}"
+  echo "Dex Web:  http://127.0.0.1:${dataset_deal_web_port}"
+  echo "dexcli:   --server ${dataset_deal_dex_address}"
   echo "Press Ctrl+C to stop dexcli dev"
   wait "$dexcli_pid"
 fi
