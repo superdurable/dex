@@ -31,9 +31,10 @@ pub struct AttributeFlow {
 impl Default for AttributeFlow {
     fn default() -> Self {
         let status = Attribute::new("primitive-attribute-status")
-            .indexed(AttributeIndex::keyword());
+            .indexed(AttributeIndex::keyword().with_key("order-status"));
         let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
-        let progress = AttributeMap::new("primitive-attribute-progress");
+        let progress = AttributeMap::new("primitive-attribute-progress")
+            .indexed(AttributeIndex::keyword().with_key("order-progress"));
         Self {
             start: AttributeStep {
                 status: status.clone(),

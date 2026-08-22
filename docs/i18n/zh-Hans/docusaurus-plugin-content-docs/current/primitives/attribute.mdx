@@ -47,7 +47,11 @@ class AttributeStep(Step[str]):
 
 
 class AttributeFlow(Flow[str]):
-    status = Attribute("primitive-attribute-status", str)
+    status = Attribute(
+        "primitive-attribute-status",
+        str,
+        index=AttributeIndex(IndexType.KEYWORD, "order-status"),
+    )
 
     def __init__(self) -> None:
         self.start = AttributeStep(self)
@@ -63,7 +67,10 @@ class AttributeFlow(Flow[str]):
 <SdkSnippet lang="go">
 
 ```go
-var Status = dex.DefineAttribute[string]("primitive-attribute-status")
+var Status = dex.DefineAttribute[string](
+	"primitive-attribute-status",
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "order-status"}),
+)
 
 type AttributeFlow struct {
 	dex.FlowDefaults
@@ -98,7 +105,10 @@ func (attributeStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, 
 ```java
 public final class AttributeFlow implements Flow<String> {
     private final Attribute<String> status =
-            Attribute.define("primitive-attribute-status", String.class);
+            Attribute.define(
+                    "primitive-attribute-status",
+                    String.class,
+                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "order-status"));
     private final AttributeStep start = new AttributeStep();
 
     @Override
@@ -152,7 +162,10 @@ class AttributeStep implements Step<string> {
 }
 
 export class AttributeFlow implements Flow<string> {
-  public readonly status = new Attribute("primitive-attribute-status", stringCodec);
+  public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
+    type: IndexType.KEYWORD,
+    indexKey: "order-status",
+  });
   private readonly start = new AttributeStep(this);
 
   public getSteps() {
@@ -179,9 +192,10 @@ pub struct AttributeFlow {
 impl Default for AttributeFlow {
     fn default() -> Self {
         let status = Attribute::new("primitive-attribute-status")
-            .indexed(AttributeIndex::keyword());
+            .indexed(AttributeIndex::keyword().with_key("order-status"));
         let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
-        let progress = AttributeMap::new("primitive-attribute-progress");
+        let progress = AttributeMap::new("primitive-attribute-progress")
+            .indexed(AttributeIndex::keyword().with_key("order-progress"));
         Self {
             start: AttributeStep {
                 status: status.clone(),
@@ -300,9 +314,7 @@ Client 使用同一个已注册的 Attribute definition 调用 **GetAttributes**
 
 ## Indexed Attribute {#indexed-attributes}
 
-没有 **AttributeIndex** 的 Attribute 不能被搜索。Worker 启动时 Dex 会把 index 注册到配置好的 backend；之后 Attribute 每次变化，Dex 都会更新 index。你可以在 **SearchFlows** query 中使用这个 field。
-
-根据准备写入的值选择 index type。index type 是 Attribute contract 的一部分。index 用来找 Flow；它不是第二份 source of truth，也不能替代 **GetAttributes**。
+Dex 让你可以为 Attribute 配置 index。有了 indexing，就可以在 **SearchFlows** query 中使用这个 field，找出匹配 query 的 Flow run。
 
 | Index type | 值 |
 | --- | --- |
@@ -312,7 +324,116 @@ Client 使用同一个已注册的 Attribute definition 调用 **GetAttributes**
 | **INT**、**DOUBLE**、**BOOL** | 对应的 scalar value。 |
 | **DATETIME** | 一个日期与时间值。 |
 
-singleton Attribute 默认用 Attribute name 作为 index field，除非设置显式 index key。indexed **AttributeMap** 必须设置显式 index key，因为所有动态 instance 共用一个 search field。
+**index key** 是 search schema 中的 key，也是 query 中使用的 key。index key 跨 Flow type 共用。
+
+普通 Attribute 默认用 Attribute name 作为 index key。你也可以设置显式 index key。
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+status = Attribute(
+    "primitive-attribute-status",
+    str,
+    index=AttributeIndex(IndexType.KEYWORD, "order-status"),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var Status = dex.DefineAttribute[string](
+	"primitive-attribute-status",
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "order-status"}),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+private final Attribute<String> status = Attribute.define(
+        "primitive-attribute-status",
+        String.class,
+        new AttributeIndex(AttributeIndex.Type.KEYWORD, "order-status"));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: "order-status",
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let status = Attribute::new("primitive-attribute-status")
+    .indexed(AttributeIndex::keyword().with_key("order-status"));
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+带 index 的 **AttributeMap** 必须设置显式 index key。它的所有 instance 都使用 search schema 中同一个固定 key，所以 dynamic instance key 不能作为 query key。
+
+<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+progress = AttributeMap(
+    "primitive-attribute-progress",
+    str,
+    index=AttributeIndex(IndexType.KEYWORD, "order-progress"),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var Progress = dex.DefineAttributeMap[string](
+	"primitive-attribute-progress",
+	dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "order-progress"}),
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+private final AttributeMap<String> progress =
+        AttributeMap.define(
+                "primitive-attribute-progress",
+                String.class,
+                new AttributeIndex(AttributeIndex.Type.KEYWORD, "order-progress"));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: "order-progress",
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let progress = AttributeMap::new("primitive-attribute-progress")
+    .indexed(AttributeIndex::keyword().with_key("order-progress"));
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## Attribute Store projection {#attribute-store-projection}
 

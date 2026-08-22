@@ -28,13 +28,16 @@ import (
 var (
 	Status = dex.DefineAttribute[string](
 		"primitive-attribute-status",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "order-status"}),
 	)
 	Email = dex.DefineAttribute[string](
 		"primitive-attribute-email",
 		dex.SyncToAttributeStore(),
 	)
-	Progress             = dex.DefineAttributeMap[string]("primitive-attribute-progress")
+	Progress = dex.DefineAttributeMap[string](
+		"primitive-attribute-progress",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "order-progress"}),
+	)
 	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreName: ptr.Any("profiles")}
 )
 

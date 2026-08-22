@@ -55,10 +55,14 @@ class AttributeFlow(Flow[str]):
     status = Attribute(
         "primitive-attribute-status",
         str,
-        index=AttributeIndex(IndexType.KEYWORD),
+        index=AttributeIndex(IndexType.KEYWORD, "order-status"),
     )
     email = Attribute("primitive-attribute-email", str, sync_to_attribute_store=True)
-    progress = AttributeMap("primitive-attribute-progress", str)
+    progress = AttributeMap(
+        "primitive-attribute-progress",
+        str,
+        index=AttributeIndex(IndexType.KEYWORD, "order-progress"),
+    )
     attribute_store_config = FlowConfig(attribute_store_name="profiles")
 
     def __init__(self) -> None:

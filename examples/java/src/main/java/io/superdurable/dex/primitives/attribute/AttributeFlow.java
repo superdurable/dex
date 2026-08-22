@@ -36,12 +36,15 @@ public final class AttributeFlow implements Flow<String> {
     private final Attribute<String> status = Attribute.define(
             "primitive-attribute-status",
             String.class,
-            new AttributeIndex(AttributeIndex.Type.KEYWORD));
+            new AttributeIndex(AttributeIndex.Type.KEYWORD, "order-status"));
     private final Attribute<String> email = Attribute.define(
             "primitive-attribute-email",
             String.class).syncToAttributeStore();
     private final AttributeMap<String> progress =
-            AttributeMap.define("primitive-attribute-progress", String.class);
+            AttributeMap.define(
+                    "primitive-attribute-progress",
+                    String.class,
+                    new AttributeIndex(AttributeIndex.Type.KEYWORD, "order-progress"));
     private final FlowConfig attributeStoreConfig = FlowConfig.newBuilder()
             .attributeStoreName("profiles")
             .build();
