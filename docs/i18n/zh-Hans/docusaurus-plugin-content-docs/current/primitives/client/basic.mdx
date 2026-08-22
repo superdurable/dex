@@ -58,8 +58,6 @@ let run_id = client.start_flow(&flow, "order-123", "first order")?;
 
 **StopFlow** 关闭一个 active Flow。默认是请求它 cooperative cancellation。你也可以立刻 terminate，或者带 reason 把它标记为 failed。
 
-这个调用只请求 Dex Server 停止 Flow。如果调用方需要等到 terminal result，使用 **WaitForFlow**。
-
 <SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/controller.py', go: 'examples/go/products/job-post/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostController.java', typescript: 'examples/typescript/src/products/job-post/controller.ts', rust: 'examples/rust/src/products/job_post/controller.rs'}}>
 <SdkSnippet lang="python">
 
@@ -100,7 +98,7 @@ client.stop_flow("order-123", StopFlowOptions::cancel().reason("customer cancell
 
 ## 调用 RPC
 
-**InvokeRPC** 调用 active Flow 上已注册的 [RPC](/primitives/rpc) handler，并返回结果。调用方需要响应，或者一个 handler 需要一起读写 durable state 时，用它。
+**InvokeRPC** 调用 active Flow 上已注册的 [RPC](/primitives/rpc) handler，并返回结果。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/rpc/controller.py', go: 'examples/go/primitives/rpc/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc/RpcController.java', typescript: 'examples/typescript/src/primitives/rpc/controller.ts', rust: 'examples/rust/src/primitives/rpc/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -188,9 +186,9 @@ client.publish("order-123", &approval(), "approved".to_owned())?;
 
 ## 读取 Attribute
 
-**GetAttribute** 从已有 Flow 的 current 或 latest run 读取一个已注册的 [Attribute](/primitives/attribute)。如果 Attribute 从未写入，它不会返回值。读取不要求 Flow 仍然 active。
+**GetAttribute** 从已有 Flow 的 current 或 latest run 读取一个已注册的 [Attribute](/primitives/attribute)。如果 Attribute 从未写入，它不会返回值。
 
-对于 AttributeMap，也传入 map instance。Go 返回是否找到值，并把值 decode 到你提供的 pointer。
+对于 AttributeMap，也传入 map instance。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -233,7 +231,7 @@ let keyword: Option<String> = client.get_attribute("order-123", &keyword())?;
 
 ## 写入 Attribute
 
-**SetAttribute** 在 active Flow 上写入一个已注册的 Attribute。它适合保存之后由另一个 Step、RPC 或 Client 调用读取的 durable state。
+**SetAttribute** 在 active Flow 上写入一个已注册的 Attribute。
 
 对于 AttributeMap，也传入 map instance。几个 Attribute write 应该在同一个 request 时，各 SDK 也提供 batch helper。
 

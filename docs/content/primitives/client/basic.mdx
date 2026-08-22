@@ -58,8 +58,6 @@ let run_id = client.start_flow(&flow, "order-123", "first order")?;
 
 **StopFlow** closes an active Flow. The default asks it to cancel cooperatively. You can instead terminate it immediately, or fail it with a reason.
 
-The call only asks Dex Server to stop the Flow. Use **WaitForFlow** when the caller needs to wait for its terminal result.
-
 <SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/controller.py', go: 'examples/go/products/job-post/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostController.java', typescript: 'examples/typescript/src/products/job-post/controller.ts', rust: 'examples/rust/src/products/job_post/controller.rs'}}>
 <SdkSnippet lang="python">
 
@@ -100,7 +98,7 @@ client.stop_flow("order-123", StopFlowOptions::cancel().reason("customer cancell
 
 ## Invoke an RPC
 
-**InvokeRPC** calls a registered [RPC](/primitives/rpc) handler on an active Flow and returns its result. Use it when the caller needs a response, or when one handler needs to read and change durable state together.
+**InvokeRPC** calls a registered [RPC](/primitives/rpc) handler on an active Flow and returns its result.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/rpc/controller.py', go: 'examples/go/primitives/rpc/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc/RpcController.java', typescript: 'examples/typescript/src/primitives/rpc/controller.ts', rust: 'examples/rust/src/primitives/rpc/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -188,9 +186,9 @@ For a ChannelMap, use the matching map overload and provide the instance name. T
 
 ## Get an Attribute
 
-**GetAttribute** reads a registered [Attribute](/primitives/attribute) from the current or latest run of an existing Flow. It returns no value when the Attribute has never been written. This read does not require an active Flow.
+**GetAttribute** reads a registered [Attribute](/primitives/attribute) from the current or latest run of an existing Flow. It returns no value when the Attribute has never been written.
 
-For an AttributeMap, pass the map instance as well. Go returns whether a value was found and decodes into the pointer you provide.
+For an AttributeMap, pass the map instance as well.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">
@@ -233,7 +231,7 @@ let keyword: Option<String> = client.get_attribute("order-123", &keyword())?;
 
 ## Set an Attribute
 
-**SetAttribute** writes a registered Attribute on an active Flow. It is useful for durable state that another Step, RPC, or Client call will read later.
+**SetAttribute** writes a registered Attribute on an active Flow.
 
 For an AttributeMap, pass the map instance. SDKs also provide batch helpers when several Attribute writes belong in one request.
 
