@@ -17,7 +17,7 @@ A Channel is scoped to one Flow execution. Messages never cross between Flow exe
 
 ## Persistence schema {#persistence-schema}
 
-A Channel has a stable name and a message type. Define it and add it to the Flow persistence schema. Defining a Channel alone does not register it with the Flow. Dex Server rejects a publish, wait, or read that uses a Channel the Flow did not declare in its persistence schema.
+A Channel has a stable name and a message type. Define it and add it to the Flow persistence schema.
 
 This example has an **Approval** Channel. Its start Step waits for either one approval or a Timer. The **approve** RPC publishes the approval message. The same Flow can also receive a message directly through the Client **PublishToChannel** API.
 
@@ -283,7 +283,7 @@ The Timer branch returns before reading Channel results. If the approval wins, t
 
 ## Wait and consume {#wait-and-consume}
 
-Returning a Channel condition from **WaitFor** is a consume operation. Dex Server keeps messages until a waiting Step wins them, then removes the selected messages from the queue in FIFO order and passes them to **Execute** as Channel results.
+Returning a Channel condition from **WaitFor** waits for the Channel. When the condition is met, it consumes messages from the Channel. Dex Server keeps messages until a waiting Step wins them, then removes the selected messages from the queue in FIFO order and passes them to **Execute** as Channel results.
 
 | Condition | When it proceeds | What it consumes |
 | --- | --- | --- |
@@ -292,18 +292,6 @@ Returning a Channel condition from **WaitFor** is a consume operation. Dex Serve
 | **AtLeast** | At least the requested number is queued. | Every message currently available. |
 | **AtMost** | The queue has no more than the requested number. An empty queue matches. | Up to the requested number of messages. |
 | **AtLeastAtMost** | The queue has a number of messages in the inclusive range. | From the lower bound up to the upper bound. |
-
-**AtMost** is not a wait for a new message. It can let **Execute** run immediately when the Channel is empty.
-
-Use **Wait.anyOf** when a Step can proceed on a Channel, a Timer, or a SubFlow. When the Timer wins, the Channel messages stay queued. Use **Wait.allOf** when every condition must be ready. See [Waiting](/primitives/step/waiting-condition) for combinations and condition IDs.
-
-Do not use one Channel as a broadcast mechanism. If two waiting Steps target the same Channel, a message consumed by one Step is not available to the other. Use separate Channels when both Steps must see the event.
-
-## Read Channel results {#read-channel-results}
-
-Read the values selected for the current Step execution through the Channel result method shown in the example. It returns only messages consumed by that Channel condition. If the Step proceeded because another condition won, the result for this Channel is empty.
-
-**Size** reads the queued message count visible to the current Step or RPC invocation. It is useful for decisions made by that handler; it does not replace a **WaitFor** condition.
 
 ## Publish messages {#publish-messages}
 
@@ -316,11 +304,3 @@ Messages can arrive before a Step starts waiting. Dex Server keeps them in the C
 ## ChannelMap {#channelmap}
 
 Use **ChannelMap** when one Flow has an unbounded set of independent queues, such as one Channel per order, customer, or job. A ChannelMap has one declared name and one value type. Each instance key has its own FIFO queue.
-
-Every operation on a ChannelMap takes the instance key: publish, **ForOne**, **ForN**, range conditions, **Size**, and condition results. A wait on the **order-42** instance never consumes a message from **order-43**.
-
-During an RPC, a ChannelMap can also list its non-empty instance keys and count them. Those methods include messages published earlier in the same RPC, omit empty instances, and return keys in ascending order. They are RPC-only because they inspect the Flow's current queue state.
-
-## What Dex Server stores {#what-dex-server-stores}
-
-Dex Server stores Channel messages with the Flow state. It evaluates Channel conditions against that durable queue, removes messages only when a waiting Step wins them, and sends the selected values to the Worker for **Execute**. Worker restarts do not lose queued messages or a Step's pending wait.

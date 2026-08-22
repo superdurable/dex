@@ -219,9 +219,10 @@ function Publisher({kicker, name}: {kicker: string; name: string}): ReactNode {
 function DatabaseIcon(): ReactNode {
   return (
     <svg className="channel-execution-database" viewBox="0 0 180 88" aria-hidden="true">
-      <path d="M29 25c0-7 10-12 22-12h78c12 0 22 5 22 12v38c0 7-10 12-22 12H51c-12 0-22-5-22-12V25Z" />
-      <ellipse cx="51" cy="44" rx="22" ry="31" />
-      <path d="M29 57c0 7 10 12 22 12h78c12 0 22-5 22-12" fill="none" />
+      <path d="M28 20h124v48H28z" />
+      <ellipse cx="28" cy="44" rx="18" ry="24" />
+      <ellipse cx="152" cy="44" rx="18" ry="24" />
+      <path d="M28 57h124" fill="none" />
     </svg>
   );
 }
