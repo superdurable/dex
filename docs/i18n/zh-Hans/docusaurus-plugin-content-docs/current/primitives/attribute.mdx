@@ -393,7 +393,7 @@ OrderStatus = 'completed'
 
 ```python
 page = await app_state.client.search_flows(
-    required_query("query"),
+    "OrderStatus = 'completed'",
     20,
     "",
 )
@@ -405,7 +405,7 @@ page = await app_state.client.search_flows(
 ```go
 page, err := controller.client.SearchFlows(
 	request.Request.Context(),
-	query,
+	"OrderStatus = 'completed'",
 	20,
 	"",
 )
@@ -415,21 +415,21 @@ page, err := controller.client.SearchFlows(
 <SdkSnippet lang="java">
 
 ```java
-final SearchFlowsPage page = client.searchFlows(query, 20, "");
+final SearchFlowsPage page = client.searchFlows("OrderStatus = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-const page = await client.searchFlows(query, 20, "");
+const page = await client.searchFlows("OrderStatus = 'completed'", 20, "");
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="rust">
 
 ```rust
-client.search_flows(&query.query, 20)
+client.search_flows("OrderStatus = 'completed'", 20)
 ```
 
 </SdkSnippet>
