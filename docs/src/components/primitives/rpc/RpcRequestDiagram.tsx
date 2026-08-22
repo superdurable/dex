@@ -19,11 +19,8 @@ type Copy = {
   result: string;
   response: string;
   client: string;
-  clientDetail: string;
   server: string;
-  serverDetail: string;
   worker: string;
-  workerDetail: string;
 };
 
 const EN: Copy = {
@@ -34,11 +31,8 @@ const EN: Copy = {
   result: 'RPC result',
   response: 'return result',
   client: 'Client',
-  clientDetail: 'Invokes an RPC',
   server: 'Dex Server',
-  serverDetail: 'Routes the request and result',
   worker: 'Worker',
-  workerDetail: 'Runs the RPC method',
 };
 
 const ZH: Copy = {
@@ -49,42 +43,32 @@ const ZH: Copy = {
   result: 'RPC 结果',
   response: '返回结果',
   client: 'Client',
-  clientDetail: '发起 RPC',
   server: 'Dex Server',
-  serverDetail: '路由请求和结果',
   worker: 'Worker',
-  workerDetail: '执行 RPC method',
 };
 
 function Node({
   title,
-  detail,
   x,
   y,
   width,
   height,
   fill = 'var(--surface-solid)',
   textFill = 'var(--text)',
-  detailFill = 'var(--muted-strong)',
 }: {
   title: string;
-  detail: string;
   x: number;
   y: number;
   width: number;
   height: number;
   fill?: string;
   textFill?: string;
-  detailFill?: string;
 }): ReactNode {
   return (
     <g>
       <rect x={x} y={y} width={width} height={height} rx="14" fill={fill} stroke="var(--line-strong)" />
-      <text x={x + width / 2} y={y + height / 2 - 5} fill={textFill} fontSize="19" fontWeight="700" textAnchor="middle">
+      <text x={x + width / 2} y={y + height / 2 + 7} fill={textFill} fontSize="19" fontWeight="700" textAnchor="middle">
         {title}
-      </text>
-      <text x={x + width / 2} y={y + height / 2 + 22} fill={detailFill} fontSize="13" textAnchor="middle">
-        {detail}
       </text>
     </g>
   );
@@ -109,9 +93,9 @@ function Arrow({
         d={`M ${from} ${y} H ${to}`}
         fill="none"
         markerEnd="url(#rpc-arrowhead)"
-        stroke="var(--forest)"
+        stroke="var(--line-strong)"
         strokeLinecap="round"
-        strokeWidth="4"
+        strokeWidth="2.5"
       />
       <text
         x={(from + to) / 2}
@@ -138,13 +122,14 @@ export default function RpcRequestDiagram(): ReactNode {
         <defs>
           <marker
             id="rpc-arrowhead"
-            markerHeight="9"
-            markerWidth="9"
+            markerHeight="8"
+            markerUnits="userSpaceOnUse"
+            markerWidth="8"
             orient="auto"
-            refX="7.5"
-            refY="4.5"
-            viewBox="0 0 9 9">
-            <path d="M 0 0 L 9 4.5 L 0 9 Z" fill="var(--forest)" />
+            refX="7"
+            refY="4"
+            viewBox="0 0 8 8">
+            <path d="M 1 1 L 7 4 L 1 7" fill="none" stroke="var(--line-strong)" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
           </marker>
         </defs>
         <rect
@@ -171,21 +156,18 @@ export default function RpcRequestDiagram(): ReactNode {
         <Arrow from={570} to={350} y={137} label={copy.response} labelY={162} />
         <Arrow from={570} to={350} y={207} label={copy.dispatch} labelY={193} />
         <Arrow from={350} to={570} y={239} label={copy.result} labelY={264} />
-        <Node title={copy.client} detail={copy.clientDetail} x={50} y={75} width={300} height={75} />
+        <Node title={copy.client} x={50} y={75} width={300} height={75} />
         <Node
           title={copy.worker}
-          detail={copy.workerDetail}
           x={50}
           y={180}
           width={300}
           height={75}
-          detailFill="#d7f6ab"
-          fill="var(--forest)"
-          textFill="#ffffff"
+          fill="var(--lime-soft)"
+          textFill="var(--forest)"
         />
         <Node
           title={copy.server}
-          detail={copy.serverDetail}
           fill="var(--lime-soft)"
           x={570}
           y={100}
