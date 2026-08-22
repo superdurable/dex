@@ -19,6 +19,7 @@ package io.superdurable.dex.primitives.attribute;
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeIndex;
 import io.superdurable.dex.AttributeLock;
+import io.superdurable.dex.AttributeMap;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.FlowConfig;
@@ -32,8 +33,6 @@ import org.springframework.stereotype.Component;
 
 @Component
 public final class AttributeFlow implements Flow<String> {
-    private final Attribute<String> message =
-            Attribute.define("primitive-attribute-message", String.class);
     private final Attribute<String> status = Attribute.define(
             "primitive-attribute-status",
             String.class,
@@ -41,6 +40,8 @@ public final class AttributeFlow implements Flow<String> {
     private final Attribute<String> email = Attribute.define(
             "primitive-attribute-email",
             String.class).syncToAttributeStore();
+    private final AttributeMap<String> progress =
+            AttributeMap.define("primitive-attribute-progress", String.class);
     private final FlowConfig attributeStoreConfig = FlowConfig.newBuilder()
             .attributeStoreName("profiles")
             .build();
@@ -53,7 +54,7 @@ public final class AttributeFlow implements Flow<String> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(message, status, email);
+        return PersistenceSchema.of(status, progress, email);
     }
 
     final class AttributeStep implements Step<String> {
@@ -65,19 +66,21 @@ public final class AttributeFlow implements Flow<String> {
         @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
-                    .addExecuteLock(AttributeLock.of(message))
+                    .addExecuteLock(AttributeLock.of(status))
                     .build();
         }
 
         @Override
         public Wait waitFor(final Context context, final String input) {
-            message.set(context, input);
+            status.set(context, "processing");
+            progress.set(context, "payment", "authorized");
             return Wait.skipImmediately();
         }
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            return StepDecision.gracefulComplete(message.get(context));
+            status.set(context, "completed");
+            return StepDecision.gracefulComplete(input);
         }
     }
 }

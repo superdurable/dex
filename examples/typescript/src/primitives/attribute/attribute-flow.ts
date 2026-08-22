@@ -16,6 +16,7 @@
 
 import {
   Attribute,
+  AttributeMap,
   IndexType,
   StepList,
   Wait,
@@ -40,26 +41,28 @@ class AttributeStep implements Step<string> {
   }
 
   public getStepOptions() {
-    return { executeLockAttributes: [this.flow.message.lock()] };
+    return { executeLockAttributes: [this.flow.status.lock()] };
   }
 
   public waitFor(context: Context, input: string): Wait {
-    this.flow.message.set(context, input);
+    this.flow.status.set(context, "processing");
+    this.flow.progress.set(context, "payment", "authorized");
     return Wait.skipImmediately();
   }
 
-  public execute(context: Context, _input: string): StepDecision {
-    return gracefulComplete(this.flow.message.get(context));
+  public execute(context: Context, input: string): StepDecision {
+    this.flow.status.set(context, "completed");
+    return gracefulComplete(input);
   }
 }
 
 export class AttributeFlow implements Flow<string> {
-  public readonly message = new Attribute("primitive-attribute-message", stringCodec);
   public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
     type: IndexType.KEYWORD,
   });
   public readonly email = new Attribute("primitive-attribute-email", stringCodec)
     .syncToAttributeStore();
+  public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec);
   public readonly attributeStoreConfig: FlowConfig = { attributeStoreName: "profiles" };
   private readonly start = new AttributeStep(this);
 
@@ -72,7 +75,7 @@ export class AttributeFlow implements Flow<string> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.message, this.status, this.email] };
+    return { attributes: [this.status, this.progress, this.email] };
   }
 }
 

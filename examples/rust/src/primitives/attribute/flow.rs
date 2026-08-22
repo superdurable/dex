@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use dex_sdk::{
-    Attribute, AttributeIndex, Context, Flow, FlowConfig, HandlerResult, PersistenceSchema, Step,
-    StepDecision, StepList, StepOptions, Wait,
+    Attribute, AttributeIndex, AttributeMap, Context, Flow, FlowConfig, HandlerResult,
+    PersistenceSchema, Step, StepDecision, StepList, StepOptions, Wait,
 };
 
 pub fn attribute_store_config() -> FlowConfig {
@@ -22,25 +22,26 @@ pub fn attribute_store_config() -> FlowConfig {
 }
 
 pub struct AttributeFlow {
-    message: Attribute<String>,
     status: Attribute<String>,
     email: Attribute<String>,
+    progress: AttributeMap<String>,
     start: AttributeStep,
 }
 
 impl Default for AttributeFlow {
     fn default() -> Self {
-        let message = Attribute::new("primitive-attribute-message");
         let status = Attribute::new("primitive-attribute-status")
             .indexed(AttributeIndex::keyword());
         let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
+        let progress = AttributeMap::new("primitive-attribute-progress");
         Self {
             start: AttributeStep {
-                message: message.clone(),
+                status: status.clone(),
+                progress: progress.clone(),
             },
-            message,
             status,
             email,
+            progress,
         }
     }
 }
@@ -54,31 +55,33 @@ impl Flow for AttributeFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.message)
             .attribute(&self.status)
             .attribute(&self.email)
+            .attribute_map(&self.progress)
     }
 }
 
 struct AttributeStep {
-    message: Attribute<String>,
+    status: Attribute<String>,
+    progress: AttributeMap<String>,
 }
 
 impl Step for AttributeStep {
     type Input = String;
 
     fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_lock(self.message.lock())
+        StepOptions::new().execute_lock(self.status.lock())
     }
 
-    fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        self.message.set(context, input)?;
+    fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        self.status.set(context, "processing".to_owned())?;
+        self.progress
+            .set(context, "payment", "authorized".to_owned())?;
         Ok(Wait::skip_immediately())
     }
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(
-            self.message.get_required(context)?,
-        ))
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        self.status.set(context, "completed".to_owned())?;
+        Ok(StepDecision::graceful_complete(input))
     }
 }

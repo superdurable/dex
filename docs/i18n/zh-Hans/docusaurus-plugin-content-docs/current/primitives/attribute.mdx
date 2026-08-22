@@ -1,24 +1,26 @@
 ---
-title: Attribute 基础
-sidebar_label: 基础
+title: Attribute
+sidebar_label: Attribute
 slug: /primitives/attribute
 ---
 
-# Attribute 基础
+# Attribute
 
-一个 **Attribute** 让你可以在一个 Flow execution 内存储数据。
+一个 **Attribute** 让你可以在一个 Flow execution 内存储数据，作为 persistence storage。
 
-Dex Attribute 让存储数据变得非常简单。这尤其适合在 Flow execution 期间存储中间数据，省去设置和管理 database dependency 的工作。
+这尤其适合在 Flow execution 期间存储中间数据，省去设置和管理 database dependency 的工作。
 
-每个 Attribute 只在它所属的 Flow execution 生命周期内存在。Dex 会在 Flow 关闭后的 configurable retention period 结束后删除 Flow execution history 时，一并删除 Attribute。
+Dex Attribute 不是用来替代 database 的。一个明显的限制是，Attribute 只在它所属的 Flow execution 生命周期内存在。Dex 会在 Flow 关闭后的 configurable retention period 结束后删除 Flow execution history 时，一并删除 Attribute。
 
 不过，Dex 允许你将 Attribute values 同步到 application database，作为 permanent storage。这也让你可以构建更强大的 database indexes 来查询 Attribute。
 
-## 定义 Attribute {#define-an-attribute}
+## 使用 Attribute {#define-an-attribute}
 
-在 Flow 上定义 Attribute，然后把它列入 persistence schema。这份声明就是 Flow durable state 的 contract。Step、RPC 或 Client 尝试使用未声明的 Attribute 时，Dex 会拒绝。
+将 Attribute 定义为 Flow persistence schema 的一部分。
 
-Handler 从当前 invocation 读取 Attribute，并在同一个 invocation 里暂存写入。如果 handler attempt 失败，这些暂存写入不会成为 Flow state；如果它正常返回，Dex 会把这些写入与 Step decision 或 RPC result 一起提交。
+之后就可以在 Step 或 RPC implementation 内读写 Attribute。Attribute 必须先通过 PersistenceSchema 声明，否则 Worker 会拒绝这些操作。
+
+更新 Attribute 时，将它设为 null 会删除它。
 
 <SdkTabs
   examples={{
@@ -36,16 +38,16 @@ class AttributeStep(Step[str]):
         self.flow = flow
 
     def wait_for(self, context: Context, input: str) -> Wait:
-        self.flow.message.set(context, input)
+        self.flow.status.set(context, "processing")
         return Wait.skip_immediately()
 
     def execute(self, context: Context, input: str) -> StepDecision:
-        del input
-        return graceful_complete(self.flow.message.get(context))
+        self.flow.status.set(context, "completed")
+        return graceful_complete(input)
 
 
 class AttributeFlow(Flow[str]):
-    message = Attribute("primitive-attribute-message", str)
+    status = Attribute("primitive-attribute-status", str)
 
     def __init__(self) -> None:
         self.start = AttributeStep(self)
@@ -54,21 +56,21 @@ class AttributeFlow(Flow[str]):
         return StepList.start_step(self.start)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.message)
+        return PersistenceSchema.of(self.status)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
-var Message = dex.DefineAttribute[string](messageAttributeName)
+var Status = dex.DefineAttribute[string]("primitive-attribute-status")
 
 type AttributeFlow struct {
 	dex.FlowDefaults
 }
 
 func (*AttributeFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Message}}
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Status}}
 }
 
 type attributeStep struct {
@@ -76,18 +78,17 @@ type attributeStep struct {
 }
 
 func (attributeStep) WaitFor(ctx dex.Context, input string) (*dex.Wait, error) {
-	if err := Message.Set(ctx, input); err != nil {
+	if err := Status.Set(ctx, "processing"); err != nil {
 		return nil, err
 	}
 	return dex.SkipWaitImmediately(), nil
 }
 
-func (attributeStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
-	value, err := Message.Get(ctx)
-	if err != nil {
+func (attributeStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if err := Status.Set(ctx, "completed"); err != nil {
 		return nil, err
 	}
-	return dex.GracefulComplete(value), nil
+	return dex.GracefulComplete(input), nil
 }
 ```
 
@@ -96,8 +97,8 @@ func (attributeStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, erro
 
 ```java
 public final class AttributeFlow implements Flow<String> {
-    private final Attribute<String> message =
-            Attribute.define("primitive-attribute-message", String.class);
+    private final Attribute<String> status =
+            Attribute.define("primitive-attribute-status", String.class);
     private final AttributeStep start = new AttributeStep();
 
     @Override
@@ -107,19 +108,20 @@ public final class AttributeFlow implements Flow<String> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(message);
+        return PersistenceSchema.of(status);
     }
 
     final class AttributeStep implements Step<String> {
         @Override
         public Wait waitFor(final Context context, final String input) {
-            message.set(context, input);
+            status.set(context, "processing");
             return Wait.skipImmediately();
         }
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            return StepDecision.gracefulComplete(message.get(context));
+            status.set(context, "completed");
+            return StepDecision.gracefulComplete(input);
         }
     }
 }
@@ -139,17 +141,18 @@ class AttributeStep implements Step<string> {
   }
 
   public waitFor(context: Context, input: string): Wait {
-    this.flow.message.set(context, input);
+    this.flow.status.set(context, "processing");
     return Wait.skipImmediately();
   }
 
-  public execute(context: Context, _input: string): StepDecision {
-    return gracefulComplete(this.flow.message.get(context));
+  public execute(context: Context, input: string): StepDecision {
+    this.flow.status.set(context, "completed");
+    return gracefulComplete(input);
   }
 }
 
 export class AttributeFlow implements Flow<string> {
-  public readonly message = new Attribute("primitive-attribute-message", stringCodec);
+  public readonly status = new Attribute("primitive-attribute-status", stringCodec);
   private readonly start = new AttributeStep(this);
 
   public getSteps() {
@@ -157,7 +160,7 @@ export class AttributeFlow implements Flow<string> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { attributes: [this.message] };
+    return { attributes: [this.status] };
   }
 }
 ```
@@ -167,25 +170,26 @@ export class AttributeFlow implements Flow<string> {
 
 ```rust
 pub struct AttributeFlow {
-    message: Attribute<String>,
     status: Attribute<String>,
     email: Attribute<String>,
+    progress: AttributeMap<String>,
     start: AttributeStep,
 }
 
 impl Default for AttributeFlow {
     fn default() -> Self {
-        let message = Attribute::new("primitive-attribute-message");
         let status = Attribute::new("primitive-attribute-status")
             .indexed(AttributeIndex::keyword());
         let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
+        let progress = AttributeMap::new("primitive-attribute-progress");
         Self {
             start: AttributeStep {
-                message: message.clone(),
+                status: status.clone(),
+                progress: progress.clone(),
             },
-            message,
             status,
             email,
+            progress,
         }
     }
 }
@@ -199,28 +203,30 @@ impl Flow for AttributeFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.message)
             .attribute(&self.status)
             .attribute(&self.email)
+            .attribute_map(&self.progress)
     }
 }
 
 struct AttributeStep {
-    message: Attribute<String>,
+    status: Attribute<String>,
+    progress: AttributeMap<String>,
 }
 
 impl Step for AttributeStep {
     type Input = String;
 
-    fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        self.message.set(context, input)?;
+    fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        self.status.set(context, "processing".to_owned())?;
+        self.progress
+            .set(context, "payment", "authorized".to_owned())?;
         Ok(Wait::skip_immediately())
     }
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(
-            self.message.get_required(context)?,
-        ))
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        self.status.set(context, "completed".to_owned())?;
+        Ok(StepDecision::graceful_complete(input))
     }
 }
 ```
@@ -228,33 +234,102 @@ impl Step for AttributeStep {
 </SdkSnippet>
 </SdkTabs>
 
-可运行示例位于 [examples/go/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/go/primitives/attribute)、[examples/java/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/primitives/attribute)、[examples/python/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/primitives/attribute)、[examples/typescript/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/typescript/src/primitives/attribute) 与 [examples/rust/primitives/attribute](https://github.com/superdurable/dex/tree/main/examples/rust/src/primitives/attribute)。
+## AttributeMap {#attributemap}
 
-## 什么应该是 Attribute？ {#what-should-be-an-attribute}
+**AttributeMap** 是一组 key 在运行时才确定的 Attribute。它适合 Flow 需要一组不断变化的小值的场景，例如订单中每笔 payment 或每个 item 的 status。
 
-| 值 | 使用场景 |
-| --- | --- |
-| **Attribute** | Flow 需要一份 durable state，且不止一个 Step、RPC 或 Client 会读取或更新它。 |
-| **Step input / output** | 值只沿着一条具体的 Step path 传递。 |
-| **Step execution local** | 值只属于一个 Step execution。 |
-| **Channel** | 需要传递一条或多条消息，而不是保存最新状态。 |
+可以把一个 map 作为一个 Attribute value 存储。但改一个 field 时，Dex 必须把整个 map 作为一个 blob 重写。AttributeMap 则把每个 instance 存为独立 blob。更新 **payment** 不会重写 **shipping**。
 
-Attribute 保存的是最新值，不是 event log。不要把每一条业务事件都 append 到一个很大的 Attribute 里。消息应该用 Channel；大 body 放到自己的 database 或 Blob Store，Attribute 里只放一个小的 identifier。
+只定义并注册一次 map；每次读、写、删除或 lock 时提供一个 instance key。map name 与 instance key 组成 Dex 的 physical Attribute name。Dex 会 escape instance key，所以 application code 应始终使用 SDK definition，不要自己拼这个 name。
 
-## 初始状态与 Client 访问 {#initial-state-and-client-access}
+<SdkTabs examples={{ python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py', go: 'examples/go/primitives/attribute/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java', typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts', rust: 'examples/rust/src/primitives/attribute/flow.rs' }}>
+<SdkSnippet lang="python">
+
+```python
+progress = AttributeMap("primitive-attribute-progress", str)
+
+progress.set(context, "payment", "authorized")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var Progress = dex.DefineAttributeMap[string]("primitive-attribute-progress")
+
+if err := Progress.Set(ctx, "payment", "authorized"); err != nil {
+	return nil, err
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+private final AttributeMap<String> progress =
+        AttributeMap.define("primitive-attribute-progress", String.class);
+
+progress.set(context, "payment", "authorized");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec);
+
+this.flow.progress.set(context, "payment", "authorized");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let progress = AttributeMap::new("primitive-attribute-progress");
+
+self.progress
+    .set(context, "payment", "authorized".to_owned())?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Initial Attribute values {#initial-attribute-values}
 
 **StartFlowOptions** 可以在创建 Flow 时设置初始 Attribute。初始值与创建 Flow 是一个操作，所以第一个 Step 立刻能看到它们。见 [Flow options](/primitives/flow/flow-options#attributes)。
 
 Client 使用同一个已注册的 Attribute definition 调用 **GetAttributes** 和 **SetAttributes**。Client 也可以用 **WaitForAttributeEqual**，等待一个 singleton Attribute 或某个 AttributeMap instance 变成指定 scalar value。这些都是通过 Dex Server 的 Flow operation，不会直接读写 application database。见 [Client APIs](/primitives/client-apis)。
 
-## AttributeMap {#attributemap}
+## Indexed Attribute {#indexed-attributes}
 
-**AttributeMap** 是一组 key 在运行时才确定的 Attribute。只定义并注册一次 map；每次读、写、删除或 lock 时提供一个 instance key。
+没有 **AttributeIndex** 的 Attribute 不能被搜索。Worker 启动时 Dex 会把 index 注册到配置好的 backend；之后 Attribute 每次变化，Dex 都会更新 index。你可以在 **SearchFlows** query 中使用这个 field。
 
-例如 invoice Flow 可以有一个 **payment-status** map。**invoice-1** 的 **payment-status** 与 **invoice-2** 的 **payment-status** 是独立的 durable value。更新一个不会重写另一个。AttributeMap 适合不断变化的一组小值；它不能替代可查询的 application table。
+根据准备写入的值选择 index type。index type 是 Attribute contract 的一部分。index 用来找 Flow；它不是第二份 source of truth，也不能替代 **GetAttributes**。
 
-map name 与 instance key 组成 Dex 的 physical Attribute name。Dex 会 escape instance key，所以 application code 应始终使用 SDK definition，不要自己拼这个 name。Step 或 RPC 可以列出已有 instance key；这个列表也包含当前 invocation 暂存的写入。
+| Index type | 值 |
+| --- | --- |
+| **KEYWORD** | 一个精确字符串。 |
+| **FULL_TEXT** | 用于 tokenized search 的文本。 |
+| **KEYWORD_ARRAY** | 一组精确字符串。 |
+| **INT**、**DOUBLE**、**BOOL** | 对应的 scalar value。 |
+| **DATETIME** | 一个日期与时间值。 |
 
-## 下一步
+singleton Attribute 默认用 Attribute name 作为 index field，除非设置显式 index key。indexed **AttributeMap** 必须设置显式 index key，因为所有动态 instance 共用一个 search field。
 
-继续阅读 [Attribute advanced](/primitives/attribute/advanced)，了解 search index、Attribute Store projection 与并发 read-modify-write 的 locking。
+## Attribute Store projection {#attribute-store-projection}
+
+有些 application 需要把同一份 Flow state 放到已有的 MySQL 或 PostgreSQL read model。Dex 可以把选中的 Attribute write 异步 projection 到 Server 配置的 **Attribute Store**。
+
+Server 配置 Store 和 destination table。Flow 通过 **FlowConfig** 选择它，每个 Attribute 或 AttributeMap definition 显式 opt in **SyncToAttributeStore** 或对应 SDK API。之后，初始值与 Step、RPC、Client 的写入都会被 projection。Flow Attribute 仍然是 authoritative：projection failure 不会 rollback Flow write，Dex 也不会 backfill 漏掉的写入。
+
+SQL row 是 latest-state projection。删除 synced Attribute 时，如果 column 允许，Dex 会 projection SQL **NULL**。修改 Attribute Store target 只影响之后的 write；已经排队的 mutation 保留 Dex 接收它时选择的 target。
+
+这适合 read model、reporting table，或者每个业务实体由一个长运行 Flow 编排的场景。如果 external update 必须和另一次 database write 处于同一个 business transaction，它就不合适。完整 pattern 见 [Entity Store](/design-patterns/entity-store)。
+
+## Locking {#locking}
+
+一次 Attribute write 会和 Step 或 RPC result 一起 durable。但这不代表 read-modify-write sequence 就安全。在执行这个 sequence 的 Step method 或 RPC 上声明 Attribute lock。Dex 会在调用 handler 前一起获取请求的 lock，并在这次 invocation 结束时释放。
+
+**WaitFor** 与 **Execute** 有各自的 lock option。lock 应加在实际读取并修改值的 method 上。Client 先 **GetAttributes** 再 **SetAttributes** 不是 locked read-modify-write；需要 serialization 时，把这个 operation 放进 RPC。
+
+保持 locked set 尽量小。锁无关的 Attribute 会降低 concurrency；漏掉冲突的 Attribute 会留下 race。RPC Attribute locking 使用 Temporal synchronous Update，在 Cadence 中不可用。Step Attribute lock 正常走 Step execution。

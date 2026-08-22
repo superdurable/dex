@@ -25,11 +25,8 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
-const messageAttributeName = "primitive-attribute-message"
-
 var (
-	Message = dex.DefineAttribute[string](messageAttributeName)
-	Status  = dex.DefineAttribute[string](
+	Status = dex.DefineAttribute[string](
 		"primitive-attribute-status",
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
 	)
@@ -37,6 +34,7 @@ var (
 		"primitive-attribute-email",
 		dex.SyncToAttributeStore(),
 	)
+	Progress             = dex.DefineAttributeMap[string]("primitive-attribute-progress")
 	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreName: ptr.Any("profiles")}
 )
 
@@ -53,7 +51,7 @@ func (*AttributeFlow) GetSteps() []dex.StepDef {
 }
 
 func (*AttributeFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Message, Status, Email}}
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Status, Progress, Email}}
 }
 
 type attributeStep struct {
@@ -62,23 +60,25 @@ type attributeStep struct {
 
 func (attributeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(Message)},
+		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(Status)},
 	}
 }
 
 func (attributeStep) WaitFor(ctx dex.Context, input string) (*dex.Wait, error) {
-	if err := Message.Set(ctx, input); err != nil {
+	if err := Status.Set(ctx, "processing"); err != nil {
+		return nil, err
+	}
+	if err := Progress.Set(ctx, "payment", "authorized"); err != nil {
 		return nil, err
 	}
 	return dex.SkipWaitImmediately(), nil
 }
 
-func (attributeStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
-	value, err := Message.Get(ctx)
-	if err != nil {
+func (attributeStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if err := Status.Set(ctx, "completed"); err != nil {
 		return nil, err
 	}
-	return dex.GracefulComplete(value), nil
+	return dex.GracefulComplete(input), nil
 }
 
 var _ dex.Flow = (*AttributeFlow)(nil)

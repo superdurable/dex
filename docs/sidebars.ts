@@ -36,7 +36,7 @@ const sidebars: SidebarsConfig = {
           type: 'category',
           label: 'Attribute',
           link: {type: 'doc', id: 'primitives/attribute'},
-          items: ['primitives/attribute', 'primitives/attribute/advanced'],
+          items: ['primitives/attribute'],
         },
         'primitives/rpc',
         'primitives/channel',
