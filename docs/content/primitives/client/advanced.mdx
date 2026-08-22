@@ -6,8 +6,6 @@ slug: /primitives/client/advanced
 
 # Client Advanced
 
-These operations address an active Flow unless noted otherwise. They use the same **Flow ID** that your application used when it started the Flow.
-
 ## Wait for a Flow
 
 **WaitForFlow** waits for terminal Flow status. A bounded wait can return a long-poll timeout while the Flow is still open; call it again to keep waiting.
@@ -136,7 +134,7 @@ client.wait_for_attribute_equal("order-123", &status(), "approved".to_owned(), D
 
 ## Describe a Flow
 
-**DescribeFlow** returns the current or latest run's IDs, Flow type, status, and start time. It works after the Flow closes.
+**DescribeFlow** returns the current or latest run's IDs, Flow type, status, and start time. It does not require the Flow to be active.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">
