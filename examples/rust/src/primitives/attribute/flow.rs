@@ -14,8 +14,10 @@
 
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Context, Flow, FlowConfig, HandlerResult,
-    PersistenceSchema, Step, StepDecision, StepList, StepOptions, Wait,
+    PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepOptions, Wait,
 };
+
+const UPDATE_STATUS: Rpc<String, String> = Rpc::new("UpdateStatus");
 
 pub fn attribute_store_config() -> FlowConfig {
     FlowConfig::new().attribute_store_name("profiles")
@@ -60,6 +62,27 @@ impl Flow for AttributeFlow {
             .attribute(&self.email)
             .attribute_map(&self.progress)
     }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().function(
+            UPDATE_STATUS
+                .lock(self.status.lock())
+                .lock(self.progress.lock("payment")),
+            Self::update_status,
+        )
+    }
+}
+
+impl AttributeFlow {
+    fn update_status(
+        &self,
+        context: &mut Context,
+        input: String,
+    ) -> HandlerResult<RpcResult<String>> {
+        self.status.set(context, input.clone())?;
+        self.progress.set(context, "payment", input.clone())?;
+        Ok(RpcResult::new(input))
+    }
 }
 
 struct AttributeStep {
@@ -71,7 +94,11 @@ impl Step for AttributeStep {
     type Input = String;
 
     fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_lock(self.status.lock())
+        StepOptions::new()
+            .wait_for_lock(self.status.lock())
+            .wait_for_lock(self.progress.lock("payment"))
+            .execute_lock(self.status.lock())
+            .execute_lock(self.progress.lock("payment"))
     }
 
     fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {

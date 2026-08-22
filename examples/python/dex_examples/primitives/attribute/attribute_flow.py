@@ -25,12 +25,14 @@ from dex import (
     FlowConfig,
     IndexType,
     PersistenceSchema,
+    RPCResult,
     Step,
     StepDecision,
     StepList,
     StepOptions,
     Wait,
     graceful_complete,
+    rpc,
 )
 
 
@@ -44,7 +46,16 @@ class AttributeStep(Step[str]):
         return Wait.skip_immediately()
 
     def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_lock_attributes=(self.flow.status.lock(),))
+        return StepOptions(
+            wait_for_lock_attributes=(
+                self.flow.status.lock(),
+                self.flow.progress.lock("payment"),
+            ),
+            execute_lock_attributes=(
+                self.flow.status.lock(),
+                self.flow.progress.lock("payment"),
+            ),
+        )
 
     def execute(self, context: Context, input: str) -> StepDecision:
         self.flow.status.set(context, "completed")
@@ -73,3 +84,9 @@ class AttributeFlow(Flow[str]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.status, self.progress, self.email)
+
+    @rpc(lock_attributes=(status.lock(), progress.lock("payment")))
+    def update_status(self, context: Context, input: str) -> RPCResult[str]:
+        self.status.set(context, input)
+        self.progress.set(context, "payment", input)
+        return RPCResult(input)

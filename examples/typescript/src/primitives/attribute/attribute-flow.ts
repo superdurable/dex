@@ -22,14 +22,26 @@ import {
   Wait,
   goTo,
   gracefulComplete,
+  rpc,
   stringCodec,
   type Context,
   type Flow,
   type FlowConfig,
   type PersistenceSchema,
+  type RPCResult,
   type Step,
   type StepDecision,
 } from "@superdurable/dex";
+
+const status = new Attribute("primitive-attribute-status", stringCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: "OrderStatus",
+});
+const email = new Attribute("primitive-attribute-email", stringCodec).syncToAttributeStore();
+const progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
+  type: IndexType.KEYWORD,
+  indexKey: "OrderProgress",
+});
 
 class AttributeStep implements Step<string> {
   public readonly inputCodec = stringCodec;
@@ -41,7 +53,10 @@ class AttributeStep implements Step<string> {
   }
 
   public getStepOptions() {
-    return { executeLockAttributes: [this.flow.status.lock()] };
+    return {
+      waitForLockAttributes: [this.flow.status.lock(), this.flow.progress.lock("payment")],
+      executeLockAttributes: [this.flow.status.lock(), this.flow.progress.lock("payment")],
+    };
   }
 
   public waitFor(context: Context, input: string): Wait {
@@ -57,16 +72,9 @@ class AttributeStep implements Step<string> {
 }
 
 export class AttributeFlow implements Flow<string> {
-  public readonly status = new Attribute("primitive-attribute-status", stringCodec, {
-    type: IndexType.KEYWORD,
-    indexKey: "OrderStatus",
-  });
-  public readonly email = new Attribute("primitive-attribute-email", stringCodec)
-    .syncToAttributeStore();
-  public readonly progress = new AttributeMap("primitive-attribute-progress", stringCodec, {
-    type: IndexType.KEYWORD,
-    indexKey: "OrderProgress",
-  });
+  public readonly status = status;
+  public readonly email = email;
+  public readonly progress = progress;
   public readonly attributeStoreConfig: FlowConfig = { attributeStoreName: "profiles" };
   private readonly start = new AttributeStep(this);
 
@@ -80,6 +88,17 @@ export class AttributeFlow implements Flow<string> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return { attributes: [this.status, this.progress, this.email] };
+  }
+
+  @rpc({
+    inputCodec: stringCodec,
+    outputCodec: stringCodec,
+    lockAttributes: [status.lock(), progress.lock("payment")],
+  })
+  public updateStatus(context: Context, input: string): RPCResult<string> {
+    this.status.set(context, input);
+    this.progress.set(context, "payment", input);
+    return { output: input };
   }
 }
 

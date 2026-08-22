@@ -24,6 +24,9 @@ import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
+import io.superdurable.dex.RPCAttributeMapLock;
+import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -32,7 +35,7 @@ import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
 
 @Component
-public final class AttributeFlow implements Flow<String> {
+public class AttributeFlow implements Flow<String> {
     private final Attribute<String> status = Attribute.define(
             "primitive-attribute-status",
             String.class,
@@ -69,7 +72,10 @@ public final class AttributeFlow implements Flow<String> {
         @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
+                    .addWaitForLock(AttributeLock.of(status))
+                    .addWaitForLock(AttributeLock.of(progress, "payment"))
                     .addExecuteLock(AttributeLock.of(status))
+                    .addExecuteLock(AttributeLock.of(progress, "payment"))
                     .build();
         }
 
@@ -85,5 +91,18 @@ public final class AttributeFlow implements Flow<String> {
             status.set(context, "completed");
             return StepDecision.gracefulComplete(input);
         }
+    }
+
+    @RPC(
+            lockAttributes = {"primitive-attribute-status"},
+            lockAttributeMaps = {
+                @RPCAttributeMapLock(
+                        attribute = "primitive-attribute-progress",
+                        instance = "payment")
+            })
+    public RPCResult<String> updateStatus(final Context context, final String input) {
+        status.set(context, input);
+        progress.set(context, "payment", input);
+        return RPCResult.of(input);
     }
 }

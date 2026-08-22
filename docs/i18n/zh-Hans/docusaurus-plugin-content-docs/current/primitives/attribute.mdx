@@ -627,8 +627,229 @@ let run_id = client.start_flow_with_options(&flow, &user_id, (), options)?;
 
 ## Locking {#locking}
 
-一次 Attribute write 会和 Step 或 RPC result 一起 durable。但这不代表 read-modify-write sequence 就安全。在执行这个 sequence 的 Step method 或 RPC 上声明 Attribute lock。Dex 会在调用 handler 前一起获取请求的 lock，并在这次 invocation 结束时释放。
+Concurrent Step 和 RPC invocation 可以读取和写入同一个 Attribute。这会导致 race condition。为避免这种情况，请使用 Attribute lock。Dex Server 确保同一时间只有一个 Step execution 或 RPC handling 可以获取 lock。
 
-**WaitFor** 与 **Execute** 有各自的 lock option。lock 应加在实际读取并修改值的 method 上。Client 先 **GetAttributes** 再 **SetAttributes** 不是 locked read-modify-write；需要 serialization 时，把这个 operation 放进 RPC。
+### Lock **WaitFor**
 
-保持 locked set 尽量小。锁无关的 Attribute 会降低 concurrency；漏掉冲突的 Attribute 会留下 race。RPC Attribute locking 使用 Temporal synchronous Update，在 Cadence 中不可用。Step Attribute lock 正常走 Step execution。
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
+    go: 'examples/go/primitives/attribute/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
+    typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
+    rust: 'examples/rust/src/primitives/attribute/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        wait_for_lock_attributes=(
+            self.flow.status.lock(),
+            self.flow.progress.lock("payment"),
+        ),
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (attributeStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		WaitForLockAttributes: []dex.AttributeLock{
+			dex.LockAttribute(Status),
+			dex.LockAttributeMap(Progress, "payment"),
+		},
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+return StepOptions.newBuilder()
+        .addWaitForLock(AttributeLock.of(status))
+        .addWaitForLock(AttributeLock.of(progress, "payment"))
+        .build();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+return {
+  waitForLockAttributes: [this.flow.status.lock(), this.flow.progress.lock("payment")],
+};
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+StepOptions::new()
+    .wait_for_lock(self.status.lock())
+    .wait_for_lock(self.progress.lock("payment"))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Lock **Execute**
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
+    go: 'examples/go/primitives/attribute/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
+    typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
+    rust: 'examples/rust/src/primitives/attribute/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def get_step_options(self) -> StepOptions:
+    return StepOptions(
+        execute_lock_attributes=(
+            self.flow.status.lock(),
+            self.flow.progress.lock("payment"),
+        ),
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (attributeStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteLockAttributes: []dex.AttributeLock{
+			dex.LockAttribute(Status),
+			dex.LockAttributeMap(Progress, "payment"),
+		},
+	}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+return StepOptions.newBuilder()
+        .addExecuteLock(AttributeLock.of(status))
+        .addExecuteLock(AttributeLock.of(progress, "payment"))
+        .build();
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+return {
+  executeLockAttributes: [this.flow.status.lock(), this.flow.progress.lock("payment")],
+};
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+StepOptions::new()
+    .execute_lock(self.status.lock())
+    .execute_lock(self.progress.lock("payment"))
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+### Lock an RPC
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/attribute/attribute_flow.py',
+    go: 'examples/go/primitives/attribute/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/attribute/AttributeFlow.java',
+    typescript: 'examples/typescript/src/primitives/attribute/attribute-flow.ts',
+    rust: 'examples/rust/src/primitives/attribute/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(lock_attributes=(status.lock(), progress.lock("payment")))
+def update_status(self, context: Context, input: str) -> RPCResult[str]:
+    self.status.set(context, input)
+    self.progress.set(context, "payment", input)
+    return RPCResult(input)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func invokeUpdateStatus(ctx context.Context, client *sdk.Client, flowID string) error {
+	var updated string
+	return client.InvokeRPC(
+		ctx,
+		flowID,
+		(*AttributeFlow).UpdateStatus,
+		"completed",
+		&updated,
+		sdk.InvokeOptions{LockAttributes: []sdk.AttributeLock{
+			sdk.LockAttribute(Status),
+			sdk.LockAttributeMap(Progress, "payment"),
+		}},
+	)
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(
+        lockAttributes = {"primitive-attribute-status"},
+        lockAttributeMaps = {
+            @RPCAttributeMapLock(
+                    attribute = "primitive-attribute-progress",
+                    instance = "payment")
+        })
+public RPCResult<String> updateStatus(final Context context, final String input) {
+    status.set(context, input);
+    progress.set(context, "payment", input);
+    return RPCResult.of(input);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({
+  inputCodec: stringCodec,
+  outputCodec: stringCodec,
+  lockAttributes: [status.lock(), progress.lock("payment")],
+})
+public updateStatus(context: Context, input: string): RPCResult<string> {
+  this.status.set(context, input);
+  this.progress.set(context, "payment", input);
+  return { output: input };
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn rpcs(&self) -> RpcList<Self> {
+    RpcList::new().function(
+        UPDATE_STATUS
+            .lock(self.status.lock())
+            .lock(self.progress.lock("payment")),
+        Self::update_status,
+    )
+}
+```
+
+</SdkSnippet>
+</SdkTabs>

@@ -63,7 +63,14 @@ type attributeStep struct {
 
 func (attributeStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
-		ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(Status)},
+		WaitForLockAttributes: []dex.AttributeLock{
+			dex.LockAttribute(Status),
+			dex.LockAttributeMap(Progress, "payment"),
+		},
+		ExecuteLockAttributes: []dex.AttributeLock{
+			dex.LockAttribute(Status),
+			dex.LockAttributeMap(Progress, "payment"),
+		},
 	}
 }
 
@@ -82,6 +89,16 @@ func (attributeStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, 
 		return nil, err
 	}
 	return dex.GracefulComplete(input), nil
+}
+
+func (*AttributeFlow) UpdateStatus(ctx dex.Context, input string) (*dex.RPCResult[string], error) {
+	if err := Status.Set(ctx, input); err != nil {
+		return nil, err
+	}
+	if err := Progress.Set(ctx, "payment", input); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: input}, nil
 }
 
 var _ dex.Flow = (*AttributeFlow)(nil)
