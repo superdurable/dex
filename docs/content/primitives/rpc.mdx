@@ -157,9 +157,7 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 </SdkSnippet>
 </SdkTabs>
 
-## Advanced
-
-### RPC timeout
+## RPC timeout
 
 An RPC timeout limits one Worker handler invocation. It is not a Flow timeout and does not close the Flow. Set one when the caller needs a shorter bound than the Dex Server default.
 
@@ -167,7 +165,7 @@ Python, Java, TypeScript, and Rust declare the timeout with the RPC handler. Go 
 
 Timeout is not a retry policy. A timed-out handler returns an error to the caller. If the endpoint retries the Client call, it should use an idempotency key in its own business operation.
 
-### Attribute locks
+## Attribute locks
 
 RPCs do not lock Attributes by default. A simple write, such as the example above, does not need a lock. A read-modify-write operation usually does.
 
@@ -178,15 +176,3 @@ Declare only the Attributes or AttributeMap instances the RPC changes as a read-
 Dex Server attempts to acquire all requested locks before the Worker handler runs. It does not wait for them. If one is already held, the call returns an RPC lock-conflict error; the caller can retry with its own backoff. Locks apply within one Flow and are released when the invocation finishes.
 
 Locking RPCs require Temporal. Cadence does not support them.
-
-### How Dex Server runs an RPC
-
-Dex Server resolves the active Run, loads the Flow state, and dispatches the handler to the Worker. The Worker returns the output together with Attribute writes, Channel messages, cancellation, and next-Step movements. Dex Server then records those Flow changes.
-
-For a normal RPC without locks, Dex Server uses a query, Worker call, and signal to apply Flow changes. A Temporal deployment can set **api.useTemporalSynchronousUpdateForAllRPCs** to run every RPC through a synchronous Update. Locking RPCs always use that Update path. Once terminal finalization begins, the Update path rejects new RPCs.
-
-You normally do not need to choose this path. Keep the default unless you operate Dex Server and need the Update path's validation and commit behavior for every RPC.
-
-## Traditional workarounds
-
-Without RPC, an application usually builds separate read APIs, write APIs, and signal endpoints around a Flow, then adds its own concurrency control. Those APIs can observe or change different versions of the Flow. An RPC keeps the external operation next to the Flow code and lets Dex Server deliver it to the right Worker.

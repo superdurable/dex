@@ -157,9 +157,7 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 </SdkSnippet>
 </SdkTabs>
 
-## Advanced
-
-### RPC timeout
+## RPC timeout
 
 RPC timeout 限制一次 Worker handler invocation。它不是 Flow timeout，也不会关闭 Flow。调用方需要比 Dex Server default 更短的上限时再设置。
 
@@ -167,7 +165,7 @@ Python、Java、TypeScript 和 Rust 在 RPC handler 上声明 timeout。Go 在�
 
 Timeout 不是 retry policy。handler timeout 后会向调用方返回 error。endpoint 如果要 retry Client 调用，应在自己的业务操作中使用 idempotency key。
 
-### Attribute locks
+## Attribute locks
 
 RPC 默认不锁 Attribute。像上面的简单写入不需要锁。read-modify-write 通常需要。
 
@@ -178,15 +176,3 @@ RPC 默认不锁 Attribute。像上面的简单写入不需要锁。read-modify-
 Dex Server 会在 Worker handler 开始前尝试一次性获取所有声明的 lock，不会等待。任何一个 lock 已被占用时，调用返回 RPC lock-conflict error；调用方可以按自己的 backoff retry。lock 只在一个 Flow 内生效，并在 invocation 结束时释放。
 
 locking RPC 需要 Temporal。Cadence 不支持。
-
-### Dex Server 如何执行 RPC
-
-Dex Server 先解析 active Run，加载 Flow state，再将 handler 发给 Worker。Worker 返回 output，以及 Attribute write、Channel message、cancellation 和 next-Step movement。Dex Server 再记录这些 Flow change。
-
-普通的无锁 RPC 默认通过 query、Worker call 和 signal 应用 Flow change。Temporal deployment 可以设置 **api.useTemporalSynchronousUpdateForAllRPCs**，让所有 RPC 都走 synchronous Update。locking RPC 总是走 Update path。terminal finalization 开始后，Update path 会拒绝新的 RPC。
-
-通常不需要选择这条 path。除非你在运营 Dex Server，并且每个 RPC 都需要 Update path 的 validation 和 commit behavior，否则保持 default。
-
-## Traditional workarounds
-
-没有 RPC 时，应用通常围绕 Flow 写单独的 read API、write API 和 signal endpoint，再自己处理并发控制。这些 API 很容易读到或修改 Flow 的不同版本。RPC 把外部操作放在 Flow code 旁边，并让 Dex Server 将它送到正确的 Worker。
