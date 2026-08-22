@@ -3,11 +3,17 @@ title: RPC
 slug: /primitives/rpc
 ---
 
+import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDiagram';
+
 # RPC
 
-An **RPC** is an external entry point on an active Flow. An application calls it through the Client. Dex Server sends the call to the Flow's Worker, where the method can read or change durable Flow state.
+RPC stands for “Remote Procedure Call”. It allows external systems to interact with a Flow execution.
 
-Use a Step when the Flow moves itself. Use an RPC when an external user or service needs to approve an order, submit input, cancel work, or ask a running Flow for its state.
+A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The **Worker** runs it, then returns the result through **Dex Server** to the **Client**.
+
+<RpcRequestDiagram />
+
+RPC can read and write durable state through Attributes, publish Channels, and trigger a brand-new Step to run.
 
 ## Define an RPC
 
