@@ -6,11 +6,11 @@ slug: /primitives/attribute
 
 # Attribute
 
-一个 **Attribute** 让你可以在一个 Flow run 内存储数据，作为 persistence storage。
+一个 **Attribute** 让你可以在一个 Flow execution 内存储数据，作为 persistence storage。
 
-这尤其适合在 Flow run 期间存储中间数据，省去设置和管理 database dependency 的工作。
+这尤其适合在 Flow execution 期间存储中间数据，省去设置和管理 database dependency 的工作。
 
-Dex Attribute 不是用来替代 database 的。一个明显的限制是，Attribute 只在它所属的 Flow run 生命周期内存在。Dex 会在 Flow 关闭后的 configurable retention period 结束后删除 Flow run 时，一并删除 Attribute。
+Dex Attribute 不是用来替代 database 的。一个明显的限制是，Attribute 只在它所属的 Flow execution 生命周期内存在。Dex 会在 Flow 关闭后的 configurable retention period 结束后删除 Flow execution 时，一并删除 Attribute。
 
 不过，Dex 允许你将 Attribute values 同步到 application database，作为 permanent storage。这也让你可以构建更强大的 database indexes 来查询 Attribute。
 
@@ -314,7 +314,7 @@ Client 使用同一个已注册的 Attribute definition 调用 **GetAttributes**
 
 ## Indexed Attribute {#indexed-attributes}
 
-Dex 让你可以为 Attribute 配置 index。有了 indexing，就可以在 **SearchFlows** query 中使用这个 field，找出匹配 query 的 Flow run。
+Dex 让你可以为 Attribute 配置 index。有了 indexing，就可以在 **SearchFlows** query 中使用这个 field，找出匹配 query 的 Flow execution。
 
 | Index type | 值 |
 | --- | --- |
@@ -380,7 +380,7 @@ let status = Attribute::new("primitive-attribute-status")
 </SdkSnippet>
 </SdkTabs>
 
-上面的 status Attribute 使用 **OrderStatus** 作为 index key。要找 status 为 completed 的 Flow run，可以使用这个 query：
+上面的 status Attribute 使用 **OrderStatus** 作为 index key。要找 status 为 completed 的 Flow execution，可以使用这个 query：
 
 ```text
 OrderStatus = 'completed'

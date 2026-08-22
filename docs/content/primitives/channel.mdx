@@ -7,11 +7,11 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 # Channel
 
-**Channel** is a durable first-in, first-out (FIFO) queue inside one Flow run. Steps, RPCs, and Clients append typed messages. A Step consumes messages by returning a Channel condition from **WaitFor**.
+**Channel** is a durable first-in, first-out (FIFO) queue inside one Flow execution. Steps, RPCs, and Clients append typed messages. A Step consumes messages by returning a Channel condition from **WaitFor**.
 
 A Channel keeps messages in arrival order. A message can be consumed by one matching wait, once. It is not copied to other waiting Steps.
 
-A Channel is scoped to one Flow run. Another Flow run has its own Channel queues; messages never cross between Flow runs.
+A Channel is scoped to one Flow execution. Messages never cross between Flow executions.
 
 <ChannelScopeDiagram />
 

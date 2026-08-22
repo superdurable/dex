@@ -7,11 +7,11 @@ import ChannelScopeDiagram from '@site/src/components/primitives/channel/Channel
 
 # Channel
 
-**Channel** 是一条单个 Flow run 内部 durable 的 first-in, first-out (FIFO) 队列。Step、RPC 与 Client 都能往里面追加有类型的消息。Step 通过在 **WaitFor** 里返回 Channel condition 来消费消息。
+**Channel** 是一条单个 Flow execution 内部 durable 的 first-in, first-out (FIFO) 队列。Step、RPC 与 Client 都能往里面追加有类型的消息。Step 通过在 **WaitFor** 里返回 Channel condition 来消费消息。
 
 Channel 会按到达顺序保留消息。一条消息只能被一个匹配的 wait 消费一次，不会复制给其他 waiting Step。
 
-Channel 只属于一个 Flow run。另一个 Flow run 有自己的 Channel 队列；消息不会跨 Flow run。
+Channel 只属于一个 Flow execution。消息不会跨 Flow execution。
 
 <ChannelScopeDiagram />
 

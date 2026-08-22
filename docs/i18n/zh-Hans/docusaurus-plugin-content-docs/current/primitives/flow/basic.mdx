@@ -159,13 +159,13 @@ impl Flow for ExampleFlow {
 
 Dex 在其 API 和文档中使用这些标识符。
 
-首先，说到 **Flow** 时，它通常依上下文指由 **FlowType** 标识的 Flow 定义，或由 **Flow ID** 标识的一次 Flow run instance。
+首先，说到 **Flow** 时，它通常依上下文指由 **FlowType** 标识的 Flow 定义，或由 **Flow ID** 标识的一次 Flow execution。
 
 | 标识符 | 谁设置 | 含义 |
 |--------|--------|------|
 | **FlowType** | 应用（Flow 实现） | Dex 路由 Worker 调用与搜索结果使用的稳定类型名。 |
-| **Flow ID** | 应用在 start 时 | 一个逻辑 Flow 的业务身份。Reuse policy 决定新 run 能否 attach、替换或拒绝已有 ID。 |
-| **Run ID** | Dex Server | 一次 run 尝试的身份。Time travel 与 continue-as-new 会保留 Flow ID 并开启新的 Run ID。 |
+| **Flow ID** | 应用在 start 时 | 一个 Flow execution 的业务身份。ID reuse policy 控制是否可以使用同一个 Flow ID 启动另一个 Flow execution。 |
+| **Run ID** | Dex Server | 一次 backend run attempt 的身份。Time travel 与 continue-as-new 会保留同一个 Flow execution 并分配新的 Run ID。 |
 | **StepType** | 应用（Step 实现） | Flow 内 Step 定义的 stable 名称。 |
 | **StepExecutionID** | Dex Server | 某个 Step type 的一次执行实例，格式为 **StepType-Number**。 |
 
