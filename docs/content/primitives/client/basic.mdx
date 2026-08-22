@@ -1,0 +1,274 @@
+---
+title: Client Basics
+sidebar_label: Basics
+slug: /primitives/client/basic
+---
+
+# Client Basics
+
+Client calls are made by your application, not by a Step. The examples below use a **Flow ID** named **order-123**.
+
+## Start a Flow
+
+**StartFlow** creates a Flow execution and returns as soon as Dex Server accepts it. It takes a registered Flow, a business **Flow ID**, the start Step input, and **StartFlowOptions**.
+
+The Flow ID is the identity your application chooses. Dex Server creates the Run ID. See [Flow options](/primitives/flow/flow-options) for timeout, request idempotency, ID reuse, retry, initial Attributes, and configuration overrides.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+run_id = await app_state.client.start_flow(
+    app_state.client_apis, "order-123", "first order", start_options()
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+runID, err := client.StartFlow(ctx, flow, "order-123", "first order", options)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final String runId = client.startFlow(flow, "order-123", "first order", options);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const runId = await client.startFlow(clientApisFlow, "order-123", "first order", options);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let run_id = client.start_flow(&flow, "order-123", "first order")?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Stop a Flow
+
+**StopFlow** closes an active Flow. The default asks it to cancel cooperatively. You can instead terminate it immediately, or fail it with a reason.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/controller.py', go: 'examples/go/products/job-post/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostController.java', typescript: 'examples/typescript/src/products/job-post/controller.ts', rust: 'examples/rust/src/products/job_post/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.stop_flow("order-123", StopFlowOptions(reason="customer cancelled"))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err := client.StopFlow(ctx, "order-123", sdk.StopOptions{Reason: "customer cancelled"})
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+client.stopFlow("order-123", new StopFlowOptions(StopType.CANCEL, "customer cancelled"));
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+await client.stopFlow("order-123", { reason: "customer cancelled" });
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.stop_flow("order-123", StopFlowOptions::cancel().reason("customer cancelled"))?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Invoke an RPC
+
+**InvokeRPC** calls a registered [RPC](/primitives/rpc) handler on an active Flow and returns its result.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/rpc/controller.py', go: 'examples/go/primitives/rpc/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc/RpcController.java', typescript: 'examples/typescript/src/primitives/rpc/controller.ts', rust: 'examples/rust/src/primitives/rpc/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+result = await client.invoke_rpc(flow.trigger, "order-123", "approved")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var result string
+err := client.InvokeRPC(ctx, "order-123", flow.Trigger, "approved", &result, sdk.InvokeOptions{})
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final RpcFlow stub = client.newRpcStub(RpcFlow.class, "order-123");
+final String result = client.invokeRPC(stub::trigger, "approved");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const result = await client.invokeRPC(rpcFlow.trigger, "order-123", "approved");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let result = client.invoke_rpc("order-123", RPC_TRIGGER, "approved".to_owned())?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Publish to a Channel
+
+**PublishToChannel** appends messages to a registered durable [Channel](/primitives/channel). A Step waiting on that Channel can consume the messages later. The Flow must be active.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/channel/channel_flow.py', go: 'examples/go/primitives/channel/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java', typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts', rust: 'examples/rust/src/primitives/channel/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.publish("order-123", approval, "approved")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err := client.PublishToChannel(ctx, "order-123", Approval, "approved")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+client.publish("order-123", approval, "approved");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+await client.publish("order-123", approval, "approved");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.publish("order-123", &approval(), "approved".to_owned())?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+For a ChannelMap, use the matching map overload and provide the instance name. The Go and Rust SDKs can publish a batch in one call.
+
+## Get an Attribute
+
+**GetAttribute** reads a registered [Attribute](/primitives/attribute) from the current or latest run of an existing Flow. It returns no value when the Attribute has never been written.
+
+For an AttributeMap, pass the map instance as well.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+keyword = await client.get_attribute("order-123", ClientApisFlow.keyword)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var keyword string
+found, err := client.GetAttribute(ctx, "order-123", Keyword, &keyword)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final String keyword = client.getAttribute("order-123", flow.keyword);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const keyword = await client.getAttribute("order-123", clientApisFlow.keyword);
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+let keyword: Option<String> = client.get_attribute("order-123", &keyword())?;
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Set an Attribute
+
+**SetAttribute** writes a registered Attribute on an active Flow.
+
+For an AttributeMap, pass the map instance. SDKs also provide batch helpers when several Attribute writes belong in one request.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.set_attribute("order-123", ClientApisFlow.keyword, "priority")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err := client.SetAttribute(ctx, "order-123", Keyword, "priority")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+client.setAttribute("order-123", flow.keyword, "priority");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+await client.setAttribute("order-123", clientApisFlow.keyword, "priority");
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+client.set_attribute("order-123", &keyword(), "priority".to_owned())?;
+```
+
+</SdkSnippet>
+</SdkTabs>

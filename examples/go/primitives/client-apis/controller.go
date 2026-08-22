@@ -54,14 +54,14 @@ func (controller *controller) start(request *gin.Context) {
 	if !found {
 		return
 	}
-	httputil.StartFlow(
-		request,
-		controller.client,
+	runID, err := controller.client.StartFlow(
+		request.Request.Context(),
 		controller.flow,
 		flowID,
 		keyword,
 		primitiveStartOptions(),
 	)
+	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
 }
 
 func (controller *controller) search(request *gin.Context) {

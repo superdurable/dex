@@ -309,7 +309,7 @@ Step 可以在 **Wait.anyOf** 里等 Channel、Timer 或 SubFlow 的任意一个
 
 在 Step 或 RPC 内，用 handler 的 **Context** 调 Channel 的 publish method。Dex 会在接受这个 handler result 时追加消息。
 
-Worker 外的代码可以用 Client **PublishToChannel** API 直接发布。Client 只能往 active Flow 发布；批量发布的值保持传入顺序。见 [Client APIs](/primitives/client-apis#interact-with-a-running-flow)。
+Worker 外的代码可以用 Client **PublishToChannel** API 直接发布。Client 只能往 active Flow 发布；批量发布的值保持传入顺序。见 [Client](/primitives/client/basic#publish-to-a-channel)。
 
 消息可以先于 Step 的 wait 到达。Dex Server 会把它保留在 Channel 里，直到之后的 wait 消费它。
 

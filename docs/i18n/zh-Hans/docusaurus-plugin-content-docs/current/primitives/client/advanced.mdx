@@ -1,0 +1,340 @@
+---
+title: Client Advanced
+sidebar_label: Advanced
+slug: /primitives/client/advanced
+---
+
+# Client Advanced
+
+## 等待 Flow
+
+**WaitForFlow** 等待 Flow 到达 terminal status。bounded wait 在 Flow 仍然 open 时会返回 long-poll timeout；再次调用即可继续等待。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+result = await client.wait_for_flow("order-123", timedelta(minutes=1))
+```
+
+</SdkSnippet><SdkSnippet lang="go">
+
+```go
+result, err := client.WaitForFlow(ctx, "order-123", sdk.WaitForFlowOptions{Timeout: time.Minute})
+```
+
+</SdkSnippet><SdkSnippet lang="java">
+
+```java
+final FlowResult result = client.waitForFlow("order-123", Duration.ofMinutes(1));
+```
+
+</SdkSnippet><SdkSnippet lang="typescript">
+
+```typescript
+const result = await client.waitForFlow("order-123", 60_000);
+```
+
+</SdkSnippet><SdkSnippet lang="rust">
+
+```rust
+let result = client.wait_for_flow_with_timeout("order-123", Duration::from_secs(60))?;
+```
+
+</SdkSnippet></SdkTabs>
+
+## 等待 Step {#wait-for-a-step}
+
+**WaitForStepCompletion** 在 Flow 继续运行时等待一个 **StepExecutionID**。它只确认完成，不返回 Step output。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/order-processing/controller.py', go: 'examples/go/products/order-processing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing/OrderProcessingController.java', typescript: 'examples/typescript/src/products/order-processing/controller.ts', rust: 'examples/rust/src/products/order_processing/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.wait_for_step_completion("order-123", StepExecutionId("ChargeOrder"), timedelta(minutes=1))
+```
+
+</SdkSnippet><SdkSnippet lang="go">
+
+```go
+err := client.WaitForStepCompletion(ctx, "order-123", sdk.StepExecutionID{StepType: "ChargeOrder"}, sdk.WaitOptions{Timeout: time.Minute})
+```
+
+</SdkSnippet><SdkSnippet lang="java">
+
+```java
+client.waitForStepCompletion("order-123", StepExecutionId.of("ChargeOrder"), Duration.ofMinutes(1));
+```
+
+</SdkSnippet><SdkSnippet lang="typescript">
+
+```typescript
+await client.waitForStepCompletion("order-123", StepExecutionId.of("ChargeOrder"), 60_000);
+```
+
+</SdkSnippet><SdkSnippet lang="rust">
+
+```rust
+client.wait_for_step_completion("order-123", StepExecutionId::of(&charge_order), Duration::from_secs(60))?;
+```
+
+</SdkSnippet></SdkTabs>
+
+## 等待 Attribute 值 {#wait-for-an-attribute-value}
+
+**WaitForAttributeEqual** 等待 Attribute 等于一个 primitive value。它只适用于 active Flow。对于 AttributeMap，在 expected value 前面传入 instance。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/polling/controller.py', go: 'examples/go/products/polling/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/polling/PollingController.java', typescript: 'examples/typescript/src/products/polling/controller.ts', rust: 'examples/rust/src/products/polling/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.wait_for_attribute_equal("order-123", status, "approved", timedelta(minutes=1))
+```
+
+</SdkSnippet><SdkSnippet lang="go">
+
+```go
+err := client.WaitForAttributeEqual(ctx, "order-123", Status, "approved", sdk.WaitOptions{Timeout: time.Minute})
+```
+
+</SdkSnippet><SdkSnippet lang="java">
+
+```java
+client.waitForAttributeEqual("order-123", status, "approved", Duration.ofMinutes(1));
+```
+
+</SdkSnippet><SdkSnippet lang="typescript">
+
+```typescript
+await client.waitForAttributeEqual("order-123", status, "approved", 60_000);
+```
+
+</SdkSnippet><SdkSnippet lang="rust">
+
+```rust
+client.wait_for_attribute_equal("order-123", &status(), "approved".to_owned(), Duration::from_secs(60))?;
+```
+
+</SdkSnippet></SdkTabs>
+
+## 查看 Flow
+
+**DescribeFlow** 返回 current 或 latest run 的 IDs、Flow type、status 和 start time。不要求 Flow 仍然 active。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+info = await client.describe_flow("order-123")
+```
+
+</SdkSnippet><SdkSnippet lang="go">
+
+```go
+info, err := client.DescribeFlow(ctx, "order-123")
+```
+
+</SdkSnippet><SdkSnippet lang="java">
+
+```java
+final FlowInfo info = client.describeFlow("order-123");
+```
+
+</SdkSnippet><SdkSnippet lang="typescript">
+
+```typescript
+const info = await client.describeFlow("order-123");
+```
+
+</SdkSnippet><SdkSnippet lang="rust">
+
+```rust
+let info = client.describe_flow("order-123")?;
+```
+
+</SdkSnippet></SdkTabs>
+
+## 搜索 Flow
+
+**SearchFlows** 返回匹配 visibility query 的一页 Flow runs。search 用来寻找 Flow instance；**DescribeFlow** 用于查看一个已知 Flow ID。要继续搜索，传回 page token。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+page = await client.search_flows("FlowType = 'ClientApisFlow'", 20, "")
+```
+
+</SdkSnippet><SdkSnippet lang="go">
+
+```go
+page, err := client.SearchFlows(ctx, "FlowType = 'ClientApisFlow'", 20, "")
+```
+
+</SdkSnippet><SdkSnippet lang="java">
+
+```java
+final SearchFlowsPage page = client.searchFlows("FlowType = 'ClientApisFlow'", 20, "");
+```
+
+</SdkSnippet><SdkSnippet lang="typescript">
+
+```typescript
+const page = await client.searchFlows("FlowType = 'ClientApisFlow'", 20, "");
+```
+
+</SdkSnippet><SdkSnippet lang="rust">
+
+```rust
+let page = client.search_flows_page("FlowType = 'ClientApisFlow'", 20, "")?;
+```
+
+</SdkSnippet></SdkTabs>
+
+## 跳过 Timer {#skip-a-timer}
+
+**SkipTimer** 让一个等待中的 [Timer](/primitives/timer) 立刻 ready。选择 Step execution，以及 Timer 的 condition ID 或它从零开始的 condition index。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/order-processing/controller.py', go: 'examples/go/products/order-processing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/orderprocessing/OrderProcessingController.java', typescript: 'examples/typescript/src/products/order-processing/controller.ts', rust: 'examples/rust/src/products/order_processing/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.skip_timer("order-123", StepExecutionId("ChargeOrder"), TimerId.by_condition_id("retry"))
+```
+
+</SdkSnippet><SdkSnippet lang="go">
+
+```go
+err := client.SkipTimer(ctx, "order-123", sdk.StepExecutionID{StepType: "ChargeOrder"}, sdk.TimerID{ConditionID: "retry"})
+```
+
+</SdkSnippet><SdkSnippet lang="java">
+
+```java
+client.skipTimer("order-123", StepExecutionId.of("ChargeOrder"), TimerId.byConditionId("retry"));
+```
+
+</SdkSnippet><SdkSnippet lang="typescript">
+
+```typescript
+await client.skipTimer("order-123", StepExecutionId.of("ChargeOrder"), TimerId.byConditionId("retry"));
+```
+
+</SdkSnippet><SdkSnippet lang="rust">
+
+```rust
+client.skip_timer("order-123", StepExecutionId::of(&charge_order), TimerId::by_condition_id("retry"))?;
+```
+
+</SdkSnippet></SdkTabs>
+
+## 更新 FlowConfig
+
+**UpdateFlowConfig** 修改 **FlowConfig**。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.update_flow_config("order-123", FlowConfig(continue_as_new_threshold=1_000))
+```
+
+</SdkSnippet><SdkSnippet lang="go">
+
+```go
+err := client.UpdateFlowConfig(ctx, "order-123", sdk.FlowConfig{ContinueAsNewThreshold: ptr.Any(int64(1_000))})
+```
+
+</SdkSnippet><SdkSnippet lang="java">
+
+```java
+client.updateFlowConfig("order-123", FlowConfig.newBuilder().continueAsNewThreshold(1_000).build());
+```
+
+</SdkSnippet><SdkSnippet lang="typescript">
+
+```typescript
+await client.updateFlowConfig("order-123", { continueAsNewThreshold: 1_000 });
+```
+
+</SdkSnippet><SdkSnippet lang="rust">
+
+```rust
+client.update_flow_config("order-123", FlowConfig::new().continue_as_new_threshold(1_000))?;
+```
+
+</SdkSnippet></SdkTabs>
+
+## 触发 continue-as-new
+
+**TriggerContinueAsNew** 请求 active Flow 把 history 滚动到新的 run。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+await client.trigger_continue_as_new("order-123")
+```
+
+</SdkSnippet><SdkSnippet lang="go">
+
+```go
+err := client.TriggerContinueAsNew(ctx, "order-123")
+```
+
+</SdkSnippet><SdkSnippet lang="java">
+
+```java
+client.triggerContinueAsNew("order-123");
+```
+
+</SdkSnippet><SdkSnippet lang="typescript">
+
+```typescript
+await client.triggerContinueAsNew("order-123");
+```
+
+</SdkSnippet><SdkSnippet lang="rust">
+
+```rust
+client.trigger_continue_as_new("order-123")?;
+```
+
+</SdkSnippet></SdkTabs>
+
+## Time travel
+
+**TimeTravel** 从已有 Flow history 的某个点创建一个新 run。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/flow/controller.py', go: 'examples/go/primitives/flow/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/flow/FlowController.java', typescript: 'examples/typescript/src/primitives/flow/controller.ts', rust: 'examples/rust/src/primitives/flow/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+new_run_id = await client.time_travel("order-123", TimeTravelOptions(type=TimeTravelType.BEGINNING, reason="code fix"))
+```
+
+</SdkSnippet><SdkSnippet lang="go">
+
+```go
+newRunID, err := client.TimeTravel(ctx, "order-123", sdk.TimeTravelOptions{Type: sdk.TimeTravelToBeginning, Reason: "code fix"})
+```
+
+</SdkSnippet><SdkSnippet lang="java">
+
+```java
+final String newRunId = client.timeTravel("order-123", TimeTravelOptions.newBuilder(TimeTravelType.BEGINNING).reason("code fix").build());
+```
+
+</SdkSnippet><SdkSnippet lang="typescript">
+
+```typescript
+const newRunId = await client.timeTravel("order-123", { type: TimeTravelType.BEGINNING, reason: "code fix" });
+```
+
+</SdkSnippet><SdkSnippet lang="rust">
+
+```rust
+let new_run_id = client.time_travel("order-123", TimeTravelOptions::from_beginning().reason("code fix"))?;
+```
+
+</SdkSnippet></SdkTabs>

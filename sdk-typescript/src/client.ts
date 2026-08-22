@@ -826,6 +826,22 @@ export class Client {
   }
 
   /**
+   * Requests that an active Flow roll its history into a new run.
+   * The Flow ID stays the same; the request returns after Dex accepts it.
+   * @param flowId - Non-empty active Flow ID.
+   */
+  public async triggerContinueAsNew(flowId: string): Promise<void> {
+    await unary<Empty>(
+      { operation: "triggerContinueAsNew", flowId, requirement: "active" },
+      (callback) =>
+        this.service.triggerContinueAsNew(
+          { flowId: requireName(flowId), runId: "" },
+          callback,
+        ),
+    );
+  }
+
+  /**
    * Closes the owned FlowService connection.
    * Registry and BlobCache ownership remains with the caller.
    */
