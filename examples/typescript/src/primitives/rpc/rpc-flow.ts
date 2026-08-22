@@ -100,7 +100,7 @@ export class RpcFlow implements Flow<number> {
     return { attributes: [this.data], channels: [exampleCh] };
   }
 
-  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec, timeoutMs: 30_000 })
   public trigger(context: Context, input: string): RPCResult<string> {
     this.data.set(context, input);
     exampleCh.publish(context, undefined);

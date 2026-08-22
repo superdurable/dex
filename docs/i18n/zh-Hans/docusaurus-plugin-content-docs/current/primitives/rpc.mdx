@@ -161,20 +161,55 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 
 ## RPC timeout
 
-RPC timeout 限制一次 Worker handler invocation。它不是 Flow timeout，也不会关闭 Flow。调用方需要比 Dex Server default 更短的上限时再设置。
+RPC timeout 限制一次 Worker handler invocation。
 
-Python、Java、TypeScript 和 Rust 在 RPC handler 上声明 timeout。Go 在每次 Client 调用的 **InvokeOptions** 中传入。应用不设置 timeout 时，Dex Server 使用自己的 default。
+Python、Java、TypeScript 和 Rust 在 RPC handler 上声明 timeout。Go 在每次 Client 调用的 **InvokeOptions** 中传入。应用不设置 timeout 时，Dex Server 使用自己的 default。默认最大值为 60 秒。
 
-Timeout 不是 retry policy。handler timeout 后会向调用方返回 error。endpoint 如果要 retry Client 调用，应在自己的业务操作中使用 idempotency key。
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc',
+    go: 'examples/go/primitives/rpc',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc',
+    typescript: 'examples/typescript/src/primitives/rpc',
+    rust: 'examples/rust/src/primitives/rpc',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(timeout=timedelta(seconds=30))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+sdk.InvokeOptions{Timeout: 30 * time.Second}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(timeoutSeconds = 30)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ inputCodec: stringCodec, outputCodec: stringCodec, timeoutMs: 30_000 })
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+RpcList::new().function(RPC_TRIGGER.timeout(Duration::from_secs(30)), Self::trigger)
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## Attribute locks
 
-RPC 默认不锁 Attribute。像上面的简单写入不需要锁。read-modify-write 通常需要。
-
-例如，一个 RPC 读取 balance、加上金额后写回 balance，就必须锁住这个 Attribute。否则 Step 或另一个 RPC 可能读取同一个旧 balance，然后覆盖前一个结果。
-
-只声明构成一个 read-modify-write 操作的 Attribute 或 AttributeMap instance。Python、Java、TypeScript 和 Rust 在 RPC handler 上声明 lock。Go 通过 **InvokeRPC** 的 **InvokeOptions.LockAttributes** 传入。
-
-Dex Server 会在 Worker handler 开始前尝试一次性获取所有声明的 lock，不会等待。任何一个 lock 已被占用时，调用返回 RPC lock-conflict error；调用方可以按自己的 backoff retry。lock 只在一个 Flow 内生效，并在 invocation 结束时释放。
-
-locking RPC 需要 Temporal。Cadence 不支持。
+Attribute lock 请参阅 [Locking](/primitives/attribute#locking)。

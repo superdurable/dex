@@ -76,7 +76,7 @@ func (controller *controller) trigger(request *gin.Context) {
 		controller.flow.Trigger,
 		message,
 		&output,
-		sdk.InvokeOptions{},
+		sdk.InvokeOptions{Timeout: 30 * time.Second},
 	)
 	httputil.RespondString(request, output, err)
 }

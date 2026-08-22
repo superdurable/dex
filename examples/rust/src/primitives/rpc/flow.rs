@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Duration;
+
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
     Step, StepDecision, StepList, StepMovement, Wait,
@@ -58,7 +60,7 @@ impl Flow for RpcFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().function(RPC_TRIGGER, Self::trigger)
+        RpcList::new().function(RPC_TRIGGER.timeout(Duration::from_secs(30)), Self::trigger)
     }
 }
 

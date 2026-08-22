@@ -161,20 +161,55 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 
 ## RPC timeout
 
-An RPC timeout limits one Worker handler invocation. It is not a Flow timeout and does not close the Flow. Set one when the caller needs a shorter bound than the Dex Server default.
+An RPC timeout limits one Worker handler invocation.
 
-Python, Java, TypeScript, and Rust declare the timeout with the RPC handler. Go passes it in **InvokeOptions** for each Client invocation. When the application does not set a timeout, Dex Server uses its default.
+Python, Java, TypeScript, and Rust declare the timeout with the RPC handler. Go passes it in **InvokeOptions** for each Client invocation. When the application does not set a timeout, Dex Server uses its default. The default maximum is 60 seconds.
 
-Timeout is not a retry policy. A timed-out handler returns an error to the caller. If the endpoint retries the Client call, it should use an idempotency key in its own business operation.
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/rpc',
+    go: 'examples/go/primitives/rpc',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/rpc',
+    typescript: 'examples/typescript/src/primitives/rpc',
+    rust: 'examples/rust/src/primitives/rpc',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(timeout=timedelta(seconds=30))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+sdk.InvokeOptions{Timeout: 30 * time.Second}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(timeoutSeconds = 30)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ inputCodec: stringCodec, outputCodec: stringCodec, timeoutMs: 30_000 })
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+RpcList::new().function(RPC_TRIGGER.timeout(Duration::from_secs(30)), Self::trigger)
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## Attribute locks
 
-RPCs do not lock Attributes by default. A simple write, such as the example above, does not need a lock. A read-modify-write operation usually does.
-
-For example, an RPC that reads a balance, adds an amount, and writes the balance back must lock that Attribute. Otherwise a Step or another RPC can read the same old balance and overwrite the first result.
-
-Declare only the Attributes or AttributeMap instances the RPC changes as a read-modify-write unit. Python, Java, TypeScript, and Rust declare locks with the RPC handler. Go passes **InvokeOptions.LockAttributes** to **InvokeRPC**.
-
-Dex Server attempts to acquire all requested locks before the Worker handler runs. It does not wait for them. If one is already held, the call returns an RPC lock-conflict error; the caller can retry with its own backoff. Locks apply within one Flow and are released when the invocation finishes.
-
-Locking RPCs require Temporal. Cadence does not support them.
+See [Locking](/primitives/attribute#locking) for Attribute locks.

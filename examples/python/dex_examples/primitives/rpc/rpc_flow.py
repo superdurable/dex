@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from dex import (
     Attribute,
     Channel,
@@ -75,7 +77,7 @@ class RpcFlow(Flow[int]):
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.data, self.example_ch)
 
-    @rpc
+    @rpc(timeout=timedelta(seconds=30))
     def trigger(self, context: Context, input: str) -> RPCResult[str]:
         self.data.set(context, input)
         self.example_ch.publish(context, None)

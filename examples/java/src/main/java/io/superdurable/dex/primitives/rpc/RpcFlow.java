@@ -48,7 +48,7 @@ public class RpcFlow implements Flow<Integer> {
         return PersistenceSchema.of(data, exampleCh);
     }
 
-    @RPC
+    @RPC(timeoutSeconds = 30)
     public RPCResult<String> trigger(final Context context, final String input) {
         data.set(context, input);
         exampleCh.publish(context, null);
