@@ -156,7 +156,7 @@ let info = client.describe_flow("order-123")?;
 
 ## 搜索 Flow
 
-**SearchFlows** 返回匹配 visibility query 的一页 Flow runs。search 用来寻找 Flow instance；**DescribeFlow** 用于查看一个已知 Flow ID。要继续搜索，原样传回 page token。
+**SearchFlows** 返回匹配 visibility query 的一页 Flow runs。search 用来寻找 Flow instance；**DescribeFlow** 用于查看一个已知 Flow ID。要继续搜索，传回 page token。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">

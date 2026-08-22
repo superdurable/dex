@@ -176,7 +176,7 @@ let info = client.describe_flow("order-123")?;
 
 ## Search Flows
 
-**SearchFlows** returns one page of Flow runs matching a visibility query. Search finds Flow instances; **DescribeFlow** describes one known Flow ID. Pass the returned page token unchanged to continue a search.
+**SearchFlows** returns one page of Flow runs matching a visibility query. Search finds Flow instances; **DescribeFlow** describes one known Flow ID. Pass the returned page token to continue a search.
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/primitives/client-apis/controller.py', go: 'examples/go/primitives/client-apis/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/clientapis/ClientApisController.java', typescript: 'examples/typescript/src/primitives/client-apis/controller.ts', rust: 'examples/rust/src/primitives/client_apis/controller.rs'}}>
 <SdkSnippet lang="python">
