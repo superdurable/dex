@@ -118,7 +118,7 @@ impl Step for TimerExampleStep {
 
 ## 如何跳过 Timer
 
-可以用 Flow ID 和 Timer selector 调用 **SkipTimer** 跳过 Timer。
+可以用 Flow ID 和 Timer selector 调用 **SkipTimer** 跳过 Timer。被跳过的 Timer 就像已经触发一样。这有助于在测试模拟或生产运维中手动触发 Timer。
 
 <SdkTabs>
 <SdkSnippet lang="python">
