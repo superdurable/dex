@@ -17,7 +17,7 @@ Channel 只属于一个 Flow execution。消息不会跨 Flow execution。
 
 ## Persistence schema {#persistence-schema}
 
-Channel 有稳定的名字和消息类型。先定义它，再加到 Flow 的 persistence schema。只定义 Channel 不会把它注册到 Flow。Dex Server 会拒绝对 Flow persistence schema 未声明的 Channel 做 publish、wait 或 read。
+Channel 有稳定的名字和消息类型。先定义它，再加到 Flow 的 persistence schema。
 
 下面的例子有一个 **Approval** Channel。start Step 等一条 approval 或一个 Timer。**approve** RPC 发布 approval 消息。这个 Flow 也可以通过 Client 的 **PublishToChannel** API 直接接收消息。
 
@@ -283,7 +283,7 @@ Timer 分支会先返回，不会读取 Channel 结果。approval 胜出时，Ch
 
 ## 等待并消费 {#wait-and-consume}
 
-在 **WaitFor** 里返回 Channel condition 就是在消费。Dex Server 会保留消息，直到某个 waiting Step 赢得它们；然后按 FIFO 顺序从队列移除选中的消息，并以 Channel results 传给 **Execute**。
+在 **WaitFor** 里返回 Channel condition 会等待这个 Channel。condition 满足后，它会从 Channel 消费消息。Dex Server 会保留消息，直到某个 waiting Step 赢得它们；然后按 FIFO 顺序从队列移除选中的消息，并以 Channel results 传给 **Execute**。
 
 | Condition | 何时继续 | 消费什么 |
 | --- | --- | --- |
@@ -292,18 +292,6 @@ Timer 分支会先返回，不会读取 Channel 结果。approval 胜出时，Ch
 | **AtLeast** | 至少有指定数量的消息。 | 当时所有可用的消息。 |
 | **AtMost** | 队列不超过指定数量。空队列也匹配。 | 最多指定数量的消息。 |
 | **AtLeastAtMost** | 队列消息数落在闭区间内。 | 从下界到上界数量的消息。 |
-
-**AtMost** 不是等待新消息。Channel 为空时，它也可以让 **Execute** 立即运行。
-
-Step 可以在 **Wait.anyOf** 里等 Channel、Timer 或 SubFlow 的任意一个。Timer 胜出时，Channel 消息会继续留在队列里。所有 condition 都必须 ready 时用 **Wait.allOf**。组合与 condition ID 见 [Waiting](/primitives/step/waiting-condition)。
-
-不要把一个 Channel 当广播机制。如果两个 waiting Step 都在等同一个 Channel，一条被其中一个 Step 消费的消息不会再给另一个 Step。两个 Step 都需要看到事件时，用两个 Channel。
-
-## 读取 Channel 结果 {#read-channel-results}
-
-用例子里的 Channel result method 读取当前 Step execution 选中的值。它只返回这个 Channel condition 消费的消息。如果 Step 是因为其他 condition 胜出而继续，这个 Channel 的结果为空。
-
-**Size** 读取当前 Step 或 RPC invocation 可见的排队消息数。它适合该 handler 内的决策，但不能替代 **WaitFor** condition。
 
 ## 发布消息 {#publish-messages}
 
@@ -316,11 +304,3 @@ Worker 外的代码可以用 Client **PublishToChannel** API 直接发布。Clie
 ## ChannelMap {#channelmap}
 
 一个 Flow 有一组数量不受限、彼此独立的队列时，用 **ChannelMap**，例如每个订单、客户或 job 一条 Channel。ChannelMap 只声明一个名字和一个值类型，每个 instance key 都有自己的 FIFO 队列。
-
-ChannelMap 的每个操作都要带 instance key：publish、**ForOne**、**ForN**、范围 condition、**Size** 和 condition results。等 **order-42** instance 时，绝不会消费 **order-43** 的消息。
-
-在 RPC 内，ChannelMap 还可以列出非空 instance key 并计数。这些方法会包含同一个 RPC 之前发布的消息，省略空 instance，并按升序返回 key。它们只能在 RPC 内调用，因为它们读取的是 Flow 当前的队列状态。
-
-## Dex Server 存什么 {#what-dex-server-stores}
-
-Dex Server 把 Channel 消息和 Flow state 一起存储。它针对这个 durable 队列判断 Channel condition，只有 waiting Step 赢得消息时才移除消息，并把选中的值发给 Worker 的 **Execute**。Worker 重启不会丢掉队列里的消息，也不会丢掉 Step 的 pending wait。
