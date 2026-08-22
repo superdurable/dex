@@ -9,7 +9,7 @@ import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDia
 
 RPC stands for “Remote Procedure Call”. It allows external systems to interact with a Flow execution.
 
-A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The **Worker** runs it, then returns the result through **Dex Server** to the **Client**.
+A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The **Worker** runs it, then returns the result to **Dex Server** to persist. **Dex Server** then returns the output to the **Client**.
 
 <RpcRequestDiagram />
 

@@ -9,7 +9,7 @@ import RpcRequestDiagram from '@site/src/components/primitives/rpc/RpcRequestDia
 
 RPC 是 “Remote Procedure Call” 的缩写，允许外部系统与 Flow execution 交互。
 
-**Client** 发起 RPC。**Dex Server** 将它发送给 **Worker**。**Worker** 执行后，再经 **Dex Server** 将结果返回给 **Client**。
+**Client** 发起 RPC。**Dex Server** 将它发送给 **Worker**。**Worker** 执行后，将结果返回给 **Dex Server** 持久化。**Dex Server** 再将输出返回给 **Client**。
 
 <RpcRequestDiagram />
 
