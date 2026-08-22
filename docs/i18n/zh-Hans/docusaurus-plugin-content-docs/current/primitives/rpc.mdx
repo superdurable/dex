@@ -95,6 +95,14 @@ impl RpcFlow {
 </SdkSnippet>
 </SdkTabs>
 
+### Java 和 Kotlin
+
+**Client.newRpcStub** 会创建 Flow 的子类。Java Flow class 和它的 RPC method 都不能是 final。Kotlin 默认将两者都设为 final，所以要将 Flow class 和它的 RPC method 声明为 **open**。
+
+### TypeScript codec
+
+TypeScript 未设置 **inputCodec** 或 **outputCodec** 时会使用 JSON。input 或 output 不是 JSON 时需要提供 codec，包括 string、number、boolean 和 bigint 等 scalar value。
+
 ## 调用 RPC
 
 向 Client 传入已注册的 RPC method、Flow ID 和 typed input。调用会等待 Worker handler 返回；成功后 Client 解码 **RPCResult.output**。

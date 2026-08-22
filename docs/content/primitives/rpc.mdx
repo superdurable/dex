@@ -95,6 +95,14 @@ impl RpcFlow {
 </SdkSnippet>
 </SdkTabs>
 
+### Java and Kotlin
+
+**Client.newRpcStub** creates a subclass of the Flow. A Java Flow class and its RPC methods must not be final. Kotlin makes both final by default, so declare the Flow class and its RPC methods with **open**.
+
+### TypeScript codecs
+
+TypeScript uses JSON when **inputCodec** or **outputCodec** is omitted. Provide a codec when the input or output is not JSON, including scalar values such as strings, numbers, booleans, and bigints.
+
 ## Invoke an RPC
 
 Pass the registered RPC method, Flow ID, and typed input to the Client. The call waits until the Worker handler returns. On success, the Client decodes **RPCResult.output**.
