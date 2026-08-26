@@ -7,6 +7,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
 const home = await readFile(join(root, 'index.html'), 'utf8');
 const cloud = await readFile(join(root, 'cloud', 'index.html'), 'utf8');
 const production = await readFile(join(root, 'production', 'index.html'), 'utf8');
+const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
 const sitemap = await readFile(join(root, 'sitemap.xml'), 'utf8');
 
 assert.match(home, /Super Durable home/);
@@ -47,6 +48,7 @@ assert.match(cloud, /Coming Soon/);
 assert.match(cloud, /Explore Dex OSS Docs/);
 assert.match(cloud, /https:\/\/superdurable\.io\/byoc/);
 assert.match(production, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/production\/"/);
+assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/subflow\/"/);
 assert.match(sitemap, /<loc>https:\/\/docs\.superdurable\.io\/production\/<\/loc>/);
 assert.doesNotMatch(sitemap, /<loc>https:\/\/docs\.superdurable\.io\/production<\/loc>/);
 
