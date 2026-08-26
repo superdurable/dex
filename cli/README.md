@@ -124,6 +124,7 @@ Commands connect to `127.0.0.1:8801` by default. Override the target with
 
 ```bash
 dexcli health
+dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder --input '{"order":123}' --yes
 dexcli flow search --query 'FlowStatus = "Running"'
 dexcli flow inspect order-123 --all-history
 dexcli flow watch order-123 --follow-runs
@@ -144,6 +145,14 @@ Pass `--no-hydrate` to retain their references.
 The friendly Flow commands are:
 
 ```text
+dexcli flow start FLOW_ID --flow-type TYPE [--start-step-type TYPE]
+                  [--input JSON|@FILE|-] [--attributes JSON|@FILE|-]
+                  [--config JSON|@FILE|-] [--retry-policy JSON|@FILE|-]
+                  [--step-options PROTOBUF_JSON|@FILE|-]
+                  [--flow-timeout DURATION] [--flow-timeout-policy fail|cancel|handler]
+                  [--id-reuse-policy previous-failed|not-running|disallow|terminate-running]
+                  [--start-delay DURATION] [--ignore-already-started] [--request-id ID] --yes
+dexcli flow wait FLOW_ID [--needs-results] [--wait-time DURATION]
 dexcli flow search [--query QUERY] [--page-size N] [--page-token TOKEN] [--all]
 dexcli flow summary FLOW_ID [--run-id RUN_ID]
 dexcli flow state FLOW_ID [--run-id RUN_ID]
@@ -151,19 +160,48 @@ dexcli flow history FLOW_ID [--run-id RUN_ID] [--start-event-id N]
                     [--page-size N] [--page-token BASE64] [--all]
 dexcli flow inspect FLOW_ID [--run-id RUN_ID] [--all-history]
 dexcli flow watch FLOW_ID [--run-id RUN_ID] [--from-event-id N] [--follow-runs]
-dexcli flow stop FLOW_ID --run-id RUN_ID
-                 --type cancel|terminate|fail [--reason TEXT] --yes
-dexcli flow time-travel FLOW_ID --run-id RUN_ID
+dexcli flow stop FLOW_ID [--run-id RUN_ID]
+                 [--type cancel|terminate|fail] [--reason TEXT] --yes
+dexcli flow skip-timer FLOW_ID --step-type TYPE [--execution N]
+                    (--condition-id ID|--condition-index N) --yes
+dexcli flow wait-step FLOW_ID --step-type TYPE [--execution N] [--wait-time DURATION]
+dexcli flow update-config FLOW_ID --config JSON|@FILE|- --yes
+dexcli flow trigger-continue-as-new FLOW_ID --yes
+dexcli flow time-travel FLOW_ID [--run-id RUN_ID]
                         --type beginning|history-event-time|step-type|step-execution-id
                         [--target VALUE] [--step-method wait-for|execute]
-                        --reason TEXT --yes
+                        [--reason TEXT] --yes
 ```
 
 With the default JSON output, `watch` writes one object per line and exits when
 the run becomes terminal.
 `--follow-runs` continues into the current run after Continue-As-New. Stop and
-time travel require both an exact run ID and `--yes`, including in non-interactive use.
+time travel operate on the current run by default; pass `--run-id` to target an
+exact run. All mutating Flow commands require `--yes`, including in
+non-interactive use.
 `--step-method` is required with `--type step-execution-id` and invalid for other types.
+
+`start --input` and every `value` in `--attributes` use natural JSON. Strings,
+numbers, booleans, nulls, objects, and arrays are converted to Dex Values using
+the SDK encoding rules. For example:
+
+```bash
+dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder \
+  --input '{"orderId":"123","items":["book"]}' \
+  --attributes '[{"key":"status","value":"new","index":{"type":"keyword"},"sync":true}]' \
+  --yes
+```
+
+`--config` accepts a JSON object with optional `activeStepSearchMode` (`all`,
+`wait-for`, or `disabled`), Continue-As-New thresholds, `stepDurability`
+(`sync` or `async`), `workerTarget`, and `attributeStoreName`. `--retry-policy`
+uses `initialInterval`, `backoffCoefficient`, `maximumInterval`, and
+`maximumAttempts`; intervals are Go duration strings. `--step-options` accepts
+protobuf JSON because it mirrors the full nested StepOptions message. When a
+Flow timeout is set without `--flow-timeout-policy`, the server's `fail` default
+applies because dexcli cannot inspect the application's Flow registry.
+Only one option in a `start` command may use `-`, because stdin can be consumed
+once.
 
 ## Call any FlowService API
 

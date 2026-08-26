@@ -3,6 +3,7 @@ module github.com/superdurable/dex/cli
 go 1.26.0
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/superdurable/dex v0.0.0
 	github.com/superdurable/dex/web v0.0.0
 	go.temporal.io/sdk v1.47.1-superdurable.2
@@ -46,7 +47,6 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.2.0 // indirect
 	github.com/golang/mock v1.7.0-rc.1 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
