@@ -38,6 +38,10 @@ func (c *flowCommand) Execute(ctx context.Context, args []string, options option
 		return nil
 	}
 	switch args[0] {
+	case "start":
+		return executeStart(c, ctx, args[1:], options)
+	case "wait":
+		return executeWait(c, ctx, args[1:], options)
 	case "search":
 		return c.search(ctx, args[1:], options)
 	case "summary":
@@ -52,6 +56,14 @@ func (c *flowCommand) Execute(ctx context.Context, args []string, options option
 		return executeWatch(c, ctx, args[1:], options)
 	case "stop":
 		return executeStop(c, ctx, args[1:], options)
+	case "skip-timer":
+		return executeSkipTimer(c, ctx, args[1:], options)
+	case "wait-step":
+		return executeWaitStep(c, ctx, args[1:], options)
+	case "update-config":
+		return executeUpdateConfig(c, ctx, args[1:], options)
+	case "trigger-continue-as-new":
+		return executeTriggerContinueAsNew(c, ctx, args[1:], options)
 	case "time-travel":
 		return executeTimeTravel(c, ctx, args[1:], options)
 	case "help", "--help", "-h":
@@ -294,7 +306,7 @@ func protoTimestamp(timestamp *timestamppb.Timestamp) any {
 func (c *flowCommand) printUsage() {
 	fmt.Fprintln(c.stdout, "Usage: dexcli flow <command>")
 	fmt.Fprintln(c.stdout)
-	fmt.Fprintln(c.stdout, "Commands: search, summary, state, history, inspect, watch, stop, time-travel")
+	fmt.Fprintln(c.stdout, "Commands: start, wait, search, summary, state, history, inspect, watch, stop, skip-timer, wait-step, update-config, trigger-continue-as-new, time-travel")
 }
 
 func parseInt32(value string, name string) (int32, error) {

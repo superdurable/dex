@@ -315,26 +315,20 @@ func watchRun(
 func executeStop(c *flowCommand, ctx context.Context, args []string, options options) error {
 	flags := newFlagSet("dexcli flow stop", c.stderr)
 	runID := flags.String("run-id", "", "Flow run ID")
-	stopTypeName := flags.String("type", "", "cancel, terminate, or fail")
+	stopTypeName := flags.String("type", "cancel", "cancel, terminate, or fail")
 	reason := flags.String("reason", "", "stop reason")
 	yes := flags.Bool("yes", false, "confirm the operation")
 	addCommonFlags(flags, &options)
-	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow stop FLOW_ID --run-id ID --type TYPE --yes"); done || err != nil {
+	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow stop FLOW_ID [--run-id ID] [--type TYPE] [--reason TEXT] --yes"); done || err != nil {
 		return err
 	}
 	flowID, err := oneFlowID(flags, "flow stop")
 	if err != nil {
 		return err
 	}
-	if *runID == "" {
-		return newUsageError("flow stop", fmt.Errorf("run-id is required"))
-	}
 	stopType, err := parseStopType(*stopTypeName)
 	if err != nil {
 		return newUsageError("flow stop", err)
-	}
-	if stopType != dexpb.StopType_STOP_TYPE_CANCEL && strings.TrimSpace(*reason) == "" {
-		return newUsageError("flow stop", fmt.Errorf("reason is required for terminate and fail"))
 	}
 	if !*yes {
 		return newConfirmationError("flow stop")
@@ -379,7 +373,7 @@ func executeTimeTravel(c *flowCommand, ctx context.Context, args []string, optio
 	)
 	yes := flags.Bool("yes", false, "confirm the operation")
 	addCommonFlags(flags, &options)
-	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow time-travel FLOW_ID --run-id ID --type TYPE --reason TEXT --yes"); done || err != nil {
+	if done, err := parseFlowFlags(flags, args, c.stdout, "dexcli flow time-travel FLOW_ID [--run-id ID] --type TYPE [--reason TEXT] --yes"); done || err != nil {
 		return err
 	}
 	flowID, err := oneFlowID(flags, "flow time-travel")
@@ -420,9 +414,6 @@ func timeTravelRequest(
 	stepMethodName string,
 	reason string,
 ) (*dexpb.ResetFlowRequest, error) {
-	if runID == "" || strings.TrimSpace(reason) == "" {
-		return nil, fmt.Errorf("run-id and reason are required")
-	}
 	request := &dexpb.ResetFlowRequest{FlowId: flowID, RunId: runID, Reason: reason}
 	switch typeName {
 	case "beginning":
