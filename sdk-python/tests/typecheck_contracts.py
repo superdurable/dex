@@ -72,7 +72,9 @@ status = Attribute("status", str, sync_to_attribute_store=True)
 items = AttributeMap("items", int, sync_to_attribute_store=True)
 persistence: PersistenceSchema = PersistenceSchema.of(status, items)
 start_options: StartFlowOptions = (
-    StartFlowOptions(config_override=FlowConfig(attribute_store_names=["reporting", "audit"]))
+    StartFlowOptions(
+        config_override=FlowConfig(attribute_store_names=["reporting", "audit"])
+    )
     .with_attribute(status, "ready")
     .with_attribute(items, "order-1", 1)
 )

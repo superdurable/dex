@@ -512,7 +512,9 @@ def test_attribute_store_sync_mapping_preserves_presence() -> None:
 
     absent = client._map_flow_config(FlowConfig())
     assert not absent.HasField("attribute_store_names")
-    selected = client._map_flow_config(FlowConfig(attribute_store_names=["reporting", "audit"]))
+    selected = client._map_flow_config(
+        FlowConfig(attribute_store_names=["reporting", "audit"])
+    )
     assert list(selected.attribute_store_names.names) == ["reporting", "audit"]
     assert selected.HasField("attribute_store_names")
     disabled = client._map_flow_config(FlowConfig(attribute_store_names=[]))
