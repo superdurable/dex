@@ -11,7 +11,7 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: 'category',
-      label: 'Durable Primitives',
+      label: 'Primitives',
       link: {type: 'doc', id: 'primitives/index'},
       collapsed: false,
       items: [
