@@ -22,6 +22,7 @@ const config: Config = {
 
   url: 'https://docs.superdurable.io',
   baseUrl: '/',
+  trailingSlash: true,
 
   organizationName: 'superdurable',
   projectName: 'dex',
