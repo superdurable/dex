@@ -387,14 +387,15 @@ Attribute Store synchronization is definition-level and immutable:
 Attribute<String> email = Attribute.define("customer-email", String.class)
         .syncToAttributeStore();
 FlowConfig config = FlowConfig.newBuilder()
-        .attributeStoreName("profiles")
+        .attributeStoreNames(Arrays.asList("profiles", "audit"))
         .build();
 ```
 
-The Store is an asynchronous latest-state projection. Deletion writes SQL
-`NULL`, and projection failures do not roll back Flow Attributes. Omitting
-`attributeStoreName` preserves the current target; `attributeStoreName("")`
-disables future synchronization with protocol presence.
+Stores are asynchronous latest-state projections. Every enabled Attribute write
+is sent to every selected Store. Deletion writes SQL `NULL`, and projection
+failures do not roll back Flow Attributes. Omitting `attributeStoreNames`
+preserves current targets; `attributeStoreNames(Collections.emptyList())` disables future
+synchronization with protocol presence.
 
 The IWF integration inventory is implemented as real Dex E2E tests under
 [`src/test/java/io/superdurable/dex/integ`](src/test/java/io/superdurable/dex/integ/README.md).

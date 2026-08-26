@@ -1077,8 +1077,10 @@ class AsyncClient:
                     StepDurability.SYNC: pb.STEP_DURABILITY_SYNC,
                     StepDurability.ASYNC: pb.STEP_DURABILITY_ASYNC,
                 }[config.step_durability]
-            if config.attribute_store_name is not None:
-                mapped.attribute_sync_config_name = config.attribute_store_name
+            if config.attribute_store_names is not None:
+                mapped.attribute_store_names.CopyFrom(
+                    pb.AttributeStoreNames(names=config.attribute_store_names)
+                )
         target = (
             config.worker_target
             if config is not None and config.worker_target is not None

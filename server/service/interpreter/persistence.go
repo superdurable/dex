@@ -145,7 +145,7 @@ func (am *PersistenceManager) ApplyAttributeWrites(
 	am.synchronizer.AppendingToPendings(
 		ctx,
 		writes,
-		am.flowConfiger.Get().GetAttributeSyncConfigName(),
+		am.flowConfiger.Get().GetAttributeStoreNames().GetNames(),
 	)
 
 	return nil

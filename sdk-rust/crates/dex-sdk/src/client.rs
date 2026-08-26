@@ -13,12 +13,12 @@ use std::time::{Duration, SystemTime};
 
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use dex_protocol::dex::{
-    ActiveStepSearchMode as ProtoSearchMode, AttributeWrite, FlowAlreadyStartedOptions,
-    FlowConfig as ProtoFlowConfig, FlowResetStepMethod, FlowResetType, FlowRetryPolicy,
-    FlowStartOptions, FlowStatus as ProtoFlowStatus, FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
-    GetAttributesRequest, GetFlowSummaryRequest, IdReusePolicy as ProtoIdReusePolicy,
-    InvokeRpcRequest, PublishToChannelRequest, ResetFlowRequest, SearchFlowsRequest,
-    SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
+    ActiveStepSearchMode as ProtoSearchMode, AttributeStoreNames, AttributeWrite,
+    FlowAlreadyStartedOptions, FlowConfig as ProtoFlowConfig, FlowResetStepMethod, FlowResetType,
+    FlowRetryPolicy, FlowStartOptions, FlowStatus as ProtoFlowStatus,
+    FlowTimeoutPolicy as ProtoFlowTimeoutPolicy, GetAttributesRequest, GetFlowSummaryRequest,
+    IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
+    ResetFlowRequest, SearchFlowsRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
     StepDurability as ProtoStepDurability, StopFlowRequest, StopType as ProtoStopType,
     TriggerContinueAsNewRequest, UpdateFlowConfigRequest, WaitForAttributeCondition,
     WaitForAttributeEqual, WaitForAttributeRequest, WaitForFlowRequest,
@@ -1053,7 +1053,14 @@ pub(crate) fn map_flow_config(
                 }) as i32
             }),
         worker_target: target.map(map_worker_target),
-        attribute_sync_config_name: config.and_then(|config| config.attribute_store_name.clone()),
+        attribute_store_names: config.and_then(|config| {
+            config
+                .attribute_store_names
+                .as_ref()
+                .map(|names| AttributeStoreNames {
+                    names: names.clone(),
+                })
+        }),
     })
 }
 
@@ -1229,21 +1236,31 @@ mod tests {
     use crate::FlowConfig;
 
     #[test]
-    fn attribute_store_name_preserves_protocol_presence() {
+    fn attribute_store_names_preserve_protocol_presence() {
         let absent = map_flow_config(Some(&FlowConfig::new()), None).expect("map absent config");
         let named = map_flow_config(
-            Some(&FlowConfig::new().attribute_store_name("profiles")),
+            Some(
+                &FlowConfig::new()
+                    .attribute_store_names(vec!["profiles".to_owned(), "audit".to_owned()]),
+            ),
             None,
         )
         .expect("map named config");
-        let disabled = map_flow_config(Some(&FlowConfig::new().attribute_store_name("")), None)
-            .expect("map disabled config");
+        let disabled =
+            map_flow_config(Some(&FlowConfig::new().attribute_store_names(vec![])), None)
+                .expect("map disabled config");
 
-        assert_eq!(absent.attribute_sync_config_name, None);
+        assert_eq!(absent.attribute_store_names, None);
         assert_eq!(
-            named.attribute_sync_config_name.as_deref(),
-            Some("profiles")
+            named.attribute_store_names.expect("named stores").names,
+            vec!["profiles", "audit"]
         );
-        assert_eq!(disabled.attribute_sync_config_name.as_deref(), Some(""));
+        assert_eq!(
+            disabled
+                .attribute_store_names
+                .expect("disabled stores")
+                .names,
+            Vec::<String>::new()
+        );
     }
 }

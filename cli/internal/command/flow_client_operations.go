@@ -31,7 +31,7 @@ type flowConfigInput struct {
 	ContinueAsNewPageSizeInBytes *int32             `json:"continueAsNewPageSizeInBytes"`
 	StepDurability               *string            `json:"stepDurability"`
 	WorkerTarget                 *workerTargetInput `json:"workerTarget"`
-	AttributeStoreName           *string            `json:"attributeStoreName"`
+	AttributeStoreNames          *[]string          `json:"attributeStoreNames"`
 }
 
 type workerTargetInput struct {
@@ -462,7 +462,10 @@ func parseFlowConfig(reader io.Reader, source string) (*dexpb.FlowConfig, error)
 	if err := json.Unmarshal(data, &input); err != nil {
 		return nil, fmt.Errorf("invalid config JSON: %w", err)
 	}
-	config := &dexpb.FlowConfig{ContinueAsNewThreshold: input.ContinueAsNewThreshold, ContinueAsNewPageSizeInBytes: input.ContinueAsNewPageSizeInBytes, AttributeSyncConfigName: input.AttributeStoreName}
+	config := &dexpb.FlowConfig{ContinueAsNewThreshold: input.ContinueAsNewThreshold, ContinueAsNewPageSizeInBytes: input.ContinueAsNewPageSizeInBytes}
+	if input.AttributeStoreNames != nil {
+		config.AttributeStoreNames = &dexpb.AttributeStoreNames{Names: *input.AttributeStoreNames}
+	}
 	if input.ActiveStepSearchMode != nil {
 		mode, modeErr := parseActiveStepSearchMode(*input.ActiveStepSearchMode)
 		if modeErr != nil {

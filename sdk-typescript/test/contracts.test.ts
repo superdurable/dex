@@ -41,7 +41,7 @@ import {
   type StepDecision,
 } from "../src/index.js";
 import {
-  mapAttributeStoreName,
+  mapAttributeStoreNames,
   mapAttributeStoreSync,
 } from "../src/attribute-store-sync.js";
 import {
@@ -166,15 +166,15 @@ test("attribute store synchronization is opt-in and immutable", () => {
   const synced = plain.syncToAttributeStore();
   const syncedMap = new AttributeMap("map", stringCodec).syncToAttributeStore();
   const absent: FlowConfig = {};
-  const named: FlowConfig = { attributeStoreName: "profiles" };
-  const disabled: FlowConfig = { attributeStoreName: "" };
+  const named: FlowConfig = { attributeStoreNames: ["profiles", "audit"] };
+  const disabled: FlowConfig = { attributeStoreNames: [] };
 
   assert.equal(mapAttributeStoreSync(plain), undefined);
   assert.equal(mapAttributeStoreSync(synced)?.enabled, true);
   assert.equal(mapAttributeStoreSync(syncedMap)?.enabled, true);
-  assert.equal(mapAttributeStoreName(absent), undefined);
-  assert.equal(mapAttributeStoreName(named), "profiles");
-  assert.equal(mapAttributeStoreName(disabled), "");
+  assert.equal(mapAttributeStoreNames(absent), undefined);
+  assert.deepEqual(mapAttributeStoreNames(named)?.names, ["profiles", "audit"]);
+  assert.deepEqual(mapAttributeStoreNames(disabled)?.names, []);
 });
 
 test("registry rejects missing durable-name methods at runtime", () => {

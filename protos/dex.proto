@@ -270,8 +270,12 @@ message FlowConfig {
   optional int32 continue_as_new_page_size_in_bytes = 3;
   optional StepDurability step_durability = 4;
   WorkerTarget worker_target = 5;
-  // Present empty disables future synchronization; non-empty selects a Server-configured store.
-  optional string attribute_sync_config_name = 6;
+  // Present empty disables future synchronization; non-empty selects Server-configured stores.
+  optional AttributeStoreNames attribute_store_names = 6;
+}
+
+message AttributeStoreNames {
+  repeated string names = 1;
 }
 
 message WorkerTarget {

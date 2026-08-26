@@ -100,24 +100,31 @@ func (s *AttributeSynchronizer) run(ctx interfaces.UnifiedContext) {
 func (s *AttributeSynchronizer) AppendingToPendings(
 	ctx interfaces.UnifiedContext,
 	writes []*dexpb.AttributeWrite,
-	configName string,
+	storeNames []string,
 ) {
-	for _, write := range writes {
-		if write == nil || !write.GetSyncConfig().GetEnabled() {
-			continue
-		}
-		if configName == "" {
+	if len(storeNames) == 0 {
+		for _, write := range writes {
+			if write == nil || !write.GetSyncConfig().GetEnabled() {
+				continue
+			}
 			s.provider.GetLogger(ctx).Error(
-				"Attribute sync is enabled without an Attribute Store target",
+				"Attribute sync is enabled without Attribute Store targets",
 				"attributeName", write.GetKey(),
 			)
-			continue
 		}
-		s.pending = append(s.pending, &dexpb.AttributeSyncItem{
-			ConfigName: configName,
-			Key:        write.GetKey(),
-			Value:      write.GetValue(),
-		})
+		return
+	}
+	for _, storeName := range storeNames {
+		for _, write := range writes {
+			if write == nil || !write.GetSyncConfig().GetEnabled() {
+				continue
+			}
+			s.pending = append(s.pending, &dexpb.AttributeSyncItem{
+				ConfigName: storeName,
+				Key:        write.GetKey(),
+				Value:      write.GetValue(),
+			})
+		}
 	}
 }
 

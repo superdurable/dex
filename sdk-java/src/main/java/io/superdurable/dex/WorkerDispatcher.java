@@ -749,8 +749,9 @@ final class WorkerDispatcher {
                     .setAddress(config.getWorkerTarget().getAddress())
                     .setIsHeadlessAddress(config.getWorkerTarget().isHeadless()));
         }
-        if (config.getAttributeStoreName() != null) {
-            mapped.setAttributeSyncConfigName(config.getAttributeStoreName());
+        if (config.getAttributeStoreNames() != null) {
+            mapped.setAttributeStoreNames(io.superdurable.gen.AttributeStoreNames.newBuilder()
+                    .addAllNames(config.getAttributeStoreNames()));
         }
         return mapped.build();
     }

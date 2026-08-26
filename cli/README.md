@@ -194,7 +194,7 @@ dexcli flow start order-123 --flow-type OrderFlow --start-step-type StartOrder \
 
 `--config` accepts a JSON object with optional `activeStepSearchMode` (`all`,
 `wait-for`, or `disabled`), Continue-As-New thresholds, `stepDurability`
-(`sync` or `async`), `workerTarget`, and `attributeStoreName`. `--retry-policy`
+(`sync` or `async`), `workerTarget`, and `attributeStoreNames`. `--retry-policy`
 uses `initialInterval`, `backoffCoefficient`, `maximumInterval`, and
 `maximumAttempts`; intervals are Go duration strings. `--step-options` accepts
 protobuf JSON because it mirrors the full nested StepOptions message. When a

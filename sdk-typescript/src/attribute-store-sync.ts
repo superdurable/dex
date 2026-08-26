@@ -6,7 +6,7 @@
 //
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
-import type { AttributeSyncConfig } from "./gen/dex.js";
+import type { AttributeStoreNames, AttributeSyncConfig } from "./gen/dex.js";
 import type { FlowConfig } from "./options.js";
 
 const syncedDefinitions = new WeakSet<object>();
@@ -24,6 +24,10 @@ export function mapAttributeStoreSync(
   return syncedDefinitions.has(definition) ? { enabled: true } : undefined;
 }
 
-export function mapAttributeStoreName(config: FlowConfig | undefined): string | undefined {
-  return config?.attributeStoreName;
+export function mapAttributeStoreNames(
+  config: FlowConfig | undefined,
+): AttributeStoreNames | undefined {
+  return config?.attributeStoreNames === undefined
+    ? undefined
+    : { names: [...config.attributeStoreNames] };
 }

@@ -68,13 +68,13 @@ export interface FlowConfig {
   /** Optional active-Step visibility indexing policy. */
   readonly activeStepSearchMode?: ActiveStepSearchMode;
   /**
-   * Selects the server-configured Attribute Store receiving opted-in Attribute writes.
+   * Selects server-configured Attribute Stores receiving opted-in Attribute writes.
    *
-   * Omit this property to preserve the existing Flow setting. An explicit empty string is sent with
-   * presence and disables later synchronization. Projection is asynchronous and never rolls back Flow
-   * Attribute writes when the external store update fails.
+   * Omit this property to preserve the existing Flow setting. An explicit empty array is sent with
+   * presence and disables later synchronization. Each enabled Attribute write is projected to every
+   * selected store; projection failures never roll back Flow Attribute writes.
    */
-  readonly attributeStoreName?: string;
+  readonly attributeStoreNames?: readonly string[];
   /** Positive history-event threshold requesting continue-as-new. */
   readonly continueAsNewThreshold?: number;
   /** Positive history page-size budget in bytes for continue-as-new. */

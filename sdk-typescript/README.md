@@ -130,18 +130,19 @@ retry runs get a fresh budget. A zero or omitted timeout disables the
 feature.
 
 Opt an Attribute or AttributeMap into Attribute Store synchronization, then
-select the Server-configured Store for the Flow:
+select Server-configured Stores for the Flow:
 
 ```typescript
 const email = new Attribute("customer-email", stringCodec)
   .syncToAttributeStore();
-const config: FlowConfig = { attributeStoreName: "profiles" };
+const config: FlowConfig = { attributeStoreNames: ["profiles", "audit"] };
 ```
 
-The Store is an asynchronous latest-state projection. Deletion writes SQL
-`NULL`, and projection failures do not roll back Flow Attributes. Omitting
-`attributeStoreName` preserves the current target; `attributeStoreName: ""`
-disables future synchronization while retaining protocol presence.
+Stores are asynchronous latest-state projections. Every enabled Attribute write
+is sent to every selected Store. Deletion writes SQL `NULL`, and projection
+failures do not roll back Flow Attributes. Omitting `attributeStoreNames`
+preserves current targets; `attributeStoreNames: []` disables future
+synchronization while retaining protocol presence.
 
 ### Waiting and map inspection
 

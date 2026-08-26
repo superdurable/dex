@@ -15,7 +15,7 @@ use crate::{StepDurability, WorkerTarget};
 /// for one execution or to [`crate::Client::update_flow_config`] for an active Flow.
 pub struct FlowConfig {
     pub(crate) active_step_search_mode: Option<ActiveStepSearchMode>,
-    pub(crate) attribute_store_name: Option<String>,
+    pub(crate) attribute_store_names: Option<Vec<String>>,
     pub(crate) continue_as_new_threshold: Option<u32>,
     pub(crate) continue_as_new_page_size_bytes: Option<u32>,
     pub(crate) step_durability: Option<StepDurability>,
@@ -34,14 +34,15 @@ impl FlowConfig {
         self
     }
 
-    /// Selects the server-configured Attribute Store for opted-in Attribute writes.
+    /// Selects server-configured Attribute Stores for opted-in Attribute writes.
     ///
-    /// Omitting this builder preserves the existing Flow setting. Passing an empty string retains
-    /// protocol presence and disables later synchronization. Projection is asynchronous, and an
-    /// external store failure does not roll back the Flow Attribute write.
+    /// Omitting this builder preserves the existing Flow setting. Passing an empty vector retains
+    /// protocol presence and disables later synchronization. Each enabled Attribute write is
+    /// projected to every selected store; an external store failure does not roll back the Flow
+    /// Attribute write.
     #[must_use]
-    pub fn attribute_store_name(mut self, value: impl Into<String>) -> Self {
-        self.attribute_store_name = Some(value.into());
+    pub fn attribute_store_names(mut self, values: Vec<String>) -> Self {
+        self.attribute_store_names = Some(values);
         self
     }
 

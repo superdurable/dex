@@ -239,7 +239,7 @@ deadline fails startup. Indexed AttributeMaps must declare a fixed index key.
 ## Attribute Store synchronization
 
 Opt an Attribute or AttributeMap into the Flow's external latest-state
-projection, then select a Server-configured Attribute Store on the Flow:
+projection, then select Server-configured Attribute Stores on the Flow:
 
 ```go
 var CustomerEmail = dex.DefineAttribute[string](
@@ -248,14 +248,15 @@ var CustomerEmail = dex.DefineAttribute[string](
 )
 
 config := &dex.FlowConfig{
-	AttributeStoreName: ptr.Any("profiles"),
+	AttributeStoreNames: ptr.Any([]string{"profiles", "audit"}),
 }
 ```
 
-The Store update is asynchronous. Deleting an opted-in Attribute writes SQL
-`NULL`, and a Store failure does not roll back the Flow Attribute. A `nil`
-`AttributeStoreName` preserves the current target; a pointer to `""` disables
-future synchronization while preserving protocol presence.
+Store updates are asynchronous. Every enabled Attribute write is sent to every
+selected Store. Deleting an opted-in Attribute writes SQL `NULL`, and a Store
+failure does not roll back the Flow Attribute. A `nil` `AttributeStoreNames`
+preserves current targets; a pointer to an empty slice disables future
+synchronization while preserving protocol presence.
 
 `DefineStep` and `DefineStartStep` retain the step input type behind a private
 `typedStepDef` that implements the sealed `StepDef` interface. Runtime

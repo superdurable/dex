@@ -13,6 +13,7 @@ package io.superdurable.dex;
 import io.superdurable.gen.FlowStartOptions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
 
@@ -39,17 +40,17 @@ final class AttributeStoreSyncTest {
         try {
             final io.superdurable.gen.FlowConfig absent =
                     client.mapFlowConfig(FlowConfig.newBuilder().build());
-            assertFalse(absent.hasAttributeSyncConfigName());
+            assertFalse(absent.hasAttributeStoreNames());
 
             final io.superdurable.gen.FlowConfig selected = client.mapFlowConfig(
-                    FlowConfig.newBuilder().attributeStoreName("reporting").build());
-            assertTrue(selected.hasAttributeSyncConfigName());
-            assertEquals("reporting", selected.getAttributeSyncConfigName());
+                    FlowConfig.newBuilder().attributeStoreNames(Arrays.asList("reporting", "audit")).build());
+            assertTrue(selected.hasAttributeStoreNames());
+            assertEquals(Arrays.asList("reporting", "audit"), selected.getAttributeStoreNames().getNamesList());
 
             final io.superdurable.gen.FlowConfig disabled = client.mapFlowConfig(
-                    FlowConfig.newBuilder().attributeStoreName("").build());
-            assertTrue(disabled.hasAttributeSyncConfigName());
-            assertEquals("", disabled.getAttributeSyncConfigName());
+                    FlowConfig.newBuilder().attributeStoreNames(Collections.<String>emptyList()).build());
+            assertTrue(disabled.hasAttributeStoreNames());
+            assertEquals(Collections.emptyList(), disabled.getAttributeStoreNames().getNamesList());
 
             final FlowStartOptions start = client.mapStartOptions(
                     StartFlowOptions.newBuilder()

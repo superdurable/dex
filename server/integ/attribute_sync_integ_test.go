@@ -25,7 +25,6 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/integ/workflow/signal"
 	"github.com/superdurable/dex/service"
-	"github.com/superdurable/dex/service/common/ptr"
 )
 
 func TestAttributeSyncTemporal(t *testing.T) {
@@ -132,8 +131,8 @@ func TestAttributeSyncInvokeRPCGracefulCompleteTemporal(t *testing.T) {
 				syncedStringAttribute("message", "graceful-finalization"),
 			},
 			FlowConfigOverride: &dexpb.FlowConfig{
-				AttributeSyncConfigName: ptr.Any("reporting"),
-				WorkerTarget:            workerTarget,
+				AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"reporting"}},
+				WorkerTarget:        workerTarget,
 			},
 		},
 	})
@@ -171,15 +170,22 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 	database, err := sql.Open("pgx", postgresDSN)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, database.Close()) })
-	tableName := "flow_attributes_" + strings.ReplaceAll(newRequestID(), "-", "")
-	_, err = database.ExecContext(ctx, fmt.Sprintf(
-		`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT, document JSONB)`,
-		tableName,
-	))
-	require.NoError(t, err)
+	tableNames := []string{
+		"flow_attributes_" + strings.ReplaceAll(newRequestID(), "-", ""),
+		"flow_attributes_audit_" + strings.ReplaceAll(newRequestID(), "-", ""),
+	}
+	for _, tableName := range tableNames {
+		_, err = database.ExecContext(ctx, fmt.Sprintf(
+			`CREATE TABLE public.%s (flow_id TEXT PRIMARY KEY, message TEXT, document JSONB)`,
+			tableName,
+		))
+		require.NoError(t, err)
+	}
 	t.Cleanup(func() {
-		_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
-		require.NoError(t, dropErr)
+		for _, tableName := range tableNames {
+			_, dropErr := database.ExecContext(context.Background(), "DROP TABLE IF EXISTS public."+tableName)
+			require.NoError(t, dropErr)
+		}
 	})
 
 	runtime := startDexService(t, DexServiceTestConfig{
@@ -191,13 +197,32 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 				"reporting": {
 					Type:      config.AttributeStoreTypePostgres,
 					DSN:       postgresDSN,
-					TableName: "public." + tableName,
+					TableName: "public." + tableNames[0],
+				},
+				"audit": {
+					Type:      config.AttributeStoreTypePostgres,
+					DSN:       postgresDSN,
+					TableName: "public." + tableNames[1],
 				},
 			},
 			SyncBatchSize: 2,
 		},
 	})
 	workerTarget := startWorker(t, signal.NewHandler())
+	for _, invalidStoreNames := range [][]string{{"reporting", "reporting"}, {"unknown"}, {""}} {
+		_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+			RequestId:     newRequestID(),
+			FlowId:        "attribute-sync-invalid-" + newRequestID(),
+			FlowType:      "attribute-sync",
+			StartStepType: "start",
+			FlowStartOptions: &dexpb.FlowStartOptions{
+				FlowConfigOverride: &dexpb.FlowConfig{
+					AttributeStoreNames: &dexpb.AttributeStoreNames{Names: invalidStoreNames},
+				},
+			},
+		})
+		require.Error(t, err)
+	}
 	lockTransaction, err := database.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	lockReleased := false
@@ -206,8 +231,10 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 			require.NoError(t, lockTransaction.Rollback())
 		}
 	})
-	_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
-	require.NoError(t, err)
+	for _, tableName := range tableNames {
+		_, err = lockTransaction.ExecContext(ctx, "LOCK TABLE public."+tableName+" IN ACCESS EXCLUSIVE MODE")
+		require.NoError(t, err)
+	}
 	flowID := "attribute-sync-" + newRequestID()
 	_, err = runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
 		RequestId:          newRequestID(),
@@ -220,8 +247,8 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 				syncedObjectAttribute("document", `{"source":"blob-cache"}`),
 			},
 			FlowConfigOverride: &dexpb.FlowConfig{
-				AttributeSyncConfigName: ptr.Any("reporting"),
-				WorkerTarget:            workerTarget,
+				AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"reporting", "audit"}},
+				WorkerTarget:        workerTarget,
 			},
 		},
 	})
@@ -246,16 +273,18 @@ func doTestAttributeSync(t *testing.T, backendType service.BackendType) {
 	require.NoError(t, err)
 	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_CANCELED, response.GetFlowStatus())
 
-	var message string
-	var document string
-	err = database.QueryRowContext(
-		ctx,
-		"SELECT message, document::text FROM public."+tableName+" WHERE flow_id = $1",
-		flowID,
-	).Scan(&message, &document)
-	require.NoError(t, err)
-	require.Equal(t, "terminal-signal", message)
-	require.JSONEq(t, `{"source":"blob-cache"}`, document)
+	for _, tableName := range tableNames {
+		var message string
+		var document string
+		err = database.QueryRowContext(
+			ctx,
+			"SELECT message, document::text FROM public."+tableName+" WHERE flow_id = $1",
+			flowID,
+		).Scan(&message, &document)
+		require.NoError(t, err)
+		require.Equal(t, "terminal-signal", message)
+		require.JSONEq(t, `{"source":"blob-cache"}`, document)
+	}
 }
 
 func doTestAttributeSyncFlowTimeout(t *testing.T, backendType service.BackendType) {
@@ -317,8 +346,8 @@ func doTestAttributeSyncFlowTimeout(t *testing.T, backendType service.BackendTyp
 				syncedStringAttribute("message", "persisted-after-timeout"),
 			},
 			FlowConfigOverride: &dexpb.FlowConfig{
-				AttributeSyncConfigName: ptr.Any("reporting"),
-				WorkerTarget:            workerTarget,
+				AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"reporting"}},
+				WorkerTarget:        workerTarget,
 			},
 		},
 	})
@@ -464,8 +493,8 @@ func doTestAttributeSyncRetryExhaustion(t *testing.T, backendType service.Backen
 				syncedStringAttribute("message", "skipped"),
 			},
 			FlowConfigOverride: &dexpb.FlowConfig{
-				AttributeSyncConfigName: ptr.Any("failing"),
-				WorkerTarget:            workerTarget,
+				AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"failing"}},
+				WorkerTarget:        workerTarget,
 			},
 		},
 	})
@@ -474,14 +503,23 @@ func doTestAttributeSyncRetryExhaustion(t *testing.T, backendType service.Backen
 	_, err = runtime.FlowClient.UpdateFlowConfig(ctx, &dexpb.UpdateFlowConfigRequest{
 		FlowId: flowID,
 		FlowConfig: &dexpb.FlowConfig{
-			AttributeSyncConfigName: ptr.Any("healthy"),
+			AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"healthy", "healthy"}},
+		},
+	})
+	require.Error(t, err)
+
+	_, err = runtime.FlowClient.UpdateFlowConfig(ctx, &dexpb.UpdateFlowConfigRequest{
+		FlowId: flowID,
+		FlowConfig: &dexpb.FlowConfig{
+			AttributeStoreNames: &dexpb.AttributeStoreNames{Names: []string{"healthy"}},
 		},
 	})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var dump dexpb.DebugDumpResponse
 		queryErr := runtime.UnifiedClient.QueryWorkflow(ctx, &dump, flowID, "", service.DebugDumpQueryType)
-		return queryErr == nil && dump.GetConfig().GetAttributeSyncConfigName() == "healthy"
+		return queryErr == nil && len(dump.GetConfig().GetAttributeStoreNames().GetNames()) == 1 &&
+			dump.GetConfig().GetAttributeStoreNames().GetNames()[0] == "healthy"
 	}, 20*time.Second, 50*time.Millisecond)
 
 	_, err = runtime.FlowClient.SetAttributes(ctx, &dexpb.SetAttributesRequest{
