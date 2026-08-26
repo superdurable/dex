@@ -84,20 +84,20 @@ func TestFlowConfiger_DurabilityPrecedence(t *testing.T) {
 
 func TestFlowConfiger_UpdateByAPIPartialOverride(t *testing.T) {
 	flowConfiger := NewFlowConfiger(&dexpb.FlowConfig{
-		ContinueAsNewThreshold:  ptr.Any(int32(5)),
-		StepDurability:          ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
-		AttributeSyncConfigName: ptr.Any("reporting"),
+		ContinueAsNewThreshold: ptr.Any(int32(5)),
+		StepDurability:         ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+		AttributeStoreNames:    &dexpb.AttributeStoreNames{Names: []string{"reporting"}},
 	})
 	update := &dexpb.FlowConfig{
-		ContinueAsNewThreshold:  ptr.Any(int32(9)),
-		AttributeSyncConfigName: ptr.Any(""),
+		ContinueAsNewThreshold: ptr.Any(int32(9)),
+		AttributeStoreNames:    &dexpb.AttributeStoreNames{},
 	}
 
 	require.NoError(t, flowConfiger.UpdateByAPI(update))
 
 	assert.Equal(t, int32(9), flowConfiger.EffectiveContinueAsNewThreshold())
 	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(nil))
-	assert.Equal(t, "", flowConfiger.Get().GetAttributeSyncConfigName())
+	assert.Empty(t, flowConfiger.Get().GetAttributeStoreNames().GetNames())
 }
 
 func TestFlowConfiger_UpdateByAPIRejectsInvalidAndKeepsState(t *testing.T) {

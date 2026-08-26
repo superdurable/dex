@@ -53,7 +53,7 @@ import {
 } from "./flow.js";
 import { InvocationContext } from "./invocation-context.js";
 import { Attribute, AttributeMap, IndexType } from "./persistence.js";
-import { mapAttributeStoreName, mapAttributeStoreSync } from "./attribute-store-sync.js";
+import { mapAttributeStoreNames, mapAttributeStoreSync } from "./attribute-store-sync.js";
 import { ActiveStepSearchMode, FlowTimeoutPolicy, type FlowConfig } from "./options.js";
 import { SubFlowReusePolicy, type SubFlowOptions } from "./subflow.js";
 import type { RegisteredRPC } from "./rpc.js";
@@ -764,7 +764,7 @@ function mapSubFlowConfig(config: FlowConfig | undefined): ProtoFlowConfig | und
         : config.activeStepSearchMode === undefined
           ? undefined
           : ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED,
-    attributeSyncConfigName: mapAttributeStoreName(config),
+    attributeStoreNames: mapAttributeStoreNames(config),
     continueAsNewThreshold: config.continueAsNewThreshold,
     continueAsNewPageSizeInBytes: config.continueAsNewPageSizeBytes,
     stepDurability:

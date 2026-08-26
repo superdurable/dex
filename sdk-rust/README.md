@@ -206,19 +206,20 @@ handlers can call `Context::wait_for_cancellation`; batch handlers may check
 support sibling selection because they have no Step execution lineage.
 
 Opt an Attribute or AttributeMap into Attribute Store synchronization and
-select the Server-configured Store for the Flow:
+select Server-configured Stores for the Flow:
 
 ```rust
 use dex_sdk::{Attribute, FlowConfig};
 
 let email = Attribute::<String>::new("customer-email").sync_to_attribute_store();
-let config = FlowConfig::new().attribute_store_name("profiles");
+let config = FlowConfig::new().attribute_store_names(vec!["profiles".into(), "audit".into()]);
 ```
 
-The Store is an asynchronous latest-state projection. Deletion writes SQL
-`NULL`, and projection failures do not roll back Flow Attributes. Omitting the
-builder preserves the current target; passing `""` disables future
-synchronization while retaining protocol presence.
+Stores are asynchronous latest-state projections. Every enabled Attribute write
+is sent to every selected Store. Deletion writes SQL `NULL`, and projection
+failures do not roll back Flow Attributes. Omitting the builder preserves
+current targets; passing an empty vector disables future synchronization while
+retaining protocol presence.
 
 ## Blob cache
 

@@ -173,7 +173,7 @@ func (s *serviceImpl) StartFlow(
 	if err := interpreterconfig.ValidateFlowConfig(&workflowConfig); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
-	if err := s.validateAttributeStoreName(workflowConfig.GetAttributeSyncConfigName()); err != nil {
+	if err := s.validateAttributeStoreNames(workflowConfig.GetAttributeStoreNames()); err != nil {
 		return nil, err
 	}
 	workerTarget, err := grpctarget.NormalizeWorkerTarget(workflowConfig.GetWorkerTarget())
@@ -270,8 +270,8 @@ func overrideWorkflowConfig(configOverride dexpb.FlowConfig, workflowConfig *dex
 	if configOverride.WorkerTarget != nil {
 		workflowConfig.WorkerTarget = configOverride.WorkerTarget
 	}
-	if configOverride.AttributeSyncConfigName != nil {
-		workflowConfig.AttributeSyncConfigName = configOverride.AttributeSyncConfigName
+	if configOverride.AttributeStoreNames != nil {
+		workflowConfig.AttributeStoreNames = configOverride.AttributeStoreNames
 	}
 }
 
@@ -490,8 +490,8 @@ func (s *serviceImpl) UpdateFlowConfig(
 	if err := interpreterconfig.ValidateFlowConfig(req.GetFlowConfig()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
-	if req.GetFlowConfig().AttributeSyncConfigName != nil {
-		if err := s.validateAttributeStoreName(req.GetFlowConfig().GetAttributeSyncConfigName()); err != nil {
+	if req.GetFlowConfig().AttributeStoreNames != nil {
+		if err := s.validateAttributeStoreNames(req.GetFlowConfig().GetAttributeStoreNames()); err != nil {
 			return nil, err
 		}
 	}
@@ -562,11 +562,24 @@ func (s *serviceImpl) StopFlow(ctx context.Context, req *dexpb.StopFlowRequest) 
 	return &emptypb.Empty{}, nil
 }
 
-func (s *serviceImpl) validateAttributeStoreName(name string) error {
-	if name == "" || s.attributeStore.HasStore(name) {
+func (s *serviceImpl) validateAttributeStoreNames(names *dexpb.AttributeStoreNames) error {
+	if names == nil {
 		return nil
 	}
-	return makeInvalidRequestError(fmt.Sprintf("unknown Attribute Store %q", name))
+	seenNames := make(map[string]struct{}, len(names.GetNames()))
+	for _, name := range names.GetNames() {
+		if name == "" {
+			return makeInvalidRequestError("Attribute Store name must not be empty")
+		}
+		if _, exists := seenNames[name]; exists {
+			return makeInvalidRequestError(fmt.Sprintf("duplicate Attribute Store %q", name))
+		}
+		if !s.attributeStore.HasStore(name) {
+			return makeInvalidRequestError(fmt.Sprintf("unknown Attribute Store %q", name))
+		}
+		seenNames[name] = struct{}{}
+	}
+	return nil
 }
 
 func (s *serviceImpl) GetAttributes(

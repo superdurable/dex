@@ -16,6 +16,7 @@ fn attribute_store_sync_builders_compile() {
     let _attribute = dex_sdk::Attribute::<String>::new("email").sync_to_attribute_store();
     let _attribute_map =
         dex_sdk::AttributeMap::<String>::new("email_by_tenant").sync_to_attribute_store();
-    let _config = dex_sdk::FlowConfig::new().attribute_store_name("profiles");
-    let _disabled = dex_sdk::FlowConfig::new().attribute_store_name("");
+    let _config = dex_sdk::FlowConfig::new()
+        .attribute_store_names(vec!["profiles".to_owned(), "audit".to_owned()]);
+    let _disabled = dex_sdk::FlowConfig::new().attribute_store_names(vec![]);
 }

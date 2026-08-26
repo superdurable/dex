@@ -9,7 +9,7 @@
 import { credentials, type ServiceError } from "@grpc/grpc-js";
 
 import type { BlobCache } from "./blob-cache.js";
-import { mapAttributeStoreName, mapAttributeStoreSync } from "./attribute-store-sync.js";
+import { mapAttributeStoreNames, mapAttributeStoreSync } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import {
@@ -942,7 +942,7 @@ function mapFlowConfig(
         : config.activeStepSearchMode === ActiveStepSearchMode.ALL
           ? ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_ALL
           : ProtoActiveStepSearchMode.ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED,
-    attributeSyncConfigName: mapAttributeStoreName(config),
+    attributeStoreNames: mapAttributeStoreNames(config),
     continueAsNewThreshold: config?.continueAsNewThreshold,
     continueAsNewPageSizeInBytes: config?.continueAsNewPageSizeBytes,
     stepDurability:

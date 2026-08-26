@@ -1129,8 +1129,9 @@ public final class Client implements AutoCloseable {
             if (config.getStepDurability() != null) {
                 mapped.setStepDurability(mapDurability(config.getStepDurability()));
             }
-            if (config.getAttributeStoreName() != null) {
-                mapped.setAttributeSyncConfigName(config.getAttributeStoreName());
+            if (config.getAttributeStoreNames() != null) {
+                mapped.setAttributeStoreNames(io.superdurable.gen.AttributeStoreNames.newBuilder()
+                        .addAllNames(config.getAttributeStoreNames()));
             }
         }
         final WorkerTarget target = config != null && config.getWorkerTarget() != null

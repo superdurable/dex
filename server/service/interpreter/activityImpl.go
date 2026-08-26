@@ -542,8 +542,10 @@ func (a *Activities) StartSubFlow(
 	if err != nil {
 		return nil, err
 	}
-	if configName := flowConfig.GetAttributeSyncConfigName(); configName != "" && !a.attributeStore.HasStore(configName) {
-		return nil, fmt.Errorf("Attribute Store %q is unavailable", configName)
+	for _, storeName := range flowConfig.GetAttributeStoreNames().GetNames() {
+		if !a.attributeStore.HasStore(storeName) {
+			return nil, fmt.Errorf("Attribute Store %q is unavailable", storeName)
+		}
 	}
 
 	workflowOptions := buildSubFlowStartOptions(
@@ -623,7 +625,7 @@ func buildSubFlowConfig(parent, override *dexpb.FlowConfig) (*dexpb.FlowConfig, 
 		ContinueAsNewPageSizeInBytes: parent.ContinueAsNewPageSizeInBytes,
 		StepDurability:               parent.StepDurability,
 		WorkerTarget:                 parent.WorkerTarget,
-		AttributeSyncConfigName:      parent.AttributeSyncConfigName,
+		AttributeStoreNames:          parent.AttributeStoreNames,
 	}
 	if override != nil {
 		if override.ActiveStepSearchMode != nil {
@@ -641,8 +643,8 @@ func buildSubFlowConfig(parent, override *dexpb.FlowConfig) (*dexpb.FlowConfig, 
 		if override.WorkerTarget != nil {
 			flowConfig.WorkerTarget = override.WorkerTarget
 		}
-		if override.AttributeSyncConfigName != nil {
-			flowConfig.AttributeSyncConfigName = override.AttributeSyncConfigName
+		if override.AttributeStoreNames != nil {
+			flowConfig.AttributeStoreNames = override.AttributeStoreNames
 		}
 	}
 	if err := interpreterconfig.ValidateFlowConfig(flowConfig); err != nil {

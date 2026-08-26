@@ -345,8 +345,12 @@ export interface FlowConfig {
   workerTarget:
     | WorkerTarget
     | undefined;
-  /** Present empty disables future synchronization; non-empty selects a Server-configured store. */
-  attributeSyncConfigName?: string | undefined;
+  /** Present empty disables future synchronization; non-empty selects Server-configured stores. */
+  attributeStoreNames?: AttributeStoreNames | undefined;
+}
+
+export interface AttributeStoreNames {
+  names: string[];
 }
 
 export interface WorkerTarget {
@@ -2633,7 +2637,7 @@ function createBaseFlowConfig(): FlowConfig {
     continueAsNewPageSizeInBytes: undefined,
     stepDurability: undefined,
     workerTarget: undefined,
-    attributeSyncConfigName: undefined,
+    attributeStoreNames: undefined,
   };
 }
 
@@ -2654,8 +2658,8 @@ export const FlowConfig: MessageFns<FlowConfig> = {
     if (message.workerTarget !== undefined) {
       WorkerTarget.encode(message.workerTarget, writer.uint32(42).fork()).join();
     }
-    if (message.attributeSyncConfigName !== undefined) {
-      writer.uint32(50).string(message.attributeSyncConfigName);
+    if (message.attributeStoreNames !== undefined) {
+      AttributeStoreNames.encode(message.attributeStoreNames, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -2712,7 +2716,7 @@ export const FlowConfig: MessageFns<FlowConfig> = {
             break;
           }
 
-          message.attributeSyncConfigName = reader.string();
+          message.attributeStoreNames = AttributeStoreNames.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -2736,7 +2740,55 @@ export const FlowConfig: MessageFns<FlowConfig> = {
     message.workerTarget = (object.workerTarget !== undefined && object.workerTarget !== null)
       ? WorkerTarget.fromPartial(object.workerTarget)
       : undefined;
-    message.attributeSyncConfigName = object.attributeSyncConfigName ?? undefined;
+    message.attributeStoreNames = (object.attributeStoreNames !== undefined && object.attributeStoreNames !== null)
+      ? AttributeStoreNames.fromPartial(object.attributeStoreNames)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseAttributeStoreNames(): AttributeStoreNames {
+  return { names: [] };
+}
+
+export const AttributeStoreNames: MessageFns<AttributeStoreNames> = {
+  encode(message: AttributeStoreNames, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.names) {
+      writer.uint32(10).string(v!);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AttributeStoreNames {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAttributeStoreNames();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.names.push(reader.string());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<AttributeStoreNames>, I>>(base?: I): AttributeStoreNames {
+    return AttributeStoreNames.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<AttributeStoreNames>, I>>(object: I): AttributeStoreNames {
+    const message = createBaseAttributeStoreNames();
+    message.names = object.names?.map((e) => e) || [];
     return message;
   },
 };

@@ -47,8 +47,8 @@ class FlowConfig:
             in bytes used by continue-as-new decisions.
         step_durability: Optional default durability for Step handlers.
         worker_target: Optional Worker endpoint for later handler calls.
-        attribute_store_name: Optional Server-configured Attribute Store name.
-            ``None`` leaves the field absent; an empty string disables future projections.
+        attribute_store_names: Optional Server-configured Attribute Store names.
+            ``None`` leaves the field absent; an empty list disables future projections.
     """
 
     active_step_search_mode: ActiveStepSearchMode | None = None
@@ -56,4 +56,4 @@ class FlowConfig:
     continue_as_new_page_size_bytes: int | None = None
     step_durability: StepDurability | None = None
     worker_target: WorkerTarget | None = None
-    attribute_store_name: str | None = None
+    attribute_store_names: list[str] | None = None

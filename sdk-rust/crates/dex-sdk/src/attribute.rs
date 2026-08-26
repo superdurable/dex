@@ -53,7 +53,7 @@ impl<T> Attribute<T> {
     /// Enables asynchronous latest-state projection to the Flow's selected Attribute Store.
     ///
     /// The Flow must select a server-configured store with
-    /// [`FlowConfig::attribute_store_name`](crate::FlowConfig::attribute_store_name). Deletions
+    /// [`FlowConfig::attribute_store_names`](crate::FlowConfig::attribute_store_names). Deletions
     /// project SQL `NULL`, and projection failures never roll back the Flow Attribute write.
     #[must_use]
     pub fn sync_to_attribute_store(mut self) -> Self {
@@ -179,7 +179,7 @@ impl<T> AttributeMap<T> {
     /// Enables asynchronous latest-state projection for every AttributeMap instance.
     ///
     /// Each instance maps by its physical Attribute name. The Flow must select a server-configured
-    /// store with [`FlowConfig::attribute_store_name`](crate::FlowConfig::attribute_store_name).
+    /// stores with [`FlowConfig::attribute_store_names`](crate::FlowConfig::attribute_store_names).
     /// Deletions project SQL `NULL`, and projection failures never roll back Flow Attribute writes.
     #[must_use]
     pub fn sync_to_attribute_store(mut self) -> Self {

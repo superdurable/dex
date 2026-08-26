@@ -452,20 +452,26 @@ class FlowStartOptions(_message.Message):
     def __init__(self, id_reuse_policy: _Optional[_Union[IdReusePolicy, str]] = ..., flow_start_delay_seconds: _Optional[int] = ..., retry_policy: _Optional[_Union[FlowRetryPolicy, _Mapping]] = ..., attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., flow_config_override: _Optional[_Union[FlowConfig, _Mapping]] = ..., flow_already_started_options: _Optional[_Union[FlowAlreadyStartedOptions, _Mapping]] = ...) -> None: ...
 
 class FlowConfig(_message.Message):
-    __slots__ = ("active_step_search_mode", "continue_as_new_threshold", "continue_as_new_page_size_in_bytes", "step_durability", "worker_target", "attribute_sync_config_name")
+    __slots__ = ("active_step_search_mode", "continue_as_new_threshold", "continue_as_new_page_size_in_bytes", "step_durability", "worker_target", "attribute_store_names")
     ACTIVE_STEP_SEARCH_MODE_FIELD_NUMBER: _ClassVar[int]
     CONTINUE_AS_NEW_THRESHOLD_FIELD_NUMBER: _ClassVar[int]
     CONTINUE_AS_NEW_PAGE_SIZE_IN_BYTES_FIELD_NUMBER: _ClassVar[int]
     STEP_DURABILITY_FIELD_NUMBER: _ClassVar[int]
     WORKER_TARGET_FIELD_NUMBER: _ClassVar[int]
-    ATTRIBUTE_SYNC_CONFIG_NAME_FIELD_NUMBER: _ClassVar[int]
+    ATTRIBUTE_STORE_NAMES_FIELD_NUMBER: _ClassVar[int]
     active_step_search_mode: ActiveStepSearchMode
     continue_as_new_threshold: int
     continue_as_new_page_size_in_bytes: int
     step_durability: StepDurability
     worker_target: WorkerTarget
-    attribute_sync_config_name: str
-    def __init__(self, active_step_search_mode: _Optional[_Union[ActiveStepSearchMode, str]] = ..., continue_as_new_threshold: _Optional[int] = ..., continue_as_new_page_size_in_bytes: _Optional[int] = ..., step_durability: _Optional[_Union[StepDurability, str]] = ..., worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., attribute_sync_config_name: _Optional[str] = ...) -> None: ...
+    attribute_store_names: AttributeStoreNames
+    def __init__(self, active_step_search_mode: _Optional[_Union[ActiveStepSearchMode, str]] = ..., continue_as_new_threshold: _Optional[int] = ..., continue_as_new_page_size_in_bytes: _Optional[int] = ..., step_durability: _Optional[_Union[StepDurability, str]] = ..., worker_target: _Optional[_Union[WorkerTarget, _Mapping]] = ..., attribute_store_names: _Optional[_Union[AttributeStoreNames, _Mapping]] = ...) -> None: ...
+
+class AttributeStoreNames(_message.Message):
+    __slots__ = ("names",)
+    NAMES_FIELD_NUMBER: _ClassVar[int]
+    names: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, names: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class WorkerTarget(_message.Message):
     __slots__ = ("address", "is_headless_address")

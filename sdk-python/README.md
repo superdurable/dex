@@ -80,13 +80,14 @@ Flow configuration:
 
 ```python
 email = dex.Attribute("customer-email", str, sync_to_attribute_store=True)
-config = dex.FlowConfig(attribute_store_name="profiles")
+config = dex.FlowConfig(attribute_store_names=["profiles", "audit"])
 ```
 
-The Store is an asynchronous latest-state projection. Deletion writes SQL
-`NULL`, and projection failures do not roll back Flow Attributes. `None`
-preserves the current target; an explicit empty string disables future
-synchronization while retaining protocol presence.
+Stores are asynchronous latest-state projections. Every enabled Attribute write
+is sent to every selected Store. Deletion writes SQL `NULL`, and projection
+failures do not roll back Flow Attributes. `None` preserves current targets;
+an explicit empty list disables future synchronization while retaining protocol
+presence.
 
 ```
 pip install dex-python-sdk==0.1.0

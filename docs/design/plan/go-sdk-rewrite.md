@@ -2497,7 +2497,7 @@ const (
 
 type FlowConfig struct {
 	ActiveStepSearchMode       *ActiveStepSearchMode
-	AttributeStoreName         *string
+	AttributeStoreNames        *[]string
 	ContinueAsNewThreshold     *int32
 	ContinueAsNewPageSizeBytes *int32
 	StepDurability             *StepDurability
@@ -2630,8 +2630,9 @@ type TimeTravelOptions struct {
 ```
 
 Pointer fields in `FlowConfig` preserve proto presence for partial overrides.
-`AttributeStoreName == nil` omits the target override, while a pointer to an
-empty string disables synchronization for future enabled writes.
+`AttributeStoreNames == nil` omits the target override, while a pointer to an
+empty slice disables synchronization for future enabled writes. Every enabled
+Attribute write is projected to every selected Store.
 `WorkerTarget` is configured through `FlowConfig`, not as a separate StartFlow
 argument. Phase 5 adds `ClientOptions.WorkerTarget` as the default inserted into
 that FlowConfig.

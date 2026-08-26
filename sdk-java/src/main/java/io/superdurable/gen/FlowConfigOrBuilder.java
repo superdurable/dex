@@ -81,30 +81,28 @@ public interface FlowConfigOrBuilder extends
 
   /**
    * <pre>
-   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * Present empty disables future synchronization; non-empty selects Server-configured stores.
    * </pre>
    *
-   * <code>optional string attribute_sync_config_name = 6;</code>
-   * @return Whether the attributeSyncConfigName field is set.
+   * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+   * @return Whether the attributeStoreNames field is set.
    */
-  boolean hasAttributeSyncConfigName();
+  boolean hasAttributeStoreNames();
   /**
    * <pre>
-   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * Present empty disables future synchronization; non-empty selects Server-configured stores.
    * </pre>
    *
-   * <code>optional string attribute_sync_config_name = 6;</code>
-   * @return The attributeSyncConfigName.
+   * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+   * @return The attributeStoreNames.
    */
-  java.lang.String getAttributeSyncConfigName();
+  io.superdurable.gen.AttributeStoreNames getAttributeStoreNames();
   /**
    * <pre>
-   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * Present empty disables future synchronization; non-empty selects Server-configured stores.
    * </pre>
    *
-   * <code>optional string attribute_sync_config_name = 6;</code>
-   * @return The bytes for attributeSyncConfigName.
+   * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
    */
-  com.google.protobuf.ByteString
-      getAttributeSyncConfigNameBytes();
+  io.superdurable.gen.AttributeStoreNamesOrBuilder getAttributeStoreNamesOrBuilder();
 }

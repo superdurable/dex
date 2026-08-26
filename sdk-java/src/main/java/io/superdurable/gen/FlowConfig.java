@@ -30,7 +30,6 @@ private static final long serialVersionUID = 0L;
   private FlowConfig() {
     activeStepSearchMode_ = 0;
     stepDurability_ = 0;
-    attributeSyncConfigName_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -166,63 +165,42 @@ private static final long serialVersionUID = 0L;
     return workerTarget_ == null ? io.superdurable.gen.WorkerTarget.getDefaultInstance() : workerTarget_;
   }
 
-  public static final int ATTRIBUTE_SYNC_CONFIG_NAME_FIELD_NUMBER = 6;
-  @SuppressWarnings("serial")
-  private volatile java.lang.Object attributeSyncConfigName_ = "";
+  public static final int ATTRIBUTE_STORE_NAMES_FIELD_NUMBER = 6;
+  private io.superdurable.gen.AttributeStoreNames attributeStoreNames_;
   /**
    * <pre>
-   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * Present empty disables future synchronization; non-empty selects Server-configured stores.
    * </pre>
    *
-   * <code>optional string attribute_sync_config_name = 6;</code>
-   * @return Whether the attributeSyncConfigName field is set.
+   * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+   * @return Whether the attributeStoreNames field is set.
    */
   @java.lang.Override
-  public boolean hasAttributeSyncConfigName() {
+  public boolean hasAttributeStoreNames() {
     return ((bitField0_ & 0x00000020) != 0);
   }
   /**
    * <pre>
-   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * Present empty disables future synchronization; non-empty selects Server-configured stores.
    * </pre>
    *
-   * <code>optional string attribute_sync_config_name = 6;</code>
-   * @return The attributeSyncConfigName.
+   * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+   * @return The attributeStoreNames.
    */
   @java.lang.Override
-  public java.lang.String getAttributeSyncConfigName() {
-    java.lang.Object ref = attributeSyncConfigName_;
-    if (ref instanceof java.lang.String) {
-      return (java.lang.String) ref;
-    } else {
-      com.google.protobuf.ByteString bs = 
-          (com.google.protobuf.ByteString) ref;
-      java.lang.String s = bs.toStringUtf8();
-      attributeSyncConfigName_ = s;
-      return s;
-    }
+  public io.superdurable.gen.AttributeStoreNames getAttributeStoreNames() {
+    return attributeStoreNames_ == null ? io.superdurable.gen.AttributeStoreNames.getDefaultInstance() : attributeStoreNames_;
   }
   /**
    * <pre>
-   * Present empty disables future synchronization; non-empty selects a Server-configured store.
+   * Present empty disables future synchronization; non-empty selects Server-configured stores.
    * </pre>
    *
-   * <code>optional string attribute_sync_config_name = 6;</code>
-   * @return The bytes for attributeSyncConfigName.
+   * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
    */
   @java.lang.Override
-  public com.google.protobuf.ByteString
-      getAttributeSyncConfigNameBytes() {
-    java.lang.Object ref = attributeSyncConfigName_;
-    if (ref instanceof java.lang.String) {
-      com.google.protobuf.ByteString b = 
-          com.google.protobuf.ByteString.copyFromUtf8(
-              (java.lang.String) ref);
-      attributeSyncConfigName_ = b;
-      return b;
-    } else {
-      return (com.google.protobuf.ByteString) ref;
-    }
+  public io.superdurable.gen.AttributeStoreNamesOrBuilder getAttributeStoreNamesOrBuilder() {
+    return attributeStoreNames_ == null ? io.superdurable.gen.AttributeStoreNames.getDefaultInstance() : attributeStoreNames_;
   }
 
   private byte memoizedIsInitialized = -1;
@@ -255,7 +233,7 @@ private static final long serialVersionUID = 0L;
       output.writeMessage(5, getWorkerTarget());
     }
     if (((bitField0_ & 0x00000020) != 0)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 6, attributeSyncConfigName_);
+      output.writeMessage(6, getAttributeStoreNames());
     }
     getUnknownFields().writeTo(output);
   }
@@ -282,7 +260,8 @@ private static final long serialVersionUID = 0L;
         .computeMessageSize(5, getWorkerTarget());
     }
     if (((bitField0_ & 0x00000020) != 0)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, attributeSyncConfigName_);
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(6, getAttributeStoreNames());
     }
     return size;
   }
@@ -331,10 +310,10 @@ private static final long serialVersionUID = 0L;
       if (!getWorkerTarget()
           .equals(other.getWorkerTarget())) return false;
     }
-    if (hasAttributeSyncConfigName() != other.hasAttributeSyncConfigName()) return false;
-    if (hasAttributeSyncConfigName()) {
-      if (!getAttributeSyncConfigName()
-          .equals(other.getAttributeSyncConfigName())) return false;
+    if (hasAttributeStoreNames() != other.hasAttributeStoreNames()) return false;
+    if (hasAttributeStoreNames()) {
+      if (!getAttributeStoreNames()
+          .equals(other.getAttributeStoreNames())) return false;
     }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
@@ -367,9 +346,9 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + WORKER_TARGET_FIELD_NUMBER;
       hash = (53 * hash) + getWorkerTarget().hashCode();
     }
-    if (hasAttributeSyncConfigName()) {
-      hash = (37 * hash) + ATTRIBUTE_SYNC_CONFIG_NAME_FIELD_NUMBER;
-      hash = (53 * hash) + getAttributeSyncConfigName().hashCode();
+    if (hasAttributeStoreNames()) {
+      hash = (37 * hash) + ATTRIBUTE_STORE_NAMES_FIELD_NUMBER;
+      hash = (53 * hash) + getAttributeStoreNames().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -502,6 +481,7 @@ private static final long serialVersionUID = 0L;
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
         internalGetWorkerTargetFieldBuilder();
+        internalGetAttributeStoreNamesFieldBuilder();
       }
     }
     @java.lang.Override
@@ -517,7 +497,11 @@ private static final long serialVersionUID = 0L;
         workerTargetBuilder_.dispose();
         workerTargetBuilder_ = null;
       }
-      attributeSyncConfigName_ = "";
+      attributeStoreNames_ = null;
+      if (attributeStoreNamesBuilder_ != null) {
+        attributeStoreNamesBuilder_.dispose();
+        attributeStoreNamesBuilder_ = null;
+      }
       return this;
     }
 
@@ -575,7 +559,9 @@ private static final long serialVersionUID = 0L;
         to_bitField0_ |= 0x00000010;
       }
       if (((from_bitField0_ & 0x00000020) != 0)) {
-        result.attributeSyncConfigName_ = attributeSyncConfigName_;
+        result.attributeStoreNames_ = attributeStoreNamesBuilder_ == null
+            ? attributeStoreNames_
+            : attributeStoreNamesBuilder_.build();
         to_bitField0_ |= 0x00000020;
       }
       result.bitField0_ |= to_bitField0_;
@@ -608,10 +594,8 @@ private static final long serialVersionUID = 0L;
       if (other.hasWorkerTarget()) {
         mergeWorkerTarget(other.getWorkerTarget());
       }
-      if (other.hasAttributeSyncConfigName()) {
-        attributeSyncConfigName_ = other.attributeSyncConfigName_;
-        bitField0_ |= 0x00000020;
-        onChanged();
+      if (other.hasAttributeStoreNames()) {
+        mergeAttributeStoreNames(other.getAttributeStoreNames());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -667,7 +651,9 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 42
             case 50: {
-              attributeSyncConfigName_ = input.readStringRequireUtf8();
+              input.readMessage(
+                  internalGetAttributeStoreNamesFieldBuilder().getBuilder(),
+                  extensionRegistry);
               bitField0_ |= 0x00000020;
               break;
             } // case 50
@@ -1007,107 +993,161 @@ private static final long serialVersionUID = 0L;
       return workerTargetBuilder_;
     }
 
-    private java.lang.Object attributeSyncConfigName_ = "";
+    private io.superdurable.gen.AttributeStoreNames attributeStoreNames_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.AttributeStoreNames, io.superdurable.gen.AttributeStoreNames.Builder, io.superdurable.gen.AttributeStoreNamesOrBuilder> attributeStoreNamesBuilder_;
     /**
      * <pre>
-     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * Present empty disables future synchronization; non-empty selects Server-configured stores.
      * </pre>
      *
-     * <code>optional string attribute_sync_config_name = 6;</code>
-     * @return Whether the attributeSyncConfigName field is set.
+     * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+     * @return Whether the attributeStoreNames field is set.
      */
-    public boolean hasAttributeSyncConfigName() {
+    public boolean hasAttributeStoreNames() {
       return ((bitField0_ & 0x00000020) != 0);
     }
     /**
      * <pre>
-     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * Present empty disables future synchronization; non-empty selects Server-configured stores.
      * </pre>
      *
-     * <code>optional string attribute_sync_config_name = 6;</code>
-     * @return The attributeSyncConfigName.
+     * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+     * @return The attributeStoreNames.
      */
-    public java.lang.String getAttributeSyncConfigName() {
-      java.lang.Object ref = attributeSyncConfigName_;
-      if (!(ref instanceof java.lang.String)) {
-        com.google.protobuf.ByteString bs =
-            (com.google.protobuf.ByteString) ref;
-        java.lang.String s = bs.toStringUtf8();
-        attributeSyncConfigName_ = s;
-        return s;
+    public io.superdurable.gen.AttributeStoreNames getAttributeStoreNames() {
+      if (attributeStoreNamesBuilder_ == null) {
+        return attributeStoreNames_ == null ? io.superdurable.gen.AttributeStoreNames.getDefaultInstance() : attributeStoreNames_;
       } else {
-        return (java.lang.String) ref;
+        return attributeStoreNamesBuilder_.getMessage();
       }
     }
     /**
      * <pre>
-     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * Present empty disables future synchronization; non-empty selects Server-configured stores.
      * </pre>
      *
-     * <code>optional string attribute_sync_config_name = 6;</code>
-     * @return The bytes for attributeSyncConfigName.
+     * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
      */
-    public com.google.protobuf.ByteString
-        getAttributeSyncConfigNameBytes() {
-      java.lang.Object ref = attributeSyncConfigName_;
-      if (ref instanceof String) {
-        com.google.protobuf.ByteString b = 
-            com.google.protobuf.ByteString.copyFromUtf8(
-                (java.lang.String) ref);
-        attributeSyncConfigName_ = b;
-        return b;
+    public Builder setAttributeStoreNames(io.superdurable.gen.AttributeStoreNames value) {
+      if (attributeStoreNamesBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        attributeStoreNames_ = value;
       } else {
-        return (com.google.protobuf.ByteString) ref;
+        attributeStoreNamesBuilder_.setMessage(value);
       }
-    }
-    /**
-     * <pre>
-     * Present empty disables future synchronization; non-empty selects a Server-configured store.
-     * </pre>
-     *
-     * <code>optional string attribute_sync_config_name = 6;</code>
-     * @param value The attributeSyncConfigName to set.
-     * @return This builder for chaining.
-     */
-    public Builder setAttributeSyncConfigName(
-        java.lang.String value) {
-      if (value == null) { throw new NullPointerException(); }
-      attributeSyncConfigName_ = value;
       bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * Present empty disables future synchronization; non-empty selects Server-configured stores.
      * </pre>
      *
-     * <code>optional string attribute_sync_config_name = 6;</code>
-     * @return This builder for chaining.
+     * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
      */
-    public Builder clearAttributeSyncConfigName() {
-      attributeSyncConfigName_ = getDefaultInstance().getAttributeSyncConfigName();
+    public Builder setAttributeStoreNames(
+        io.superdurable.gen.AttributeStoreNames.Builder builderForValue) {
+      if (attributeStoreNamesBuilder_ == null) {
+        attributeStoreNames_ = builderForValue.build();
+      } else {
+        attributeStoreNamesBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000020;
+      onChanged();
+      return this;
+    }
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects Server-configured stores.
+     * </pre>
+     *
+     * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+     */
+    public Builder mergeAttributeStoreNames(io.superdurable.gen.AttributeStoreNames value) {
+      if (attributeStoreNamesBuilder_ == null) {
+        if (((bitField0_ & 0x00000020) != 0) &&
+          attributeStoreNames_ != null &&
+          attributeStoreNames_ != io.superdurable.gen.AttributeStoreNames.getDefaultInstance()) {
+          getAttributeStoreNamesBuilder().mergeFrom(value);
+        } else {
+          attributeStoreNames_ = value;
+        }
+      } else {
+        attributeStoreNamesBuilder_.mergeFrom(value);
+      }
+      if (attributeStoreNames_ != null) {
+        bitField0_ |= 0x00000020;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects Server-configured stores.
+     * </pre>
+     *
+     * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+     */
+    public Builder clearAttributeStoreNames() {
       bitField0_ = (bitField0_ & ~0x00000020);
+      attributeStoreNames_ = null;
+      if (attributeStoreNamesBuilder_ != null) {
+        attributeStoreNamesBuilder_.dispose();
+        attributeStoreNamesBuilder_ = null;
+      }
       onChanged();
       return this;
     }
     /**
      * <pre>
-     * Present empty disables future synchronization; non-empty selects a Server-configured store.
+     * Present empty disables future synchronization; non-empty selects Server-configured stores.
      * </pre>
      *
-     * <code>optional string attribute_sync_config_name = 6;</code>
-     * @param value The bytes for attributeSyncConfigName to set.
-     * @return This builder for chaining.
+     * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
      */
-    public Builder setAttributeSyncConfigNameBytes(
-        com.google.protobuf.ByteString value) {
-      if (value == null) { throw new NullPointerException(); }
-      checkByteStringIsUtf8(value);
-      attributeSyncConfigName_ = value;
+    public io.superdurable.gen.AttributeStoreNames.Builder getAttributeStoreNamesBuilder() {
       bitField0_ |= 0x00000020;
       onChanged();
-      return this;
+      return internalGetAttributeStoreNamesFieldBuilder().getBuilder();
+    }
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects Server-configured stores.
+     * </pre>
+     *
+     * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+     */
+    public io.superdurable.gen.AttributeStoreNamesOrBuilder getAttributeStoreNamesOrBuilder() {
+      if (attributeStoreNamesBuilder_ != null) {
+        return attributeStoreNamesBuilder_.getMessageOrBuilder();
+      } else {
+        return attributeStoreNames_ == null ?
+            io.superdurable.gen.AttributeStoreNames.getDefaultInstance() : attributeStoreNames_;
+      }
+    }
+    /**
+     * <pre>
+     * Present empty disables future synchronization; non-empty selects Server-configured stores.
+     * </pre>
+     *
+     * <code>optional .dex.AttributeStoreNames attribute_store_names = 6;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.AttributeStoreNames, io.superdurable.gen.AttributeStoreNames.Builder, io.superdurable.gen.AttributeStoreNamesOrBuilder> 
+        internalGetAttributeStoreNamesFieldBuilder() {
+      if (attributeStoreNamesBuilder_ == null) {
+        attributeStoreNamesBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.AttributeStoreNames, io.superdurable.gen.AttributeStoreNames.Builder, io.superdurable.gen.AttributeStoreNamesOrBuilder>(
+                getAttributeStoreNames(),
+                getParentForChildren(),
+                isClean());
+        attributeStoreNames_ = null;
+      }
+      return attributeStoreNamesBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.FlowConfig)

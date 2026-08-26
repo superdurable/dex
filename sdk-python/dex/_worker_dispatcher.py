@@ -456,8 +456,10 @@ class WorkerDispatcher:
                     is_headless_address=config.worker_target.headless,
                 )
             )
-        if config.attribute_store_name is not None:
-            mapped.attribute_sync_config_name = config.attribute_store_name
+        if config.attribute_store_names is not None:
+            mapped.attribute_store_names.CopyFrom(
+                pb.AttributeStoreNames(names=config.attribute_store_names)
+            )
         return mapped
 
     def _map_decision(

@@ -670,10 +670,10 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 
 	require.NoError(t, client.UpdateFlowConfig(ctx, "order-1", FlowConfig{
 		ContinueAsNewThreshold: ptr.Any(int32(100)),
-		AttributeStoreName:     ptr.Any("reporting"),
+		AttributeStoreNames:    ptr.Any([]string{"reporting", "audit"}),
 	}))
 	require.Nil(t, service.updateConfigRequest.FlowConfig.WorkerTarget)
-	require.Equal(t, "reporting", service.updateConfigRequest.FlowConfig.GetAttributeSyncConfigName())
+	require.Equal(t, []string{"reporting", "audit"}, service.updateConfigRequest.FlowConfig.GetAttributeStoreNames().GetNames())
 	require.NoError(t, client.WaitForStepCompletion(
 		ctx,
 		"order-1",

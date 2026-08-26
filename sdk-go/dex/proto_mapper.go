@@ -357,13 +357,17 @@ func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	var attributeStoreNames *dexpb.AttributeStoreNames
+	if config.AttributeStoreNames != nil {
+		attributeStoreNames = &dexpb.AttributeStoreNames{Names: *config.AttributeStoreNames}
+	}
 	return &dexpb.FlowConfig{
 		ActiveStepSearchMode:         searchMode,
 		ContinueAsNewThreshold:       config.ContinueAsNewThreshold,
 		ContinueAsNewPageSizeInBytes: config.ContinueAsNewPageSizeBytes,
 		StepDurability:               durability,
 		WorkerTarget:                 mapWorkerTarget(config.WorkerTarget),
-		AttributeSyncConfigName:      config.AttributeStoreName,
+		AttributeStoreNames:          attributeStoreNames,
 	}, nil
 }
 

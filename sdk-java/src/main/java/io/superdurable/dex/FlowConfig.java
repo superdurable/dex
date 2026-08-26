@@ -10,6 +10,10 @@
 
 package io.superdurable.dex;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 /**
  * Configures server behavior for one Flow execution.
  *
@@ -31,7 +35,7 @@ public final class FlowConfig {
     private final Integer continueAsNewPageSizeBytes;
     private final StepDurability stepDurability;
     private final WorkerTarget workerTarget;
-    private final String attributeStoreName;
+    private final List<String> attributeStoreNames;
 
     private FlowConfig(final Builder builder) {
         this.activeStepSearchMode = builder.activeStepSearchMode;
@@ -39,7 +43,7 @@ public final class FlowConfig {
         this.continueAsNewPageSizeBytes = builder.continueAsNewPageSizeBytes;
         this.stepDurability = builder.stepDurability;
         this.workerTarget = builder.workerTarget;
-        this.attributeStoreName = builder.attributeStoreName;
+        this.attributeStoreNames = builder.attributeStoreNames;
     }
 
     /**
@@ -71,8 +75,8 @@ public final class FlowConfig {
         return workerTarget;
     }
 
-    String getAttributeStoreName() {
-        return attributeStoreName;
+    List<String> getAttributeStoreNames() {
+        return attributeStoreNames;
     }
 
     /** Builds immutable {@link FlowConfig} values. */
@@ -82,7 +86,7 @@ public final class FlowConfig {
         private Integer continueAsNewPageSizeBytes;
         private StepDurability stepDurability;
         private WorkerTarget workerTarget;
-        private String attributeStoreName;
+        private List<String> attributeStoreNames;
 
         private Builder() {
         }
@@ -153,17 +157,20 @@ public final class FlowConfig {
         }
 
         /**
-         * Selects the Server-configured Attribute Store for enabled Attribute writes.
+         * Selects Server-configured Attribute Stores for enabled Attribute writes.
          *
-         * <p>A nonempty value selects a named store. An empty string explicitly disables future
-         * projections, while omitting this call leaves the current or server-selected value
-         * unchanged. Already queued projections retain their original target.
+         * <p>Each enabled Attribute write is projected to every selected store. An empty list
+         * explicitly disables future projections, while omitting this call leaves the current or
+         * server-selected values unchanged. Already queued projections retain their original targets.
          *
-         * @param value the Attribute Store name, or an empty string to disable future projections
+         * @param value the Attribute Store names, an empty list to disable future projections, or
+         *     {@code null} for the server default
          * @return this builder
          */
-        public Builder attributeStoreName(final String value) {
-            attributeStoreName = value;
+        public Builder attributeStoreNames(final List<String> value) {
+            attributeStoreNames = value == null
+                    ? null
+                    : Collections.unmodifiableList(new ArrayList<>(value));
             return this;
         }
 

@@ -159,7 +159,7 @@ func (i *Interpreter) StartEngineFlow(
 		attributeSynchronizer.AppendingToPendings(
 			ctx,
 			input.GetInitAttributes(),
-			flowConfiger.Get().GetAttributeSyncConfigName(),
+			flowConfiger.Get().GetAttributeStoreNames().GetNames(),
 		)
 		timerProcessor = timers.NewGreedyTimerProcessor(
 			ctx,

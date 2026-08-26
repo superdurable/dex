@@ -194,7 +194,7 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	attributeMap := DefineAttributeMap[string]("status-by-tenant", SyncToAttributeStore())
 	initialMap, err := InitialAttributeMapValue(attributeMap, "tenant-1", "ready")
 	require.NoError(t, err)
-	storeName := "reporting"
+	storeNames := []string{"reporting", "audit"}
 
 	flowTimeout, timeoutPolicy, options, err := mapStartFlowOptions(StartFlowOptions{
 		Timeout:       &timeout,
@@ -204,7 +204,7 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 		ConfigOverride: &FlowConfig{
 			ActiveStepSearchMode: &searchMode,
 			StepDurability:       &durability,
-			AttributeStoreName:   &storeName,
+			AttributeStoreNames:  &storeNames,
 			WorkerTarget: &WorkerTarget{
 				Address:  "worker:7233",
 				Headless: true,
@@ -221,16 +221,16 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.NotNil(t, options.FlowConfigOverride.ActiveStepSearchMode)
 	require.NotNil(t, options.FlowConfigOverride.StepDurability)
 	require.True(t, options.FlowConfigOverride.WorkerTarget.IsHeadlessAddress)
-	require.Equal(t, "reporting", options.FlowConfigOverride.GetAttributeSyncConfigName())
-	require.NotNil(t, options.FlowConfigOverride.AttributeSyncConfigName)
+	require.Equal(t, []string{"reporting", "audit"}, options.FlowConfigOverride.GetAttributeStoreNames().GetNames())
+	require.NotNil(t, options.FlowConfigOverride.AttributeStoreNames)
 
-	disabled := ""
+	disabled := []string{}
 	_, _, disabledOptions, err := mapStartFlowOptions(StartFlowOptions{
-		ConfigOverride: &FlowConfig{AttributeStoreName: &disabled},
+		ConfigOverride: &FlowConfig{AttributeStoreNames: &disabled},
 	})
 	require.NoError(t, err)
-	require.NotNil(t, disabledOptions.FlowConfigOverride.AttributeSyncConfigName)
-	require.Empty(t, disabledOptions.FlowConfigOverride.GetAttributeSyncConfigName())
+	require.NotNil(t, disabledOptions.FlowConfigOverride.AttributeStoreNames)
+	require.Empty(t, disabledOptions.FlowConfigOverride.GetAttributeStoreNames().GetNames())
 
 	_, _, empty, err := mapStartFlowOptions(StartFlowOptions{})
 	require.NoError(t, err)
