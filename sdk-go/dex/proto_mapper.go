@@ -359,7 +359,7 @@ func mapFlowConfig(config *FlowConfig) (*dexpb.FlowConfig, error) {
 	}
 	var attributeStoreNames *dexpb.AttributeStoreNames
 	if config.AttributeStoreNames != nil {
-		attributeStoreNames = &dexpb.AttributeStoreNames{Names: *config.AttributeStoreNames}
+		attributeStoreNames = &dexpb.AttributeStoreNames{Names: config.AttributeStoreNames}
 	}
 	return &dexpb.FlowConfig{
 		ActiveStepSearchMode:         searchMode,

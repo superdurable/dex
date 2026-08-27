@@ -10,11 +10,7 @@
 
 package dex
 
-import (
-	"time"
-
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
-)
+import "time"
 
 // RetryPolicy overrides retry timing for a Step's WaitFor or Execute method.
 // Zero fields preserve server defaults; MaximumAttempts counts the initial attempt.
@@ -140,21 +136,8 @@ type FlowConfig struct {
 	// WorkerTarget routes future Step and RPC invocations.
 	WorkerTarget *WorkerTarget
 	// AttributeStoreNames selects Server-configured Attribute Stores for opted-in writes.
-	// Nil preserves the current targets; an empty slice disables future asynchronous projections.
-	AttributeStoreNames *[]string
-}
-
-// AttributeStoreNames returns a present Attribute Store override for FlowConfig.
-//
-// Pass the Server-configured stores that should receive opted-in Attribute writes. Calling
-// AttributeStoreNames with no arguments explicitly disables future projections, while a nil
-// FlowConfig.AttributeStoreNames field leaves the current or server-selected stores unchanged.
-//
-//	config := dex.FlowConfig{AttributeStoreNames: dex.AttributeStoreNames("profiles")}
-//
-// The returned pointer owns the supplied slice and is intended for FlowConfig.AttributeStoreNames.
-func AttributeStoreNames(names ...string) *[]string {
-	return ptr.Any(names)
+	// A nil slice preserves the current targets; an empty non-nil slice disables future projections.
+	AttributeStoreNames []string
 }
 
 // StartFlowOptions configures a new Flow execution.
