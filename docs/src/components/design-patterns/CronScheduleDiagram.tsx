@@ -11,7 +11,7 @@
 import React, {type ReactNode} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 
-import {ChannelIcon, CompactCard, GraphArrow, GraphLoopBack, StepCard} from '../primitives/step/flowGraphShared';
+import {ChannelIcon, CompactCard, GraphArrow, StepCard} from '../primitives/step/flowGraphShared';
 
 type Copy = {
   label: string;
@@ -28,8 +28,10 @@ type Copy = {
   scheduleExecute: string;
   run: string;
   runExecute: string;
-  complete: string;
-  completeDetail: string;
+  runLabel: string;
+  nextSchedule: string;
+  nextScheduleDetail: string;
+  nextScheduleLabel: string;
 };
 
 const EN: Copy = {
@@ -47,8 +49,10 @@ const EN: Copy = {
   scheduleExecute: 'Skip: next interval; timer / Trigger: Run + next interval',
   run: 'Run',
   runExecute: 'record scheduled work',
-  complete: 'complete',
-  completeDetail: 'after the final occurrence',
+  runLabel: 'Timer / Trigger',
+  nextSchedule: 'WaitForSchedule',
+  nextScheduleDetail: 'same Step definition, next input',
+  nextScheduleLabel: 'Timer / Trigger / Skip',
 };
 
 const ZH: Copy = {
@@ -66,8 +70,10 @@ const ZH: Copy = {
   scheduleExecute: 'Skip：下一间隔；timer / Trigger：Run + 下一间隔',
   run: 'Run',
   runExecute: '记录 scheduled work',
-  complete: 'complete',
-  completeDetail: '最后一次 occurrence 后',
+  runLabel: 'Timer / Trigger',
+  nextSchedule: 'WaitForSchedule',
+  nextScheduleDetail: '同一 Step definition，使用下一个 input',
+  nextScheduleLabel: 'Timer / Trigger / Skip',
 };
 
 function ChannelCard({name}: {name: string}): ReactNode {
@@ -113,23 +119,33 @@ export default function CronScheduleDiagram(): ReactNode {
           <div className="flow-graph flow-graph-panel-body">
             <CompactCard kicker="FLOW" title={copy.flow} tone="source" />
             <GraphArrow />
-            <div className="flow-graph-loop-def">
-              <div className="flow-graph-loop-def-steps">
-                <StepCard name={copy.start} executeOnly execute={copy.startExecute} />
-                <GraphArrow />
-                <StepCard
-                  name={copy.schedule}
-                  execute={copy.scheduleExecute}
-                  waitFor={{timer: 'interval', channel: `${copy.trigger} + ${copy.skip}`}}
-                  tone="waiting"
-                />
-                <GraphArrow />
-                <StepCard name={copy.run} executeOnly execute={copy.runExecute} />
-              </div>
-              <GraphLoopBack />
-            </div>
+            <StepCard name={copy.start} executeOnly execute={copy.startExecute} />
             <GraphArrow />
-            <CompactCard kicker="DONE" title={copy.complete} detail={copy.completeDetail} tone="done" />
+            <StepCard
+              name={copy.schedule}
+              execute={copy.scheduleExecute}
+              waitFor={{timer: 'interval', channel: `${copy.trigger} + ${copy.skip}`}}
+              tone="waiting"
+            />
+            <div className="flow-graph-split">
+              <div className="flow-graph-split-stem" aria-hidden="true" />
+              <div className="flow-graph-split-bar" aria-hidden="true" />
+              <div className="flow-graph-split-cards">
+                <div className="flow-graph-split-branch">
+                  <GraphArrow label={copy.runLabel} />
+                  <StepCard name={copy.run} executeOnly execute={copy.runExecute} />
+                </div>
+                <div className="flow-graph-split-branch">
+                  <GraphArrow label={copy.nextScheduleLabel} />
+                  <CompactCard
+                    kicker="NEXT"
+                    title={copy.nextSchedule}
+                    detail={copy.nextScheduleDetail}
+                    tone="waiting"
+                  />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
