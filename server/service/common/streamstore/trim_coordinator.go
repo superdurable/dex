@@ -21,13 +21,8 @@ import (
 	"github.com/superdurable/dex/service/common/log/tag"
 )
 
-const (
-	trimLeaseTTL       = 5 * time.Second
-	trimLeaseRetry     = 100 * time.Millisecond
-	trimBatchYieldTime = time.Millisecond
-)
-
 type trimCoordinator struct {
+	cfg     *config.StreamStoreConfig
 	client  *redis.Client
 	logger  log.Logger
 	ownerID string
@@ -70,6 +65,7 @@ func newTrimCoordinator(
 	}
 	coordinatorCtx, cancelCoordinator := context.WithCancel(context.Background())
 	coordinator := &trimCoordinator{
+		cfg:     cfg,
 		client:  client,
 		logger:  logger,
 		ownerID: uuid.NewString(),
@@ -178,14 +174,14 @@ func (c *trimCoordinator) trim(scope streamScope, targetBytes int64) error {
 		if c.isClosed() {
 			return nil
 		}
-		acquired, err := c.client.SetNX(c.ctx, keys.lease, leaseOwner, trimLeaseTTL).Result()
+		acquired, err := c.client.SetNX(c.ctx, keys.lease, leaseOwner, c.cfg.EffectiveTrimLeaseTTL()).Result()
 		if err != nil {
 			return fmt.Errorf("acquire Redis trim lease: %w", err)
 		}
 		if acquired {
 			break
 		}
-		if !c.waitFor(trimLeaseRetry) {
+		if !c.waitFor(c.cfg.EffectiveTrimLeaseRetry()) {
 			return nil
 		}
 	}
@@ -208,7 +204,7 @@ func (c *trimCoordinator) trim(scope streamScope, targetBytes int64) error {
 			renewLeaseScriptInput{
 				leaseKey:   keys.lease,
 				leaseOwner: leaseOwner,
-				leaseTTL:   trimLeaseTTL,
+				leaseTTL:   c.cfg.EffectiveTrimLeaseTTL(),
 			},
 		)
 		if err != nil {
@@ -220,6 +216,7 @@ func (c *trimCoordinator) trim(scope streamScope, targetBytes int64) error {
 		trimOutput, err := runTrimScript(c.ctx, c.client, trimScriptInput{
 			keys:        keys,
 			targetBytes: targetBytes,
+			batchSize:   c.cfg.EffectiveBackgroundTrimBatchSize(),
 			leaseOwner:  leaseOwner,
 		})
 		if err != nil {
@@ -228,7 +225,7 @@ func (c *trimCoordinator) trim(scope streamScope, targetBytes int64) error {
 		if trimOutput.remainingBytes < 0 || trimOutput.remainingBytes <= targetBytes {
 			return nil
 		}
-		if !c.waitFor(trimBatchYieldTime) {
+		if !c.waitFor(c.cfg.EffectiveTrimBatchYieldTime()) {
 			return nil
 		}
 	}

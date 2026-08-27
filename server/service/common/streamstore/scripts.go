@@ -18,8 +18,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const backgroundTrimBatchSize = 256
-
 type writeScriptStatus int64
 
 const (
@@ -51,6 +49,7 @@ type writeScriptOutput struct {
 type trimScriptInput struct {
 	keys        redisKeys
 	targetBytes int64
+	batchSize   int
 	leaseOwner  string
 }
 
@@ -159,7 +158,7 @@ func runTrimScript(
 		input.keys.chargedBytes,
 		input.keys.idempotency,
 		input.keys.lease,
-	}, input.targetBytes, backgroundTrimBatchSize, input.leaseOwner).Result()
+	}, input.targetBytes, input.batchSize, input.leaseOwner).Result()
 	if err != nil {
 		return trimScriptOutput{}, fmt.Errorf("trim Redis Stream: %w", err)
 	}

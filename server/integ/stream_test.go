@@ -574,6 +574,10 @@ func newStreamTestStore(t testing.TB) (*streamstore.Store, *redis.Client) {
 		EstimatedMessageOverheadBytes: 1,
 		TrimTriggerPercent:            90,
 		TrimTargetPercent:             80,
+		BackgroundTrimBatchSize:       1,
+		TrimLeaseTTL:                  2 * time.Second,
+		TrimLeaseRetry:                5 * time.Millisecond,
+		TrimBatchYieldTime:            100 * time.Microsecond,
 		TrimWorkers:                   2,
 	})
 }

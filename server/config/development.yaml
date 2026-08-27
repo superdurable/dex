@@ -90,4 +90,8 @@ blobStore:
 #   estimatedMessageOverheadBytes: 512
 #   trimTriggerPercent: 90
 #   trimTargetPercent: 80
+#   backgroundTrimBatchSize: 256
+#   trimLeaseTTL: 5s
+#   trimLeaseRetry: 100ms
+#   trimBatchYieldTime: 1ms
 #   trimWorkers: 4

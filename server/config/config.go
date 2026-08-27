@@ -78,6 +78,14 @@ const (
 	DefaultStreamTrimTriggerPercent int32 = 90
 	// DefaultStreamTrimTargetPercent stops asynchronous trimming at eighty percent of capacity.
 	DefaultStreamTrimTargetPercent int32 = 80
+	// DefaultStreamBackgroundTrimBatchSize caps messages removed by one atomic Redis trim script.
+	DefaultStreamBackgroundTrimBatchSize = 256
+	// DefaultStreamTrimLeaseTTL keeps a distributed trim lease alive for five seconds.
+	DefaultStreamTrimLeaseTTL = 5 * time.Second
+	// DefaultStreamTrimLeaseRetry retries a held distributed trim lease every 100 milliseconds.
+	DefaultStreamTrimLeaseRetry = 100 * time.Millisecond
+	// DefaultStreamTrimBatchYieldTime pauses one millisecond between atomic trim batches.
+	DefaultStreamTrimBatchYieldTime = time.Millisecond
 	// DefaultStreamTrimWorkers bounds process-wide asynchronous trim concurrency.
 	DefaultStreamTrimWorkers = 4
 )
@@ -161,6 +169,14 @@ type (
 		TrimTriggerPercent int32 `yaml:"trimTriggerPercent"`
 		// TrimTargetPercent stops asynchronous trimming at this capacity percentage. Default 80. Must be below TrimTriggerPercent.
 		TrimTargetPercent int32 `yaml:"trimTargetPercent"`
+		// BackgroundTrimBatchSize caps messages removed by one atomic Redis trim script. Default 256. Must be positive after defaults.
+		BackgroundTrimBatchSize int `yaml:"backgroundTrimBatchSize"`
+		// TrimLeaseTTL controls the Redis lease lifetime for one active trimmer. Default 5s. Must be positive after defaults.
+		TrimLeaseTTL time.Duration `yaml:"trimLeaseTTL"`
+		// TrimLeaseRetry controls how often a server retries a held trim lease. Default 100ms. Must be positive after defaults.
+		TrimLeaseRetry time.Duration `yaml:"trimLeaseRetry"`
+		// TrimBatchYieldTime controls the pause between atomic trim batches. Default 1ms. Must be positive after defaults.
+		TrimBatchYieldTime time.Duration `yaml:"trimBatchYieldTime"`
 		// TrimWorkers bounds concurrent background trim jobs per server process. Default 4. Must be positive after defaults.
 		TrimWorkers int `yaml:"trimWorkers"`
 	}
@@ -515,6 +531,38 @@ func (c StreamStoreConfig) EffectiveTrimTargetPercent() int32 {
 	return c.TrimTargetPercent
 }
 
+// EffectiveBackgroundTrimBatchSize returns the configured batch size or 256-message default.
+func (c StreamStoreConfig) EffectiveBackgroundTrimBatchSize() int {
+	if c.BackgroundTrimBatchSize == 0 {
+		return DefaultStreamBackgroundTrimBatchSize
+	}
+	return c.BackgroundTrimBatchSize
+}
+
+// EffectiveTrimLeaseTTL returns the configured lease lifetime or five-second default.
+func (c StreamStoreConfig) EffectiveTrimLeaseTTL() time.Duration {
+	if c.TrimLeaseTTL == 0 {
+		return DefaultStreamTrimLeaseTTL
+	}
+	return c.TrimLeaseTTL
+}
+
+// EffectiveTrimLeaseRetry returns the configured lease retry delay or 100-millisecond default.
+func (c StreamStoreConfig) EffectiveTrimLeaseRetry() time.Duration {
+	if c.TrimLeaseRetry == 0 {
+		return DefaultStreamTrimLeaseRetry
+	}
+	return c.TrimLeaseRetry
+}
+
+// EffectiveTrimBatchYieldTime returns the configured batch pause or one-millisecond default.
+func (c StreamStoreConfig) EffectiveTrimBatchYieldTime() time.Duration {
+	if c.TrimBatchYieldTime == 0 {
+		return DefaultStreamTrimBatchYieldTime
+	}
+	return c.TrimBatchYieldTime
+}
+
 // EffectiveTrimWorkers returns the configured worker count or four-worker default.
 func (c StreamStoreConfig) EffectiveTrimWorkers() int {
 	if c.TrimWorkers == 0 {
@@ -538,6 +586,18 @@ func (c StreamStoreConfig) Validate() error {
 	targetPercent := c.EffectiveTrimTargetPercent()
 	if targetPercent < 1 || targetPercent >= triggerPercent {
 		return fmt.Errorf("stream store trimTargetPercent must be positive and less than trimTriggerPercent")
+	}
+	if c.EffectiveBackgroundTrimBatchSize() <= 0 {
+		return fmt.Errorf("stream store backgroundTrimBatchSize must be positive")
+	}
+	if c.EffectiveTrimLeaseTTL() <= 0 {
+		return fmt.Errorf("stream store trimLeaseTTL must be positive")
+	}
+	if c.EffectiveTrimLeaseRetry() <= 0 {
+		return fmt.Errorf("stream store trimLeaseRetry must be positive")
+	}
+	if c.EffectiveTrimBatchYieldTime() <= 0 {
+		return fmt.Errorf("stream store trimBatchYieldTime must be positive")
 	}
 	if c.EffectiveTrimWorkers() <= 0 {
 		return fmt.Errorf("stream store trimWorkers must be positive")
