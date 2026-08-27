@@ -2,8 +2,6 @@
 title: Draining External Channel Publishing
 ---
 
-import DrainingChannelForExternalPublishingDiagram from '@site/src/components/design-patterns/DrainingChannelForExternalPublishingDiagram';
-
 # Draining External Channel Publishing
 
 Process externally published Channel messages, then close the short-lived Flow when its queue is empty.
@@ -18,7 +16,10 @@ Only one Step may consume a Channel checked by **ForceCompleteIfChannelsEmpty**.
 
 ## Step graph
 
-<DrainingChannelForExternalPublishingDiagram />
+<img
+  alt="Draining external Channel publishing Flow definition with Queue Channel, Example RPC, WaitForScheduleStep, and ForceCompleteIfChannelsEmpty"
+  src="/img/design-patterns/draining-external-channel-publishing.png"
+/>
 
 The large boundary is the Flow definition. Channel and RPC are external interfaces, so each crosses that boundary. **queueChannel** is one-way; **exampleRPC** carries a request and response. The graph shows Step definitions, not Step executions. **ProcessMessage** is the only Step definition; the fallback edge returns to it.
 

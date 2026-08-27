@@ -2,8 +2,6 @@
 title: 排空外部 Channel 发布
 ---
 
-import DrainingChannelForExternalPublishingDiagram from '@site/src/components/design-patterns/DrainingChannelForExternalPublishingDiagram';
-
 # 排空外部 Channel 发布
 
 处理外部发布到 Channel 的消息；队列为空时完成这条短生命周期的 Flow。
@@ -18,7 +16,10 @@ import DrainingChannelForExternalPublishingDiagram from '@site/src/components/de
 
 ## Step 图
 
-<DrainingChannelForExternalPublishingDiagram />
+<img
+  alt="排空外部 Channel 发布的 Flow definition，包含 Queue Channel、Example RPC、WaitForScheduleStep 和 ForceCompleteIfChannelsEmpty"
+  src="/img/design-patterns/draining-external-channel-publishing.png"
+/>
 
 大边框表示 Flow definition。Channel 和 RPC 是外部接口，因此它们跨越这个边框。**queueChannel** 是单向的；**exampleRPC** 同时传递请求和响应。这张图表示 Step definition，不表示 Step execution。**ProcessMessage** 是唯一的 Step definition；fallback 边回到它。
 
