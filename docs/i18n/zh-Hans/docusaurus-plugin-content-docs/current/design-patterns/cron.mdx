@@ -6,31 +6,31 @@ import CronScheduleDiagram from '@site/src/components/design-patterns/CronSchedu
 
 # Cron schedule
 
-Run fixed-interval work in one durable Flow.
+在一个 durable Flow 里跑固定间隔的工作。
 
 ## Flow definition
 
 <CronScheduleDiagram />
 
-The Flow has three Step definitions:
+这个 Flow 有三个 Step definition：
 
-1. **Start** validates a positive interval and run count, then moves to **WaitForSchedule**.
-2. **WaitForSchedule** waits for the interval **Timer**, **Trigger**, or **Skip**. **Skip** consumes an occurrence and starts the next interval. The timer or **Trigger** starts **Run** and the next **WaitForSchedule** occurrence together.
-3. **Run** records the scheduled work. It reaches a dead end unless this is the final occurrence, which completes the Flow.
+1. **Start** 校验 interval 和 run count 都是正数，然后转到 **WaitForSchedule**。
+2. **WaitForSchedule** 等待 interval **Timer**、**Trigger** 或 **Skip**。**Skip** 消耗一次 occurrence 并开始下一个 interval。Timer 或 **Trigger** 会同时启动 **Run** 和下一次 **WaitForSchedule**。
+3. **Run** 记录 scheduled work。除非这是最后一次 occurrence，否则它到达 dead end；最后一次会完成 Flow。
 
-External code uses the Client to publish the **Trigger** or **Skip** Channel. This pattern does not define an RPC.
+外部代码通过 Client 发布 **Trigger** 或 **Skip** Channel。这个 pattern 不定义 RPC。
 
-## Timing and control
+## 时间与控制
 
-Start one Flow with an interval in minutes, hours, or days, plus a positive run count. The next durable **Timer** starts when the current occurrence starts work, not when work finishes. The interval therefore measures one run start to the next. Work can overlap when it takes longer than the interval.
+启动 Flow 时传入分钟、小时或天级别的 interval，以及正的 run count。下一次 durable **Timer** 在当前 occurrence 开始工作时启动，不等待工作完成。因此 interval 测量的是一次 run start 到下一次 run start 的时间。工作时间比 interval 长时，run 可以重叠。
 
-Publish to **Trigger** to run the pending occurrence immediately. Publish to **Skip** to consume it without running work. Both choices start the next interval from that occurrence. A skipped occurrence still consumes one run from the configured limit. Stop the Flow to cancel its active timer and end the schedule.
+发布 **Trigger** 可以立即执行正在等待的 occurrence。发布 **Skip** 会消耗它而不执行工作。两种操作都会从这次 occurrence 开始下一个 interval。Skip 也会消耗配置限制中的一次 run。停止 Flow 会取消 active Timer 并结束 schedule。
 
-This is a fixed-interval pattern. It is not a calendar-aligned scheduler or a cron-expression API.
+这是固定间隔 pattern，不是按日历对齐的 scheduler，也不是 cron expression API。
 
-## Core implementation
+## 核心实现
 
-Each sample wires the two Channels into **WaitForSchedule**. The code below is the scheduling decision; the runnable example also includes input types, Flow registration, and the work implementation.
+每个 sample 都把两个 Channel 注入 **WaitForSchedule**。下面的代码是 scheduling decision；完整 runnable example 还包括 input type、Flow registration 和 work implementation。
 
 <SdkTabs
   examples={{
@@ -153,8 +153,8 @@ fn execute(&self, context: &mut Context, state: Self::Input) -> HandlerResult<St
 </SdkSnippet>
 </SdkTabs>
 
-## Related
+## 相关页面
 
 - [Channel](/primitives/channel)
 - [Timer](/primitives/timer)
-- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)
+- [GitHub 上的 examples](https://github.com/superdurable/dex/tree/main/examples)
