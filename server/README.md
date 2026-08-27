@@ -27,11 +27,12 @@ Integration and replay test instructions are available in
 [integ/README.md](integ/README.md) and [replayTests/README.md](replayTests/README.md).
 
 The optional `streamStore` configuration enables Redis 7+ Standalone-backed
-resumable Streams. `redisURL` enables the feature. The remaining settings tune
-approximate per-message charging, trim watermarks, and background trim
-concurrency. Redis is intentionally excluded from server
-readiness; only Stream RPCs fail when it is unavailable. Configure dedicated Redis memory with
-`maxmemory` and `noeviction` so memory pressure becomes a visible write error.
+resumable Streams. `redisURL` enables the feature. `maxMessageBytes` limits each
+serialized Value to 100 KiB by default. The remaining settings tune approximate
+per-message charging, trim watermarks, and background trim concurrency. Redis
+is intentionally excluded from server readiness; only Stream RPCs fail when it
+is unavailable. Configure dedicated Redis memory with `maxmemory` and
+`noeviction` so memory pressure becomes a visible write error.
 
 Capacity is not stored in Redis. Each write supplies the limit for all Flow
 instances with that Stream name. Charged bytes approximate the serialized

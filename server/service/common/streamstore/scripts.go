@@ -24,7 +24,6 @@ type writeScriptStatus int64
 
 const (
 	writeScriptStatusSucceeded writeScriptStatus = iota
-	writeScriptStatusMessageTooLarge
 	writeScriptStatusCapacityExceeded
 )
 
@@ -136,7 +135,6 @@ func decodeWriteScriptOutput(result any) (writeScriptOutput, error) {
 	status := writeScriptStatus(statusCode)
 	switch status {
 	case writeScriptStatusSucceeded,
-		writeScriptStatusMessageTooLarge,
 		writeScriptStatusCapacityExceeded:
 	default:
 		return writeScriptOutput{}, fmt.Errorf("unexpected Stream write status %d", statusCode)
@@ -292,13 +290,8 @@ if existingID then
 end
 
 local currentTotal = tonumber(redis.call('GET', chargedKey) or '0')
-if charge > capacity then
-  local needsTrim = 0
-  if currentTotal >= trigger then needsTrim = 1 end
-  return {'', 0, currentTotal, needsTrim, baseTarget, 1}
-end
 if currentTotal + charge > capacity then
-  return {'', 0, currentTotal, 1, baseTarget, 2}
+  return {'', 0, currentTotal, 1, baseTarget, 1}
 end
 
 local entryID = redis.call('XADD', fifoKey, '*', 'i', instanceKey, 'd', identity, 'c', charge)

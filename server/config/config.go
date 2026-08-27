@@ -70,6 +70,8 @@ const (
 	DefaultAttributeStoreSyncTotalDuration = time.Hour
 	// DefaultAttributeIndexSyncTimeout bounds backend index registration and propagation checks.
 	DefaultAttributeIndexSyncTimeout = 2 * time.Minute
+	// DefaultStreamMaxMessageBytes limits each serialized Stream Value to 100 KiB.
+	DefaultStreamMaxMessageBytes int64 = 100 * 1024
 	// DefaultStreamEstimatedMessageOverheadBytes approximates Redis bookkeeping per message.
 	DefaultStreamEstimatedMessageOverheadBytes int64 = 512
 	// DefaultStreamTrimTriggerPercent starts asynchronous trimming at ninety percent of capacity.
@@ -151,6 +153,8 @@ type (
 	StreamStoreConfig struct {
 		// RedisURL is a Redis 7+ Standalone URL. Default empty disables Streams. Immutable after startup.
 		RedisURL string `yaml:"redisURL"`
+		// MaxMessageBytes limits each serialized Stream Value. Default 102400. Must be positive after defaults.
+		MaxMessageBytes int64 `yaml:"maxMessageBytes"`
 		// EstimatedMessageOverheadBytes is charged per message beyond payload and identity bytes. Default 512. Must be non-negative.
 		EstimatedMessageOverheadBytes int64 `yaml:"estimatedMessageOverheadBytes"`
 		// TrimTriggerPercent starts asynchronous trimming at this capacity percentage. Default 90. Valid range is 1 through 99.
@@ -479,6 +483,14 @@ func (c ApiConfig) EffectiveMaxWaitSeconds() int64 {
 	return c.MaxWaitSeconds
 }
 
+// EffectiveMaxMessageBytes returns the configured limit or 100-KiB default.
+func (c StreamStoreConfig) EffectiveMaxMessageBytes() int64 {
+	if c.MaxMessageBytes == 0 {
+		return DefaultStreamMaxMessageBytes
+	}
+	return c.MaxMessageBytes
+}
+
 // EffectiveEstimatedMessageOverheadBytes returns the configured charge or 512-byte default.
 func (c StreamStoreConfig) EffectiveEstimatedMessageOverheadBytes() int64 {
 	if c.EstimatedMessageOverheadBytes == 0 {
@@ -513,6 +525,9 @@ func (c StreamStoreConfig) EffectiveTrimWorkers() int {
 
 // Validate checks enabled Stream Store settings and trimming bounds.
 func (c StreamStoreConfig) Validate() error {
+	if c.EffectiveMaxMessageBytes() <= 0 {
+		return fmt.Errorf("stream store maxMessageBytes must be positive")
+	}
 	if c.EstimatedMessageOverheadBytes < 0 {
 		return fmt.Errorf("stream store estimatedMessageOverheadBytes must be non-negative")
 	}

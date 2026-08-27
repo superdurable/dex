@@ -55,6 +55,7 @@ blobStore:
 # Streams remain disabled until redisURL is configured.
 # streamStore:
 #   redisURL: redis://redis:6379/0
+#   maxMessageBytes: 102400
 #   estimatedMessageOverheadBytes: 512
 #   trimTriggerPercent: 90
 #   trimTargetPercent: 80

@@ -27,9 +27,10 @@ continue-as-new; Step and RPC producers; signal and synchronous-update RPC
 delivery; RPC sibling-selector rejection; snapshot exclusion of RPC next Steps;
 and clean active state.
 
-Resumable Stream integration requires Redis 7 on `127.0.0.1:6379`. The standard
-dependency Compose files provide it with the `noeviction` policy. Run the
-focused server and Redis coverage with:
+Resumable Stream integration covers per-message size limits, global FIFO trim,
+resume, idempotency, and multi-server trim coordination. It requires Redis 7 on
+`127.0.0.1:6379`. The standard dependency Compose files provide it with the
+`noeviction` policy. Run the focused server and Redis coverage with:
 
 ```shell
 docker compose -f docker-compose/integ-dependencies.yml up -d redis

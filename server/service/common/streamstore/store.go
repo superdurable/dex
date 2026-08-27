@@ -29,7 +29,7 @@ import (
 
 var (
 	ErrDisabled           = errors.New("Stream Store is disabled")
-	ErrMessageTooLarge    = errors.New("Stream message exceeds maxEstimatedBytes")
+	ErrMessageTooLarge    = errors.New("serialized Stream Value exceeds configured maxMessageBytes")
 	ErrCapacityExceeded   = errors.New("Stream capacity is exhausted; retry after background trimming")
 	ErrWaitTimeout        = errors.New("Stream read timed out")
 	ErrInvalidResumeToken = errors.New("invalid Stream resume token")
@@ -108,6 +108,9 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 	if err != nil {
 		return fmt.Errorf("marshal Stream Value: %w", err)
 	}
+	if int64(len(payload)) > s.cfg.EffectiveMaxMessageBytes() {
+		return ErrMessageTooLarge
+	}
 	chargedBytes, err := s.chargedBytes(input, len(payload))
 	if err != nil {
 		return err
@@ -138,8 +141,6 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 	switch scriptOutput.status {
 	case writeScriptStatusSucceeded:
 		return nil
-	case writeScriptStatusMessageTooLarge:
-		return ErrMessageTooLarge
 	case writeScriptStatusCapacityExceeded:
 		return ErrCapacityExceeded
 	default:

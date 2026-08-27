@@ -238,6 +238,41 @@ func TestStreamStoreConcurrentTriggersUseSingletonTrimLease(t *testing.T) {
 	requireStreamAccountingConsistent(t, redisClient, streamName)
 }
 
+func TestStreamStoreMessageSizeLimit(t *testing.T) {
+	store, redisClient := newStreamTestStoreWithConfig(t, config.StreamStoreConfig{
+		RedisURL:                      streamTestRedisURL,
+		MaxMessageBytes:               32,
+		EstimatedMessageOverheadBytes: 1,
+		TrimTriggerPercent:            90,
+		TrimTargetPercent:             80,
+		TrimWorkers:                   2,
+	})
+	streamName := "message-size-" + newRequestID()
+	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
+
+	acceptedInput := streamInput("flow-a", streamName, 0, "accepted")
+	acceptedInput.MaxEstimatedBytes = 1 << 20
+	require.NoError(t, store.Write(context.Background(), acceptedInput))
+
+	oversizedInput := streamInput("flow-a", streamName, 1, string(make([]byte, 32)))
+	oversizedInput.MaxEstimatedBytes = 1 << 20
+	require.ErrorIs(t, store.Write(context.Background(), oversizedInput), streamstore.ErrMessageTooLarge)
+	require.Equal(t, int64(1), streamLength(t, redisClient, streamName))
+
+	defaultStore, _ := newStreamTestStore(t)
+	defaultStreamName := "default-message-size-" + newRequestID()
+	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, defaultStreamName) })
+	defaultInput := streamInput(
+		"flow-a",
+		defaultStreamName,
+		0,
+		string(make([]byte, config.DefaultStreamMaxMessageBytes)),
+	)
+	defaultInput.MaxEstimatedBytes = 1 << 20
+	require.ErrorIs(t, defaultStore.Write(context.Background(), defaultInput), streamstore.ErrMessageTooLarge)
+	require.Equal(t, int64(0), streamLength(t, redisClient, defaultStreamName))
+}
+
 func TestStreamAPITemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
@@ -247,7 +282,10 @@ func TestStreamAPITemporal(t *testing.T) {
 	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: service.BackendTypeTemporal,
-		StreamStore: config.StreamStoreConfig{RedisURL: streamTestRedisURL},
+		StreamStore: config.StreamStoreConfig{
+			RedisURL:        streamTestRedisURL,
+			MaxMessageBytes: 64,
+		},
 	})
 	flowClient := runtime.FlowClient
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -287,6 +325,15 @@ func TestStreamAPITemporal(t *testing.T) {
 		MaxEstimatedBytes: chargedBytes*2 - 1,
 		Value:             stringValue("first"),
 		IdempotencyKey:    "second-key",
+	})
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.Equal(t, int64(1), streamLength(t, redisClient, streamName))
+	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
+		FlowId:            flowID,
+		StreamName:        streamName,
+		MaxEstimatedBytes: 1 << 20,
+		Value:             stringValue(string(make([]byte, 64))),
+		IdempotencyKey:    "message-too-large",
 	})
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 	require.Equal(t, int64(1), streamLength(t, redisClient, streamName))
@@ -433,13 +480,21 @@ func BenchmarkStreamStoreWrite(b *testing.B) {
 
 func newStreamTestStore(t testing.TB) (*streamstore.Store, *redis.Client) {
 	t.Helper()
-	store, err := streamstore.New(&config.StreamStoreConfig{
+	return newStreamTestStoreWithConfig(t, config.StreamStoreConfig{
 		RedisURL:                      streamTestRedisURL,
 		EstimatedMessageOverheadBytes: 1,
 		TrimTriggerPercent:            90,
 		TrimTargetPercent:             80,
 		TrimWorkers:                   2,
-	}, log.NewNoop())
+	})
+}
+
+func newStreamTestStoreWithConfig(
+	t testing.TB,
+	streamStoreConfig config.StreamStoreConfig,
+) (*streamstore.Store, *redis.Client) {
+	t.Helper()
+	store, err := streamstore.New(&streamStoreConfig, log.NewNoop())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	return store, newStreamRedisClient(t)

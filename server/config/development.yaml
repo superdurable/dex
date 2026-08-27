@@ -86,6 +86,7 @@ blobStore:
 
 # streamStore:
 #   redisURL: redis://localhost:6379/0
+#   maxMessageBytes: 102400
 #   estimatedMessageOverheadBytes: 512
 #   trimTriggerPercent: 90
 #   trimTargetPercent: 80
