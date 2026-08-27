@@ -175,10 +175,15 @@ func (step awaitChildWorkflowCompletionStep) Execute(
 	if waitSeconds < 1 {
 		waitSeconds = 1
 	}
-	_, err := client.WaitForFlow(
+	waitContext, cancelWait := context.WithTimeout(
 		context.Background(),
+		time.Duration(waitSeconds)*time.Second,
+	)
+	defer cancelWait()
+	_, err := client.WaitForFlow(
+		waitContext,
 		input.ChildWFID,
-		dex.WaitForFlowOptions{Timeout: time.Duration(waitSeconds) * time.Second},
+		dex.WaitForFlowOptions{},
 	)
 	if err != nil {
 		var timeout *dex.LongPollTimeoutError

@@ -24,6 +24,7 @@ import { Client, Registry, Worker, openBlobCache, type Flow } from "@superdurabl
 
 import { HOUR_MS } from "../../src/config/env.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
+import { streamFlow } from "../../src/primitives/stream/stream-flow.js";
 import { engagementFlow } from "../../src/products/engagement/engagement-flow.js";
 import { orchestrationFlow } from "../../src/products/microservices/orchestration-flow.js";
 import { moneyTransferFlow } from "../../src/products/money-transfer/money-transfer-flow.js";
@@ -37,6 +38,7 @@ const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 export interface IntegEnvironment {
   readonly client: Client;
   readonly failureRecoveryFlow: typeof failureRecoveryFlow;
+  readonly streamFlow: typeof streamFlow;
   readonly moneyTransferFlow: typeof moneyTransferFlow;
   readonly orderProcessingFlow: typeof orderProcessingFlow;
   readonly engagementFlow: typeof engagementFlow;
@@ -71,6 +73,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
   const serverAddress = process.env.DEX_FLOW_SERVICE_ADDRESS ?? "127.0.0.1:8801";
   const flows: readonly Flow<any>[] = [
     failureRecoveryFlow,
+    streamFlow,
     moneyTransferFlow,
     orderProcessingFlow,
     engagementFlow,
@@ -96,6 +99,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
   return {
     client,
     failureRecoveryFlow,
+    streamFlow,
     moneyTransferFlow,
     orderProcessingFlow,
     engagementFlow,

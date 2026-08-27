@@ -49,6 +49,7 @@ import { rpcFlow } from "./primitives/rpc/rpc-flow.js";
 import { retryFlow } from "./primitives/step/retry-flow.js";
 import { stepFlow } from "./primitives/step/step-flow.js";
 import { stepDecisionFlow } from "./primitives/step-decision/step-decision-flow.js";
+import { streamFlow } from "./primitives/stream/stream-flow.js";
 import { subFlowChildFlow, subFlowParentFlow } from "./primitives/subflow/subflow-flow.js";
 import { timerFlow } from "./primitives/timer/timer-flow.js";
 import { waitTypesFlow } from "./primitives/wait-types/wait-types-flow.js";
@@ -109,6 +110,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   waitTypesFlow,
   attributeFlow,
   channelFlow,
+  streamFlow,
   timerFlow,
   rpcFlow,
   subFlowChildFlow,
@@ -163,6 +165,7 @@ export {
   waitTypesFlow,
   attributeFlow,
   channelFlow,
+  streamFlow,
   timerFlow,
   rpcFlow,
   subFlowChildFlow,

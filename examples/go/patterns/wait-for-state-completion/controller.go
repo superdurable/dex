@@ -21,6 +21,7 @@
 package waitforstatecompletion
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -63,11 +64,12 @@ func (controller *controller) start(request *gin.Context) {
 		httputil.RespondString(request, "", err)
 		return
 	}
+	waitContext, cancelWait := context.WithTimeout(request.Request.Context(), 5*time.Minute)
+	defer cancelWait()
 	err = controller.client.WaitForStepCompletion(
-		request.Request.Context(),
+		waitContext,
 		flowID,
 		sdk.StepExecutionID{StepType: "PersistData"},
-		sdk.WaitOptions{Timeout: 5 * time.Minute},
 	)
 	if err != nil {
 		httputil.RespondString(request, "", err)

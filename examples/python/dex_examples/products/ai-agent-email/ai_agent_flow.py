@@ -19,13 +19,16 @@ from __future__ import annotations
 import os
 import smtplib
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 
 from dex import (
     Attribute,
+    AsyncClient,
     Channel,
     Context,
+    DexServiceError,
     Flow,
     PersistenceSchema,
     RetryPolicy,
@@ -34,6 +37,7 @@ from dex import (
     StepDecision,
     StepList,
     StepOptions,
+    Stream,
     Timer,
     Wait,
     go_to,
@@ -144,9 +148,15 @@ class Schedule(Step[None]):
 
 
 class Agent(Step[None]):
-    def __init__(self, flow: EmailAgentFlow, schedule: Schedule) -> None:
+    def __init__(
+        self,
+        flow: EmailAgentFlow,
+        schedule: Schedule,
+        client_provider: Callable[[], AsyncClient],
+    ) -> None:
         self.flow = flow
         self.schedule = schedule
+        self.client_provider = client_provider
 
     def get_step_options(self) -> StepOptions:
         return AGENT_OPTIONS
@@ -156,7 +166,11 @@ class Agent(Step[None]):
         self.flow.status.set(context, STATUS_WAITING)
         return Wait.until(user_input.for_one())
 
-    def execute(self, context: Context, input: None) -> StepDecision:
+    async def execute(  # type: ignore[override]
+        self,
+        context: Context,
+        input: None,
+    ) -> StepDecision:
         del input
         requests = user_input.results(context)
         if not requests:
@@ -164,9 +178,30 @@ class Agent(Step[None]):
         user_request = requests[0]
         self.flow.current_request.set(context, user_request)
 
-        reply = request_email_fields(
+        progress_index = 0
+
+        async def write_progress(chunk: str) -> None:
+            nonlocal progress_index
+            if not chunk:
+                return
+            idempotency_key = (
+                f"{context.run_id}/{context.step_execution_id}/{progress_index}"
+            )
+            progress_index += 1
+            try:
+                await self.client_provider().write_stream(
+                    context.flow_id,
+                    self.flow.thinking,
+                    idempotency_key,
+                    chunk,
+                )
+            except DexServiceError as error:
+                print(f"thinking update dropped: {error}")
+
+        reply = await request_email_fields(
             user_request,
             self.flow.previous_response_id.get(context),
+            write_progress,
         )
         if reply.response_id is not None:
             self.flow.previous_response_id.set(context, reply.response_id)
@@ -229,11 +264,12 @@ class EmailAgentFlow(Flow[None]):
     email_subject = Attribute(DA_EMAIL_SUBJECT, str)
     email_body = Attribute(DA_EMAIL_BODY, str)
     scheduled_time_seconds = Attribute(DA_SCHEDULED_TIME_SECONDS, int)
+    thinking = Stream("Thinking", str, 10 * 1024 * 1024)
 
-    def __init__(self) -> None:
+    def __init__(self, client_provider: Callable[[], AsyncClient]) -> None:
         self.sending = Sending(self)
         self.schedule = Schedule(self, self.sending)
-        self.agent = Agent(self, self.schedule)
+        self.agent = Agent(self, self.schedule, client_provider)
         self.init = Init(self)
 
     def get_steps(self) -> StepList[None]:
@@ -254,6 +290,7 @@ class EmailAgentFlow(Flow[None]):
             self.email_body,
             self.scheduled_time_seconds,
             user_input,
+            self.thinking,
         )
 
     @rpc

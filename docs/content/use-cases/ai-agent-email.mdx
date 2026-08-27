@@ -4,51 +4,72 @@ title: AI agent email
 
 # AI agent email
 
-Python sample: durable AI email agent with HTTP UI assets.
+This Python application turns a natural-language request into an email draft, waits durably until its send time, and streams non-critical agent progress to the browser while the LLM call is still running.
 
 ## Why this shape
 
-Long-running backend processes need durable waits, retries, and external interaction. This use case shows how Dex primitives compose for that problem domain.
+The example separates correctness from presentation:
 
+- A [Channel](/primitives/channel) carries each user request into the durable Flow.
+- [Attributes](/primitives/attribute) retain the recipient, subject, body, send time, and conversation ID.
+- A durable [Timer](/primitives/timer) waits until the requested send time.
+- A [Stream](/primitives/stream) carries low-latency reasoning summaries to the UI.
 
+Losing a progress chunk does not change the email draft or send decision. That makes the progress feed a good fit for best-effort Stream retention.
 
-## Code examples
+## Streaming from the Agent Step
 
-Python-only sample with its own UI (not on the shared playground). See **examples/README.md**.
+A direct Step Stream write supports one message per Stream and Step execution. An LLM produces many chunks during one Step execution, so this example injects an AsyncClient and writes each chunk with a stable sequence key. Retries reuse the same run ID, Step execution ID, and sequence numbers, making retained chunks first-write-wins.
 
-<SdkTabs>
+The OpenAI call requests a user-visible reasoning summary. It does not expose private chain-of-thought. When OpenAI is not configured, the local fallback emits progress messages through the same Stream path.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent-email/ai_agent_flow.py'}}>
 <SdkSnippet lang="python">
 
 ```python
-# Browse examples/python/dex_examples/products/ai-agent-email (UI under examples/python/ai-agent-email; not on the playground)
-```
+        progress_index = 0
 
-</SdkSnippet>
-  <SdkSnippet lang="go">
+        async def write_progress(chunk: str) -> None:
+            nonlocal progress_index
+            if not chunk:
+                return
+            idempotency_key = (
+                f"{context.run_id}/{context.step_execution_id}/{progress_index}"
+            )
+            progress_index += 1
+            try:
+                await self.client_provider().write_stream(
+                    context.flow_id,
+                    self.flow.thinking,
+                    idempotency_key,
+                    chunk,
+                )
+            except DexServiceError as error:
+                print(f"thinking update dropped: {error}")
 
-```go
-// Browse examples/python/dex_examples/products/ai-agent-email (Python-only; own UI, not on the playground)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-// Browse examples/python/dex_examples/products/ai-agent-email (Python-only; own UI, not on the playground)
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-// @superdurable/dex ^0.1.3+; Client methods are async (await).
-// Browse examples/python/dex_examples/products/ai-agent-email (Python-only; own UI, not on the playground)
+        reply = await request_email_fields(
+            user_request,
+            self.flow.previous_response_id.get(context),
+            write_progress,
+        )
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
+## Resuming in the browser
+
+The HTTP handler performs a blocking **ReadStream** call and returns one chunk plus its resume token. The React UI immediately issues the next request with that token. A page reload starts with an empty token and replays from the current retained head, while a long-poll timeout simply starts another read.
+
+This design gives the browser low latency without turning progress into durable Flow state. A slow or disconnected browser may miss trimmed chunks and can still fetch the final email draft from durable Attributes.
+
+## Run the example
+
+The Flow, HTTP routes, and agent integration are under [examples/python/dex_examples/products/ai-agent-email](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent-email). The React UI is under [examples/python/ai-agent-email](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent-email). This Python-only application has its own UI and is not part of the shared playground.
+
 ## Related
 
-- [Design Patterns](/design-patterns)
-- [Primitives](/primitives)
+- [Stream](/primitives/stream)
+- [Channel](/primitives/channel)
+- [Attribute](/primitives/attribute)
+- [Timer](/primitives/timer)

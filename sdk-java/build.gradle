@@ -18,7 +18,7 @@ plugins {
 
 group = 'io.superdurable'
 // Publish uses tag sdk-java/v*; -PreleaseVersion overrides this for release builds.
-version = providers.gradleProperty('releaseVersion').getOrElse('0.0.3-SNAPSHOT')
+version = providers.gradleProperty('releaseVersion').getOrElse('0.2.3-SNAPSHOT')
 def artifactVersion = version.toString()
 
 java {

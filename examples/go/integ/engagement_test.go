@@ -52,7 +52,6 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		flowID,
 		engagement.EngagementStatus,
 		engagement.StatusInitiated,
-		dex.WaitOptions{Timeout: 20 * time.Second},
 	))
 
 	var description engagement.EngagementDescription

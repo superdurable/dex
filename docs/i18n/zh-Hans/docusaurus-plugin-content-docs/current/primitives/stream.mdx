@@ -1,0 +1,202 @@
+---
+title: Stream
+slug: /primitives/stream
+---
+
+# Stream
+
+**Stream** 是面向低延迟 UI 更新的 typed、best-effort、可续读消息流。Step 或 Client 写入后，Client 可以按顺序读取，并把不透明的 resume token 传给下一次读取。
+
+Stream 适合改善实时体验、但不影响工作流正确性的信息：
+
+- LLM reasoning summary、生成文本 chunk 和 agent progress
+- 进度条、诊断事件与实时预览
+- Step 仍在运行时展示的临时状态
+
+不要用 Stream 传递命令、付款、审批，或 Flow 恢复时必须存在的状态。这些数据应使用 [Channel](/primitives/channel)、[Attribute](/primitives/attribute) 或外部 durable store。
+
+| 特性 | Stream | Channel |
+|---|---|---|
+| 目标 | Best effort、低延迟 | Durable workflow communication |
+| 读取方 | Client | 等待条件中的 Step |
+| 保留方式 | 近似的共享 byte budget | Flow history 与持久化状态 |
+| 续读方式 | 不透明 token | 由 Step condition 消费 |
+| 是否影响 Flow 决策 | 否 | 是 |
+
+## 定义并注册 Stream
+
+Stream 包含稳定名称、消息类型和 **maxEstimatedBytes**。同一个 definition 必须只注册到一个 Flow persistence schema。
+
+下面的 Step 在返回之前写入一条 progress message。Dex 接受写入后，Client 立刻就能读取；不需要等待 Step 完成。
+
+<SdkTabs examples={{
+python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
+go: 'examples/go/primitives/stream/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamFlow.java',
+typescript: 'examples/typescript/src/primitives/stream/stream-flow.ts',
+rust: 'examples/rust/src/primitives/stream/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+class RenderPreview(Step[str]):
+    def __init__(self, progress: Stream[str]) -> None:
+        self.progress = progress
+
+    async def execute(self, context: Context, input: str) -> StepDecision:
+        await self.progress.write(context, f"Rendering preview for {input}")
+        return graceful_complete(f"Rendered {input}")
+
+
+class StreamFlow(Flow[str]):
+    progress = Stream("Progress", str, 10 * 1024 * 1024)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(self.progress)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var Progress = dex.DefineStream[string]("Progress", 10<<20)
+
+func (*StreamFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Streams: []dex.StreamDef{Progress}}
+}
+
+func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if err := Progress.Write(ctx, "Rendering preview for "+input); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("Rendered " + input), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public final class StreamFlow implements Flow<String> {
+    public final Stream<String> progress =
+            Stream.define("Progress", String.class, 10L * 1024L * 1024L);
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(progress);
+    }
+
+    final class RenderPreview implements Step<String> {
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            progress.write(context, "Rendering preview for " + input);
+            return StepDecision.gracefulComplete("Rendered " + input);
+        }
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export const progress = new Stream("Progress", stringCodec, 10 * 1024 * 1024);
+
+class RenderPreview implements Step<string> {
+  public async execute(context: Context, input: string): Promise<StepDecision> {
+    await progress.write(context, `Rendering preview for ${input}`);
+    return gracefulComplete(`Rendered ${input}`);
+  }
+}
+
+export class StreamFlow implements Flow<string> {
+  public getPersistenceSchema(): PersistenceSchema {
+    return { streams: [progress] };
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub fn progress() -> Stream<String> {
+    static PROGRESS: OnceLock<Stream<String>> = OnceLock::new();
+    PROGRESS
+        .get_or_init(|| Stream::new("Progress", 10 * 1024 * 1024))
+        .clone()
+}
+
+impl Flow for StreamFlow {
+    type StartInput = String;
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new().stream(&progress())
+    }
+}
+
+impl Step for RenderPreview {
+    type Input = String;
+
+    fn execute(
+        &self,
+        context: &mut Context,
+        input: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        progress().write(context, format!("Rendering preview for {input}"))?;
+        Ok(StepDecision::graceful_complete(format!(
+            "Rendered {input}"
+        )))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Step 写入语义
+
+Step 直接写入 Stream 时：
+
+- Dex 在 **Execute** 期间立即发送，不会缓存到 Step 完成。
+- Step 随后失败不会回滚已经写入的消息。
+- 每个 Step execution 对每个 Stream 最多直接写一次。Dex 使用 run ID 和 Step execution ID 生成 idempotency key，因此 retry 不会重复追加。
+- RPC handler 不能通过 Step Context 写入 Stream。
+
+如果一次很长的 LLM call 需要逐 token 输出，应通过 Client 写入，并为每个 chunk 使用稳定、有序的 idempotency key。[AI agent email example](/use-cases/ai-agent-email) 在 async Step 中使用了这种方式。
+
+## Client 写入与幂等
+
+即使 Flow instance 不存在或已经结束，Client 仍可以写入。每条逻辑消息都要提供非空 idempotency key。key 不能包含 **#**，这个字符由 Dex 保留给 Step-generated key。
+
+只要消息仍被保留，重复使用相同 key 就会成为成功的 first-write-wins no-op。消息及其幂等记录被 trim 后，同一个 key 可以再次写入。因此幂等性的保留窗口同样是 best effort。
+
+## 可续读
+
+**ReadStream** 每次返回一条消息，包括 value、resume token、created time 与 producer idempotency key。
+
+- 空 token 从当前保留的头部开始。
+- token 比当前头部更旧时，也从当前头部开始。
+- 下一次读取应原样传回上次返回的 token。
+- 没有下一条消息时，请求会 long-poll，直到消息到达或等待超时。
+- Go 使用 **context.Context** 控制取消和 deadline；其他 SDK 也支持显式 server wait duration。
+
+续读也是 best effort。读取太慢时，Client 可能错过已经被 trim 的消息。
+
+## 近似容量
+
+**maxEstimatedBytes** 既不是每个 Flow 的 limit，也不是精确的 Redis memory measurement。它由相同 Flow type 和 Stream name 下的所有 Flow ID 共享。
+
+Dex 会估算 serialized value、identity bytes 和可配置的 per-message overhead。使用估算值可以避免昂贵的精确 memory accounting。达到 trim trigger 后，全局只有一个 background trimmer 会按 FIFO 删除最旧消息，直到降至 trim target。如果已经满载，写入可能在 trim 完成前失败；调用方应根据低延迟场景选择丢弃或重试。
+
+Server 还会单独限制每条 serialized Stream value，默认上限为 100 KiB。
+
+## Best-effort storage
+
+多 server 部署可以使用 Redis，单机本地 server 可以使用 memory backend。memory backend 会在进程重启时丢失全部内容。Redis 可以跨应用重启保留数据，但 trim、Redis 数据丢失、禁用 Stream Store 或容量压力仍可能删除或拒绝消息。
+
+UI 应能容忍 chunk 缺失。Durable business state 应放在 Flow primitives 或外部 system of record 中。
+
+## 可运行 example
+
+五种 SDK 的 example server 都提供 **/primitives/stream** 下的 start、client write 与 resumable read HTTP routes。可查看 [examples playground](https://github.com/superdurable/dex/tree/main/examples) 与上方 tabs 链接的源码。

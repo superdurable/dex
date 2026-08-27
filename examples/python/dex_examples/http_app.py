@@ -68,6 +68,7 @@ from dex_examples.primitives.flow.controller import create_flow_blueprint
 from dex_examples.primitives.rpc.controller import create_rpc_blueprint
 from dex_examples.primitives.step.controller import create_step_blueprint
 from dex_examples.primitives.step_decision.controller import create_step_decision_blueprint
+from dex_examples.primitives.stream.controller import create_stream_blueprint
 from dex_examples.primitives.subflow.controller import create_subflow_blueprint
 from dex_examples.primitives.timer.controller import create_timer_blueprint
 from dex_examples.primitives.wait_types.controller import create_wait_types_blueprint
@@ -141,6 +142,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_wait_types_blueprint(app_state))
     quart_app.register_blueprint(create_attribute_blueprint(app_state))
     quart_app.register_blueprint(create_channel_blueprint(app_state))
+    quart_app.register_blueprint(create_stream_blueprint(app_state))
     quart_app.register_blueprint(create_timer_blueprint(app_state))
     quart_app.register_blueprint(create_rpc_blueprint(app_state))
     quart_app.register_blueprint(create_subflow_blueprint(app_state))

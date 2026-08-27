@@ -352,6 +352,13 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
+            "primitives/stream",
+            lambda c: trigger_get(
+                "/primitives/stream/start",
+                {"workflowId": new_id("primitive-stream"), "input": "smoke"},
+            ),
+        ),
+        FlowSmokeEntry(
             "primitives/timer",
             lambda c: trigger_get(
                 "/primitives/timer/start",

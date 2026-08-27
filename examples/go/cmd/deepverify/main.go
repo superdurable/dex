@@ -314,9 +314,8 @@ func verifyMicroservices(ctx context.Context, client *dex.Client, stamp string) 
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if err := client.WaitForAttributeEqual(
-		ctx, flowID, microservices.Data, "initial-data",
-		dex.WaitOptions{Timeout: 20 * time.Second},
+	if err := waitForAttributeEqual(
+		ctx, client, flowID, microservices.Data, "initial-data", 20*time.Second,
 	); err != nil {
 		return fail(name, "wait attribute", err)
 	}
@@ -357,9 +356,9 @@ func verifyEngagement(ctx context.Context, client *dex.Client, stamp string) res
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if err := client.WaitForAttributeEqual(
-		ctx, flowID, engagement.EngagementStatus, engagement.StatusInitiated,
-		dex.WaitOptions{Timeout: 20 * time.Second},
+	if err := waitForAttributeEqual(
+		ctx, client, flowID, engagement.EngagementStatus, engagement.StatusInitiated,
+		20*time.Second,
 	); err != nil {
 		return fail(name, "wait initiated", err)
 	}
@@ -419,9 +418,8 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if err := client.WaitForAttributeEqual(
-		ctx, flowID, subscription.BillingPeriodNumber, 0,
-		dex.WaitOptions{Timeout: 20 * time.Second},
+	if err := waitForAttributeEqual(
+		ctx, client, flowID, subscription.BillingPeriodNumber, 0, 20*time.Second,
 	); err != nil {
 		return fail(name, "wait initialized", err)
 	}
@@ -1043,10 +1041,7 @@ func verifyRecovery(ctx context.Context, client *dex.Client, stamp string) resul
 	if err != nil {
 		return fail(name, "", err)
 	}
-	result, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
-		NeedsResults: true,
-		Timeout:      90 * time.Second,
-	})
+	result, err := waitForFlow(ctx, client, flowID, true, 90*time.Second)
 	if err != nil {
 		return fail(name, "", err)
 	}
@@ -1077,10 +1072,7 @@ func verifyScalableParallel(ctx context.Context, client *dex.Client, stamp strin
 		return fail(name, "parent ForceComplete after children", err)
 	}
 	for _, childID := range []string{"processing-" + taskA, "processing-" + taskB} {
-		wait, waitErr := client.WaitForFlow(ctx, childID, dex.WaitForFlowOptions{
-			NeedsResults: true,
-			Timeout:      10 * time.Second,
-		})
+		wait, waitErr := waitForFlow(ctx, client, childID, true, 10*time.Second)
 		if waitErr != nil {
 			return fail(name, "child "+childID, waitErr)
 		}
@@ -1110,10 +1102,7 @@ func verifyParentChild(ctx context.Context, client *dex.Client, stamp string) re
 		}
 	}
 	// Parent keeps ConcurrencyPerParentWorkflow loop waiters forever after queue drain.
-	wait, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
-		NeedsResults: false,
-		Timeout:      3 * time.Second,
-	})
+	wait, err := waitForFlow(ctx, client, flowID, false, 3*time.Second)
 	if err != nil {
 		var timeout *dex.LongPollTimeoutError
 		if errors.As(err, &timeout) {
@@ -1177,10 +1166,9 @@ func verifyWaitForStateCompletion(
 	if err != nil {
 		return fail(name, "start", err)
 	}
-	if err := client.WaitForStepCompletion(
-		ctx, flowID,
-		dex.StepExecutionID{StepType: "PersistData"},
-		dex.WaitOptions{Timeout: 45 * time.Second},
+	if err := waitForStepCompletion(
+		ctx, client, flowID,
+		dex.StepExecutionID{StepType: "PersistData"}, 45*time.Second,
 	); err != nil {
 		return fail(name, "WaitForStepCompletion PersistData", err)
 	}
@@ -1209,10 +1197,7 @@ func verifyTimeoutSuccess(ctx context.Context, client *dex.Client, stamp string)
 	if err != nil {
 		return fail(name, "", err)
 	}
-	wait, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
-		NeedsResults: true,
-		Timeout:      45 * time.Second,
-	})
+	wait, err := waitForFlow(ctx, client, flowID, true, 45*time.Second)
 	if err != nil {
 		return fail(name, "", err)
 	}
@@ -1239,10 +1224,7 @@ func verifyTimeoutFail(ctx context.Context, client *dex.Client, stamp string) re
 		return fail(name, "", err)
 	}
 	// 1m ForceFail + worker backlog under reminder load needs headroom.
-	result, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
-		NeedsResults: true,
-		Timeout:      3 * time.Minute,
-	})
+	result, err := waitForFlow(ctx, client, flowID, true, 3*time.Minute)
 	if err != nil {
 		return fail(name, "", err)
 	}
@@ -1274,10 +1256,7 @@ func verifyCronSchedule(ctx context.Context, client *dex.Client) result {
 	if err := client.PublishToChannel(ctx, flowID, cron.Trigger, nil, nil); err != nil {
 		return fail(name, "trigger "+flowID, err)
 	}
-	wait, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
-		NeedsResults: true,
-		Timeout:      30 * time.Second,
-	})
+	wait, err := waitForFlow(ctx, client, flowID, true, 30*time.Second)
 	if err != nil {
 		return fail(name, "WaitForFlow "+flowID, err)
 	}
@@ -1293,10 +1272,7 @@ func waitCompleted(
 	flowID string,
 	timeout time.Duration,
 ) (dex.FlowResult, error) {
-	wait, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
-		NeedsResults: true,
-		Timeout:      timeout,
-	})
+	wait, err := waitForFlow(ctx, client, flowID, true, timeout)
 	if err != nil {
 		return wait, err
 	}
@@ -1306,6 +1282,47 @@ func waitCompleted(
 		)
 	}
 	return wait, nil
+}
+
+func waitForAttributeEqual(
+	ctx context.Context,
+	client *dex.Client,
+	flowID string,
+	attribute dex.AttributeDef,
+	value any,
+	timeout time.Duration,
+) error {
+	waitContext, cancelWait := context.WithTimeout(ctx, timeout)
+	defer cancelWait()
+	return client.WaitForAttributeEqual(waitContext, flowID, attribute, value)
+}
+
+func waitForStepCompletion(
+	ctx context.Context,
+	client *dex.Client,
+	flowID string,
+	stepExecutionID dex.StepExecutionID,
+	timeout time.Duration,
+) error {
+	waitContext, cancelWait := context.WithTimeout(ctx, timeout)
+	defer cancelWait()
+	return client.WaitForStepCompletion(waitContext, flowID, stepExecutionID)
+}
+
+func waitForFlow(
+	ctx context.Context,
+	client *dex.Client,
+	flowID string,
+	needsResults bool,
+	timeout time.Duration,
+) (dex.FlowResult, error) {
+	waitContext, cancelWait := context.WithTimeout(ctx, timeout)
+	defer cancelWait()
+	return client.WaitForFlow(
+		waitContext,
+		flowID,
+		dex.WaitForFlowOptions{NeedsResults: needsResults},
+	)
 }
 
 func decodeStringCompletion(wait dex.FlowResult) (string, error) {

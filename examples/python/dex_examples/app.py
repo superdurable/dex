@@ -92,6 +92,7 @@ from dex_examples.primitives.step_execution_local.step_execution_local_flow impo
     StepExecutionLocalFlow,
 )
 from dex_examples.primitives.step_decision.step_decision_flow import StepDecisionFlow
+from dex_examples.primitives.stream.stream_flow import StreamFlow
 from dex_examples.primitives.subflow.subflow_flow import SubFlowChildFlow, SubFlowParentFlow
 from dex_examples.primitives.timer.timer_flow import TimerFlow
 from dex_examples.primitives.wait_types.wait_types_flow import WaitTypesFlow
@@ -168,6 +169,7 @@ class ExampleApp:
         self.wait_types = WaitTypesFlow()
         self.attribute = AttributeFlow()
         self.channel = ChannelFlow()
+        self.stream = StreamFlow()
         self.timer = TimerFlow()
         self.rpc = RpcFlow()
         self.subflow_child = SubFlowChildFlow()
@@ -176,7 +178,7 @@ class ExampleApp:
 
         self.controller = ControllerFlow(client_provider, lambda: self.processing)
         self.processing = ProcessingFlow(client_provider, lambda: self.controller)
-        self.email_agent = EmailAgentFlow()
+        self.email_agent = EmailAgentFlow(client_provider)
 
         flows: list[Flow[Any]] = [
             self.money_transfer,
@@ -221,6 +223,7 @@ class ExampleApp:
             self.wait_types,
             self.attribute,
             self.channel,
+            self.stream,
             self.timer,
             self.rpc,
             self.subflow_child,

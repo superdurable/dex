@@ -25,6 +25,7 @@ pub mod rpc;
 pub mod step;
 pub mod step_decision;
 pub mod step_execution_local;
+pub mod stream;
 pub mod subflow;
 pub mod timer;
 pub mod wait_types;
@@ -46,6 +47,7 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(wait_types::flow::WaitTypesFlow::default())?
         .register(attribute::flow::AttributeFlow::default())?
         .register(channel::flow::ChannelFlow::default())?
+        .register(stream::flow::StreamFlow::default())?
         .register(timer::flow::TimerFlow::default())?
         .register(rpc::flow::RpcFlow::default())?
         .register(subflow::flow::SubFlowChildFlow::default())?

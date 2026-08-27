@@ -1,4 +1,22 @@
+/*
+ * Copyright (c) 2022-2026 Super Durable, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import React, { useState, useEffect } from 'react';
+
+const API_BASE = '/products/ai-agent-email';
 
 // Function to generate UUID
 const generateUUID = (): string => {
@@ -33,6 +51,7 @@ const App: React.FC = () => {
   const [savingStartTime, setSavingStartTime] = useState<number | null>(null);
   const [lastSavedDraft, setLastSavedDraft] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [thinkingChunks, setThinkingChunks] = useState<string[]>([]);
 
   useEffect(() => {
     // Check for workflowId in URL parameters on component mount
@@ -54,7 +73,7 @@ const App: React.FC = () => {
     if (!workflowId) return;
     
     try {
-      const res = await fetch(`/api/ai-agent/describe?workflowId=${workflowId}`);
+      const res = await fetch(`${API_BASE}/describe?workflowId=${workflowId}`);
       if (res.ok) {
         // Try to parse as JSON first
         const text = await res.text();
@@ -122,6 +141,36 @@ const App: React.FC = () => {
       return () => clearInterval(intervalId);
     }
   }, [workflowId]);
+
+  useEffect(() => {
+    if (!workflowId) return;
+
+    const abortController = new AbortController();
+    let resumeToken = '';
+
+    const readThinking = async () => {
+      while (!abortController.signal.aborted) {
+        try {
+          const query = new URLSearchParams({ workflowId, resumeToken });
+          const response = await fetch(`${API_BASE}/thinking?${query}`, {
+            signal: abortController.signal,
+          });
+          if (response.status === 504) continue;
+          if (!response.ok) throw new Error(await response.text());
+          const message = await response.json();
+          resumeToken = message.resume_token;
+          setThinkingChunks((current) => [...current, message.value].slice(-200));
+        } catch (error) {
+          if (abortController.signal.aborted) return;
+          setErrorMessage(`Thinking stream failed: ${error instanceof Error ? error.message : String(error)}`);
+          return;
+        }
+      }
+    };
+
+    void readThinking();
+    return () => abortController.abort();
+  }, [workflowId]);
   
   // Effect to auto-save drafts on a fixed interval (not on every keystroke)
   useEffect(() => {
@@ -139,7 +188,7 @@ const App: React.FC = () => {
           setSavingStartTime(Date.now());
           
           const encodedDraft = encodeURIComponent(userInput);
-          const res = await fetch(`/api/ai-agent/save_draft?workflowId=${workflowId}&draft=${encodedDraft}`);
+          const res = await fetch(`${API_BASE}/save_draft?workflowId=${workflowId}&draft=${encodedDraft}`);
           
           if (res.ok) {
             // Update last saved draft
@@ -207,7 +256,7 @@ const App: React.FC = () => {
       const newWorkflowId = generateUUID();
       
       // Start the workflow
-      const res = await fetch(`/api/ai-agent/start?workflowId=${newWorkflowId}`);
+      const res = await fetch(`${API_BASE}/start?workflowId=${newWorkflowId}`);
       
       if (res.ok) {
         // Redirect to the same page but with the workflowId as a parameter
@@ -229,10 +278,11 @@ const App: React.FC = () => {
     if (!userInput.trim() || !workflowId) return;
     
     setIsLoading(true);
+    setThinkingChunks([]);
     try {      
       // Send the request
       const encodedRequest = encodeURIComponent(userInput);
-      const res = await fetch(`/api/ai-agent/request?workflowId=${workflowId}&request=${encodedRequest}`);
+      const res = await fetch(`${API_BASE}/request?workflowId=${workflowId}&request=${encodedRequest}`);
       if (res.ok) {
         // Clear any previous error messages on success
         setErrorMessage('');
@@ -460,6 +510,21 @@ const App: React.FC = () => {
                 Processing your request...
               </div>
             }
+
+            {thinkingChunks.length > 0 && (
+              <div style={{
+                marginTop: '20px',
+                padding: '12px',
+                border: '1px solid #bbdefb',
+                borderRadius: '4px',
+                backgroundColor: '#e3f2fd',
+              }}>
+                <strong>Agent thinking</strong>
+                <div style={{ marginTop: '8px', whiteSpace: 'pre-wrap' }}>
+                  {thinkingChunks.join('')}
+                </div>
+              </div>
+            )}
           </div>
           
           {/* Right side - Email details */}

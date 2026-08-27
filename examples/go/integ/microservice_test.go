@@ -22,7 +22,6 @@ package integ
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/examples/go/products/microservices"
@@ -47,7 +46,6 @@ func TestMicroserviceStartRPCAndChannel(t *testing.T) {
 		flowID,
 		microservices.Data,
 		"initial-data",
-		dex.WaitOptions{Timeout: 20 * time.Second},
 	))
 
 	var oldData string

@@ -21,6 +21,7 @@
 package orderprocessing
 
 import (
+	"context"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -61,11 +62,12 @@ func (controller *controller) start(request *gin.Context) {
 		httputil.Respond(request, nil, err)
 		return
 	}
+	waitContext, cancelWait := context.WithTimeout(request.Request.Context(), 5*time.Minute)
+	defer cancelWait()
 	err = controller.client.WaitForStepCompletion(
-		request.Request.Context(),
+		waitContext,
 		flowID,
 		sdk.StepExecutionID{StepType: ChargeStepType},
-		sdk.WaitOptions{Timeout: 5 * time.Minute},
 	)
 	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
 }
