@@ -6,9 +6,11 @@ title: Interruptible execution
 
 Stop long-running work safely when a durable interrupt arrives.
 
+Use this pattern for work that repeats for a long time, such as polling or batch processing. A user can request an interrupt while the work is running. Each branch finishes its current unit of work, sees the durable signal before its next loop iteration, and then completes safely.
+
 **InterruptibleFlow** starts **WorkAStep** and **WorkBStep** in parallel. Each Step checks the durable **interruptSignal** before scheduling its next unit of work. The **interrupt** RPC sets that signal, letting either branch finish the Flow gracefully.
 
-![InterruptibleFlow diagram](https://lucid.app/lucidchart/b2866468-d530-4f76-9cc7-4441c5742460/edit?page=3-Wo.4lcXZvd)
+![InterruptibleFlow diagram](/img/design-patterns/interruptible-flow.png)
 
 Runnable examples are available in [examples/go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/interruptible), [examples/java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/interruptible), [examples/python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/interruptible), [examples/typescript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/interruptible), and [examples/rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns/interruptible).
 
