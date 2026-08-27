@@ -215,9 +215,9 @@ public execute(context: Context, input: string): StepDecision {
     finalCommand: false,
   });
   if (executionCount <= 3) {
-    return goTo(this.flow.mainStep, input);
+    return goTo(MainStep, input);
   }
-  return goTo(this.flow.finalizeStep, undefined);
+  return goTo(Finalize, undefined);
 }
 
 public waitFor(_context: Context, _input: void): Wait {
@@ -230,7 +230,7 @@ public execute(context: Context, _input: void): StepDecision {
   if (document.finalCommand) {
     return gracefulComplete();
   }
-  return goTo(this.flow.sideStep, undefined);
+  return goTo(SideStep, undefined);
 }
 
 public execute(context: Context, _input: void): StepDecision {

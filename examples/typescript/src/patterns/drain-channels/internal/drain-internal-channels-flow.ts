@@ -65,8 +65,8 @@ class Init implements Step<string> {
   public execute(context: Context, input: string): StepDecision {
     this.flow.mainStepExecutionCounter.set(context, 0);
     return goToMulti(
-      StepMovement.of(this.flow.sideStep, undefined),
-      StepMovement.of(this.flow.mainStep, input),
+      StepMovement.of(SideStep, undefined),
+      StepMovement.of(MainStep, input),
     );
   }
 }
@@ -98,7 +98,7 @@ class SideStep implements Step<void> {
     if (document.finalCommand) {
       return gracefulComplete();
     }
-    return goTo(this.flow.sideStep, undefined);
+    return goTo(SideStep, undefined);
   }
 }
 
@@ -145,9 +145,9 @@ class MainStep implements Step<string> {
     );
 
     if (executionCount <= 3) {
-      return goTo(this.flow.mainStep, input);
+      return goTo(MainStep, input);
     }
-    return goTo(this.flow.finalizeStep, undefined);
+    return goTo(Finalize, undefined);
   }
 }
 
