@@ -328,19 +328,8 @@ message WriteStreamRequest {
   string stream_name = 2;
   int64 max_estimated_bytes = 3;
   Value value = 4;
-  oneof producer {
-    ClientStreamProducer client = 5;
-    StepStreamProducer step = 6;
-  }
-}
-
-message ClientStreamProducer {
-  string idempotency_key = 1;
-}
-
-message StepStreamProducer {
-  string run_id = 1;
-  string step_execution_id = 2;
+  // Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`.
+  string idempotency_key = 5;
 }
 
 message ReadStreamRequest {

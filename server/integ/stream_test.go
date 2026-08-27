@@ -310,10 +310,15 @@ func TestStreamAPITemporal(t *testing.T) {
 		FlowId:            flowID,
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1 << 20,
+		Value:             stringValue("missing-key"),
+	})
+	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
+		FlowId:            flowID,
+		StreamName:        streamName,
+		MaxEstimatedBytes: 1 << 20,
 		Value:             stringValue("first"),
-		Producer: &dexpb.WriteStreamRequest_Client{
-			Client: &dexpb.ClientStreamProducer{IdempotencyKey: "client-key"},
-		},
+		IdempotencyKey:    "client-key",
 	})
 	require.NoError(t, err)
 	response, err := flowClient.ReadStream(ctx, &dexpb.ReadStreamRequest{
@@ -333,9 +338,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:        streamName,
 		MaxEstimatedBytes: chargedBytes*2 - 1,
 		Value:             stringValue("first"),
-		Producer: &dexpb.WriteStreamRequest_Client{
-			Client: &dexpb.ClientStreamProducer{IdempotencyKey: "second-key"},
-		},
+		IdempotencyKey:    "second-key",
 	})
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 	require.Equal(t, int64(1), streamLength(t, redisClient, streamName))
@@ -344,9 +347,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1,
 		Value:             stringValue("too-large"),
-		Producer: &dexpb.WriteStreamRequest_Client{
-			Client: &dexpb.ClientStreamProducer{IdempotencyKey: "too-large"},
-		},
+		IdempotencyKey:    "too-large",
 	})
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 
@@ -380,9 +381,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1 << 20,
 		Value:             stringValue("other"),
-		Producer: &dexpb.WriteStreamRequest_Client{
-			Client: &dexpb.ClientStreamProducer{IdempotencyKey: "other-key"},
-		},
+		IdempotencyKey:    "other-key",
 	})
 	require.NoError(t, err)
 	require.Never(t, readFinished.Load, 200*time.Millisecond, 10*time.Millisecond)
@@ -391,9 +390,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1 << 20,
 		Value:             stringValue("second"),
-		Producer: &dexpb.WriteStreamRequest_Step{
-			Step: &dexpb.StepStreamProducer{RunId: "run-id", StepExecutionId: "step-id"},
-		},
+		IdempotencyKey:    "run-id#step-id",
 	})
 	require.NoError(t, err)
 	latestToken := ""
@@ -402,7 +399,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		require.NoError(t, readErr)
 	case blockingResponse := <-readResult:
 		require.Equal(t, "second", blockingResponse.GetMessage().GetValue().GetStringValue())
-		require.Equal(t, "run-id:step-id", blockingResponse.GetMessage().GetIdempotencyKey())
+		require.Equal(t, "run-id#step-id", blockingResponse.GetMessage().GetIdempotencyKey())
 		latestToken = blockingResponse.GetMessage().GetResumeToken()
 	case <-ctx.Done():
 		require.FailNow(t, "blocking ReadStream did not finish", ctx.Err())
@@ -436,9 +433,7 @@ func TestStreamFailureIsolationTemporal(t *testing.T) {
 		StreamName:        "unavailable",
 		MaxEstimatedBytes: 1024,
 		Value:             stringValue("value"),
-		Producer: &dexpb.WriteStreamRequest_Client{
-			Client: &dexpb.ClientStreamProducer{IdempotencyKey: "key"},
-		},
+		IdempotencyKey:    "key",
 	})
 	require.Equal(t, codes.Unavailable, status.Code(err))
 	health, err := runtime.FlowClient.HealthCheck(ctx, &emptypb.Empty{})
@@ -458,9 +453,7 @@ func TestStreamDisabledTemporal(t *testing.T) {
 		StreamName:        "disabled",
 		MaxEstimatedBytes: 1024,
 		Value:             stringValue("value"),
-		Producer: &dexpb.WriteStreamRequest_Client{
-			Client: &dexpb.ClientStreamProducer{IdempotencyKey: "key"},
-		},
+		IdempotencyKey:    "key",
 	})
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 }

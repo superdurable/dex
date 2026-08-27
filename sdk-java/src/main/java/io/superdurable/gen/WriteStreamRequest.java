@@ -30,6 +30,7 @@ private static final long serialVersionUID = 0L;
   private WriteStreamRequest() {
     flowId_ = "";
     streamName_ = "";
+    idempotencyKey_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -51,48 +52,6 @@ private static final long serialVersionUID = 0L;
   }
 
   private int bitField0_;
-  private int producerCase_ = 0;
-  @SuppressWarnings("serial")
-  private java.lang.Object producer_;
-  public enum ProducerCase
-      implements com.google.protobuf.Internal.EnumLite,
-          com.google.protobuf.AbstractMessage.InternalOneOfEnum {
-    CLIENT(5),
-    STEP(6),
-    PRODUCER_NOT_SET(0);
-    private final int value;
-    private ProducerCase(int value) {
-      this.value = value;
-    }
-    /**
-     * @param value The number of the enum to look for.
-     * @return The enum associated with the given number.
-     * @deprecated Use {@link #forNumber(int)} instead.
-     */
-    @java.lang.Deprecated
-    public static ProducerCase valueOf(int value) {
-      return forNumber(value);
-    }
-
-    public static ProducerCase forNumber(int value) {
-      switch (value) {
-        case 5: return CLIENT;
-        case 6: return STEP;
-        case 0: return PRODUCER_NOT_SET;
-        default: return null;
-      }
-    }
-    public int getNumber() {
-      return this.value;
-    }
-  };
-
-  public ProducerCase
-  getProducerCase() {
-    return ProducerCase.forNumber(
-        producerCase_);
-  }
-
   public static final int FLOW_ID_FIELD_NUMBER = 1;
   @SuppressWarnings("serial")
   private volatile java.lang.Object flowId_ = "";
@@ -208,66 +167,51 @@ private static final long serialVersionUID = 0L;
     return value_ == null ? io.superdurable.gen.Value.getDefaultInstance() : value_;
   }
 
-  public static final int CLIENT_FIELD_NUMBER = 5;
+  public static final int IDEMPOTENCY_KEY_FIELD_NUMBER = 5;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object idempotencyKey_ = "";
   /**
-   * <code>.dex.ClientStreamProducer client = 5;</code>
-   * @return Whether the client field is set.
+   * <pre>
+   * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
+   * </pre>
+   *
+   * <code>string idempotency_key = 5;</code>
+   * @return The idempotencyKey.
    */
   @java.lang.Override
-  public boolean hasClient() {
-    return producerCase_ == 5;
-  }
-  /**
-   * <code>.dex.ClientStreamProducer client = 5;</code>
-   * @return The client.
-   */
-  @java.lang.Override
-  public io.superdurable.gen.ClientStreamProducer getClient() {
-    if (producerCase_ == 5) {
-       return (io.superdurable.gen.ClientStreamProducer) producer_;
+  public java.lang.String getIdempotencyKey() {
+    java.lang.Object ref = idempotencyKey_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      idempotencyKey_ = s;
+      return s;
     }
-    return io.superdurable.gen.ClientStreamProducer.getDefaultInstance();
   }
   /**
-   * <code>.dex.ClientStreamProducer client = 5;</code>
+   * <pre>
+   * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
+   * </pre>
+   *
+   * <code>string idempotency_key = 5;</code>
+   * @return The bytes for idempotencyKey.
    */
   @java.lang.Override
-  public io.superdurable.gen.ClientStreamProducerOrBuilder getClientOrBuilder() {
-    if (producerCase_ == 5) {
-       return (io.superdurable.gen.ClientStreamProducer) producer_;
+  public com.google.protobuf.ByteString
+      getIdempotencyKeyBytes() {
+    java.lang.Object ref = idempotencyKey_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      idempotencyKey_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
     }
-    return io.superdurable.gen.ClientStreamProducer.getDefaultInstance();
-  }
-
-  public static final int STEP_FIELD_NUMBER = 6;
-  /**
-   * <code>.dex.StepStreamProducer step = 6;</code>
-   * @return Whether the step field is set.
-   */
-  @java.lang.Override
-  public boolean hasStep() {
-    return producerCase_ == 6;
-  }
-  /**
-   * <code>.dex.StepStreamProducer step = 6;</code>
-   * @return The step.
-   */
-  @java.lang.Override
-  public io.superdurable.gen.StepStreamProducer getStep() {
-    if (producerCase_ == 6) {
-       return (io.superdurable.gen.StepStreamProducer) producer_;
-    }
-    return io.superdurable.gen.StepStreamProducer.getDefaultInstance();
-  }
-  /**
-   * <code>.dex.StepStreamProducer step = 6;</code>
-   */
-  @java.lang.Override
-  public io.superdurable.gen.StepStreamProducerOrBuilder getStepOrBuilder() {
-    if (producerCase_ == 6) {
-       return (io.superdurable.gen.StepStreamProducer) producer_;
-    }
-    return io.superdurable.gen.StepStreamProducer.getDefaultInstance();
   }
 
   private byte memoizedIsInitialized = -1;
@@ -296,11 +240,8 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(4, getValue());
     }
-    if (producerCase_ == 5) {
-      output.writeMessage(5, (io.superdurable.gen.ClientStreamProducer) producer_);
-    }
-    if (producerCase_ == 6) {
-      output.writeMessage(6, (io.superdurable.gen.StepStreamProducer) producer_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(idempotencyKey_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 5, idempotencyKey_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -320,13 +261,8 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(4, getValue());
     }
-    if (producerCase_ == 5) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(5, (io.superdurable.gen.ClientStreamProducer) producer_);
-    }
-    if (producerCase_ == 6) {
-      size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(6, (io.superdurable.gen.StepStreamProducer) producer_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(idempotencyKey_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, idempotencyKey_);
     }
     return size;
   }
@@ -363,19 +299,8 @@ private static final long serialVersionUID = 0L;
       if (!getValue()
           .equals(other.getValue())) return false;
     }
-    if (!getProducerCase().equals(other.getProducerCase())) return false;
-    switch (producerCase_) {
-      case 5:
-        if (!getClient()
-            .equals(other.getClient())) return false;
-        break;
-      case 6:
-        if (!getStep()
-            .equals(other.getStep())) return false;
-        break;
-      case 0:
-      default:
-    }
+    if (!getIdempotencyKey()
+        .equals(other.getIdempotencyKey())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -398,18 +323,8 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + VALUE_FIELD_NUMBER;
       hash = (53 * hash) + getValue().hashCode();
     }
-    switch (producerCase_) {
-      case 5:
-        hash = (37 * hash) + CLIENT_FIELD_NUMBER;
-        hash = (53 * hash) + getClient().hashCode();
-        break;
-      case 6:
-        hash = (37 * hash) + STEP_FIELD_NUMBER;
-        hash = (53 * hash) + getStep().hashCode();
-        break;
-      case 0:
-      default:
-    }
+    hash = (37 * hash) + IDEMPOTENCY_KEY_FIELD_NUMBER;
+    hash = (53 * hash) + getIdempotencyKey().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -555,14 +470,7 @@ private static final long serialVersionUID = 0L;
         valueBuilder_.dispose();
         valueBuilder_ = null;
       }
-      if (clientBuilder_ != null) {
-        clientBuilder_.clear();
-      }
-      if (stepBuilder_ != null) {
-        stepBuilder_.clear();
-      }
-      producerCase_ = 0;
-      producer_ = null;
+      idempotencyKey_ = "";
       return this;
     }
 
@@ -590,7 +498,6 @@ private static final long serialVersionUID = 0L;
     public io.superdurable.gen.WriteStreamRequest buildPartial() {
       io.superdurable.gen.WriteStreamRequest result = new io.superdurable.gen.WriteStreamRequest(this);
       if (bitField0_ != 0) { buildPartial0(result); }
-      buildPartialOneofs(result);
       onBuilt();
       return result;
     }
@@ -613,20 +520,10 @@ private static final long serialVersionUID = 0L;
             : valueBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
+        result.idempotencyKey_ = idempotencyKey_;
+      }
       result.bitField0_ |= to_bitField0_;
-    }
-
-    private void buildPartialOneofs(io.superdurable.gen.WriteStreamRequest result) {
-      result.producerCase_ = producerCase_;
-      result.producer_ = this.producer_;
-      if (producerCase_ == 5 &&
-          clientBuilder_ != null) {
-        result.producer_ = clientBuilder_.build();
-      }
-      if (producerCase_ == 6 &&
-          stepBuilder_ != null) {
-        result.producer_ = stepBuilder_.build();
-      }
     }
 
     @java.lang.Override
@@ -657,18 +554,10 @@ private static final long serialVersionUID = 0L;
       if (other.hasValue()) {
         mergeValue(other.getValue());
       }
-      switch (other.getProducerCase()) {
-        case CLIENT: {
-          mergeClient(other.getClient());
-          break;
-        }
-        case STEP: {
-          mergeStep(other.getStep());
-          break;
-        }
-        case PRODUCER_NOT_SET: {
-          break;
-        }
+      if (!other.getIdempotencyKey().isEmpty()) {
+        idempotencyKey_ = other.idempotencyKey_;
+        bitField0_ |= 0x00000010;
+        onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -719,19 +608,10 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 34
             case 42: {
-              input.readMessage(
-                  internalGetClientFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              producerCase_ = 5;
+              idempotencyKey_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000010;
               break;
             } // case 42
-            case 50: {
-              input.readMessage(
-                  internalGetStepFieldBuilder().getBuilder(),
-                  extensionRegistry);
-              producerCase_ = 6;
-              break;
-            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -747,21 +627,6 @@ private static final long serialVersionUID = 0L;
       } // finally
       return this;
     }
-    private int producerCase_ = 0;
-    private java.lang.Object producer_;
-    public ProducerCase
-        getProducerCase() {
-      return ProducerCase.forNumber(
-          producerCase_);
-    }
-
-    public Builder clearProducer() {
-      producerCase_ = 0;
-      producer_ = null;
-      onChanged();
-      return this;
-    }
-
     private int bitField0_;
 
     private java.lang.Object flowId_ = "";
@@ -1061,288 +926,96 @@ private static final long serialVersionUID = 0L;
       return valueBuilder_;
     }
 
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ClientStreamProducer, io.superdurable.gen.ClientStreamProducer.Builder, io.superdurable.gen.ClientStreamProducerOrBuilder> clientBuilder_;
+    private java.lang.Object idempotencyKey_ = "";
     /**
-     * <code>.dex.ClientStreamProducer client = 5;</code>
-     * @return Whether the client field is set.
+     * <pre>
+     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
+     * </pre>
+     *
+     * <code>string idempotency_key = 5;</code>
+     * @return The idempotencyKey.
      */
-    @java.lang.Override
-    public boolean hasClient() {
-      return producerCase_ == 5;
-    }
-    /**
-     * <code>.dex.ClientStreamProducer client = 5;</code>
-     * @return The client.
-     */
-    @java.lang.Override
-    public io.superdurable.gen.ClientStreamProducer getClient() {
-      if (clientBuilder_ == null) {
-        if (producerCase_ == 5) {
-          return (io.superdurable.gen.ClientStreamProducer) producer_;
-        }
-        return io.superdurable.gen.ClientStreamProducer.getDefaultInstance();
+    public java.lang.String getIdempotencyKey() {
+      java.lang.Object ref = idempotencyKey_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        idempotencyKey_ = s;
+        return s;
       } else {
-        if (producerCase_ == 5) {
-          return clientBuilder_.getMessage();
-        }
-        return io.superdurable.gen.ClientStreamProducer.getDefaultInstance();
+        return (java.lang.String) ref;
       }
     }
     /**
-     * <code>.dex.ClientStreamProducer client = 5;</code>
+     * <pre>
+     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
+     * </pre>
+     *
+     * <code>string idempotency_key = 5;</code>
+     * @return The bytes for idempotencyKey.
      */
-    public Builder setClient(io.superdurable.gen.ClientStreamProducer value) {
-      if (clientBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        producer_ = value;
-        onChanged();
+    public com.google.protobuf.ByteString
+        getIdempotencyKeyBytes() {
+      java.lang.Object ref = idempotencyKey_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        idempotencyKey_ = b;
+        return b;
       } else {
-        clientBuilder_.setMessage(value);
-      }
-      producerCase_ = 5;
-      return this;
-    }
-    /**
-     * <code>.dex.ClientStreamProducer client = 5;</code>
-     */
-    public Builder setClient(
-        io.superdurable.gen.ClientStreamProducer.Builder builderForValue) {
-      if (clientBuilder_ == null) {
-        producer_ = builderForValue.build();
-        onChanged();
-      } else {
-        clientBuilder_.setMessage(builderForValue.build());
-      }
-      producerCase_ = 5;
-      return this;
-    }
-    /**
-     * <code>.dex.ClientStreamProducer client = 5;</code>
-     */
-    public Builder mergeClient(io.superdurable.gen.ClientStreamProducer value) {
-      if (clientBuilder_ == null) {
-        if (producerCase_ == 5 &&
-            producer_ != io.superdurable.gen.ClientStreamProducer.getDefaultInstance()) {
-          producer_ = io.superdurable.gen.ClientStreamProducer.newBuilder((io.superdurable.gen.ClientStreamProducer) producer_)
-              .mergeFrom(value).buildPartial();
-        } else {
-          producer_ = value;
-        }
-        onChanged();
-      } else {
-        if (producerCase_ == 5) {
-          clientBuilder_.mergeFrom(value);
-        } else {
-          clientBuilder_.setMessage(value);
-        }
-      }
-      producerCase_ = 5;
-      return this;
-    }
-    /**
-     * <code>.dex.ClientStreamProducer client = 5;</code>
-     */
-    public Builder clearClient() {
-      if (clientBuilder_ == null) {
-        if (producerCase_ == 5) {
-          producerCase_ = 0;
-          producer_ = null;
-          onChanged();
-        }
-      } else {
-        if (producerCase_ == 5) {
-          producerCase_ = 0;
-          producer_ = null;
-        }
-        clientBuilder_.clear();
-      }
-      return this;
-    }
-    /**
-     * <code>.dex.ClientStreamProducer client = 5;</code>
-     */
-    public io.superdurable.gen.ClientStreamProducer.Builder getClientBuilder() {
-      return internalGetClientFieldBuilder().getBuilder();
-    }
-    /**
-     * <code>.dex.ClientStreamProducer client = 5;</code>
-     */
-    @java.lang.Override
-    public io.superdurable.gen.ClientStreamProducerOrBuilder getClientOrBuilder() {
-      if ((producerCase_ == 5) && (clientBuilder_ != null)) {
-        return clientBuilder_.getMessageOrBuilder();
-      } else {
-        if (producerCase_ == 5) {
-          return (io.superdurable.gen.ClientStreamProducer) producer_;
-        }
-        return io.superdurable.gen.ClientStreamProducer.getDefaultInstance();
+        return (com.google.protobuf.ByteString) ref;
       }
     }
     /**
-     * <code>.dex.ClientStreamProducer client = 5;</code>
+     * <pre>
+     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
+     * </pre>
+     *
+     * <code>string idempotency_key = 5;</code>
+     * @param value The idempotencyKey to set.
+     * @return This builder for chaining.
      */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.ClientStreamProducer, io.superdurable.gen.ClientStreamProducer.Builder, io.superdurable.gen.ClientStreamProducerOrBuilder> 
-        internalGetClientFieldBuilder() {
-      if (clientBuilder_ == null) {
-        if (!(producerCase_ == 5)) {
-          producer_ = io.superdurable.gen.ClientStreamProducer.getDefaultInstance();
-        }
-        clientBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.ClientStreamProducer, io.superdurable.gen.ClientStreamProducer.Builder, io.superdurable.gen.ClientStreamProducerOrBuilder>(
-                (io.superdurable.gen.ClientStreamProducer) producer_,
-                getParentForChildren(),
-                isClean());
-        producer_ = null;
-      }
-      producerCase_ = 5;
+    public Builder setIdempotencyKey(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      idempotencyKey_ = value;
+      bitField0_ |= 0x00000010;
       onChanged();
-      return clientBuilder_;
-    }
-
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepStreamProducer, io.superdurable.gen.StepStreamProducer.Builder, io.superdurable.gen.StepStreamProducerOrBuilder> stepBuilder_;
-    /**
-     * <code>.dex.StepStreamProducer step = 6;</code>
-     * @return Whether the step field is set.
-     */
-    @java.lang.Override
-    public boolean hasStep() {
-      return producerCase_ == 6;
-    }
-    /**
-     * <code>.dex.StepStreamProducer step = 6;</code>
-     * @return The step.
-     */
-    @java.lang.Override
-    public io.superdurable.gen.StepStreamProducer getStep() {
-      if (stepBuilder_ == null) {
-        if (producerCase_ == 6) {
-          return (io.superdurable.gen.StepStreamProducer) producer_;
-        }
-        return io.superdurable.gen.StepStreamProducer.getDefaultInstance();
-      } else {
-        if (producerCase_ == 6) {
-          return stepBuilder_.getMessage();
-        }
-        return io.superdurable.gen.StepStreamProducer.getDefaultInstance();
-      }
-    }
-    /**
-     * <code>.dex.StepStreamProducer step = 6;</code>
-     */
-    public Builder setStep(io.superdurable.gen.StepStreamProducer value) {
-      if (stepBuilder_ == null) {
-        if (value == null) {
-          throw new NullPointerException();
-        }
-        producer_ = value;
-        onChanged();
-      } else {
-        stepBuilder_.setMessage(value);
-      }
-      producerCase_ = 6;
       return this;
     }
     /**
-     * <code>.dex.StepStreamProducer step = 6;</code>
+     * <pre>
+     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
+     * </pre>
+     *
+     * <code>string idempotency_key = 5;</code>
+     * @return This builder for chaining.
      */
-    public Builder setStep(
-        io.superdurable.gen.StepStreamProducer.Builder builderForValue) {
-      if (stepBuilder_ == null) {
-        producer_ = builderForValue.build();
-        onChanged();
-      } else {
-        stepBuilder_.setMessage(builderForValue.build());
-      }
-      producerCase_ = 6;
-      return this;
-    }
-    /**
-     * <code>.dex.StepStreamProducer step = 6;</code>
-     */
-    public Builder mergeStep(io.superdurable.gen.StepStreamProducer value) {
-      if (stepBuilder_ == null) {
-        if (producerCase_ == 6 &&
-            producer_ != io.superdurable.gen.StepStreamProducer.getDefaultInstance()) {
-          producer_ = io.superdurable.gen.StepStreamProducer.newBuilder((io.superdurable.gen.StepStreamProducer) producer_)
-              .mergeFrom(value).buildPartial();
-        } else {
-          producer_ = value;
-        }
-        onChanged();
-      } else {
-        if (producerCase_ == 6) {
-          stepBuilder_.mergeFrom(value);
-        } else {
-          stepBuilder_.setMessage(value);
-        }
-      }
-      producerCase_ = 6;
-      return this;
-    }
-    /**
-     * <code>.dex.StepStreamProducer step = 6;</code>
-     */
-    public Builder clearStep() {
-      if (stepBuilder_ == null) {
-        if (producerCase_ == 6) {
-          producerCase_ = 0;
-          producer_ = null;
-          onChanged();
-        }
-      } else {
-        if (producerCase_ == 6) {
-          producerCase_ = 0;
-          producer_ = null;
-        }
-        stepBuilder_.clear();
-      }
-      return this;
-    }
-    /**
-     * <code>.dex.StepStreamProducer step = 6;</code>
-     */
-    public io.superdurable.gen.StepStreamProducer.Builder getStepBuilder() {
-      return internalGetStepFieldBuilder().getBuilder();
-    }
-    /**
-     * <code>.dex.StepStreamProducer step = 6;</code>
-     */
-    @java.lang.Override
-    public io.superdurable.gen.StepStreamProducerOrBuilder getStepOrBuilder() {
-      if ((producerCase_ == 6) && (stepBuilder_ != null)) {
-        return stepBuilder_.getMessageOrBuilder();
-      } else {
-        if (producerCase_ == 6) {
-          return (io.superdurable.gen.StepStreamProducer) producer_;
-        }
-        return io.superdurable.gen.StepStreamProducer.getDefaultInstance();
-      }
-    }
-    /**
-     * <code>.dex.StepStreamProducer step = 6;</code>
-     */
-    private com.google.protobuf.SingleFieldBuilder<
-        io.superdurable.gen.StepStreamProducer, io.superdurable.gen.StepStreamProducer.Builder, io.superdurable.gen.StepStreamProducerOrBuilder> 
-        internalGetStepFieldBuilder() {
-      if (stepBuilder_ == null) {
-        if (!(producerCase_ == 6)) {
-          producer_ = io.superdurable.gen.StepStreamProducer.getDefaultInstance();
-        }
-        stepBuilder_ = new com.google.protobuf.SingleFieldBuilder<
-            io.superdurable.gen.StepStreamProducer, io.superdurable.gen.StepStreamProducer.Builder, io.superdurable.gen.StepStreamProducerOrBuilder>(
-                (io.superdurable.gen.StepStreamProducer) producer_,
-                getParentForChildren(),
-                isClean());
-        producer_ = null;
-      }
-      producerCase_ = 6;
+    public Builder clearIdempotencyKey() {
+      idempotencyKey_ = getDefaultInstance().getIdempotencyKey();
+      bitField0_ = (bitField0_ & ~0x00000010);
       onChanged();
-      return stepBuilder_;
+      return this;
+    }
+    /**
+     * <pre>
+     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
+     * </pre>
+     *
+     * <code>string idempotency_key = 5;</code>
+     * @param value The bytes for idempotencyKey to set.
+     * @return This builder for chaining.
+     */
+    public Builder setIdempotencyKeyBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      idempotencyKey_ = value;
+      bitField0_ |= 0x00000010;
+      onChanged();
+      return this;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.WriteStreamRequest)

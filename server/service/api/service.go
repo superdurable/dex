@@ -543,38 +543,20 @@ func streamWriteInput(req *dexpb.WriteStreamRequest) (streamstore.WriteInput, er
 	if req.GetValue() == nil {
 		return streamstore.WriteInput{}, fmt.Errorf("Stream Value is required")
 	}
-	input := streamstore.WriteInput{
-		FlowID:            req.GetFlowId(),
-		StreamName:        req.GetStreamName(),
-		MaxEstimatedBytes: req.GetMaxEstimatedBytes(),
-		Value:             req.GetValue(),
+	if req.GetIdempotencyKey() == "" {
+		return streamstore.WriteInput{}, fmt.Errorf("Stream idempotency key is required")
 	}
-	switch producer := req.GetProducer().(type) {
-	case *dexpb.WriteStreamRequest_Client:
-		if producer.Client.GetIdempotencyKey() == "" {
-			return streamstore.WriteInput{}, fmt.Errorf("client idempotency key is required")
-		}
-		input.PublicIdempotencyKey = producer.Client.GetIdempotencyKey()
-		input.InternalIdentity = lengthPrefixedIdentity(
-			"client",
+	return streamstore.WriteInput{
+		FlowID:               req.GetFlowId(),
+		StreamName:           req.GetStreamName(),
+		MaxEstimatedBytes:    req.GetMaxEstimatedBytes(),
+		Value:                req.GetValue(),
+		PublicIdempotencyKey: req.GetIdempotencyKey(),
+		InternalIdentity: lengthPrefixedIdentity(
 			req.GetFlowId(),
-			producer.Client.GetIdempotencyKey(),
-		)
-	case *dexpb.WriteStreamRequest_Step:
-		if producer.Step.GetRunId() == "" || producer.Step.GetStepExecutionId() == "" {
-			return streamstore.WriteInput{}, fmt.Errorf("Step run ID and execution ID are required")
-		}
-		input.PublicIdempotencyKey = producer.Step.GetRunId() + ":" + producer.Step.GetStepExecutionId()
-		input.InternalIdentity = lengthPrefixedIdentity(
-			"step",
-			req.GetFlowId(),
-			producer.Step.GetRunId(),
-			producer.Step.GetStepExecutionId(),
-		)
-	default:
-		return streamstore.WriteInput{}, fmt.Errorf("Stream producer is required")
-	}
-	return input, nil
+			req.GetIdempotencyKey(),
+		),
+	}, nil
 }
 
 func lengthPrefixedIdentity(parts ...string) string {

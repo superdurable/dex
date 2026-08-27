@@ -56,34 +56,22 @@ public interface WriteStreamRequestOrBuilder extends
   io.superdurable.gen.ValueOrBuilder getValueOrBuilder();
 
   /**
-   * <code>.dex.ClientStreamProducer client = 5;</code>
-   * @return Whether the client field is set.
+   * <pre>
+   * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
+   * </pre>
+   *
+   * <code>string idempotency_key = 5;</code>
+   * @return The idempotencyKey.
    */
-  boolean hasClient();
+  java.lang.String getIdempotencyKey();
   /**
-   * <code>.dex.ClientStreamProducer client = 5;</code>
-   * @return The client.
+   * <pre>
+   * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
+   * </pre>
+   *
+   * <code>string idempotency_key = 5;</code>
+   * @return The bytes for idempotencyKey.
    */
-  io.superdurable.gen.ClientStreamProducer getClient();
-  /**
-   * <code>.dex.ClientStreamProducer client = 5;</code>
-   */
-  io.superdurable.gen.ClientStreamProducerOrBuilder getClientOrBuilder();
-
-  /**
-   * <code>.dex.StepStreamProducer step = 6;</code>
-   * @return Whether the step field is set.
-   */
-  boolean hasStep();
-  /**
-   * <code>.dex.StepStreamProducer step = 6;</code>
-   * @return The step.
-   */
-  io.superdurable.gen.StepStreamProducer getStep();
-  /**
-   * <code>.dex.StepStreamProducer step = 6;</code>
-   */
-  io.superdurable.gen.StepStreamProducerOrBuilder getStepOrBuilder();
-
-  io.superdurable.gen.WriteStreamRequest.ProducerCase getProducerCase();
+  com.google.protobuf.ByteString
+      getIdempotencyKeyBytes();
 }

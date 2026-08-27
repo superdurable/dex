@@ -528,34 +528,18 @@ class ChannelMessage(_message.Message):
     def __init__(self, channel_name: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class WriteStreamRequest(_message.Message):
-    __slots__ = ("flow_id", "stream_name", "max_estimated_bytes", "value", "client", "step")
+    __slots__ = ("flow_id", "stream_name", "max_estimated_bytes", "value", "idempotency_key")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     STREAM_NAME_FIELD_NUMBER: _ClassVar[int]
     MAX_ESTIMATED_BYTES_FIELD_NUMBER: _ClassVar[int]
     VALUE_FIELD_NUMBER: _ClassVar[int]
-    CLIENT_FIELD_NUMBER: _ClassVar[int]
-    STEP_FIELD_NUMBER: _ClassVar[int]
+    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     stream_name: str
     max_estimated_bytes: int
     value: Value
-    client: ClientStreamProducer
-    step: StepStreamProducer
-    def __init__(self, flow_id: _Optional[str] = ..., stream_name: _Optional[str] = ..., max_estimated_bytes: _Optional[int] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., client: _Optional[_Union[ClientStreamProducer, _Mapping]] = ..., step: _Optional[_Union[StepStreamProducer, _Mapping]] = ...) -> None: ...
-
-class ClientStreamProducer(_message.Message):
-    __slots__ = ("idempotency_key",)
-    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
     idempotency_key: str
-    def __init__(self, idempotency_key: _Optional[str] = ...) -> None: ...
-
-class StepStreamProducer(_message.Message):
-    __slots__ = ("run_id", "step_execution_id")
-    RUN_ID_FIELD_NUMBER: _ClassVar[int]
-    STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
-    run_id: str
-    step_execution_id: str
-    def __init__(self, run_id: _Optional[str] = ..., step_execution_id: _Optional[str] = ...) -> None: ...
+    def __init__(self, flow_id: _Optional[str] = ..., stream_name: _Optional[str] = ..., max_estimated_bytes: _Optional[int] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., idempotency_key: _Optional[str] = ...) -> None: ...
 
 class ReadStreamRequest(_message.Message):
     __slots__ = ("flow_id", "stream_name", "resume_token", "wait_time_seconds")

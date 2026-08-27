@@ -390,17 +390,11 @@ export interface WriteStreamRequest {
   flowId: string;
   streamName: string;
   maxEstimatedBytes: bigint;
-  value: Value | undefined;
-  producer: { $case: "client"; value: ClientStreamProducer } | { $case: "step"; value: StepStreamProducer } | undefined;
-}
-
-export interface ClientStreamProducer {
+  value:
+    | Value
+    | undefined;
+  /** Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`. */
   idempotencyKey: string;
-}
-
-export interface StepStreamProducer {
-  runId: string;
-  stepExecutionId: string;
 }
 
 export interface ReadStreamRequest {
@@ -3219,7 +3213,7 @@ export const ChannelMessage: MessageFns<ChannelMessage> = {
 };
 
 function createBaseWriteStreamRequest(): WriteStreamRequest {
-  return { flowId: "", streamName: "", maxEstimatedBytes: 0n, value: undefined, producer: undefined };
+  return { flowId: "", streamName: "", maxEstimatedBytes: 0n, value: undefined, idempotencyKey: "" };
 }
 
 export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
@@ -3239,13 +3233,8 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
     if (message.value !== undefined) {
       Value.encode(message.value, writer.uint32(34).fork()).join();
     }
-    switch (message.producer?.$case) {
-      case "client":
-        ClientStreamProducer.encode(message.producer.value, writer.uint32(42).fork()).join();
-        break;
-      case "step":
-        StepStreamProducer.encode(message.producer.value, writer.uint32(50).fork()).join();
-        break;
+    if (message.idempotencyKey !== "") {
+      writer.uint32(42).string(message.idempotencyKey);
     }
     return writer;
   },
@@ -3294,15 +3283,7 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
             break;
           }
 
-          message.producer = { $case: "client", value: ClientStreamProducer.decode(reader, reader.uint32()) };
-          continue;
-        }
-        case 6: {
-          if (tag !== 50) {
-            break;
-          }
-
-          message.producer = { $case: "step", value: StepStreamProducer.decode(reader, reader.uint32()) };
+          message.idempotencyKey = reader.string();
           continue;
         }
       }
@@ -3325,124 +3306,7 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
       ? BigInt(object.maxEstimatedBytes)
       : 0n;
     message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
-    switch (object.producer?.$case) {
-      case "client": {
-        if (object.producer?.value !== undefined && object.producer?.value !== null) {
-          message.producer = { $case: "client", value: ClientStreamProducer.fromPartial(object.producer.value) };
-        }
-        break;
-      }
-      case "step": {
-        if (object.producer?.value !== undefined && object.producer?.value !== null) {
-          message.producer = { $case: "step", value: StepStreamProducer.fromPartial(object.producer.value) };
-        }
-        break;
-      }
-    }
-    return message;
-  },
-};
-
-function createBaseClientStreamProducer(): ClientStreamProducer {
-  return { idempotencyKey: "" };
-}
-
-export const ClientStreamProducer: MessageFns<ClientStreamProducer> = {
-  encode(message: ClientStreamProducer, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.idempotencyKey !== "") {
-      writer.uint32(10).string(message.idempotencyKey);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): ClientStreamProducer {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseClientStreamProducer();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.idempotencyKey = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  create<I extends Exact<DeepPartial<ClientStreamProducer>, I>>(base?: I): ClientStreamProducer {
-    return ClientStreamProducer.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<ClientStreamProducer>, I>>(object: I): ClientStreamProducer {
-    const message = createBaseClientStreamProducer();
     message.idempotencyKey = object.idempotencyKey ?? "";
-    return message;
-  },
-};
-
-function createBaseStepStreamProducer(): StepStreamProducer {
-  return { runId: "", stepExecutionId: "" };
-}
-
-export const StepStreamProducer: MessageFns<StepStreamProducer> = {
-  encode(message: StepStreamProducer, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
-    if (message.runId !== "") {
-      writer.uint32(10).string(message.runId);
-    }
-    if (message.stepExecutionId !== "") {
-      writer.uint32(18).string(message.stepExecutionId);
-    }
-    return writer;
-  },
-
-  decode(input: BinaryReader | Uint8Array, length?: number): StepStreamProducer {
-    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseStepStreamProducer();
-    while (reader.pos < end) {
-      const tag = reader.uint32();
-      switch (tag >>> 3) {
-        case 1: {
-          if (tag !== 10) {
-            break;
-          }
-
-          message.runId = reader.string();
-          continue;
-        }
-        case 2: {
-          if (tag !== 18) {
-            break;
-          }
-
-          message.stepExecutionId = reader.string();
-          continue;
-        }
-      }
-      if ((tag & 7) === 4 || tag === 0) {
-        break;
-      }
-      reader.skip(tag & 7);
-    }
-    return message;
-  },
-
-  create<I extends Exact<DeepPartial<StepStreamProducer>, I>>(base?: I): StepStreamProducer {
-    return StepStreamProducer.fromPartial(base ?? ({} as any));
-  },
-  fromPartial<I extends Exact<DeepPartial<StepStreamProducer>, I>>(object: I): StepStreamProducer {
-    const message = createBaseStepStreamProducer();
-    message.runId = object.runId ?? "";
-    message.stepExecutionId = object.stepExecutionId ?? "";
     return message;
   },
 };

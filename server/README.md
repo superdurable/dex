@@ -36,9 +36,11 @@ readiness; only Stream RPCs fail when it is unavailable. Configure dedicated Red
 Capacity is not stored in Redis. Each write supplies the limit for all Flow
 instances with that Stream name. Charged bytes approximate the serialized
 Value, Flow ID, public and internal idempotency identities, and configured
-overhead. Reaching the default 90% trigger starts singleton background FIFO
-trimming toward the 80% target. A write that would exceed 100% is not appended;
-it returns `ResourceExhausted` after scheduling trim and can be retried later.
+overhead. Client idempotency keys cannot contain `#`; Step SDKs use
+`<runID>#<stepExecutionID>`. Reaching the default 90% trigger starts singleton
+background FIFO trimming toward the 80% target. A write that would exceed 100%
+is not appended; it returns `ResourceExhausted` after scheduling trim and can
+be retried later.
 The default 24-hour idle TTL is refreshed by writes and retained idempotent
 replays, not reads; set `idleTTL: 0` to disable it.
 

@@ -28,8 +28,9 @@ change the target for subsequent WorkerService calls while the flow is running.
 
 `WriteStream` appends one best-effort message to the Stream instance identified
 by `flow_id` and `stream_name`. Every write carries `max_estimated_bytes` and a
-client or Step producer identity. The server uses that identity for
-first-write-wins idempotency.
+single `idempotency_key`. Client keys cannot contain `#`; Step SDKs compose the
+key as `<runID>#<stepExecutionID>`. The server scopes the key to the Flow and
+uses it for first-write-wins idempotency.
 
 Capacity applies across every Flow instance of the same Stream name. Reaching
 the trim trigger schedules background global FIFO trimming toward the target.
