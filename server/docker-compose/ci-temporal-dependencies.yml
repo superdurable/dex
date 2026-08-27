@@ -5,6 +5,13 @@ version: '3.9'
 
 # see .env file for the default value of the environment variables
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory-policy noeviction
+    networks:
+      - testing-network
   elasticsearch:
     container_name: elasticsearch
     environment:

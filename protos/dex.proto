@@ -47,8 +47,8 @@ option java_outer_classname = "DexProto";
 //                       WaitForStepCompletion, WaitForAttribute)
 //                       sub_status LONG_POLL_TIME_OUT
 //   Canceled          — caller canceled the RPC context
-//   Unavailable       — Temporal/Cadence backend (workflow engine) unavailable
-//                       only — never Dex application WorkerService
+//   Unavailable       — Temporal/Cadence backend or Stream Redis unavailable;
+//                       never Dex application WorkerService
 //   Internal          — unexpected / violated trusted invariant
 //   Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
 //                       locking InvokeRPC (Temporal sync update required)
@@ -66,12 +66,17 @@ option java_outer_classname = "DexProto";
 //     blob-backed stored attributes with FailedPrecondition.
 //   WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
 //     LONG_POLL_TIME_OUT.
+//   WriteStream / ReadStream — independent of Flow existence and lifecycle.
+//     Redis failures affect only Stream RPCs. Read timeout → DeadlineExceeded +
+//     LONG_POLL_TIME_OUT.
 // ---------------------------------------------------------------------------
 
 // Hosted by Dex server; SDKs call these RPCs.
 service FlowService {
   rpc StartFlow(StartFlowRequest) returns (StartFlowResponse);
   rpc PublishToChannel(PublishToChannelRequest) returns (google.protobuf.Empty);
+  rpc WriteStream(WriteStreamRequest) returns (google.protobuf.Empty);
+  rpc ReadStream(ReadStreamRequest) returns (ReadStreamResponse);
   rpc StopFlow(StopFlowRequest) returns (google.protobuf.Empty);
   rpc GetAttributes(GetAttributesRequest) returns (GetAttributesResponse);
   rpc SetAttributes(SetAttributesRequest) returns (google.protobuf.Empty);
@@ -316,6 +321,35 @@ message PublishToChannelRequest {
 message ChannelMessage {
   string channel_name = 1;
   Value value = 2;
+}
+
+message WriteStreamRequest {
+  string flow_id = 1;
+  string flow_type = 2;
+  string stream_name = 3;
+  int64 max_estimated_bytes = 4;
+  Value value = 5;
+  // Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`.
+  string idempotency_key = 6;
+}
+
+message ReadStreamRequest {
+  string flow_id = 1;
+  string flow_type = 2;
+  string stream_name = 3;
+  string resume_token = 4;
+  int32 wait_time_seconds = 5;
+}
+
+message ReadStreamResponse {
+  StreamMessage message = 1;
+}
+
+message StreamMessage {
+  Value value = 1;
+  string resume_token = 2;
+  google.protobuf.Timestamp created_time = 3;
+  string idempotency_key = 4;
 }
 
 enum StopType {

@@ -386,6 +386,37 @@ export interface ChannelMessage {
   value: Value | undefined;
 }
 
+export interface WriteStreamRequest {
+  flowId: string;
+  flowType: string;
+  streamName: string;
+  maxEstimatedBytes: bigint;
+  value:
+    | Value
+    | undefined;
+  /** Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`. */
+  idempotencyKey: string;
+}
+
+export interface ReadStreamRequest {
+  flowId: string;
+  flowType: string;
+  streamName: string;
+  resumeToken: string;
+  waitTimeSeconds: number;
+}
+
+export interface ReadStreamResponse {
+  message: StreamMessage | undefined;
+}
+
+export interface StreamMessage {
+  value: Value | undefined;
+  resumeToken: string;
+  createdTime: Date | undefined;
+  idempotencyKey: string;
+}
+
 export interface StopFlowRequest {
   flowId: string;
   runId: string;
@@ -3179,6 +3210,341 @@ export const ChannelMessage: MessageFns<ChannelMessage> = {
     const message = createBaseChannelMessage();
     message.channelName = object.channelName ?? "";
     message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
+    return message;
+  },
+};
+
+function createBaseWriteStreamRequest(): WriteStreamRequest {
+  return { flowId: "", flowType: "", streamName: "", maxEstimatedBytes: 0n, value: undefined, idempotencyKey: "" };
+}
+
+export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
+  encode(message: WriteStreamRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowId !== "") {
+      writer.uint32(10).string(message.flowId);
+    }
+    if (message.flowType !== "") {
+      writer.uint32(18).string(message.flowType);
+    }
+    if (message.streamName !== "") {
+      writer.uint32(26).string(message.streamName);
+    }
+    if (message.maxEstimatedBytes !== 0n) {
+      if (BigInt.asIntN(64, message.maxEstimatedBytes) !== message.maxEstimatedBytes) {
+        throw new globalThis.Error("value provided for field message.maxEstimatedBytes of type int64 too large");
+      }
+      writer.uint32(32).int64(message.maxEstimatedBytes);
+    }
+    if (message.value !== undefined) {
+      Value.encode(message.value, writer.uint32(42).fork()).join();
+    }
+    if (message.idempotencyKey !== "") {
+      writer.uint32(50).string(message.idempotencyKey);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): WriteStreamRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseWriteStreamRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.flowType = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.streamName = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.maxEstimatedBytes = reader.int64() as bigint;
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.value = Value.decode(reader, reader.uint32());
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.idempotencyKey = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<WriteStreamRequest>, I>>(base?: I): WriteStreamRequest {
+    return WriteStreamRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<WriteStreamRequest>, I>>(object: I): WriteStreamRequest {
+    const message = createBaseWriteStreamRequest();
+    message.flowId = object.flowId ?? "";
+    message.flowType = object.flowType ?? "";
+    message.streamName = object.streamName ?? "";
+    message.maxEstimatedBytes = (object.maxEstimatedBytes !== undefined && object.maxEstimatedBytes !== null)
+      ? BigInt(object.maxEstimatedBytes)
+      : 0n;
+    message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
+    message.idempotencyKey = object.idempotencyKey ?? "";
+    return message;
+  },
+};
+
+function createBaseReadStreamRequest(): ReadStreamRequest {
+  return { flowId: "", flowType: "", streamName: "", resumeToken: "", waitTimeSeconds: 0 };
+}
+
+export const ReadStreamRequest: MessageFns<ReadStreamRequest> = {
+  encode(message: ReadStreamRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.flowId !== "") {
+      writer.uint32(10).string(message.flowId);
+    }
+    if (message.flowType !== "") {
+      writer.uint32(18).string(message.flowType);
+    }
+    if (message.streamName !== "") {
+      writer.uint32(26).string(message.streamName);
+    }
+    if (message.resumeToken !== "") {
+      writer.uint32(34).string(message.resumeToken);
+    }
+    if (message.waitTimeSeconds !== 0) {
+      writer.uint32(40).int32(message.waitTimeSeconds);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ReadStreamRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseReadStreamRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.flowId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.flowType = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.streamName = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.resumeToken = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.waitTimeSeconds = reader.int32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ReadStreamRequest>, I>>(base?: I): ReadStreamRequest {
+    return ReadStreamRequest.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ReadStreamRequest>, I>>(object: I): ReadStreamRequest {
+    const message = createBaseReadStreamRequest();
+    message.flowId = object.flowId ?? "";
+    message.flowType = object.flowType ?? "";
+    message.streamName = object.streamName ?? "";
+    message.resumeToken = object.resumeToken ?? "";
+    message.waitTimeSeconds = object.waitTimeSeconds ?? 0;
+    return message;
+  },
+};
+
+function createBaseReadStreamResponse(): ReadStreamResponse {
+  return { message: undefined };
+}
+
+export const ReadStreamResponse: MessageFns<ReadStreamResponse> = {
+  encode(message: ReadStreamResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.message !== undefined) {
+      StreamMessage.encode(message.message, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ReadStreamResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseReadStreamResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.message = StreamMessage.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<ReadStreamResponse>, I>>(base?: I): ReadStreamResponse {
+    return ReadStreamResponse.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ReadStreamResponse>, I>>(object: I): ReadStreamResponse {
+    const message = createBaseReadStreamResponse();
+    message.message = (object.message !== undefined && object.message !== null)
+      ? StreamMessage.fromPartial(object.message)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseStreamMessage(): StreamMessage {
+  return { value: undefined, resumeToken: "", createdTime: undefined, idempotencyKey: "" };
+}
+
+export const StreamMessage: MessageFns<StreamMessage> = {
+  encode(message: StreamMessage, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.value !== undefined) {
+      Value.encode(message.value, writer.uint32(10).fork()).join();
+    }
+    if (message.resumeToken !== "") {
+      writer.uint32(18).string(message.resumeToken);
+    }
+    if (message.createdTime !== undefined) {
+      Timestamp.encode(toTimestamp(message.createdTime), writer.uint32(26).fork()).join();
+    }
+    if (message.idempotencyKey !== "") {
+      writer.uint32(34).string(message.idempotencyKey);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StreamMessage {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStreamMessage();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.value = Value.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.resumeToken = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.createdTime = fromTimestamp(Timestamp.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.idempotencyKey = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StreamMessage>, I>>(base?: I): StreamMessage {
+    return StreamMessage.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StreamMessage>, I>>(object: I): StreamMessage {
+    const message = createBaseStreamMessage();
+    message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
+    message.resumeToken = object.resumeToken ?? "";
+    message.createdTime = object.createdTime ?? undefined;
+    message.idempotencyKey = object.idempotencyKey ?? "";
     return message;
   },
 };
@@ -14838,6 +15204,24 @@ export const FlowServiceService = {
     responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
     responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
   },
+  writeStream: {
+    path: "/dex.FlowService/WriteStream" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: WriteStreamRequest): Buffer => Buffer.from(WriteStreamRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): WriteStreamRequest => WriteStreamRequest.decode(value),
+    responseSerialize: (value: Empty): Buffer => Buffer.from(Empty.encode(value).finish()),
+    responseDeserialize: (value: Buffer): Empty => Empty.decode(value),
+  },
+  readStream: {
+    path: "/dex.FlowService/ReadStream" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ReadStreamRequest): Buffer => Buffer.from(ReadStreamRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ReadStreamRequest => ReadStreamRequest.decode(value),
+    responseSerialize: (value: ReadStreamResponse): Buffer => Buffer.from(ReadStreamResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ReadStreamResponse => ReadStreamResponse.decode(value),
+  },
   stopFlow: {
     path: "/dex.FlowService/StopFlow" as const,
     requestStream: false as const,
@@ -15029,6 +15413,8 @@ export const FlowServiceService = {
 export interface FlowServiceServer extends UntypedServiceImplementation {
   startFlow: handleUnaryCall<StartFlowRequest, StartFlowResponse>;
   publishToChannel: handleUnaryCall<PublishToChannelRequest, Empty>;
+  writeStream: handleUnaryCall<WriteStreamRequest, Empty>;
+  readStream: handleUnaryCall<ReadStreamRequest, ReadStreamResponse>;
   stopFlow: handleUnaryCall<StopFlowRequest, Empty>;
   getAttributes: handleUnaryCall<GetAttributesRequest, GetAttributesResponse>;
   setAttributes: handleUnaryCall<SetAttributesRequest, Empty>;
@@ -15080,6 +15466,36 @@ export interface FlowServiceClient extends Client {
     metadata: Metadata,
     options: Partial<CallOptions>,
     callback: (error: ServiceError | null, response: Empty) => void,
+  ): ClientUnaryCall;
+  writeStream(
+    request: WriteStreamRequest,
+    callback: (error: ServiceError | null, response: Empty) => void,
+  ): ClientUnaryCall;
+  writeStream(
+    request: WriteStreamRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: Empty) => void,
+  ): ClientUnaryCall;
+  writeStream(
+    request: WriteStreamRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: Empty) => void,
+  ): ClientUnaryCall;
+  readStream(
+    request: ReadStreamRequest,
+    callback: (error: ServiceError | null, response: ReadStreamResponse) => void,
+  ): ClientUnaryCall;
+  readStream(
+    request: ReadStreamRequest,
+    metadata: Metadata,
+    callback: (error: ServiceError | null, response: ReadStreamResponse) => void,
+  ): ClientUnaryCall;
+  readStream(
+    request: ReadStreamRequest,
+    metadata: Metadata,
+    options: Partial<CallOptions>,
+    callback: (error: ServiceError | null, response: ReadStreamResponse) => void,
   ): ClientUnaryCall;
   stopFlow(request: StopFlowRequest, callback: (error: ServiceError | null, response: Empty) => void): ClientUnaryCall;
   stopFlow(

@@ -29,6 +29,7 @@ import (
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/superdurable/dex/service/common/log/tag"
+	"github.com/superdurable/dex/service/common/streamstore"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/indexsync"
 	"go.uber.org/zap"
@@ -66,6 +67,7 @@ type Runtime struct {
 	metricsCloser     io.Closer
 	serveError        chan error
 	indexSynchronizer *indexsync.Synchronizer
+	streamStore       *streamstore.Store
 	shutdownOnce      sync.Once
 }
 
@@ -109,8 +111,24 @@ func New(cfg *config.Config, options *Options) (*Runtime, error) {
 		zapLogger:  zapLogger,
 		serveError: make(chan error, 1),
 	}
+	if options.Services.API {
+		streamStore, streamStoreErr := streamstore.New(
+			&cfg.StreamStore,
+			logger.WithTags(tag.Service("stream-store")),
+		)
+		if streamStoreErr != nil {
+			workerPool.Close()
+			return nil, fmt.Errorf("initialize Stream Store: %w", streamStoreErr)
+		}
+		runtime.streamStore = streamStore
+	}
 	attributeStore, err := attributestore.NewManager(context.Background(), &cfg.AttributeStore, logger)
 	if err != nil {
+		if runtime.streamStore != nil {
+			if closeErr := runtime.streamStore.Close(); closeErr != nil {
+				logger.Error("close Stream Store", tag.Error(closeErr))
+			}
+		}
 		workerPool.Close()
 		return nil, fmt.Errorf("initialize Attribute Stores: %w", err)
 	}
@@ -147,6 +165,7 @@ func (r *Runtime) createServices() error {
 			r.logger.WithTags(tag.Service("api")),
 			store,
 			r.attributeStore,
+			r.streamStore,
 			nil,
 			r.workerPool,
 		)
@@ -229,6 +248,11 @@ func (r *Runtime) shutdown() {
 		if r.blobStore != nil {
 			if err := r.blobStore.Close(); err != nil {
 				r.logger.Error("close blob store", tag.Error(err))
+			}
+		}
+		if r.streamStore != nil {
+			if err := r.streamStore.Close(); err != nil {
+				r.logger.Error("close Stream Store", tag.Error(err))
 			}
 		}
 		r.workerPool.Close()

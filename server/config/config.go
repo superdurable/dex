@@ -70,6 +70,24 @@ const (
 	DefaultAttributeStoreSyncTotalDuration = time.Hour
 	// DefaultAttributeIndexSyncTimeout bounds backend index registration and propagation checks.
 	DefaultAttributeIndexSyncTimeout = 2 * time.Minute
+	// DefaultStreamMaxMessageBytes limits each serialized Stream Value to 100 KiB.
+	DefaultStreamMaxMessageBytes int64 = 100 * 1024
+	// DefaultStreamEstimatedMessageOverheadBytes approximates Redis bookkeeping per message.
+	DefaultStreamEstimatedMessageOverheadBytes int64 = 512
+	// DefaultStreamTrimTriggerPercent starts asynchronous trimming at ninety percent of capacity.
+	DefaultStreamTrimTriggerPercent int32 = 90
+	// DefaultStreamTrimTargetPercent stops asynchronous trimming at eighty percent of capacity.
+	DefaultStreamTrimTargetPercent int32 = 80
+	// DefaultStreamBackgroundTrimBatchSize caps messages removed by one atomic Redis trim script.
+	DefaultStreamBackgroundTrimBatchSize = 256
+	// DefaultStreamTrimLeaseTTL keeps a distributed trim lease alive for five seconds.
+	DefaultStreamTrimLeaseTTL = 5 * time.Second
+	// DefaultStreamTrimLeaseRetry retries a held distributed trim lease every 100 milliseconds.
+	DefaultStreamTrimLeaseRetry = 100 * time.Millisecond
+	// DefaultStreamTrimBatchYieldTime pauses one millisecond between atomic trim batches.
+	DefaultStreamTrimBatchYieldTime = time.Millisecond
+	// DefaultStreamTrimWorkers bounds process-wide asynchronous trim concurrency.
+	DefaultStreamTrimWorkers = 4
 )
 
 const (
@@ -136,6 +154,31 @@ type (
 		BlobStore BlobStoreConfig `yaml:"blobStore"`
 		// AttributeStore configures optional MySQL/Postgres Attribute synchronization. Default disabled when Stores is empty.
 		AttributeStore AttributeStoreConfig `yaml:"attributeStore"`
+		// StreamStore configures best-effort resumable Streams. Default disabled when RedisURL is empty.
+		StreamStore StreamStoreConfig `yaml:"streamStore"`
+	}
+
+	StreamStoreConfig struct {
+		// RedisURL is a Redis 7+ Standalone URL. Default empty disables Streams. Immutable after startup.
+		RedisURL string `yaml:"redisURL"`
+		// MaxMessageBytes limits each serialized Stream Value. Default 102400. Must be positive after defaults.
+		MaxMessageBytes int64 `yaml:"maxMessageBytes"`
+		// EstimatedMessageOverheadBytes is charged per message beyond payload and identity bytes. Default 512. Must be non-negative.
+		EstimatedMessageOverheadBytes int64 `yaml:"estimatedMessageOverheadBytes"`
+		// TrimTriggerPercent starts asynchronous trimming at this capacity percentage. Default 90. Valid range is 1 through 99.
+		TrimTriggerPercent int32 `yaml:"trimTriggerPercent"`
+		// TrimTargetPercent stops asynchronous trimming at this capacity percentage. Default 80. Must be below TrimTriggerPercent.
+		TrimTargetPercent int32 `yaml:"trimTargetPercent"`
+		// BackgroundTrimBatchSize caps messages removed by one atomic Redis trim script. Default 256. Must be positive after defaults.
+		BackgroundTrimBatchSize int `yaml:"backgroundTrimBatchSize"`
+		// TrimLeaseTTL controls the Redis lease lifetime for one active trimmer. Default 5s. Must be positive after defaults.
+		TrimLeaseTTL time.Duration `yaml:"trimLeaseTTL"`
+		// TrimLeaseRetry controls how often a server retries a held trim lease. Default 100ms. Must be positive after defaults.
+		TrimLeaseRetry time.Duration `yaml:"trimLeaseRetry"`
+		// TrimBatchYieldTime controls the pause between atomic trim batches. Default 1ms. Must be positive after defaults.
+		TrimBatchYieldTime time.Duration `yaml:"trimBatchYieldTime"`
+		// TrimWorkers bounds concurrent background trim jobs per server process. Default 4. Must be positive after defaults.
+		TrimWorkers int `yaml:"trimWorkers"`
 	}
 
 	BlobStoreConfig struct {
@@ -454,6 +497,112 @@ func (c ApiConfig) EffectiveMaxWaitSeconds() int64 {
 		return DefaultMaxWaitSeconds
 	}
 	return c.MaxWaitSeconds
+}
+
+// EffectiveMaxMessageBytes returns the configured limit or 100-KiB default.
+func (c StreamStoreConfig) EffectiveMaxMessageBytes() int64 {
+	if c.MaxMessageBytes == 0 {
+		return DefaultStreamMaxMessageBytes
+	}
+	return c.MaxMessageBytes
+}
+
+// EffectiveEstimatedMessageOverheadBytes returns the configured charge or 512-byte default.
+func (c StreamStoreConfig) EffectiveEstimatedMessageOverheadBytes() int64 {
+	if c.EstimatedMessageOverheadBytes == 0 {
+		return DefaultStreamEstimatedMessageOverheadBytes
+	}
+	return c.EstimatedMessageOverheadBytes
+}
+
+// EffectiveTrimTriggerPercent returns the configured trigger or ninety-percent default.
+func (c StreamStoreConfig) EffectiveTrimTriggerPercent() int32 {
+	if c.TrimTriggerPercent == 0 {
+		return DefaultStreamTrimTriggerPercent
+	}
+	return c.TrimTriggerPercent
+}
+
+// EffectiveTrimTargetPercent returns the configured target or eighty-percent default.
+func (c StreamStoreConfig) EffectiveTrimTargetPercent() int32 {
+	if c.TrimTargetPercent == 0 {
+		return DefaultStreamTrimTargetPercent
+	}
+	return c.TrimTargetPercent
+}
+
+// EffectiveBackgroundTrimBatchSize returns the configured batch size or 256-message default.
+func (c StreamStoreConfig) EffectiveBackgroundTrimBatchSize() int {
+	if c.BackgroundTrimBatchSize == 0 {
+		return DefaultStreamBackgroundTrimBatchSize
+	}
+	return c.BackgroundTrimBatchSize
+}
+
+// EffectiveTrimLeaseTTL returns the configured lease lifetime or five-second default.
+func (c StreamStoreConfig) EffectiveTrimLeaseTTL() time.Duration {
+	if c.TrimLeaseTTL == 0 {
+		return DefaultStreamTrimLeaseTTL
+	}
+	return c.TrimLeaseTTL
+}
+
+// EffectiveTrimLeaseRetry returns the configured lease retry delay or 100-millisecond default.
+func (c StreamStoreConfig) EffectiveTrimLeaseRetry() time.Duration {
+	if c.TrimLeaseRetry == 0 {
+		return DefaultStreamTrimLeaseRetry
+	}
+	return c.TrimLeaseRetry
+}
+
+// EffectiveTrimBatchYieldTime returns the configured batch pause or one-millisecond default.
+func (c StreamStoreConfig) EffectiveTrimBatchYieldTime() time.Duration {
+	if c.TrimBatchYieldTime == 0 {
+		return DefaultStreamTrimBatchYieldTime
+	}
+	return c.TrimBatchYieldTime
+}
+
+// EffectiveTrimWorkers returns the configured worker count or four-worker default.
+func (c StreamStoreConfig) EffectiveTrimWorkers() int {
+	if c.TrimWorkers == 0 {
+		return DefaultStreamTrimWorkers
+	}
+	return c.TrimWorkers
+}
+
+// Validate checks enabled Stream Store settings and trimming bounds.
+func (c StreamStoreConfig) Validate() error {
+	if c.EffectiveMaxMessageBytes() <= 0 {
+		return fmt.Errorf("stream store maxMessageBytes must be positive")
+	}
+	if c.EstimatedMessageOverheadBytes < 0 {
+		return fmt.Errorf("stream store estimatedMessageOverheadBytes must be non-negative")
+	}
+	triggerPercent := c.EffectiveTrimTriggerPercent()
+	if triggerPercent < 1 || triggerPercent > 99 {
+		return fmt.Errorf("stream store trimTriggerPercent must be between 1 and 99")
+	}
+	targetPercent := c.EffectiveTrimTargetPercent()
+	if targetPercent < 1 || targetPercent >= triggerPercent {
+		return fmt.Errorf("stream store trimTargetPercent must be positive and less than trimTriggerPercent")
+	}
+	if c.EffectiveBackgroundTrimBatchSize() <= 0 {
+		return fmt.Errorf("stream store backgroundTrimBatchSize must be positive")
+	}
+	if c.EffectiveTrimLeaseTTL() <= 0 {
+		return fmt.Errorf("stream store trimLeaseTTL must be positive")
+	}
+	if c.EffectiveTrimLeaseRetry() <= 0 {
+		return fmt.Errorf("stream store trimLeaseRetry must be positive")
+	}
+	if c.EffectiveTrimBatchYieldTime() <= 0 {
+		return fmt.Errorf("stream store trimBatchYieldTime must be positive")
+	}
+	if c.EffectiveTrimWorkers() <= 0 {
+		return fmt.Errorf("stream store trimWorkers must be positive")
+	}
+	return nil
 }
 
 // EffectiveLazyLoading returns LazyLoading, defaulting to true when omitted.

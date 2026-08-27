@@ -55,8 +55,8 @@ class FlowServiceStub:
     WaitForStepCompletion, WaitForAttribute)
     sub_status LONG_POLL_TIME_OUT
     Canceled          — caller canceled the RPC context
-    Unavailable       — Temporal/Cadence backend (workflow engine) unavailable
-    only — never Dex application WorkerService
+    Unavailable       — Temporal/Cadence backend or Stream Redis unavailable;
+    never Dex application WorkerService
     Internal          — unexpected / violated trusted invariant
     Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
     locking InvokeRPC (Temporal sync update required)
@@ -73,6 +73,9 @@ class FlowServiceStub:
     DeadlineExceeded + LONG_POLL_TIME_OUT. WaitForAttribute rejects waiting on
     blob-backed stored attributes with FailedPrecondition.
     WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
+    LONG_POLL_TIME_OUT.
+    WriteStream / ReadStream — independent of Flow existence and lifecycle.
+    Redis failures affect only Stream RPCs. Read timeout → DeadlineExceeded +
     LONG_POLL_TIME_OUT.
     ---------------------------------------------------------------------------
 
@@ -94,6 +97,16 @@ class FlowServiceStub:
                 '/dex.FlowService/PublishToChannel',
                 request_serializer=dex__pb2.PublishToChannelRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.WriteStream = channel.unary_unary(
+                '/dex.FlowService/WriteStream',
+                request_serializer=dex__pb2.WriteStreamRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.ReadStream = channel.unary_unary(
+                '/dex.FlowService/ReadStream',
+                request_serializer=dex__pb2.ReadStreamRequest.SerializeToString,
+                response_deserializer=dex__pb2.ReadStreamResponse.FromString,
                 _registered_method=True)
         self.StopFlow = channel.unary_unary(
                 '/dex.FlowService/StopFlow',
@@ -221,8 +234,8 @@ class FlowServiceServicer:
     WaitForStepCompletion, WaitForAttribute)
     sub_status LONG_POLL_TIME_OUT
     Canceled          — caller canceled the RPC context
-    Unavailable       — Temporal/Cadence backend (workflow engine) unavailable
-    only — never Dex application WorkerService
+    Unavailable       — Temporal/Cadence backend or Stream Redis unavailable;
+    never Dex application WorkerService
     Internal          — unexpected / violated trusted invariant
     Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
     locking InvokeRPC (Temporal sync update required)
@@ -240,6 +253,9 @@ class FlowServiceServicer:
     blob-backed stored attributes with FailedPrecondition.
     WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
     LONG_POLL_TIME_OUT.
+    WriteStream / ReadStream — independent of Flow existence and lifecycle.
+    Redis failures affect only Stream RPCs. Read timeout → DeadlineExceeded +
+    LONG_POLL_TIME_OUT.
     ---------------------------------------------------------------------------
 
     Hosted by Dex server; SDKs call these RPCs.
@@ -252,6 +268,18 @@ class FlowServiceServicer:
         raise NotImplementedError('Method not implemented!')
 
     def PublishToChannel(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def WriteStream(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReadStream(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -383,6 +411,16 @@ def add_FlowServiceServicer_to_server(servicer, server):
                     servicer.PublishToChannel,
                     request_deserializer=dex__pb2.PublishToChannelRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'WriteStream': grpc.unary_unary_rpc_method_handler(
+                    servicer.WriteStream,
+                    request_deserializer=dex__pb2.WriteStreamRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'ReadStream': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReadStream,
+                    request_deserializer=dex__pb2.ReadStreamRequest.FromString,
+                    response_serializer=dex__pb2.ReadStreamResponse.SerializeToString,
             ),
             'StopFlow': grpc.unary_unary_rpc_method_handler(
                     servicer.StopFlow,
@@ -516,8 +554,8 @@ class FlowService:
     WaitForStepCompletion, WaitForAttribute)
     sub_status LONG_POLL_TIME_OUT
     Canceled          — caller canceled the RPC context
-    Unavailable       — Temporal/Cadence backend (workflow engine) unavailable
-    only — never Dex application WorkerService
+    Unavailable       — Temporal/Cadence backend or Stream Redis unavailable;
+    never Dex application WorkerService
     Internal          — unexpected / violated trusted invariant
     Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
     locking InvokeRPC (Temporal sync update required)
@@ -534,6 +572,9 @@ class FlowService:
     DeadlineExceeded + LONG_POLL_TIME_OUT. WaitForAttribute rejects waiting on
     blob-backed stored attributes with FailedPrecondition.
     WaitForFlow — long-poll timeout while still running → DeadlineExceeded +
+    LONG_POLL_TIME_OUT.
+    WriteStream / ReadStream — independent of Flow existence and lifecycle.
+    Redis failures affect only Stream RPCs. Read timeout → DeadlineExceeded +
     LONG_POLL_TIME_OUT.
     ---------------------------------------------------------------------------
 
@@ -584,6 +625,60 @@ class FlowService:
             '/dex.FlowService/PublishToChannel',
             dex__pb2.PublishToChannelRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def WriteStream(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/WriteStream',
+            dex__pb2.WriteStreamRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReadStream(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/dex.FlowService/ReadStream',
+            dex__pb2.ReadStreamRequest.SerializeToString,
+            dex__pb2.ReadStreamResponse.FromString,
             options,
             channel_credentials,
             insecure,

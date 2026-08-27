@@ -527,6 +527,54 @@ class ChannelMessage(_message.Message):
     value: Value
     def __init__(self, channel_name: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
+class WriteStreamRequest(_message.Message):
+    __slots__ = ("flow_id", "flow_type", "stream_name", "max_estimated_bytes", "value", "idempotency_key")
+    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
+    STREAM_NAME_FIELD_NUMBER: _ClassVar[int]
+    MAX_ESTIMATED_BYTES_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    flow_id: str
+    flow_type: str
+    stream_name: str
+    max_estimated_bytes: int
+    value: Value
+    idempotency_key: str
+    def __init__(self, flow_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., stream_name: _Optional[str] = ..., max_estimated_bytes: _Optional[int] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., idempotency_key: _Optional[str] = ...) -> None: ...
+
+class ReadStreamRequest(_message.Message):
+    __slots__ = ("flow_id", "flow_type", "stream_name", "resume_token", "wait_time_seconds")
+    FLOW_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
+    STREAM_NAME_FIELD_NUMBER: _ClassVar[int]
+    RESUME_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    WAIT_TIME_SECONDS_FIELD_NUMBER: _ClassVar[int]
+    flow_id: str
+    flow_type: str
+    stream_name: str
+    resume_token: str
+    wait_time_seconds: int
+    def __init__(self, flow_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., stream_name: _Optional[str] = ..., resume_token: _Optional[str] = ..., wait_time_seconds: _Optional[int] = ...) -> None: ...
+
+class ReadStreamResponse(_message.Message):
+    __slots__ = ("message",)
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    message: StreamMessage
+    def __init__(self, message: _Optional[_Union[StreamMessage, _Mapping]] = ...) -> None: ...
+
+class StreamMessage(_message.Message):
+    __slots__ = ("value", "resume_token", "created_time", "idempotency_key")
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    RESUME_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    CREATED_TIME_FIELD_NUMBER: _ClassVar[int]
+    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    value: Value
+    resume_token: str
+    created_time: _timestamp_pb2.Timestamp
+    idempotency_key: str
+    def __init__(self, value: _Optional[_Union[Value, _Mapping]] = ..., resume_token: _Optional[str] = ..., created_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., idempotency_key: _Optional[str] = ...) -> None: ...
+
 class StopFlowRequest(_message.Message):
     __slots__ = ("flow_id", "run_id", "reason", "stop_type")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]

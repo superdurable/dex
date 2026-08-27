@@ -20,6 +20,7 @@ import (
 	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/log"
+	"github.com/superdurable/dex/service/common/streamstore"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
@@ -44,6 +45,7 @@ func newHandler(
 	logger log.Logger,
 	store blobstore.BlobStore,
 	attributeStore *attributestore.Manager,
+	streamStore *streamstore.Store,
 	workerPool *workerclient.WorkerClientPool,
 ) *handler {
 	svc, err := NewApiService(
@@ -55,6 +57,7 @@ func newHandler(
 		logger,
 		store,
 		attributeStore,
+		streamStore,
 		workerPool,
 	)
 	if err != nil {
@@ -82,6 +85,20 @@ func (h *handler) PublishToChannel(
 	req *dexpb.PublishToChannelRequest,
 ) (*emptypb.Empty, error) {
 	return h.svc.PublishToChannel(ctx, req)
+}
+
+func (h *handler) WriteStream(
+	ctx context.Context,
+	req *dexpb.WriteStreamRequest,
+) (*emptypb.Empty, error) {
+	return h.svc.WriteStream(ctx, req)
+}
+
+func (h *handler) ReadStream(
+	ctx context.Context,
+	req *dexpb.ReadStreamRequest,
+) (*dexpb.ReadStreamResponse, error) {
+	return h.svc.ReadStream(ctx, req)
 }
 
 func (h *handler) StopFlow(

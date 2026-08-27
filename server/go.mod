@@ -29,6 +29,7 @@ require (
 
 require (
 	github.com/aws/smithy-go v1.22.3
+	github.com/redis/go-redis/v9 v9.22.0
 	go.temporal.io/api v1.63.4
 	golang.org/x/sync v0.20.0
 )
