@@ -318,8 +318,6 @@ local trimmed = 0
 while total > target and trimmed < trimLimit do
   local entries = redis.call('XRANGE', fifoKey, '-', '+', 'COUNT', 1)
   if #entries == 0 then
-    total = 0
-    redis.call('DEL', fifoKey, chargedKey, idemKey)
     break
   end
   local oldID = entries[1][1]
