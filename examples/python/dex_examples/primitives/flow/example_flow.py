@@ -51,7 +51,7 @@ class ExampleStep(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
-        return go_to(self.finish, input + 1)
+        return go_to(FinishStep, input + 1)
 
 
 status = Attribute("status", str)

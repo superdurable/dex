@@ -57,8 +57,8 @@ class Init(Step[JobSeeker]):
     def execute(self, context: Context, input: JobSeeker) -> StepDecision:
         del context
         return go_to_multi(
-            StepMovement.of(self.send_text_message, input.phone_number),
-            StepMovement.of(self.send_email, input.email),
+            StepMovement.of(SendTextMessage, input.phone_number),
+            StepMovement.of(SendEmail, input.email),
         )
 
 

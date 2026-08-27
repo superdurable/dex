@@ -56,9 +56,9 @@ public final class DurabilityFlow implements Flow<String> {
         @Override
         public StepDecision execute(final Context context, final String mode) {
             if ("async".equals(mode)) {
-                return StepDecision.goTo(asyncWork, mode);
+                return StepDecision.goTo(AsyncWorkStep.class, mode);
             }
-            return StepDecision.goTo(syncWork, mode);
+            return StepDecision.goTo(SyncWorkStep.class, mode);
         }
     }
 
@@ -70,7 +70,7 @@ public final class DurabilityFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String mode) {
-            return StepDecision.goTo(finish, "sync:" + mode);
+            return StepDecision.goTo(FinishDurabilityStep.class, "sync:" + mode);
         }
 
         @Override
@@ -89,7 +89,7 @@ public final class DurabilityFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String mode) {
-            return StepDecision.goTo(finish, "async:" + mode);
+            return StepDecision.goTo(FinishDurabilityStep.class, "async:" + mode);
         }
 
         @Override

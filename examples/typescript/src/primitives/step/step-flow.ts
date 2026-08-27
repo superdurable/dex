@@ -45,7 +45,7 @@ class ExampleStep implements Step<number> {
   }
 
   public execute(_context: Context, input: number): StepDecision {
-    return goTo(this.flow.secondStep, input + 1);
+    return goTo(StepSecond, input + 1);
   }
 }
 

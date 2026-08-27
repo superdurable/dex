@@ -20,7 +20,7 @@ use dex_sdk::{
 const UPDATE_STATUS: Rpc<String, String> = Rpc::new("UpdateStatus");
 
 pub fn attribute_store_config() -> FlowConfig {
-    FlowConfig::new().attribute_store_name("profiles")
+    FlowConfig::new().attribute_store_names(vec!["profiles".to_owned()])
 }
 
 pub struct AttributeFlow {

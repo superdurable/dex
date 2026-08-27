@@ -67,8 +67,8 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
         public StepDecision execute(final Context context, final Void unused) {
             final WorkJobParametersInput input = new WorkJobParametersInput(15, 1);
             return StepDecision.goToMulti(
-                    StepMovement.of(workAExecution, input),
-                    StepMovement.of(workNExecution, input));
+                    StepMovement.of(WorkAExecution.class, input),
+                    StepMovement.of(WorkNExecution.class, input));
         }
     }
 
@@ -105,7 +105,7 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
 
             final WorkJobParametersInput next =
                     new WorkJobParametersInput(input.jobUpperBound, input.progress + 1);
-            return StepDecision.goTo(workAExecution, next);
+            return StepDecision.goTo(WorkAExecution.class, next);
         }
     }
 
@@ -143,7 +143,7 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
 
             final WorkJobParametersInput next =
                     new WorkJobParametersInput(input.jobUpperBound, input.progress + 1);
-            return StepDecision.goTo(workNExecution, next);
+            return StepDecision.goTo(WorkNExecution.class, next);
         }
     }
 }

@@ -575,7 +575,7 @@ Then choose the same store name when starting the Flow:
 
 ```python
 options = StartFlowOptions(
-    config_override=FlowConfig(attribute_store_name="entityStore"),
+    config_override=FlowConfig(attribute_store_names=["entityStore"]),
 )
 await client.start_flow(flow, user_id, None, options)
 ```
@@ -586,7 +586,7 @@ await client.start_flow(flow, user_id, None, options)
 ```go
 options := dex.StartFlowOptions{
 	ConfigOverride: &dex.FlowConfig{
-		AttributeStoreName: ptr.Any("entityStore"),
+		AttributeStoreNames: []string{"entityStore"},
 	},
 }
 _, err := client.StartFlow(ctx, flow, userID, nil, options)
@@ -598,7 +598,7 @@ _, err := client.StartFlow(ctx, flow, userID, nil, options)
 ```java
 final StartFlowOptions options = StartFlowOptions.newBuilder()
         .configOverride(FlowConfig.newBuilder()
-                .attributeStoreName("entityStore")
+                .attributeStoreNames(List.of("entityStore"))
                 .build())
         .build();
 final String runId = client.startFlow(flow, userId, null, options);
@@ -609,7 +609,7 @@ final String runId = client.startFlow(flow, userId, null, options);
 
 ```typescript
 const runId = await client.startFlow(flow, userId, undefined, {
-  configOverride: { attributeStoreName: "entityStore" },
+  configOverride: { attributeStoreNames: ["entityStore"] },
 });
 ```
 
@@ -618,7 +618,7 @@ const runId = await client.startFlow(flow, userId, undefined, {
 
 ```rust
 let options = StartFlowOptions::new()
-    .config_override(FlowConfig::new().attribute_store_name("entityStore"));
+    .config_override(FlowConfig::new().attribute_store_names(vec!["entityStore".to_owned()]));
 let run_id = client.start_flow_with_options(&flow, &user_id, (), options)?;
 ```
 

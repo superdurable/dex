@@ -78,7 +78,7 @@ public class UserSignupFlow implements Flow<SignupForm> {
             form.set(context, input);
             status.set(context, "waiting");
             service.sendEmail(input.email, "please verify the signup", "content");
-            return StepDecision.goTo(verifyStep, null);
+            return StepDecision.goTo(Verify.class, null);
         }
     }
 
@@ -103,7 +103,7 @@ public class UserSignupFlow implements Flow<SignupForm> {
                 return StepDecision.gracefulComplete("done");
             }
             service.sendEmail(signupForm.email, "reminder", "please verify your email");
-            return StepDecision.goTo(verifyStep, null);
+            return StepDecision.goTo(Verify.class, null);
         }
     }
 }

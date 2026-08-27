@@ -66,7 +66,7 @@ export class MoneyTransferFlow implements Flow<TransferRequest> {
   public compensatedStepOptions(totalDurationMs: number): StepOptions {
     return {
       executeRetry: { totalDurationMs },
-      executeFailure: ExecuteFailure.proceedTo(this.compensate, {
+      executeFailure: ExecuteFailure.proceedTo(Compensate, {
         executeRetry: { totalDurationMs: DAY_MS },
       }),
     };
@@ -108,7 +108,7 @@ class CheckBalance implements Step<TransferRequest> {
     if (!this.flow.service.checkBalance(request.fromAccount, request.amount)) {
       return forceFail("insufficient funds");
     }
-    return goTo(this.flow.createDebitMemoStep, request);
+    return goTo(CreateDebitMemo, request);
   }
 }
 
@@ -125,7 +125,7 @@ class CreateDebitMemo implements Step<TransferRequest> {
 
   public execute(_context: Context, request: TransferRequest): StepDecision {
     this.flow.service.createDebitMemo(request.fromAccount, request.amount, request.notes);
-    return goTo(this.flow.debitStep, request);
+    return goTo(Debit, request);
   }
 }
 
@@ -142,7 +142,7 @@ class Debit implements Step<TransferRequest> {
 
   public execute(_context: Context, request: TransferRequest): StepDecision {
     this.flow.service.debit(request.fromAccount, request.amount);
-    return goTo(this.flow.createCreditMemoStep, request);
+    return goTo(CreateCreditMemo, request);
   }
 }
 
@@ -159,7 +159,7 @@ class CreateCreditMemo implements Step<TransferRequest> {
 
   public execute(_context: Context, request: TransferRequest): StepDecision {
     this.flow.service.createCreditMemo(request.toAccount, request.amount, request.notes);
-    return goTo(this.flow.creditStep, request);
+    return goTo(Credit, request);
   }
 }
 

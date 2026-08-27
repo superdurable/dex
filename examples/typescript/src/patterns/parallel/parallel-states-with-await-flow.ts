@@ -50,11 +50,11 @@ class Starting implements Step<number> {
 
   public execute(_context: Context, countOfJobSeekers: number): StepDecision {
     const movements: StepMovement<unknown>[] = [
-      StepMovement.of(this.flow.awaitAllUsersNotifiedStep, countOfJobSeekers),
+      StepMovement.of(AwaitAllUsersNotified, countOfJobSeekers),
     ];
     for (let index = 1; index <= countOfJobSeekers; index += 1) {
       movements.push(
-        StepMovement.of(this.flow.notifyUserStep, {
+        StepMovement.of(NotifyUser, {
           id: String(index),
           email: "jobseeker@indeed.com",
           phoneNumber: "0987654321",

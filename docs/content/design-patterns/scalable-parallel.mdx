@@ -81,7 +81,7 @@ async execute(context: Context, _input: void): Promise<StepDecision> {
     requestId: context.stepExecutionId,
   });
   // track child ids on an Attribute; wait via ChannelMap / conditions
-  return goTo(this.flow.loopForNextMessageStep, undefined);
+  return goTo(LoopForNextMessage, undefined);
 }
 ```
 

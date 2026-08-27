@@ -82,7 +82,7 @@ class UpdateItemQuantity implements Step<FailureRecoveryWorkflowInput> {
 
   public getStepOptions(): StepOptions {
     return {
-      executeFailure: ExecuteFailure.proceedTo(this.flow.updateQuantityRecoveryStep, {
+      executeFailure: ExecuteFailure.proceedTo(UpdateQuantityRecovery, {
         executeRetry: { maximumAttempts: 5 },
       }),
       executeRetry: { maximumAttempts: 5 },
@@ -92,7 +92,7 @@ class UpdateItemQuantity implements Step<FailureRecoveryWorkflowInput> {
   public execute(context: Context, input: FailureRecoveryWorkflowInput): StepDecision {
     this.flow.workflowInput.set(context, input);
     this.database.reduceQuantity(input.itemName, input.requestedQuantity);
-    return goTo(this.flow.chargeForItemsStep, input.requestedQuantity);
+    return goTo(ChargeForItems, input.requestedQuantity);
   }
 }
 
@@ -111,7 +111,7 @@ class ChargeForItems implements Step<number> {
 
   public getStepOptions(): StepOptions {
     return {
-      executeFailure: ExecuteFailure.proceedTo(this.flow.voidPaymentRecoveryStep, {
+      executeFailure: ExecuteFailure.proceedTo(VoidPaymentRecovery, {
         executeRetry: { maximumAttempts: 5 },
       }),
       executeRetry: { maximumAttempts: 5 },
@@ -158,7 +158,7 @@ class VoidPaymentRecovery implements Step<number> {
     const itemValue = this.database.getItemPrice(workflow.itemName);
     const orderValue = workflow.requestedQuantity * itemValue;
     this.paymentProcessor.voidPayment(orderValue);
-    return goTo(this.flow.updateQuantityRecoveryStep, workflow);
+    return goTo(UpdateQuantityRecovery, workflow);
   }
 }
 

@@ -51,9 +51,9 @@ class ResettableTimerStep implements Step<void> {
 
   public execute(context: Context, _input: void): StepDecision {
     if (context.hasTimerFired()) {
-      return goTo(this.flow.timerExpiredStep, undefined);
+      return goTo(TimerExpired, undefined);
     }
-    return goTo(this.flow.resettableTimerStep, undefined);
+    return goTo(ResettableTimerStep, undefined);
   }
 }
 

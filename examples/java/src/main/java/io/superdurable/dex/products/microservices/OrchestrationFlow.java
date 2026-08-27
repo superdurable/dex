@@ -77,8 +77,8 @@ public class OrchestrationFlow implements Flow<String> {
             service.callAPI1(input);
             data.set(context, input);
             return StepDecision.goToMulti(
-                    StepMovement.of(callAPI2, null),
-                    StepMovement.of(callAPI3, null));
+                    StepMovement.of(CallAPI2.class, null),
+                    StepMovement.of(CallAPI3.class, null));
         }
     }
 
@@ -111,7 +111,7 @@ public class OrchestrationFlow implements Flow<String> {
             final String value = data.get(context);
             service.callAPI3(value);
             if (context.hasTimerFired()) {
-                return StepDecision.goTo(callAPI4, null);
+                return StepDecision.goTo(CallAPI4.class, null);
             }
             return StepDecision.gracefulComplete(value);
         }

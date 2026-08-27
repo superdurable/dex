@@ -72,7 +72,7 @@ public class ManualInterventionFlow implements Flow<Void> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             numberOfRetries.set(context, 0);
-            return StepDecision.goTo(getData, false);
+            return StepDecision.goTo(GetData.class, false);
         }
     }
 
@@ -97,9 +97,9 @@ public class ManualInterventionFlow implements Flow<Void> {
             try {
                 pretendApiCall(context);
             } catch (final Exception e) {
-                return StepDecision.goTo(error, null);
+                return StepDecision.goTo(Error.class, null);
             }
-            return StepDecision.goTo(finalStep, null);
+            return StepDecision.goTo(Final.class, null);
         }
 
         private void pretendApiCall(final Context context) {
@@ -132,9 +132,9 @@ public class ManualInterventionFlow implements Flow<Void> {
             System.out.println("signal received: "
                     + (retry ? SIGNAL_CHANNEL_COMMAND_RETRY : SIGNAL_CHANNEL_COMMAND_SKIP));
             if (retry) {
-                return StepDecision.goTo(getData, true);
+                return StepDecision.goTo(GetData.class, true);
             }
-            return StepDecision.goTo(finalStep, null);
+            return StepDecision.goTo(Final.class, null);
         }
     }
 

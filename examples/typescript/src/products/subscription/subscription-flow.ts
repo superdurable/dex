@@ -102,9 +102,9 @@ class Initialize implements Step<Customer> {
   public execute(context: Context, customer: Customer): StepDecision {
     this.flow.customerDetails.set(context, customer);
     return goToMulti(
-      StepMovement.of(this.flow.trial, undefined),
-      StepMovement.of(this.flow.cancel, undefined),
-      StepMovement.of(this.flow.updateChargeAmountStep, undefined),
+      StepMovement.of(Trial, undefined),
+      StepMovement.of(Cancel, undefined),
+      StepMovement.of(UpdateChargeAmount, undefined),
     );
   }
 }
@@ -124,7 +124,7 @@ class Trial implements Step<void> {
 
   public execute(context: Context, _input: void): StepDecision {
     this.flow.billingPeriodNumber.set(context, 0);
-    return goTo(this.flow.chargeCurrentBill, undefined);
+    return goTo(ChargeCurrentBill, undefined);
   }
 }
 
@@ -155,7 +155,7 @@ class ChargeCurrentBill implements Step<void> {
       return forceComplete("subscription ended");
     }
     SubscriptionBilling.chargeCurrentPeriod(customer, this.flow.service);
-    return goTo(this.flow.chargeCurrentBill, undefined);
+    return goTo(ChargeCurrentBill, undefined);
   }
 }
 
@@ -194,7 +194,7 @@ class UpdateChargeAmount implements Step<void> {
     const customer = this.flow.customerDetails.get(context);
     SubscriptionBilling.applyChargeAmount(customer, amount);
     this.flow.customerDetails.set(context, customer);
-    return goTo(this.flow.updateChargeAmountStep, undefined);
+    return goTo(UpdateChargeAmount, undefined);
   }
 }
 

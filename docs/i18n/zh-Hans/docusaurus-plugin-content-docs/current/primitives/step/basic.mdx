@@ -32,7 +32,7 @@ Dex Step 由原生代码实现。实现该 Step 的 struct 或 class 决定 **St
 ```python
 def execute(self, context: Context, input: int) -> StepDecision:
     del context
-    return go_to(self.second, input + 1)
+    return go_to(StepSecond, input + 1)
 
 def execute(self, context: Context, input: int) -> StepDecision:
     del context
@@ -57,7 +57,7 @@ func (stepSecondStep) Execute(_ dex.Context, input int) (*dex.StepDecision, erro
 
 ```java
 public StepDecision execute(final Context context, final Integer input) {
-    return StepDecision.goTo(second, input + 1);
+    return StepDecision.goTo(StepSecond.class, input + 1);
 }
 
 public StepDecision execute(final Context context, final Integer input) {
@@ -70,7 +70,7 @@ public StepDecision execute(final Context context, final Integer input) {
 
 ```typescript
 public execute(_context: Context, input: number): StepDecision {
-  return goTo(this.flow.secondStep, input + 1);
+  return goTo(StepSecond, input + 1);
 }
 
 public execute(_context: Context, input: number): StepDecision {
@@ -136,7 +136,7 @@ class ExampleStep(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
-        return go_to(self.second, input + 1)
+        return go_to(StepSecond, input + 1)
 ```
 
 </SdkSnippet>
@@ -183,7 +183,7 @@ final class ExampleStep implements Step<Integer> {
 
     @Override
     public StepDecision execute(final Context context, final Integer input) {
-        return StepDecision.goTo(second, input + 1);
+        return StepDecision.goTo(StepSecond.class, input + 1);
     }
 }
 
@@ -220,7 +220,7 @@ class ExampleStep implements Step<number> {
   }
 
   public execute(_context: Context, input: number): StepDecision {
-    return goTo(this.flow.secondStep, input + 1);
+    return goTo(StepSecond, input + 1);
   }
 }
 
@@ -447,7 +447,7 @@ public StepDecision execute(final Context context, final String input) {
     if (!context.waitForMethodFailed()) {
         throw new IllegalStateException("waitFor failure was not reported");
     }
-    return StepDecision.goTo(finish, input + "_recovered");
+    return StepDecision.goTo(FinishStep.class, input + "_recovered");
 }
 ```
 
@@ -468,7 +468,7 @@ def wait_for(self, context: Context, input: str) -> Wait:
 def execute(self, context: Context, input: str) -> StepDecision:
     if not context.wait_for_method_failed():
         raise RuntimeError("waitFor failure was not reported")
-    return go_to(self.finish, f"{input}_recovered")
+    return go_to(FinishStep, f"{input}_recovered")
 ```
 
 </SdkSnippet>
@@ -490,7 +490,7 @@ public execute(context: Context, input: string): StepDecision {
   if (!context.waitForMethodFailed()) {
     throw new Error("waitFor failure was not reported");
   }
-  return goTo(this.finish, `${input}_recovered`);
+  return goTo(FinishStep, `${input}_recovered`);
 }
 ```
 
@@ -552,7 +552,7 @@ func (updateItemQuantityStep) GetStepOptions() *dex.StepOptions {
 @Override
 public StepOptions getStepOptions() {
     return StepOptions.newBuilder()
-            .onExecuteFailureProceedTo(updateQuantityRecovery)
+            .onExecuteFailureProceedTo(UpdateQuantityRecovery.class)
             .executeRetry(RetryPolicy.newBuilder().maximumAttempts(5).build())
             .build();
 }
@@ -565,7 +565,7 @@ public StepOptions getStepOptions() {
 def get_step_options(self) -> StepOptions:
     return StepOptions(
         execute_retry=RetryPolicy(maximum_attempts=5)
-    ).on_execute_failure_proceed_to(self.update_quantity_recovery)
+    ).on_execute_failure_proceed_to(UpdateQuantityRecovery)
 ```
 
 </SdkSnippet>
@@ -574,7 +574,7 @@ def get_step_options(self) -> StepOptions:
 ```typescript
 public getStepOptions(): StepOptions {
   return {
-    executeFailure: ExecuteFailure.proceedTo(this.flow.updateQuantityRecoveryStep, {
+    executeFailure: ExecuteFailure.proceedTo(UpdateQuantityRecovery, {
       executeRetry: { maximumAttempts: 5 },
     }),
     executeRetry: { maximumAttempts: 5 },

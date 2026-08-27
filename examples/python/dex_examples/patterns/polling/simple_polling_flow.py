@@ -50,8 +50,8 @@ class SimplePolling(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
         if self._is_system_ready():
-            return go_to(self.simple_polling_complete, None)
-        return go_to(self, None)
+            return go_to(SimplePollingComplete, None)
+        return go_to(SimplePolling, None)
 
     @staticmethod
     def _is_system_ready() -> bool:

@@ -49,7 +49,7 @@ pub struct UserProfileFlow;
 
 impl UserProfileFlow {
     pub fn flow_config() -> FlowConfig {
-        FlowConfig::new().attribute_store_name(STORE_NAME)
+        FlowConfig::new().attribute_store_names(vec![STORE_NAME.to_owned()])
     }
 
     pub fn start_options(profile: &UserProfile) -> StartFlowOptions {

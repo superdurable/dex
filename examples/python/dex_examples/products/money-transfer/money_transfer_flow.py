@@ -62,13 +62,12 @@ class Compensate(Step[TransferRequest]):
 
 
 def compensated_step_options(
-    compensate: Compensate,
     total_duration: timedelta,
 ) -> StepOptions:
     return StepOptions(
         execute_retry=RetryPolicy(total_duration=total_duration)
     ).on_execute_failure_proceed_to(
-        compensate,
+        Compensate,
         StepOptions(execute_retry=COMPENSATE_RETRY),
     )
 
@@ -107,7 +106,7 @@ class CreateCreditMemo(Step[TransferRequest]):
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
         del context
         self.service.create_credit_memo(input.to_account, input.amount, input.notes)
-        return go_to(self.credit, input)
+        return go_to(Credit, input)
 
 
 class Debit(Step[TransferRequest]):
@@ -127,7 +126,7 @@ class Debit(Step[TransferRequest]):
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
         del context
         self.service.debit(input.from_account, input.amount)
-        return go_to(self.create_credit_memo, input)
+        return go_to(CreateCreditMemo, input)
 
 
 class CreateDebitMemo(Step[TransferRequest]):
@@ -147,7 +146,7 @@ class CreateDebitMemo(Step[TransferRequest]):
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
         del context
         self.service.create_debit_memo(input.from_account, input.amount, input.notes)
-        return go_to(self.debit, input)
+        return go_to(Debit, input)
 
 
 class CheckBalance(Step[TransferRequest]):
@@ -163,14 +162,14 @@ class CheckBalance(Step[TransferRequest]):
         del context
         if not self.service.check_balance(input.from_account, input.amount):
             return force_fail("insufficient funds")
-        return go_to(self.create_debit_memo, input)
+        return go_to(CreateDebitMemo, input)
 
 
 class MoneyTransferFlow(Flow[TransferRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
         self.compensate = Compensate(service)
-        options = compensated_step_options(self.compensate, timedelta(hours=1))
+        options = compensated_step_options(timedelta(hours=1))
         self.credit = Credit(service, options)
         self.create_credit_memo = CreateCreditMemo(service, self.credit, options)
         self.debit = Debit(service, self.create_credit_memo, options)

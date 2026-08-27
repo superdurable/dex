@@ -85,7 +85,7 @@ class Start implements Step<CronScheduleInput> {
     if (input.runCount <= 0 || input.interval.value <= 0) {
       return forceFail("interval value and run count must be positive");
     }
-    return goTo(this.schedule, {
+    return goTo(WaitForSchedule, {
       interval: input.interval,
       remainingRuns: input.runCount,
     });
@@ -124,7 +124,7 @@ class WaitForSchedule implements Step<ScheduleState> {
     if (state.remainingRuns === 1) {
       return gracefulComplete();
     }
-    return goTo(this, {
+    return goTo(WaitForSchedule, {
       interval: state.interval,
       remainingRuns: state.remainingRuns - 1,
     });
@@ -136,11 +136,11 @@ class WaitForSchedule implements Step<ScheduleState> {
       isFinal: state.remainingRuns === 1,
     };
     if (input.isFinal) {
-      return goTo(this.run, input);
+      return goTo(Run, input);
     }
     return goToMulti(
-      StepMovement.of(this.run, input),
-      StepMovement.of(this, {
+      StepMovement.of(Run, input),
+      StepMovement.of(WaitForSchedule, {
         interval: state.interval,
         remainingRuns: state.remainingRuns - 1,
       }),

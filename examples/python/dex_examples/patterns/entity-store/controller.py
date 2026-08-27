@@ -55,7 +55,7 @@ def create_entity_store_blueprint(app_state: ExampleApp) -> Blueprint:
         options = (
             StartFlowOptions(
                 timeout=timedelta(hours=1),
-                config_override=FlowConfig(attribute_store_name=STORE_NAME),
+                config_override=FlowConfig(attribute_store_names=[STORE_NAME]),
             )
             .with_attribute(app_state.user_profile.display_name, profile.display_name)
             .with_attribute(app_state.user_profile.email, profile.email)

@@ -67,7 +67,7 @@ public final class ProceedOnWaitFailureFlow implements Flow<String> {
             if (!context.waitForMethodFailed()) {
                 throw new IllegalStateException("waitFor failure was not reported");
             }
-            return StepDecision.goTo(finish, input + "_recovered");
+            return StepDecision.goTo(FinishStep.class, input + "_recovered");
         }
     }
 

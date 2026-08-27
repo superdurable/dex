@@ -55,15 +55,15 @@ class RouteStep implements Step<string> {
     }
     if (mode === "dead-end") {
       return goToMulti(
-        StepMovement.of(this.flow.branchWorkerStep, "left"),
-        StepMovement.of(this.flow.branchWorkerStep, "right"),
+        StepMovement.of(BranchWorkerStep, "left"),
+        StepMovement.of(BranchWorkerStep, "right"),
       );
     }
     const quote: Quote = { carrier: "winner", price: 9 };
     return goToMulti(
-      StepMovement.of(this.flow.carrierAStep, { carrier: "A", price: 10 }),
-      StepMovement.of(this.flow.carrierBStep, { carrier: "B", price: 12 }),
-      StepMovement.of(this.flow.winnerStep, quote),
+      StepMovement.of(CarrierAStep, { carrier: "A", price: 10 }),
+      StepMovement.of(CarrierBStep, { carrier: "B", price: 12 }),
+      StepMovement.of(WinnerStep, quote),
     );
   }
 }
@@ -123,9 +123,9 @@ class WinnerStep implements Step<Quote> {
 
   public execute(_context: Context, quote: Quote): StepDecision {
     return withCancelingSteps(
-      goTo(this.flow.recordQuoteStep, quote),
-      this.flow.carrierAStep,
-      this.flow.carrierBStep,
+      goTo(RecordQuoteStep, quote),
+      CarrierAStep,
+      CarrierBStep,
     );
   }
 }

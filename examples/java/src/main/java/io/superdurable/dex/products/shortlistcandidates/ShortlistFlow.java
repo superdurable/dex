@@ -105,7 +105,7 @@ public class ShortlistFlow implements Flow<ShortlistInput> {
             employerId.set(context, input.employerId);
             candidateId.set(context, input.candidateId);
             emailSentTimestamp.set(context, 0L);
-            return StepDecision.goTo(sendEmail, null);
+            return StepDecision.goTo(SendEmail.class, null);
         }
     }
 

@@ -49,7 +49,7 @@ export function createEntityStoreRouter(client: Client): Router {
         ),
         InitialAttribute.of(userProfileFlow.metadata, profile.metadata),
       ],
-      configOverride: { attributeStoreName: ENTITY_STORE_NAME },
+      configOverride: { attributeStoreNames: [ENTITY_STORE_NAME] },
     }));
     response.status(201).json({ flowID: userId, runID: runId, userId, ...profile });
   });

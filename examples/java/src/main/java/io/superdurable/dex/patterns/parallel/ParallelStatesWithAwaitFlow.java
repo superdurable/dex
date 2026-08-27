@@ -58,10 +58,10 @@ public class ParallelStatesWithAwaitFlow implements Flow<Integer> {
         public StepDecision execute(final Context context, final Integer countOfJobSeekers) {
             final StepMovement<?>[] movements =
                     new StepMovement<?>[countOfJobSeekers + 1];
-            movements[0] = StepMovement.of(awaitAllUsersNotified, countOfJobSeekers);
+            movements[0] = StepMovement.of(AwaitAllUsersNotified.class, countOfJobSeekers);
             for (int i = 1; i <= countOfJobSeekers; i++) {
                 movements[i] = StepMovement.of(
-                        notifyUser,
+                        NotifyUser.class,
                         new JobSeeker(
                                 String.valueOf(i),
                                 "jobseeker@indeed.com",

@@ -50,7 +50,7 @@ class Init implements Step<void> {
 
   public execute(context: Context, _input: void): StepDecision {
     this.flow.numberOfRetries.set(context, 0);
-    return goTo(this.flow.getDataStep, false);
+    return goTo(GetData, false);
   }
 }
 
@@ -76,9 +76,9 @@ class GetData implements Step<boolean> {
     try {
       this.pretendApiCall(context);
     } catch {
-      return goTo(this.flow.errorStep, undefined);
+      return goTo(ErrorStep, undefined);
     }
-    return goTo(this.flow.finalStep, undefined);
+    return goTo(Final, undefined);
   }
 
   private pretendApiCall(context: Context): void {
@@ -110,9 +110,9 @@ class ErrorStep implements Step<void> {
       `signal received: ${retry ? SIGNAL_CHANNEL_COMMAND_RETRY : SIGNAL_CHANNEL_COMMAND_SKIP}`,
     );
     if (retry) {
-      return goTo(this.flow.getDataStep, true);
+      return goTo(GetData, true);
     }
-    return goTo(this.flow.finalStep, undefined);
+    return goTo(Final, undefined);
   }
 }
 

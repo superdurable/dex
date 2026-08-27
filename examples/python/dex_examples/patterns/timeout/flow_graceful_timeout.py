@@ -65,8 +65,8 @@ class Init(Step[bool]):
     def execute(self, context: Context, input: bool) -> StepDecision:
         del context
         return go_to_multi(
-            StepMovement.of(self.timeout, None),
-            StepMovement.of(self.task, input),
+            StepMovement.of(Timeout, None),
+            StepMovement.of(Task, input),
         )
 
 

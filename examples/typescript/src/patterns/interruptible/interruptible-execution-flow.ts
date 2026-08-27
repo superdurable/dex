@@ -46,8 +46,8 @@ class Init implements Step<void> {
   public execute(_context: Context, _input: void): StepDecision {
     const input: WorkJobParametersInput = { jobUpperBound: 15, progress: 1 };
     return goToMulti(
-      StepMovement.of(this.flow.workAExecutionStep, input),
-      StepMovement.of(this.flow.workNExecutionStep, input),
+      StepMovement.of(WorkAExecution, input),
+      StepMovement.of(WorkNExecution, input),
     );
   }
 }
@@ -79,7 +79,7 @@ class WorkAExecution implements Step<WorkJobParametersInput> {
       `[${context.flowId}][${context.stepExecutionId}]: Doing job ${input.progress}`,
     );
 
-    return goTo(this.flow.workAExecutionStep, {
+    return goTo(WorkAExecution, {
       jobUpperBound: input.jobUpperBound,
       progress: input.progress + 1,
     });
@@ -113,7 +113,7 @@ class WorkNExecution implements Step<WorkJobParametersInput> {
       `[${context.flowId}][${context.stepExecutionId}]: Processing job ${input.progress}`,
     );
 
-    return goTo(this.flow.workNExecutionStep, {
+    return goTo(WorkNExecution, {
       jobUpperBound: input.jobUpperBound,
       progress: input.progress + 1,
     });

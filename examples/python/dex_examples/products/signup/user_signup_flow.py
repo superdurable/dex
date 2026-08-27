@@ -64,7 +64,7 @@ class Verify(Step[None]):
             "reminder",
             "please verify your email",
         )
-        return go_to(self, None)
+        return go_to(Verify, None)
 
 
 class Submit(Step[SignupForm]):
@@ -84,7 +84,7 @@ class Submit(Step[SignupForm]):
         self.form.set(context, input)
         self.status.set(context, "waiting")
         self.service.send_email(input.email, "please verify the signup", "content")
-        return go_to(self.verify_step, None)
+        return go_to(Verify, None)
 
 
 class UserSignupFlow(Flow[SignupForm]):

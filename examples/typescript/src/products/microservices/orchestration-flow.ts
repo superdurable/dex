@@ -94,8 +94,8 @@ class CallAPI1 implements Step<string> {
     this.flow.service.callAPI1(input);
     this.flow.data.set(context, input);
     return goToMulti(
-      StepMovement.of(this.flow.callAPI2, undefined),
-      StepMovement.of(this.flow.callAPI3, undefined),
+      StepMovement.of(CallAPI2, undefined),
+      StepMovement.of(CallAPI3, undefined),
     );
   }
 }
@@ -128,7 +128,7 @@ class CallAPI3 implements Step<void> {
     const value = this.flow.data.get(context);
     this.flow.service.callAPI3(value);
     if (context.hasTimerFired()) {
-      return goTo(this.flow.callAPI4, undefined);
+      return goTo(CallAPI4, undefined);
     }
     return gracefulComplete(value);
   }

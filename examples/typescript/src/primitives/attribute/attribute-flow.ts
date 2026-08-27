@@ -75,7 +75,7 @@ export class AttributeFlow implements Flow<string> {
   public readonly status = status;
   public readonly email = email;
   public readonly progress = progress;
-  public readonly attributeStoreConfig: FlowConfig = { attributeStoreName: "profiles" };
+  public readonly attributeStoreConfig: FlowConfig = { attributeStoreNames: ["profiles"] };
   private readonly start = new AttributeStep(this);
 
   public getFlowType(): string {

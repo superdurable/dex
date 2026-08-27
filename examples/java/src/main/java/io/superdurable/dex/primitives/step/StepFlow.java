@@ -55,7 +55,7 @@ public final class StepFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(second, input + 1);
+            return StepDecision.goTo(StepSecond.class, input + 1);
         }
     }
 

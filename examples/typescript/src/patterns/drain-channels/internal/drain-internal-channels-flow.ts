@@ -65,8 +65,8 @@ class Init implements Step<string> {
   public execute(context: Context, input: string): StepDecision {
     this.flow.processDataStateExecutionCounter.set(context, 0);
     return goToMulti(
-      StepMovement.of(this.flow.upsertMongoRecordStep, undefined),
-      StepMovement.of(this.flow.processDataStep, input),
+      StepMovement.of(UpsertMongoRecord, undefined),
+      StepMovement.of(ProcessData, input),
     );
   }
 }
@@ -98,7 +98,7 @@ class UpsertMongoRecord implements Step<void> {
     if (document.finalCommand) {
       return gracefulComplete();
     }
-    return goTo(this.flow.upsertMongoRecordStep, undefined);
+    return goTo(UpsertMongoRecord, undefined);
   }
 }
 
@@ -145,9 +145,9 @@ class ProcessData implements Step<string> {
     );
 
     if (executionCount <= 3) {
-      return goTo(this.flow.processDataStep, input);
+      return goTo(ProcessData, input);
     }
-    return goTo(this.flow.finalizeStep, undefined);
+    return goTo(Finalize, undefined);
   }
 }
 

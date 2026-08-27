@@ -117,7 +117,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
     this.updateStatus(context, Status.DECLINED, note);
     return {
       output: Status.DECLINED,
-      nextSteps: [StepMovement.of(this.notifyExternalSystem, Status.DECLINED)],
+      nextSteps: [StepMovement.of(NotifyExternalSystem, Status.DECLINED)],
     };
   }
 
@@ -133,7 +133,7 @@ export class EngagementFlow implements Flow<EngagementInput> {
     completeProcess.publish(context, undefined);
     return {
       output: Status.ACCEPTED,
-      nextSteps: [StepMovement.of(this.notifyExternalSystem, Status.ACCEPTED)],
+      nextSteps: [StepMovement.of(NotifyExternalSystem, Status.ACCEPTED)],
     };
   }
 
@@ -171,9 +171,9 @@ class Initialize implements Step<EngagementInput> {
     this.flow.lastUpdateTimestamp.set(context, BigInt(Date.now()));
     this.flow.notes.set(context, input.notes);
     return goToMulti(
-      StepMovement.of(this.flow.processTimeout, undefined),
-      StepMovement.of(this.flow.reminder, undefined),
-      StepMovement.of(this.flow.notifyExternalSystem, Status.INITIATED),
+      StepMovement.of(ProcessTimeout, undefined),
+      StepMovement.of(Reminder, undefined),
+      StepMovement.of(NotifyExternalSystem, Status.INITIATED),
     );
   }
 }
@@ -231,7 +231,7 @@ class Reminder implements Step<void> {
       "Reminder: please respond",
       "Please respond to the engagement.",
     );
-    return goTo(this.flow.reminder, undefined);
+    return goTo(Reminder, undefined);
   }
 }
 

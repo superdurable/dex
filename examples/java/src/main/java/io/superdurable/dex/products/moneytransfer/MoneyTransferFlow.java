@@ -58,7 +58,7 @@ public class MoneyTransferFlow implements Flow<TransferRequest> {
         return StepOptions.newBuilder()
                 .executeRetry(RetryPolicy.newBuilder().totalDuration(totalDuration).build())
                 .onExecuteFailureProceedTo(
-                        compensate,
+                        Compensate.class,
                         StepOptions.newBuilder()
                                 .executeRetry(RetryPolicy.newBuilder()
                                         .totalDuration(Duration.ofHours(24))
@@ -78,7 +78,7 @@ public class MoneyTransferFlow implements Flow<TransferRequest> {
             if (!service.checkBalance(request.fromAccount, request.amount)) {
                 return StepDecision.forceFail("insufficient funds");
             }
-            return StepDecision.goTo(createDebitMemo, request);
+            return StepDecision.goTo(CreateDebitMemo.class, request);
         }
     }
 
@@ -96,7 +96,7 @@ public class MoneyTransferFlow implements Flow<TransferRequest> {
         @Override
         public StepDecision execute(final Context context, final TransferRequest request) {
             service.createDebitMemo(request.fromAccount, request.amount, request.notes);
-            return StepDecision.goTo(debit, request);
+            return StepDecision.goTo(Debit.class, request);
         }
     }
 
@@ -114,7 +114,7 @@ public class MoneyTransferFlow implements Flow<TransferRequest> {
         @Override
         public StepDecision execute(final Context context, final TransferRequest request) {
             service.debit(request.fromAccount, request.amount);
-            return StepDecision.goTo(createCreditMemo, request);
+            return StepDecision.goTo(CreateCreditMemo.class, request);
         }
     }
 
@@ -132,7 +132,7 @@ public class MoneyTransferFlow implements Flow<TransferRequest> {
         @Override
         public StepDecision execute(final Context context, final TransferRequest request) {
             service.createCreditMemo(request.toAccount, request.amount, request.notes);
-            return StepDecision.goTo(credit, request);
+            return StepDecision.goTo(Credit.class, request);
         }
     }
 

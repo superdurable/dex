@@ -49,14 +49,14 @@ class RouteStep(Step[str]):
             return graceful_complete("done")
         if mode == "dead-end":
             return go_to_multi(
-                StepMovement.of(self.flow.branch_worker, "left"),
-                StepMovement.of(self.flow.branch_worker, "right"),
+                StepMovement.of(BranchWorkerStep, "left"),
+                StepMovement.of(BranchWorkerStep, "right"),
             )
         quote = Quote(carrier="winner", price=9)
         return go_to_multi(
-            StepMovement.of(self.flow.carrier_a, Quote(carrier="A", price=10)),
-            StepMovement.of(self.flow.carrier_b, Quote(carrier="B", price=12)),
-            StepMovement.of(self.flow.winner, quote),
+            StepMovement.of(CarrierAStep, Quote(carrier="A", price=10)),
+            StepMovement.of(CarrierBStep, Quote(carrier="B", price=12)),
+            StepMovement.of(WinnerStep, quote),
         )
 
 
@@ -92,8 +92,8 @@ class WinnerStep(Step[Quote]):
 
     def execute(self, context: Context, quote: Quote) -> StepDecision:
         del context
-        return go_to(self.flow.record_quote, quote).with_canceling_steps(
-            self.flow.carrier_a,
+        return go_to(RecordQuoteStep, quote).with_canceling_steps(
+            CarrierAStep,
             self.flow.carrier_b,
         )
 

@@ -59,8 +59,8 @@ class Init implements Step<void> {
   public execute(context: Context, _input: void): StepDecision {
     this.flow.status.set(context, "INITIATED");
     return goToMulti(
-      StepMovement.of(this.flow.processTimeoutStep, undefined),
-      StepMovement.of(this.flow.reminderStep, undefined),
+      StepMovement.of(ProcessTimeout, undefined),
+      StepMovement.of(Reminder, undefined),
     );
   }
 }
@@ -120,7 +120,7 @@ class Reminder implements Step<void> {
     }
 
     this.service.sendEmail("Reminder:xxx please respond", "Hello xxx, ...");
-    return goTo(this.flow.reminderStep, undefined);
+    return goTo(Reminder, undefined);
   }
 }
 

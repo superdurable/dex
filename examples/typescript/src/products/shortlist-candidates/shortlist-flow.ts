@@ -98,7 +98,7 @@ class Shortlist implements Step<ShortlistInput> {
     this.flow.employerId.set(context, input.employerId);
     this.flow.candidateId.set(context, input.candidateId);
     this.flow.emailSentTimestamp.set(context, 0n);
-    return goTo(this.flow.sendEmail, undefined);
+    return goTo(SendEmail, undefined);
   }
 }
 

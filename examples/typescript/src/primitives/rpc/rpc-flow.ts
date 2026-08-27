@@ -50,7 +50,7 @@ class RpcWait implements Step<number> {
   }
 
   public execute(_context: Context, _input: number): StepDecision {
-    return goTo(this.flow.completeStep, 0);
+    return goTo(RpcComplete, 0);
   }
 }
 
@@ -104,7 +104,7 @@ export class RpcFlow implements Flow<number> {
   public trigger(context: Context, input: string): RPCResult<string> {
     this.data.set(context, input);
     exampleCh.publish(context, undefined);
-    return { output: input, nextSteps: [StepMovement.of(this.exampleStep, input)] };
+    return { output: input, nextSteps: [StepMovement.of(ExampleStep, input)] };
   }
 }
 

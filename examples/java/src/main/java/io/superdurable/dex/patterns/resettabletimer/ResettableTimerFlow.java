@@ -76,9 +76,9 @@ public class ResettableTimerFlow implements Flow<Void> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             if (context.hasTimerFired()) {
-                return StepDecision.goTo(timerExpired, null);
+                return StepDecision.goTo(TimerExpired.class, null);
             }
-            return StepDecision.goTo(resettableTimer, null);
+            return StepDecision.goTo(ResettableTimerStep.class, null);
         }
     }
 

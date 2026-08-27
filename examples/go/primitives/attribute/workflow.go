@@ -22,7 +22,6 @@ package attribute
 
 import (
 	"github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
 var (
@@ -38,7 +37,7 @@ var (
 		"primitive-attribute-progress",
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderProgress"}),
 	)
-	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreName: ptr.Any("profiles")}
+	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreNames: []string{"profiles"}}
 )
 
 type AttributeFlow struct {

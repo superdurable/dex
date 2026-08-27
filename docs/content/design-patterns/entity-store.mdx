@@ -64,7 +64,7 @@ await client.start_flow(
     None,
     StartFlowOptions(
         attributes=[...],
-        config_override=FlowConfig(attribute_store_name="entityStore"),
+        config_override=FlowConfig(attribute_store_names=["entityStore"]),
     ),
 )
 ```
@@ -79,7 +79,7 @@ var DisplayName = dex.DefineAttribute[string](
 )
 
 config := dex.FlowConfig{
-    AttributeStoreName: ptr.Any("entityStore"),
+    AttributeStoreNames: []string{"entityStore"},
 }
 ```
 
@@ -91,7 +91,7 @@ Attribute<String> displayName =
     Attribute.define("display_name", String.class).syncToAttributeStore();
 
 FlowConfig config = FlowConfig.newBuilder()
-    .attributeStoreName("entityStore")
+    .attributeStoreNames(List.of("entityStore"))
     .build();
 ```
 
@@ -104,7 +104,7 @@ const displayName = new Attribute("display_name", stringCodec)
 
 const options = {
   attributes: [InitialAttribute.of(displayName, "Ada Lovelace")],
-  configOverride: { attributeStoreName: "entityStore" },
+  configOverride: { attributeStoreNames: ["entityStore"] },
 };
 ```
 

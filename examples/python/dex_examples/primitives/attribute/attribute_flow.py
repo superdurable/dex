@@ -74,7 +74,7 @@ class AttributeFlow(Flow[str]):
         str,
         index=AttributeIndex(IndexType.KEYWORD, "OrderProgress"),
     )
-    attribute_store_config = FlowConfig(attribute_store_name="profiles")
+    attribute_store_config = FlowConfig(attribute_store_names=["profiles"])
 
     def __init__(self) -> None:
         self.start = AttributeStep(self)

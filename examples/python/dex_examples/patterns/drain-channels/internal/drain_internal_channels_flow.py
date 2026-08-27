@@ -80,8 +80,8 @@ class ProcessData(Step[str]):
         )
 
         if execution_count <= 3:
-            return go_to(self, input)
-        return go_to(self.finalize, None)
+            return go_to(ProcessData, input)
+        return go_to(Finalize, None)
 
 
 class UpsertMongoRecord(Step[None]):
@@ -111,7 +111,7 @@ class UpsertMongoRecord(Step[None]):
 
         if document.final_command:
             return graceful_complete()
-        return go_to(self, None)
+        return go_to(UpsertMongoRecord, None)
 
 
 class Init(Step[str]):
@@ -128,8 +128,8 @@ class Init(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         self.execution_counter.set(context, 0)
         return go_to_multi(
-            StepMovement.of(self.upsert_mongo_record, None),
-            StepMovement.of(self.process_data, input),
+            StepMovement.of(UpsertMongoRecord, None),
+            StepMovement.of(ProcessData, input),
         )
 
 

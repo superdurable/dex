@@ -16,8 +16,6 @@
 
 from __future__ import annotations
 
-from typing import Callable
-
 from dex import (
     Attribute,
     Channel,
@@ -46,12 +44,10 @@ class Final(Step[None]):
 class GetData(Step[bool]):
     def __init__(
         self,
-        error_provider: Callable[[], Error],
         final: Final,
         data_channel: Channel[str],
         number_of_retries: Attribute[int],
     ) -> None:
-        self.error_provider = error_provider
         self.final = final
         self.data_channel = data_channel
         self.number_of_retries = number_of_retries
@@ -67,8 +63,8 @@ class GetData(Step[bool]):
         try:
             self._pretend_api_call(context)
         except ValueError:
-            return go_to(self.error_provider(), None)
-        return go_to(self.final, None)
+            return go_to(Error, None)
+        return go_to(Final, None)
 
     def _pretend_api_call(self, context: Context) -> None:
         results = self.data_channel.results(context)
@@ -104,8 +100,8 @@ class Error(Step[None]):
             + (self.retry_signal.name if retry else self.skip_signal.name)
         )
         if retry:
-            return go_to(self.get_data, True)
-        return go_to(self.final, None)
+            return go_to(GetData, True)
+        return go_to(Final, None)
 
 
 class Init(Step[None]):
@@ -116,7 +112,7 @@ class Init(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
         self.number_of_retries.set(context, 0)
-        return go_to(self.get_data, False)
+        return go_to(GetData, False)
 
 
 class ManualInterventionFlow(Flow[None]):
@@ -133,7 +129,6 @@ class ManualInterventionFlow(Flow[None]):
     def __init__(self) -> None:
         self.final = Final(self.number_of_retries)
         self.get_data = GetData(
-            lambda: self.error,
             self.final,
             self.data_channel,
             self.number_of_retries,

@@ -64,7 +64,7 @@ public class FailureRecoveryFlow implements Flow<FailureRecoveryWorkflowInput> {
         @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
-                    .onExecuteFailureProceedTo(updateQuantityRecovery)
+                    .onExecuteFailureProceedTo(UpdateQuantityRecovery.class)
                     .executeRetry(RetryPolicy.newBuilder().maximumAttempts(5).build())
                     .build();
         }
@@ -75,7 +75,7 @@ public class FailureRecoveryFlow implements Flow<FailureRecoveryWorkflowInput> {
                 final FailureRecoveryWorkflowInput input) {
             workflowInput.set(context, input);
             database.reduceQuantity(input.itemName, input.requestedQuantity);
-            return StepDecision.goTo(chargeForItems, input.requestedQuantity);
+            return StepDecision.goTo(ChargeForItems.class, input.requestedQuantity);
         }
     }
 
@@ -88,7 +88,7 @@ public class FailureRecoveryFlow implements Flow<FailureRecoveryWorkflowInput> {
         @Override
         public StepOptions getStepOptions() {
             return StepOptions.newBuilder()
-                    .onExecuteFailureProceedTo(voidPaymentRecovery)
+                    .onExecuteFailureProceedTo(VoidPaymentRecovery.class)
                     .executeRetry(RetryPolicy.newBuilder().maximumAttempts(5).build())
                     .build();
         }
@@ -131,7 +131,7 @@ public class FailureRecoveryFlow implements Flow<FailureRecoveryWorkflowInput> {
             final double itemValue = database.getItemPrice(workflow.itemName);
             final double orderValue = workflow.requestedQuantity * itemValue;
             paymentProcessor.voidPayment(orderValue);
-            return StepDecision.goTo(updateQuantityRecovery, workflow);
+            return StepDecision.goTo(UpdateQuantityRecovery.class, workflow);
         }
     }
 }

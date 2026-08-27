@@ -72,7 +72,7 @@ public class BackoffPollingFlow implements Flow<Void> {
         public StepDecision execute(final Context context, final Void input) {
             final String result =
                     service.attemptExternalApiCall("Read for BackoffPollingFlow");
-            return StepDecision.goTo(pollingComplete, result);
+            return StepDecision.goTo(PollingComplete.class, result);
         }
     }
 

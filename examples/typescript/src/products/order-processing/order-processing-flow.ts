@@ -105,7 +105,7 @@ class ChargeStep implements Step<OrderRequest> {
   public execute(context: Context, input: OrderRequest): StepDecision {
     this.service.chargeUser(input.email, input.customerId, input.amount);
     orderStatus.set(context, "charged");
-    return goTo(this.ship, input);
+    return goTo(ShipStep, input);
   }
 }
 
@@ -127,7 +127,7 @@ class ShipStep implements Step<OrderRequest> {
         // totalDurationMs: 60 * 60 * 1000,
         totalDurationMs: 3_000,
       },
-      executeFailure: ExecuteFailure.proceedTo(this.refund, {
+      executeFailure: ExecuteFailure.proceedTo(RefundStep, {
         executeRetry: {
           // totalDurationMs: 60 * 60 * 1000,
           totalDurationMs: 3_000,
@@ -147,7 +147,7 @@ class ShipStep implements Step<OrderRequest> {
         "Reminder: approve shipment",
         "Please approve or provide a tracking number.",
       );
-      return goTo(this, input);
+      return goTo(ShipStep, input);
     }
     this.service.shipItem(input.orderId, input.testFailAtShipping);
     orderStatus.set(context, "shipped");

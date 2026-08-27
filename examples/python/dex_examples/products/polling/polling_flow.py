@@ -85,7 +85,7 @@ class Poll(Step[int]):
             self.task_c_completed.publish(context, None)
             return dead_end()
         self.current_polls.set(context, polls + 1)
-        return go_to(self, input)
+        return go_to(Poll, input)
 
 
 class Initialize(Step[int]):
@@ -102,8 +102,8 @@ class Initialize(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         self.current_polls.set(context, 0)
         return go_to_multi(
-            StepMovement.of(self.poll, input),
-            StepMovement.of(self.wait_for_tasks, None),
+            StepMovement.of(Poll, input),
+            StepMovement.of(WaitForTasks, None),
         )
 
 

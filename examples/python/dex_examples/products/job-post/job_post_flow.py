@@ -106,7 +106,7 @@ class JobPostFlow(Flow[None]):
             self.notes.set(context, input.notes)
         return RPCResult(
             None,
-            next_steps=(StepMovement.of(self.external_update, None),),
+            next_steps=(StepMovement.of(ExternalUpdate, None),),
         )
 
     def read_job_info(self, context: Context) -> JobInfo:

@@ -79,16 +79,13 @@ class _RunInput:
 
 
 class _Start(Step[CronScheduleInput]):
-    def __init__(self, schedule: _WaitForSchedule) -> None:
-        self.schedule = schedule
-
     def execute(
         self, context: Context, input: CronScheduleInput
     ) -> StepDecision:
         del context
         if input.run_count <= 0 or input.interval.value <= 0:
             return force_fail("interval value and run count must be positive")
-        return go_to(self.schedule, _ScheduleState(input.interval, input.run_count))
+        return go_to(_WaitForSchedule, _ScheduleState(input.interval, input.run_count))
 
 
 class _WaitForSchedule(Step[_ScheduleState]):
@@ -96,11 +93,9 @@ class _WaitForSchedule(Step[_ScheduleState]):
         self,
         trigger: Channel[None],
         skip: Channel[None],
-        run: _Run,
     ) -> None:
         self.trigger = trigger
         self.skip = skip
-        self.run = run
 
     def wait_for(self, context: Context, state: _ScheduleState) -> Wait:
         del context
@@ -119,7 +114,7 @@ class _WaitForSchedule(Step[_ScheduleState]):
         if state.remaining_runs == 1:
             return graceful_complete()
         return go_to(
-            self,
+            _WaitForSchedule,
             _ScheduleState(state.interval, state.remaining_runs - 1),
         )
 
@@ -129,11 +124,11 @@ class _WaitForSchedule(Step[_ScheduleState]):
             is_final=state.remaining_runs == 1,
         )
         if run_input.is_final:
-            return go_to(self.run, run_input)
+            return go_to(_Run, run_input)
         return go_to_multi(
-            StepMovement.of(self.run, run_input),
+            StepMovement.of(_Run, run_input),
             StepMovement.of(
-                self,
+                _WaitForSchedule,
                 _ScheduleState(state.interval, state.remaining_runs - 1),
             ),
         )
@@ -150,8 +145,8 @@ class CronScheduleFlow(Flow[CronScheduleInput]):
         self.trigger = Channel[None]("cron-schedule-trigger", type(None))
         self.skip = Channel[None]("cron-schedule-skip", type(None))
         self.run = _Run()
-        self.schedule = _WaitForSchedule(self.trigger, self.skip, self.run)
-        self.start = _Start(self.schedule)
+        self.schedule = _WaitForSchedule(self.trigger, self.skip)
+        self.start = _Start()
 
     def get_steps(self) -> StepList[CronScheduleInput]:
         return StepList.start_step(self.start).other_steps(self.schedule, self.run)

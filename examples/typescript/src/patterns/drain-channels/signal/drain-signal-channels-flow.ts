@@ -71,7 +71,7 @@ class ProcessSignal implements Step<string | undefined> {
 
     return forceCompleteIfChannelsEmpty(
       null,
-      StepMovement.of(this, undefined),
+      StepMovement.of(ProcessSignal, undefined),
       queueSignalChannel,
     );
   }

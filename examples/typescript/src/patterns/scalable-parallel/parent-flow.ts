@@ -72,7 +72,7 @@ class Init implements Step<BatchEnqueueRequest> {
     for (const uuid of initRequest.list) {
       taskQueue.publish(context, uuid);
     }
-    return goTo(this.flow.loopForNextMessageStep, undefined);
+    return goTo(LoopForNextMessage, undefined);
   }
 }
 
@@ -149,11 +149,11 @@ class LoopForNextMessage implements Step<void> {
     if (newWaitList.length === 0) {
       return forceCompleteIfChannelsEmpty(
         null,
-        StepMovement.of(this.flow.loopForNextMessageStep, undefined),
+        StepMovement.of(LoopForNextMessage, undefined),
         taskQueue,
       );
     }
-    return goTo(this.flow.loopForNextMessageStep, undefined);
+    return goTo(LoopForNextMessage, undefined);
   }
 }
 

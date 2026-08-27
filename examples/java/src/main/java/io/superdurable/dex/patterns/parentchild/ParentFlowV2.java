@@ -71,7 +71,7 @@ public class ParentFlowV2 implements Flow<Integer> {
 
             final List<StepMovement<?>> movements = new ArrayList<StepMovement<?>>();
             for (int i = 0; i < CONCURRENCY_PER_PARENT_WORKFLOW; i++) {
-                movements.add(StepMovement.of(loopForNextTask, null));
+                movements.add(StepMovement.of(LoopForNextTask.class, null));
             }
             return StepDecision.goToMulti(movements.toArray(new StepMovement<?>[0]));
         }
@@ -91,7 +91,7 @@ public class ParentFlowV2 implements Flow<Integer> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             final Integer request = taskQueue.getConditionResults(context).get(0);
-            return StepDecision.goTo(runSubFlow, request);
+            return StepDecision.goTo(RunSubFlow.class, request);
         }
     }
 
@@ -109,7 +109,7 @@ public class ParentFlowV2 implements Flow<Integer> {
         @Override
         public StepDecision execute(final Context context, final Integer request) {
             SubFlow.getConditionResults(context);
-            return StepDecision.goTo(loopForNextTask, null);
+            return StepDecision.goTo(LoopForNextTask.class, null);
         }
     }
 }

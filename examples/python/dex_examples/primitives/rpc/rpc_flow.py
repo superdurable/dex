@@ -47,7 +47,7 @@ class RpcWaitStep(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input
-        return go_to(self.second, 0)
+        return go_to(RpcCompleteStep, 0)
 
 
 class RpcCompleteStep(Step[int]):
@@ -81,4 +81,4 @@ class RpcFlow(Flow[int]):
     def trigger(self, context: Context, input: str) -> RPCResult[str]:
         self.data.set(context, input)
         self.example_ch.publish(context, None)
-        return RPCResult(input, next_steps=(StepMovement.of(self.example_step, input),))
+        return RPCResult(input, next_steps=(StepMovement.of(ExampleStep, input),))

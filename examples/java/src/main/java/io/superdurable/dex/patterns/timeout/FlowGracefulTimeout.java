@@ -54,8 +54,8 @@ public class FlowGracefulTimeout implements Flow<Boolean> {
         @Override
         public StepDecision execute(final Context context, final Boolean workflowSuccessful) {
             return StepDecision.goToMulti(
-                    StepMovement.of(timeout, null),
-                    StepMovement.of(task, workflowSuccessful));
+                    StepMovement.of(Timeout.class, null),
+                    StepMovement.of(Task.class, workflowSuccessful));
         }
     }
 

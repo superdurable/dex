@@ -69,7 +69,7 @@ class ChargeCurrentBill(Step[None]):
             subscription_billing.send_subscription_over_email(customer, self.service)
             return force_complete("subscription ended")
         subscription_billing.charge_current_period(customer, self.service)
-        return go_to(self, None)
+        return go_to(ChargeCurrentBill, None)
 
 
 class Trial(Step[None]):
@@ -96,7 +96,7 @@ class Trial(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
         self.billing_period_number.set(context, 0)
-        return go_to(self.charge_current_bill, None)
+        return go_to(ChargeCurrentBill, None)
 
 
 class Cancel(Step[None]):
@@ -141,7 +141,7 @@ class UpdateChargeAmount(Step[None]):
         customer = self.customer_details.get(context)
         subscription_billing.apply_charge_amount(customer, amount)
         self.customer_details.set(context, customer)
-        return go_to(self, None)
+        return go_to(UpdateChargeAmount, None)
 
 
 class Initialize(Step[Customer]):
@@ -160,9 +160,9 @@ class Initialize(Step[Customer]):
     def execute(self, context: Context, input: Customer) -> StepDecision:
         self.customer_details.set(context, input)
         return go_to_multi(
-            StepMovement.of(self.trial, None),
-            StepMovement.of(self.cancel, None),
-            StepMovement.of(self.update_charge_amount, None),
+            StepMovement.of(Trial, None),
+            StepMovement.of(Cancel, None),
+            StepMovement.of(UpdateChargeAmount, None),
         )
 
 

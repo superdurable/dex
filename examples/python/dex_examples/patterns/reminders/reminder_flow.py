@@ -102,7 +102,7 @@ class Reminder(Step[None]):
             return force_complete("done - opt out")
 
         self.service.send_email("Reminder:xxx please respond", "Hello xxx, ...")
-        return go_to(self, None)
+        return go_to(Reminder, None)
 
 
 class Init(Step[None]):
@@ -120,8 +120,8 @@ class Init(Step[None]):
         del input
         self.status.set(context, Status.INITIATED.value)
         return go_to_multi(
-            StepMovement.of(self.process_timeout, None),
-            StepMovement.of(self.reminder, None),
+            StepMovement.of(ProcessTimeout, None),
+            StepMovement.of(Reminder, None),
         )
 
 

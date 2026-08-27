@@ -88,7 +88,7 @@ public class DrainSignalChannelsFlow implements Flow<String> {
 
             return StepDecision.forceCompleteIfChannelsEmpty(
                     null,
-                    StepMovement.of(processSignal, null),
+                    StepMovement.of(ProcessSignal.class, null),
                     queueSignalChannel);
         }
     }

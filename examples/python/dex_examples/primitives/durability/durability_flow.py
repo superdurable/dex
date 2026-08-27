@@ -38,8 +38,8 @@ class RouteDurabilityStep(Step[str]):
     def execute(self, context: Context, mode: str) -> StepDecision:
         del context
         if mode == "async":
-            return go_to(self.flow.async_work, mode)
-        return go_to(self.flow.sync_work, mode)
+            return go_to(AsyncWorkStep, mode)
+        return go_to(SyncWorkStep, mode)
 
 
 class SyncWorkStep(Step[str]):
@@ -51,7 +51,7 @@ class SyncWorkStep(Step[str]):
 
     def execute(self, context: Context, mode: str) -> StepDecision:
         del context
-        return go_to(self.flow.finish, f"sync:{mode}")
+        return go_to(FinishDurabilityStep, f"sync:{mode}")
 
 
 class AsyncWorkStep(Step[str]):
@@ -63,7 +63,7 @@ class AsyncWorkStep(Step[str]):
 
     def execute(self, context: Context, mode: str) -> StepDecision:
         del context
-        return go_to(self.flow.finish, f"async:{mode}")
+        return go_to(FinishDurabilityStep, f"async:{mode}")
 
 
 class FinishDurabilityStep(Step[str]):

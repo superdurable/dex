@@ -58,7 +58,7 @@ public final class OptionsOverrideFlow implements Flow<String> {
                     .build();
             final String payload = input + "_state1";
             return StepDecision.goToMulti(
-                    StepMovement.of(second, payload, override));
+                    StepMovement.of(OverrideSecondStep.class, payload, override));
         }
     }
 

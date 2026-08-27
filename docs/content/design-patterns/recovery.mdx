@@ -47,7 +47,7 @@ after continue-as-new.
 public StepOptions getStepOptions() {
     return StepOptions.newBuilder()
             .executeRetry(RetryPolicy.newBuilder().maximumAttempts(3).build())
-            .onExecuteFailureProceedTo(compensateOrder)
+            .onExecuteFailureProceedTo(CompensateOrder.class)
             .build();
 }
 ```

@@ -86,8 +86,8 @@ class Initialize implements Step<number> {
   public execute(context: Context, maximumPolls: number): StepDecision {
     this.flow.currentPolls.set(context, 0);
     return goToMulti(
-      StepMovement.of(this.flow.poll, maximumPolls),
-      StepMovement.of(this.flow.waitForTasks, undefined),
+      StepMovement.of(Poll, maximumPolls),
+      StepMovement.of(WaitForTasks, undefined),
     );
   }
 }
@@ -133,7 +133,7 @@ class Poll implements Step<number> {
       return deadEnd();
     }
     this.flow.currentPolls.set(context, polls + 1);
-    return goTo(this.flow.poll, maximumPolls);
+    return goTo(Poll, maximumPolls);
   }
 }
 

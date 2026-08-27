@@ -113,7 +113,7 @@ class Shortlist(Step[ShortlistInput]):
         self.employer_id.set(context, input.employer_id)
         self.candidate_id.set(context, input.candidate_id)
         self.email_sent_timestamp.set(context, 0)
-        return go_to(self.send_email, None)
+        return go_to(SendEmail, None)
 
 
 class ShortlistFlow(Flow[ShortlistInput]):
