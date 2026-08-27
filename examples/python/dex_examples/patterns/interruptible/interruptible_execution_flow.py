@@ -66,7 +66,7 @@ class WorkAExecution(Step[WorkJobParametersInput]):
             f"Doing job {input.progress}"
         )
         return go_to(
-            self,
+            WorkAExecution,
             WorkJobParametersInput(input.job_upper_bound, input.progress + 1),
         )
 
@@ -97,7 +97,7 @@ class WorkNExecution(Step[WorkJobParametersInput]):
             f"Processing job {input.progress}"
         )
         return go_to(
-            self,
+            WorkNExecution,
             WorkJobParametersInput(input.job_upper_bound, input.progress + 1),
         )
 
@@ -117,8 +117,8 @@ class Init(Step[None]):
         del context, input
         parameters = WorkJobParametersInput(15, 1)
         return go_to_multi(
-            StepMovement.of(self.work_a_execution, parameters),
-            StepMovement.of(self.work_n_execution, parameters),
+            StepMovement.of(WorkAExecution, parameters),
+            StepMovement.of(WorkNExecution, parameters),
         )
 
 

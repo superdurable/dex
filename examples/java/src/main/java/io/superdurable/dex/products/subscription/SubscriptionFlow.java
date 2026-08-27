@@ -88,9 +88,9 @@ public class SubscriptionFlow implements Flow<Customer> {
         public StepDecision execute(final Context context, final Customer customer) {
             customerDetails.set(context, customer);
             return StepDecision.goToMulti(
-                    StepMovement.of(trial, null),
-                    StepMovement.of(cancel, null),
-                    StepMovement.of(updateChargeAmountStep, null));
+                    StepMovement.of(Trial.class, null),
+                    StepMovement.of(Cancel.class, null),
+                    StepMovement.of(UpdateChargeAmount.class, null));
         }
     }
 
@@ -110,7 +110,7 @@ public class SubscriptionFlow implements Flow<Customer> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             billingPeriodNumber.set(context, 0);
-            return StepDecision.goTo(chargeCurrentBill, null);
+            return StepDecision.goTo(ChargeCurrentBill.class, null);
         }
     }
 
@@ -143,7 +143,7 @@ public class SubscriptionFlow implements Flow<Customer> {
                 return StepDecision.forceComplete("subscription ended");
             }
             SubscriptionBilling.chargeCurrentPeriod(customer, service);
-            return StepDecision.goTo(chargeCurrentBill, null);
+            return StepDecision.goTo(ChargeCurrentBill.class, null);
         }
     }
 
@@ -184,7 +184,7 @@ public class SubscriptionFlow implements Flow<Customer> {
             final Customer customer = customerDetails.get(context);
             SubscriptionBilling.applyChargeAmount(customer, amount);
             customerDetails.set(context, customer);
-            return StepDecision.goTo(updateChargeAmountStep, null);
+            return StepDecision.goTo(UpdateChargeAmount.class, null);
         }
     }
 }

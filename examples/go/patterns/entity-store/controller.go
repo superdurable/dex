@@ -145,7 +145,7 @@ func entityStoreStartOptions(profile UserProfile) (sdk.StartFlowOptions, error) 
 	options := patternStartOptions()
 	options.Attributes = attributes
 	options.ConfigOverride = &sdk.FlowConfig{
-		AttributeStoreName: ptr.Any(StoreName),
+		AttributeStoreNames: ptr.Any([]string{StoreName}),
 	}
 	return options, nil
 }

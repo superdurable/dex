@@ -63,7 +63,7 @@ class FailingWaitStep implements Step<string> {
     if (!context.waitForMethodFailed()) {
       throw new Error("waitFor failure was not reported");
     }
-    return goTo(this.finish, `${input}_recovered`);
+    return goTo(FinishStep, `${input}_recovered`);
   }
 }
 

@@ -35,9 +35,9 @@ return dex.GoToMulti(
 
 ```java
 return StepDecision.goToMulti(
-        StepMovement.of(carrierAStep, quoteA),
-        StepMovement.of(carrierBStep, quoteB),
-        StepMovement.of(winnerStep, winnerQuote));
+        StepMovement.of(CarrierAStep.class, quoteA),
+        StepMovement.of(CarrierBStep.class, quoteB),
+        StepMovement.of(WinnerStep.class, winnerQuote));
 ```
 
 </SdkSnippet>
@@ -45,9 +45,9 @@ return StepDecision.goToMulti(
 
 ```python
 return go_to_multi(
-    StepMovement.of(self.flow.carrier_a, Quote(carrier="A", price=10)),
-    StepMovement.of(self.flow.carrier_b, Quote(carrier="B", price=12)),
-    StepMovement.of(self.flow.winner, quote),
+    StepMovement.of(CarrierAStep, Quote(carrier="A", price=10)),
+    StepMovement.of(CarrierBStep, Quote(carrier="B", price=12)),
+    StepMovement.of(WinnerStep, quote),
 )
 ```
 
@@ -56,9 +56,9 @@ return go_to_multi(
 
 ```typescript
 return goToMulti(
-  StepMovement.of(this.flow.carrierAStep, { carrier: "A", price: 10 }),
-  StepMovement.of(this.flow.carrierBStep, { carrier: "B", price: 12 }),
-  StepMovement.of(this.flow.winnerStep, quote),
+  StepMovement.of(CarrierAStep, { carrier: "A", price: 10 }),
+  StepMovement.of(CarrierBStep, { carrier: "B", price: 12 }),
+  StepMovement.of(WinnerStep, quote),
 );
 ```
 
@@ -125,8 +125,8 @@ case "graceful" -> {
 }
 case "dead-end" -> {
     return StepDecision.goToMulti(
-            StepMovement.of(branchWorkerStep, "left"),
-            StepMovement.of(branchWorkerStep, "right"));
+            StepMovement.of(BranchWorkerStep.class, "left"),
+            StepMovement.of(BranchWorkerStep.class, "right"));
 }
 
 return StepDecision.deadEnd();
@@ -140,8 +140,8 @@ if mode == "graceful":
     return graceful_complete("done")
 if mode == "dead-end":
     return go_to_multi(
-        StepMovement.of(self.flow.branch_worker, "left"),
-        StepMovement.of(self.flow.branch_worker, "right"),
+        StepMovement.of(BranchWorkerStep, "left"),
+        StepMovement.of(BranchWorkerStep, "right"),
     )
 
 return dead_end()
@@ -156,8 +156,8 @@ if (mode === "graceful") {
 }
 if (mode === "dead-end") {
   return goToMulti(
-    StepMovement.of(this.flow.branchWorkerStep, "left"),
-    StepMovement.of(this.flow.branchWorkerStep, "right"),
+    StepMovement.of(BranchWorkerStep, "left"),
+    StepMovement.of(BranchWorkerStep, "right"),
   );
 }
 
@@ -291,7 +291,7 @@ func (winnerStep) Execute(_ dex.Context, quote Quote) (*dex.StepDecision, error)
   <SdkSnippet lang="java">
 
 ```java
-return StepDecision.goTo(recordQuote, quote)
+return StepDecision.goTo(RecordQuoteStep.class, quote)
         .withCancelingSteps(carrierA, carrierB);
 ```
 
@@ -300,7 +300,7 @@ return StepDecision.goTo(recordQuote, quote)
 
 ```python
 return (
-    go_to(self.flow.record_quote, quote)
+    go_to(RecordQuoteStep, quote)
     .with_canceling_steps(self.flow.carrier_a, self.flow.carrier_b)
 )
 ```
@@ -310,7 +310,7 @@ return (
 
 ```typescript
 return withCancelingSteps(
-  goTo(this.flow.recordQuoteStep, quote),
+  goTo(RecordQuoteStep, quote),
   this.flow.carrierAStep,
   this.flow.carrierBStep,
 );
@@ -358,7 +358,7 @@ return dex.ForceCompleteIfChannelsEmpty(
 ```java
 return StepDecision.forceCompleteIfChannelsEmpty(
         null,
-        StepMovement.of(processSignal, null),
+        StepMovement.of(ProcessSignal.class, null),
         queueSignalChannel);
 ```
 
@@ -368,7 +368,7 @@ return StepDecision.forceCompleteIfChannelsEmpty(
 ```python
 return force_complete_if_channels_empty(
     None,
-    StepMovement.of(self, None),
+    StepMovement.of(ProcessSignal, None),
     self.queue_signal_channel,
 )
 ```
@@ -379,7 +379,7 @@ return force_complete_if_channels_empty(
 ```typescript
 return forceCompleteIfChannelsEmpty(
   null,
-  StepMovement.of(this, undefined),
+  StepMovement.of(ProcessSignal.class, undefined),
   this.flow.queueSignalChannel,
 );
 ```

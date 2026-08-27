@@ -86,7 +86,7 @@ class Reminder(Step[None]):
             "Reminder: please respond",
             "Please respond to the engagement.",
         )
-        return go_to(self, None)
+        return go_to(Reminder, None)
 
 
 class ProcessTimeout(Step[None]):
@@ -125,9 +125,9 @@ class Initialize(Step[EngagementInput]):
         self.flow.last_update_timestamp.set(context, current_time_millis())
         self.flow.notes.set(context, input.notes or "")
         return go_to_multi(
-            StepMovement.of(self.flow.process_timeout, None),
-            StepMovement.of(self.flow.reminder, None),
-            StepMovement.of(self.flow.notify_external_system, Status.INITIATED),
+            StepMovement.of(ProcessTimeout, None),
+            StepMovement.of(Reminder, None),
+            StepMovement.of(NotifyExternalSystem, Status.INITIATED),
         )
 
 
@@ -185,7 +185,7 @@ class EngagementFlow(Flow[EngagementInput]):
         return RPCResult(
             Status.DECLINED,
             next_steps=(
-                StepMovement.of(self.notify_external_system, Status.DECLINED),
+                StepMovement.of(NotifyExternalSystem, Status.DECLINED),
             ),
         )
 
@@ -202,7 +202,7 @@ class EngagementFlow(Flow[EngagementInput]):
         return RPCResult(
             Status.ACCEPTED,
             next_steps=(
-                StepMovement.of(self.notify_external_system, Status.ACCEPTED),
+                StepMovement.of(NotifyExternalSystem, Status.ACCEPTED),
             ),
         )
 

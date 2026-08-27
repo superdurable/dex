@@ -40,9 +40,9 @@ class SimplePolling implements Step<void> {
 
   public execute(_context: Context, _input: void): StepDecision {
     if (this.isSystemReady()) {
-      return goTo(this.flow.simplePollingCompleteStep, undefined);
+      return goTo(SimplePollingComplete, undefined);
     }
-    return goTo(this.flow.simplePollingStep, undefined);
+    return goTo(SimplePolling, undefined);
   }
 
   private isSystemReady(): boolean {

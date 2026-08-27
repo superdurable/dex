@@ -51,10 +51,8 @@ class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
     def __init__(
         self,
         client_provider: Callable[[], AsyncClient],
-        loop_for_next_task_provider: Callable[[], LoopForNextTask],
     ) -> None:
         self.client_provider = client_provider
-        self.loop_for_next_task_provider = loop_for_next_task_provider
 
     def wait_for(self, context: Context, input: WaitForChildInput) -> Wait:
         del context
@@ -71,13 +69,13 @@ class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
             )
         except LongPollTimeoutError:
             return go_to(
-                self,
+                AwaitChildWorkflowCompletion,
                 WaitForChildInput(
                     input.child_wf_id,
                     min(input.timer_seconds * 2, MAX_WAIT_SECONDS),
                 ),
             )
-        return go_to(self.loop_for_next_task_provider(), None)
+        return go_to(LoopForNextTask, None)
 
 
 class StartChildWorkflow(Step[int]):
@@ -106,7 +104,7 @@ class StartChildWorkflow(Step[int]):
         except FlowAlreadyStartedError:
             print("ignore this error because it is already started")
         return go_to(
-            self.await_child_workflow_completion,
+            AwaitChildWorkflowCompletion,
             WaitForChildInput(child_workflow_id, 1),
         )
 
@@ -127,7 +125,7 @@ class LoopForNextTask(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
         request = self.task_queue.results(context)[0]
-        return go_to(self.start_child_workflow, request)
+        return go_to(StartChildWorkflow, request)
 
 
 class Init(Step[int]):
@@ -145,7 +143,7 @@ class Init(Step[int]):
 
         return go_to_multi(
             *(
-                StepMovement.of(self.loop_for_next_task, None)
+                StepMovement.of(LoopForNextTask, None)
                 for _ in range(CONCURRENCY_PER_PARENT_WORKFLOW)
             )
         )
@@ -163,7 +161,6 @@ class ParentFlowV2(Flow[int]):
     ) -> None:
         self.await_child_workflow_completion = AwaitChildWorkflowCompletion(
             client_provider,
-            lambda: self.loop_for_next_task,
         )
         self.start_child_workflow = StartChildWorkflow(
             client_provider,

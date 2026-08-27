@@ -138,9 +138,9 @@ class Schedule(Step[None]):
         del input
         requests = user_input.results(context)
         if not requests:
-            return go_to(self.sending, None)
+            return go_to(Sending, None)
         user_input.publish(context, requests[0])
-        return go_to(self.flow.agent, None)
+        return go_to(Agent, None)
 
 
 class Agent(Step[None]):
@@ -193,8 +193,8 @@ class Agent(Step[None]):
             and self.flow.email_recipient.get(context)
             and self.flow.email_body.get(context)
         ):
-            return go_to(self.schedule, None)
-        return go_to(self, None)
+            return go_to(Schedule, None)
+        return go_to(Agent, None)
 
 
 class Init(Step[None]):
@@ -208,7 +208,7 @@ class Init(Step[None]):
 
         if google_credentials() is None:
             print("no Google credentials, the email will be drafted but not sent")
-        return go_to(self.flow.agent, None)
+        return go_to(Agent, None)
 
 
 class EmailAgentFlow(Flow[None]):

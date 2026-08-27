@@ -93,7 +93,7 @@ class VoidPaymentRecovery(Step[int]):
         workflow = self.workflow_input.get(context)
         item_value = self.database.get_item_price(workflow.item_name)
         self.payment_processor.void_payment(workflow.requested_quantity * item_value)
-        return go_to(self.update_quantity_recovery, workflow)
+        return go_to(UpdateQuantityRecovery, workflow)
 
 
 class ChargeForItems(Step[int]):
@@ -112,7 +112,7 @@ class ChargeForItems(Step[int]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(maximum_attempts=5)
-        ).on_execute_failure_proceed_to(self.void_payment_recovery)
+        ).on_execute_failure_proceed_to(VoidPaymentRecovery)
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del input
@@ -138,7 +138,7 @@ class UpdateItemQuantity(Step[FailureRecoveryWorkflowInput]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             execute_retry=RetryPolicy(maximum_attempts=5)
-        ).on_execute_failure_proceed_to(self.update_quantity_recovery)
+        ).on_execute_failure_proceed_to(UpdateQuantityRecovery)
 
     def execute(
         self,
@@ -147,7 +147,7 @@ class UpdateItemQuantity(Step[FailureRecoveryWorkflowInput]):
     ) -> StepDecision:
         self.workflow_input.set(context, input)
         self.database.reduce_quantity(input.item_name, input.requested_quantity)
-        return go_to(self.charge_for_items, input.requested_quantity)
+        return go_to(ChargeForItems, input.requested_quantity)
 
 
 class FailureRecoveryFlow(Flow[FailureRecoveryWorkflowInput]):

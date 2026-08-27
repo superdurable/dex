@@ -115,14 +115,14 @@ class LoopForNextRequest(Step[None]):
         self.current_wait_child_wfs.set(context, waiting)
 
         if self.shutdown_requested.get(context):
-            return go_to(self.move_to_another_instance, None)
+            return go_to(MoveToAnotherInstance, None)
         if not waiting:
             return force_complete_if_channels_empty(
                 "done",
-                StepMovement.of(self, None),
+                StepMovement.of(LoopForNextRequest, None),
                 self.request_queue,
             )
-        return go_to(self, None)
+        return go_to(LoopForNextRequest, None)
 
     async def start_child_flow(self, context: Context, request: Request) -> str | None:
         """Returns the child Flow ID to wait for, or None when another run owns it."""
@@ -165,7 +165,7 @@ class Init(Step[Request]):
     def execute(self, context: Context, input: Request) -> StepDecision:
         self.request_queue.publish(context, input)
         self.current_wait_child_wfs.set(context, [])
-        return go_to(self.loop_for_next_request, None)
+        return go_to(LoopForNextRequest, None)
 
 
 class ControllerFlow(Flow[Request]):

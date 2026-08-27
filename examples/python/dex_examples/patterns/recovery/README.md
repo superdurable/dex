@@ -35,7 +35,7 @@ def execute(self, context: Context, input: None) -> StepDecision:
         self._do_execute()
     except RetriableError:
         if context.attempt > 5:
-            return go_to(self.failure_recovery, None)
+            return go_to(FailureRecovery, None)
         raise
 ```
 
@@ -45,7 +45,7 @@ With it, the step body stays clean and the policy lives in the options:
 def get_step_options(self) -> StepOptions:
     return StepOptions(
         execute_retry=RetryPolicy(maximum_attempts=5),
-    ).on_execute_failure_proceed_to(self.failure_recovery)
+    ).on_execute_failure_proceed_to(FailureRecovery)
 
 def execute(self, context: Context, input: None) -> StepDecision:
     return self._do_execute()

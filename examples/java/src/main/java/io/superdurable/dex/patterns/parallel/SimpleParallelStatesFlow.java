@@ -50,8 +50,8 @@ public class SimpleParallelStatesFlow implements Flow<JobSeeker> {
         @Override
         public StepDecision execute(final Context context, final JobSeeker input) {
             return StepDecision.goToMulti(
-                    StepMovement.of(sendTextMessage, input.phoneNumber),
-                    StepMovement.of(sendEmail, input.email));
+                    StepMovement.of(SendTextMessage.class, input.phoneNumber),
+                    StepMovement.of(SendEmail.class, input.email));
         }
     }
 

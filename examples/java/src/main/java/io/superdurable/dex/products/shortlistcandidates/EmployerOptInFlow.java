@@ -59,7 +59,7 @@ public class EmployerOptInFlow implements Flow<EmployerOptInInput> {
 
     @RPC
     public RPCResult<Void> optOut(final Context context) {
-        return RPCResult.of(null, StepMovement.of(optOut, null));
+        return RPCResult.of(null, StepMovement.of(OptOut.class, null));
     }
 
     final class OptIn implements Step<EmployerOptInInput> {

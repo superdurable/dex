@@ -107,7 +107,7 @@ class CreateCreditMemo(Step[TransferRequest]):
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
         del context
         self.service.create_credit_memo(input.to_account, input.amount, input.notes)
-        return go_to(self.credit, input)
+        return go_to(Credit, input)
 
 
 class Debit(Step[TransferRequest]):
@@ -127,7 +127,7 @@ class Debit(Step[TransferRequest]):
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
         del context
         self.service.debit(input.from_account, input.amount)
-        return go_to(self.create_credit_memo, input)
+        return go_to(CreateCreditMemo, input)
 
 
 class CreateDebitMemo(Step[TransferRequest]):
@@ -147,7 +147,7 @@ class CreateDebitMemo(Step[TransferRequest]):
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
         del context
         self.service.create_debit_memo(input.from_account, input.amount, input.notes)
-        return go_to(self.debit, input)
+        return go_to(Debit, input)
 
 
 class CheckBalance(Step[TransferRequest]):
@@ -163,7 +163,7 @@ class CheckBalance(Step[TransferRequest]):
         del context
         if not self.service.check_balance(input.from_account, input.amount):
             return force_fail("insufficient funds")
-        return go_to(self.create_debit_memo, input)
+        return go_to(CreateDebitMemo, input)
 
 
 class MoneyTransferFlow(Flow[TransferRequest]):

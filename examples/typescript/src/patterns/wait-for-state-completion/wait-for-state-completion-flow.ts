@@ -52,7 +52,7 @@ class PersistData implements Step<JobSeekerData> {
   public execute(context: Context, input: JobSeekerData): StepDecision {
     this.flow.mongoCollection.upsert(input);
     this.flow.jobSeekerData.set(context, input);
-    return goTo(this.flow.updateExternalSystemStep, input);
+    return goTo(UpdateExternalSystem, input);
   }
 }
 

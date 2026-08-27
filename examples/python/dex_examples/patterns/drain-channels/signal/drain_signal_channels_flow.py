@@ -61,7 +61,7 @@ class ProcessSignal(Step[str]):
 
         return force_complete_if_channels_empty(
             None,
-            StepMovement.of(self, None),
+            StepMovement.of(ProcessSignal, None),
             self.queue_signal_channel,
         )
 

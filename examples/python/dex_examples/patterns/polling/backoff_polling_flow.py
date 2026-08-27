@@ -62,7 +62,7 @@ class ReadExternalDep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
         result = self.service.attempt_external_api_call("Read for BackoffPollingFlow")
-        return go_to(self.polling_complete, result)
+        return go_to(PollingComplete, result)
 
 
 class BackoffPollingFlow(Flow[None]):

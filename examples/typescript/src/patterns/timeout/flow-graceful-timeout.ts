@@ -41,8 +41,8 @@ class Init implements Step<boolean> {
 
   public execute(_context: Context, workflowSuccessful: boolean): StepDecision {
     return goToMulti(
-      StepMovement.of(this.flow.timeoutStep, undefined),
-      StepMovement.of(this.flow.taskStep, workflowSuccessful),
+      StepMovement.of(Timeout, undefined),
+      StepMovement.of(Task, workflowSuccessful),
     );
   }
 }

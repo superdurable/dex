@@ -40,8 +40,8 @@ class Init implements Step<JobSeeker> {
 
   public execute(_context: Context, input: JobSeeker): StepDecision {
     return goToMulti(
-      StepMovement.of(this.flow.sendTextMessageStep, input.phoneNumber),
-      StepMovement.of(this.flow.sendEmailStep, input.email),
+      StepMovement.of(SendTextMessage, input.phoneNumber),
+      StepMovement.of(SendEmail, input.email),
     );
   }
 }

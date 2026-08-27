@@ -80,12 +80,12 @@ class Starting(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
         movements: list[StepMovement[Any]] = [
-            StepMovement.of(self.await_all_users_notified, input)
+            StepMovement.of(AwaitAllUsersNotified, input)
         ]
         for index in range(1, input + 1):
             movements.append(
                 StepMovement.of(
-                    self.notify_user,
+                    NotifyUser,
                     JobSeeker(str(index), "jobseeker@indeed.com", "0987654321"),
                 )
             )

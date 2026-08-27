@@ -62,7 +62,7 @@ class ExampleStep implements Step<number> {
   }
 
   public execute(_context: Context, input: number): StepDecision {
-    return goTo(this.finish, input + 1);
+    return goTo(FinishStep, input + 1);
   }
 }
 

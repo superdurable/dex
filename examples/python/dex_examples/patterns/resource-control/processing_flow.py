@@ -103,7 +103,7 @@ class GpuProcessingComplete(Step[None]):
             f"{self.instance_id.get(context)} by calling the instance API"
         )
         self.status.set(context, STATUS_PROCESSING_COMPLETED)
-        return go_to(self.complete, None)
+        return go_to(Complete, None)
 
 
 class GpuProcessingStart(Step[None]):
@@ -126,7 +126,7 @@ class GpuProcessingStart(Step[None]):
             f"{self.instance_id.get(context)} by calling the instance API"
         )
         self.status.set(context, STATUS_PROCESSING_STARTED)
-        return go_to(self.gpu_processing_complete, None)
+        return go_to(GpuProcessingComplete, None)
 
 
 class ValidationComplete(Step[None]):
@@ -151,7 +151,7 @@ class ValidationComplete(Step[None]):
             f"{self.instance_id.get(context)} by calling the instance API"
         )
         self.status.set(context, STATUS_VALIDATION_COMPLETED)
-        return go_to(self.gpu_processing_start, None)
+        return go_to(GpuProcessingStart, None)
 
 
 class ValidationStart(Step[Request]):
@@ -175,7 +175,7 @@ class ValidationStart(Step[Request]):
             f"{self.instance_id.get(context)} by calling the instance API"
         )
         self.status.set(context, STATUS_VALIDATION_STARTED)
-        return go_to(self.validation_complete, None)
+        return go_to(ValidationComplete, None)
 
 
 class ProcessingFlow(Flow[Request]):

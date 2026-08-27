@@ -115,10 +115,10 @@ class LoopForNextMessage(Step[None]):
         if not new_wait_list:
             return force_complete_if_channels_empty(
                 None,
-                StepMovement.of(self, None),
+                StepMovement.of(LoopForNextMessage, None),
                 self.task_queue,
             )
-        return go_to(self, None)
+        return go_to(LoopForNextMessage, None)
 
 
 class Init(Step[BatchEnqueueRequest]):
@@ -133,7 +133,7 @@ class Init(Step[BatchEnqueueRequest]):
     def execute(self, context: Context, input: BatchEnqueueRequest) -> StepDecision:
         for uuid in input.items:
             self.task_queue.publish(context, uuid)
-        return go_to(self.loop_for_next_message, None)
+        return go_to(LoopForNextMessage, None)
 
 
 class ParentFlow(Flow[BatchEnqueueRequest]):

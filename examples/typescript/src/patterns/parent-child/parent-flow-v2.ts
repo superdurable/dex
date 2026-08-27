@@ -60,7 +60,7 @@ class Init implements Step<number> {
 
     const movements: StepMovement<unknown>[] = [];
     for (let index = 0; index < CONCURRENCY_PER_PARENT_WORKFLOW; index += 1) {
-      movements.push(StepMovement.of(this.flow.loopForNextTaskStep, undefined));
+      movements.push(StepMovement.of(LoopForNextTask, undefined));
     }
     return goToMulti(...movements);
   }
@@ -82,7 +82,7 @@ class LoopForNextTask implements Step<void> {
     if (request === undefined) {
       throw new Error("No task found on queue");
     }
-    return goTo(this.flow.startChildWorkflowStep, request);
+    return goTo(StartChildWorkflow, request);
   }
 }
 
@@ -109,7 +109,7 @@ class StartChildWorkflow implements Step<number> {
         throw error;
       }
     }
-    return goTo(this.flow.awaitChildWorkflowCompletionStep, {
+    return goTo(AwaitChildWorkflowCompletion, {
       childWFId: childWorkflowId,
       timerSeconds: 1,
     });
@@ -138,14 +138,14 @@ class AwaitChildWorkflowCompletion implements Step<WaitForChildInput> {
       );
     } catch (error) {
       if (error instanceof LongPollTimeoutError) {
-        return goTo(this.flow.awaitChildWorkflowCompletionStep, {
+        return goTo(AwaitChildWorkflowCompletion, {
           childWFId: input.childWFId,
           timerSeconds: Math.min(input.timerSeconds * 2, 10),
         });
       }
       throw error;
     }
-    return goTo(this.flow.loopForNextTaskStep, undefined);
+    return goTo(LoopForNextTask, undefined);
   }
 }
 

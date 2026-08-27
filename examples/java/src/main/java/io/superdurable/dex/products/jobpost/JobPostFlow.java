@@ -85,7 +85,7 @@ public class JobPostFlow implements Flow<Void> {
         if (input.notes != null) {
             notes.set(context, input.notes);
         }
-        return RPCResult.of(null, StepMovement.of(externalUpdate, null));
+        return RPCResult.of(null, StepMovement.of(ExternalUpdate.class, null));
     }
 
     private JobInfo readJobInfo(final Context context) {

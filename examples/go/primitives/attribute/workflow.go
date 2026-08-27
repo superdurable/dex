@@ -38,7 +38,7 @@ var (
 		"primitive-attribute-progress",
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: "OrderProgress"}),
 	)
-	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreName: ptr.Any("profiles")}
+	AttributeStoreConfig = &dex.FlowConfig{AttributeStoreNames: ptr.Any([]string{"profiles"})}
 )
 
 type AttributeFlow struct {

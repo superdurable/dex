@@ -135,7 +135,7 @@ public class CronScheduleFlow implements Flow<CronScheduleFlow.Input> {
                     || input.interval.duration().isZero()) {
                 return StepDecision.forceFail("interval value and run count must be positive");
             }
-            return StepDecision.goTo(waitForSchedule, new ScheduleState(input.interval, input.runCount));
+            return StepDecision.goTo(WaitForSchedule.class, new ScheduleState(input.interval, input.runCount));
         }
     }
 
@@ -180,19 +180,19 @@ public class CronScheduleFlow implements Flow<CronScheduleFlow.Input> {
             return StepDecision.gracefulComplete();
         }
         return StepDecision.goTo(
-                waitForSchedule,
+                WaitForSchedule.class,
                 new ScheduleState(state.interval, state.remainingRuns - 1));
     }
 
     private StepDecision runNow(final ScheduleState state) {
         final RunInput runInput = new RunInput(state.remainingRuns, state.remainingRuns == 1);
         if (runInput.isFinal) {
-            return StepDecision.goTo(run, runInput);
+            return StepDecision.goTo(Run.class, runInput);
         }
         return StepDecision.goToMulti(
-                StepMovement.of(run, runInput),
+                StepMovement.of(Run.class, runInput),
                 StepMovement.of(
-                        waitForSchedule,
+                        WaitForSchedule.class,
                         new ScheduleState(state.interval, state.remainingRuns - 1)));
     }
 }

@@ -89,5 +89,5 @@ class EmployerOptInFlow(Flow[EmployerOptInInput]):
         del context
         return RPCResult(
             None,
-            next_steps=(StepMovement.of(self.opt_out_step, None),),
+            next_steps=(StepMovement.of(OptOut, None),),
         )

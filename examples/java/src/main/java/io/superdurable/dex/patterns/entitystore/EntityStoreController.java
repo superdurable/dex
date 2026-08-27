@@ -53,7 +53,7 @@ public class EntityStoreController {
                 .addAttribute(userProfileFlow.lastLoggedInTime, profile.lastLoggedInTime)
                 .addAttribute(userProfileFlow.metadata, profile.metadata)
                 .configOverride(FlowConfig.newBuilder()
-                        .attributeStoreName(UserProfileFlow.STORE_NAME)
+                        .attributeStoreNames(java.util.Collections.singletonList(UserProfileFlow.STORE_NAME))
                         .build())
                 .build();
         final String runId = client.startFlow(

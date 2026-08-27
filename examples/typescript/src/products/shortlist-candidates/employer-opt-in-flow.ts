@@ -65,7 +65,7 @@ export class EmployerOptInFlow implements Flow<EmployerOptInInput> {
 
   @rpc()
   public optOut(_context: Context): RPCResult<void> {
-    return { output: undefined, nextSteps: [StepMovement.of(this.optOutStep, undefined)] };
+    return { output: undefined, nextSteps: [StepMovement.of(OptOut, undefined)] };
   }
 }
 

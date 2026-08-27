@@ -116,7 +116,7 @@ public class ParentFlow implements Flow<BatchEnqueueRequest> {
             for (final String uuid : initRequest.list) {
                 taskQueue.publish(context, uuid);
             }
-            return StepDecision.goTo(loopForNextMessage, null);
+            return StepDecision.goTo(LoopForNextMessage.class, null);
         }
     }
 
@@ -193,10 +193,10 @@ public class ParentFlow implements Flow<BatchEnqueueRequest> {
             if (newWaitList.isEmpty()) {
                 return StepDecision.forceCompleteIfChannelsEmpty(
                         null,
-                        StepMovement.of(loopForNextMessage, null),
+                        StepMovement.of(LoopForNextMessage.class, null),
                         taskQueue);
             }
-            return StepDecision.goTo(loopForNextMessage, null);
+            return StepDecision.goTo(LoopForNextMessage.class, null);
         }
     }
 }

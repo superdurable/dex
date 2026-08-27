@@ -52,7 +52,7 @@ public class RpcFlow implements Flow<Integer> {
     public RPCResult<String> trigger(final Context context, final String input) {
         data.set(context, input);
         exampleCh.publish(context, null);
-        return RPCResult.of(input, StepMovement.of(exampleStep, input));
+        return RPCResult.of(input, StepMovement.of(ExampleStep.class, input));
     }
 
     final class RpcWaitStep implements Step<Integer> {
@@ -68,7 +68,7 @@ public class RpcFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(complete, 0);
+            return StepDecision.goTo(RpcCompleteStep.class, 0);
         }
     }
 

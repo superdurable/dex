@@ -56,7 +56,7 @@ class ReadExternalDep implements Step<void> {
 
   public execute(_context: Context, _input: void): StepDecision {
     const result = this.service.attemptExternalApiCall("Read for BackoffPollingFlow");
-    return goTo(this.flow.pollingCompleteStep, result);
+    return goTo(PollingComplete, result);
   }
 }
 

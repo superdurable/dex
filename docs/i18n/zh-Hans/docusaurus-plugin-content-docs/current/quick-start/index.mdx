@@ -66,7 +66,7 @@ class ChargeStep(Step[OrderRequest]):
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         self.service.charge_user(input.email, input.customer_id, input.amount)
         order_status.set(context, "charged")
-        return go_to(self.ship, input)
+        return go_to(ShipStep, input)
 
 
 class ShipStep(Step[OrderRequest]):
@@ -80,7 +80,7 @@ class ShipStep(Step[OrderRequest]):
                 total_duration=timedelta(hours=1),
             )
         ).on_execute_failure_proceed_to(
-            self.refund,
+            RefundStep,
             StepOptions(
                 execute_retry=RetryPolicy(
                     total_duration=timedelta(hours=1),
@@ -102,7 +102,7 @@ class ShipStep(Step[OrderRequest]):
                 "Reminder: approve shipment",
                 "Please approve or provide a tracking number.",
             )
-            return go_to(self, input)
+            return go_to(ShipStep, input)
         self.service.ship_item(input.order_id)
         order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")
@@ -364,7 +364,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepDecision execute(final Context context, final OrderRequest order) {
             service.chargeUser(order.email, order.customerId, order.amount);
             orderStatus.set(context, "charged");
-            return StepDecision.goTo(ship, order);
+            return StepDecision.goTo(ShipStep.class, order);
         }
     }
 
@@ -394,7 +394,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                             .totalDuration(Duration.ofHours(1))
                             .build())
                     .onExecuteFailureProceedTo(
-                            refund,
+                            RefundStep.class,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
                                             .totalDuration(Duration.ofHours(1))
@@ -417,7 +417,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                         order.email,
                         "Reminder: approve shipment",
                         "Please approve or provide a tracking number.");
-                return StepDecision.goTo(this, order);
+                return StepDecision.goTo(ShipStep.class, order);
             }
             service.shipItem(order.orderId);
             orderStatus.set(context, "shipped");
@@ -522,7 +522,7 @@ class ChargeStep implements Step<OrderRequest> {
   public execute(context: Context, input: OrderRequest): StepDecision {
     this.service.chargeUser(input.email, input.customerId, input.amount);
     orderStatus.set(context, "charged");
-    return goTo(this.ship, input);
+    return goTo(ShipStep, input);
   }
 }
 
@@ -543,7 +543,7 @@ class ShipStep implements Step<OrderRequest> {
       executeRetry: {
         totalDurationMs: 60 * 60 * 1000,
       },
-      executeFailure: ExecuteFailure.proceedTo(this.refund, {
+      executeFailure: ExecuteFailure.proceedTo(RefundStep, {
         executeRetry: {
           totalDurationMs: 60 * 60 * 1000,
         },
@@ -562,7 +562,7 @@ class ShipStep implements Step<OrderRequest> {
         "Reminder: approve shipment",
         "Please approve or provide a tracking number.",
       );
-      return goTo(this, input);
+      return goTo(ShipStep, input);
     }
     this.service.shipItem(input.orderId);
     orderStatus.set(context, "shipped");

@@ -62,8 +62,8 @@ class ResettableTimerStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
         if context.has_timer_fired():
-            return go_to(self.timer_expired, None)
-        return go_to(self, None)
+            return go_to(TimerExpired, None)
+        return go_to(ResettableTimerStep, None)
 
 
 class ResettableTimerFlow(Flow[None]):

@@ -63,7 +63,7 @@ class PersistData(Step[JobSeekerData]):
     def execute(self, context: Context, input: JobSeekerData) -> StepDecision:
         self.mongo_collection.upsert(input)
         self.job_seeker_data.set(context, input)
-        return go_to(self.update_external_system, input)
+        return go_to(UpdateExternalSystem, input)
 
 
 class WaitForStateCompletionFlow(Flow[JobSeekerData]):

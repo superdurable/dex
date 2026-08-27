@@ -40,9 +40,9 @@ class RouteDurabilityStep implements Step<string> {
 
   public execute(_context: Context, mode: string): StepDecision {
     if (mode === "async") {
-      return goTo(this.flow.asyncWorkStep, mode);
+      return goTo(AsyncWorkStep, mode);
     }
-    return goTo(this.flow.syncWorkStep, mode);
+    return goTo(SyncWorkStep, mode);
   }
 }
 
@@ -60,7 +60,7 @@ class SyncWorkStep implements Step<string> {
   }
 
   public execute(_context: Context, mode: string): StepDecision {
-    return goTo(this.flow.finishStep, `sync:${mode}`);
+    return goTo(FinishDurabilityStep, `sync:${mode}`);
   }
 }
 
@@ -78,7 +78,7 @@ class AsyncWorkStep implements Step<string> {
   }
 
   public execute(_context: Context, mode: string): StepDecision {
-    return goTo(this.flow.finishStep, `async:${mode}`);
+    return goTo(FinishDurabilityStep, `async:${mode}`);
   }
 }
 

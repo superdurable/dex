@@ -72,7 +72,7 @@ public class ExampleFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(finishStep, input + 1);
+            return StepDecision.goTo(FinishStep.class, input + 1);
         }
     }
 

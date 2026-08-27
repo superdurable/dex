@@ -83,7 +83,7 @@ public class WaitForStateCompletionFlow implements Flow<JobSeekerData> {
                 throw new RuntimeException(e);
             }
             jobSeekerData.set(context, input);
-            return StepDecision.goTo(updateExternalSystem, input);
+            return StepDecision.goTo(UpdateExternalSystem.class, input);
         }
     }
 

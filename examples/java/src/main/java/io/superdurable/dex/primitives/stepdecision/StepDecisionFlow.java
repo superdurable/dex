@@ -80,14 +80,14 @@ public final class StepDecisionFlow implements Flow<String> {
                     return StepDecision.gracefulComplete("done");
                 case "dead-end":
                     return StepDecision.goToMulti(
-                            StepMovement.of(branchWorker, "left"),
-                            StepMovement.of(branchWorker, "right"));
+                            StepMovement.of(BranchWorkerStep.class, "left"),
+                            StepMovement.of(BranchWorkerStep.class, "right"));
                 default:
                     final Quote quote = new Quote("winner", 9);
                     return StepDecision.goToMulti(
-                            StepMovement.of(carrierA, new Quote("A", 10)),
-                            StepMovement.of(carrierB, new Quote("B", 12)),
-                            StepMovement.of(winner, quote));
+                            StepMovement.of(CarrierAStep.class, new Quote("A", 10)),
+                            StepMovement.of(CarrierBStep.class, new Quote("B", 12)),
+                            StepMovement.of(WinnerStep.class, quote));
             }
         }
     }
@@ -146,8 +146,8 @@ public final class StepDecisionFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final Quote quote) {
-            return StepDecision.goTo(recordQuote, quote)
-                    .withCancelingSteps(carrierA, carrierB);
+            return StepDecision.goTo(RecordQuoteStep.class, quote)
+                    .withCancelingSteps(CarrierAStep.class, CarrierBStep.class);
         }
     }
 

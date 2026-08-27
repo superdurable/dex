@@ -54,7 +54,7 @@ class FailingWaitStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         if not context.wait_for_method_failed():
             raise RuntimeError("waitFor failure was not reported")
-        return go_to(self.finish, f"{input}_recovered")
+        return go_to(FinishStep, f"{input}_recovered")
 
 
 class ProceedOnWaitFailureFlow(Flow[str]):

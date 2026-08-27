@@ -64,7 +64,7 @@ class ChargeStep(Step[OrderRequest]):
     def execute(self, context: Context, input: OrderRequest) -> StepDecision:
         self.service.charge_user(input.email, input.customer_id, input.amount)
         order_status.set(context, "charged")
-        return go_to(self.ship, input)
+        return go_to(ShipStep, input)
 
 
 class ShipStep(Step[OrderRequest]):
@@ -79,7 +79,7 @@ class ShipStep(Step[OrderRequest]):
                 total_duration=timedelta(seconds=3),
             )
         ).on_execute_failure_proceed_to(
-            self.refund,
+            RefundStep,
             StepOptions(
                 execute_retry=RetryPolicy(
                     # total_duration=timedelta(hours=1),
@@ -102,7 +102,7 @@ class ShipStep(Step[OrderRequest]):
                 "Reminder: approve shipment",
                 "Please approve or provide a tracking number.",
             )
-            return go_to(self, input)
+            return go_to(ShipStep, input)
         self.service.ship_item(input.order_id, input.test_fail_at_shipping)
         order_status.set(context, "shipped")
         return graceful_complete(f"shipped:{input.order_id}")

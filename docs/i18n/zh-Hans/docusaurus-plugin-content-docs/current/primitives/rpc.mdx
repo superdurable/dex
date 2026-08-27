@@ -32,7 +32,7 @@ RPC 可以通过 Attribute 读取和写入 durable state、向 Channel publish�
 def trigger(self, context: Context, input: str) -> RPCResult[str]:
     self.data.set(context, input)
     self.example_ch.publish(context, None)
-    return RPCResult(input, next_steps=(StepMovement.of(self.example_step, input),))
+    return RPCResult(input, next_steps=(StepMovement.of(ExampleStep, input),))
 ```
 
 </SdkSnippet>
@@ -63,7 +63,7 @@ func (*RpcFlow) Trigger(ctx dex.Context, input string) (*dex.RPCResult[string], 
 public RPCResult<String> trigger(final Context context, final String input) {
     data.set(context, input);
     exampleCh.publish(context, null);
-    return RPCResult.of(input, StepMovement.of(exampleStep, input));
+    return RPCResult.of(input, StepMovement.of(ExampleStep.class, input));
 }
 ```
 
@@ -75,7 +75,7 @@ public RPCResult<String> trigger(final Context context, final String input) {
 public trigger(context: Context, input: string): RPCResult<string> {
   this.data.set(context, input);
   exampleCh.publish(context, undefined);
-  return { output: input, nextSteps: [StepMovement.of(this.exampleStep, input)] };
+  return { output: input, nextSteps: [StepMovement.of(ExampleStep, input)] };
 }
 ```
 

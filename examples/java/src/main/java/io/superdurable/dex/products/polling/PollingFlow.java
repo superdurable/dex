@@ -77,8 +77,8 @@ public class PollingFlow implements Flow<Integer> {
         public StepDecision execute(final Context context, final Integer maximumPolls) {
             currentPolls.set(context, 0);
             return StepDecision.goToMulti(
-                    StepMovement.of(poll, maximumPolls),
-                    StepMovement.of(waitForTasks, null));
+                    StepMovement.of(Poll.class, maximumPolls),
+                    StepMovement.of(WaitForTasks.class, null));
         }
     }
 
@@ -122,7 +122,7 @@ public class PollingFlow implements Flow<Integer> {
                 return StepDecision.deadEnd();
             }
             currentPolls.set(context, polls + 1);
-            return StepDecision.goTo(poll, maximumPolls);
+            return StepDecision.goTo(Poll.class, maximumPolls);
         }
     }
 }

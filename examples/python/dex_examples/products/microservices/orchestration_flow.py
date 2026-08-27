@@ -74,7 +74,7 @@ class CallAPI3(Step[None]):
         value = self.data.get(context)
         self.service.call_api3(value)
         if context.has_timer_fired():
-            return go_to(self.call_api4, None)
+            return go_to(CallAPI4, None)
         return graceful_complete(value)
 
 
@@ -106,8 +106,8 @@ class CallAPI1(Step[str]):
         self.service.call_api1(input)
         self.data.set(context, input)
         return go_to_multi(
-            StepMovement.of(self.call_api2, None),
-            StepMovement.of(self.call_api3, None),
+            StepMovement.of(CallAPI2, None),
+            StepMovement.of(CallAPI3, None),
         )
 
 

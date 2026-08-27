@@ -89,7 +89,7 @@ class Submit implements Step<SignupForm> {
     this.flow.form.set(context, input);
     this.flow.status.set(context, "waiting");
     this.flow.service.sendEmail(input.email, "please verify the signup", "content");
-    return goTo(this.flow.verifyStep, undefined);
+    return goTo(Verify, undefined);
   }
 }
 
@@ -111,7 +111,7 @@ class Verify implements Step<void> {
       return gracefulComplete("done");
     }
     this.flow.service.sendEmail(signupForm.email, "reminder", "please verify your email");
-    return goTo(this.flow.verifyStep, undefined);
+    return goTo(Verify, undefined);
   }
 }
 

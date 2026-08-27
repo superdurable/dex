@@ -271,7 +271,7 @@ async def test_entity_store_profile_lifecycle(
     options = (
         StartFlowOptions(
             timeout=timedelta(hours=1),
-            config_override=FlowConfig(attribute_store_name=STORE_NAME),
+            config_override=FlowConfig(attribute_store_names=[STORE_NAME]),
         )
         .with_attribute(app.user_profile.display_name, profile.display_name)
         .with_attribute(app.user_profile.email, profile.email)

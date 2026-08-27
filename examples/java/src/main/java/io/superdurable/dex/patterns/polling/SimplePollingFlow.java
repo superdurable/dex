@@ -57,9 +57,9 @@ public class SimplePollingFlow implements Flow<Void> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             if (isSystemReady()) {
-                return StepDecision.goTo(simplePollingComplete, null);
+                return StepDecision.goTo(SimplePollingComplete.class, null);
             }
-            return StepDecision.goTo(simplePolling, null);
+            return StepDecision.goTo(SimplePolling.class, null);
         }
 
         private boolean isSystemReady() {

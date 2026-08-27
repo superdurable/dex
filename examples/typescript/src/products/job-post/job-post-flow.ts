@@ -87,7 +87,7 @@ export class JobPostFlow implements Flow {
     if (input.notes !== undefined && input.notes.length > 0) {
       this.notes.set(context, input.notes);
     }
-    return { output: undefined, nextSteps: [StepMovement.of(this.externalUpdate, undefined)] };
+    return { output: undefined, nextSteps: [StepMovement.of(ExternalUpdate, undefined)] };
   }
 
   private readJobInfo(context: Context): JobInfo {

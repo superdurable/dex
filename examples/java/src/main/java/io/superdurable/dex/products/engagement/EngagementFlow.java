@@ -95,7 +95,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
         updateStatus(context, Status.DECLINED, note);
         return RPCResult.of(
                 Status.DECLINED,
-                StepMovement.of(notifyExternalSystem, Status.DECLINED));
+                StepMovement.of(NotifyExternalSystem.class, Status.DECLINED));
     }
 
     @RPC
@@ -110,7 +110,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
         completeProcess.publish(context, null);
         return RPCResult.of(
                 Status.ACCEPTED,
-                StepMovement.of(notifyExternalSystem, Status.ACCEPTED));
+                StepMovement.of(NotifyExternalSystem.class, Status.ACCEPTED));
     }
 
     private EngagementDescription describeEngagement(final Context context) {
@@ -148,9 +148,9 @@ public class EngagementFlow implements Flow<EngagementInput> {
             lastUpdateTimestamp.set(context, System.currentTimeMillis());
             notes.set(context, input.notes);
             return StepDecision.goToMulti(
-                    StepMovement.of(processTimeout, null),
-                    StepMovement.of(reminder, null),
-                    StepMovement.of(notifyExternalSystem, Status.INITIATED));
+                    StepMovement.of(ProcessTimeout.class, null),
+                    StepMovement.of(Reminder.class, null),
+                    StepMovement.of(NotifyExternalSystem.class, Status.INITIATED));
         }
     }
 
@@ -211,7 +211,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
                     seekerId,
                     "Reminder: please respond",
                     "Please respond to the engagement.");
-            return StepDecision.goTo(reminder, null);
+            return StepDecision.goTo(Reminder.class, null);
         }
     }
 

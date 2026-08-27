@@ -84,8 +84,8 @@ public class ReminderFlow implements Flow<Void> {
         public StepDecision execute(final Context context, final Void input) {
             status.set(context, Status.INITIATED.name());
             return StepDecision.goToMulti(
-                    StepMovement.of(processTimeout, null),
-                    StepMovement.of(reminder, null));
+                    StepMovement.of(ProcessTimeout.class, null),
+                    StepMovement.of(Reminder.class, null));
         }
     }
 
@@ -140,7 +140,7 @@ public class ReminderFlow implements Flow<Void> {
             }
 
             myService.sendEmail("Reminder:xxx please respond", "Hello xxx, ...");
-            return StepDecision.goTo(reminder, null);
+            return StepDecision.goTo(Reminder.class, null);
         }
     }
 }

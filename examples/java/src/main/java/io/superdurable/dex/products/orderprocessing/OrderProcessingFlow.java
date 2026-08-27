@@ -110,7 +110,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
         public StepDecision execute(final Context context, final OrderRequest order) {
             service.chargeUser(order.email, order.customerId, order.amount);
             orderStatus.set(context, "charged");
-            return StepDecision.goTo(ship, order);
+            return StepDecision.goTo(ShipStep.class, order);
         }
     }
 
@@ -141,7 +141,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                             .totalDuration(Duration.ofSeconds(3))
                             .build())
                     .onExecuteFailureProceedTo(
-                            refund,
+                            RefundStep.class,
                             StepOptions.newBuilder()
                                     .executeRetry(RetryPolicy.newBuilder()
                                             // .totalDuration(Duration.ofHours(1))
@@ -165,7 +165,7 @@ public class OrderProcessingFlow implements Flow<OrderRequest> {
                         order.email,
                         "Reminder: approve shipment",
                         "Please approve or provide a tracking number.");
-                return StepDecision.goTo(this, order);
+                return StepDecision.goTo(ShipStep.class, order);
             }
             service.shipItem(order.orderId, order.testFailAtShipping);
             orderStatus.set(context, "shipped");
