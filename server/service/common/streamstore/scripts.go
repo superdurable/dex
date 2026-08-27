@@ -334,7 +334,7 @@ while total > target and trimmed < trimLimit do
     redis.call('XDEL', oldInstance, oldID)
     if redis.call('XLEN', oldInstance) == 0 then redis.call('DEL', oldInstance) end
   end
-  if oldIdentity and redis.call('HGET', idemKey, oldIdentity) == oldID then
+  if oldIdentity then
     redis.call('HDEL', idemKey, oldIdentity)
   end
   redis.call('XDEL', fifoKey, oldID)
