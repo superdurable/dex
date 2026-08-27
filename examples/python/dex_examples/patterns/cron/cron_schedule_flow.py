@@ -114,7 +114,7 @@ class _WaitForSchedule(Step[_ScheduleState]):
         if state.remaining_runs == 1:
             return graceful_complete()
         return go_to(
-            self,
+            _WaitForSchedule,
             _ScheduleState(state.interval, state.remaining_runs - 1),
         )
 
