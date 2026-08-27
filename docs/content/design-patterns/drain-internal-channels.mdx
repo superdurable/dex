@@ -37,8 +37,8 @@ class MainStep(Step[str]):
             MongoDocument(input, statuses.get(execution_count, "ERROR"), False),
         )
         if execution_count <= 3:
-            return go_to(self, input)
-        return go_to(self.finalize, None)
+            return go_to(MainStep, input)
+        return go_to(Finalize, None)
 
 class SideStep(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:
@@ -51,7 +51,7 @@ class SideStep(Step[None]):
         self.mongo_collection.upsert(document)
         if document.final_command:
             return graceful_complete()
-        return go_to(self, None)
+        return go_to(SideStep, None)
 
 class Finalize(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
@@ -154,9 +154,9 @@ final class MainStep implements Step<String> {
             context,
             new MongoDocument(input, status, false));
     if (executionCount <= 3) {
-        return StepDecision.goTo(mainStep, input);
+        return StepDecision.goTo(MainStep.class, input);
     }
-    return StepDecision.goTo(finalize, null);
+    return StepDecision.goTo(Finalize.class, null);
     }
 }
 
@@ -171,7 +171,7 @@ public StepDecision execute(final Context context, final Void input) {
     if (document.finalCommand) {
         return StepDecision.gracefulComplete();
     }
-    return StepDecision.goTo(sideStep, null);
+    return StepDecision.goTo(SideStep.class, null);
 }
 }
 

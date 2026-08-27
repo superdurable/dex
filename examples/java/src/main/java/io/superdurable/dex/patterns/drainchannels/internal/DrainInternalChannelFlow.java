@@ -75,8 +75,8 @@ public class DrainInternalChannelFlow implements Flow<String> {
         public StepDecision execute(final Context context, final String input) {
             mainStepExecutionCounter.set(context, 0);
             return StepDecision.goToMulti(
-                    StepMovement.of(sideStep, null),
-                    StepMovement.of(mainStep, input));
+                    StepMovement.of(SideStep.class, null),
+                    StepMovement.of(MainStep.class, input));
         }
     }
 
@@ -112,7 +112,7 @@ public class DrainInternalChannelFlow implements Flow<String> {
             if (document.finalCommand) {
                 return StepDecision.gracefulComplete();
             }
-            return StepDecision.goTo(sideStep, null);
+            return StepDecision.goTo(SideStep.class, null);
         }
     }
 
@@ -152,7 +152,7 @@ public class DrainInternalChannelFlow implements Flow<String> {
                     "a call to send metrics or add a log to logrepo");
 
             if (executionCount <= 3) {
-                return StepDecision.goTo(mainStep, input);
+                return StepDecision.goTo(MainStep.class, input);
             }
             return StepDecision.goTo(Finalize.class, null);
         }

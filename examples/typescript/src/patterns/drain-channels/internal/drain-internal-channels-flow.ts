@@ -147,7 +147,7 @@ class MainStep implements Step<string> {
     if (executionCount <= 3) {
       return goTo(this.flow.mainStep, input);
     }
-    return goTo(Finalize, undefined);
+    return goTo(this.flow.finalizeStep, undefined);
   }
 }
 
