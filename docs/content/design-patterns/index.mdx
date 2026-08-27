@@ -13,7 +13,7 @@ Full samples live under examples/go, examples/java, examples/python, examples/ty
 
 - [Cron schedule](/design-patterns/cron) — Run cron-like fixed-interval work in one Flow.
 - [Drain internal channels](/design-patterns/drain-internal-channels) — Gracefully finish producer/consumer Flows without losing in-flight channel messages.
-- [Drain signal channels](/design-patterns/drain-signal-channels) — Complete short-lived Flows when external channel traffic is drained.
+- [Draining Channel for External Publishing](/design-patterns/draining-channel-for-external-publishing) — Process externally published messages, then complete when the Channel is empty.
 - [Interruptible execution](/design-patterns/interruptible) — Stop or redirect long work gracefully based on durable control signals.
 - [Manual intervention](/design-patterns/intervention) — When an API fails, let a human retry or skip without abandoning the Flow.
 - [Parallel Steps](/design-patterns/parallel) — Run Steps concurrently and optionally await results.

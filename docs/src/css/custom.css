@@ -1654,6 +1654,35 @@ code {
   background: #eef3fb;
 }
 
+.draining-channel-graph {
+  display: grid;
+  width: 100%;
+  gap: 1.25rem;
+}
+
+.draining-channel-publisher {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.draining-channel-publisher .flow-graph-card {
+  width: min(100%, 18rem);
+}
+
+.draining-channel-flow {
+  min-width: 0;
+}
+
+@media (min-width: 700px) {
+  .draining-channel-graph {
+    grid-template-columns: minmax(12rem, 0.58fr) minmax(0, 1fr);
+    align-items: center;
+  }
+}
+
 .flow-graph-grid {
   position: relative;
   z-index: 1;
@@ -1770,4 +1799,3 @@ code {
   border-color: #6b8fd4;
   background: #1a2740;
 }
-

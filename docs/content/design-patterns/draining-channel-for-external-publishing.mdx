@@ -1,0 +1,220 @@
+---
+title: Draining Channel for External Publishing
+---
+
+import DrainingChannelForExternalPublishingDiagram from '@site/src/components/design-patterns/DrainingChannelForExternalPublishingDiagram';
+
+# Draining Channel for External Publishing
+
+Process externally published Channel messages, then close the short-lived Flow when its queue is empty.
+
+## Problem and approach
+
+Use this pattern when a Flow handles a burst of messages from outside the Worker, but has no durable work to do after that burst. The external publisher appends messages with the Client **PublishToChannel** API. **ProcessSignal** waits for one message, processes it, then returns **ForceCompleteIfChannelsEmpty**.
+
+That decision atomically checks the Channel while it records the next action. If the Channel is empty, the Flow completes. If another message is already queued, Dex takes the fallback movement back to **ProcessSignal**. After completion, the next request must start a new Flow execution with the same Flow ID before it can append another message.
+
+Only one Step may consume a Channel checked by **ForceCompleteIfChannelsEmpty**. Multiple consumers would make the empty check unable to decide safely whether this Flow has drained the queue.
+
+## Step graph
+
+<DrainingChannelForExternalPublishingDiagram />
+
+The graph shows Step definitions, not Step executions. **ProcessSignal** is the only Step definition. The fallback edge returns to that same definition.
+
+## Core implementation
+
+These are the draining parts of the runnable examples. The Go, Java, Python, and TypeScript HTTP samples publish to an active Flow and start a Flow with the first message when no active execution exists. The Rust example exposes an RPC that publishes to the same Channel.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/signal/drain_signal_channels_flow.py', go: 'examples/go/patterns/drain-channels/signal/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/signal/DrainSignalChannelsFlow.java', typescript: 'examples/typescript/src/patterns/drain-channels/signal/drain-signal-channels-flow.ts', rust: 'examples/rust/src/patterns/drain_channels/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+def wait_for(self, context: Context, input: str) -> Wait:
+    del context
+    if input is None:
+        return Wait.until(self.queue_signal_channel.for_one())
+    return Wait.skip_immediately()
+
+async def execute(self, context: Context, input: str) -> StepDecision:
+    if input is not None:
+        print(f"DrainSignalChannelsFlow process signal value: {input}")
+    else:
+        values = self.queue_signal_channel.results(context)
+        if not values:
+            raise RuntimeError("No signal request found")
+        value = values[0]
+        if value is None:
+            raise RuntimeError("No signal value found")
+        print(f"DrainSignalChannelsFlow process signal value: {value}")
+
+    # Yield so AsyncWorker can serve other Flows during the drain window.
+    await asyncio.sleep(DRAIN_WINDOW_SECONDS)
+
+    return force_complete_if_channels_empty(
+        None,
+        StepMovement.of(self, None),
+        self.queue_signal_channel,
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (processSignalStep) WaitFor(
+    _ dex.Context,
+    input string,
+) (*dex.Wait, error) {
+    if input == "" {
+        return dex.Until(QueueSignalChannel.ForOne()), nil
+    }
+    return dex.SkipWaitImmediately(), nil
+}
+
+func (processSignalStep) Execute(
+    ctx dex.Context,
+    input string,
+) (*dex.StepDecision, error) {
+    if input != "" {
+        fmt.Printf("DrainSignalChannelsFlow process signal value: %s\\n", input)
+    } else {
+        values, err := QueueSignalChannel.GetConditionResults(ctx)
+        if err != nil {
+            return nil, err
+        }
+        if len(values) == 0 {
+            return nil, fmt.Errorf("no signal request found")
+        }
+        fmt.Printf("DrainSignalChannelsFlow process signal value: %s\\n", values[0])
+    }
+
+    time.Sleep(20 * time.Second)
+
+    return dex.ForceCompleteIfChannelsEmpty(
+        nil,
+        []dex.ChannelDef{QueueSignalChannel},
+        dex.MovementOf(processSignalStep{}, ""),
+    ), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@Override
+public Wait waitFor(final Context context, final String input) {
+    if (input == null) {
+        return Wait.until(queueSignalChannel.forOne());
+    }
+    return Wait.skipImmediately();
+}
+
+@Override
+public StepDecision execute(final Context context, final String input) {
+    if (input != null) {
+        System.out.println(
+                "DrainSignalChannelsFlow process signal value: " + input);
+    } else {
+        final List<String> values = queueSignalChannel.getConditionResults(context);
+        if (values.isEmpty()) {
+            throw new IllegalStateException("No signal request found");
+        }
+        final String value = values.get(0);
+        if (value == null) {
+            throw new IllegalStateException("No signal value found");
+        }
+        System.out.println(
+                "DrainSignalChannelsFlow process signal value: " + value);
+    }
+
+    try {
+        Thread.sleep(20000);
+    } catch (final InterruptedException e) {
+        throw new RuntimeException(e);
+    }
+
+    return StepDecision.forceCompleteIfChannelsEmpty(
+            null,
+            StepMovement.of(processSignal, null),
+            queueSignalChannel);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public waitFor(_context: Context, input: string | undefined): Wait {
+  if (input === undefined) {
+    return Wait.until(queueSignalChannel.forOne());
+  }
+  return Wait.skipImmediately();
+}
+
+public async execute(context: Context, input: string | undefined): Promise<StepDecision> {
+  if (input !== undefined) {
+    console.log(`DrainSignalChannelsFlow process signal value: ${input}`);
+  } else {
+    const values = queueSignalChannel.results(context);
+    if (values.length === 0) {
+      throw new Error("No signal request found");
+    }
+    const value = values[0];
+    if (value === undefined) {
+      throw new Error("No signal value found");
+    }
+    console.log(`DrainSignalChannelsFlow process signal value: ${value}`);
+  }
+
+  // busy wait mirrors Java Thread.sleep inside the workflow step
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 200);
+  });
+
+  return forceCompleteIfChannelsEmpty(
+    null,
+    StepMovement.of(this, undefined),
+    queueSignalChannel,
+  );
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub const DRAIN_SIGNAL_PUBLISH: Rpc<String, ()> = Rpc::new("DrainSignalPublish");
+
+fn rpcs(&self) -> RpcList<Self> {
+    RpcList::new().procedure(DRAIN_SIGNAL_PUBLISH, Self::publish)
+}
+
+fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+    Ok(Wait::until(signal_queue().for_one()))
+}
+
+fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+    let item = signal_queue()
+        .condition_results(context)?
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    context.record_event("drained-signal", item)?;
+    Ok(StepDecision::force_complete_if_channels_empty(
+        (),
+        StepMovement::to(&DrainSignal, ()),
+        [signal_queue().when_empty()],
+    ))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Channel](/primitives/channel)
+- [Client publishing](/primitives/client/basic#publish-to-a-channel)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

@@ -52,7 +52,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'design-patterns/cron',
         'design-patterns/drain-internal-channels',
-        'design-patterns/drain-signal-channels',
+        'design-patterns/draining-channel-for-external-publishing',
         'design-patterns/interruptible',
         'design-patterns/intervention',
         'design-patterns/parallel',
