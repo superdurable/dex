@@ -37,7 +37,7 @@ pub const PATTERN_FLOW_TYPES: [&str; 19] = [
     "CronScheduleFlow",
     "DrainInternalChannelFlow",
     "DrainingExternalChannelFlow",
-    "InterruptibleExecutionFlow",
+    "InterruptibleFlow",
     "ManualInterventionFlow",
     "SimpleParallelStatesFlow",
     "ParallelStatesWithAwaitFlow",

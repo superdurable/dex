@@ -40,7 +40,7 @@ from dex_examples.patterns.interruptible.work_job_parameters_input import (
 INTERRUPT_VALUE = "cancel"
 
 
-class WorkAExecution(Step[WorkJobParametersInput]):
+class WorkAStep(Step[WorkJobParametersInput]):
     def __init__(self, interrupt_signal: Attribute[str]) -> None:
         self.interrupt_signal = interrupt_signal
 
@@ -58,7 +58,7 @@ class WorkAExecution(Step[WorkJobParametersInput]):
             return graceful_complete()
 
         if input.progress > input.job_upper_bound:
-            print("Executing WorkAExecution completed")
+            print("WorkAStep completed")
             return graceful_complete()
 
         print(
@@ -66,12 +66,12 @@ class WorkAExecution(Step[WorkJobParametersInput]):
             f"Doing job {input.progress}"
         )
         return go_to(
-            WorkAExecution,
+            WorkAStep,
             WorkJobParametersInput(input.job_upper_bound, input.progress + 1),
         )
 
 
-class WorkNExecution(Step[WorkJobParametersInput]):
+class WorkBStep(Step[WorkJobParametersInput]):
     def __init__(self, interrupt_signal: Attribute[str]) -> None:
         self.interrupt_signal = interrupt_signal
 
@@ -85,11 +85,11 @@ class WorkNExecution(Step[WorkJobParametersInput]):
         input: WorkJobParametersInput,
     ) -> StepDecision:
         if (self.interrupt_signal.get(context) or "") == INTERRUPT_VALUE:
-            print("N: Interrupted!")
+            print("B: Interrupted!")
             return graceful_complete()
 
         if input.progress > input.job_upper_bound:
-            print("Executing WorkNExecution completed")
+            print("WorkBStep completed")
             return graceful_complete()
 
         print(
@@ -97,7 +97,7 @@ class WorkNExecution(Step[WorkJobParametersInput]):
             f"Processing job {input.progress}"
         )
         return go_to(
-            WorkNExecution,
+            WorkBStep,
             WorkJobParametersInput(input.job_upper_bound, input.progress + 1),
         )
 
@@ -105,41 +105,41 @@ class WorkNExecution(Step[WorkJobParametersInput]):
 class Init(Step[None]):
     def __init__(
         self,
-        work_a_execution: WorkAExecution,
-        work_n_execution: WorkNExecution,
+        work_a_step: WorkAStep,
+        work_b_step: WorkBStep,
         interrupt_signal: Attribute[str],
     ) -> None:
-        self.work_a_execution = work_a_execution
-        self.work_n_execution = work_n_execution
+        self.work_a_step = work_a_step
+        self.work_b_step = work_b_step
         self.interrupt_signal = interrupt_signal
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
         parameters = WorkJobParametersInput(15, 1)
         return go_to_multi(
-            StepMovement.of(WorkAExecution, parameters),
-            StepMovement.of(WorkNExecution, parameters),
+            StepMovement.of(WorkAStep, parameters),
+            StepMovement.of(WorkBStep, parameters),
         )
 
 
-class InterruptibleExecutionFlow(Flow[None]):
+class InterruptibleFlow(Flow[None]):
     DA_INTERRUPT_SIGNAL = "interruptSignal"
 
     interrupt_signal = Attribute(DA_INTERRUPT_SIGNAL, str)
 
     def __init__(self) -> None:
-        self.work_a_execution = WorkAExecution(self.interrupt_signal)
-        self.work_n_execution = WorkNExecution(self.interrupt_signal)
+        self.work_a_step = WorkAStep(self.interrupt_signal)
+        self.work_b_step = WorkBStep(self.interrupt_signal)
         self.init = Init(
-            self.work_a_execution,
-            self.work_n_execution,
+            self.work_a_step,
+            self.work_b_step,
             self.interrupt_signal,
         )
 
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(self.init).other_steps(
-            self.work_a_execution,
-            self.work_n_execution,
+            self.work_a_step,
+            self.work_b_step,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:

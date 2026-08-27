@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::interruptible::flow::{INTERRUPTIBLE_INTERRUPT, InterruptibleExecutionFlow};
+use crate::patterns::interruptible::flow::{INTERRUPTIBLE_INTERRUPT, InterruptibleFlow};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
@@ -48,7 +48,7 @@ async fn start(
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = InterruptibleExecutionFlow::default();
+        let flow = InterruptibleFlow::default();
         client
             .start_flow(&flow, &flow_id, ())
             .map(|run_id| StartResponse { flow_id, run_id })

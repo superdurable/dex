@@ -87,7 +87,7 @@ var (
 	CronSchedule           *cron.CronScheduleFlow
 	SimplePolling          *patternspolling.SimplePollingFlow
 	BackoffPolling         *patternspolling.BackoffPollingFlow
-	InterruptibleExecution *interruptible.InterruptibleExecutionFlow
+	Interruptible          *interruptible.InterruptibleFlow
 	Reminder               *reminders.ReminderFlow
 	UserProfile            *entitystore.UserProfileFlow
 	ManualIntervention     *intervention.ManualInterventionFlow
@@ -154,7 +154,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	CronSchedule = cron.NewCronScheduleFlow()
 	SimplePolling = patternspolling.NewSimplePollingFlow()
 	BackoffPolling = patternspolling.NewBackoffPollingFlow(patternService)
-	InterruptibleExecution = interruptible.NewInterruptibleExecutionFlow()
+	Interruptible = interruptible.NewInterruptibleFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualIntervention = intervention.NewManualInterventionFlow(patternService)
@@ -211,7 +211,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		CronSchedule,
 		SimplePolling,
 		BackoffPolling,
-		InterruptibleExecution,
+		Interruptible,
 		Reminder,
 		UserProfile,
 		ManualIntervention,

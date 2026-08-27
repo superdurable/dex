@@ -29,25 +29,25 @@ pub struct WorkJobParametersInput {
 }
 
 #[derive(Default)]
-pub struct InterruptibleExecutionFlow {
+pub struct InterruptibleFlow {
     init: Init,
-    work_a_execution: WorkAExecution,
-    work_n_execution: WorkNExecution,
+    work_a_step: WorkAStep,
+    work_b_step: WorkBStep,
 }
 
-impl InterruptibleExecutionFlow {
+impl InterruptibleFlow {
     fn interrupt(&self, context: &mut Context) -> HandlerResult<()> {
         interrupt_signal().set(context, "cancel".to_string())
     }
 }
 
-impl Flow for InterruptibleExecutionFlow {
+impl Flow for InterruptibleFlow {
     type StartInput = ();
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.init)
-            .and(&self.work_a_execution)
-            .and(&self.work_n_execution)
+            .and(&self.work_a_step)
+            .and(&self.work_b_step)
     }
 
     fn persistence(&self) -> PersistenceSchema {
@@ -71,16 +71,16 @@ impl Step for Init {
             progress: 1,
         };
         Ok(StepDecision::go_to_many([
-            StepMovement::to(&WorkAExecution, input.clone()),
-            StepMovement::to(&WorkNExecution, input),
+            StepMovement::to(&WorkAStep, input.clone()),
+            StepMovement::to(&WorkBStep, input),
         ]))
     }
 }
 
 #[derive(Default)]
-struct WorkAExecution;
+struct WorkAStep;
 
-impl Step for WorkAExecution {
+impl Step for WorkAStep {
     type Input = WorkJobParametersInput;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -93,7 +93,7 @@ impl Step for WorkAExecution {
             return Ok(StepDecision::graceful_complete(()));
         }
         if input.progress > input.job_upper_bound {
-            println!("Executing WorkAExecution completed");
+            println!("WorkAStep completed");
             return Ok(StepDecision::graceful_complete(()));
         }
         println!(
@@ -103,7 +103,7 @@ impl Step for WorkAExecution {
             input.progress
         );
         Ok(StepDecision::go_to(
-            &WorkAExecution,
+            &WorkAStep,
             WorkJobParametersInput {
                 job_upper_bound: input.job_upper_bound,
                 progress: input.progress + 1,
@@ -113,9 +113,9 @@ impl Step for WorkAExecution {
 }
 
 #[derive(Default)]
-struct WorkNExecution;
+struct WorkBStep;
 
-impl Step for WorkNExecution {
+impl Step for WorkBStep {
     type Input = WorkJobParametersInput;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -124,11 +124,11 @@ impl Step for WorkNExecution {
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         if interrupt_signal().get(context)?.as_deref() == Some("cancel") {
-            println!("N: Interrupted!");
+            println!("B: Interrupted!");
             return Ok(StepDecision::graceful_complete(()));
         }
         if input.progress > input.job_upper_bound {
-            println!("Executing WorkNExecution completed");
+            println!("WorkBStep completed");
             return Ok(StepDecision::graceful_complete(()));
         }
         println!(
@@ -138,7 +138,7 @@ impl Step for WorkNExecution {
             input.progress
         );
         Ok(StepDecision::go_to(
-            &WorkNExecution,
+            &WorkBStep,
             WorkJobParametersInput {
                 job_upper_bound: input.job_upper_bound,
                 progress: input.progress + 1,

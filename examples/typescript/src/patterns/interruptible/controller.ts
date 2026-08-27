@@ -19,7 +19,7 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { interruptibleExecutionFlow } from "./interruptible-execution-flow.js";
+import { interruptibleFlow } from "./interruptible-execution-flow.js";
 
 export function createInterruptibleRouter(client: Client): Router {
   const router = Router();
@@ -27,7 +27,7 @@ export function createInterruptibleRouter(client: Client): Router {
   router.get("/start", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const runId = await client.startFlow(
-      interruptibleExecutionFlow,
+      interruptibleFlow,
       workflowId,
       undefined,
       startOptions(),
@@ -38,7 +38,7 @@ export function createInterruptibleRouter(client: Client): Router {
   router.get("/cancel", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     await client.invokeRPC(
-      interruptibleExecutionFlow.interrupt,
+      interruptibleFlow.interrupt,
       workflowId,
     );
     response.send("done");

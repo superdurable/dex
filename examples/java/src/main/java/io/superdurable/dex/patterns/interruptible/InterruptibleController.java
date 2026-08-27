@@ -28,19 +28,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/patterns/interruptible")
 public class InterruptibleController {
     private final Client client;
-    private final InterruptibleExecutionFlow interruptibleExecutionFlow;
+    private final InterruptibleFlow interruptibleFlow;
 
     public InterruptibleController(
             final Client client,
-            final InterruptibleExecutionFlow interruptibleExecutionFlow) {
+            final InterruptibleFlow interruptibleFlow) {
         this.client = client;
-        this.interruptibleExecutionFlow = interruptibleExecutionFlow;
+        this.interruptibleFlow = interruptibleFlow;
     }
 
     @GetMapping("/start")
     ResponseEntity<String> startInterruptible(@RequestParam final String workflowId) {
         final String runId = client.startFlow(
-                interruptibleExecutionFlow,
+                interruptibleFlow,
                 workflowId,
                 null,
                 ExampleFlows.startOptions());
@@ -49,8 +49,7 @@ public class InterruptibleController {
 
     @GetMapping("/cancel")
     ResponseEntity<String> cancelInterruptible(@RequestParam final String workflowId) {
-        final InterruptibleExecutionFlow stub =
-                client.newRpcStub(InterruptibleExecutionFlow.class, workflowId);
+        final InterruptibleFlow stub = client.newRpcStub(InterruptibleFlow.class, workflowId);
         client.invokeRPC(stub::interrupt);
         return ResponseEntity.ok("done");
     }

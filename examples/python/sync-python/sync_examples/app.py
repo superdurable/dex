@@ -32,7 +32,7 @@ from dex import (
 )
 
 from dex_examples.patterns.interruptible.interruptible_execution_flow import (
-    InterruptibleExecutionFlow,
+    InterruptibleFlow,
 )
 from dex_examples.primitives.channel.channel_flow import ChannelFlow
 from dex_examples.primitives.step.step_flow import StepFlow
@@ -56,7 +56,7 @@ class SyncExampleApp:
         self.money_transfer = MoneyTransferFlow(service)
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
-        self.interruptible = InterruptibleExecutionFlow()
+        self.interruptible = InterruptibleFlow()
         self.child_flow = ChildFlow()
         self.parent_flow_v2 = ParentFlowV2(client_provider, self.child_flow)
 

@@ -32,19 +32,19 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 @Component
-public class InterruptibleExecutionFlow implements Flow<Void> {
+public class InterruptibleFlow implements Flow<Void> {
     public static final String DA_INTERRUPT_SIGNAL = "interruptSignal";
 
     public final Attribute<String> interruptSignal =
             Attribute.define(DA_INTERRUPT_SIGNAL, String.class);
 
     private final Init init = new Init();
-    private final WorkAExecution workAExecution = new WorkAExecution();
-    private final WorkNExecution workNExecution = new WorkNExecution();
+    private final WorkAStep workAStep = new WorkAStep();
+    private final WorkBStep workBStep = new WorkBStep();
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.startStep(init).otherSteps(workAExecution, workNExecution);
+        return StepList.startStep(init).otherSteps(workAStep, workBStep);
     }
 
     @Override
@@ -67,12 +67,12 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
         public StepDecision execute(final Context context, final Void unused) {
             final WorkJobParametersInput input = new WorkJobParametersInput(15, 1);
             return StepDecision.goToMulti(
-                    StepMovement.of(WorkAExecution.class, input),
-                    StepMovement.of(WorkNExecution.class, input));
+                    StepMovement.of(WorkAStep.class, input),
+                    StepMovement.of(WorkBStep.class, input));
         }
     }
 
-    final class WorkAExecution implements Step<WorkJobParametersInput> {
+    final class WorkAStep implements Step<WorkJobParametersInput> {
         @Override
         public Class<WorkJobParametersInput> getInputType() {
             return WorkJobParametersInput.class;
@@ -94,7 +94,7 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
             }
 
             if (input.progress > input.jobUpperBound) {
-                System.out.println("Executing WorkAExecution completed");
+                System.out.println("WorkAStep completed");
                 return StepDecision.gracefulComplete();
             }
             System.out.printf(
@@ -105,11 +105,11 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
 
             final WorkJobParametersInput next =
                     new WorkJobParametersInput(input.jobUpperBound, input.progress + 1);
-            return StepDecision.goTo(WorkAExecution.class, next);
+            return StepDecision.goTo(WorkAStep.class, next);
         }
     }
 
-    final class WorkNExecution implements Step<WorkJobParametersInput> {
+    final class WorkBStep implements Step<WorkJobParametersInput> {
         @Override
         public Class<WorkJobParametersInput> getInputType() {
             return WorkJobParametersInput.class;
@@ -126,12 +126,12 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
                 final WorkJobParametersInput input) {
             final String signal = interruptSignal.get(context);
             if (signal != null && signal.equals("cancel")) {
-                System.out.println("N: Interrupted!");
+                System.out.println("B: Interrupted!");
                 return StepDecision.gracefulComplete();
             }
 
             if (input.progress > input.jobUpperBound) {
-                System.out.println("Executing WorkNExecution completed");
+                System.out.println("WorkBStep completed");
                 return StepDecision.gracefulComplete();
             }
 
@@ -143,7 +143,7 @@ public class InterruptibleExecutionFlow implements Flow<Void> {
 
             final WorkJobParametersInput next =
                     new WorkJobParametersInput(input.jobUpperBound, input.progress + 1);
-            return StepDecision.goTo(WorkNExecution.class, next);
+            return StepDecision.goTo(WorkBStep.class, next);
         }
     }
 }
