@@ -1,46 +1,288 @@
 ---
-title: Drain internal channels
+title: Draining Channels for Internal Publishing
 ---
 
-# Drain internal channels
+# Draining Channels for Internal Publishing
 
-Gracefully finish producer/consumer Flows without losing in-flight channel messages.
+Finish a producer/consumer Flow after its internally published Channel messages have been processed.
 
 ## Problem and approach
 
-This example Flow demonstrates a Flow where one thread (A) is responsible for sending commands through the internal channel, while another thread (B) continuously loops, waiting to receive those messages. It's important for thread B to receive a signal indicating when it should finish its task, as we want to avoid abruptly shutting it down and potentially losing messages. In this scenario, thread A communicates with thread B through an internal channel, sending a command to indicate that the final message has been received, allowing thread B to gracefully complete its process without losing any messages.
+Use this pattern when one branch of a Flow publishes work for another branch. **Init** starts the producer and consumer in parallel. **ProcessData** publishes one document command at a time to **upsertMongoData**. **UpsertMongoRecord** waits for one Channel value, writes it, and waits again.
+
+After the producer has published all ordinary commands, **Finalize** publishes one final command to the same Channel. The consumer completes only after it has processed that command, so every earlier published document is handled before the Flow finishes. With several producer branches, make **Finalize** wait for all producers before it publishes the final command.
+
+This Flow has no RPC. It is started by the Client; communication between its concurrent Step branches uses the Channel.
+
+import DrainingChannelsForInternalPublishingDiagram from '@site/src/components/design-patterns/DrainingChannelsForInternalPublishingDiagram';
+
+<DrainingChannelsForInternalPublishingDiagram />
 
 ## Code examples
 
 Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix /patterns/name/... where applicable). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
 
-<SdkTabs>
+The excerpts show the producer publish, the consumer wait and loop, and the completion decision. The Rust example queues all producer values in **Seed** and atomically completes after the Channel is empty instead of using a final command.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/drain-channels/internal/drain_internal_channels_flow.py',
+    go: 'examples/go/patterns/drain-channels/internal-drain/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/internal/DrainInternalChannelsFlow.java',
+    typescript: 'examples/typescript/src/patterns/drain-channels/internal/drain-internal-channels-flow.ts',
+    rust: 'examples/rust/src/patterns/drain_channels/flow.rs',
+  }}>
 <SdkSnippet lang="python">
 
 ```python
-# See examples/python/dex_examples/patterns/drain-channels/internal/
+def execute(self, context: Context, input: str) -> StepDecision:
+    execution_count = self.execution_counter.get(context) + 1
+    self.execution_counter.set(context, execution_count)
+
+    statuses = {1: "RECEIVED", 2: "ACCEPTED", 3: "PASSED"}
+    self.upsert_mongo_data.publish(
+        context,
+        MongoDocument(input, statuses.get(execution_count, "ERROR"), False),
+    )
+
+    self.external_service.external_api_call(
+        "external service call to process data (e.g. notify the job seeker)"
+    )
+    self.external_service.external_api_call(
+        "a call to send metrics or add a log to logrepo"
+    )
+
+    if execution_count <= 3:
+        return go_to(self, input)
+    return go_to(self.finalize, None)
+
+def wait_for(self, context: Context, input: None) -> Wait:
+    del context, input
+    return Wait.until(self.upsert_mongo_data.for_one())
+
+def execute(self, context: Context, input: None) -> StepDecision:
+    del input
+    documents = self.upsert_mongo_data.results(context)
+    if not documents:
+        raise RuntimeError("No document was sent")
+
+    document = documents[0]
+    if document is None:
+        raise RuntimeError("No data was sent")
+
+    self.mongo_collection.upsert(document)
+    if document.final_command:
+        return graceful_complete()
+    return go_to(self, None)
+
+def execute(self, context: Context, input: None) -> StepDecision:
+    del input
+    self.upsert_mongo_data.publish(
+        context,
+        MongoDocument("documentId-1", "FINALIZED", True),
+    )
+    return graceful_complete()
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-// See examples/go/patterns/drain-channels/internal-drain/
+func (step processDataStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	executionCount, err := ProcessDataStateExecutionCounterAttribute.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	executionCount++
+	if err := ProcessDataStateExecutionCounterAttribute.Set(ctx, executionCount); err != nil {
+		return nil, err
+	}
+	status := "ERROR"
+	switch executionCount {
+	case 1:
+		status = "RECEIVED"
+	case 2:
+		status = "ACCEPTED"
+	case 3:
+		status = "PASSED"
+	}
+	if err := UpsertMongoData.Publish(ctx, MongoDocument{
+		ID:           input,
+		Status:       status,
+		FinalCommand: false,
+	}); err != nil {
+		return nil, err
+	}
+	if executionCount <= 3 {
+		return dex.GoTo(processDataStep{}, input), nil
+	}
+	return dex.GoTo(finalizeStep{}, nil), nil
+}
+
+func (upsertMongoRecordStep) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.Until(UpsertMongoData.ForOne()), nil
+}
+
+func (step upsertMongoRecordStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	document := documents[0]
+	if err := step.service.Upsert(document); err != nil {
+		return nil, err
+	}
+	if document.FinalCommand {
+		return dex.GracefulComplete(nil), nil
+	}
+	return dex.GoTo(upsertMongoRecordStep{}, nil), nil
+}
+
+func (finalizeStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	if err := UpsertMongoData.Publish(ctx, MongoDocument{
+		ID: "documentId-1", Status: "FINALIZED", FinalCommand: true,
+	}); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(nil), nil
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="java">
 
 ```java
-// See examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/internal/
+public StepDecision execute(final Context context, final String input) {
+    final int executionCount = processDataStateExecutionCounter.get(context) + 1;
+    processDataStateExecutionCounter.set(context, executionCount);
+
+    final String status;
+    switch (executionCount) {
+        case 1:
+            status = "RECEIVED";
+            break;
+        case 2:
+            status = "ACCEPTED";
+            break;
+        case 3:
+            status = "PASSED";
+            break;
+        default:
+            status = "ERROR";
+            break;
+    }
+    upsertMongoData.publish(
+            context,
+            new MongoDocument(input, status, false));
+    if (executionCount <= 3) {
+        return StepDecision.goTo(processData, input);
+    }
+    return StepDecision.goTo(finalize, null);
+}
+
+public Wait waitFor(final Context context, final Void input) {
+    return Wait.until(upsertMongoData.forOne());
+}
+
+public StepDecision execute(final Context context, final Void input) {
+    final MongoDocument document = upsertMongoData.getConditionResults(context).get(0);
+    mongoCollection.upsert(document);
+    if (document.finalCommand) {
+        return StepDecision.gracefulComplete();
+    }
+    return StepDecision.goTo(upsertMongoRecord, null);
+}
+
+public StepDecision execute(final Context context, final Void input) {
+    upsertMongoData.publish(
+            context,
+            new MongoDocument("documentId-1", "FINALIZED", true));
+    return StepDecision.gracefulComplete();
+}
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="typescript">
 
 ```typescript
-// @superdurable/dex ^0.1.3+ (async waitFor/execute/RPC OK).
-// See examples/typescript/src/patterns/drain-channels/internal/
+public execute(context: Context, input: string): StepDecision {
+  const executionCount = this.flow.processDataStateExecutionCounter.get(context) + 1;
+  this.flow.processDataStateExecutionCounter.set(context, executionCount);
+
+  let status: string;
+  switch (executionCount) {
+    case 1:
+      status = "RECEIVED";
+      break;
+    case 2:
+      status = "ACCEPTED";
+      break;
+    case 3:
+      status = "PASSED";
+      break;
+    default:
+      status = "ERROR";
+      break;
+  }
+
+  upsertMongoData.publish(context, {
+    id: input,
+    status,
+    finalCommand: false,
+  });
+  if (executionCount <= 3) {
+    return goTo(this.flow.processDataStep, input);
+  }
+  return goTo(this.flow.finalizeStep, undefined);
+}
+
+public waitFor(_context: Context, _input: void): Wait {
+  return Wait.until(upsertMongoData.forOne());
+}
+
+public execute(context: Context, _input: void): StepDecision {
+  const document = upsertMongoData.results(context)[0];
+  this.flow.mongoCollection.upsert(document);
+  if (document.finalCommand) {
+    return gracefulComplete();
+  }
+  return goTo(this.flow.upsertMongoRecordStep, undefined);
+}
+
+public execute(context: Context, _input: void): StepDecision {
+  upsertMongoData.publish(context, {
+    id: "documentId-1",
+    status: "FINALIZED",
+    finalCommand: true,
+  });
+  return gracefulComplete();
+}
+```
+
+</SdkSnippet>
+  <SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+    for item in input {
+        internal_queue().publish(context, item)?;
+    }
+    Ok(StepDecision::go_to(&DrainInternal, ()))
+}
+
+fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+    Ok(Wait::until(internal_queue().for_one()))
+}
+
+fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+    let item = internal_queue()
+        .condition_results(context)?
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    context.record_event("drained-internal", item)?;
+    Ok(StepDecision::force_complete_if_channels_empty(
+        (),
+        StepMovement::to(&DrainInternal, ()),
+        [internal_queue().when_empty()],
+    ))
+}
 ```
 
 </SdkSnippet>
