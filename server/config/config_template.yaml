@@ -58,5 +58,4 @@ blobStore:
 #   estimatedMessageOverheadBytes: 512
 #   trimTriggerPercent: 90
 #   trimTargetPercent: 80
-#   idleTTL: 24h
 #   trimWorkers: 4

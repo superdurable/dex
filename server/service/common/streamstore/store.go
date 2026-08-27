@@ -128,7 +128,6 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 		trimTriggerBytes:       trimTrigger,
 		baseTrimTargetBytes:    baseTrimTarget,
 		messageTrimTargetBytes: messageTrimTarget,
-		idleTTL:                s.cfg.EffectiveIdleTTL(),
 	})
 	if err != nil {
 		return err

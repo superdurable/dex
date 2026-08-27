@@ -28,8 +28,8 @@ Integration and replay test instructions are available in
 
 The optional `streamStore` configuration enables Redis 7+ Standalone-backed
 resumable Streams. `redisURL` enables the feature. The remaining settings tune
-approximate per-message charging, trim watermarks, native idle TTL, and
-background trim concurrency. Redis is intentionally excluded from server
+approximate per-message charging, trim watermarks, and background trim
+concurrency. Redis is intentionally excluded from server
 readiness; only Stream RPCs fail when it is unavailable. Configure dedicated Redis memory with
 `maxmemory` and `noeviction` so memory pressure becomes a visible write error.
 
@@ -41,8 +41,6 @@ overhead. Client idempotency keys cannot contain `#`; Step SDKs use
 background FIFO trimming toward the 80% target. A write that would exceed 100%
 is not appended; it returns `ResourceExhausted` after scheduling trim and can
 be retried later.
-The default 24-hour idle TTL is refreshed by writes and retained idempotent
-replays, not reads; set `idleTTL: 0` to disable it.
 
 ## License
 

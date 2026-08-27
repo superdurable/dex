@@ -24,7 +24,6 @@ import (
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/log"
-	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/streamstore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -35,7 +34,7 @@ import (
 const streamTestRedisURL = "redis://127.0.0.1:6379/15"
 
 func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
-	store, redisClient := newStreamTestStore(t, ptr.Any(10*time.Minute))
+	store, redisClient := newStreamTestStore(t)
 	streamName := "global-fifo-" + newRequestID()
 	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
 
@@ -106,7 +105,7 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 }
 
 func TestStreamStoreTrimWatermarks(t *testing.T) {
-	store, redisClient := newStreamTestStore(t, ptr.Any(10*time.Minute))
+	store, redisClient := newStreamTestStore(t)
 	streamName := "trim-watermarks-" + newRequestID()
 	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
 
@@ -142,7 +141,7 @@ func TestStreamStoreTrimWatermarks(t *testing.T) {
 }
 
 func TestStreamStoreTrimmedIdentityCanWriteAgain(t *testing.T) {
-	store, redisClient := newStreamTestStore(t, ptr.Any(10*time.Minute))
+	store, redisClient := newStreamTestStore(t)
 	streamName := "trimmed-idem-" + newRequestID()
 	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
 
@@ -180,9 +179,8 @@ func TestStreamStoreTrimmedIdentityCanWriteAgain(t *testing.T) {
 }
 
 func TestStreamStoreConcurrentTriggersUseSingletonTrimLease(t *testing.T) {
-	idleTTL := 10 * time.Minute
-	firstStore, redisClient := newStreamTestStore(t, &idleTTL)
-	secondStore, _ := newStreamTestStore(t, &idleTTL)
+	firstStore, redisClient := newStreamTestStore(t)
+	secondStore, _ := newStreamTestStore(t)
 	streamName := "concurrent-trim-" + newRequestID()
 	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
 
@@ -240,49 +238,26 @@ func TestStreamStoreConcurrentTriggersUseSingletonTrimLease(t *testing.T) {
 	requireStreamAccountingConsistent(t, redisClient, streamName)
 }
 
-func TestStreamStoreNativeIdleTTL(t *testing.T) {
-	idleTTL := 200 * time.Millisecond
-	store, redisClient := newStreamTestStore(t, &idleTTL)
-	streamName := "idle-ttl-" + newRequestID()
-	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
-	input := streamInput("flow-a", streamName, 0, "payload-0000")
-	input.MaxEstimatedBytes = 1024
-	require.NoError(t, store.Write(context.Background(), input))
-	require.Eventually(t, func() bool {
-		keys, err := redisClient.Keys(context.Background(), streamTestBaseKey(streamName)+"*").Result()
-		return err == nil && len(keys) == 0
-	}, 3*time.Second, 20*time.Millisecond)
-}
-
 func TestStreamStoreStaleGlobalReferencePreservesRewrittenIdempotency(t *testing.T) {
-	idleTTL := 300 * time.Millisecond
-	store, redisClient := newStreamTestStore(t, &idleTTL)
+	store, redisClient := newStreamTestStore(t)
 	streamName := "stale-global-reference-" + newRequestID()
 	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
 	original := streamInput("flow-a", streamName, 0, "original-00")
 	original.MaxEstimatedBytes = 1 << 20
 	require.NoError(t, store.Write(context.Background(), original))
-
-	started := time.Now()
-	refreshIndex := 1
-	require.Eventually(t, func() bool {
-		refresh := streamInput("flow-b", streamName, refreshIndex, "refresh-000")
-		refresh.MaxEstimatedBytes = 1 << 20
-		refreshIndex++
-		if err := store.Write(context.Background(), refresh); err != nil {
-			return false
-		}
-		return time.Since(started) >= 450*time.Millisecond
-	}, time.Second, 20*time.Millisecond)
+	require.NoError(t, redisClient.Del(
+		context.Background(),
+		streamTestInstanceKey(streamName, original.FlowID),
+	).Err())
 
 	original.Value = &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "rewritten-0"}}
 	require.NoError(t, store.Write(context.Background(), original))
 	charge := estimatedCharge(original, 1)
-	trigger := streamInput("flow-b", streamName, refreshIndex, "trigger-000")
-	trigger.MaxEstimatedBytes = charge * 4
+	trigger := streamInput("flow-b", streamName, 1, "trigger-000")
+	trigger.MaxEstimatedBytes = charge * 2
 	require.ErrorIs(t, store.Write(context.Background(), trigger), streamstore.ErrCapacityExceeded)
 	require.Eventually(t, func() bool {
-		return streamLength(t, redisClient, streamName) <= 3
+		return streamLength(t, redisClient, streamName) == 1
 	}, 2*time.Second, 10*time.Millisecond)
 	require.NoError(t, store.Write(context.Background(), original))
 	messages := readAvailableMessages(t, store, "flow-a", streamName)
@@ -463,7 +438,6 @@ func BenchmarkStreamStoreWrite(b *testing.B) {
 		b.Run(strconv.Itoa(payloadBytes), func(b *testing.B) {
 			store, err := streamstore.New(&config.StreamStoreConfig{
 				RedisURL:           streamTestRedisURL,
-				IdleTTL:            ptr.Any(10 * time.Minute),
 				TrimWorkers:        2,
 				TrimTriggerPercent: 90,
 				TrimTargetPercent:  80,
@@ -484,14 +458,13 @@ func BenchmarkStreamStoreWrite(b *testing.B) {
 	}
 }
 
-func newStreamTestStore(t testing.TB, idleTTL *time.Duration) (*streamstore.Store, *redis.Client) {
+func newStreamTestStore(t testing.TB) (*streamstore.Store, *redis.Client) {
 	t.Helper()
 	store, err := streamstore.New(&config.StreamStoreConfig{
 		RedisURL:                      streamTestRedisURL,
 		EstimatedMessageOverheadBytes: 1,
 		TrimTriggerPercent:            90,
 		TrimTargetPercent:             80,
-		IdleTTL:                       idleTTL,
 		TrimWorkers:                   2,
 	}, log.NewNoop())
 	require.NoError(t, err)
@@ -605,4 +578,8 @@ func deleteStreamTestKeys(t testing.TB, client *redis.Client, streamName string)
 
 func streamTestBaseKey(streamName string) string {
 	return fmt.Sprintf("dex:stream:v1:%x", sha256.Sum256([]byte(streamName)))
+}
+
+func streamTestInstanceKey(streamName string, flowID string) string {
+	return fmt.Sprintf("%s:instance:%x", streamTestBaseKey(streamName), sha256.Sum256([]byte(flowID)))
 }

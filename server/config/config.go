@@ -76,8 +76,6 @@ const (
 	DefaultStreamTrimTriggerPercent int32 = 90
 	// DefaultStreamTrimTargetPercent stops asynchronous trimming at eighty percent of capacity.
 	DefaultStreamTrimTargetPercent int32 = 80
-	// DefaultStreamIdleTTL expires inactive Stream data without a background scan.
-	DefaultStreamIdleTTL = 24 * time.Hour
 	// DefaultStreamTrimWorkers bounds process-wide asynchronous trim concurrency.
 	DefaultStreamTrimWorkers = 4
 )
@@ -159,8 +157,6 @@ type (
 		TrimTriggerPercent int32 `yaml:"trimTriggerPercent"`
 		// TrimTargetPercent stops asynchronous trimming at this capacity percentage. Default 80. Must be below TrimTriggerPercent.
 		TrimTargetPercent int32 `yaml:"trimTargetPercent"`
-		// IdleTTL expires inactive keys using Redis native TTL. Default 24h when omitted; explicit 0 disables expiration.
-		IdleTTL *time.Duration `yaml:"idleTTL"`
 		// TrimWorkers bounds concurrent background trim jobs per server process. Default 4. Must be positive after defaults.
 		TrimWorkers int `yaml:"trimWorkers"`
 	}
@@ -507,14 +503,6 @@ func (c StreamStoreConfig) EffectiveTrimTargetPercent() int32 {
 	return c.TrimTargetPercent
 }
 
-// EffectiveIdleTTL returns the configured TTL, defaulting to 24 hours when omitted.
-func (c StreamStoreConfig) EffectiveIdleTTL() time.Duration {
-	if c.IdleTTL == nil {
-		return DefaultStreamIdleTTL
-	}
-	return *c.IdleTTL
-}
-
 // EffectiveTrimWorkers returns the configured worker count or four-worker default.
 func (c StreamStoreConfig) EffectiveTrimWorkers() int {
 	if c.TrimWorkers == 0 {
@@ -535,9 +523,6 @@ func (c StreamStoreConfig) Validate() error {
 	targetPercent := c.EffectiveTrimTargetPercent()
 	if targetPercent < 1 || targetPercent >= triggerPercent {
 		return fmt.Errorf("stream store trimTargetPercent must be positive and less than trimTriggerPercent")
-	}
-	if c.EffectiveIdleTTL() < 0 {
-		return fmt.Errorf("stream store idleTTL must be non-negative")
 	}
 	if c.EffectiveTrimWorkers() <= 0 {
 		return fmt.Errorf("stream store trimWorkers must be positive")

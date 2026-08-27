@@ -38,7 +38,6 @@ type writeScriptInput struct {
 	trimTriggerBytes       int64
 	baseTrimTargetBytes    int64
 	messageTrimTargetBytes int64
-	idleTTL                time.Duration
 }
 
 type writeScriptOutput struct {
@@ -95,7 +94,6 @@ func runWriteScript(
 		input.trimTriggerBytes,
 		input.baseTrimTargetBytes,
 		input.messageTrimTargetBytes,
-		input.idleTTL.Milliseconds(),
 	).Result()
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -287,22 +285,11 @@ local capacity = tonumber(ARGV[5])
 local trigger = tonumber(ARGV[6])
 local baseTarget = tonumber(ARGV[7])
 local messageTarget = tonumber(ARGV[8])
-local ttlMillis = tonumber(ARGV[9])
-
-local function refreshTTL()
-  if ttlMillis > 0 then
-    redis.call('PEXPIRE', fifoKey, ttlMillis)
-    redis.call('PEXPIRE', chargedKey, ttlMillis)
-    redis.call('PEXPIRE', idemKey, ttlMillis)
-    redis.call('PEXPIRE', instanceKey, ttlMillis)
-  end
-end
 
 local existingID = redis.call('HGET', idemKey, identity)
 if existingID then
   local retained = redis.call('XRANGE', instanceKey, existingID, existingID, 'COUNT', 1)
   if #retained > 0 then
-    refreshTTL()
     local existingTotal = tonumber(redis.call('GET', chargedKey) or '0')
     local existingNeedsTrim = 0
     if existingTotal >= trigger then existingNeedsTrim = 1 end
@@ -325,7 +312,6 @@ local entryID = redis.call('XADD', fifoKey, '*', 'i', instanceKey, 'd', identity
 redis.call('XADD', instanceKey, entryID, 'v', payload, 'k', publicKey)
 redis.call('HSET', idemKey, identity, entryID)
 local total = redis.call('INCRBY', chargedKey, charge)
-refreshTTL()
 local needsTrim = 0
 if total >= trigger then needsTrim = 1 end
 return {entryID, 0, total, needsTrim, messageTarget, 0}
