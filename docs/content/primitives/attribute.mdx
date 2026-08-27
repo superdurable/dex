@@ -598,7 +598,7 @@ _, err := client.StartFlow(ctx, flow, userID, nil, options)
 ```java
 final StartFlowOptions options = StartFlowOptions.newBuilder()
         .configOverride(FlowConfig.newBuilder()
-                .attributeStoreNames(java.util.List.of("entityStore"))
+                .attributeStoreNames(List.of("entityStore"))
                 .build())
         .build();
 final String runId = client.startFlow(flow, userId, null, options);

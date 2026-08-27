@@ -19,6 +19,7 @@ package io.superdurable.dex.patterns.entitystore;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.FlowConfig;
 import io.superdurable.dex.StartFlowOptions;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -53,7 +54,7 @@ public class EntityStoreController {
                 .addAttribute(userProfileFlow.lastLoggedInTime, profile.lastLoggedInTime)
                 .addAttribute(userProfileFlow.metadata, profile.metadata)
                 .configOverride(FlowConfig.newBuilder()
-                        .attributeStoreNames(java.util.List.of(UserProfileFlow.STORE_NAME))
+                        .attributeStoreNames(List.of(UserProfileFlow.STORE_NAME))
                         .build())
                 .build();
         final String runId = client.startFlow(

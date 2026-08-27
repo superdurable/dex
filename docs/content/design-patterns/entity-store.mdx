@@ -91,7 +91,7 @@ Attribute<String> displayName =
     Attribute.define("display_name", String.class).syncToAttributeStore();
 
 FlowConfig config = FlowConfig.newBuilder()
-    .attributeStoreNames(java.util.List.of("entityStore"))
+    .attributeStoreNames(List.of("entityStore"))
     .build();
 ```
 
