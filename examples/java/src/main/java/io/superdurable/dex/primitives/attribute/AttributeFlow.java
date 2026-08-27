@@ -49,7 +49,7 @@ public class AttributeFlow implements Flow<String> {
                     String.class,
                     new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderProgress"));
     private final FlowConfig attributeStoreConfig = FlowConfig.newBuilder()
-            .attributeStoreNames(java.util.Collections.singletonList("profiles"))
+            .attributeStoreNames(java.util.List.of("profiles"))
             .build();
     private final AttributeStep start = new AttributeStep();
 
