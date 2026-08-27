@@ -20,6 +20,8 @@ import CronScheduleDiagram from '@site/src/components/design-patterns/CronSchedu
 
 外部代码通过 Client 发布 **Trigger** 或 **Skip** Channel。这个 pattern 不定义 RPC。
 
+Channel 位于 Flow 边界上，因为发布会跨越这个边界。绿色箭头是单向发布。蓝色和橙色箭头是 **StepDecision** 跳转：蓝色 **GoToMulti** 同时启动 **Run** 和下一次 **WaitForSchedule**；**Skip** 的橙色 **GoTo** 只回到 **WaitForSchedule**。
+
 ## 时间与控制
 
 启动 Flow 时传入分钟、小时或天级别的 interval，以及正的 run count。下一次 durable **Timer** 在当前 occurrence 开始工作时启动，不等待工作完成。因此 interval 测量的是一次 run start 到下一次 run start 的时间。工作时间比 interval 长时，run 可以重叠。
