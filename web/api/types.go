@@ -87,6 +87,13 @@ type flowState struct {
 	CompletedSteps         []interface{}          `json:"completedSteps"`
 }
 
+type streamMessage struct {
+	Value          interface{} `json:"value"`
+	ResumeToken    string      `json:"resumeToken"`
+	CreatedTime    *string     `json:"createdTime"`
+	IdempotencyKey string      `json:"idempotencyKey"`
+}
+
 type activeStepExecution struct {
 	StepExecutionID     string                 `json:"stepExecutionId"`
 	FromStepExecutionID string                 `json:"fromStepExecutionId"`

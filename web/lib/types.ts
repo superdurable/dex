@@ -78,6 +78,13 @@ export interface HistoryPage {
   nextInternalEventId: number;
 }
 
+export interface StreamMessage {
+  value: unknown;
+  resumeToken: string;
+  createdTime: string | null;
+  idempotencyKey: string;
+}
+
 export interface ActiveStepExecution {
   stepExecutionId: string;
   fromStepExecutionId: string;

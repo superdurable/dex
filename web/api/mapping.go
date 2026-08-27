@@ -49,6 +49,15 @@ func mapSummary(summary *dexpb.GetFlowSummaryResponse) flowSummary {
 	}
 }
 
+func mapStreamMessage(message *dexpb.StreamMessage) streamMessage {
+	return streamMessage{
+		Value:          dexValue(message.GetValue()),
+		ResumeToken:    message.GetResumeToken(),
+		CreatedTime:    timestamp(message.GetCreatedTime()),
+		IdempotencyKey: message.GetIdempotencyKey(),
+	}
+}
+
 func mapHistoryEvent(event *dexpb.FlowHistoryEvent) (historyEvent, error) {
 	var (
 		eventType string
