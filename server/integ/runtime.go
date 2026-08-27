@@ -35,6 +35,7 @@ import (
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/log/loggerimpl"
 	"github.com/superdurable/dex/service/common/ptr"
+	"github.com/superdurable/dex/service/common/streamstore"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/indexsync"
 	"github.com/superdurable/dex/service/interpreter/cadence"
@@ -366,6 +367,11 @@ func startApiServer(
 	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
 ) {
 	t.Helper()
+	streamStore, err := streamstore.New(&cfg.StreamStore, logger)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, streamStore.Close())
+	})
 
 	server := api.NewServer(
 		&cfg.Api,
@@ -375,6 +381,7 @@ func startApiServer(
 		logger,
 		store,
 		attributeStore,
+		streamStore,
 		func(context.Context) error { return nil },
 		workerPool,
 		extraUnaryInterceptors...,

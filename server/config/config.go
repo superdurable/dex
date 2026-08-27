@@ -70,6 +70,14 @@ const (
 	DefaultAttributeStoreSyncTotalDuration = time.Hour
 	// DefaultAttributeIndexSyncTimeout bounds backend index registration and propagation checks.
 	DefaultAttributeIndexSyncTimeout = 2 * time.Minute
+	// DefaultStreamEstimatedMessageOverheadBytes approximates Redis bookkeeping per message.
+	DefaultStreamEstimatedMessageOverheadBytes int64 = 512
+	// DefaultStreamTrimReservePercent creates headroom after capacity-triggered trimming.
+	DefaultStreamTrimReservePercent int32 = 10
+	// DefaultStreamIdleTTL expires inactive Stream data without a background scan.
+	DefaultStreamIdleTTL = 24 * time.Hour
+	// DefaultStreamTrimWorkers bounds process-wide asynchronous trim concurrency.
+	DefaultStreamTrimWorkers = 4
 )
 
 const (
@@ -136,6 +144,21 @@ type (
 		BlobStore BlobStoreConfig `yaml:"blobStore"`
 		// AttributeStore configures optional MySQL/Postgres Attribute synchronization. Default disabled when Stores is empty.
 		AttributeStore AttributeStoreConfig `yaml:"attributeStore"`
+		// StreamStore configures best-effort resumable Streams. Default disabled when RedisURL is empty.
+		StreamStore StreamStoreConfig `yaml:"streamStore"`
+	}
+
+	StreamStoreConfig struct {
+		// RedisURL is a Redis 7+ Standalone URL. Default empty disables Streams. Immutable after startup.
+		RedisURL string `yaml:"redisURL"`
+		// EstimatedMessageOverheadBytes is charged per message beyond payload and identity bytes. Default 512. Must be non-negative.
+		EstimatedMessageOverheadBytes int64 `yaml:"estimatedMessageOverheadBytes"`
+		// TrimReservePercent trims below capacity by this percentage. Default 10. Valid range is 1 through 99.
+		TrimReservePercent int32 `yaml:"trimReservePercent"`
+		// IdleTTL expires inactive keys using Redis native TTL. Default 24h when omitted; explicit 0 disables expiration.
+		IdleTTL *time.Duration `yaml:"idleTTL"`
+		// TrimWorkers bounds concurrent background trim jobs per server process. Default 4. Must be positive after defaults.
+		TrimWorkers int `yaml:"trimWorkers"`
 	}
 
 	BlobStoreConfig struct {
@@ -454,6 +477,56 @@ func (c ApiConfig) EffectiveMaxWaitSeconds() int64 {
 		return DefaultMaxWaitSeconds
 	}
 	return c.MaxWaitSeconds
+}
+
+// EffectiveEstimatedMessageOverheadBytes returns the configured charge or 512-byte default.
+func (c StreamStoreConfig) EffectiveEstimatedMessageOverheadBytes() int64 {
+	if c.EstimatedMessageOverheadBytes == 0 {
+		return DefaultStreamEstimatedMessageOverheadBytes
+	}
+	return c.EstimatedMessageOverheadBytes
+}
+
+// EffectiveTrimReservePercent returns the configured reserve or ten-percent default.
+func (c StreamStoreConfig) EffectiveTrimReservePercent() int32 {
+	if c.TrimReservePercent == 0 {
+		return DefaultStreamTrimReservePercent
+	}
+	return c.TrimReservePercent
+}
+
+// EffectiveIdleTTL returns the configured TTL, defaulting to 24 hours when omitted.
+func (c StreamStoreConfig) EffectiveIdleTTL() time.Duration {
+	if c.IdleTTL == nil {
+		return DefaultStreamIdleTTL
+	}
+	return *c.IdleTTL
+}
+
+// EffectiveTrimWorkers returns the configured worker count or four-worker default.
+func (c StreamStoreConfig) EffectiveTrimWorkers() int {
+	if c.TrimWorkers == 0 {
+		return DefaultStreamTrimWorkers
+	}
+	return c.TrimWorkers
+}
+
+// Validate checks enabled Stream Store settings and trimming bounds.
+func (c StreamStoreConfig) Validate() error {
+	if c.EstimatedMessageOverheadBytes < 0 {
+		return fmt.Errorf("stream store estimatedMessageOverheadBytes must be non-negative")
+	}
+	reservePercent := c.EffectiveTrimReservePercent()
+	if reservePercent < 1 || reservePercent > 99 {
+		return fmt.Errorf("stream store trimReservePercent must be between 1 and 99")
+	}
+	if c.EffectiveIdleTTL() < 0 {
+		return fmt.Errorf("stream store idleTTL must be non-negative")
+	}
+	if c.EffectiveTrimWorkers() <= 0 {
+		return fmt.Errorf("stream store trimWorkers must be positive")
+	}
+	return nil
 }
 
 // EffectiveLazyLoading returns LazyLoading, defaulting to true when omitted.

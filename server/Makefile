@@ -140,7 +140,7 @@ dex-server:
 	@echo "compiling dex-server with OS: $(GOOS), ARCH: $(GOARCH)"
 	@go build -o $@ cmd/server/main.go
 
-.PHONY: bins release clean replayTests integrationCoverage prepareIntegrationCoverage
+.PHONY: bins release clean replayTests integrationCoverage prepareIntegrationCoverage streamIntegTests streamBenchmarks
 
 idl-code-gen: # regenerate protobuf stubs from protos/dex.proto into server + SDKs
 	$(MAKE) -C ../protos proto
@@ -187,6 +187,12 @@ integTests: prepareIntegrationCoverage
 
 temporalIntegTests: prepareIntegrationCoverage
 	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 20m -cadence=false $(integrationCoverageArgs)
+
+streamIntegTests: prepareIntegrationCoverage
+	$Q go test $(integrationCoverageFlags) -v ./integ -timeout 5m -run '^TestStream' -cadence=false -dependencyWaitSeconds=30 $(integrationCoverageArgs)
+
+streamBenchmarks:
+	$Q go test ./integ -run '^$$' -bench '^BenchmarkStreamStoreWrite$$' -benchmem -temporal=false -cadence=false -dependencyWaitSeconds=0
 
 dexServerAddress ?= 127.0.0.1:8801
 temporalHostPort ?= 127.0.0.1:7233

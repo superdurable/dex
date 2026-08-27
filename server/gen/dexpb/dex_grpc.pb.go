@@ -30,6 +30,8 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	FlowService_StartFlow_FullMethodName             = "/dex.FlowService/StartFlow"
 	FlowService_PublishToChannel_FullMethodName      = "/dex.FlowService/PublishToChannel"
+	FlowService_WriteStream_FullMethodName           = "/dex.FlowService/WriteStream"
+	FlowService_ReadStream_FullMethodName            = "/dex.FlowService/ReadStream"
 	FlowService_StopFlow_FullMethodName              = "/dex.FlowService/StopFlow"
 	FlowService_GetAttributes_FullMethodName         = "/dex.FlowService/GetAttributes"
 	FlowService_SetAttributes_FullMethodName         = "/dex.FlowService/SetAttributes"
@@ -59,6 +61,8 @@ const (
 type FlowServiceClient interface {
 	StartFlow(ctx context.Context, in *StartFlowRequest, opts ...grpc.CallOption) (*StartFlowResponse, error)
 	PublishToChannel(ctx context.Context, in *PublishToChannelRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	WriteStream(ctx context.Context, in *WriteStreamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ReadStream(ctx context.Context, in *ReadStreamRequest, opts ...grpc.CallOption) (*ReadStreamResponse, error)
 	StopFlow(ctx context.Context, in *StopFlowRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetAttributes(ctx context.Context, in *GetAttributesRequest, opts ...grpc.CallOption) (*GetAttributesResponse, error)
 	SetAttributes(ctx context.Context, in *SetAttributesRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -102,6 +106,26 @@ func (c *flowServiceClient) PublishToChannel(ctx context.Context, in *PublishToC
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, FlowService_PublishToChannel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) WriteStream(ctx context.Context, in *WriteStreamRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, FlowService_WriteStream_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) ReadStream(ctx context.Context, in *ReadStreamRequest, opts ...grpc.CallOption) (*ReadStreamResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReadStreamResponse)
+	err := c.cc.Invoke(ctx, FlowService_ReadStream_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -306,6 +330,8 @@ func (c *flowServiceClient) HealthCheck(ctx context.Context, in *emptypb.Empty, 
 type FlowServiceServer interface {
 	StartFlow(context.Context, *StartFlowRequest) (*StartFlowResponse, error)
 	PublishToChannel(context.Context, *PublishToChannelRequest) (*emptypb.Empty, error)
+	WriteStream(context.Context, *WriteStreamRequest) (*emptypb.Empty, error)
+	ReadStream(context.Context, *ReadStreamRequest) (*ReadStreamResponse, error)
 	StopFlow(context.Context, *StopFlowRequest) (*emptypb.Empty, error)
 	GetAttributes(context.Context, *GetAttributesRequest) (*GetAttributesResponse, error)
 	SetAttributes(context.Context, *SetAttributesRequest) (*emptypb.Empty, error)
@@ -340,6 +366,12 @@ func (UnimplementedFlowServiceServer) StartFlow(context.Context, *StartFlowReque
 }
 func (UnimplementedFlowServiceServer) PublishToChannel(context.Context, *PublishToChannelRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method PublishToChannel not implemented")
+}
+func (UnimplementedFlowServiceServer) WriteStream(context.Context, *WriteStreamRequest) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method WriteStream not implemented")
+}
+func (UnimplementedFlowServiceServer) ReadStream(context.Context, *ReadStreamRequest) (*ReadStreamResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ReadStream not implemented")
 }
 func (UnimplementedFlowServiceServer) StopFlow(context.Context, *StopFlowRequest) (*emptypb.Empty, error) {
 	return nil, status.Error(codes.Unimplemented, "method StopFlow not implemented")
@@ -451,6 +483,42 @@ func _FlowService_PublishToChannel_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).PublishToChannel(ctx, req.(*PublishToChannelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_WriteStream_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WriteStreamRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).WriteStream(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_WriteStream_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).WriteStream(ctx, req.(*WriteStreamRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_ReadStream_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReadStreamRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).ReadStream(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_ReadStream_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).ReadStream(ctx, req.(*ReadStreamRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -811,6 +879,14 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PublishToChannel",
 			Handler:    _FlowService_PublishToChannel_Handler,
+		},
+		{
+			MethodName: "WriteStream",
+			Handler:    _FlowService_WriteStream_Handler,
+		},
+		{
+			MethodName: "ReadStream",
+			Handler:    _FlowService_ReadStream_Handler,
 		},
 		{
 			MethodName: "StopFlow",

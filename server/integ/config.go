@@ -32,6 +32,7 @@ type DexServiceTestConfig struct {
 	LocalBlobDirectory                     string
 	LocalBlobThreshold                     int
 	AttributeStore                         config.AttributeStoreConfig
+	StreamStore                            config.StreamStoreConfig
 	BlobCacheDirectory                     string
 	BlobStoreEnabled                       *bool
 	IncludeRPCInputOutputIntoHistory       bool
@@ -70,6 +71,7 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 		},
 	}
 	cfg.AttributeStore = testCfg.AttributeStore
+	cfg.StreamStore = testCfg.StreamStore
 	switch testCfg.BackendType {
 	case service.BackendTypeTemporal:
 		cfg.Interpreter.Temporal = &config.TemporalConfig{}

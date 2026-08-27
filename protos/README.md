@@ -24,6 +24,22 @@ existing types, and returns only after all requested indexes are readable.
 Set `FlowConfig.worker_target` when starting a flow. `UpdateFlowConfig` can
 change the target for subsequent WorkerService calls while the flow is running.
 
+## Resumable Streams
+
+`WriteStream` appends one best-effort message to the Stream instance identified
+by `flow_id` and `stream_name`. Every write carries `max_estimated_bytes` and a
+client or Step producer identity. The server uses that identity for
+first-write-wins idempotency.
+
+`ReadStream` long-polls one message after an opaque, scope-bound resume token.
+An empty token starts at the earliest retained message. A token older than the
+retained head also resumes at that head. Each response includes the message
+value, the next resume token, its Redis-derived creation time, and the public
+idempotency key.
+
+Stream RPCs do not require a Flow to exist or remain active. Their availability
+depends only on the optional Redis Stream Store.
+
 ## Step close decisions
 
 `StepDecision.close_decision` explicitly ends a step thread or flow. Graceful

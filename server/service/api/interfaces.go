@@ -20,6 +20,8 @@ import (
 type ApiService interface {
 	StartFlow(context.Context, *dexpb.StartFlowRequest) (*dexpb.StartFlowResponse, error)
 	PublishToChannel(context.Context, *dexpb.PublishToChannelRequest) (*emptypb.Empty, error)
+	WriteStream(context.Context, *dexpb.WriteStreamRequest) (*emptypb.Empty, error)
+	ReadStream(context.Context, *dexpb.ReadStreamRequest) (*dexpb.ReadStreamResponse, error)
 	StopFlow(context.Context, *dexpb.StopFlowRequest) (*emptypb.Empty, error)
 	GetAttributes(context.Context, *dexpb.GetAttributesRequest) (*dexpb.GetAttributesResponse, error)
 	SetAttributes(context.Context, *dexpb.SetAttributesRequest) (*emptypb.Empty, error)

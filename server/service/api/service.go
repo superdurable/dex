@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,6 +35,7 @@ import (
 	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/common/rpc"
+	"github.com/superdurable/dex/service/common/streamstore"
 	"github.com/superdurable/dex/service/common/utils"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/indexsync"
@@ -58,6 +60,7 @@ type serviceImpl struct {
 	stepInputPopulator *history.AsyncStepInputSnapshotPopulator
 	attributeStore     *attributestore.Manager
 	indexSynchronizer  *indexsync.Synchronizer
+	streamStore        *streamstore.Store
 }
 
 func NewApiService(
@@ -69,12 +72,13 @@ func NewApiService(
 	logger log.Logger,
 	store blobstore.BlobStore,
 	attributeStore *attributestore.Manager,
+	streamStore *streamstore.Store,
 	workerPool *workerclient.WorkerClientPool,
 ) (ApiService, error) {
 	if apiCfg == nil || blobStoreCfg == nil || interpreterCfg == nil {
 		panic("API service requires non-nil config sections")
 	}
-	if client == nil || logger == nil || workerPool == nil || attributeStore == nil || taskQueue == "" {
+	if client == nil || logger == nil || workerPool == nil || attributeStore == nil || streamStore == nil || taskQueue == "" {
 		panic("API service requires non-nil dependencies and a task queue")
 	}
 	if blobStoreCfg.EffectiveEnabled() && store == nil {
@@ -92,6 +96,7 @@ func NewApiService(
 		stepInputPopulator: history.NewAsyncStepInputSnapshotPopulator(blobStoreCfg, client, store),
 		attributeStore:     attributeStore,
 		indexSynchronizer:  indexsync.New(interpreterCfg, client, logger),
+		streamStore:        streamStore,
 	}, nil
 }
 
@@ -478,6 +483,147 @@ func (s *serviceImpl) PublishToChannel(
 		return nil, s.handleError(err)
 	}
 	return &emptypb.Empty{}, nil
+}
+
+func (s *serviceImpl) WriteStream(
+	ctx context.Context,
+	req *dexpb.WriteStreamRequest,
+) (*emptypb.Empty, error) {
+	input, err := streamWriteInput(req)
+	if err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
+	if err := workerclient.RejectWorkerBlobIDs(req.GetValue()); err != nil {
+		return nil, makeInvalidRequestError(err.Error())
+	}
+	if err := s.streamStore.Write(ctx, input); err != nil {
+		return nil, streamStoreError(err)
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func (s *serviceImpl) ReadStream(
+	ctx context.Context,
+	req *dexpb.ReadStreamRequest,
+) (*dexpb.ReadStreamResponse, error) {
+	if req == nil || req.GetFlowId() == "" || req.GetStreamName() == "" || req.GetWaitTimeSeconds() < 0 {
+		return nil, makeInvalidRequestError("flow ID, Stream name, and non-negative wait time are required")
+	}
+	waitCtx, cancel := utils.TrimContextByTimeoutWithCappedDDL(
+		ctx,
+		&req.WaitTimeSeconds,
+		s.apiCfg.EffectiveMaxWaitSeconds(),
+	)
+	defer cancel()
+	message, err := s.streamStore.Read(waitCtx, req.GetFlowId(), req.GetStreamName(), req.GetResumeToken())
+	if err != nil {
+		return nil, streamStoreError(err)
+	}
+	resumeToken, err := streamstore.EncodeResumeToken(req.GetFlowId(), req.GetStreamName(), message.RedisID)
+	if err != nil {
+		return nil, serviceerrors.Internal(err.Error()).ToGRPCError()
+	}
+	return &dexpb.ReadStreamResponse{
+		Message: &dexpb.StreamMessage{
+			Value:          message.Value,
+			ResumeToken:    resumeToken,
+			CreatedTime:    timestamppb.New(message.CreatedTime),
+			IdempotencyKey: message.IdempotencyKey,
+		},
+	}, nil
+}
+
+func streamWriteInput(req *dexpb.WriteStreamRequest) (streamstore.WriteInput, error) {
+	if req == nil || req.GetFlowId() == "" || req.GetStreamName() == "" {
+		return streamstore.WriteInput{}, fmt.Errorf("flow ID and Stream name are required")
+	}
+	if req.GetMaxEstimatedBytes() <= 0 {
+		return streamstore.WriteInput{}, fmt.Errorf("max estimated bytes must be positive")
+	}
+	if req.GetValue() == nil {
+		return streamstore.WriteInput{}, fmt.Errorf("Stream Value is required")
+	}
+	input := streamstore.WriteInput{
+		FlowID:            req.GetFlowId(),
+		StreamName:        req.GetStreamName(),
+		MaxEstimatedBytes: req.GetMaxEstimatedBytes(),
+		Value:             req.GetValue(),
+	}
+	switch producer := req.GetProducer().(type) {
+	case *dexpb.WriteStreamRequest_Client:
+		if producer.Client.GetIdempotencyKey() == "" {
+			return streamstore.WriteInput{}, fmt.Errorf("client idempotency key is required")
+		}
+		input.PublicIdempotencyKey = producer.Client.GetIdempotencyKey()
+		input.InternalIdentity = lengthPrefixedIdentity(
+			"client",
+			req.GetFlowId(),
+			producer.Client.GetIdempotencyKey(),
+		)
+	case *dexpb.WriteStreamRequest_Step:
+		if producer.Step.GetRunId() == "" || producer.Step.GetStepExecutionId() == "" {
+			return streamstore.WriteInput{}, fmt.Errorf("Step run ID and execution ID are required")
+		}
+		input.PublicIdempotencyKey = producer.Step.GetRunId() + ":" + producer.Step.GetStepExecutionId()
+		input.InternalIdentity = lengthPrefixedIdentity(
+			"step",
+			req.GetFlowId(),
+			producer.Step.GetRunId(),
+			producer.Step.GetStepExecutionId(),
+		)
+	default:
+		return streamstore.WriteInput{}, fmt.Errorf("Stream producer is required")
+	}
+	return input, nil
+}
+
+func lengthPrefixedIdentity(parts ...string) string {
+	var identity strings.Builder
+	for _, part := range parts {
+		fmt.Fprintf(&identity, "%d:%s", len(part), part)
+	}
+	return identity.String()
+}
+
+func streamStoreError(err error) error {
+	switch {
+	case errors.Is(err, streamstore.ErrDisabled):
+		return serviceerrors.NewErrorAndStatus(
+			codes.FailedPrecondition,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+			err.Error(),
+		).ToGRPCError()
+	case errors.Is(err, streamstore.ErrMessageTooLarge):
+		return serviceerrors.NewErrorAndStatus(
+			codes.ResourceExhausted,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+			err.Error(),
+		).ToGRPCError()
+	case errors.Is(err, streamstore.ErrInvalidResumeToken):
+		return makeInvalidRequestError(err.Error())
+	case errors.Is(err, streamstore.ErrWaitTimeout):
+		return serviceerrors.DeadlineExceededLongPoll(err.Error()).ToGRPCError()
+	case errors.Is(err, context.DeadlineExceeded):
+		return serviceerrors.NewErrorAndStatus(
+			codes.DeadlineExceeded,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+			err.Error(),
+		).ToGRPCError()
+	case errors.Is(err, context.Canceled):
+		return serviceerrors.NewErrorAndStatus(
+			codes.Canceled,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+			err.Error(),
+		).ToGRPCError()
+	case errors.Is(err, streamstore.ErrUnavailable):
+		return serviceerrors.NewErrorAndStatus(
+			codes.Unavailable,
+			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
+			err.Error(),
+		).ToGRPCError()
+	default:
+		return serviceerrors.Internal(err.Error()).ToGRPCError()
+	}
 }
 
 func (s *serviceImpl) UpdateFlowConfig(

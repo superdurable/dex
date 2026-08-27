@@ -26,6 +26,20 @@ the [server operations guide](../docs/content/production/server-operations.mdx).
 Integration and replay test instructions are available in
 [integ/README.md](integ/README.md) and [replayTests/README.md](replayTests/README.md).
 
+The optional `streamStore` configuration enables Redis 7+ Standalone-backed
+resumable Streams. `redisURL` enables the feature. The remaining settings tune
+approximate per-message charging, trim reserve, native idle TTL, and background
+trim concurrency. Redis is intentionally excluded from server readiness; only
+Stream RPCs fail when it is unavailable. Configure dedicated Redis memory with
+`maxmemory` and `noeviction` so memory pressure becomes a visible write error.
+
+Capacity is not stored in Redis. Each write supplies the limit for all Flow
+instances with that Stream name. Charged bytes approximate the serialized
+Value, Flow ID, public and internal idempotency identities, and configured
+overhead. Crossing the limit trims global FIFO order toward the reserve target.
+The default 24-hour idle TTL is refreshed by writes and retained idempotent
+replays, not reads; set `idleTTL: 0` to disable it.
+
 ## License
 
 [Super Durable Source License 1.0](LICENSE.md), with legacy portions under their

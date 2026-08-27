@@ -80,6 +80,68 @@ public final class FlowServiceGrpc {
     return getPublishToChannelMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.WriteStreamRequest,
+      com.google.protobuf.Empty> getWriteStreamMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "WriteStream",
+      requestType = io.superdurable.gen.WriteStreamRequest.class,
+      responseType = com.google.protobuf.Empty.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.WriteStreamRequest,
+      com.google.protobuf.Empty> getWriteStreamMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.WriteStreamRequest, com.google.protobuf.Empty> getWriteStreamMethod;
+    if ((getWriteStreamMethod = FlowServiceGrpc.getWriteStreamMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getWriteStreamMethod = FlowServiceGrpc.getWriteStreamMethod) == null) {
+          FlowServiceGrpc.getWriteStreamMethod = getWriteStreamMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.WriteStreamRequest, com.google.protobuf.Empty>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "WriteStream"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.WriteStreamRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  com.google.protobuf.Empty.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("WriteStream"))
+              .build();
+        }
+      }
+    }
+    return getWriteStreamMethod;
+  }
+
+  private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.ReadStreamRequest,
+      io.superdurable.gen.ReadStreamResponse> getReadStreamMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "ReadStream",
+      requestType = io.superdurable.gen.ReadStreamRequest.class,
+      responseType = io.superdurable.gen.ReadStreamResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<io.superdurable.gen.ReadStreamRequest,
+      io.superdurable.gen.ReadStreamResponse> getReadStreamMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.ReadStreamRequest, io.superdurable.gen.ReadStreamResponse> getReadStreamMethod;
+    if ((getReadStreamMethod = FlowServiceGrpc.getReadStreamMethod) == null) {
+      synchronized (FlowServiceGrpc.class) {
+        if ((getReadStreamMethod = FlowServiceGrpc.getReadStreamMethod) == null) {
+          FlowServiceGrpc.getReadStreamMethod = getReadStreamMethod =
+              io.grpc.MethodDescriptor.<io.superdurable.gen.ReadStreamRequest, io.superdurable.gen.ReadStreamResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "ReadStream"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.ReadStreamRequest.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.superdurable.gen.ReadStreamResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new FlowServiceMethodDescriptorSupplier("ReadStream"))
+              .build();
+        }
+      }
+    }
+    return getReadStreamMethod;
+  }
+
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.StopFlowRequest,
       com.google.protobuf.Empty> getStopFlowMethod;
 
@@ -736,6 +798,20 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    default void writeStream(io.superdurable.gen.WriteStreamRequest request,
+        io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getWriteStreamMethod(), responseObserver);
+    }
+
+    /**
+     */
+    default void readStream(io.superdurable.gen.ReadStreamRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.ReadStreamResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getReadStreamMethod(), responseObserver);
+    }
+
+    /**
+     */
     default void stopFlow(io.superdurable.gen.StopFlowRequest request,
         io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getStopFlowMethod(), responseObserver);
@@ -915,6 +991,22 @@ public final class FlowServiceGrpc {
         io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
           getChannel().newCall(getPublishToChannelMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
+    public void writeStream(io.superdurable.gen.WriteStreamRequest request,
+        io.grpc.stub.StreamObserver<com.google.protobuf.Empty> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getWriteStreamMethod(), getCallOptions()), request, responseObserver);
+    }
+
+    /**
+     */
+    public void readStream(io.superdurable.gen.ReadStreamRequest request,
+        io.grpc.stub.StreamObserver<io.superdurable.gen.ReadStreamResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getReadStreamMethod(), getCallOptions()), request, responseObserver);
     }
 
     /**
@@ -1105,6 +1197,20 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public com.google.protobuf.Empty writeStream(io.superdurable.gen.WriteStreamRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getWriteStreamMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
+    public io.superdurable.gen.ReadStreamResponse readStream(io.superdurable.gen.ReadStreamRequest request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getReadStreamMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
     public com.google.protobuf.Empty stopFlow(io.superdurable.gen.StopFlowRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getStopFlowMethod(), getCallOptions(), request);
@@ -1274,6 +1380,22 @@ public final class FlowServiceGrpc {
 
     /**
      */
+    public com.google.common.util.concurrent.ListenableFuture<com.google.protobuf.Empty> writeStream(
+        io.superdurable.gen.WriteStreamRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getWriteStreamMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.ReadStreamResponse> readStream(
+        io.superdurable.gen.ReadStreamRequest request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getReadStreamMethod(), getCallOptions()), request);
+    }
+
+    /**
+     */
     public com.google.common.util.concurrent.ListenableFuture<com.google.protobuf.Empty> stopFlow(
         io.superdurable.gen.StopFlowRequest request) {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
@@ -1427,25 +1549,27 @@ public final class FlowServiceGrpc {
 
   private static final int METHODID_START_FLOW = 0;
   private static final int METHODID_PUBLISH_TO_CHANNEL = 1;
-  private static final int METHODID_STOP_FLOW = 2;
-  private static final int METHODID_GET_ATTRIBUTES = 3;
-  private static final int METHODID_SET_ATTRIBUTES = 4;
-  private static final int METHODID_LOAD_BLOBS = 5;
-  private static final int METHODID_WAIT_FOR_FLOW = 6;
-  private static final int METHODID_SEARCH_FLOWS = 7;
-  private static final int METHODID_SYNC_ATTRIBUTE_INDEXES = 8;
-  private static final int METHODID_GET_FLOW_SUMMARY = 9;
-  private static final int METHODID_GET_HISTORY_EVENTS = 10;
-  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 11;
-  private static final int METHODID_GET_FLOW_STATE = 12;
-  private static final int METHODID_RESET_FLOW = 13;
-  private static final int METHODID_INVOKE_RPC = 14;
-  private static final int METHODID_SKIP_TIMER = 15;
-  private static final int METHODID_UPDATE_FLOW_CONFIG = 16;
-  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 17;
-  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 18;
-  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 19;
-  private static final int METHODID_HEALTH_CHECK = 20;
+  private static final int METHODID_WRITE_STREAM = 2;
+  private static final int METHODID_READ_STREAM = 3;
+  private static final int METHODID_STOP_FLOW = 4;
+  private static final int METHODID_GET_ATTRIBUTES = 5;
+  private static final int METHODID_SET_ATTRIBUTES = 6;
+  private static final int METHODID_LOAD_BLOBS = 7;
+  private static final int METHODID_WAIT_FOR_FLOW = 8;
+  private static final int METHODID_SEARCH_FLOWS = 9;
+  private static final int METHODID_SYNC_ATTRIBUTE_INDEXES = 10;
+  private static final int METHODID_GET_FLOW_SUMMARY = 11;
+  private static final int METHODID_GET_HISTORY_EVENTS = 12;
+  private static final int METHODID_WAIT_FOR_HISTORY_EVENT = 13;
+  private static final int METHODID_GET_FLOW_STATE = 14;
+  private static final int METHODID_RESET_FLOW = 15;
+  private static final int METHODID_INVOKE_RPC = 16;
+  private static final int METHODID_SKIP_TIMER = 17;
+  private static final int METHODID_UPDATE_FLOW_CONFIG = 18;
+  private static final int METHODID_WAIT_FOR_STEP_COMPLETION = 19;
+  private static final int METHODID_WAIT_FOR_ATTRIBUTE = 20;
+  private static final int METHODID_TRIGGER_CONTINUE_AS_NEW = 21;
+  private static final int METHODID_HEALTH_CHECK = 22;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -1471,6 +1595,14 @@ public final class FlowServiceGrpc {
         case METHODID_PUBLISH_TO_CHANNEL:
           serviceImpl.publishToChannel((io.superdurable.gen.PublishToChannelRequest) request,
               (io.grpc.stub.StreamObserver<com.google.protobuf.Empty>) responseObserver);
+          break;
+        case METHODID_WRITE_STREAM:
+          serviceImpl.writeStream((io.superdurable.gen.WriteStreamRequest) request,
+              (io.grpc.stub.StreamObserver<com.google.protobuf.Empty>) responseObserver);
+          break;
+        case METHODID_READ_STREAM:
+          serviceImpl.readStream((io.superdurable.gen.ReadStreamRequest) request,
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.ReadStreamResponse>) responseObserver);
           break;
         case METHODID_STOP_FLOW:
           serviceImpl.stopFlow((io.superdurable.gen.StopFlowRequest) request,
@@ -1580,6 +1712,20 @@ public final class FlowServiceGrpc {
               io.superdurable.gen.PublishToChannelRequest,
               com.google.protobuf.Empty>(
                 service, METHODID_PUBLISH_TO_CHANNEL)))
+        .addMethod(
+          getWriteStreamMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.WriteStreamRequest,
+              com.google.protobuf.Empty>(
+                service, METHODID_WRITE_STREAM)))
+        .addMethod(
+          getReadStreamMethod(),
+          io.grpc.stub.ServerCalls.asyncUnaryCall(
+            new MethodHandlers<
+              io.superdurable.gen.ReadStreamRequest,
+              io.superdurable.gen.ReadStreamResponse>(
+                service, METHODID_READ_STREAM)))
         .addMethod(
           getStopFlowMethod(),
           io.grpc.stub.ServerCalls.asyncUnaryCall(
@@ -1763,6 +1909,8 @@ public final class FlowServiceGrpc {
               .setSchemaDescriptor(new FlowServiceFileDescriptorSupplier())
               .addMethod(getStartFlowMethod())
               .addMethod(getPublishToChannelMethod())
+              .addMethod(getWriteStreamMethod())
+              .addMethod(getReadStreamMethod())
               .addMethod(getStopFlowMethod())
               .addMethod(getGetAttributesMethod())
               .addMethod(getSetAttributesMethod())

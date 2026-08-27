@@ -83,3 +83,10 @@ blobStore:
 #     backoffCoefficient: 2
 #     maximumAttempts: 0
 #     totalDuration: 1h
+
+# streamStore:
+#   redisURL: redis://localhost:6379/0
+#   estimatedMessageOverheadBytes: 512
+#   trimReservePercent: 10
+#   idleTTL: 24h
+#   trimWorkers: 4

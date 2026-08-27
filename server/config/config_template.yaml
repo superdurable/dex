@@ -52,3 +52,10 @@ blobStore:
       storageId: "local"
       storageType: "local"
       localDirectory: "/dex/dex-blobs"
+# Streams remain disabled until redisURL is configured.
+# streamStore:
+#   redisURL: redis://redis:6379/0
+#   estimatedMessageOverheadBytes: 512
+#   trimReservePercent: 10
+#   idleTTL: 24h
+#   trimWorkers: 4
