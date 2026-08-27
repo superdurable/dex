@@ -60,6 +60,7 @@ import type { RegisteredRPC } from "./rpc.js";
 import type {
   RetryPolicy,
   Step,
+  StepClass,
   StepDecision,
   StepMovement,
   StepOptions,
@@ -450,12 +451,12 @@ function withCancellationSelection(
 
 function mapCancellationSteps(
   flow: RegisteredFlow,
-  steps: readonly Step<any>[] | undefined,
+  steps: readonly StepClass<any>[] | undefined,
 ): string[] {
   const stepTypes: string[] = [];
   const seen = new Set<string>();
   for (const step of steps ?? []) {
-    const target = flow.steps.find((candidate) => candidate.step === step);
+    const target = flow.stepsByClass.get(step);
     if (target === undefined) {
       throw new TypeError("cancellation Step must belong to the Flow");
     }
@@ -470,7 +471,10 @@ function mapCancellationSteps(
 
 function rpcDecision(
   flow: RegisteredFlow,
-  result: { nextSteps?: readonly StepMovement<unknown>[]; cancelingSteps?: readonly Step<any>[] }
+  result: {
+    nextSteps?: readonly StepMovement<unknown>[];
+    cancelingSteps?: readonly StepClass<any>[];
+  }
     | undefined,
 ): ProtoStepDecision | undefined {
   if (result === undefined) {
@@ -492,7 +496,7 @@ function mapMovements(
 }
 
 function mapMovement(flow: RegisteredFlow, movement: StepMovement<unknown>): ProtoStepMovement {
-  const target = flow.steps.find((candidate) => candidate.step === movement.step);
+  const target = flow.stepsByClass.get(movement.step);
   if (target === undefined) {
     throw new TypeError("Step movement target does not belong to Flow");
   }
@@ -513,10 +517,9 @@ function mapStepOptions(
   skipWaitFor: boolean,
 ): ProtoStepOptions {
   const failureTarget = options?.executeFailure?.step;
-  const failureDefinition =
-    failureTarget === undefined
-      ? undefined
-      : flow.steps.find((candidate) => candidate.step === failureTarget);
+  const failureDefinition = failureTarget === undefined
+    ? undefined
+    : flow.stepsByClass.get(failureTarget);
   if (failureTarget !== undefined && failureDefinition === undefined) {
     throw new TypeError("execute failure Step must belong to the Flow");
   }

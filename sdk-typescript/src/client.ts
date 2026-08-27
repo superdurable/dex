@@ -856,10 +856,9 @@ function mapStepOptions(
   flow: RegisteredFlow,
 ): ProtoStepOptions {
   const executeFailureStep = options?.executeFailure?.step;
-  const executeFailureDefinition =
-    executeFailureStep === undefined
-      ? undefined
-      : flow.steps.find((definition) => definition.step === executeFailureStep);
+  const executeFailureDefinition = executeFailureStep === undefined
+    ? undefined
+    : flow.stepsByClass.get(executeFailureStep);
   if (executeFailureStep !== undefined && executeFailureDefinition === undefined) {
     throw new TypeError("execute failure Step must belong to the Flow");
   }

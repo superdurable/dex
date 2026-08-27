@@ -44,7 +44,7 @@ class LockWaitStep(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        return go_to(self.second, None)
+        return go_to(LockCompleteStep, None)
 
 
 class RpcLockingFlow(Flow[None]):

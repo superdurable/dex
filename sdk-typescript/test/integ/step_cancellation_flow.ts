@@ -63,19 +63,19 @@ class CancellationStart implements Step<string> {
   public execute(_context: Context, _input: string): StepDecision {
     if (this.flow.scenario === "heartbeat-wait-for") {
       return goToMulti(
-        StepMovement.of(this.flow.blockingWaitFor, undefined),
-        StepMovement.of(this.flow.winner, undefined),
+        StepMovement.of(CancellationBlockingWaitFor, undefined),
+        StepMovement.of(CancellationWinner, undefined),
       );
     }
     if (this.flow.scenario === "global-selector" || this.flow.scenario === "sibling-selector") {
       return goToMulti(
-        StepMovement.of(this.flow.firstParent, undefined),
-        StepMovement.of(this.flow.secondParent, undefined),
+        StepMovement.of(CancellationFirstParent, undefined),
+        StepMovement.of(CancellationSecondParent, undefined),
       );
     }
     return goToMulti(
-      StepMovement.of(this.flow.blockingExecute, undefined),
-      StepMovement.of(this.flow.winner, undefined),
+      StepMovement.of(CancellationBlockingExecute, undefined),
+      StepMovement.of(CancellationWinner, undefined),
     );
   }
 }
@@ -103,7 +103,7 @@ class CancellationBlockingExecute implements Step<void> {
           this.flow.scenario === "local-timeout-fallback"
           ? "async"
           : "sync",
-      executeFailure: ExecuteFailure.proceedTo(this.flow.recovery),
+      executeFailure: ExecuteFailure.proceedTo(CancellationRecovery),
     };
   }
 
@@ -126,7 +126,7 @@ class CancellationBlockingExecute implements Step<void> {
     }
     this.flow.lateWrite.set(context, "late");
     this.flow.markLateHandlerReturned();
-    return goTo(this.flow.recovery, undefined);
+    return goTo(CancellationRecovery, undefined);
   }
 }
 
@@ -190,10 +190,10 @@ class CancellationWinner implements Step<void> {
       await this.flow.blockingStarted;
       await delay(1_000);
     }
-    const selected: Step<any> = this.flow.scenario === "heartbeat-wait-for"
-      ? this.flow.blockingWaitFor
-      : this.flow.blockingExecute;
-    return withCancelingSteps(goTo(this.flow.final, this.flow.scenario), selected);
+    const selected = this.flow.scenario === "heartbeat-wait-for"
+      ? CancellationBlockingWaitFor
+      : CancellationBlockingExecute;
+    return withCancelingSteps(goTo(CancellationFinal, this.flow.scenario), selected);
   }
 }
 
@@ -239,8 +239,8 @@ class CancellationFirstParent implements Step<void> {
 
   public execute(_context: Context, _input: void): StepDecision {
     return goToMulti(
-      StepMovement.of(this.flow.selectorWinner, undefined),
-      StepMovement.of(this.flow.selectorWaiting, "first"),
+      StepMovement.of(CancellationSelectorWinner, undefined),
+      StepMovement.of(CancellationSelectorWaiting, "first"),
     );
   }
 }
@@ -255,7 +255,7 @@ class CancellationSecondParent implements Step<void> {
   }
 
   public execute(_context: Context, _input: void): StepDecision {
-    return goTo(this.flow.selectorWaiting, "second");
+    return goTo(CancellationSelectorWaiting, "second");
   }
 }
 
@@ -274,10 +274,10 @@ class CancellationSelectorWinner implements Step<void> {
 
   public async execute(_context: Context, _input: void): Promise<StepDecision> {
     await this.flow.selectorWaitsRegistered;
-    const decision = goTo(this.flow.final, this.flow.scenario);
+    const decision = goTo(CancellationFinal, this.flow.scenario);
     return this.flow.scenario === "global-selector"
-      ? withCancelingSteps(decision, this.flow.selectorWaiting)
-      : withCancelingSiblingSteps(decision, this.flow.selectorWaiting);
+      ? withCancelingSteps(decision, CancellationSelectorWaiting)
+      : withCancelingSiblingSteps(decision, CancellationSelectorWaiting);
   }
 }
 

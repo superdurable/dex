@@ -56,7 +56,8 @@ class NoStartStateDeadEndWorkflow implements Flow<Void> {
         if (context.getFlowId().isEmpty() || context.getRunId().isEmpty()) {
             throw new IllegalStateException("invalid RPC context");
         }
-        return RPCResult.of(RPC_OUTPUT, StepMovement.of(complete, null));
+        return RPCResult.of(
+                RPC_OUTPUT, StepMovement.of(NoStartStateCompleteStep.class, null));
     }
 }
 

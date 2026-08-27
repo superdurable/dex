@@ -52,7 +52,7 @@ final class StateOptionsWorkflow implements Flow<Void> {
             executeValue.set(context, "execute");
             waitValue.set(context, "wait_until");
             bothValue.set(context, "both");
-            return StepDecision.goTo(second, null);
+            return StepDecision.goTo(OptionsSecondStep.class, null);
         }
     }
 
@@ -87,7 +87,7 @@ final class StateOptionsWorkflow implements Flow<Void> {
             if (!"both".equals(bothValue.get(context))) {
                 throw new IllegalStateException("shared attribute was not loaded in execute");
             }
-            return StepDecision.goTo(third, null);
+            return StepDecision.goTo(OptionsThirdStep.class, null);
         }
 
         @Override

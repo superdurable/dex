@@ -28,8 +28,8 @@ import java.util.List;
  * <pre>{@code
  * @RPC
  * public RPCResult<OrderStatus> approve(Context context, Approval input) {
- *     return RPCResult.of(OrderStatus.APPROVED, StepMovement.of(shipOrder, input.order))
- *             .withCancelingSteps(quoteCarrier, approvalTimeout);
+ *     return RPCResult.of(OrderStatus.APPROVED, StepMovement.of(ShipOrder.class, input.order))
+ *             .withCancelingSteps(QuoteCarrier.class, ApprovalTimeout.class);
  * }
  * }</pre>
  *
@@ -38,12 +38,12 @@ import java.util.List;
 public final class RPCResult<O> {
     private final O output;
     private final List<StepMovement<?>> nextSteps;
-    private final List<Step<?>> cancelingSteps;
+    private final List<Class<? extends Step<?>>> cancelingSteps;
 
     private RPCResult(
             final O output,
             final List<StepMovement<?>> nextSteps,
-            final List<Step<?>> cancelingSteps) {
+            final List<Class<? extends Step<?>>> cancelingSteps) {
         this.output = output;
         this.nextSteps = Collections.unmodifiableList(nextSteps);
         this.cancelingSteps = CancellationSteps.immutable(cancelingSteps);
@@ -60,7 +60,7 @@ public final class RPCResult<O> {
         return new RPCResult<O>(
                 output,
                 Collections.<StepMovement<?>>emptyList(),
-                Collections.<Step<?>>emptyList());
+                Collections.<Class<? extends Step<?>>>emptyList());
     }
 
     /**
@@ -77,7 +77,7 @@ public final class RPCResult<O> {
         return new RPCResult<O>(
                 output,
                 Arrays.<StepMovement<?>>asList(nextSteps.clone()),
-                Collections.<Step<?>>emptyList());
+                Collections.<Class<? extends Step<?>>>emptyList());
     }
 
     /**
@@ -89,19 +89,20 @@ public final class RPCResult<O> {
      * cancellation reaches its Worker and continues with this result's next Steps without waiting
      * for that handler to return.
      *
-     * <p>Repeated calls take the union of their arguments. Each argument must be the exact Step
-     * instance registered with the current Flow; a {@code null} or external Step causes an invalid
+     * <p>Repeated calls take the union of their arguments. Each argument must be a Step class
+     * registered with the current Flow; a {@code null} or external Step class causes an invalid
      * RPC result. RPC results cannot select sibling executions because separate invocations do not
      * share an invocation-scoped Step execution lineage.
      *
-     * @param steps registered Steps whose queued or active executions should be canceled
+     * @param stepClasses registered Step classes whose queued or active executions should be canceled
      * @return a new RPC result containing the combined cancellation selection
      */
-    public RPCResult<O> withCancelingSteps(final Step<?>... steps) {
+    public RPCResult<O> withCancelingSteps(
+            final Class<? extends Step<?>>... stepClasses) {
         return new RPCResult<O>(
                 output,
                 nextSteps,
-                CancellationSteps.add(cancelingSteps, steps));
+                CancellationSteps.add(cancelingSteps, stepClasses));
     }
 
     O getOutput() {
@@ -112,7 +113,7 @@ public final class RPCResult<O> {
         return nextSteps;
     }
 
-    List<Step<?>> getCancelingSteps() {
+    List<Class<? extends Step<?>>> getCancelingSteps() {
         return cancelingSteps;
     }
 }

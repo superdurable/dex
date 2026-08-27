@@ -23,7 +23,7 @@ class EmptyFirstStep(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        return go_to(self.second, None)
+        return go_to(EmptySecondStep, None)
 
 
 class EmptyInputFlow(Flow[None]):

@@ -25,22 +25,16 @@ from dex import (
 
 
 class RecoverNoWaitStep(Step[int]):
-    def __init__(self) -> None:
-        self.failing: FailingNoWaitStep | None = None
-
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
         if input == 10:
             return graceful_complete(input)
-        if input == 5 and self.failing is not None:
-            return go_to(self.failing, input * 2)
+        if input == 5:
+            return go_to(FailingNoWaitStep, input * 2)
         return force_fail(f"unexpected input {input}")
 
 
 class FailingNoWaitStep(Step[int]):
-    def __init__(self, recover: RecoverNoWaitStep) -> None:
-        self.recover = recover
-
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input
         raise RuntimeError("execute failure")
@@ -51,14 +45,13 @@ class FailingNoWaitStep(Step[int]):
                 maximum_attempts=1,
                 backoff_coefficient=2.0,
             )
-        ).on_execute_failure_proceed_to(self.recover)
+        ).on_execute_failure_proceed_to(RecoverNoWaitStep)
 
 
 class StateRecoveryNoWaitFlow(Flow[int]):
     def __init__(self) -> None:
         self.recover = RecoverNoWaitStep()
-        self.start = FailingNoWaitStep(self.recover)
-        self.recover.failing = self.start
+        self.start = FailingNoWaitStep()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.start).other_steps(self.recover)

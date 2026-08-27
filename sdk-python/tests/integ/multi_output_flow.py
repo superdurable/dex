@@ -44,8 +44,8 @@ class MultiOutputStartStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
         return go_to_multi(
-            StepMovement.of(self.string_step, None),
-            StepMovement.of(self.int_step, None),
+            StepMovement.of(MultiOutputStringStep, None),
+            StepMovement.of(MultiOutputIntStep, None),
         )
 
 

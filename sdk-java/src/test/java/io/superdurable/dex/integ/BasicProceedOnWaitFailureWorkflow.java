@@ -44,7 +44,7 @@ final class BasicProceedOnWaitFailureWorkflow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            return StepDecision.goTo(second, input + "-recovered");
+            return StepDecision.goTo(CompleteStep.class, input + "-recovered");
         }
 
         @Override

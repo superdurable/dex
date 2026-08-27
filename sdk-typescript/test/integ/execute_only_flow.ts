@@ -41,7 +41,7 @@ class ExecuteOnlyFirstStep implements Step<number> {
   }
 
   public execute(_context: Context, input: number): StepDecision {
-    return goTo(this.second, input + 1);
+    return goTo(ExecuteOnlySecondStep, input + 1);
   }
 }
 

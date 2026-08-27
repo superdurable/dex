@@ -57,7 +57,7 @@ class MixedImmediateStep implements Step<number> {
   }
 
   public execute(_context: Context, input: number): StepDecision {
-    return goTo(this.second, input + 1);
+    return goTo(MixedTimerStep, input + 1);
   }
 
   public getStepOptions(): StepOptions {

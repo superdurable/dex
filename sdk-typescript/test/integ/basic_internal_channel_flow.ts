@@ -83,8 +83,8 @@ class ForkStep implements Step<number> {
 
   public execute(_context: Context, input: number): StepDecision {
     return goToMulti(
-      StepMovement.of(this.consumer, input),
-      StepMovement.of(this.publisher, input),
+      StepMovement.of(ConsumeStep, input),
+      StepMovement.of(PublishStep, input),
     );
   }
 }

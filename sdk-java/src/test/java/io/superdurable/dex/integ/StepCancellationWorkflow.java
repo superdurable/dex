@@ -196,17 +196,17 @@ final class StepCancellationWorkflow implements Flow<Void> {
             switch (scenario) {
                 case HEARTBEAT_WAIT_FOR:
                     return StepDecision.goToMulti(
-                            StepMovement.of(blockingWaitFor, null),
-                            StepMovement.of(winner, null));
+                            StepMovement.of(StepCancellationBlockingWaitForStep.class, null),
+                            StepMovement.of(StepCancellationWinnerStep.class, null));
                 case GLOBAL_SELECTOR:
                 case SIBLING_SELECTOR:
                     return StepDecision.goToMulti(
-                            StepMovement.of(firstParent, null),
-                            StepMovement.of(secondParent, null));
+                            StepMovement.of(StepCancellationFirstParentStep.class, null),
+                            StepMovement.of(StepCancellationSecondParentStep.class, null));
                 default:
                     return StepDecision.goToMulti(
-                            StepMovement.of(blockingExecute, null),
-                            StepMovement.of(winner, null));
+                            StepMovement.of(StepCancellationBlockingExecuteStep.class, null),
+                            StepMovement.of(StepCancellationWinnerStep.class, null));
             }
         }
     }
@@ -232,14 +232,14 @@ final class StepCancellationWorkflow implements Flow<Void> {
             }
             lateWrite.set(context, "late");
             lateHandlerReturned.countDown();
-            return StepDecision.goTo(recovery, null);
+            return StepDecision.goTo(StepCancellationRecoveryStep.class, null);
         }
 
         @Override
         public StepOptions getStepOptions() {
             final StepOptions.Builder options = StepOptions.newBuilder()
                     .executeMethodTimeout(HANDLER_TIMEOUT)
-                    .onExecuteFailureProceedTo(recovery);
+                    .onExecuteFailureProceedTo(StepCancellationRecoveryStep.class);
             if (scenario == Scenario.LOCAL_EXECUTE) {
                 return options.executeDurability(StepDurability.ASYNC).build();
             }
@@ -304,10 +304,11 @@ final class StepCancellationWorkflow implements Flow<Void> {
             if (scenario == Scenario.LOCAL_EXECUTE) {
                 awaitLocalWinnerDelay();
             }
-            final Step<?> canceled = scenario == Scenario.HEARTBEAT_WAIT_FOR
-                    ? blockingWaitFor
-                    : blockingExecute;
-            return StepDecision.goTo(finalStep, scenario.name()).withCancelingSteps(canceled);
+            final Class<? extends Step<?>> canceled = scenario == Scenario.HEARTBEAT_WAIT_FOR
+                    ? StepCancellationBlockingWaitForStep.class
+                    : StepCancellationBlockingExecuteStep.class;
+            return StepDecision.goTo(StepCancellationFinalStep.class, scenario.name())
+                    .withCancelingSteps(canceled);
         }
 
         private void awaitLocalWinnerDelay() {
@@ -368,8 +369,8 @@ final class StepCancellationWorkflow implements Flow<Void> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             return StepDecision.goToMulti(
-                    StepMovement.of(selectorWinner, null),
-                    StepMovement.of(selectorWaiting, "first"));
+                    StepMovement.of(StepCancellationSelectorWinnerStep.class, null),
+                    StepMovement.of(StepCancellationSelectorWaitingStep.class, "first"));
         }
     }
 
@@ -381,7 +382,7 @@ final class StepCancellationWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.goTo(selectorWaiting, "second");
+            return StepDecision.goTo(StepCancellationSelectorWaitingStep.class, "second");
         }
     }
 
@@ -398,10 +399,11 @@ final class StepCancellationWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            final StepDecision decision = StepDecision.goTo(finalStep, scenario.name());
+            final StepDecision decision = StepDecision.goTo(
+                    StepCancellationFinalStep.class, scenario.name());
             return scenario == Scenario.GLOBAL_SELECTOR
-                    ? decision.withCancelingSteps(selectorWaiting)
-                    : decision.withCancelingSiblingSteps(selectorWaiting);
+                    ? decision.withCancelingSteps(StepCancellationSelectorWaitingStep.class)
+                    : decision.withCancelingSiblingSteps(StepCancellationSelectorWaitingStep.class);
         }
     }
 

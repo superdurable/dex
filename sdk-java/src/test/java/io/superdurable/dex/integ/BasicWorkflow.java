@@ -42,7 +42,7 @@ final class BasicWorkflow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(second, input + 1);
+            return StepDecision.goTo(BasicSecondStep.class, input + 1);
         }
     }
 

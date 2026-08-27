@@ -44,7 +44,8 @@ final class BasicImmutableStepOptionsWorkflow implements Flow<Integer> {
                     .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(1).build())
                     .waitForFailure(WaitForFailurePolicy.PROCEED)
                     .build();
-            return StepDecision.goToMulti(StepMovement.of(failingWait, 1, override));
+            return StepDecision.goToMulti(
+                    StepMovement.of(FailingWaitStep.class, 1, override));
         }
     }
 
@@ -65,7 +66,7 @@ final class BasicImmutableStepOptionsWorkflow implements Flow<Integer> {
                 throw new IllegalStateException("wait failure was not reported");
             }
             if (input == 1) {
-                return StepDecision.goTo(failingWait, 2);
+                return StepDecision.goTo(FailingWaitStep.class, 2);
             }
             return StepDecision.gracefulComplete(input);
         }

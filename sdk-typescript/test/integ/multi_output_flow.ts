@@ -58,8 +58,8 @@ class MultiOutputStartStep implements Step<void> {
 
   public execute(_context: Context, _input: void): StepDecision {
     return goToMulti(
-      StepMovement.of(this.stringStep, undefined),
-      StepMovement.of(this.numberStep, undefined),
+      StepMovement.of(MultiOutputStringStep, undefined),
+      StepMovement.of(MultiOutputNumberStep, undefined),
     );
   }
 }

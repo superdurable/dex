@@ -43,7 +43,7 @@ class EmptyFirstStep implements Step<void> {
 
   public async execute(_context: Context, _input: void): Promise<StepDecision> {
     await Promise.resolve();
-    return goTo(this.second, undefined);
+    return goTo(EmptySecondStep, undefined);
   }
 }
 

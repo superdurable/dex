@@ -40,7 +40,7 @@ final class BasicEmptyInputWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.goTo(second, null);
+            return StepDecision.goTo(EmptySecondStep.class, null);
         }
     }
 

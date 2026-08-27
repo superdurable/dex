@@ -23,7 +23,7 @@ class ExecuteOnlyFirstStep(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
-        return go_to(self.second, input + 1)
+        return go_to(ExecuteOnlySecondStep, input + 1)
 
 
 class ExecuteOnlyFlow(Flow[int]):

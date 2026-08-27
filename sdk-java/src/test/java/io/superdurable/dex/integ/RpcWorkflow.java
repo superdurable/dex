@@ -146,7 +146,7 @@ class RpcWorkflow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(output, 0);
+            return StepDecision.goTo(RpcOutputStep.class, 0);
         }
     }
 

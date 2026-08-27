@@ -84,6 +84,6 @@ export class DeadEndFlow implements Flow {
     if (context.flowId === "" || context.runId === "") {
       throw new Error("invalid RPC context");
     }
-    return { output: 100, nextSteps: [StepMovement.of(this.complete, undefined)] };
+    return { output: 100, nextSteps: [StepMovement.of(DeadEndCompleteStep, undefined)] };
   }
 }

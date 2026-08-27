@@ -35,7 +35,7 @@ class NoStartStateWorkflow implements Flow<Void> {
         if (context.getFlowId().isEmpty() || context.getRunId().isEmpty()) {
             throw new IllegalStateException("invalid RPC context");
         }
-        return RPCResult.of(RPC_OUTPUT, StepMovement.of(triggered, null));
+        return RPCResult.of(RPC_OUTPUT, StepMovement.of(TriggeredStep.class, null));
     }
 
     static final class TriggeredStep implements Step<Void> {

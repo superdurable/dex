@@ -354,16 +354,17 @@ final class WorkerDispatcher {
     private List<String> mapCancellationSteps(
             final Registry.RegisteredFlow flow,
             final String source,
-            final List<Step<?>> steps) {
-        final List<String> mapped = new ArrayList<String>(steps.size());
-        for (Step<?> cancellationStep : steps) {
-            if (cancellationStep == null) {
+            final List<Class<? extends Step<?>>> stepClasses) {
+        final List<String> mapped = new ArrayList<String>(stepClasses.size());
+        for (Class<? extends Step<?>> stepClass : stepClasses) {
+            if (stepClass == null) {
                 throw new InvalidStepResultException(
                         source + " cancellation Step is required");
             }
-            final Registry.RegisteredStep registered =
-                    flow.getSteps().get(cancellationStep.getStepType());
-            if (registered == null || registered.getStep() != cancellationStep) {
+            final Registry.RegisteredStep registered;
+            try {
+                registered = flow.getStep(stepClass);
+            } catch (FlowDefinitionException exception) {
                 throw new InvalidStepResultException(
                         source + " cancellation Step does not belong to Flow");
             }
@@ -401,9 +402,10 @@ final class WorkerDispatcher {
             throw new InvalidStepResultException(
                     "Flow " + flow.getName() + " Step movement is required");
         }
-        final Registry.RegisteredStep target =
-                flow.getSteps().get(movement.getStep().getStepType());
-        if (target == null || target.getStep() != movement.getStep()) {
+        final Registry.RegisteredStep target;
+        try {
+            target = flow.getStep(movement.getStepClass());
+        } catch (FlowDefinitionException exception) {
             throw new InvalidStepResultException(
                     "Flow " + flow.getName() + " Step movement target does not belong to Flow");
         }
@@ -411,6 +413,7 @@ final class WorkerDispatcher {
                 .setStepType(target.getName())
                 .setStepInput(values.encode(movement.getInput()));
         final io.superdurable.gen.StepOptions options = mapStepOptions(
+                flow,
                 movement.getOptions() == null
                         ? target.getStep().getStepOptions()
                         : movement.getOptions());
@@ -424,7 +427,9 @@ final class WorkerDispatcher {
         return mapped.build();
     }
 
-    io.superdurable.gen.StepOptions mapStepOptions(final StepOptions options) {
+    io.superdurable.gen.StepOptions mapStepOptions(
+            final Registry.RegisteredFlow flow,
+            final StepOptions options) {
         if (options == null) {
             return null;
         }
@@ -455,19 +460,27 @@ final class WorkerDispatcher {
                         .WAIT_FOR_METHOD_FAILURE_POLICY_FAIL_FLOW_ON_FAILURE);
         if (options.getExecuteFailureTarget() != null) {
             final StepOptions.ExecuteFailureTarget target = options.getExecuteFailureTarget();
+            final Registry.RegisteredStep registeredTarget;
+            try {
+                registeredTarget = flow.getStep(target.getStepClass());
+            } catch (FlowDefinitionException exception) {
+                throw new InvalidStepResultException(
+                        "Flow " + flow.getName()
+                                + " execute failure Step does not belong to Flow");
+            }
             mapped.setExecuteFailurePolicy(ExecuteMethodFailurePolicy
                     .EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP)
-                    .setExecuteFailureProceedStepType(target.getStep().getStepType());
+                    .setExecuteFailureProceedStepType(registeredTarget.getName());
             final io.superdurable.gen.StepOptions targetOptions =
-                    mapStepOptions(target.getOptions() == null
-                            ? target.getStep().getStepOptions()
+                    mapStepOptions(flow, target.getOptions() == null
+                            ? registeredTarget.getStep().getStepOptions()
                             : target.getOptions());
-            if (targetOptions != null || Registry.skipsWaitFor(target.getStep())) {
+            if (targetOptions != null || registeredTarget.skipsWaitFor()) {
                 final io.superdurable.gen.StepOptions.Builder mappedTarget =
                         targetOptions == null
                                 ? io.superdurable.gen.StepOptions.newBuilder()
                                 : targetOptions.toBuilder();
-                mappedTarget.setSkipWaitFor(Registry.skipsWaitFor(target.getStep()));
+                mappedTarget.setSkipWaitFor(registeredTarget.skipsWaitFor());
                 mapped.setExecuteFailureProceedStepOptions(mappedTarget);
             }
         }
@@ -672,7 +685,7 @@ final class WorkerDispatcher {
                     .setOptions(mappedOptions)
                     .setSubFlowIndex(index);
             final io.superdurable.gen.StepOptions stepOptions =
-                    mapStepOptions(start.getStep().getStepOptions());
+                    mapStepOptions(target, start.getStep().getStepOptions());
             if (stepOptions != null || start.skipsWaitFor()) {
                 final io.superdurable.gen.StepOptions.Builder mappedStepOptions =
                         stepOptions == null

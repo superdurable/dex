@@ -233,34 +233,35 @@ public final class StepOptions {
          * accepts that an extreme failure after the recovery Step begins can cause Dex to execute the
          * earlier Step again.
          *
-         * @param step the nonnull recovery Step
+         * @param stepClass the nonnull recovery Step class
          * @param <I> the recovery Step input type
          * @return this builder
-         * @throws NullPointerException if {@code step} is {@code null}
+         * @throws NullPointerException if {@code stepClass} is {@code null}
          */
-        public <I> Builder onExecuteFailureProceedTo(final Step<I> step) {
-            return onExecuteFailureProceedTo(step, null);
+        public <I> Builder onExecuteFailureProceedTo(
+                final Class<? extends Step<I>> stepClass) {
+            return onExecuteFailureProceedTo(stepClass, null);
         }
 
         /**
          * Continues to a recovery Step with per-execution options after execute retries fail.
          *
          * <p>The same durability guidance as
-         * {@link #onExecuteFailureProceedTo(Step)} applies. The {@code options} parameter configures
+         * {@link #onExecuteFailureProceedTo(Class)} applies. The {@code options} parameter configures
          * the recovery Step execution; configure the failing Step's execute durability on the builder
          * receiving this method call.
          *
-         * @param step the nonnull recovery Step
+         * @param stepClass the nonnull recovery Step class
          * @param options recovery execution options, or {@code null} for the Step defaults
          * @param <I> the recovery Step input type
          * @return this builder
-         * @throws NullPointerException if {@code step} is {@code null}
+         * @throws NullPointerException if {@code stepClass} is {@code null}
          */
         public <I> Builder onExecuteFailureProceedTo(
-                final Step<I> step,
+                final Class<? extends Step<I>> stepClass,
                 final StepOptions options) {
             executeFailureTarget = new ExecuteFailureTarget(
-                    Objects.requireNonNull(step, "step"),
+                    Objects.requireNonNull(stepClass, "stepClass"),
                     options);
             return this;
         }
@@ -288,7 +289,7 @@ public final class StepOptions {
          *
          * <p>This method-level value takes precedence over {@link FlowConfig}'s default and Dex's
          * {@link StepDurability#SYNC} default when this builder also uses
-         * {@link #onExecuteFailureProceedTo(Step)}. The application may choose
+         * {@link #onExecuteFailureProceedTo(Class)}. The application may choose
          * {@link StepDurability#ASYNC} when it accepts that an extreme failure after recovery begins
          * can cause the earlier Step to execute again. See {@link StepDurability} for latency and
          * throughput details.
@@ -334,16 +335,18 @@ public final class StepOptions {
     }
 
     static final class ExecuteFailureTarget {
-        private final Step<?> step;
+        private final Class<? extends Step<?>> stepClass;
         private final StepOptions options;
 
-        private ExecuteFailureTarget(final Step<?> step, final StepOptions options) {
-            this.step = step;
+        private ExecuteFailureTarget(
+                final Class<? extends Step<?>> stepClass,
+                final StepOptions options) {
+            this.stepClass = stepClass;
             this.options = options;
         }
 
-        Step<?> getStep() {
-            return step;
+        Class<? extends Step<?>> getStepClass() {
+            return stepClass;
         }
 
         StepOptions getOptions() {

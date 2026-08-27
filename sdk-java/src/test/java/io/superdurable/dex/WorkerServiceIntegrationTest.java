@@ -747,7 +747,7 @@ final class WorkerServiceIntegrationTest {
     private static class BridgeFlow implements Flow<String> {
         private final Channel<Void> commands = Channel.define("commands", Void.class);
         private final BridgeOtherStep other = new BridgeOtherStep();
-        private final BridgeStep start = new BridgeStep(commands, other);
+        private final BridgeStep start = new BridgeStep(commands);
         private final Attribute<String> status = Attribute.define(
                 "status",
                 String.class,
@@ -775,17 +775,17 @@ final class WorkerServiceIntegrationTest {
         public RPCResult<String> cancellationRpc(final Context context, final String input) {
             if ("cancel-foreign".equals(input)) {
                 return RPCResult.of(input)
-                        .withCancelingSteps(new BridgeOtherStep());
+                        .withCancelingSteps(ForeignBridgeStep.class);
             }
             if ("cancel-null".equals(input)) {
                 return RPCResult.of(input)
-                        .withCancelingSteps((Step<?>[]) null);
+                        .withCancelingSteps((Class<? extends Step<?>>[]) null);
             }
             final RPCResult<String> base = RPCResult.of(
                     input,
-                    StepMovement.of(start, "next"));
+                    StepMovement.of(BridgeStep.class, "next"));
             baseRpcResult.set(base);
-            return base.withCancelingSteps(other, other)
+            return base.withCancelingSteps(BridgeOtherStep.class, BridgeOtherStep.class)
                     .withCancelingSteps();
         }
 
@@ -804,11 +804,8 @@ final class WorkerServiceIntegrationTest {
         private final CountDownLatch blockStarted = new CountDownLatch(1);
         private final CountDownLatch cancellationObserved = new CountDownLatch(1);
         private final Channel<Void> commands;
-        private final BridgeOtherStep other;
-
-        private BridgeStep(final Channel<Void> commands, final BridgeOtherStep other) {
+        private BridgeStep(final Channel<Void> commands) {
             this.commands = commands;
-            this.other = other;
         }
 
         @Override
@@ -882,18 +879,19 @@ final class WorkerServiceIntegrationTest {
             if ("cancel".equals(input)) {
                 final StepDecision base = StepDecision.gracefulComplete(input);
                 baseDecision.set(base);
-                return base.withCancelingSiblingSteps(other, this, other)
-                        .withCancelingSteps(other, other)
+                return base.withCancelingSiblingSteps(
+                                BridgeOtherStep.class, BridgeStep.class, BridgeOtherStep.class)
+                        .withCancelingSteps(BridgeOtherStep.class, BridgeOtherStep.class)
                         .withCancelingSteps()
                         .withCancelingSiblingSteps();
             }
             if ("cancel-foreign".equals(input)) {
                 return StepDecision.gracefulComplete()
-                        .withCancelingSteps(new BridgeOtherStep());
+                        .withCancelingSteps(ForeignBridgeStep.class);
             }
             if ("cancel-null".equals(input)) {
                 return StepDecision.gracefulComplete()
-                        .withCancelingSteps((Step<?>[]) null);
+                        .withCancelingSteps((Class<? extends Step<?>>[]) null);
             }
             if ("heartbeat".equals(input)) {
                 return heartbeatDecision(Duration.ofSeconds(10));
@@ -925,13 +923,25 @@ final class WorkerServiceIntegrationTest {
 
         private StepDecision heartbeatDecision(final Duration timeout) {
             return StepDecision.goToMulti(StepMovement.of(
-                    other,
+                    BridgeOtherStep.class,
                     "next",
                     StepOptions.newBuilder().heartbeatTimeout(timeout).build()));
         }
     }
 
     private static final class BridgeOtherStep implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            return StepDecision.deadEnd();
+        }
+    }
+
+    private static final class ForeignBridgeStep implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;

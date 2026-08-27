@@ -45,7 +45,7 @@ class ConditionalStep(Step[bool]):
         selected = self.signal if input else self.internal
         return force_complete_if_channels_empty(
             next_value,
-            StepMovement.of(self, input),
+            StepMovement.of(ConditionalStep, input),
             selected,
         )
 

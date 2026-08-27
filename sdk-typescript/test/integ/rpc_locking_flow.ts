@@ -66,7 +66,7 @@ class LockWaitStep implements Step<void> {
   }
 
   public execute(_context: Context, _input: void): StepDecision {
-    return goTo(this.second, undefined);
+    return goTo(LockCompleteStep, undefined);
   }
 }
 

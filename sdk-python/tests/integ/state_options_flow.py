@@ -77,7 +77,7 @@ class OptionsSecondStep(Step[None]):
             raise RuntimeError("wait_for attribute was not loaded in execute")
         if self.both_value.get(context) != "both":
             raise RuntimeError("shared attribute was not loaded in execute")
-        return go_to(self.third, None)
+        return go_to(OptionsThirdStep, None)
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(
@@ -104,7 +104,7 @@ class OptionsFirstStep(Step[None]):
         self.execute_value.set(context, "execute")
         self.wait_value.set(context, "wait_until")
         self.both_value.set(context, "both")
-        return go_to(self.second, None)
+        return go_to(OptionsSecondStep, None)
 
 
 class StateOptionsFlow(Flow[None]):

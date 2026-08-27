@@ -69,7 +69,7 @@ class OverrideFirstStep implements Step<string> {
   public execute(_context: Context, _input: string): StepDecision {
     this.output += "_state1_decide";
     return goToMulti(
-      StepMovement.of(this.second, this.output, {
+      StepMovement.of(CompleteStep, this.output, {
         waitForRetry: { maximumAttempts: 2 },
         waitForFailure: "proceed",
       }),

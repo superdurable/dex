@@ -32,8 +32,8 @@ export interface RetryPolicy {
 
 /** Routes exhausted `execute` retries to a fallback Step. */
 export interface ExecuteFailure {
-  /** Registered fallback Step. */
-  readonly step: Step<unknown>;
+  /** Registered fallback Step class. */
+  readonly step: StepClass<any>;
   /** Options applied to the fallback movement. */
   readonly options?: StepOptions;
 }
@@ -43,13 +43,13 @@ export const ExecuteFailure = Object.freeze({
   /**
    * Routes exhausted execution retries to another Step.
    * @typeParam Input - Fallback Step input type.
-   * @param step - Registered fallback Step.
+   * @param step - Registered fallback Step class.
    * @param options - Optional options for the fallback movement.
    * @returns The failure-routing settings.
    */
-  proceedTo<Input>(step: Step<Input>, options?: StepOptions): ExecuteFailure {
+  proceedTo<Input>(step: StepClass<Input>, options?: StepOptions): ExecuteFailure {
     return {
-      step: step as Step<unknown>,
+      step: step as StepClass<any>,
       ...(options === undefined ? {} : { options }),
     };
   },
@@ -86,11 +86,13 @@ export interface StepOptions {
  *
  * @example
  * ```ts
- * const confirm: Step<{ id: string }> = {
- *   getStepType: () => "Confirm",
- *   waitFor: () => Wait.until(Timer.byDuration(1_000)),
- *   execute: (_context, input) => forceComplete(input),
- * };
+ * class Confirm implements Step<{ id: string }> {
+ *   public getStepType(): string { return "Confirm"; }
+ *   public waitFor(): Wait { return Wait.until(Timer.byDuration(1_000)); }
+ *   public execute(_context: Context, input: { id: string }): StepDecision {
+ *     return forceComplete(input);
+ *   }
+ * }
  * ```
  * @typeParam Input - Value passed by an incoming Step movement.
  */
@@ -128,6 +130,12 @@ export interface Step<Input> {
    */
   execute(context: Context, input: Input): StepDecision | Promise<StepDecision>;
 }
+
+/**
+ * Identifies one registered Step implementation by its runtime class.
+ * @typeParam Input - Value accepted by the Step implementation.
+ */
+export type StepClass<Input> = abstract new (...arguments_: any[]) => Step<Input>;
 
 interface StartStepDefinition<StartInput> {
   readonly step: Step<StartInput>;
@@ -214,8 +222,8 @@ export class StepList<StartInput> {
  * @typeParam Input - Destination Step input type.
  */
 export interface StepMovement<Input> {
-  /** Registered destination Step. */
-  readonly step: Step<Input>;
+  /** Registered destination Step class. */
+  readonly step: StepClass<Input>;
   /** Value encoded for the destination Step. */
   readonly input: Input;
   /** Optional per-movement Step options. */
@@ -227,12 +235,12 @@ export const StepMovement = Object.freeze({
   /**
    * Creates a movement to one Step.
    * @typeParam Input - Destination Step input type.
-   * @param step - Registered destination Step.
+   * @param step - Registered destination Step class.
    * @param input - Typed destination input.
    * @param options - Optional per-movement options.
    * @returns The new Step movement.
    */
-  of<Input>(step: Step<Input>, input: Input, options?: StepOptions): StepMovement<Input> {
+  of<Input>(step: StepClass<Input>, input: Input, options?: StepOptions): StepMovement<Input> {
     return {
       step,
       input,
@@ -244,9 +252,9 @@ export const StepMovement = Object.freeze({
 /** Selects queued or active Step executions canceled by a decision. */
 export interface StepCancellationSelection {
   /** Registered Step types canceled across the current Flow. */
-  readonly cancelingSteps?: readonly Step<any>[];
+  readonly cancelingSteps?: readonly StepClass<any>[];
   /** Registered Step types canceled only when they share the current scheduling source. */
-  readonly cancelingSiblingSteps?: readonly Step<any>[];
+  readonly cancelingSiblingSteps?: readonly StepClass<any>[];
 }
 
 /** Describes the durable transition returned by `Step.execute`. */
@@ -291,7 +299,7 @@ export type StepDecision = (
  * @param input - Typed destination input.
  * @returns A next decision containing one movement.
  */
-export const goTo = <Input>(step: Step<Input>, input: Input): StepDecision =>
+export const goTo = <Input>(step: StepClass<Input>, input: Input): StepDecision =>
   goToMulti(StepMovement.of(step, input));
 
 /**
@@ -354,12 +362,12 @@ export const deadEnd = (): StepDecision => ({ kind: "deadEnd" });
  * and absent executions are no-ops. Steps scheduled by the same decision are excluded.
  * Repeated calls take the union, and Flow-wide selection supersedes sibling selection.
  * @param decision - Decision to copy.
- * @param steps - Exact Step instances registered with the current Flow.
+ * @param steps - Step classes registered with the current Flow.
  * @returns A new decision containing the combined Flow-wide selectors.
  */
 export const withCancelingSteps = (
   decision: StepDecision,
-  ...steps: readonly Step<any>[]
+  ...steps: readonly StepClass<any>[]
 ): StepDecision => {
   const cancelingSteps = unionSteps(decision.cancelingSteps, steps);
   const cancelingSiblingSteps = (decision.cancelingSiblingSteps ?? []).filter(
@@ -374,12 +382,12 @@ export const withCancelingSteps = (
  * A sibling has the same `Context.fromStepExecutionId` as the execution returning
  * the decision. Snapshot and no-op behavior match {@link withCancelingSteps}.
  * @param decision - Decision to copy.
- * @param steps - Exact Step instances registered with the current Flow.
+ * @param steps - Step classes registered with the current Flow.
  * @returns A new decision containing the combined sibling selectors.
  */
 export const withCancelingSiblingSteps = (
   decision: StepDecision,
-  ...steps: readonly Step<any>[]
+  ...steps: readonly StepClass<any>[]
 ): StepDecision => ({
   ...decision,
   cancelingSiblingSteps: unionSteps(decision.cancelingSiblingSteps, steps).filter(
@@ -388,9 +396,9 @@ export const withCancelingSiblingSteps = (
 });
 
 function unionSteps(
-  existing: readonly Step<any>[] | undefined,
-  added: readonly Step<any>[],
-): readonly Step<any>[] {
+  existing: readonly StepClass<any>[] | undefined,
+  added: readonly StepClass<any>[],
+): readonly StepClass<any>[] {
   const combined = [...(existing ?? [])];
   for (const step of added) {
     if (!combined.includes(step)) {

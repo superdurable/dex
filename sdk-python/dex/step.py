@@ -107,12 +107,12 @@ class StepOptions:
     execute_durability: StepDurability = StepDurability.DEFAULT
     wait_for_lock_attributes: tuple[AttributeLock, ...] = ()
     execute_lock_attributes: tuple[AttributeLock, ...] = ()
-    _execute_failure_target: Step[Any] | None = None
+    _execute_failure_target: type[Step[Any]] | None = None
     _execute_failure_options: StepOptions | None = None
 
     def on_execute_failure_proceed_to(
         self,
-        step: Step[Any],
+        step: type[Step[Any]],
         options: StepOptions | None = None,
     ) -> StepOptions:
         """Return a copy that routes exhausted ``execute`` retries to another Step.
@@ -277,18 +277,18 @@ class StepMovement(Generic[InputT]):
     """Schedule one registered Step with typed input and optional options.
 
     Attributes:
-        step: The destination Step instance from the containing Registry.
+        step: The destination Step class from the containing Registry.
         input: The value decoded by the destination Step's input codec.
         options: Optional per-movement StepOptions override.
     """
 
-    step: Step[InputT]
+    step: type[Step[InputT]]
     input: InputT
     options: StepOptions | None = None
 
     @staticmethod
     def of(
-        step: Step[InputT],
+        step: type[Step[InputT]],
         input: InputT,
         *,
         options: StepOptions | None = None,
@@ -342,13 +342,13 @@ class StepDecision:
     reason: str = ""
     empty_channels: tuple[Channel[Any] | ChannelMap[Any], ...] = ()
     fallback: StepMovement[Any] | None = None
-    canceling_steps: tuple[Step[Any], ...] = ()
-    canceling_sibling_steps: tuple[Step[Any], ...] = ()
+    canceling_steps: tuple[type[Step[Any]], ...] = ()
+    canceling_sibling_steps: tuple[type[Step[Any]], ...] = ()
 
     def _has_output(self) -> bool:
         return self.output is not _NO_OUTPUT
 
-    def with_canceling_steps(self, *steps: Step[Any]) -> StepDecision:
+    def with_canceling_steps(self, *steps: type[Step[Any]]) -> StepDecision:
         """Return a decision canceling all current executions of selected Step types.
 
         Dex resolves one snapshot after this Execute succeeds. Finished, already-canceled,
@@ -356,7 +356,7 @@ class StepDecision:
         Repeated calls take the union, and Flow-wide selection supersedes sibling selection.
 
         Args:
-            *steps: Exact Step instances registered with the current Flow.
+            *steps: Step classes registered with the current Flow.
 
         Returns:
             A new decision containing the combined Flow-wide selectors.
@@ -373,7 +373,7 @@ class StepDecision:
             canceling_sibling_steps=sibling_steps,
         )
 
-    def with_canceling_sibling_steps(self, *steps: Step[Any]) -> StepDecision:
+    def with_canceling_sibling_steps(self, *steps: type[Step[Any]]) -> StepDecision:
         """Return a decision canceling selected same-source Step executions.
 
         A sibling has the same ``Context.from_step_execution_id`` as the execution
@@ -381,7 +381,7 @@ class StepDecision:
         ``with_canceling_steps``. Flow-wide selection wins for the same Step type.
 
         Args:
-            *steps: Exact Step instances registered with the current Flow.
+            *steps: Step classes registered with the current Flow.
 
         Returns:
             A new decision containing the combined sibling selectors.
@@ -396,9 +396,9 @@ class StepDecision:
 
 
 def _union_steps(
-    existing: tuple[Step[Any], ...],
-    added: tuple[Step[Any], ...],
-) -> tuple[Step[Any], ...]:
+    existing: tuple[type[Step[Any]], ...],
+    added: tuple[type[Step[Any]], ...],
+) -> tuple[type[Step[Any]], ...]:
     combined = list(existing)
     for step in added:
         if all(step is not current for current in combined):
@@ -406,7 +406,7 @@ def _union_steps(
     return tuple(combined)
 
 
-def go_to(step: Step[InputT], input: InputT) -> StepDecision:
+def go_to(step: type[Step[InputT]], input: InputT) -> StepDecision:
     """Create a decision that schedules one next Step.
 
     Args:

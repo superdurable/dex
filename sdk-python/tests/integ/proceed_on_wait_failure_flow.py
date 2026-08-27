@@ -34,7 +34,7 @@ class FailingWaitStep(Step[str]):
 
     def execute(self, context: Context, input: str) -> StepDecision:
         del context
-        return go_to(self.second, input + "-recovered")
+        return go_to(CompleteStringStep, input + "-recovered")
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(

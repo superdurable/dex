@@ -63,8 +63,8 @@ class ForkStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
         return go_to_multi(
-            StepMovement.of(self.consumer, input),
-            StepMovement.of(self.publisher, input),
+            StepMovement.of(ConsumeStep, input),
+            StepMovement.of(PublishStep, input),
         )
 
 

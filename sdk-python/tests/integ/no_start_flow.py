@@ -43,5 +43,5 @@ class NoStartFlow(Flow[None]):
             raise RuntimeError("invalid RPC context")
         return RPCResult(
             self.RPC_OUTPUT,
-            (StepMovement.of(self.triggered, None),),
+            (StepMovement.of(TriggeredStep, None),),
         )

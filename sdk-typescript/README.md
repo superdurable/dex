@@ -75,11 +75,11 @@ its normal decision:
 ```typescript
 return withCancelingSteps(
   withCancelingSiblingSteps(
-    goTo(this.recordQuote, quote),
-    this.carrierA,
-    this.carrierB,
+    goTo(RecordQuote, quote),
+    QuoteCarrierA,
+    QuoteCarrierB,
   ),
-  this.globalQuoteTimeout,
+  GlobalQuoteTimeout,
 );
 ```
 
@@ -87,7 +87,7 @@ return withCancelingSteps(
 type. `withCancelingSiblingSteps` selects only executions whose
 `Context.fromStepExecutionId` matches the current execution. Both helpers return
 a new decision; repeated calls form a union, and Flow-wide selection wins for
-the same Step object. Unregistered selectors produce an invalid Step result.
+the same Step class. Unregistered selectors produce an invalid Step result.
 
 Dex resolves one snapshot after the current execution succeeds. Completed,
 already-canceled, and absent targets are no-ops. Next Steps created by that

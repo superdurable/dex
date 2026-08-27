@@ -26,9 +26,6 @@ from dex import (
 
 
 class RecoverStep(Step[int]):
-    def __init__(self) -> None:
-        self.failing: FailingStep | None = None
-
     def wait_for(self, context: Context, input: int) -> Wait:
         del context, input
         return Wait.skip_immediately()
@@ -37,15 +34,12 @@ class RecoverStep(Step[int]):
         del context
         if input == 10:
             return graceful_complete(input)
-        if input == 5 and self.failing is not None:
-            return go_to(self.failing, input * 2)
+        if input == 5:
+            return go_to(FailingStep, input * 2)
         return force_fail(f"unexpected input {input}")
 
 
 class FailingStep(Step[int]):
-    def __init__(self, recover: RecoverStep) -> None:
-        self.recover = recover
-
     def wait_for(self, context: Context, input: int) -> Wait:
         del context, input
         return Wait.skip_immediately()
@@ -60,14 +54,13 @@ class FailingStep(Step[int]):
                 maximum_attempts=1,
                 backoff_coefficient=2.0,
             )
-        ).on_execute_failure_proceed_to(self.recover)
+        ).on_execute_failure_proceed_to(RecoverStep)
 
 
 class StateRecoveryFlow(Flow[int]):
     def __init__(self) -> None:
         self.recover = RecoverStep()
-        self.start = FailingStep(self.recover)
-        self.recover.failing = self.start
+        self.start = FailingStep()
 
     def get_steps(self) -> StepList[int]:
         return StepList.start_step(self.start).other_steps(self.recover)
