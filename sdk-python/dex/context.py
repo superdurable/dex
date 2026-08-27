@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Protocol, Sequence, TypeVar
 if TYPE_CHECKING:
     from dex.attribute import Attribute, AttributeMap
     from dex.channel import Channel, ChannelMap
+    from dex.stream import Stream
 
 ValueT = TypeVar("ValueT")
 
@@ -189,3 +190,9 @@ class Context(Protocol):
         self,
         definition: ChannelMap[object],
     ) -> tuple[str, ...]: ...
+
+    def _write_stream(
+        self,
+        definition: Stream[ValueT],
+        value: ValueT,
+    ) -> object: ...

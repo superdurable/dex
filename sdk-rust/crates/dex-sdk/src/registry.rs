@@ -14,7 +14,7 @@ use crate::persistence::{PersistenceDefinition, PersistenceKind};
 use crate::rpc::RegisteredRpc;
 use crate::step::RegisteredStep;
 use crate::step_options::ErasedStepOptions;
-use crate::{Context, Flow, HandlerResult, SdkError, SdkResult, StepDecision, Wait};
+use crate::{Context, Flow, HandlerResult, SdkError, SdkResult, StepDecision, Stream, Wait};
 use dex_protocol::dex::Value as ProtoValue;
 
 #[derive(Clone, Default)]
@@ -43,6 +43,7 @@ pub struct Registry {
 struct RegistryInner {
     flows: HashMap<&'static str, RegisteredFlow>,
     attribute_indexes: HashMap<String, i32>,
+    stream_flows: HashMap<usize, &'static str>,
 }
 
 #[derive(Clone)]
@@ -74,7 +75,23 @@ impl Registry {
         let registered = assemble_flow(name, Arc::clone(&flow))?;
         let inner = Arc::make_mut(&mut self.inner);
         let mut additions = Vec::new();
+        let mut stream_identities = Vec::new();
         for definition in registered.persistence.values() {
+            if definition.kind == PersistenceKind::Stream {
+                let identity = definition.stream_identity.ok_or_else(|| {
+                    definition_error(format!(
+                        "Flow {name} Stream {} has no definition identity",
+                        definition.name
+                    ))
+                })?;
+                if inner.stream_flows.contains_key(&identity) {
+                    return Err(definition_error(format!(
+                        "Stream {} is registered by multiple Flows",
+                        definition.name
+                    )));
+                }
+                stream_identities.push(identity);
+            }
             let Some(index) = &definition.index else {
                 continue;
             };
@@ -103,6 +120,9 @@ impl Registry {
             return Err(definition_error(format!("duplicate Flow {name}")));
         }
         inner.attribute_indexes.extend(additions);
+        for identity in stream_identities {
+            inner.stream_flows.insert(identity, name);
+        }
         Ok(self)
     }
 
@@ -131,6 +151,17 @@ impl Registry {
         matched.ok_or_else(|| SdkError::FlowDefinition {
             message: format!("RPC is not registered: {name}"),
         })
+    }
+
+    pub(crate) fn flow_for_stream<T>(&self, stream: &Stream<T>) -> SdkResult<&RegisteredFlow> {
+        let flow_name = self
+            .inner
+            .stream_flows
+            .get(&stream.identity())
+            .ok_or_else(|| SdkError::FlowDefinition {
+                message: format!("Stream is not registered: {}", stream.name()),
+            })?;
+        self.flow(flow_name)
     }
 
     pub(crate) fn attribute_indexes(&self) -> &HashMap<String, i32> {

@@ -262,18 +262,10 @@ type InvokeOptions struct {
 	LockAttributes []AttributeLock
 }
 
-// WaitOptions configures one long-poll wait operation.
-type WaitOptions struct {
-	// Timeout limits the long poll; zero uses the server default.
-	Timeout time.Duration
-}
-
-// WaitForFlowOptions controls Flow-result hydration and long-poll timeout.
+// WaitForFlowOptions controls Flow-result hydration.
 type WaitForFlowOptions struct {
 	// NeedsResults asks Dex to include completed Step outputs.
 	NeedsResults bool
-	// Timeout limits the long poll; zero waits without an SDK override.
-	Timeout time.Duration
 }
 
 // StopType selects how StopFlow ends an active Flow.

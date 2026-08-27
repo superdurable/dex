@@ -14,6 +14,7 @@ import { StepList, type Step, type StepClass, type StepDecision } from "./step.j
 import { requireName } from "./validation.js";
 import type { Channel, ChannelMap } from "./wait.js";
 import type { Context } from "./context.js";
+import type { Stream } from "./stream.js";
 
 /**
  * Defines one durable application Flow and its registered API surface.
@@ -71,6 +72,7 @@ export class Registry {
     const flowsByInstance = new Map<Flow<any>, RegisteredFlow>();
     const flowsByName = new Map<string, RegisteredFlow>();
     const rpcsByMethod = new Map<Function, RegisteredRPC>();
+    const streamsByInstance = new Map<Stream<unknown>, RegisteredFlow>();
     const flowNames = new Set<string>();
     const attributeIndexes = new Map<string, ProtoIndexType>();
     for (const flow of flows) {
@@ -82,6 +84,12 @@ export class Registry {
       const registered = registerFlow(flow, name, attributeIndexes);
       flowsByInstance.set(flow, registered);
       flowsByName.set(name, registered);
+      for (const stream of registered.streams) {
+        if (streamsByInstance.has(stream)) {
+          throw new FlowDefinitionError(`Stream ${stream.name} is registered by multiple Flows`);
+        }
+        streamsByInstance.set(stream, registered);
+      }
       for (const rpc of registered.rpcs) {
         if (rpcsByMethod.has(rpc.method)) {
           throw new FlowDefinitionError(`Flow ${name} RPC method ${rpc.name} is registered by multiple Flows`);
@@ -90,7 +98,13 @@ export class Registry {
       }
     }
     this.flows = Object.freeze([...flows]);
-    registryMetadata.set(this, { flowsByInstance, flowsByName, rpcsByMethod, attributeIndexes });
+    registryMetadata.set(this, {
+      flowsByInstance,
+      flowsByName,
+      rpcsByMethod,
+      streamsByInstance,
+      attributeIndexes,
+    });
   }
 }
 
@@ -110,14 +124,16 @@ export interface RegisteredFlow {
   readonly rpcs: readonly RegisteredRPC[];
   readonly persistence: ReadonlyMap<
     string,
-    Attribute<unknown> | AttributeMap<unknown> | Channel<unknown> | ChannelMap<unknown>
+    Attribute<unknown> | AttributeMap<unknown> | Channel<unknown> | ChannelMap<unknown> | Stream<unknown>
   >;
+  readonly streams: ReadonlySet<Stream<unknown>>;
 }
 
 interface RegistryMetadata {
   readonly flowsByInstance: ReadonlyMap<Flow<any>, RegisteredFlow>;
   readonly flowsByName: ReadonlyMap<string, RegisteredFlow>;
   readonly rpcsByMethod: ReadonlyMap<Function, RegisteredRPC>;
+  readonly streamsByInstance: ReadonlyMap<Stream<unknown>, RegisteredFlow>;
   readonly attributeIndexes: ReadonlyMap<string, ProtoIndexType>;
 }
 
@@ -167,6 +183,23 @@ export function registeredAttributeIndexes(
   registry: Registry,
 ): ReadonlyMap<string, ProtoIndexType> {
   return metadata(registry).attributeIndexes;
+}
+
+export function registeredStream(
+  registry: Registry,
+  stream: Stream<unknown>,
+): RegisteredFlow {
+  const flow = metadata(registry).streamsByInstance.get(stream);
+  if (flow === undefined) {
+    throw new FlowDefinitionError(`Stream is not registered: ${stream.name}`);
+  }
+  return flow;
+}
+
+export function requireFlowStream(flow: RegisteredFlow, stream: Stream<unknown>): void {
+  if (!flow.streams.has(stream)) {
+    throw new FlowDefinitionError(`Flow ${flow.name} does not register Stream ${stream.name}`);
+  }
 }
 
 function metadata(registry: Registry): RegistryMetadata {
@@ -251,7 +284,11 @@ function doRegisterFlow(
   }
 
   const schema = flow.getPersistenceSchema?.() ?? {};
-  const persistenceDefinitions = [...(schema.attributes ?? []), ...(schema.channels ?? [])];
+  const persistenceDefinitions = [
+    ...(schema.attributes ?? []),
+    ...(schema.channels ?? []),
+    ...(schema.streams ?? []),
+  ];
   const persistence = new Map<string, (typeof persistenceDefinitions)[number]>();
   for (const definition of persistenceDefinitions) {
     if (persistence.has(definition.name)) {
@@ -295,6 +332,7 @@ function doRegisterFlow(
     ...(startStep === undefined ? {} : { startStep }),
     rpcs,
     persistence,
+    streams: new Set(schema.streams ?? []),
   });
 }
 

@@ -11,6 +11,7 @@
 package integ
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -150,21 +151,23 @@ func TestRPCFlow(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	shortWaitCtx, cancelShortWait := context.WithTimeout(ctx, time.Second)
 	_, err = integClient.WaitForFlow(
-		ctx,
+		shortWaitCtx,
 		flowID,
-		dex.WaitForFlowOptions{Timeout: time.Second},
+		dex.WaitForFlowOptions{},
 	)
-	var timeout *dex.LongPollTimeoutError
-	require.ErrorAs(t, err, &timeout)
+	cancelShortWait()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	shortWaitCtx, cancelShortWait = context.WithTimeout(ctx, time.Second)
 	err = integClient.WaitForAttributeEqual(
-		ctx,
+		shortWaitCtx,
 		flowID,
 		rpcFlowStatus,
 		"never",
-		dex.WaitOptions{Timeout: time.Second},
 	)
-	require.ErrorAs(t, err, &timeout)
+	cancelShortWait()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	waitErrors := make(chan error, 2)
 	go func() {
 		waitErrors <- integClient.WaitForAttributeEqual(
@@ -172,7 +175,6 @@ func TestRPCFlow(t *testing.T) {
 			flowID,
 			rpcFlowWaitStatus,
 			"ready",
-			dex.WaitOptions{Timeout: 30 * time.Second},
 		)
 	}()
 	go func() {
@@ -182,7 +184,6 @@ func TestRPCFlow(t *testing.T) {
 			rpcFlowWaitMap,
 			"special / key",
 			"mapped",
-			dex.WaitOptions{Timeout: 30 * time.Second},
 		)
 	}()
 	var noOutput dex.None
@@ -201,21 +202,18 @@ func TestRPCFlow(t *testing.T) {
 		flowID,
 		rpcFlowBytes,
 		[]byte("value"),
-		dex.WaitOptions{Timeout: time.Second},
 	), "only string, boolean, or number values")
 	require.ErrorContains(t, integClient.WaitForAttributeEqual(
 		ctx,
 		flowID,
 		rpcFlowNull,
 		nil,
-		dex.WaitOptions{Timeout: time.Second},
 	), "only string, boolean, or number values")
 	require.ErrorContains(t, integClient.WaitForAttributeEqual(
 		ctx,
 		flowID,
 		persistenceData,
 		persistenceModel{},
-		dex.WaitOptions{Timeout: time.Second},
 	), "only string, boolean, or number values")
 
 	var failedOutput int

@@ -43,6 +43,8 @@ import io.superdurable.gen.GetFlowSummaryResponse;
 import io.superdurable.gen.InvokeRPCRequest;
 import io.superdurable.gen.KV;
 import io.superdurable.gen.PublishToChannelRequest;
+import io.superdurable.gen.ReadStreamRequest;
+import io.superdurable.gen.ReadStreamResponse;
 import io.superdurable.gen.ResetFlowRequest;
 import io.superdurable.gen.SearchFlowsRequest;
 import io.superdurable.gen.SearchFlowsResponse;
@@ -59,6 +61,7 @@ import io.superdurable.gen.WaitForStepCompletionRequest;
 import io.superdurable.gen.WaitForAttributeCondition;
 import io.superdurable.gen.WaitForAttributeEqual;
 import io.superdurable.gen.WaitForAttributeRequest;
+import io.superdurable.gen.WriteStreamRequest;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
 import net.bytebuddy.dynamic.scaffold.subclass.ConstructorStrategy;
@@ -145,7 +148,7 @@ public final class Client implements AutoCloseable {
                 .build();
         this.service = FlowServiceGrpc.newBlockingStub(channel);
         this.hydrator = new ValueHydrator(service, blobCache);
-        this.mappings = new WorkerDispatcher(registry, values, hydrator);
+        this.mappings = new WorkerDispatcher(registry, values, hydrator, service);
     }
 
     Registry getRegistry() {
@@ -572,6 +575,100 @@ public final class Client implements AutoCloseable {
             final Channel<T> channel,
             final List<T> values) {
         publishValues(flowId, "", channel.getName(), values);
+    }
+
+    /**
+     * Appends one typed best-effort Stream message with client idempotency.
+     *
+     * @param flowId the logical Flow instance ID; the Flow need not exist or be active
+     * @param stream the exact Stream registered in one Flow schema
+     * @param idempotencyKey the nonblank key without {@code #}
+     * @param value the typed message to append
+     * @param <T> the Stream message type
+     * @throws FlowDefinitionException if the Stream is not registered
+     * @throws IllegalArgumentException if an ID is invalid or the key contains {@code #}
+     * @throws DexServiceException if Dex cannot append the message
+     */
+    public <T> void writeStream(
+            final String flowId,
+            final Stream<T> stream,
+            final String idempotencyKey,
+            final T value) {
+        final String key = Attribute.requireName(idempotencyKey);
+        if (key.indexOf('#') >= 0) {
+            throw new IllegalArgumentException(
+                    "Stream client idempotency key must not contain #");
+        }
+        final Registry.RegisteredFlow flow = registry.getFlow(stream);
+        call(() -> service.writeStream(WriteStreamRequest.newBuilder()
+                .setFlowId(Attribute.requireName(flowId))
+                .setFlowType(flow.getName())
+                .setStreamName(stream.getStreamName())
+                .setMaxEstimatedBytes(stream.getMaxEstimatedBytes())
+                .setValue(values.encode(value))
+                .setIdempotencyKey(key)
+                .build()));
+    }
+
+    /**
+     * Blocks for the next retained Stream message using the server default wait.
+     *
+     * @param flowId the logical Flow instance ID
+     * @param stream the exact Stream registered in one Flow schema
+     * @param resumeToken the prior token, or empty for the retained head
+     * @param <T> the Stream message type
+     * @return the decoded message and resumable metadata
+     */
+    public <T> StreamMessage<T> readStream(
+            final String flowId,
+            final Stream<T> stream,
+            final String resumeToken) {
+        return readStream(flowId, stream, resumeToken, null);
+    }
+
+    /**
+     * Blocks for the next retained Stream message with an explicit long-poll duration.
+     *
+     * @param flowId the logical Flow instance ID
+     * @param stream the exact Stream registered in one Flow schema
+     * @param resumeToken the prior token, or empty for the retained head
+     * @param timeout the nonnegative whole-second server wait, or {@code null} for its default
+     * @param <T> the Stream message type
+     * @return the decoded message and resumable metadata
+     * @throws LongPollTimeoutException if no message arrives before the wait expires
+     * @throws FlowDefinitionException if the Stream is not registered
+     * @throws DexServiceException if Dex cannot read the Stream
+     */
+    public <T> StreamMessage<T> readStream(
+            final String flowId,
+            final Stream<T> stream,
+            final String resumeToken,
+            final Duration timeout) {
+        final Registry.RegisteredFlow flow = registry.getFlow(stream);
+        final ReadStreamRequest.Builder request = ReadStreamRequest.newBuilder()
+                .setFlowId(Attribute.requireName(flowId))
+                .setFlowType(flow.getName())
+                .setStreamName(stream.getStreamName())
+                .setResumeToken(resumeToken == null ? "" : resumeToken);
+        if (timeout != null) {
+            request.setWaitTimeSeconds(seconds32(timeout));
+        }
+        final ReadStreamResponse response = call(() -> service.readStream(request.build()));
+        if (!response.hasMessage()
+                || !response.getMessage().hasValue()
+                || !response.getMessage().hasCreatedTime()
+                || response.getMessage().getResumeToken().isEmpty()) {
+            throw new IllegalStateException("Dex returned an incomplete Stream message");
+        }
+        @SuppressWarnings("unchecked")
+        final T value = (T) values.decode(
+                response.getMessage().getValue(),
+                stream.getValueType());
+        return new StreamMessage<T>(
+                value,
+                response.getMessage().getResumeToken(),
+                instant(response.getMessage().getCreatedTime()),
+                response.getMessage().getIdempotencyKey());
     }
 
     /**

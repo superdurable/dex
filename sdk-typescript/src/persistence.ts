@@ -10,6 +10,7 @@ import type { Channel, ChannelMap } from "./wait.js";
 import { markAttributeStoreSynced } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
+import type { Stream } from "./stream.js";
 import { requireName } from "./validation.js";
 
 /** Selects how Dex indexes an Attribute for Flow search. */
@@ -211,10 +212,12 @@ export class AttributeMap<T> {
   }
 }
 
-/** Declares the Attributes and Channels owned by a Flow type. */
+/** Declares the Attributes, Channels, and Streams owned by a Flow type. */
 export interface PersistenceSchema {
   /** Singleton and map Attribute definitions with unique names. */
   readonly attributes?: readonly (Attribute<unknown> | AttributeMap<unknown>)[];
   /** Singleton and map Channel definitions with unique names. */
   readonly channels?: readonly (Channel<unknown> | ChannelMap<unknown>)[];
+  /** Best-effort Stream definitions with unique names. */
+  readonly streams?: readonly Stream<unknown>[];
 }

@@ -23,8 +23,10 @@ import io.superdurable.gen.ConditionResults;
 import io.superdurable.gen.ConditionStatus;
 import io.superdurable.gen.KV;
 import io.superdurable.gen.FlowResult;
+import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.TimerResult;
 import io.superdurable.gen.Value;
+import io.superdurable.gen.WriteStreamRequest;
 
 import java.time.Instant;
 import java.io.UnsupportedEncodingException;
@@ -34,6 +36,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -49,6 +52,7 @@ final class InvocationContext implements Context {
     private final Registry.RegisteredFlow flow;
     private final io.superdurable.gen.Context metadata;
     private final ValueMapper values;
+    private final FlowServiceGrpc.FlowServiceBlockingStub flowService;
     private final Map<String, Value> attributes;
     private final Map<String, Value> locals;
     private final ConditionResults conditionResults;
@@ -59,12 +63,15 @@ final class InvocationContext implements Context {
     private final List<KV> events = new ArrayList<KV>();
     private final Set<String> eventNames = new HashSet<String>();
     private final List<ChannelMessage> publications = new ArrayList<ChannelMessage>();
+    private final Set<Stream<?>> streamWrites = Collections.newSetFromMap(
+            new IdentityHashMap<Stream<?>, Boolean>());
 
     InvocationContext(
             final Method method,
             final Registry.RegisteredFlow flow,
             final io.superdurable.gen.Context metadata,
             final ValueMapper values,
+            final FlowServiceGrpc.FlowServiceBlockingStub flowService,
             final List<KV> attributes,
             final List<KV> locals,
             final ConditionResults conditionResults,
@@ -76,6 +83,7 @@ final class InvocationContext implements Context {
         this.flow = flow;
         this.metadata = metadata;
         this.values = values;
+        this.flowService = flowService;
         this.attributes = mapValues("Attribute", attributes);
         this.locals = mapValues("step-execution local", locals);
         this.conditionResults = conditionResults;
@@ -157,6 +165,28 @@ final class InvocationContext implements Context {
     @Override
     public boolean waitForMethodFailed() {
         return conditionResults != null && conditionResults.getWaitForFailed();
+    }
+
+    @Override
+    public <T> void writeStream(final Stream<T> stream, final T value) {
+        if (method == Method.RPC) {
+            throw new IllegalStateException("Stream writes require a Step Context");
+        }
+        requireRegistered(stream);
+        if (streamWrites.contains(stream)) {
+            throw new IllegalStateException(
+                    "Stream " + stream.getStreamName()
+                            + " was already written by this Step execution");
+        }
+        flowService.writeStream(WriteStreamRequest.newBuilder()
+                .setFlowId(getFlowId())
+                .setFlowType(flow.getName())
+                .setStreamName(stream.getStreamName())
+                .setMaxEstimatedBytes(stream.getMaxEstimatedBytes())
+                .setValue(values.encode(value))
+                .setIdempotencyKey(getRunId() + "#" + getStepExecutionId())
+                .build());
+        streamWrites.add(stream);
     }
 
     io.superdurable.dex.FlowResult subFlowResult(final int index) {

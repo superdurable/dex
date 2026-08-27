@@ -20,9 +20,12 @@ use dex_protocol::dex::{
     StepOptions as ProtoStepOptions, SubFlowCondition as ProtoSubFlowCondition,
     SubFlowOptions as ProtoSubFlowOptions, SubFlowReusePolicy as ProtoSubFlowReusePolicy,
     TimerCondition, WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType,
+    flow_service_client::FlowServiceClient,
 };
+use tokio::runtime::Handle;
+use tonic::transport::Channel as TransportChannel;
 
-use crate::context::{Context, InvocationCancellation, InvocationMethod};
+use crate::context::{Context, ContextInput, InvocationCancellation, InvocationMethod};
 use crate::persistence::PersistenceKind;
 use crate::registry::{RegisteredFlow, physical_name};
 use crate::rpc::encode_rpc_output;
@@ -42,11 +45,23 @@ const TIMEOUT_HANDLER_STEP_TYPE: &str = "sys:timeout_handler";
 pub(crate) struct WorkerDispatcher {
     registry: Registry,
     hydrator: ValueHydrator,
+    flow_service: FlowServiceClient<TransportChannel>,
+    runtime_handle: Handle,
 }
 
 impl WorkerDispatcher {
-    pub(crate) fn new(registry: Registry, hydrator: ValueHydrator) -> Self {
-        Self { registry, hydrator }
+    pub(crate) fn new(
+        registry: Registry,
+        hydrator: ValueHydrator,
+        flow_service: FlowServiceClient<TransportChannel>,
+        runtime_handle: Handle,
+    ) -> Self {
+        Self {
+            registry,
+            hydrator,
+            flow_service,
+            runtime_handle,
+        }
     }
 
     pub(crate) async fn invoke_wait_for(
@@ -66,18 +81,22 @@ impl WorkerDispatcher {
                 )
             })?;
         let mut context = Context::new(
-            InvocationMethod::WaitFor,
-            flow.clone(),
-            request.context.ok_or_else(|| {
-                HandlerError::new(
-                    "dex_sdk::HandlerError",
-                    "Worker request Context is required",
-                )
-            })?,
-            request.attributes,
-            Vec::new(),
-            None,
-            HashMap::new(),
+            ContextInput {
+                method: InvocationMethod::WaitFor,
+                flow: flow.clone(),
+                metadata: request.context.ok_or_else(|| {
+                    HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        "Worker request Context is required",
+                    )
+                })?,
+                attributes: request.attributes,
+                locals: Vec::new(),
+                condition_results: None,
+                channel_infos: HashMap::new(),
+            },
+            self.runtime_handle.clone(),
+            self.flow_service.clone(),
         )?;
         let input = request
             .step_input
@@ -122,18 +141,22 @@ impl WorkerDispatcher {
                 )
             })?;
         let mut context = Context::new(
-            InvocationMethod::Execute,
-            flow.clone(),
-            request.context.ok_or_else(|| {
-                HandlerError::new(
-                    "dex_sdk::HandlerError",
-                    "Worker request Context is required",
-                )
-            })?,
-            request.attributes,
-            request.step_exe_locals,
-            request.condition_results,
-            HashMap::new(),
+            ContextInput {
+                method: InvocationMethod::Execute,
+                flow: flow.clone(),
+                metadata: request.context.ok_or_else(|| {
+                    HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        "Worker request Context is required",
+                    )
+                })?,
+                attributes: request.attributes,
+                locals: request.step_exe_locals,
+                condition_results: request.condition_results,
+                channel_infos: HashMap::new(),
+            },
+            self.runtime_handle.clone(),
+            self.flow_service.clone(),
         )?;
         let input = request
             .step_input
@@ -175,18 +198,22 @@ impl WorkerDispatcher {
             ));
         }
         let mut context = Context::new(
-            InvocationMethod::Execute,
-            flow.clone(),
-            request.context.ok_or_else(|| {
-                HandlerError::new(
-                    "dex_sdk::HandlerError",
-                    "Worker request Context is required",
-                )
-            })?,
-            request.attributes,
-            request.step_exe_locals,
-            request.condition_results,
-            HashMap::new(),
+            ContextInput {
+                method: InvocationMethod::Execute,
+                flow: flow.clone(),
+                metadata: request.context.ok_or_else(|| {
+                    HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        "Worker request Context is required",
+                    )
+                })?,
+                attributes: request.attributes,
+                locals: request.step_exe_locals,
+                condition_results: request.condition_results,
+                channel_infos: HashMap::new(),
+            },
+            self.runtime_handle.clone(),
+            self.flow_service.clone(),
         )?;
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
@@ -229,18 +256,22 @@ impl WorkerDispatcher {
                 )
             })?;
         let mut context = Context::new(
-            InvocationMethod::Rpc,
-            flow.clone(),
-            request.context.ok_or_else(|| {
-                HandlerError::new(
-                    "dex_sdk::HandlerError",
-                    "Worker request Context is required",
-                )
-            })?,
-            request.attributes,
-            Vec::new(),
-            None,
-            request.channel_infos,
+            ContextInput {
+                method: InvocationMethod::Rpc,
+                flow: flow.clone(),
+                metadata: request.context.ok_or_else(|| {
+                    HandlerError::new(
+                        "dex_sdk::HandlerError",
+                        "Worker request Context is required",
+                    )
+                })?,
+                attributes: request.attributes,
+                locals: Vec::new(),
+                condition_results: None,
+                channel_infos: request.channel_infos,
+            },
+            self.runtime_handle.clone(),
+            self.flow_service.clone(),
         )?;
         let input = request
             .input

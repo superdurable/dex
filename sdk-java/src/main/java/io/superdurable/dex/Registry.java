@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +50,7 @@ public final class Registry {
     private final List<Flow<?>> flows;
     private final Map<String, RegisteredFlow> registeredFlows;
     private final Map<String, IndexType> attributeIndexes;
+    private final Map<Stream<?>, RegisteredFlow> streamFlows;
 
     /**
      * Builds and validates a registry from application Flow instances.
@@ -66,6 +68,21 @@ public final class Registry {
         this.flows = Collections.unmodifiableList(new ArrayList<Flow<?>>(flows));
         this.registeredFlows = Collections.unmodifiableMap(assembled);
         this.attributeIndexes = Collections.unmodifiableMap(indexes);
+        final Map<Stream<?>, RegisteredFlow> owners =
+                new IdentityHashMap<Stream<?>, RegisteredFlow>();
+        for (RegisteredFlow registered : assembled.values()) {
+            for (PersistenceDefinition definition : registered.getPersistence().values()) {
+                if (definition instanceof Stream) {
+                    final Stream<?> stream = (Stream<?>) definition;
+                    if (owners.put(stream, registered) != null) {
+                        throw new FlowDefinitionException(
+                                "Stream " + stream.getStreamName()
+                                        + " is registered by multiple Flows");
+                    }
+                }
+            }
+        }
+        this.streamFlows = Collections.unmodifiableMap(owners);
     }
 
     List<Flow<?>> getFlows() {
@@ -92,6 +109,15 @@ public final class Registry {
         }
         throw new FlowDefinitionException(
                 "Flow class is not registered: " + flowClass.getName());
+    }
+
+    RegisteredFlow getFlow(final Stream<?> stream) {
+        final RegisteredFlow flow = streamFlows.get(stream);
+        if (flow == null) {
+            throw new FlowDefinitionException(
+                    "Stream is not registered: " + stream.getStreamName());
+        }
+        return flow;
     }
 
     private static Map<String, RegisteredFlow> assemble(
@@ -203,6 +229,9 @@ public final class Registry {
             addPersistence(flowType, persistence, definition, attributeIndexes);
         }
         for (PersistenceDefinition definition : schema.getChannels()) {
+            addPersistence(flowType, persistence, definition, attributeIndexes);
+        }
+        for (PersistenceDefinition definition : schema.getStreams()) {
             addPersistence(flowType, persistence, definition, attributeIndexes);
         }
         return persistence;

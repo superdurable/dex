@@ -24,6 +24,8 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    Stream,
+    StreamMessage,
     Worker,
     graceful_complete,
     rpc,
@@ -46,11 +48,17 @@ class TypedStep(Step[Input]):
         return graceful_complete()
 
 
+progress = Stream("progress", str, 10 * 1024 * 1024)
+
+
 class TypedFlow(Flow[Input]):
     start = TypedStep()
 
     def get_steps(self) -> StepList[Input]:
         return StepList.start_step(self.start)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(progress)
 
     @rpc()
     def typed_rpc(self, context: Context, input: Input) -> RPCResult[Output]:
@@ -67,6 +75,8 @@ output: Output = client.invoke_rpc(
     "flow-id",
     Input("input"),
 )
+client.write_stream("flow-id", progress, "frontend/1", "starting")
+stream_message: StreamMessage[str] = client.read_stream("flow-id", progress)
 
 status = Attribute("status", str, sync_to_attribute_store=True)
 items = AttributeMap("items", int, sync_to_attribute_store=True)

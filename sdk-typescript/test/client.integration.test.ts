@@ -14,6 +14,7 @@ import { Server, ServerCredentials, type sendUnaryData } from "@grpc/grpc-js";
 import {
   Client,
   Registry,
+  Stream,
   StepList,
   jsonCodec,
   rpc,
@@ -36,9 +37,12 @@ import {
   type InvokeRPCResponse,
   type LoadBlobsRequest,
   type LoadBlobsResponse,
+  type ReadStreamRequest,
+  type ReadStreamResponse,
   type StartFlowRequest,
   type StartFlowResponse,
   type WaitForFlowRequest,
+  type WriteStreamRequest,
 } from "../src/gen/dex.js";
 
 interface Input {
@@ -57,6 +61,7 @@ const outputCodec = jsonCodec<Output>({
   typeName: "Output",
   decode: (value) => value as Output,
 });
+const thinking = new Stream("thinking", stringCodec, 1_048_576);
 
 class Start implements Step<Input> {
   public readonly inputCodec = inputCodec;
@@ -81,6 +86,10 @@ class TestFlow implements Flow<Input> {
     return StepList.startStep(this.start);
   }
 
+  public getPersistenceSchema() {
+    return { streams: [thinking] };
+  }
+
   @rpc({ inputCodec, outputCodec })
   public accept(_context: Context, _input: Input): RPCResult<Output> {
     return { output: { accepted: true } };
@@ -88,7 +97,12 @@ class TestFlow implements Flow<Input> {
 }
 
 test("Client maps typed calls and hydrates blob-backed outputs", async () => {
-  const requests: { start?: StartFlowRequest; rpc?: InvokeRPCRequest } = {};
+  const requests: {
+    start?: StartFlowRequest;
+    rpc?: InvokeRPCRequest;
+    writeStream?: WriteStreamRequest;
+    readStream?: ReadStreamRequest;
+  } = {};
   const hydratedOutput = protoJson({ accepted: true });
   const server = new Server();
   server.addService(FlowServiceService, {
@@ -99,6 +113,21 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     invokeRpc(call, callback: sendUnaryData<InvokeRPCResponse>) {
       requests.rpc = call.request as InvokeRPCRequest;
       callback(null, { output: hydratedOutput });
+    },
+    writeStream(call, callback) {
+      requests.writeStream = call.request as WriteStreamRequest;
+      callback(null, {});
+    },
+    readStream(call, callback: sendUnaryData<ReadStreamResponse>) {
+      requests.readStream = call.request as ReadStreamRequest;
+      callback(null, {
+        message: {
+          value: Value.create({ kind: { $case: "stringValue", value: "working" } }),
+          resumeToken: "resume-1",
+          createdTime: new Date("2026-08-27T12:00:00.000Z"),
+          idempotencyKey: "client-1",
+        },
+      });
     },
     waitForFlow(
       call: { request: WaitForFlowRequest },
@@ -168,6 +197,13 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.deepEqual(await client.invokeRPC(flow.accept, "flow-1", { message: "hello" }), {
       accepted: true,
     });
+    await client.writeStream("flow-1", thinking, "client-1", "starting");
+    const message = await client.readStream("flow-1", thinking, "previous", 2_000);
+    assert.equal(message.value, "working");
+    assert.equal(message.resumeToken, "resume-1");
+    assert.equal(message.createdTime.toISOString(), "2026-08-27T12:00:00.000Z");
+    assert.equal(message.idempotencyKey, "client-1");
+    await assert.rejects(client.writeStream("flow-1", thinking, "bad#key", "ignored"), /must not contain/);
     const result = await client.waitForFlow("flow-1");
     assert.equal(result.completions.length, 2);
     assert.equal(result.completions[0]?.stepType, "Start");
@@ -187,6 +223,17 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
     assert.equal(requests.rpc?.rpcName, "accept");
+    assert.deepEqual(requests.writeStream, {
+      flowId: "flow-1",
+      flowType: "TestFlow",
+      streamName: "thinking",
+      maxEstimatedBytes: 1_048_576n,
+      value: Value.create({ kind: { $case: "stringValue", value: "starting" } }),
+      idempotencyKey: "client-1",
+    });
+    assert.equal(requests.readStream?.flowType, "TestFlow");
+    assert.equal(requests.readStream?.resumeToken, "previous");
+    assert.equal(requests.readStream?.waitTimeSeconds, 2);
     assert.equal(cache.get("blob-1") === undefined, false);
     assert.equal(cache.get("blob-2") === undefined, false);
   } finally {

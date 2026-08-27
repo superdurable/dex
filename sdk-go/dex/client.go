@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -28,6 +29,8 @@ import (
 )
 
 var errClientClosed = errors.New("dex: Client is closed")
+
+const serverCappedLongPollSeconds = int32(math.MaxInt32)
 
 // ClientOptions configures the FlowService client.
 type ClientOptions struct {
@@ -616,12 +619,11 @@ func (client *Client) StopFlow(
 	return translateRPCError(err, "StopFlow", flowID, flowTargetActive)
 }
 
-// WaitForFlow blocks until a Flow closes or the configured long-poll wait expires.
+// WaitForFlow blocks until a Flow closes or ctx ends.
 //
-// options controls the server wait duration and whether Step completion results are
-// included. Every terminal status returns FlowResult with any failure details and available
-// completions. LongPollTimeoutError means the Flow remained open; callers may call WaitForFlow
-// again. Context cancellation and hydration failures are also returned.
+// options controls whether Step completion results are included. The server may end one long poll
+// at its configured cap and return LongPollTimeoutError; callers may repeat the call. Use
+// context.WithTimeout or context.WithDeadline for a shorter Go-side wait.
 func (client *Client) WaitForFlow(
 	ctx context.Context,
 	flowID string,
@@ -630,17 +632,15 @@ func (client *Client) WaitForFlow(
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return FlowResult{}, err
 	}
-	needsResults, timeout, err := mapWaitForFlowOptions(options)
-	if err != nil {
-		return FlowResult{}, err
-	}
+	needsResults := mapWaitForFlowOptions(options)
 	response, err := client.service.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
 		FlowId:          flowID,
 		NeedsResults:    needsResults,
-		WaitTimeSeconds: timeout,
+		WaitTimeSeconds: serverCappedLongPollSeconds,
 	})
 	if err != nil {
-		return FlowResult{}, translateRPCError(
+		return FlowResult{}, translateWaitRPCError(
+			ctx,
 			err,
 			"WaitForFlow",
 			flowID,
@@ -839,27 +839,22 @@ func (client *Client) UpdateFlowConfig(
 	return translateRPCError(err, "UpdateFlowConfig", flowID, flowTargetActive)
 }
 
-// WaitForStepCompletion blocks until a Step execution completes or the wait expires.
+// WaitForStepCompletion blocks until a Step execution completes or ctx ends.
 //
 // stepExecution identifies the Step type and execution number; nil means execution
-// one. options controls the server-side long-poll duration. A nil error means the
-// requested execution completed, but this method does not return its output.
+// one. A nil error means the requested execution completed, but this method does not return its output.
 // LongPollTimeoutError is retryable by calling the method again. Invalid identifiers,
-// inactive Flows, context, transport, and server errors are also returned.
+// inactive Flows, context, transport, and server errors are also returned. Use context.WithTimeout
+// or context.WithDeadline for a shorter Go-side wait.
 func (client *Client) WaitForStepCompletion(
 	ctx context.Context,
 	flowID string,
 	stepExecution StepExecutionID,
-	options WaitOptions,
 ) error {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return err
 	}
 	executionNumber, err := effectiveExecutionNumber(stepExecution)
-	if err != nil {
-		return err
-	}
-	timeout, err := mapWaitOptions(options)
 	if err != nil {
 		return err
 	}
@@ -873,11 +868,14 @@ func (client *Client) WaitForStepCompletion(
 			FlowId:              flowID,
 			StepType:            stepExecution.StepType,
 			StepExecutionNumber: strconv.FormatInt(int64(executionNumber), 10),
-			WaitTimeSeconds:     timeout,
+			WaitTimeSeconds:     serverCappedLongPollSeconds,
 			RequestId:           requestID,
 		},
 	)
-	return translateRPCError(err, "WaitForStepCompletion", flowID, flowTargetActive)
+	if err != nil {
+		return translateWaitRPCError(ctx, err, "WaitForStepCompletion", flowID, flowTargetActive)
+	}
+	return nil
 }
 
 // TriggerContinueAsNew asks an active Flow to roll its history into a new run.
@@ -983,6 +981,100 @@ func (client *Client) publishToChannel(
 		Messages: messages,
 	})
 	return translateRPCError(err, "PublishToChannel", flowID, flowTargetActive)
+}
+
+// WriteStream appends one best-effort message using client-supplied idempotency.
+//
+// stream must be registered in exactly one Flow schema in this Client's Registry. flowID need not
+// identify an existing or active Flow. idempotencyKey must be non-empty and must not contain "#",
+// which is reserved for Step-generated keys. Reusing a retained key is a successful first-write-wins
+// no-op even when value differs.
+func (client *Client) WriteStream(
+	ctx context.Context,
+	flowID string,
+	stream StreamDef,
+	idempotencyKey string,
+	value any,
+) error {
+	if err := client.validateFlowCall(ctx, flowID); err != nil {
+		return err
+	}
+	if idempotencyKey == "" {
+		return fmt.Errorf("dex: Stream idempotency key must not be empty")
+	}
+	if strings.Contains(idempotencyKey, "#") {
+		return fmt.Errorf("dex: Stream client idempotency key must not contain %q", "#")
+	}
+	flow, registered, err := client.registry.resolveStream(stream)
+	if err != nil {
+		return err
+	}
+	encoded, err := encodeValue(value)
+	if err != nil {
+		return err
+	}
+	_, err = client.service.WriteStream(ctx, &dexpb.WriteStreamRequest{
+		FlowId:            flowID,
+		FlowType:          flow.flowType,
+		StreamName:        registered.definition.name,
+		MaxEstimatedBytes: registered.definition.maxEstimatedBytes,
+		Value:             encoded,
+		IdempotencyKey:    idempotencyKey,
+	})
+	return translateRPCError(err, "WriteStream", flowID, flowTargetNone)
+}
+
+// ReadStream returns the next retained message after resumeToken and decodes it into valuePtr.
+//
+// An empty token starts at the current retained head. A token older than that head also returns the
+// current head. The call blocks until a message arrives, the server's long-poll cap expires, or ctx
+// is canceled. Use context.WithTimeout to impose a shorter Go-side deadline. Pass the returned
+// StreamMessage.ResumeToken unchanged to resume after this message.
+func (client *Client) ReadStream(
+	ctx context.Context,
+	flowID string,
+	stream StreamDef,
+	resumeToken string,
+	valuePtr any,
+) (StreamMessage, error) {
+	if err := client.validateFlowCall(ctx, flowID); err != nil {
+		return StreamMessage{}, err
+	}
+	flow, registered, err := client.registry.resolveStream(stream)
+	if err != nil {
+		return StreamMessage{}, err
+	}
+	response, err := client.service.ReadStream(ctx, &dexpb.ReadStreamRequest{
+		FlowId:          flowID,
+		FlowType:        flow.flowType,
+		StreamName:      registered.definition.name,
+		ResumeToken:     resumeToken,
+		WaitTimeSeconds: serverCappedLongPollSeconds,
+	})
+	if err != nil {
+		return StreamMessage{}, translateWaitRPCError(
+			ctx,
+			err,
+			"ReadStream",
+			flowID,
+			flowTargetNone,
+		)
+	}
+	if response == nil || response.Message == nil || response.Message.Value == nil ||
+		response.Message.ResumeToken == "" || response.Message.CreatedTime == nil {
+		return StreamMessage{}, fmt.Errorf("dex: ReadStream response is incomplete")
+	}
+	if err := response.Message.CreatedTime.CheckValid(); err != nil {
+		return StreamMessage{}, fmt.Errorf("dex: ReadStream created time is invalid: %w", err)
+	}
+	if err := decodeValue(response.Message.Value, valuePtr); err != nil {
+		return StreamMessage{}, err
+	}
+	return StreamMessage{
+		ResumeToken:    response.Message.ResumeToken,
+		CreatedTime:    response.Message.CreatedTime.AsTime(),
+		IdempotencyKey: response.Message.IdempotencyKey,
+	}, nil
 }
 
 // GetAttribute decodes a singleton Attribute from an existing Flow into valuePtr.
@@ -1258,17 +1350,15 @@ func (client *Client) setAttributes(
 
 // WaitForAttributeEqual blocks until a singleton Attribute equals expected.
 //
-// expected must match the registered Attribute type. options controls the server-side
-// long-poll duration. A nil error means equality was observed. LongPollTimeoutError
+// expected must match the registered Attribute type. A nil error means equality was observed. LongPollTimeoutError
 // means the condition was not observed and the call may be repeated. Validation,
-// serialization, inactive-Flow, context, transport, and server failures also return
-// errors.
+// serialization, inactive-Flow, context, transport, and server failures also return errors. Use
+// context.WithTimeout or context.WithDeadline for a shorter Go-side wait.
 func (client *Client) WaitForAttributeEqual(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
 	expected any,
-	options WaitOptions,
 ) error {
 	return client.waitForAttributeEqual(
 		ctx,
@@ -1277,23 +1367,20 @@ func (client *Client) WaitForAttributeEqual(
 		"",
 		false,
 		expected,
-		options,
 	)
 }
 
 // WaitForAttributeMapInstanceEqual blocks until one AttributeMap instance equals expected.
 //
-// instance must be non-empty and expected must match the registered type. options
-// controls the server-side long-poll duration. A nil error means equality was
-// observed. LongPollTimeoutError is retryable. Validation, serialization,
-// inactive-Flow, context, transport, and server failures also return errors.
+// instance must be non-empty and expected must match the registered type. A nil error means equality
+// was observed. LongPollTimeoutError is retryable. Use context.WithTimeout or
+// context.WithDeadline for a shorter Go-side wait.
 func (client *Client) WaitForAttributeMapInstanceEqual(
 	ctx context.Context,
 	flowID string,
 	attribute AttributeDef,
 	instance string,
 	expected any,
-	options WaitOptions,
 ) error {
 	return client.waitForAttributeEqual(
 		ctx,
@@ -1302,7 +1389,6 @@ func (client *Client) WaitForAttributeMapInstanceEqual(
 		instance,
 		true,
 		expected,
-		options,
 	)
 }
 
@@ -1313,7 +1399,6 @@ func (client *Client) waitForAttributeEqual(
 	instance string,
 	isMap bool,
 	expected any,
-	options WaitOptions,
 ) error {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return err
@@ -1333,10 +1418,6 @@ func (client *Client) waitForAttributeEqual(
 	if !isPrimitiveValue(encoded) {
 		return fmt.Errorf("dex: WaitForAttributeEqual supports only string, boolean, or number values")
 	}
-	timeout, err := mapWaitOptions(options)
-	if err != nil {
-		return err
-	}
 	requestID, err := newRequestID()
 	if err != nil {
 		return err
@@ -1348,10 +1429,26 @@ func (client *Client) waitForAttributeEqual(
 				Equal: &dexpb.WaitForAttributeEqual{Key: name, Value: encoded},
 			},
 		},
-		WaitTimeSeconds: timeout,
+		WaitTimeSeconds: serverCappedLongPollSeconds,
 		RequestId:       requestID,
 	})
-	return translateRPCError(err, "WaitForAttribute", flowID, flowTargetActive)
+	if err != nil {
+		return translateWaitRPCError(ctx, err, "WaitForAttribute", flowID, flowTargetActive)
+	}
+	return nil
+}
+
+func translateWaitRPCError(
+	ctx context.Context,
+	err error,
+	op string,
+	flowID string,
+	target flowTargetRequirement,
+) error {
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	return translateRPCError(err, op, flowID, target)
 }
 
 func isPrimitiveValue(value *dexpb.Value) bool {

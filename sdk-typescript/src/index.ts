@@ -20,6 +20,7 @@ export * from "./retry-after.js";
 export { rpc } from "./rpc.js";
 export type { RPC, RPCOptions, RPCResult } from "./rpc.js";
 export * from "./step.js";
+export * from "./stream.js";
 export * from "./subflow.js";
 export * from "./wait.js";
 export * from "./worker.js";

@@ -26,6 +26,7 @@ import {
   type GetAttributesResponse,
   type GetFlowSummaryResponse,
   type InvokeRPCResponse,
+  type ReadStreamResponse,
   type ResetFlowResponse,
   type SearchFlowsResponse,
   type SearchFlowsResponseEntry,
@@ -50,6 +51,7 @@ import {
 import {
   registeredFlow,
   registeredRPC,
+  registeredStream,
   type Flow,
   type RegisteredFlow,
   type Registry,
@@ -84,6 +86,7 @@ import type { RetryPolicy, StepOptions } from "./step.js";
 import { requireName } from "./validation.js";
 import { codecOrJson, decodeUnknown, decodeValue, encodeValue, ValueHydrator } from "./value-mapper.js";
 import { ChannelMap, type Channel } from "./wait.js";
+import type { Stream, StreamMessage } from "./stream.js";
 
 const defaultServerAddress = "localhost:8801";
 
@@ -496,6 +499,76 @@ export class Client {
         callback,
       ),
     );
+  }
+
+  /**
+   * Appends one typed best-effort Stream message with client idempotency.
+   * @typeParam T - Stream message type.
+   * @param flowId - Logical Flow instance ID; the Flow need not exist or be active.
+   * @param stream - Stream registered in exactly one Flow schema.
+   * @param idempotencyKey - Non-empty key without `#`; retained duplicates are successful no-ops.
+   * @param value - Typed message to append.
+   */
+  public async writeStream<T>(
+    flowId: string,
+    stream: Stream<T>,
+    idempotencyKey: string,
+    value: T,
+  ): Promise<void> {
+    requireName(idempotencyKey);
+    if (idempotencyKey.includes("#")) {
+      throw new TypeError("Stream client idempotency key must not contain #");
+    }
+    const flow = registeredStream(this.registry, stream as Stream<unknown>);
+    await unary<Empty>(
+      { operation: "writeStream", flowId, requirement: "none" },
+      (callback) => this.service.writeStream({
+        flowId: requireName(flowId),
+        flowType: flow.name,
+        streamName: stream.name,
+        maxEstimatedBytes: BigInt(stream.maxEstimatedBytes),
+        value: encodeValue(stream.codec, value),
+        idempotencyKey,
+      }, callback),
+    );
+  }
+
+  /**
+   * Returns the next retained Stream message after an opaque resume token.
+   * @typeParam T - Stream message type.
+   * @param flowId - Logical Flow instance ID used as the Stream instance key.
+   * @param stream - Stream registered in exactly one Flow schema.
+   * @param resumeToken - Previous message token, or empty to start at the retained head.
+   * @param timeoutMs - Optional server-side long-poll duration in milliseconds.
+   * @returns Decoded value and resumable metadata for one retained message.
+   */
+  public async readStream<T>(
+    flowId: string,
+    stream: Stream<T>,
+    resumeToken = "",
+    timeoutMs?: number,
+  ): Promise<StreamMessage<T>> {
+    const flow = registeredStream(this.registry, stream as Stream<unknown>);
+    const response = await unary<ReadStreamResponse>(
+      { operation: "readStream", flowId, requirement: "none" },
+      (callback) => this.service.readStream({
+        flowId: requireName(flowId),
+        flowType: flow.name,
+        streamName: stream.name,
+        resumeToken,
+        waitTimeSeconds: seconds(timeoutMs),
+      }, callback),
+    );
+    const message = response.message;
+    if (message?.value === undefined || message.createdTime === undefined || message.resumeToken === "") {
+      throw new TypeError("Dex returned an incomplete Stream message");
+    }
+    return {
+      value: decodeValue(stream.codec, message.value),
+      resumeToken: message.resumeToken,
+      createdTime: message.createdTime,
+      idempotencyKey: message.idempotencyKey,
+    };
   }
 
   /**

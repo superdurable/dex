@@ -270,4 +270,13 @@ public interface Context {
      * @return the typed messages consumed by the satisfied condition
      */
     <T> List<T> channelResults(ChannelMap<T> channel, String instance);
+
+    /**
+     * Appends one immediate best-effort Stream message.
+     *
+     * @param stream the Stream registered by the current Flow
+     * @param value the typed message to append
+     * @param <T> the Stream message type
+     */
+    <T> void writeStream(Stream<T> stream, T value);
 }

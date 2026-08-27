@@ -37,12 +37,15 @@ import io.superdurable.gen.GetFlowSummaryRequest;
 import io.superdurable.gen.GetFlowSummaryResponse;
 import io.superdurable.gen.LoadBlobsRequest;
 import io.superdurable.gen.LoadBlobsResponse;
+import io.superdurable.gen.ReadStreamRequest;
+import io.superdurable.gen.ReadStreamResponse;
 import io.superdurable.gen.StopFlowRequest;
 import io.superdurable.gen.StepCompletionOutput;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WaitForFlowRequest;
 import io.superdurable.gen.WaitForStepCompletionRequest;
 import io.superdurable.gen.WaitForStepCompletionResponse;
+import io.superdurable.gen.WriteStreamRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,17 +63,21 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ClientExceptionIntegrationTest {
+    private static final Stream<String> THINKING =
+            Stream.define("thinking", String.class, 1_048_576);
     private Server server;
     private Client client;
+    private ErrorFlowService flowService;
 
     @BeforeEach
     void startServer() throws Exception {
+        flowService = new ErrorFlowService();
         server = ServerBuilder.forPort(0)
-                .addService(new ErrorFlowService())
+                .addService(flowService)
                 .build()
                 .start();
         client = new Client(
-                new Registry(Collections.<Flow<?>>emptyList()),
+                new Registry(Collections.<Flow<?>>singletonList(new StreamFlow())),
                 new TestBlobCache(),
                 new ClientOptions("127.0.0.1:" + server.getPort()));
     }
@@ -161,6 +168,30 @@ final class ClientExceptionIntegrationTest {
     }
 
     @Test
+    void mapsStreamTransportAndMetadata() {
+        client.writeStream("flow-1", THINKING, "client-1", "starting");
+        final StreamMessage<String> message = client.readStream(
+                "flow-1",
+                THINKING,
+                "previous",
+                Duration.ofSeconds(2));
+
+        assertEquals("StreamFlow", flowService.writeStreamRequest.getFlowType());
+        assertEquals("thinking", flowService.writeStreamRequest.getStreamName());
+        assertEquals(1_048_576, flowService.writeStreamRequest.getMaxEstimatedBytes());
+        assertEquals("client-1", flowService.writeStreamRequest.getIdempotencyKey());
+        assertEquals("previous", flowService.readStreamRequest.getResumeToken());
+        assertEquals(2, flowService.readStreamRequest.getWaitTimeSeconds());
+        assertEquals("working", message.getValue());
+        assertEquals("resume-1", message.getResumeToken());
+        assertEquals(java.time.Instant.parse("2026-08-27T12:00:00Z"), message.getCreatedTime());
+        assertEquals("client-1", message.getIdempotencyKey());
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> client.writeStream("flow-1", THINKING, "bad#key", "ignored"));
+    }
+
+    @Test
     void fallsBackForMissingUnknownAndMalformedDetails() {
         final DexServiceException missingDetails = assertThrows(
                 DexServiceException.class,
@@ -203,6 +234,34 @@ final class ClientExceptionIntegrationTest {
 
     private static final class ErrorFlowService
             extends FlowServiceGrpc.FlowServiceImplBase {
+        private WriteStreamRequest writeStreamRequest;
+        private ReadStreamRequest readStreamRequest;
+
+        @Override
+        public void writeStream(
+                final WriteStreamRequest request,
+                final StreamObserver<Empty> observer) {
+            writeStreamRequest = request;
+            observer.onNext(Empty.getDefaultInstance());
+            observer.onCompleted();
+        }
+
+        @Override
+        public void readStream(
+                final ReadStreamRequest request,
+                final StreamObserver<ReadStreamResponse> observer) {
+            readStreamRequest = request;
+            observer.onNext(ReadStreamResponse.newBuilder()
+                    .setMessage(io.superdurable.gen.StreamMessage.newBuilder()
+                            .setValue(Value.newBuilder().setStringValue("working"))
+                            .setResumeToken("resume-1")
+                            .setCreatedTime(com.google.protobuf.Timestamp.newBuilder()
+                                    .setSeconds(1_787_832_000L))
+                            .setIdempotencyKey("client-1"))
+                    .build());
+            observer.onCompleted();
+        }
+
         @Override
         public void getFlowSummary(
                 final GetFlowSummaryRequest request,
@@ -352,6 +411,23 @@ final class ClientExceptionIntegrationTest {
                     Status.Code.DEADLINE_EXCEEDED,
                     io.superdurable.gen.ErrorSubStatus.ERROR_SUB_STATUS_LONG_POLL_TIME_OUT,
                     "long poll timed out"));
+        }
+    }
+
+    private static final class StreamFlow implements Flow<String> {
+        @Override
+        public String getFlowType() {
+            return "StreamFlow";
+        }
+
+        @Override
+        public StepList<String> getSteps() {
+            return StepList.empty();
+        }
+
+        @Override
+        public PersistenceSchema getPersistenceSchema() {
+            return PersistenceSchema.of(THINKING);
         }
     }
 

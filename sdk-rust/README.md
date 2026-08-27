@@ -20,10 +20,29 @@ The public Rust API is defined in
 [Rust SDK User Interface](../docs/design/rust-sdk-user-interface.md).
 
 The `dex-sdk` source layout follows the application developer's mental model:
-Flows, Steps, Attributes, Channels, RPCs, timers, and waits each have dedicated
+Flows, Steps, Attributes, Channels, Streams, RPCs, timers, and waits each have dedicated
 modules. Client, Worker, Registry, and each options family are separated as
 their own entry points instead of being collected into infrastructure-oriented
 files. Handler failures and SDK/service failures are also separate modules.
+
+Streams carry best-effort resumable progress messages. Register a cloned
+definition in exactly one Flow schema; clones retain identity, and the
+approximate byte budget is shared across all instances of that Flow type.
+
+```rust
+let progress = Stream::<String>::new("progress", 10 * 1024 * 1024);
+let schema = PersistenceSchema::new().stream(&progress);
+
+progress.write(context, "running".to_owned())?;
+client.write_stream(flow_id, &progress, "frontend/1", "starting".to_owned())?;
+let message = client.read_stream_with_timeout(
+    flow_id, &progress, resume_token, Duration::from_secs(30)
+)?;
+```
+
+Step writes are immediate, use `runID#stepExecutionID`, and allow one write per
+Stream per invocation. Client keys cannot contain `#`. Reads return the decoded
+value, resume token, creation time, and idempotency key.
 
 Single-condition waits read as `Wait::until(condition)`. `Wait::all_of` and
 `Wait::any_of` remain available for aggregate conditions. Client failures use

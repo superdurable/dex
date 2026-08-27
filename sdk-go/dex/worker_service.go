@@ -23,14 +23,16 @@ const timeoutHandlerStepType = "sys:timeout_handler"
 
 type workerService struct {
 	dexpb.UnimplementedWorkerServiceServer
-	registry *Registry
-	hydrator valueHydrator
-	logger   Logger
+	registry    *Registry
+	hydrator    valueHydrator
+	flowService dexpb.FlowServiceClient
+	logger      Logger
 }
 
 func newWorkerService(
 	registry *Registry,
 	hydrator valueHydrator,
+	flowService dexpb.FlowServiceClient,
 	logger Logger,
 ) *workerService {
 	if registry == nil {
@@ -39,10 +41,14 @@ func newWorkerService(
 	if hydrator == nil {
 		panic("dex: WorkerService requires value hydrator")
 	}
+	if flowService == nil {
+		panic("dex: WorkerService requires FlowService client")
+	}
 	return &workerService{
-		registry: registry,
-		hydrator: hydrator,
-		logger:   resolveLogger(logger, nil),
+		registry:    registry,
+		hydrator:    hydrator,
+		flowService: flowService,
+		logger:      resolveLogger(logger, nil),
 	}
 }
 
@@ -104,6 +110,7 @@ func (service *workerService) invokeWaitForMethod(
 		ctx,
 		invocationWaitFor,
 		flow,
+		service.flowService,
 		request.Context,
 		request.Attributes,
 		nil,
@@ -194,6 +201,7 @@ func (service *workerService) invokeExecuteMethod(
 		ctx,
 		invocationExecute,
 		flow,
+		service.flowService,
 		request.Context,
 		request.Attributes,
 		request.StepExeLocals,
@@ -267,6 +275,7 @@ func (service *workerService) invokeTimeoutHandler(
 		ctx,
 		invocationExecute,
 		flow,
+		service.flowService,
 		request.Context,
 		request.Attributes,
 		request.StepExeLocals,
@@ -349,6 +358,7 @@ func (service *workerService) invokeWorkerRPC(
 		ctx,
 		invocationRPC,
 		flow,
+		service.flowService,
 		request.Context,
 		request.Attributes,
 		nil,

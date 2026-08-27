@@ -6,7 +6,7 @@ Python SDK for [Dex workflow engine](https://github.com/superdurable/dex)
 ## New user contracts
 
 The rewrite targets Python 3.11+ and exposes strongly typed workflow contracts
-from `dex`. This phase includes definitions, attributes, channels, waits,
+from `dex`. This phase includes definitions, attributes, channels, streams, waits,
 decisions, codecs, registry validation, synchronous client calls, and synchronous
 worker handlers. Python owns its gRPC Client and Worker transport;
 the shared Rust Core is used only for BlobCache.
@@ -18,6 +18,7 @@ import dex
 
 counter = dex.Attribute("counter", int)
 counters_by_region = dex.AttributeMap("counters-by-region", int)
+progress = dex.Stream("progress", str, 10 * 1024 * 1024)
 
 class Run(dex.Step[str]):
     def wait_for(
@@ -30,6 +31,7 @@ class Run(dex.Step[str]):
     def execute(
         self, context: dex.Context, input: str
     ) -> dex.StepDecision:
+        progress.write(context, "running")
         return dex.graceful_complete(input)
 
 class CounterFlow(dex.Flow[str]):
@@ -42,7 +44,7 @@ class CounterFlow(dex.Flow[str]):
         return dex.StepList.start_step(self.run)
 
     def get_persistence_schema(self) -> dex.PersistenceSchema:
-        return dex.PersistenceSchema.of(counter, counters_by_region)
+        return dex.PersistenceSchema.of(counter, counters_by_region, progress)
 
     @dex.rpc(name="Increment")
     def increment(
@@ -57,8 +59,25 @@ registry = dex.Registry((flow,))
 Registry derives codecs from declared Python types and handler annotations.
 Built-in primitive types and dataclasses need no codec arguments. Register an
 explicit codec only for a custom encoding or a type Registry cannot derive.
-`PersistenceSchema.of(...)` accepts attributes and channels together and
+`PersistenceSchema.of(...)` accepts attributes, channels, and streams together and
 partitions them by definition type.
+
+Streams provide best-effort resumable progress messages. Their approximate byte
+budget is shared by all instances of the owning Flow type. Client keys cannot
+contain `#`; Step writes generate `runID#stepExecutionID` and allow one write per
+Stream per invocation.
+
+```python
+client.write_stream(flow_id, progress, "frontend/1", "starting")
+message = client.read_stream(
+    flow_id, progress, resume_token, timeout=timedelta(seconds=30)
+)
+resume_token = message.resume_token
+```
+
+Async Step handlers await **Stream.write**, and **AsyncClient** exposes matching
+async methods. Reads return the decoded value, resume token, creation time, and
+idempotency key.
 
 `Worker` and `AsyncWorker` synchronize all registered Indexed Attributes with
 Dex Server before opening their listener. Existing indexes return immediately;

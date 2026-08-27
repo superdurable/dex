@@ -28,10 +28,12 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         registry: Registry,
         values: ValueMapper,
         hydrator: AsyncValueHydrator,
+        stream_writer: Callable[[pb.WriteStreamRequest], Any],
     ) -> None:
         self._registry = registry
         self._values = values
         self._async_hydrator = hydrator
+        self._stream_writer = stream_writer
 
     async def invoke_wait_for(  # type: ignore[override]
         self,
@@ -46,6 +48,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             flow,
             request.context,
             self._values,
+            self._stream_writer,
             request.attributes,
             is_active=is_active,
         )
@@ -89,6 +92,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             flow,
             request.context,
             self._values,
+            self._stream_writer,
             request.attributes,
             request.step_exe_locals,
             condition_results,
@@ -137,6 +141,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             flow,
             request.context,
             self._values,
+            self._stream_writer,
             request.attributes,
             request.step_exe_locals,
             condition_results,
@@ -172,6 +177,7 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             flow,
             request.context,
             self._values,
+            self._stream_writer,
             request.attributes,
             channel_infos=dict(request.channel_infos),
             is_active=is_active,

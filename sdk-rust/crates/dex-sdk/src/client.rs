@@ -18,11 +18,12 @@ use dex_protocol::dex::{
     FlowRetryPolicy, FlowStartOptions, FlowStatus as ProtoFlowStatus,
     FlowTimeoutPolicy as ProtoFlowTimeoutPolicy, GetAttributesRequest, GetFlowSummaryRequest,
     IdReusePolicy as ProtoIdReusePolicy, InvokeRpcRequest, PublishToChannelRequest,
-    ResetFlowRequest, SearchFlowsRequest, SetAttributesRequest, SkipTimerRequest, StartFlowRequest,
-    StepDurability as ProtoStepDurability, StopFlowRequest, StopType as ProtoStopType,
-    TriggerContinueAsNewRequest, UpdateFlowConfigRequest, WaitForAttributeCondition,
-    WaitForAttributeEqual, WaitForAttributeRequest, WaitForFlowRequest,
-    WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget, wait_for_attribute_condition,
+    ReadStreamRequest, ResetFlowRequest, SearchFlowsRequest, SetAttributesRequest,
+    SkipTimerRequest, StartFlowRequest, StepDurability as ProtoStepDurability, StopFlowRequest,
+    StopType as ProtoStopType, TriggerContinueAsNewRequest, UpdateFlowConfigRequest,
+    WaitForAttributeCondition, WaitForAttributeEqual, WaitForAttributeRequest, WaitForFlowRequest,
+    WaitForStepCompletionRequest, WorkerTarget as ProtoWorkerTarget, WriteStreamRequest,
+    wait_for_attribute_condition,
 };
 use tokio::runtime::Runtime;
 use tonic::transport::Endpoint;
@@ -39,7 +40,7 @@ use crate::{
     Flow, FlowConfig, FlowErrorType, FlowInfo, FlowResult, FlowStatus, FlowTimeoutPolicy,
     IdReusePolicy, Registry, RetryPolicy, Rpc, SdkError, SdkResult, SearchFlowEntry,
     SearchFlowsPage, StartFlowOptions, StepCompletion, StepDurability, StepExecutionId,
-    StopFlowOptions, TimeTravelOptions, TimerId, Value, WorkerTarget,
+    StopFlowOptions, Stream, StreamMessage, TimeTravelOptions, TimerId, Value, WorkerTarget,
 };
 
 /// Provides blocking, typed control of registered Dex Flows.
@@ -329,6 +330,72 @@ impl Client {
             &crate::registry::physical_name(channel.name(), instance),
             values,
         )
+    }
+
+    /// Appends one typed best-effort Stream message with client idempotency.
+    ///
+    /// The Flow instance need not exist or be active. Retained duplicate keys are successful
+    /// first-write-wins no-ops.
+    ///
+    /// # Errors
+    ///
+    /// Returns a definition error for an unregistered Stream, InvalidArgument for an empty ID or
+    /// key containing `#`, a mapping error, or a FlowService failure.
+    pub fn write_stream<T: Value>(
+        &self,
+        flow_id: &str,
+        stream: &Stream<T>,
+        idempotency_key: &str,
+        value: T,
+    ) -> SdkResult<()> {
+        require_name(flow_id, "Flow ID")?;
+        require_name(idempotency_key, "Stream idempotency key")?;
+        if idempotency_key.contains('#') {
+            return Err(invalid("Stream client idempotency key must not contain #"));
+        }
+        let flow_type = self.registry.flow_for_stream(stream)?.name.to_string();
+        let request = WriteStreamRequest {
+            flow_id: flow_id.to_string(),
+            flow_type,
+            stream_name: stream.name().to_string(),
+            max_estimated_bytes: stream.max_estimated_bytes(),
+            value: Some(value_mapper::encode(&value)?),
+            idempotency_key: idempotency_key.to_string(),
+        };
+        self.call_empty(
+            "write_stream",
+            Some(flow_id),
+            FlowTargetRequirement::None,
+            |mut service| async move { service.write_stream(request).await },
+        )
+    }
+
+    /// Blocks for the next retained Stream message using the server default wait.
+    ///
+    /// An empty token starts at the retained head. Pass the returned token unchanged to resume.
+    pub fn read_stream<T: Value>(
+        &self,
+        flow_id: &str,
+        stream: &Stream<T>,
+        resume_token: &str,
+    ) -> SdkResult<StreamMessage<T>> {
+        self.read_stream_result(flow_id, stream, resume_token, None)
+    }
+
+    /// Blocks for the next retained Stream message with an explicit server wait.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SdkError::LongPollTimeout`] when no message arrives, plus the same definition,
+    /// duration, mapping, and service errors as [`Self::read_stream`].
+    pub fn read_stream_with_timeout<T: Value>(
+        &self,
+        flow_id: &str,
+        stream: &Stream<T>,
+        resume_token: &str,
+        timeout: Duration,
+    ) -> SdkResult<StreamMessage<T>> {
+        self.read_stream_result(flow_id, stream, resume_token, Some(timeout))
     }
 
     /// Blocks until a Flow closes and returns its terminal result.
@@ -878,6 +945,59 @@ impl Client {
                     .await
             },
         )
+    }
+
+    fn read_stream_result<T: Value>(
+        &self,
+        flow_id: &str,
+        stream: &Stream<T>,
+        resume_token: &str,
+        timeout: Option<Duration>,
+    ) -> SdkResult<StreamMessage<T>> {
+        require_name(flow_id, "Flow ID")?;
+        let flow_type = self.registry.flow_for_stream(stream)?.name.to_string();
+        let wait_time_seconds = optional_seconds(timeout)?;
+        let request = ReadStreamRequest {
+            flow_id: flow_id.to_string(),
+            flow_type,
+            stream_name: stream.name().to_string(),
+            resume_token: resume_token.to_string(),
+            wait_time_seconds,
+        };
+        let mut service = self.service.clone();
+        let response = self.runtime.block_on(async {
+            service
+                .read_stream(request)
+                .await
+                .map(|response| response.into_inner())
+                .map_err(|status| {
+                    SdkError::from_status(
+                        status,
+                        "read_stream",
+                        Some(flow_id),
+                        FlowTargetRequirement::None,
+                    )
+                })
+        })?;
+        let message = response
+            .message
+            .ok_or_else(|| invalid("ReadStream omitted its message"))?;
+        if message.resume_token.is_empty() {
+            return Err(invalid("ReadStream returned an empty resume token"));
+        }
+        let value = message
+            .value
+            .ok_or_else(|| invalid("ReadStream omitted its Value"))?;
+        let created_time = message
+            .created_time
+            .map(timestamp)
+            .ok_or_else(|| invalid("ReadStream omitted its creation time"))?;
+        Ok(StreamMessage {
+            value: value_mapper::decode(&value)?,
+            resume_token: message.resume_token,
+            created_time,
+            idempotency_key: message.idempotency_key,
+        })
     }
 
     fn wait_for_flow_result(

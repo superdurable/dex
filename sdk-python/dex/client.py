@@ -35,18 +35,19 @@ from dex.flow_info import FlowInfo, FlowStatus, SearchFlowEntry, SearchFlowsPage
 from dex.flow_options import (
     FlowTimeoutPolicy,
     IdReusePolicy,
-    TimeTravelOptions,
-    TimeTravelStepMethod,
-    TimeTravelType,
     StartFlowOptions,
     StopFlowOptions,
     StopType,
+    TimeTravelOptions,
+    TimeTravelStepMethod,
+    TimeTravelType,
     _resolve_flow_timeout_policy,
 )
 from dex.flow_result import FlowResult, flow_result_from_proto
 from dex.runtime_errors import FlowErrorType
 from dex.step import RetryPolicy, StepDurability
 from dex.step_execution import StepExecutionId, TimerId
+from dex.stream import Stream, StreamMessage
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -97,6 +98,7 @@ class Client:
             registry,
             self._values,
             self._hydrator,
+            self._service.WriteStream,
         )
         self._closed = False
 
@@ -501,6 +503,109 @@ class Client:
             "publish",
             flow_id,
             "active",
+        )
+
+    def write_stream(
+        self,
+        flow_id: str,
+        stream: Stream[ValueT],
+        idempotency_key: str,
+        value: ValueT,
+    ) -> None:
+        """Append one typed best-effort Stream message with client idempotency.
+
+        Args:
+            flow_id: Logical Flow instance ID; the Flow need not exist or be active.
+            stream: Exact Stream object registered in one Flow schema.
+            idempotency_key: Non-empty key without ``#``; retained duplicates are no-ops.
+            value: Typed message to append.
+
+        Raises:
+            ValueError: If an ID is empty or the key contains the reserved separator.
+            FlowDefinitionError: If the Stream is not registered.
+            ValueMappingError: If the message cannot be encoded.
+            DexServiceError: If FlowService cannot append the message.
+        """
+        require_name(idempotency_key)
+        if "#" in idempotency_key:
+            raise ValueError("Stream client idempotency key must not contain #")
+        flow = self.registry._flow_for_stream(stream)
+        self._call(
+            self._service.WriteStream,
+            pb.WriteStreamRequest(
+                flow_id=require_name(flow_id),
+                flow_type=flow.name,
+                stream_name=stream.name,
+                max_estimated_bytes=stream.max_estimated_bytes,
+                value=self._values.encode(
+                    value,
+                    self._values.codec(stream.value_type),
+                ),
+                idempotency_key=idempotency_key,
+            ),
+            "write_stream",
+            flow_id,
+            "none",
+        )
+
+    def read_stream(
+        self,
+        flow_id: str,
+        stream: Stream[ValueT],
+        resume_token: str = "",
+        timeout: timedelta | None = None,
+    ) -> StreamMessage[ValueT]:
+        """Block for the next retained Stream message after a resume token.
+
+        Args:
+            flow_id: Logical Flow instance ID used as the Stream instance key.
+            stream: Exact Stream object registered in one Flow schema.
+            resume_token: Previous message token, or empty for the retained head.
+            timeout: Optional non-negative server-side long-poll duration.
+
+        Returns:
+            The decoded message, next resume token, creation time, and idempotency key.
+
+        Raises:
+            LongPollTimeoutError: If no message arrives before the server wait expires.
+            FlowDefinitionError: If the Stream is not registered.
+            ValueMappingError: If the retained message cannot be decoded.
+            DexServiceError: If FlowService cannot perform the read.
+        """
+        flow = self.registry._flow_for_stream(stream)
+        response = cast(
+            pb.ReadStreamResponse,
+            self._call(
+                self._service.ReadStream,
+                pb.ReadStreamRequest(
+                    flow_id=require_name(flow_id),
+                    flow_type=flow.name,
+                    stream_name=stream.name,
+                    resume_token=resume_token,
+                    wait_time_seconds=(
+                        0 if timeout is None else self._seconds32(timeout)
+                    ),
+                ),
+                "read_stream",
+                flow_id,
+                "none",
+            ),
+        )
+        if (
+            not response.HasField("message")
+            or not response.message.HasField("value")
+            or not response.message.HasField("created_time")
+            or not response.message.resume_token
+        ):
+            raise ValueError("Dex returned an incomplete Stream message")
+        return StreamMessage(
+            self._values.decode(
+                response.message.value,
+                self._values.codec(stream.value_type),
+            ),
+            response.message.resume_token,
+            response.message.created_time.ToDatetime(tzinfo=timezone.utc),
+            response.message.idempotency_key,
         )
 
     def wait_for_flow(

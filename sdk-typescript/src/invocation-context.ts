@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import type { Codec } from "./codec.js";
+import { FlowServiceClient, type WriteStreamRequest } from "./gen/dex.js";
 import { mapAttributeStoreSync } from "./attribute-store-sync.js";
 import type { Context } from "./context.js";
 import {
@@ -21,12 +22,13 @@ import {
   type KV,
   type Value,
 } from "./gen/dex.js";
-import type { RegisteredFlow } from "./flow.js";
+import { requireFlowStream, type RegisteredFlow } from "./flow.js";
 import { createFlowResultFromProto, type FlowResult } from "./flow-result.js";
 import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
 import { decodeValue, deletionValue, encodeValue } from "./value-mapper.js";
 import { requireName } from "./validation.js";
 import { ChannelMap, type Channel } from "./wait.js";
+import type { Stream } from "./stream.js";
 
 export type InvocationMethod = "waitFor" | "execute" | "rpc";
 
@@ -48,10 +50,12 @@ export class InvocationContext implements Context {
   private readonly events: KV[] = [];
   private readonly eventNames = new Set<string>();
   private readonly publications: ChannelMessage[] = [];
+  private readonly streamWrites = new Set<Stream<unknown>>();
 
   public constructor(
     private readonly method: InvocationMethod,
     private readonly flow: RegisteredFlow,
+    private readonly flowService: InstanceType<typeof FlowServiceClient>,
     metadata: ProtoContext | undefined,
     attributes: readonly KV[],
     locals: readonly KV[] = [],
@@ -73,6 +77,30 @@ export class InvocationContext implements Context {
     this.attributes = mapValues("Attribute", attributes);
     this.locals = mapValues("step-execution local", locals);
     this.channelInfos = new Map(Object.entries(channelInfos));
+  }
+
+  public async writeStream<T>(stream: Stream<T>, value: T): Promise<void> {
+    if (this.method === "rpc") {
+      throw new TypeError("Stream writes require a Step Context");
+    }
+    requireFlowStream(this.flow, stream as Stream<unknown>);
+    if (this.streamWrites.has(stream as Stream<unknown>)) {
+      throw new TypeError(`Stream ${stream.name} was already written by this Step execution`);
+    }
+    this.streamWrites.add(stream as Stream<unknown>);
+    try {
+      await writeStream(this.flowService, {
+        flowId: this.flowId,
+        flowType: this.flow.name,
+        streamName: stream.name,
+        maxEstimatedBytes: BigInt(stream.maxEstimatedBytes),
+        value: encodeValue(stream.codec, value),
+        idempotencyKey: `${this.runId}#${this.stepExecutionId}`,
+      });
+    } catch (failure) {
+      this.streamWrites.delete(stream as Stream<unknown>);
+      throw failure;
+    }
   }
 
   public hasTimerFired(index?: number): boolean {
@@ -268,6 +296,21 @@ export class InvocationContext implements Context {
       throw new TypeError(`persistence definition does not belong to Flow: ${definition.name}`);
     }
   }
+}
+
+function writeStream(
+  service: InstanceType<typeof FlowServiceClient>,
+  request: WriteStreamRequest,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    service.writeStream(request, (error) => {
+      if (error !== null) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 function definitionName(

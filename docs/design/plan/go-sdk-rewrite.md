@@ -29,12 +29,13 @@ adding aliases.
 
 ### Server contracts the SDK must preserve
 
-- `Flow`, `Step`, `Attribute`, `Channel`, `WaitFor`, and `Execute` are the
+- `Flow`, `Step`, `Attribute`, `Channel`, `Stream`, `WaitFor`, and `Execute` are the
   canonical concepts.
-- Persistence is the declared set of attributes plus channels.
+- Persistence is the declared set of attributes, channels, and Streams.
 - Attributes are unified. Indexing is an optional `IndexConfig` attached to an
   attribute write.
 - Channels are unified and carry multiple FIFO values.
+- Streams are best-effort resumable messages with an approximate Flow-type-wide budget.
 - Both channel bounds are optional:
   - neither bound: exactly one;
   - only `at_least`: at least N, with no upper bound;
@@ -777,6 +778,25 @@ increments the matching concrete size, so `Size` observes invocation-local
 publishes. Empty names and negative incoming sizes are invalid. WaitFor and
 Execute never receive or synthesize channel sizes.
 
+### Streams
+
+`DefineStream[T]` creates an immutable definition with a name and positive
+`maxEstimatedBytes`. The Registry requires exact definition identity, unique
+persistence names within a Flow, and ownership by exactly one Flow. This lets
+different Flow types use the same Stream name with separate capacity scopes.
+
+`Stream.Write` is available only in WaitFor and Execute. It calls FlowService
+immediately, permits one successful write per Stream per invocation, and sends
+`runID#stepExecutionID` as the idempotency key. A failed transport call does not
+consume the invocation-local write slot. RPC writes are rejected.
+
+`Client.WriteStream` accepts the exact registered Stream, Flow ID, client key,
+and typed value. Client keys are non-empty and cannot contain `#`.
+`Client.ReadStream` accepts an opaque resume token, decodes the next value into
+a caller pointer, and returns the next token, creation time, and idempotency
+key. Empty or trimmed-away tokens resume from the retained head according to
+the server contract.
+
 ### WaitFor response
 
 WaitFor invokes the registered typed handler unless `skipWaitFor` is true. A
@@ -1302,20 +1322,24 @@ null values fail locally before transport.
 
 WaitForStepCompletion requires a non-empty step type. A nil execution number
 defaults to one; a non-nil value must be positive. Its wire execution number
-remains decimal text because that is the server contract. Both wait APIs
-preserve immediate-check semantics when `WaitOptions.Timeout == 0`; positive
-durations round up and negative durations fail locally.
+remains decimal text because that is the server contract. Go wait methods send
+the largest protocol duration so the server applies its configured long-poll
+cap. `context.Context` remains the only caller-controlled deadline and
+cancellation mechanism.
 
-WaitForFlow leaves zero timeout as the server-configured maximum long poll. A
-successful response maps status and error metadata, then hydrates every
-requested completion output before returning. `NeedsResults=false` never
-requires result decoding. A long-poll timeout returns
+WaitForFlow uses the same server-capped duration. A successful response maps
+status and error metadata, then hydrates every requested completion output
+before returning. `NeedsResults=false` never requires result decoding. A long-poll timeout returns
 `*dex.LongPollTimeoutError` with `DeadlineExceeded` and the Flow ID. Every closed
 Flow returns `dex.FlowResult` with its status, error metadata, and requested
 completions.
 `DecodeSingleOutput` decodes only when exactly one completion exists; zero or
 multiple completions return a local contract error. Callers handling parallel
 branches select by `StepType` or `StepExecutionID`, not slice position.
+
+ReadStream follows the same rule: the server caps the protocol duration, while
+`context.WithTimeout` or `context.WithDeadline` can shorten the call. The SDK
+does not duplicate a Go context deadline in an options field.
 
 SkipTimer requires a non-empty step type and exactly one TimerID selector: a
 non-empty condition ID or a non-negative index. A nil execution number defaults
@@ -2327,7 +2351,6 @@ func (client *Client) WaitForAttributeEqual(
 	flowID string,
 	attribute AttributeDef,
 	expected any,
-	options WaitOptions,
 ) error
 
 func (client *Client) WaitForAttributeMapInstanceEqual(
@@ -2336,7 +2359,6 @@ func (client *Client) WaitForAttributeMapInstanceEqual(
 	attribute AttributeDef,
 	instance string,
 	expected any,
-	options WaitOptions,
 ) error
 ```
 
@@ -2381,7 +2403,7 @@ The remaining FlowService operations use non-generic public types:
 | `TimeTravel` | `Client.TimeTravel(ctx, flowID, TimeTravelOptions)` |
 | `SkipTimer` | `Client.SkipTimer(ctx, flowID, StepExecutionID, TimerID)` |
 | `UpdateFlowConfig` | `Client.UpdateFlowConfig(ctx, flowID, FlowConfig)` |
-| `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionID, WaitOptions)` |
+| `WaitForStepCompletion` | `Client.WaitForStepCompletion(ctx, flowID, StepExecutionID)` |
 | `TriggerContinueAsNew` | `Client.TriggerContinueAsNew(ctx, flowID)` |
 | `HealthCheck` | `Client.HealthCheck(ctx)` |
 
@@ -2570,13 +2592,8 @@ type InvokeOptions struct {
 	LockAttributes []AttributeLock
 }
 
-type WaitOptions struct {
-	Timeout time.Duration
-}
-
 type WaitForFlowOptions struct {
 	NeedsResults bool
-	Timeout      time.Duration
 }
 
 type StopType uint8
@@ -2648,9 +2665,9 @@ a new budget.
 options come from the step wrapped by `DefineStartStep`; StartFlow has no
 separate step-options override.
 
-`WaitOptions.Timeout == 0` retains the server's immediate-check semantics for
-WaitForAttribute and WaitForStepCompletion. `WaitForFlowOptions` is separate
-because its zero duration means the server-configured maximum long poll.
+Go wait methods use the caller's context deadline and always send a zero
+server-side duration, selecting the server-configured maximum long poll.
+`WaitForFlowOptions` exists only to request completion results.
 `StepExecutionID.ExecutionNumber == nil` selects execution one.
 
 `InitialAttributeDef` is sealed and constructed with typed helpers so initial

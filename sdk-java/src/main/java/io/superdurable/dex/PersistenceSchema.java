@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Declares the Attributes and Channels that belong to a Flow.
+ * Declares the Attributes, Channels, and Streams that belong to a Flow.
  *
  * <p>Return one schema from {@link Flow#getPersistenceSchema}. Definitions are immutable after the
  * schema is created. The varargs and single-list factories classify definitions automatically;
@@ -37,12 +37,15 @@ import java.util.Objects;
 public final class PersistenceSchema {
     private final List<PersistenceDefinition> attributes;
     private final List<PersistenceDefinition> channels;
+    private final List<PersistenceDefinition> streams;
 
     private PersistenceSchema(
             final List<? extends PersistenceDefinition> attributes,
-            final List<? extends PersistenceDefinition> channels) {
+            final List<? extends PersistenceDefinition> channels,
+            final List<? extends PersistenceDefinition> streams) {
         this.attributes = immutableAttributes(attributes);
         this.channels = immutableChannels(channels);
+        this.streams = immutableStreams(streams);
     }
 
     /**
@@ -57,7 +60,27 @@ public final class PersistenceSchema {
     public static PersistenceSchema of(
             final List<? extends PersistenceDefinition> attributes,
             final List<? extends PersistenceDefinition> channels) {
-        return new PersistenceSchema(attributes, channels);
+        return new PersistenceSchema(
+                attributes,
+                channels,
+                Collections.<PersistenceDefinition>emptyList());
+    }
+
+    /**
+     * Creates a schema from separate Attribute, Channel, and Stream lists.
+     *
+     * @param attributes Attribute and Attribute-map definitions
+     * @param channels Channel and Channel-map definitions
+     * @param streams Stream definitions
+     * @return an immutable persistence schema
+     * @throws NullPointerException if a list or definition is {@code null}
+     * @throws IllegalArgumentException if a definition appears in the wrong list
+     */
+    public static PersistenceSchema of(
+            final List<? extends PersistenceDefinition> attributes,
+            final List<? extends PersistenceDefinition> channels,
+            final List<? extends PersistenceDefinition> streams) {
+        return new PersistenceSchema(attributes, channels, streams);
     }
 
     /**
@@ -75,16 +98,20 @@ public final class PersistenceSchema {
                 new ArrayList<PersistenceDefinition>();
         final List<PersistenceDefinition> channels =
                 new ArrayList<PersistenceDefinition>();
+        final List<PersistenceDefinition> streams =
+                new ArrayList<PersistenceDefinition>();
         for (PersistenceDefinition definition : definitions) {
             if (isAttribute(definition)) {
                 attributes.add(definition);
             } else if (isChannel(definition)) {
                 channels.add(definition);
+            } else if (definition instanceof Stream) {
+                streams.add(definition);
             } else {
                 throw new IllegalArgumentException("unsupported persistence definition");
             }
         }
-        return new PersistenceSchema(attributes, channels);
+        return new PersistenceSchema(attributes, channels, streams);
     }
 
     /**
@@ -106,6 +133,10 @@ public final class PersistenceSchema {
 
     List<PersistenceDefinition> getChannels() {
         return channels;
+    }
+
+    List<PersistenceDefinition> getStreams() {
+        return streams;
     }
 
     private static List<PersistenceDefinition> immutableAttributes(
@@ -130,6 +161,19 @@ public final class PersistenceSchema {
             if (!isChannel(Objects.requireNonNull(definition, "channel"))) {
                 throw new IllegalArgumentException(
                         "channels must contain only Channel or ChannelMap");
+            }
+            copy.add(definition);
+        }
+        return Collections.unmodifiableList(copy);
+    }
+
+    private static List<PersistenceDefinition> immutableStreams(
+            final List<? extends PersistenceDefinition> definitions) {
+        Objects.requireNonNull(definitions, "streams");
+        final List<PersistenceDefinition> copy = new ArrayList<PersistenceDefinition>();
+        for (PersistenceDefinition definition : definitions) {
+            if (!(Objects.requireNonNull(definition, "stream") instanceof Stream)) {
+                throw new IllegalArgumentException("streams must contain only Stream definitions");
             }
             copy.add(definition);
         }

@@ -439,7 +439,6 @@ func runCancellationScenario(t *testing.T, scenario cancellationScenario) {
 			integrationContext(t),
 			flowID,
 			dex.StepExecutionID{StepType: stepType},
-			dex.WaitOptions{Timeout: 30 * time.Second},
 		))
 	}
 

@@ -11,6 +11,7 @@
 package integ
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -144,26 +145,27 @@ func runChannelFlow(
 		dex.StartFlowOptions{},
 	)
 	require.NoError(t, err)
+	waitCtx, cancelWait := context.WithTimeout(ctx, time.Second)
 	err = integClient.WaitForStepCompletion(
-		ctx,
+		waitCtx,
 		flowID,
 		dex.StepExecutionID{StepType: dex.GetFinalStepType(channelFlowFirstStep{})},
-		dex.WaitOptions{Timeout: time.Second},
 	)
-	var timeout *dex.LongPollTimeoutError
-	require.ErrorAs(t, err, &timeout)
+	cancelWait()
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.NoError(t, integClient.PublishToChannel(
 		ctx,
 		flowID,
 		second,
 		10,
 	))
+	waitCtx, cancelWait = context.WithTimeout(ctx, 20*time.Second)
 	require.NoError(t, integClient.WaitForStepCompletion(
-		ctx,
+		waitCtx,
 		flowID,
 		dex.StepExecutionID{StepType: dex.GetFinalStepType(channelFlowFirstStep{})},
-		dex.WaitOptions{Timeout: 20 * time.Second},
 	))
+	cancelWait()
 	require.NoError(t, integClient.PublishToChannel(
 		ctx,
 		flowID,

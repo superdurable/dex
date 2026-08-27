@@ -204,7 +204,7 @@ func waitForFlow(t *testing.T, flowID string, needsResults bool) dex.FlowResult 
 	result, err := integClient.WaitForFlow(
 		integrationContext(t),
 		flowID,
-		dex.WaitForFlowOptions{NeedsResults: needsResults, Timeout: 45 * time.Second},
+		dex.WaitForFlowOptions{NeedsResults: needsResults},
 	)
 	require.NoError(t, err)
 	return result
@@ -219,7 +219,7 @@ func waitForUncompletedFlow(
 	result, err := integClient.WaitForFlow(
 		integrationContext(t),
 		flowID,
-		dex.WaitForFlowOptions{NeedsResults: needsResults, Timeout: 45 * time.Second},
+		dex.WaitForFlowOptions{NeedsResults: needsResults},
 	)
 	require.NoError(t, err)
 	require.True(t, result.IsTerminal())
