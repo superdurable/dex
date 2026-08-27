@@ -36,6 +36,12 @@ const (
 )
 
 const (
+	StreamStoreBackendDisabled StreamStoreBackend = "disabled"
+	StreamStoreBackendMemory   StreamStoreBackend = "memory"
+	StreamStoreBackendRedis    StreamStoreBackend = "redis"
+)
+
+const (
 	CleanupStrategyTypeAfterAllRunsDeleted CleanupStrategyType = "afterAllRunsDeleted"
 )
 
@@ -72,13 +78,13 @@ const (
 	DefaultAttributeIndexSyncTimeout = 2 * time.Minute
 	// DefaultStreamMaxMessageBytes limits each serialized Stream Value to 100 KiB.
 	DefaultStreamMaxMessageBytes int64 = 100 * 1024
-	// DefaultStreamEstimatedMessageOverheadBytes approximates Redis bookkeeping per message.
+	// DefaultStreamEstimatedMessageOverheadBytes approximates backend bookkeeping per message.
 	DefaultStreamEstimatedMessageOverheadBytes int64 = 512
 	// DefaultStreamTrimTriggerPercent starts asynchronous trimming at ninety percent of capacity.
 	DefaultStreamTrimTriggerPercent int32 = 90
 	// DefaultStreamTrimTargetPercent stops asynchronous trimming at eighty percent of capacity.
 	DefaultStreamTrimTargetPercent int32 = 80
-	// DefaultStreamBackgroundTrimBatchSize caps messages removed by one atomic Redis trim script.
+	// DefaultStreamBackgroundTrimBatchSize caps messages removed by one trim batch.
 	DefaultStreamBackgroundTrimBatchSize = 256
 	// DefaultStreamTrimLeaseTTL keeps a distributed trim lease alive for five seconds.
 	DefaultStreamTrimLeaseTTL = 5 * time.Second
@@ -154,12 +160,14 @@ type (
 		BlobStore BlobStoreConfig `yaml:"blobStore"`
 		// AttributeStore configures optional MySQL/Postgres Attribute synchronization. Default disabled when Stores is empty.
 		AttributeStore AttributeStoreConfig `yaml:"attributeStore"`
-		// StreamStore configures best-effort resumable Streams. Default disabled when RedisURL is empty.
+		// StreamStore configures best-effort resumable Streams. Default backend is disabled.
 		StreamStore StreamStoreConfig `yaml:"streamStore"`
 	}
 
 	StreamStoreConfig struct {
-		// RedisURL is a Redis 7+ Standalone URL. Default empty disables Streams. Immutable after startup.
+		// Backend selects disabled, memory, or redis storage. Default disabled. Immutable after startup.
+		Backend StreamStoreBackend `yaml:"backend"`
+		// RedisURL is a Redis 7+ Standalone URL. Default empty. Required only by the redis backend. Immutable after startup.
 		RedisURL string `yaml:"redisURL"`
 		// MaxMessageBytes limits each serialized Stream Value. Default 102400. Must be positive after defaults.
 		MaxMessageBytes int64 `yaml:"maxMessageBytes"`
@@ -169,17 +177,19 @@ type (
 		TrimTriggerPercent int32 `yaml:"trimTriggerPercent"`
 		// TrimTargetPercent stops asynchronous trimming at this capacity percentage. Default 80. Must be below TrimTriggerPercent.
 		TrimTargetPercent int32 `yaml:"trimTargetPercent"`
-		// BackgroundTrimBatchSize caps messages removed by one atomic Redis trim script. Default 256. Must be positive after defaults.
+		// BackgroundTrimBatchSize caps messages removed by one trim batch. Default 256. Must be positive after defaults.
 		BackgroundTrimBatchSize int `yaml:"backgroundTrimBatchSize"`
-		// TrimLeaseTTL controls the Redis lease lifetime for one active trimmer. Default 5s. Must be positive after defaults.
+		// TrimLeaseTTL controls the Redis lease lifetime for one active trimmer. Default 5s. Must be positive. Redis backend only.
 		TrimLeaseTTL time.Duration `yaml:"trimLeaseTTL"`
-		// TrimLeaseRetry controls how often a server retries a held trim lease. Default 100ms. Must be positive after defaults.
+		// TrimLeaseRetry controls how often a server retries a held trim lease. Default 100ms. Must be positive. Redis backend only.
 		TrimLeaseRetry time.Duration `yaml:"trimLeaseRetry"`
 		// TrimBatchYieldTime controls the pause between atomic trim batches. Default 1ms. Must be positive after defaults.
 		TrimBatchYieldTime time.Duration `yaml:"trimBatchYieldTime"`
 		// TrimWorkers bounds concurrent background trim jobs per server process. Default 4. Must be positive after defaults.
 		TrimWorkers int `yaml:"trimWorkers"`
 	}
+
+	StreamStoreBackend string
 
 	BlobStoreConfig struct {
 		// Enabled turns blob offload on or off. Default true when omitted.
@@ -499,6 +509,14 @@ func (c ApiConfig) EffectiveMaxWaitSeconds() int64 {
 	return c.MaxWaitSeconds
 }
 
+// EffectiveBackend returns the configured Stream Store backend or disabled.
+func (c StreamStoreConfig) EffectiveBackend() StreamStoreBackend {
+	if c.Backend == "" {
+		return StreamStoreBackendDisabled
+	}
+	return c.Backend
+}
+
 // EffectiveMaxMessageBytes returns the configured limit or 100-KiB default.
 func (c StreamStoreConfig) EffectiveMaxMessageBytes() int64 {
 	if c.MaxMessageBytes == 0 {
@@ -573,6 +591,22 @@ func (c StreamStoreConfig) EffectiveTrimWorkers() int {
 
 // Validate checks enabled Stream Store settings and trimming bounds.
 func (c StreamStoreConfig) Validate() error {
+	switch c.EffectiveBackend() {
+	case StreamStoreBackendDisabled:
+		if c.RedisURL != "" {
+			return fmt.Errorf("stream store redisURL requires redis backend")
+		}
+	case StreamStoreBackendMemory:
+		if c.RedisURL != "" {
+			return fmt.Errorf("stream store memory backend does not use redisURL")
+		}
+	case StreamStoreBackendRedis:
+		if c.RedisURL == "" {
+			return fmt.Errorf("stream store redis backend requires redisURL")
+		}
+	default:
+		return fmt.Errorf("unsupported stream store backend %q", c.Backend)
+	}
 	if c.EffectiveMaxMessageBytes() <= 0 {
 		return fmt.Errorf("stream store maxMessageBytes must be positive")
 	}

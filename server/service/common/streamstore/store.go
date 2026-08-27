@@ -33,7 +33,7 @@ var (
 	ErrCapacityExceeded   = errors.New("Stream capacity is exhausted; retry after background trimming")
 	ErrWaitTimeout        = errors.New("Stream read timed out")
 	ErrInvalidResumeToken = errors.New("invalid Stream resume token")
-	ErrUnavailable        = errors.New("Stream Redis is unavailable")
+	ErrUnavailable        = errors.New("Stream Store backend is unavailable")
 )
 
 const resumeTokenVersion = 1
@@ -50,13 +50,33 @@ type WriteInput struct {
 
 type Message struct {
 	Value          *dexpb.Value
-	RedisID        string
+	MessageID      string
 	CreatedTime    time.Time
 	IdempotencyKey string
 }
 
 type Store struct {
-	cfg         *config.StreamStoreConfig
+	cfg     *config.StreamStoreConfig
+	backend backend
+}
+
+type backend interface {
+	Close() error
+	Write(context.Context, backendWriteInput) error
+	Read(context.Context, string, string, string, string) (*Message, error)
+}
+
+type backendWriteInput struct {
+	input                  WriteInput
+	payload                []byte
+	chargedBytes           int64
+	capacityBytes          int64
+	trimTriggerBytes       int64
+	baseTrimTargetBytes    int64
+	messageTrimTargetBytes int64
+}
+
+type redisBackend struct {
 	client      *redis.Client
 	coordinator *trimCoordinator
 }
@@ -66,7 +86,7 @@ type resumeToken struct {
 	FlowID     string `json:"f"`
 	FlowType   string `json:"t"`
 	StreamName string `json:"s"`
-	RedisID    string `json:"i"`
+	MessageID  string `json:"i"`
 }
 
 func New(cfg *config.StreamStoreConfig, logger log.Logger) (*Store, error) {
@@ -80,30 +100,36 @@ func New(cfg *config.StreamStoreConfig, logger log.Logger) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{cfg: cfg}
-	if cfg.RedisURL == "" {
+	switch cfg.EffectiveBackend() {
+	case config.StreamStoreBackendDisabled:
 		return store, nil
+	case config.StreamStoreBackendMemory:
+		store.backend = newMemoryBackend(cfg)
+	case config.StreamStoreBackendRedis:
+		options, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			return nil, fmt.Errorf("parse Stream Store Redis URL: %w", err)
+		}
+		client := redis.NewClient(options)
+		store.backend = &redisBackend{
+			client:      client,
+			coordinator: newTrimCoordinator(cfg, client, logger),
+		}
+	default:
+		panic("validated Stream Store backend was not handled")
 	}
-	options, err := redis.ParseURL(cfg.RedisURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse Stream Store Redis URL: %w", err)
-	}
-	store.client = redis.NewClient(options)
-	store.coordinator = newTrimCoordinator(cfg, store.client, logger)
 	return store, nil
 }
 
 func (s *Store) Close() error {
-	if s.coordinator != nil {
-		s.coordinator.Close()
-	}
-	if s.client == nil {
+	if s.backend == nil {
 		return nil
 	}
-	return s.client.Close()
+	return s.backend.Close()
 }
 
 func (s *Store) Write(ctx context.Context, input WriteInput) error {
-	if s.client == nil {
+	if s.backend == nil {
 		return ErrDisabled
 	}
 	payload, err := proto.Marshal(input.Value)
@@ -123,10 +149,8 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 	if messageTrimTarget < chargedBytes {
 		messageTrimTarget = chargedBytes
 	}
-	scriptOutput, err := runWriteScript(ctx, s.client, writeScriptInput{
-		keys:                   streamKeys(input.FlowType, input.StreamName, input.FlowID),
-		internalIdentity:       input.InternalIdentity,
-		publicIdempotencyKey:   input.PublicIdempotencyKey,
+	return s.backend.Write(ctx, backendWriteInput{
+		input:                  input,
 		payload:                payload,
 		chargedBytes:           chargedBytes,
 		capacityBytes:          input.MaxEstimatedBytes,
@@ -134,11 +158,58 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 		baseTrimTargetBytes:    baseTrimTarget,
 		messageTrimTargetBytes: messageTrimTarget,
 	})
+}
+
+func (s *Store) Read(
+	ctx context.Context,
+	flowType string,
+	flowID string,
+	streamName string,
+	encodedResumeToken string,
+) (*Message, error) {
+	if s.backend == nil {
+		return nil, ErrDisabled
+	}
+	messageID, err := decodeResumeToken(encodedResumeToken, flowType, flowID, streamName)
+	if err != nil {
+		return nil, err
+	}
+	deadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		panic("Stream read context requires a deadline")
+	}
+	if time.Until(deadline) <= 0 {
+		return nil, ErrWaitTimeout
+	}
+	return s.backend.Read(ctx, flowType, flowID, streamName, messageID)
+}
+
+func (b *redisBackend) Close() error {
+	b.coordinator.Close()
+	return b.client.Close()
+}
+
+func (b *redisBackend) Write(ctx context.Context, input backendWriteInput) error {
+	scriptOutput, err := runWriteScript(ctx, b.client, writeScriptInput{
+		keys:                   streamKeys(input.input.FlowType, input.input.StreamName, input.input.FlowID),
+		internalIdentity:       input.input.InternalIdentity,
+		publicIdempotencyKey:   input.input.PublicIdempotencyKey,
+		payload:                input.payload,
+		chargedBytes:           input.chargedBytes,
+		capacityBytes:          input.capacityBytes,
+		trimTriggerBytes:       input.trimTriggerBytes,
+		baseTrimTargetBytes:    input.baseTrimTargetBytes,
+		messageTrimTargetBytes: input.messageTrimTargetBytes,
+	})
 	if err != nil {
 		return err
 	}
 	if scriptOutput.needsTrim {
-		s.coordinator.Schedule(input.FlowType, input.StreamName, scriptOutput.trimTargetBytes)
+		b.coordinator.Schedule(
+			input.input.FlowType,
+			input.input.StreamName,
+			scriptOutput.trimTargetBytes,
+		)
 	}
 	switch scriptOutput.status {
 	case writeScriptStatusSucceeded:
@@ -150,32 +221,21 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 	}
 }
 
-func (s *Store) Read(
+func (b *redisBackend) Read(
 	ctx context.Context,
 	flowType string,
 	flowID string,
 	streamName string,
-	encodedResumeToken string,
+	messageID string,
 ) (*Message, error) {
-	if s.client == nil {
-		return nil, ErrDisabled
-	}
-	redisID, err := decodeResumeToken(encodedResumeToken, flowType, flowID, streamName)
-	if err != nil {
-		return nil, err
-	}
 	deadline, hasDeadline := ctx.Deadline()
 	if !hasDeadline {
 		panic("Stream read context requires a deadline")
 	}
-	blockDuration := time.Until(deadline)
-	if blockDuration <= 0 {
-		return nil, ErrWaitTimeout
-	}
-	result, err := s.client.XRead(ctx, &redis.XReadArgs{
-		Streams: []string{streamKeys(flowType, streamName, flowID).instance, redisID},
+	result, err := b.client.XRead(ctx, &redis.XReadArgs{
+		Streams: []string{streamKeys(flowType, streamName, flowID).instance, messageID},
 		Count:   1,
-		Block:   blockDuration,
+		Block:   time.Until(deadline),
 	}).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) || errors.Is(err, context.DeadlineExceeded) {
@@ -202,20 +262,20 @@ func (s *Store) Read(
 	if err := proto.Unmarshal(payload, value); err != nil {
 		return nil, fmt.Errorf("unmarshal retained Stream Value: %w", err)
 	}
-	createdTime, err := createdTimeFromRedisID(redisMessage.ID)
+	createdTime, err := createdTimeFromMessageID(redisMessage.ID)
 	if err != nil {
 		return nil, err
 	}
 	return &Message{
 		Value:          value,
-		RedisID:        redisMessage.ID,
+		MessageID:      redisMessage.ID,
 		CreatedTime:    createdTime,
 		IdempotencyKey: publicKey,
 	}, nil
 }
 
-func EncodeResumeToken(flowType string, flowID string, streamName string, redisID string) (string, error) {
-	if _, err := createdTimeFromRedisID(redisID); err != nil {
+func EncodeResumeToken(flowType string, flowID string, streamName string, messageID string) (string, error) {
+	if _, _, err := parseMessageID(messageID); err != nil {
 		return "", err
 	}
 	payload, err := json.Marshal(resumeToken{
@@ -223,7 +283,7 @@ func EncodeResumeToken(flowType string, flowID string, streamName string, redisI
 		FlowID:     flowID,
 		FlowType:   flowType,
 		StreamName: streamName,
-		RedisID:    redisID,
+		MessageID:  messageID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("marshal Stream resume token: %w", err)
@@ -272,25 +332,34 @@ func decodeResumeToken(encoded string, flowType string, flowID string, streamNam
 		token.StreamName != streamName {
 		return "", ErrInvalidResumeToken
 	}
-	if _, err := createdTimeFromRedisID(token.RedisID); err != nil {
+	if _, _, err := parseMessageID(token.MessageID); err != nil {
 		return "", ErrInvalidResumeToken
 	}
-	return token.RedisID, nil
+	return token.MessageID, nil
 }
 
-func createdTimeFromRedisID(redisID string) (time.Time, error) {
-	parts := strings.Split(redisID, "-")
+func createdTimeFromMessageID(messageID string) (time.Time, error) {
+	milliseconds, _, err := parseMessageID(messageID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.UnixMilli(milliseconds), nil
+}
+
+func parseMessageID(messageID string) (int64, uint64, error) {
+	parts := strings.Split(messageID, "-")
 	if len(parts) != 2 {
-		return time.Time{}, fmt.Errorf("invalid Redis Stream ID")
+		return 0, 0, fmt.Errorf("invalid Stream message ID")
 	}
 	milliseconds, err := strconv.ParseInt(parts[0], 10, 64)
 	if err != nil || milliseconds < 0 {
-		return time.Time{}, fmt.Errorf("invalid Redis Stream ID")
+		return 0, 0, fmt.Errorf("invalid Stream message ID")
 	}
-	if _, err := strconv.ParseUint(parts[1], 10, 64); err != nil {
-		return time.Time{}, fmt.Errorf("invalid Redis Stream ID")
+	sequence, err := strconv.ParseUint(parts[1], 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("invalid Stream message ID")
 	}
-	return time.UnixMilli(milliseconds), nil
+	return milliseconds, sequence, nil
 }
 
 type redisKeys struct {

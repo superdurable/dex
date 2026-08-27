@@ -11,6 +11,7 @@ package integ
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -75,7 +76,7 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 		streamTestFlowType,
 		"flow-a",
 		streamName,
-		flowAMessages[0].RedisID,
+		flowAMessages[0].MessageID,
 	)
 	require.NoError(t, err)
 	nextMessage := readOneMessage(t, store, "flow-a", streamName, firstToken)
@@ -89,7 +90,7 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 		streamTestFlowType,
 		"flow-a",
 		streamName,
-		flowAMessages[2].RedisID,
+		flowAMessages[2].MessageID,
 	)
 	require.NoError(t, err)
 	retainedOriginal := readOneMessage(t, store, "flow-a", streamName, beforeLastToken)
@@ -113,7 +114,7 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 		streamTestFlowType,
 		"flow-b",
 		streamName,
-		flowBMessages[0].RedisID,
+		flowBMessages[0].MessageID,
 	)
 	require.NoError(t, err)
 	readCtx, cancelRead := context.WithTimeout(context.Background(), time.Second)
@@ -171,7 +172,7 @@ func TestStreamStoreFlowTypesIsolateStreamScopes(t *testing.T) {
 		firstFlowType,
 		"shared-flow",
 		streamName,
-		firstMessage.RedisID,
+		firstMessage.MessageID,
 	)
 	require.NoError(t, err)
 	wrongTypeCtx, cancelWrongTypeRead := context.WithTimeout(context.Background(), time.Second)
@@ -316,6 +317,7 @@ func TestStreamStoreConcurrentTriggersUseSingletonTrimLease(t *testing.T) {
 
 func TestStreamStoreMessageSizeLimit(t *testing.T) {
 	store, redisClient := newStreamTestStoreWithConfig(t, config.StreamStoreConfig{
+		Backend:                       config.StreamStoreBackendRedis,
 		RedisURL:                      streamTestRedisURL,
 		MaxMessageBytes:               32,
 		EstimatedMessageOverheadBytes: 1,
@@ -349,6 +351,202 @@ func TestStreamStoreMessageSizeLimit(t *testing.T) {
 	require.Equal(t, int64(0), streamLength(t, redisClient, defaultStreamName))
 }
 
+func TestStreamStoreMemoryResumeIdempotencyAndBlockingRead(t *testing.T) {
+	store := newMemoryStreamTestStore(t)
+	streamName := "memory-resume-" + newRequestID()
+	firstInput := streamInput("flow-a", streamName, 0, "first")
+	firstInput.MaxEstimatedBytes = 1 << 20
+	require.NoError(t, store.Write(context.Background(), firstInput))
+
+	firstMessage := readOneMessage(t, store, "flow-a", streamName, "")
+	require.Equal(t, "first", firstMessage.Value.GetStringValue())
+	require.Equal(t, firstInput.PublicIdempotencyKey, firstMessage.IdempotencyKey)
+	firstToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType,
+		"flow-a",
+		streamName,
+		firstMessage.MessageID,
+	)
+	require.NoError(t, err)
+
+	duplicate := firstInput
+	duplicate.Value = stringValue("duplicate")
+	require.NoError(t, store.Write(context.Background(), duplicate))
+	require.Len(t, readAvailableMessages(t, store, "flow-a", streamName), 1)
+
+	readResult := make(chan *streamstore.Message, 1)
+	readErrors := make(chan error, 1)
+	readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancelRead()
+	go func() {
+		message, readErr := store.Read(readCtx, streamTestFlowType, "flow-a", streamName, firstToken)
+		if readErr != nil {
+			readErrors <- readErr
+			return
+		}
+		readResult <- message
+	}()
+	otherFlow := streamInput("flow-b", streamName, 1, "other-flow")
+	otherFlow.MaxEstimatedBytes = 1 << 20
+	require.NoError(t, store.Write(context.Background(), otherFlow))
+	require.Never(t, func() bool {
+		return len(readResult) != 0 || len(readErrors) != 0
+	}, 200*time.Millisecond, 10*time.Millisecond)
+	secondInput := streamInput("flow-a", streamName, 2, "second")
+	secondInput.MaxEstimatedBytes = 1 << 20
+	require.NoError(t, store.Write(context.Background(), secondInput))
+	select {
+	case readErr := <-readErrors:
+		require.NoError(t, readErr)
+	case message := <-readResult:
+		require.Equal(t, "second", message.Value.GetStringValue())
+	case <-readCtx.Done():
+		require.FailNow(t, "Memory Stream read did not resume", readCtx.Err())
+	}
+}
+
+func TestStreamStoreMemoryTrimWatermarks(t *testing.T) {
+	store := newMemoryStreamTestStore(t)
+	streamName := "memory-watermarks-" + newRequestID()
+	baseInput := streamInput("flow-a", streamName, 0, "payload-0000")
+	charge := estimatedCharge(baseInput, 1)
+	capacity := charge * 10
+	for index := 0; index < 8; index++ {
+		input := streamInput("flow-a", streamName, index, "payload-0000")
+		input.MaxEstimatedBytes = capacity
+		require.NoError(t, store.Write(context.Background(), input))
+	}
+	require.Len(t, readAvailableMessages(t, store, "flow-a", streamName), 8)
+
+	trigger := streamInput("flow-a", streamName, 8, "payload-0000")
+	trigger.MaxEstimatedBytes = capacity
+	require.NoError(t, store.Write(context.Background(), trigger))
+	require.Eventually(t, func() bool {
+		readCtx, cancelRead := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		message, readErr := store.Read(readCtx, streamTestFlowType, "flow-a", streamName, "")
+		cancelRead()
+		return readErr == nil && message.IdempotencyKey == "public-01"
+	}, 3*time.Second, 10*time.Millisecond)
+	require.Equal(t, []string{
+		"public-01",
+		"public-02",
+		"public-03",
+		"public-04",
+		"public-05",
+		"public-06",
+		"public-07",
+		"public-08",
+	}, messageKeys(readAvailableMessages(t, store, "flow-a", streamName)))
+}
+
+func TestStreamStoreMemoryConcurrentCapacityTriggersDoNotOverTrim(t *testing.T) {
+	store := newMemoryStreamTestStore(t)
+	streamName := "memory-trim-" + newRequestID()
+	baseInput := streamInput("flow-a", streamName, 0, "payload-0000")
+	charge := estimatedCharge(baseInput, 1)
+	for index := 0; index < 80; index++ {
+		input := streamInput("flow-a", streamName, index, "payload-0000")
+		input.MaxEstimatedBytes = charge * 100
+		require.NoError(t, store.Write(context.Background(), input))
+	}
+
+	triggerStart := make(chan struct{})
+	triggerErrors := make(chan error, 20)
+	var writers sync.WaitGroup
+	for index := 80; index < 100; index++ {
+		writers.Add(1)
+		go func(messageIndex int) {
+			defer writers.Done()
+			<-triggerStart
+			input := streamInput("flow-a", streamName, messageIndex, "payload-0000")
+			input.MaxEstimatedBytes = charge * 10
+			triggerErrors <- store.Write(context.Background(), input)
+		}(index)
+	}
+	close(triggerStart)
+	writers.Wait()
+	close(triggerErrors)
+	rejectedWrites := 0
+	for writeErr := range triggerErrors {
+		if writeErr == nil {
+			continue
+		}
+		require.ErrorIs(t, writeErr, streamstore.ErrCapacityExceeded)
+		rejectedWrites++
+	}
+	require.Positive(t, rejectedWrites)
+	retained := waitForStreamMessageLimit(t, store, "flow-a", streamName, 9)
+	require.NotEmpty(t, retained)
+	require.GreaterOrEqual(t, len(retained), 8)
+	require.LessOrEqual(t, len(retained), 9)
+
+	lastToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType,
+		"flow-a",
+		streamName,
+		retained[len(retained)-1].MessageID,
+	)
+	require.NoError(t, err)
+	rewritten := baseInput
+	rewritten.Value = stringValue("rewritten")
+	rewritten.MaxEstimatedBytes = charge * 10
+	require.NoError(t, store.Write(context.Background(), rewritten))
+	rewrittenMessage := readOneMessage(t, store, "flow-a", streamName, lastToken)
+	require.Equal(t, "rewritten", rewrittenMessage.Value.GetStringValue())
+}
+
+func TestStreamStoreMemoryResumeTokenSurvivesProcessRestartBestEffort(t *testing.T) {
+	streamName := "memory-restart-" + newRequestID()
+	firstStore := newMemoryStreamTestStore(t)
+	firstInput := streamInput("flow-a", streamName, 0, "before-restart")
+	firstInput.MaxEstimatedBytes = 1 << 20
+	require.NoError(t, firstStore.Write(context.Background(), firstInput))
+	firstMessage := readOneMessage(t, firstStore, "flow-a", streamName, "")
+	resumeToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType,
+		"flow-a",
+		streamName,
+		firstMessage.MessageID,
+	)
+	require.NoError(t, err)
+	require.NoError(t, firstStore.Close())
+	require.Eventually(t, func() bool {
+		return time.Now().UnixMilli() > firstMessage.CreatedTime.UnixMilli()
+	}, time.Second, time.Millisecond)
+
+	secondStore := newMemoryStreamTestStore(t)
+	afterRestart := streamInput("flow-a", streamName, 1, "after-restart")
+	afterRestart.MaxEstimatedBytes = 1 << 20
+	require.NoError(t, secondStore.Write(context.Background(), afterRestart))
+	message := readOneMessage(t, secondStore, "flow-a", streamName, resumeToken)
+	require.Equal(t, "after-restart", message.Value.GetStringValue())
+}
+
+func TestStreamStoreBackendConfiguration(t *testing.T) {
+	disabledStore, err := streamstore.New(&config.StreamStoreConfig{}, log.NewNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, disabledStore.Close()) })
+	disabledInput := streamInput("flow-a", "disabled", 0, "value")
+	disabledInput.MaxEstimatedBytes = 1024
+	require.ErrorIs(t, disabledStore.Write(context.Background(), disabledInput), streamstore.ErrDisabled)
+
+	_, err = streamstore.New(&config.StreamStoreConfig{RedisURL: streamTestRedisURL}, log.NewNoop())
+	require.ErrorContains(t, err, "redisURL requires redis backend")
+	_, err = streamstore.New(&config.StreamStoreConfig{
+		Backend:  config.StreamStoreBackendMemory,
+		RedisURL: streamTestRedisURL,
+	}, log.NewNoop())
+	require.ErrorContains(t, err, "memory backend does not use redisURL")
+	_, err = streamstore.New(&config.StreamStoreConfig{
+		Backend: config.StreamStoreBackendRedis,
+	}, log.NewNoop())
+	require.ErrorContains(t, err, "redis backend requires redisURL")
+	_, err = streamstore.New(&config.StreamStoreConfig{
+		Backend: "unsupported",
+	}, log.NewNoop())
+	require.ErrorContains(t, err, "unsupported stream store backend")
+}
+
 func TestStreamAPITemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
@@ -359,6 +557,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: service.BackendTypeTemporal,
 		StreamStore: config.StreamStoreConfig{
+			Backend:         config.StreamStoreBackendRedis,
 			RedisURL:        streamTestRedisURL,
 			MaxMessageBytes: 64,
 		},
@@ -506,7 +705,10 @@ func TestStreamFailureIsolationTemporal(t *testing.T) {
 	}
 	runtime := startDexService(t, DexServiceTestConfig{
 		BackendType: service.BackendTypeTemporal,
-		StreamStore: config.StreamStoreConfig{RedisURL: "redis://127.0.0.1:1/0"},
+		StreamStore: config.StreamStoreConfig{
+			Backend:  config.StreamStoreBackendRedis,
+			RedisURL: "redis://127.0.0.1:1/0",
+		},
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -546,6 +748,7 @@ func BenchmarkStreamStoreWrite(b *testing.B) {
 	for _, payloadBytes := range []int{128, 4096, 65536} {
 		b.Run(strconv.Itoa(payloadBytes), func(b *testing.B) {
 			store, err := streamstore.New(&config.StreamStoreConfig{
+				Backend:            config.StreamStoreBackendRedis,
 				RedisURL:           streamTestRedisURL,
 				TrimWorkers:        2,
 				TrimTriggerPercent: 90,
@@ -570,6 +773,7 @@ func BenchmarkStreamStoreWrite(b *testing.B) {
 func newStreamTestStore(t testing.TB) (*streamstore.Store, *redis.Client) {
 	t.Helper()
 	return newStreamTestStoreWithConfig(t, config.StreamStoreConfig{
+		Backend:                       config.StreamStoreBackendRedis,
 		RedisURL:                      streamTestRedisURL,
 		EstimatedMessageOverheadBytes: 1,
 		TrimTriggerPercent:            90,
@@ -580,6 +784,22 @@ func newStreamTestStore(t testing.TB) (*streamstore.Store, *redis.Client) {
 		TrimBatchYieldTime:            100 * time.Microsecond,
 		TrimWorkers:                   2,
 	})
+}
+
+func newMemoryStreamTestStore(t testing.TB) *streamstore.Store {
+	t.Helper()
+	store, err := streamstore.New(&config.StreamStoreConfig{
+		Backend:                       config.StreamStoreBackendMemory,
+		EstimatedMessageOverheadBytes: 1,
+		TrimTriggerPercent:            90,
+		TrimTargetPercent:             80,
+		BackgroundTrimBatchSize:       256,
+		TrimBatchYieldTime:            100 * time.Microsecond,
+		TrimWorkers:                   4,
+	}, log.NewNoop())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+	return store
 }
 
 func newStreamTestStoreWithConfig(
@@ -625,6 +845,16 @@ func readAvailableMessages(
 	streamName string,
 ) []*streamstore.Message {
 	t.Helper()
+	messages, err := availableStreamMessages(store, flowID, streamName)
+	require.NoError(t, err)
+	return messages
+}
+
+func availableStreamMessages(
+	store *streamstore.Store,
+	flowID string,
+	streamName string,
+) ([]*streamstore.Message, error) {
 	var messages []*streamstore.Message
 	resumeToken := ""
 	for {
@@ -632,17 +862,50 @@ func readAvailableMessages(
 		message, err := store.Read(readCtx, streamTestFlowType, flowID, streamName, resumeToken)
 		cancelRead()
 		if err != nil {
-			require.ErrorIs(t, err, streamstore.ErrWaitTimeout)
-			return messages
+			if errors.Is(err, streamstore.ErrWaitTimeout) {
+				return messages, nil
+			}
+			return nil, err
 		}
 		messages = append(messages, message)
 		resumeToken, err = streamstore.EncodeResumeToken(
 			streamTestFlowType,
 			flowID,
 			streamName,
-			message.RedisID,
+			message.MessageID,
 		)
-		require.NoError(t, err)
+		if err != nil {
+			return nil, err
+		}
+	}
+}
+
+func waitForStreamMessageLimit(
+	t testing.TB,
+	store *streamstore.Store,
+	flowID string,
+	streamName string,
+	maximumCount int,
+) []*streamstore.Message {
+	t.Helper()
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	var messages []*streamstore.Message
+	var readErr error
+	for {
+		messages, readErr = availableStreamMessages(store, flowID, streamName)
+		if readErr == nil && len(messages) <= maximumCount {
+			return messages
+		}
+		select {
+		case <-deadline.C:
+			require.NoError(t, readErr)
+			require.LessOrEqual(t, len(messages), maximumCount)
+			return nil
+		case <-ticker.C:
+		}
 	}
 }
 

@@ -110,6 +110,35 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		cancel()
 		t.Fatalf("unexpected CLI API response: %s", cliOutput.String())
 	}
+	cliOutput.Reset()
+	if err := cliApp.Execute(
+		context.Background(),
+		[]string{
+			"api", "call", "WriteStream",
+			"--data", `{"flowId":"cli-flow","flowType":"CliFlow","streamName":"progress","maxEstimatedBytes":"1048576","value":{"stringValue":"thinking"},"idempotencyKey":"cli-key"}`,
+			"--yes", "--server", dexAddress,
+		},
+	); err != nil {
+		cancel()
+		t.Fatalf("CLI Stream write failed: %v stderr=%s", err, cliErrors.String())
+	}
+	cliOutput.Reset()
+	if err := cliApp.Execute(
+		context.Background(),
+		[]string{
+			"api", "call", "ReadStream",
+			"--data", `{"flowId":"cli-flow","flowType":"CliFlow","streamName":"progress","waitTimeSeconds":1}`,
+			"--server", dexAddress,
+		},
+	); err != nil {
+		cancel()
+		t.Fatalf("CLI Stream read failed: %v stderr=%s", err, cliErrors.String())
+	}
+	if !bytes.Contains(cliOutput.Bytes(), []byte(`"stringValue":"thinking"`)) ||
+		!bytes.Contains(cliOutput.Bytes(), []byte(`"idempotencyKey":"cli-key"`)) {
+		cancel()
+		t.Fatalf("unexpected CLI Stream response: %s", cliOutput.String())
+	}
 
 	cancel()
 	select {

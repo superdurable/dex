@@ -262,6 +262,9 @@ func (s *supervisor) startDexRuntime(
 			OutputFile: s.cfg.dexServerLogPath(),
 		},
 		Api: config.ApiConfig{Port: s.cfg.DexPort},
+		StreamStore: config.StreamStoreConfig{
+			Backend: config.StreamStoreBackendMemory,
+		},
 		BlobStore: config.BlobStoreConfig{
 			Enabled:                ptr.Any(true),
 			LazyLoading:            ptr.Any(true),

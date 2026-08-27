@@ -52,8 +52,10 @@ blobStore:
       storageId: "local"
       storageType: "local"
       localDirectory: "/dex/dex-blobs"
-# Streams remain disabled until redisURL is configured.
+# Streams remain disabled until a backend is configured.
 # streamStore:
+#   # Use memory for one process. Redis supports multi-server deployments.
+#   backend: redis
 #   redisURL: redis://redis:6379/0
 #   maxMessageBytes: 102400
 #   estimatedMessageOverheadBytes: 512

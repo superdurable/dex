@@ -26,23 +26,28 @@ the [server operations guide](../docs/content/production/server-operations.mdx).
 Integration and replay test instructions are available in
 [integ/README.md](integ/README.md) and [replayTests/README.md](replayTests/README.md).
 
-The optional `streamStore` configuration enables Redis 7+ Standalone-backed
-resumable Streams. `redisURL` enables the feature. `maxMessageBytes` limits each
-serialized Value to 100 KiB by default. The remaining settings tune approximate
-per-message charging, trim watermarks, messages removed per atomic trim batch,
-and background trim concurrency. Redis is intentionally excluded from server
-readiness; only Stream RPCs fail when it is unavailable. Configure dedicated
+The optional `streamStore` configuration enables best-effort resumable Streams.
+`backend` accepts `memory` for one Dex Server process or `redis` for Redis 7+
+Standalone shared by multiple servers. It defaults to `disabled`. The memory
+backend loses messages and idempotency records when the process stops. The Redis
+backend requires `redisURL`; Redis is intentionally excluded from server
+readiness, so only Stream RPCs fail when it is unavailable. Configure dedicated
 Redis memory with `maxmemory` and `noeviction` so memory pressure becomes a
 visible write error.
 
-Capacity is not stored in Redis. Each write supplies the limit shared by all
-Flow instances with the same Flow type and Stream name. Charged bytes
-approximate the serialized Value, Flow ID, public and internal idempotency
-identities, and configured overhead. Client idempotency keys cannot contain
-`#`; Step SDKs use `<runID>#<stepExecutionID>`. Reaching the default 90% trigger
-starts singleton background FIFO trimming toward the 80% target. A write that
-would exceed 100% is not appended; it returns `ResourceExhausted` after
-scheduling trim and can be retried later.
+`maxMessageBytes` limits each serialized Value to 100 KiB by default. The
+remaining settings tune approximate per-message charging, trim watermarks,
+messages removed per trim batch, and background trim concurrency. Lease settings
+apply only to the Redis backend. The checked-in development config uses memory.
+
+Capacity is not persisted by either backend. Each write supplies the limit
+shared by all Flow instances with the same Flow type and Stream name. Charged
+bytes approximate the serialized Value, Flow ID, public and internal
+idempotency identities, and configured overhead. Client idempotency keys cannot
+contain `#`; Step SDKs use `<runID>#<stepExecutionID>`. Reaching the default 90%
+trigger starts singleton background FIFO trimming toward the 80% target. A
+write that would exceed 100% is not appended; it returns `ResourceExhausted`
+after scheduling trim and can be retried later.
 
 ## License
 
