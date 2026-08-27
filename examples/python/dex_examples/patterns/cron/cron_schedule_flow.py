@@ -108,17 +108,6 @@ class _WaitForSchedule(Step[_ScheduleState]):
     def execute(self, context: Context, state: _ScheduleState) -> StepDecision:
         if self.skip.results(context):
             return self._next_schedule(state)
-        return self._run_now(state)
-
-    def _next_schedule(self, state: _ScheduleState) -> StepDecision:
-        if state.remaining_runs == 1:
-            return graceful_complete()
-        return go_to(
-            _WaitForSchedule,
-            _ScheduleState(state.interval, state.remaining_runs - 1),
-        )
-
-    def _run_now(self, state: _ScheduleState) -> StepDecision:
         run_input = _RunInput(
             run_number=state.remaining_runs,
             is_final=state.remaining_runs == 1,
@@ -133,6 +122,13 @@ class _WaitForSchedule(Step[_ScheduleState]):
             ),
         )
 
+    def _next_schedule(self, state: _ScheduleState) -> StepDecision:
+        if state.remaining_runs == 1:
+            return graceful_complete()
+        return go_to(
+            _WaitForSchedule,
+            _ScheduleState(state.interval, state.remaining_runs - 1),
+        )
 
 class _Run(Step[_RunInput]):
     def execute(self, context: Context, input: _RunInput) -> StepDecision:

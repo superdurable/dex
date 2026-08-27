@@ -117,20 +117,6 @@ class WaitForSchedule implements Step<ScheduleState> {
     if (this.skip.results(context).length > 0) {
       return this.nextSchedule(state);
     }
-    return this.runNow(state);
-  }
-
-  private nextSchedule(state: ScheduleState): StepDecision {
-    if (state.remainingRuns === 1) {
-      return gracefulComplete();
-    }
-    return goTo(WaitForSchedule, {
-      interval: state.interval,
-      remainingRuns: state.remainingRuns - 1,
-    });
-  }
-
-  private runNow(state: ScheduleState): StepDecision {
     const input: RunInput = {
       runNumber: state.remainingRuns,
       isFinal: state.remainingRuns === 1,
@@ -146,6 +132,17 @@ class WaitForSchedule implements Step<ScheduleState> {
       }),
     );
   }
+
+  private nextSchedule(state: ScheduleState): StepDecision {
+    if (state.remainingRuns === 1) {
+      return gracefulComplete();
+    }
+    return goTo(WaitForSchedule, {
+      interval: state.interval,
+      remainingRuns: state.remainingRuns - 1,
+    });
+  }
+
 }
 
 class Run implements Step<RunInput> {

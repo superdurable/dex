@@ -54,7 +54,19 @@ def wait_for(self, context: Context, state: _ScheduleState) -> Wait:
 def execute(self, context: Context, state: _ScheduleState) -> StepDecision:
     if self.skip.results(context):
         return self._next_schedule(state)
-    return self._run_now(state)
+    run_input = _RunInput(
+        run_number=state.remaining_runs,
+        is_final=state.remaining_runs == 1,
+    )
+    if run_input.is_final:
+        return go_to(self.run, run_input)
+    return go_to_multi(
+        StepMovement.of(self.run, run_input),
+        StepMovement.of(
+            self,
+            _ScheduleState(state.interval, state.remaining_runs - 1),
+        ),
+    )
 ```
 
 </SdkSnippet>
@@ -83,7 +95,18 @@ func (waitForCronSchedule) Execute(
 	if len(skipResults) > 0 {
 		return nextCronSchedule(state), nil
 	}
-	return runCronScheduleNow(state), nil
+	run := cronScheduleRun{
+		RunNumber: state.RemainingRuns,
+		IsFinal:   state.RemainingRuns == 1,
+	}
+	if run.IsFinal {
+		return dex.GoTo(runCronSchedule{}, run), nil
+	}
+	state.RemainingRuns--
+	return dex.GoToMulti(
+		dex.MovementOf(runCronSchedule{}, run),
+		dex.MovementOf(waitForCronSchedule{}, state),
+	), nil
 }
 ```
 
@@ -105,7 +128,15 @@ final class WaitForSchedule implements Step<ScheduleState> {
         if (!skip.getConditionResults(context).isEmpty()) {
             return nextSchedule(state);
         }
-        return runNow(state);
+        final RunInput runInput = new RunInput(state.remainingRuns, state.remainingRuns == 1);
+        if (runInput.isFinal) {
+            return StepDecision.goTo(run, runInput);
+        }
+        return StepDecision.goToMulti(
+                StepMovement.of(run, runInput),
+                StepMovement.of(
+                        waitForSchedule,
+                        new ScheduleState(state.interval, state.remainingRuns - 1)));
     }
 }
 ```
@@ -126,7 +157,20 @@ public execute(context: Context, state: ScheduleState): StepDecision {
   if (this.skip.results(context).length > 0) {
     return this.nextSchedule(state);
   }
-  return this.runNow(state);
+  const input: RunInput = {
+    runNumber: state.remainingRuns,
+    isFinal: state.remainingRuns === 1,
+  };
+  if (input.isFinal) {
+    return goTo(this.run, input);
+  }
+  return goToMulti(
+    StepMovement.of(this.run, input),
+    StepMovement.of(this, {
+      interval: state.interval,
+      remainingRuns: state.remainingRuns - 1,
+    }),
+  );
 }
 ```
 
@@ -146,7 +190,23 @@ fn execute(&self, context: &mut Context, state: Self::Input) -> HandlerResult<St
     if !skip().condition_results(context)?.is_empty() {
         return Ok(next_schedule(state));
     }
-    Ok(run_now(state))
+    let run_input = RunInput {
+        run_number: state.remaining_runs,
+        is_final: state.remaining_runs == 1,
+    };
+    if run_input.is_final {
+        return Ok(StepDecision::go_to(&Run, run_input));
+    }
+    Ok(StepDecision::go_to_many([
+        StepMovement::to(&Run, run_input),
+        StepMovement::to(
+            &WaitForSchedule,
+            ScheduleState {
+                interval: state.interval,
+                remaining_runs: state.remaining_runs - 1,
+            },
+        ),
+    ]))
 }
 ```
 
