@@ -16,7 +16,7 @@ The Flow has three Step definitions:
 2. **WaitForSchedule** waits for the interval **Timer**, **Trigger**, or **Skip**. **Skip** consumes an occurrence and starts the next interval. The timer or **Trigger** starts **Run** and the next **WaitForSchedule** occurrence together.
 3. **Run** records the scheduled work. It reaches a dead end unless this is the final occurrence, which completes the Flow.
 
-External code uses the Client to publish the **Trigger** or **Skip** Channel. This pattern does not define an RPC.
+External code uses the Client to publish the **Trigger** or **Skip** Channel.
 
 ## Timing and control
 
