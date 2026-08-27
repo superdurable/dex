@@ -1,20 +1,21 @@
 ---
-title: Interruptible execution
+title: 可中断执行
+sidebar_label: Interruptible execution
 ---
 
-# Interruptible execution
+# 可中断执行
 
-Stop long-running work safely when a durable interrupt arrives.
+在收到 durable 中断信号后，安全地停止长时间工作。
 
-Use this pattern for work that repeats for a long time, such as polling or batch processing. A user can request an interrupt while the work is running. Each branch finishes its current unit of work, sees the durable signal before its next loop iteration, and then completes safely.
+这个模式适合会长时间循环运行的工作，例如轮询或批处理。工作运行期间，用户可以请求中断。每个分支会完成当前工作单元，在下一轮循环前读取 durable 信号，然后安全地结束。
 
-**InterruptibleFlow** starts **WorkAStep** and **WorkBStep** in parallel. Each Step checks the durable **interruptSignal** before scheduling its next unit of work. The **interrupt** RPC sets that signal, letting either branch finish the Flow gracefully.
+**InterruptibleFlow** 会并行启动 **WorkAStep** 和 **WorkBStep**。每个 Step 会在安排下一项工作前检查 durable 的 **interruptSignal**。**interrupt** RPC 写入该信号，使任一分支都能优雅地完成 Flow。
 
-![InterruptibleFlow diagram](/img/design-patterns/interruptible-flow.png)
+![InterruptibleFlow 图](/img/design-patterns/interruptible-flow.png)
 
-## Core implementation
+## 核心实现
 
-Each sample shows **WorkAStep**. It waits between units of work, completes when the interrupt signal arrives, and otherwise schedules its next loop iteration. **WorkBStep** follows the same pattern. The runnable examples also include Flow registration and the **interrupt** RPC.
+每个示例展示 **WorkAStep**。它在工作单元之间等待；收到中断信号时完成，否则安排下一轮循环。**WorkBStep** 采用相同模式。可运行示例还包含 Flow 注册和 **interrupt** RPC。
 
 <SdkTabs
   examples={{
@@ -224,7 +225,7 @@ impl Step for WorkAStep {
 </SdkSnippet>
 </SdkTabs>
 
-## Related
+## 相关内容
 
-- [Primitives](/primitives)
-- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)
+- [基础概念](/primitives)
+- [GitHub 示例](https://github.com/superdurable/dex/tree/main/examples)

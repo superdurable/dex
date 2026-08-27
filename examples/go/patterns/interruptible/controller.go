@@ -30,10 +30,10 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *InterruptibleExecutionFlow
+	flow   *InterruptibleFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *InterruptibleExecutionFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *InterruptibleFlow) {
 	controller := &controller{client: client, flow: flow}
 	group := router.Group("/patterns/interruptible")
 	group.GET("/start", controller.start)

@@ -41,7 +41,7 @@ from dex_examples.patterns.drain_channels.external_publishing.draining_channel_f
 )
 from dex_examples.patterns.entity_store.user_profile_flow import UserProfileFlow
 from dex_examples.patterns.interruptible.interruptible_execution_flow import (
-    InterruptibleExecutionFlow,
+    InterruptibleFlow,
 )
 from dex_examples.patterns.intervention.manual_intervention_flow import (
     ManualInterventionFlow,
@@ -136,7 +136,7 @@ class ExampleApp:
         self.cron_schedule = CronScheduleFlow()
         self.drain_internal = DrainInternalChannelFlow(pattern_service)
         self.drain_external = DrainingExternalChannelFlow()
-        self.interruptible = InterruptibleExecutionFlow()
+        self.interruptible = InterruptibleFlow()
         self.manual_intervention = ManualInterventionFlow()
         self.simple_parallel = SimpleParallelStatesFlow()
         self.parallel_with_await = ParallelStatesWithAwaitFlow()

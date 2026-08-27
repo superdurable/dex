@@ -36,29 +36,29 @@ type WorkJobParametersInput struct {
 	Progress      int
 }
 
-type InterruptibleExecutionFlow struct {
+type InterruptibleFlow struct {
 	dex.FlowDefaults
 }
 
-func NewInterruptibleExecutionFlow() *InterruptibleExecutionFlow {
-	return &InterruptibleExecutionFlow{}
+func NewInterruptibleFlow() *InterruptibleFlow {
+	return &InterruptibleFlow{}
 }
 
-func (*InterruptibleExecutionFlow) GetSteps() []dex.StepDef {
+func (*InterruptibleFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initStep{}),
-		dex.DefineStep(workAExecutionStep{}),
-		dex.DefineStep(workNExecutionStep{}),
+		dex.DefineStep(workAStep{}),
+		dex.DefineStep(workBStep{}),
 	}
 }
 
-func (*InterruptibleExecutionFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*InterruptibleFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{InterruptSignal},
 	}
 }
 
-func (*InterruptibleExecutionFlow) Interrupt(
+func (*InterruptibleFlow) Interrupt(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[dex.None], error) {
@@ -78,23 +78,23 @@ func (initStep) Execute(
 ) (*dex.StepDecision, error) {
 	input := WorkJobParametersInput{JobUpperBound: 15, Progress: 1}
 	return dex.GoToMulti(
-		dex.MovementOf(workAExecutionStep{}, input),
-		dex.MovementOf(workNExecutionStep{}, input),
+		dex.MovementOf(workAStep{}, input),
+		dex.MovementOf(workBStep{}, input),
 	), nil
 }
 
-type workAExecutionStep struct {
+type workAStep struct {
 	dex.StepDefaults
 }
 
-func (workAExecutionStep) WaitFor(
+func (workAStep) WaitFor(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(1500 * time.Millisecond)), nil
 }
 
-func (workAExecutionStep) Execute(
+func (workAStep) Execute(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.StepDecision, error) {
@@ -104,7 +104,7 @@ func (workAExecutionStep) Execute(
 		return dex.GracefulComplete(nil), nil
 	}
 	if input.Progress > input.JobUpperBound {
-		fmt.Println("Executing WorkAExecution completed")
+		fmt.Println("WorkAStep completed")
 		return dex.GracefulComplete(nil), nil
 	}
 	fmt.Printf(
@@ -117,31 +117,31 @@ func (workAExecutionStep) Execute(
 		JobUpperBound: input.JobUpperBound,
 		Progress:      input.Progress + 1,
 	}
-	return dex.GoTo(workAExecutionStep{}, next), nil
+	return dex.GoTo(workAStep{}, next), nil
 }
 
-type workNExecutionStep struct {
+type workBStep struct {
 	dex.StepDefaults
 }
 
-func (workNExecutionStep) WaitFor(
+func (workBStep) WaitFor(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.Wait, error) {
 	return dex.Until(dex.Timer(3 * time.Second)), nil
 }
 
-func (workNExecutionStep) Execute(
+func (workBStep) Execute(
 	ctx dex.Context,
 	input WorkJobParametersInput,
 ) (*dex.StepDecision, error) {
 	signal, err := InterruptSignal.Get(ctx)
 	if err == nil && signal == "cancel" {
-		fmt.Println("N: Interrupted!")
+		fmt.Println("B: Interrupted!")
 		return dex.GracefulComplete(nil), nil
 	}
 	if input.Progress > input.JobUpperBound {
-		fmt.Println("Executing WorkNExecution completed")
+		fmt.Println("WorkBStep completed")
 		return dex.GracefulComplete(nil), nil
 	}
 	fmt.Printf(
@@ -154,10 +154,10 @@ func (workNExecutionStep) Execute(
 		JobUpperBound: input.JobUpperBound,
 		Progress:      input.Progress + 1,
 	}
-	return dex.GoTo(workNExecutionStep{}, next), nil
+	return dex.GoTo(workBStep{}, next), nil
 }
 
 var (
-	_ dex.Flow                    = (*InterruptibleExecutionFlow)(nil)
-	_ dex.RPC[dex.None, dex.None] = (*InterruptibleExecutionFlow)(nil).Interrupt
+	_ dex.Flow                    = (*InterruptibleFlow)(nil)
+	_ dex.RPC[dex.None, dex.None] = (*InterruptibleFlow)(nil).Interrupt
 )

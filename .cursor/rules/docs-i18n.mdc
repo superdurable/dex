@@ -17,5 +17,8 @@ When you add or change a page under `docs/content/`:
 3. Keep Dex terms untranslated: Flow, Step, Attribute, Channel, RPC, Timer.
 4. Keep code samples identical across locales.
 5. Do not ship a new English page without its Chinese counterpart.
+6. Do not translate sidebar labels. Every Chinese page must set `sidebar_label`
+   to the exact English label from its matching page. Use that page's English
+   title when it has no `sidebar_label`.
 
 Do not remove the locale switcher or the stored preference.

@@ -803,7 +803,7 @@ func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) 
 	name := "pattern/interruptible"
 	flowID := "dv-interrupt-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.InterruptibleExecution, flowID, nil, hourStartOptions(),
+		ctx, registry.Interruptible, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -811,7 +811,7 @@ func verifyInterruptible(ctx context.Context, client *dex.Client, stamp string) 
 	time.Sleep(500 * time.Millisecond)
 	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.InterruptibleExecution.Interrupt, nil, &none, dex.InvokeOptions{},
+		ctx, flowID, registry.Interruptible.Interrupt, nil, &none, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "interrupt rpc", err)
 	}
