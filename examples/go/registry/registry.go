@@ -101,7 +101,7 @@ var (
 	ParentChild            *parentchild.ParentFlowV2
 	ParentChildChild       *parentchild.ChildFlow
 	DrainInternal          *draininternal.DrainInternalChannelsFlow
-	DrainExternal          *drainexternal.DrainingChannelFlow
+	DrainExternal          *drainexternal.DrainingExternalChannelFlow
 	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
 	GracefulTimeout        *timeout.FlowGracefulTimeout
 
@@ -170,7 +170,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	ParentChildChild = parentchild.NewChildFlow()
 	ParentChild = parentchild.NewParentFlowV2(getClient, ParentChildChild)
 	DrainInternal = draininternal.NewDrainInternalChannelsFlow(patternService)
-	DrainExternal = drainexternal.NewDrainingChannelFlow()
+	DrainExternal = drainexternal.NewDrainingExternalChannelFlow()
 	WaitForStateCompletion = waitforstatecompletion.NewWaitForStateCompletionFlow(patternService)
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()
 

@@ -19,7 +19,7 @@ package io.superdurable.dex.patterns.drainchannels;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.patterns.drainchannels.internal.DrainInternalChannelsFlow;
-import io.superdurable.dex.patterns.drainchannels.externalpublishing.DrainingChannelFlow;
+import io.superdurable.dex.patterns.drainchannels.externalpublishing.DrainingExternalChannelFlow;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,15 +32,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class DrainChannelsController {
     private final Client client;
     private final DrainInternalChannelsFlow drainInternalChannelsFlow;
-    private final DrainingChannelFlow drainingChannelFlow;
+    private final DrainingExternalChannelFlow drainingExternalChannelFlow;
 
     public DrainChannelsController(
             final Client client,
             final DrainInternalChannelsFlow drainInternalChannelsFlow,
-            final DrainingChannelFlow drainingChannelFlow) {
+            final DrainingExternalChannelFlow drainingExternalChannelFlow) {
         this.client = client;
         this.drainInternalChannelsFlow = drainInternalChannelsFlow;
-        this.drainingChannelFlow = drainingChannelFlow;
+        this.drainingExternalChannelFlow = drainingExternalChannelFlow;
     }
 
     @GetMapping("/internal/start")
@@ -59,12 +59,12 @@ public class DrainChannelsController {
         try {
             client.publish(
                     workflowId,
-                    drainingChannelFlow.queueChannel,
+                    drainingExternalChannelFlow.queueChannel,
                     "message from start-or-publish endpoint");
             response = "Published to the Flow";
         } catch (final FlowNotActiveException inactive) {
             final String runId = client.startFlow(
-                    drainingChannelFlow,
+                    drainingExternalChannelFlow,
                     workflowId,
                     "first message from start-or-publish",
                     ExampleFlows.startOptions());

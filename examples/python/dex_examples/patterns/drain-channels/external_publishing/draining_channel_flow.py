@@ -48,7 +48,7 @@ class ProcessMessage(Step[str]):
         self, context: Context, input: str
     ) -> StepDecision:
         if input is not None:
-            print(f"DrainingChannelFlow process message: {input}")
+            print(f"DrainingExternalChannelFlow process message: {input}")
         else:
             values = self.queue_channel.results(context)
             if not values:
@@ -56,7 +56,7 @@ class ProcessMessage(Step[str]):
             value = values[0]
             if value is None:
                 raise RuntimeError("No channel message value found")
-            print(f"DrainingChannelFlow process message: {value}")
+            print(f"DrainingExternalChannelFlow process message: {value}")
 
         # Yield so AsyncWorker can serve other Flows during the drain window.
         await asyncio.sleep(DRAIN_WINDOW_SECONDS)
@@ -68,7 +68,7 @@ class ProcessMessage(Step[str]):
         )
 
 
-class DrainingChannelFlow(Flow[str]):
+class DrainingExternalChannelFlow(Flow[str]):
     QUEUE_CHANNEL = "queueChannel"
 
     queue_channel = Channel(QUEUE_CHANNEL, str)

@@ -24,7 +24,7 @@ import DrainingChannelForExternalPublishingDiagram from '@site/src/components/de
 
 ## 核心实现
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py', go: 'examples/go/patterns/drain-channels/external-publishing/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/externalpublishing/DrainingChannelFlow.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts', rust: 'examples/rust/src/patterns/drain_channels/flow.rs'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py', go: 'examples/go/patterns/drain-channels/external-publishing/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/externalpublishing/DrainingExternalChannelFlow.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts', rust: 'examples/rust/src/patterns/drain_channels/flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
@@ -50,7 +50,7 @@ return force_complete_if_channels_empty(
 <SdkSnippet lang="go">
 
 ```go
-func (*DrainingChannelFlow) ExampleRPC(
+func (*DrainingExternalChannelFlow) ExampleRPC(
 	ctx dex.Context,
 	input string,
 ) (*dex.RPCResult[string], error) {

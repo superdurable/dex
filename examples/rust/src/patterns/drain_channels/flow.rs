@@ -93,11 +93,11 @@ impl Step for DrainInternal {
 pub const EXAMPLE_RPC: Rpc<String, String> = Rpc::new("exampleRPC");
 
 #[derive(Default)]
-pub struct DrainingChannelFlow {
+pub struct DrainingExternalChannelFlow {
     drain: DrainChannel,
 }
 
-impl DrainingChannelFlow {
+impl DrainingExternalChannelFlow {
     fn example_rpc(
         &self,
         context: &mut Context,
@@ -108,7 +108,7 @@ impl DrainingChannelFlow {
     }
 }
 
-impl Flow for DrainingChannelFlow {
+impl Flow for DrainingExternalChannelFlow {
     type StartInput = ();
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {

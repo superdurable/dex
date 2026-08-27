@@ -18,7 +18,7 @@ import { Registry, type Flow } from "@superdurable/dex";
 
 import { cronScheduleFlow } from "./patterns/cron/cron-schedule-flow.js";
 import { drainInternalChannelsFlow } from "./patterns/drain-channels/internal/drain-internal-channels-flow.js";
-import { drainingChannelFlow } from "./patterns/drain-channels/external-publishing/draining-channel-flow.js";
+import { drainingExternalChannelFlow } from "./patterns/drain-channels/external-publishing/draining-channel-flow.js";
 import { userProfileFlow } from "./patterns/entity-store/user-profile-flow.js";
 import { interruptibleExecutionFlow } from "./patterns/interruptible/interruptible-execution-flow.js";
 import { manualInterventionFlow } from "./patterns/intervention/manual-intervention-flow.js";
@@ -79,7 +79,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   shortlistFlow,
 	cronScheduleFlow,
   drainInternalChannelsFlow,
-  drainingChannelFlow,
+  drainingExternalChannelFlow,
   interruptibleExecutionFlow,
   manualInterventionFlow,
   simpleParallelStatesFlow,
@@ -133,7 +133,7 @@ export {
   shortlistFlow,
 	cronScheduleFlow,
   drainInternalChannelsFlow,
-  drainingChannelFlow,
+  drainingExternalChannelFlow,
   interruptibleExecutionFlow,
   manualInterventionFlow,
   simpleParallelStatesFlow,

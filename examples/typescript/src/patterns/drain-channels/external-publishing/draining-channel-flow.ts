@@ -53,7 +53,7 @@ class ProcessMessage implements Step<string | undefined> {
 
   public async execute(context: Context, input: string | undefined): Promise<StepDecision> {
     if (input !== undefined) {
-      console.log(`DrainingChannelFlow process message: ${input}`);
+      console.log(`DrainingExternalChannelFlow process message: ${input}`);
     } else {
       const values = queueChannel.results(context);
       if (values.length === 0) {
@@ -63,7 +63,7 @@ class ProcessMessage implements Step<string | undefined> {
       if (value === undefined) {
         throw new Error("No channel message value found");
       }
-      console.log(`DrainingChannelFlow process message: ${value}`);
+      console.log(`DrainingExternalChannelFlow process message: ${value}`);
     }
 
     // busy wait mirrors Java Thread.sleep inside the workflow step
@@ -79,11 +79,11 @@ class ProcessMessage implements Step<string | undefined> {
   }
 }
 
-export class DrainingChannelFlow implements Flow<string | undefined> {
+export class DrainingExternalChannelFlow implements Flow<string | undefined> {
   private readonly processMessage = new ProcessMessage();
 
   public getFlowType(): string {
-    return "DrainingChannelFlow";
+    return "DrainingExternalChannelFlow";
   }
 
   public getSteps() {
@@ -101,4 +101,4 @@ export class DrainingChannelFlow implements Flow<string | undefined> {
   }
 }
 
-export const drainingChannelFlow = new DrainingChannelFlow();
+export const drainingExternalChannelFlow = new DrainingExternalChannelFlow();

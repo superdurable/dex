@@ -31,27 +31,27 @@ const QueueChannelName = "queueChannel"
 
 var QueueChannel = dex.DefineChannel[string](QueueChannelName)
 
-type DrainingChannelFlow struct {
+type DrainingExternalChannelFlow struct {
 	dex.FlowDefaults
 }
 
-func NewDrainingChannelFlow() *DrainingChannelFlow {
-	return &DrainingChannelFlow{}
+func NewDrainingExternalChannelFlow() *DrainingExternalChannelFlow {
+	return &DrainingExternalChannelFlow{}
 }
 
-func (*DrainingChannelFlow) GetSteps() []dex.StepDef {
+func (*DrainingExternalChannelFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(processMessageStep{}),
 	}
 }
 
-func (*DrainingChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*DrainingExternalChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Channels: []dex.ChannelDef{QueueChannel},
 	}
 }
 
-func (*DrainingChannelFlow) ExampleRPC(
+func (*DrainingExternalChannelFlow) ExampleRPC(
 	ctx dex.Context,
 	input string,
 ) (*dex.RPCResult[string], error) {
@@ -80,7 +80,7 @@ func (processMessageStep) Execute(
 	input string,
 ) (*dex.StepDecision, error) {
 	if input != "" {
-		fmt.Printf("DrainingChannelFlow process message: %s\n", input)
+		fmt.Printf("DrainingExternalChannelFlow process message: %s\n", input)
 	} else {
 		values, err := QueueChannel.GetConditionResults(ctx)
 		if err != nil {
@@ -89,7 +89,7 @@ func (processMessageStep) Execute(
 		if len(values) == 0 {
 			return nil, fmt.Errorf("no channel message found")
 		}
-		fmt.Printf("DrainingChannelFlow process message: %s\n", values[0])
+		fmt.Printf("DrainingExternalChannelFlow process message: %s\n", values[0])
 	}
 	time.Sleep(20 * time.Second)
 	return dex.ForceCompleteIfChannelsEmpty(
@@ -99,4 +99,4 @@ func (processMessageStep) Execute(
 	), nil
 }
 
-var _ dex.Flow = (*DrainingChannelFlow)(nil)
+var _ dex.Flow = (*DrainingExternalChannelFlow)(nil)

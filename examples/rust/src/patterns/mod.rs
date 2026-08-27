@@ -33,7 +33,7 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
     registry
         .register(cron::CronScheduleFlow::default())?
         .register(drain_channels::DrainInternalChannelsFlow::default())?
-        .register(drain_channels::DrainingChannelFlow::default())?
+        .register(drain_channels::DrainingExternalChannelFlow::default())?
         .register(interruptible::InterruptibleExecutionFlow::default())?
         .register(intervention::ManualInterventionFlow::default())?
         .register(parallel::SimpleParallelStatesFlow::default())?

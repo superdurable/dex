@@ -35,7 +35,7 @@ type Copy = {
 const EN: Copy = {
   label: 'Draining external Channel publishing: a Flow, a one-way Channel, a two-way RPC, the ProcessMessage Step, and conditional completion',
   flow: 'FLOW',
-  flowName: 'DrainingChannelFlow',
+  flowName: 'DrainingExternalChannelFlow',
   channel: 'CHANNEL',
   queue: 'queueChannel',
   rpc: 'RPC',
@@ -54,7 +54,7 @@ const EN: Copy = {
 const ZH: Copy = {
   label: '排空外部 Channel 发布：Flow、单向 Channel、双向 RPC、ProcessMessage Step 和条件完成',
   flow: 'FLOW',
-  flowName: 'DrainingChannelFlow',
+  flowName: 'DrainingExternalChannelFlow',
   channel: 'CHANNEL',
   queue: 'queueChannel',
   rpc: 'RPC',

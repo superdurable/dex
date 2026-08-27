@@ -20,7 +20,9 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::drain_channels::flow::{DrainInternalChannelsFlow, DrainingChannelFlow};
+use crate::patterns::drain_channels::flow::{
+    DrainInternalChannelsFlow, DrainingExternalChannelFlow,
+};
 use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
 
 #[derive(Deserialize)]
@@ -70,7 +72,7 @@ async fn start_or_publish(
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = DrainingChannelFlow::default();
+        let flow = DrainingExternalChannelFlow::default();
         client
             .start_flow(&flow, &flow_id, ())
             .map(|run_id| format!("Started the workflow with runId {run_id}"))

@@ -32,10 +32,10 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *DrainingChannelFlow
+	flow   *DrainingExternalChannelFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *DrainingChannelFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *DrainingExternalChannelFlow) {
 	controller := &controller{client: client, flow: flow}
 	group := router.Group("/patterns/drain-channels/external-publishing")
 	group.GET("/start-or-publish", controller.startOrPublish)

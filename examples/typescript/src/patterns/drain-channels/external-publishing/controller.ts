@@ -20,7 +20,7 @@ import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../../config/env.js";
 import { isFlowMissingOrInactive } from "../../../service-errors.js";
-import { drainingChannelFlow, queueChannel } from "./draining-channel-flow.js";
+import { drainingExternalChannelFlow, queueChannel } from "./draining-channel-flow.js";
 
 export function createDrainingChannelRouter(client: Client): Router {
   const router = Router();
@@ -38,7 +38,7 @@ export function createDrainingChannelRouter(client: Client): Router {
     } catch (error) {
       if (isFlowMissingOrInactive(error)) {
         const runId = await client.startFlow(
-          drainingChannelFlow,
+          drainingExternalChannelFlow,
           workflowId,
           "first message from start-or-publish",
           startOptions(),

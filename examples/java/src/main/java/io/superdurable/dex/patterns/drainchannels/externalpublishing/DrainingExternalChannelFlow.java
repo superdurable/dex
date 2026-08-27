@@ -32,7 +32,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 @Component
-public class DrainingChannelFlow implements Flow<String> {
+public class DrainingExternalChannelFlow implements Flow<String> {
     public static final String QUEUE_CHANNEL = "queueChannel";
 
     public final Channel<String> queueChannel =
@@ -74,7 +74,7 @@ public class DrainingChannelFlow implements Flow<String> {
         public StepDecision execute(final Context context, final String input) {
             if (input != null) {
                 System.out.println(
-                        "DrainingChannelFlow process message: " + input);
+                        "DrainingExternalChannelFlow process message: " + input);
             } else {
                 final List<String> values = queueChannel.getConditionResults(context);
                 if (values.isEmpty()) {
@@ -85,7 +85,7 @@ public class DrainingChannelFlow implements Flow<String> {
                     throw new IllegalStateException("No channel message value found");
                 }
                 System.out.println(
-                        "DrainingChannelFlow process message: " + value);
+                        "DrainingExternalChannelFlow process message: " + value);
             }
 
             try {
