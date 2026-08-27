@@ -21,7 +21,7 @@ describe('StreamPanel', () => {
 
     expect(markup).toContain('Resumable stream');
     expect(markup).toContain('Stream name');
-    expect(markup).toContain('placeholder="thinking"');
+    expect(markup).toContain('placeholder="a defined stream name"');
     expect(markup).toContain('Start listening');
     expect(markup).toContain('best effort');
   });

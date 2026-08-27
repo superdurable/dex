@@ -141,7 +141,7 @@ export function StreamPanel({ flowId, flowType }: StreamPanelProps) {
             id="stream-name"
             name="streamName"
             onChange={(event) => setStreamName(event.target.value)}
-            placeholder="thinking"
+            placeholder="a defined stream name"
             value={streamName}
           />
           <button className="button primary" type="submit">
