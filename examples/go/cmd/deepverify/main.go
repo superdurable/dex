@@ -937,7 +937,7 @@ func verifyInterventionRetry(ctx context.Context, client *dex.Client, stamp stri
 	for time.Now().Before(deadline) {
 		time.Sleep(300 * time.Millisecond)
 		if err := client.PublishToChannel(
-			ctx, flowID, intervention.RetrySignal, nil,
+			ctx, flowID, intervention.RetryChannel, nil,
 		); err == nil {
 			break
 		}
@@ -981,7 +981,7 @@ func verifyInterventionSkip(ctx context.Context, client *dex.Client, stamp strin
 	for time.Now().Before(deadline) {
 		time.Sleep(300 * time.Millisecond)
 		if err := client.PublishToChannel(
-			ctx, flowID, intervention.SkipSignal, nil,
+			ctx, flowID, intervention.SkipChannel, nil,
 		); err == nil {
 			break
 		}
