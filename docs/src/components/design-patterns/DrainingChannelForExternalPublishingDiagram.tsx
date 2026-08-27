@@ -15,11 +15,13 @@ import {CompactCard, GraphArrow, StepCard} from '../primitives/step/flowGraphSha
 
 type Copy = {
   label: string;
-  client: string;
-  publish: string;
-  alternativePublish: string;
+  flow: string;
+  flowName: string;
   channel: string;
   queue: string;
+  rpc: string;
+  exampleRPC: string;
+  rpcDetail: string;
   start: string;
   process: string;
   processMessage: string;
@@ -31,12 +33,14 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'Draining channel for external publishing: external publisher, Channel, ProcessMessage Step, and conditional completion',
-  client: 'EXTERNAL PUBLISHER',
-  publish: 'Client PublishToChannel',
-  alternativePublish: 'or Flow RPC publish',
+  label: 'Draining external Channel publishing: a Flow, a one-way Channel, a two-way RPC, the ProcessMessage Step, and conditional completion',
+  flow: 'FLOW',
+  flowName: 'DrainingChannelFlow',
   channel: 'CHANNEL',
   queue: 'queueChannel',
+  rpc: 'RPC',
+  exampleRPC: 'exampleRPC',
+  rpcDetail: 'String ⇄ String',
   start: 'Start',
   process: 'ProcessMessage',
   processMessage: 'process one message',
@@ -48,12 +52,14 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  label: '为外部发布排空 Channel：外部发布者、Channel、ProcessMessage Step 和条件完成',
-  client: '外部发布者',
-  publish: 'Client PublishToChannel',
-  alternativePublish: '或 Flow RPC publish',
+  label: '排空外部 Channel 发布：Flow、单向 Channel、双向 RPC、ProcessMessage Step 和条件完成',
+  flow: 'FLOW',
+  flowName: 'DrainingChannelFlow',
   channel: 'CHANNEL',
   queue: 'queueChannel',
+  rpc: 'RPC',
+  exampleRPC: 'exampleRPC',
+  rpcDetail: 'String ⇄ String',
   start: '开始',
   process: 'ProcessMessage',
   processMessage: '处理一条消息',
@@ -70,37 +76,42 @@ export default function DrainingChannelForExternalPublishingDiagram(): ReactNode
   return (
     <div className="exec-diagram" role="img" aria-label={copy.label}>
       <div className="draining-channel-graph">
-        <div className="draining-channel-publisher">
-          <CompactCard
-            kicker={copy.client}
-            title={copy.publish}
-            detail={copy.alternativePublish}
-            tone="source"
-          />
-          <GraphArrow label="append" />
-          <CompactCard kicker={copy.channel} title={copy.queue} />
-        </div>
-        <div className="flow-graph draining-channel-flow">
-          <CompactCard kicker="FLOW" title={copy.start} tone="source" />
-          <GraphArrow />
-          <StepCard
-            name={copy.process}
-            execute={copy.processMessage}
-            waitFor={{channel: copy.queue}}
-            tone="waiting"
-          />
-          <GraphArrow label={copy.conditionalComplete} />
-          <div className="flow-graph-split">
-            <div className="flow-graph-split-stem" aria-hidden="true" />
-            <div className="flow-graph-split-bar" aria-hidden="true" />
-            <div className="flow-graph-split-cards">
-              <div className="flow-graph-split-branch">
-                <GraphArrow label={copy.empty} />
-                <CompactCard kicker="DONE" title={copy.complete} tone="done" />
-              </div>
-              <div className="flow-graph-split-branch">
-                <GraphArrow label={copy.notEmpty} />
-                <CompactCard kicker="FALLBACK" title={copy.fallback} tone="decision" />
+        <div className="draining-channel-flow">
+          <div className="draining-channel-flow-title">
+            <span>{copy.flow}</span>
+            <b>{copy.flowName}</b>
+          </div>
+          <div className="draining-channel-connector draining-channel-connector-channel">
+            <span>{copy.channel}</span>
+            <b>{copy.queue}</b>
+          </div>
+          <div className="draining-channel-connector draining-channel-connector-rpc">
+            <span>{copy.rpc}</span>
+            <b>{copy.exampleRPC}</b>
+            <small>{copy.rpcDetail}</small>
+          </div>
+          <div className="flow-graph draining-channel-flow-content">
+            <CompactCard kicker="FLOW" title={copy.start} tone="source" />
+            <GraphArrow />
+            <StepCard
+              name={copy.process}
+              execute={copy.processMessage}
+              waitFor={{channel: copy.queue}}
+              tone="waiting"
+            />
+            <GraphArrow label={copy.conditionalComplete} />
+            <div className="flow-graph-split">
+              <div className="flow-graph-split-stem" aria-hidden="true" />
+              <div className="flow-graph-split-bar" aria-hidden="true" />
+              <div className="flow-graph-split-cards">
+                <div className="flow-graph-split-branch">
+                  <GraphArrow label={copy.empty} />
+                  <CompactCard kicker="DONE" title={copy.complete} tone="done" />
+                </div>
+                <div className="flow-graph-split-branch">
+                  <GraphArrow label={copy.notEmpty} />
+                  <CompactCard kicker="FALLBACK" title={copy.fallback} tone="decision" />
+                </div>
               </div>
             </div>
           </div>

@@ -51,6 +51,16 @@ func (*DrainingChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	}
 }
 
+func (*DrainingChannelFlow) ExampleRPC(
+	ctx dex.Context,
+	input string,
+) (*dex.RPCResult[string], error) {
+	if err := QueueChannel.Publish(ctx, input); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: input}, nil
+}
+
 type processMessageStep struct {
 	dex.StepDefaults
 }

@@ -1,16 +1,16 @@
 ---
-title: 为外部发布排空 Channel
+title: 排空外部 Channel 发布
 ---
 
 import DrainingChannelForExternalPublishingDiagram from '@site/src/components/design-patterns/DrainingChannelForExternalPublishingDiagram';
 
-# 为外部发布排空 Channel
+# 排空外部 Channel 发布
 
 处理外部发布到 Channel 的消息；队列为空时完成这条短生命周期的 Flow。
 
 ## 问题与做法
 
-当一条 Flow 要处理 Worker 外部发来的一批消息，但这批消息处理完后没有其他 durable 工作时，使用这个模式。外部发布者通过 Client **PublishToChannel** API 或 Flow RPC 追加消息。**ProcessMessage** 等待一条消息、处理它，然后返回 **ForceCompleteIfChannelsEmpty**。
+当一条 Flow 要处理 Worker 外部发来的一批消息，但这批消息处理完后没有其他 durable 工作时，使用这个模式。Client 可以通过 **PublishToChannel** 直接追加消息；这是单向操作，Client 不会收到 Flow 响应。活跃 Flow 也可以提供 **exampleRPC**，它向同一个 Channel 追加消息并返回响应。**ProcessMessage** 等待一条消息、处理它，然后返回 **ForceCompleteIfChannelsEmpty**。
 
 这个 decision 会在记录下一步动作时原子地检查 Channel。Channel 为空时完成 Flow；仍有消息时，Dex 会走 fallback movement 回到 **ProcessMessage**。前一次 execution 完成后，下一个请求必须用相同的 Flow ID 启动新的 Flow execution，才能追加下一条消息。
 
@@ -20,7 +20,7 @@ import DrainingChannelForExternalPublishingDiagram from '@site/src/components/de
 
 <DrainingChannelForExternalPublishingDiagram />
 
-这张图表示 Step definition，不表示 Step execution。**ProcessMessage** 是唯一的 Step definition；fallback 边回到它。
+大边框表示 Flow definition。Channel 和 RPC 是外部接口，因此它们跨越这个边框。**queueChannel** 是单向的；**exampleRPC** 同时传递请求和响应。这张图表示 Step definition，不表示 Step execution。**ProcessMessage** 是唯一的 Step definition；fallback 边回到它。
 
 ## 核心实现
 
@@ -28,6 +28,11 @@ import DrainingChannelForExternalPublishingDiagram from '@site/src/components/de
 <SdkSnippet lang="python">
 
 ```python
+@rpc
+def example_rpc(self, context: Context, input: str) -> RPCResult[str]:
+    self.queue_channel.publish(context, input)
+    return RPCResult(input)
+
 def wait_for(self, context: Context, input: str) -> Wait:
     del context
     if input is None:
@@ -45,6 +50,16 @@ return force_complete_if_channels_empty(
 <SdkSnippet lang="go">
 
 ```go
+func (*DrainingChannelFlow) ExampleRPC(
+	ctx dex.Context,
+	input string,
+) (*dex.RPCResult[string], error) {
+	if err := QueueChannel.Publish(ctx, input); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: input}, nil
+}
+
 func (processMessageStep) WaitFor(_ dex.Context, input string) (*dex.Wait, error) {
 	if input == "" {
 		return dex.Until(QueueChannel.ForOne()), nil
@@ -63,6 +78,12 @@ return dex.ForceCompleteIfChannelsEmpty(
 <SdkSnippet lang="java">
 
 ```java
+@RPC
+public RPCResult<String> exampleRPC(final Context context, final String input) {
+    queueChannel.publish(context, input);
+    return RPCResult.of(input);
+}
+
 if (input == null) {
     return Wait.until(queueChannel.forOne());
 }
@@ -78,6 +99,12 @@ return StepDecision.forceCompleteIfChannelsEmpty(
 <SdkSnippet lang="typescript">
 
 ```typescript
+@rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+public exampleRPC(context: Context, input: string): RPCResult<string> {
+  queueChannel.publish(context, input);
+  return { output: input };
+}
+
 if (input === undefined) {
   return Wait.until(queueChannel.forOne());
 }
@@ -94,7 +121,12 @@ return forceCompleteIfChannelsEmpty(
 <SdkSnippet lang="rust">
 
 ```rust
-pub const DRAIN_CHANNEL_PUBLISH: Rpc<String, ()> = Rpc::new("DrainChannelPublish");
+pub const EXAMPLE_RPC: Rpc<String, String> = Rpc::new("exampleRPC");
+
+fn example_rpc(&self, context: &mut Context, input: String) -> HandlerResult<RpcResult<String>> {
+    channel_queue().publish(context, input.clone())?;
+    Ok(RpcResult::new(input))
+}
 
 Ok(StepDecision::force_complete_if_channels_empty(
     (),

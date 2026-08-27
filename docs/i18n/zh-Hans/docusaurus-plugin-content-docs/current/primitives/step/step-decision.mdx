@@ -332,7 +332,7 @@ Ok(StepDecision::go_to(&RecordQuoteStep, quote)
 
 **ForceCompleteIfChannelsEmpty** 原子检查 Channel 是否为空。若为空，它完成 Flow。否则，它转到其他 Step。
 
-当你想 drain Channel 并完成 Flow，让 Flow 保持短小，使用它。完整例子见[为外部发布排空 Channel](/design-patterns/draining-channel-for-external-publishing)。
+当你想 drain Channel 并完成 Flow，让 Flow 保持短小，使用它。完整例子见[排空外部 Channel 发布](/design-patterns/draining-channel-for-external-publishing)。
 
 <SdkTabs
   examples={{

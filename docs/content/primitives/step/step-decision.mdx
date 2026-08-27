@@ -332,7 +332,7 @@ Ok(StepDecision::go_to(&RecordQuoteStep, quote)
 
 **ForceCompleteIfChannelsEmpty** atomically checks if Channels are empty. If they are, it completes the Flow. Otherwise, it goes to other Steps.
 
-Use it when you want to drain Channels and complete the Flow, so the Flow can stay short. See [Draining Channel for External Publishing](/design-patterns/draining-channel-for-external-publishing) for the full example.
+Use it when you want to drain Channels and complete the Flow, so the Flow can stay short. See [Draining External Channel Publishing](/design-patterns/draining-channel-for-external-publishing) for the full example.
 
 <SdkTabs
   examples={{

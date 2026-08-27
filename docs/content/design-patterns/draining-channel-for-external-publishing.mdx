@@ -1,16 +1,16 @@
 ---
-title: Draining Channel for External Publishing
+title: Draining External Channel Publishing
 ---
 
 import DrainingChannelForExternalPublishingDiagram from '@site/src/components/design-patterns/DrainingChannelForExternalPublishingDiagram';
 
-# Draining Channel for External Publishing
+# Draining External Channel Publishing
 
 Process externally published Channel messages, then close the short-lived Flow when its queue is empty.
 
 ## Problem and approach
 
-Use this pattern when a Flow handles a burst of messages from outside the Worker, but has no durable work after that burst. An external publisher uses the Client **PublishToChannel** API or a Flow RPC to append a message. **ProcessMessage** waits for one message, processes it, then returns **ForceCompleteIfChannelsEmpty**.
+Use this pattern when a Flow handles a burst of messages from outside the Worker, but has no durable work after that burst. A Client can append directly through **PublishToChannel**. This is one way: the Client does not receive a Flow response. An active Flow can also expose **exampleRPC**, which appends to the same Channel and returns a response. **ProcessMessage** waits for one message, processes it, then returns **ForceCompleteIfChannelsEmpty**.
 
 The decision atomically checks the Channel while it records the next action. An empty Channel completes the Flow. A queued message takes the fallback movement back to **ProcessMessage**. After completion, the next request starts a new Flow execution with the same Flow ID before appending another message.
 
@@ -20,7 +20,7 @@ Only one Step may consume a Channel checked by **ForceCompleteIfChannelsEmpty**.
 
 <DrainingChannelForExternalPublishingDiagram />
 
-The graph shows Step definitions, not Step executions. **ProcessMessage** is the only Step definition; the fallback edge returns to it.
+The large boundary is the Flow definition. Channel and RPC are external interfaces, so each crosses that boundary. **queueChannel** is one-way; **exampleRPC** carries a request and response. The graph shows Step definitions, not Step executions. **ProcessMessage** is the only Step definition; the fallback edge returns to it.
 
 ## Core implementation
 
@@ -28,6 +28,11 @@ The graph shows Step definitions, not Step executions. **ProcessMessage** is the
 <SdkSnippet lang="python">
 
 ```python
+@rpc
+def example_rpc(self, context: Context, input: str) -> RPCResult[str]:
+    self.queue_channel.publish(context, input)
+    return RPCResult(input)
+
 def wait_for(self, context: Context, input: str) -> Wait:
     del context
     if input is None:
@@ -45,6 +50,16 @@ return force_complete_if_channels_empty(
 <SdkSnippet lang="go">
 
 ```go
+func (*DrainingChannelFlow) ExampleRPC(
+	ctx dex.Context,
+	input string,
+) (*dex.RPCResult[string], error) {
+	if err := QueueChannel.Publish(ctx, input); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: input}, nil
+}
+
 func (processMessageStep) WaitFor(_ dex.Context, input string) (*dex.Wait, error) {
 	if input == "" {
 		return dex.Until(QueueChannel.ForOne()), nil
@@ -63,6 +78,12 @@ return dex.ForceCompleteIfChannelsEmpty(
 <SdkSnippet lang="java">
 
 ```java
+@RPC
+public RPCResult<String> exampleRPC(final Context context, final String input) {
+    queueChannel.publish(context, input);
+    return RPCResult.of(input);
+}
+
 if (input == null) {
     return Wait.until(queueChannel.forOne());
 }
@@ -78,6 +99,12 @@ return StepDecision.forceCompleteIfChannelsEmpty(
 <SdkSnippet lang="typescript">
 
 ```typescript
+@rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+public exampleRPC(context: Context, input: string): RPCResult<string> {
+  queueChannel.publish(context, input);
+  return { output: input };
+}
+
 if (input === undefined) {
   return Wait.until(queueChannel.forOne());
 }
@@ -94,7 +121,12 @@ return forceCompleteIfChannelsEmpty(
 <SdkSnippet lang="rust">
 
 ```rust
-pub const DRAIN_CHANNEL_PUBLISH: Rpc<String, ()> = Rpc::new("DrainChannelPublish");
+pub const EXAMPLE_RPC: Rpc<String, String> = Rpc::new("exampleRPC");
+
+fn example_rpc(&self, context: &mut Context, input: String) -> HandlerResult<RpcResult<String>> {
+    channel_queue().publish(context, input.clone())?;
+    Ok(RpcResult::new(input))
+}
 
 Ok(StepDecision::force_complete_if_channels_empty(
     (),

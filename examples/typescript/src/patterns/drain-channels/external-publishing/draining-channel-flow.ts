@@ -21,10 +21,12 @@ import {
   Wait,
   forceCompleteIfChannelsEmpty,
   optionalCodec,
+  rpc,
   stringCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
+  type RPCResult,
   type Step,
   type StepDecision,
 } from "@superdurable/dex";
@@ -90,6 +92,12 @@ export class DrainingChannelFlow implements Flow<string | undefined> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return { channels: [queueChannel] };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+  public exampleRPC(context: Context, input: string): RPCResult<string> {
+    queueChannel.publish(context, input);
+    return { output: input };
   }
 }
 

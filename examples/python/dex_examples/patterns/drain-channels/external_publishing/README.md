@@ -1,4 +1,4 @@
-# Draining Channel for External Publishing
+# Draining External Channel Publishing
 
 Keeps a Flow alive only while there are messages left to process, and closes as
 soon as the channel is drained. A new message starts a new Flow execution

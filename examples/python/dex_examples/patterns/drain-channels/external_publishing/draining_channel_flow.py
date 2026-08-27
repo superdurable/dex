@@ -21,12 +21,14 @@ from dex import (
     Context,
     Flow,
     PersistenceSchema,
+    RPCResult,
     Step,
     StepDecision,
     StepList,
     StepMovement,
     Wait,
     force_complete_if_channels_empty,
+    rpc,
 )
 
 DRAIN_WINDOW_SECONDS = 20
@@ -79,3 +81,8 @@ class DrainingChannelFlow(Flow[str]):
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(self.queue_channel)
+
+    @rpc
+    def example_rpc(self, context: Context, input: str) -> RPCResult[str]:
+        self.queue_channel.publish(context, input)
+        return RPCResult(input)

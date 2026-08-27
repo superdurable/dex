@@ -1,4 +1,4 @@
-# Draining Channel for External Publishing
+# Draining External Channel Publishing
 
 ## Endpoints
 

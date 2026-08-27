@@ -20,6 +20,8 @@ import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
+import io.superdurable.dex.RPC;
+import io.superdurable.dex.RPCResult;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
@@ -46,6 +48,12 @@ public class DrainingChannelFlow implements Flow<String> {
     @Override
     public PersistenceSchema getPersistenceSchema() {
         return PersistenceSchema.of(queueChannel);
+    }
+
+    @RPC
+    public RPCResult<String> exampleRPC(final Context context, final String input) {
+        queueChannel.publish(context, input);
+        return RPCResult.of(input);
     }
 
     final class ProcessMessage implements Step<String> {

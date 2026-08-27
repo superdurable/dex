@@ -29,8 +29,8 @@
  */
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
-    StepList, StepMovement, Wait,
+    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult, Step,
+    StepDecision, StepList, StepMovement, Wait,
 };
 
 #[derive(Default)]
@@ -90,7 +90,7 @@ impl Step for DrainInternal {
     }
 }
 
-pub const DRAIN_CHANNEL_PUBLISH: Rpc<String, ()> = Rpc::new("DrainChannelPublish");
+pub const EXAMPLE_RPC: Rpc<String, String> = Rpc::new("exampleRPC");
 
 #[derive(Default)]
 pub struct DrainingChannelFlow {
@@ -98,8 +98,13 @@ pub struct DrainingChannelFlow {
 }
 
 impl DrainingChannelFlow {
-    fn publish(&self, context: &mut Context, input: String) -> HandlerResult<()> {
-        channel_queue().publish(context, input)
+    fn example_rpc(
+        &self,
+        context: &mut Context,
+        input: String,
+    ) -> HandlerResult<RpcResult<String>> {
+        channel_queue().publish(context, input.clone())?;
+        Ok(RpcResult::new(input))
     }
 }
 
@@ -115,7 +120,7 @@ impl Flow for DrainingChannelFlow {
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure(DRAIN_CHANNEL_PUBLISH, Self::publish)
+        RpcList::new().function(EXAMPLE_RPC, Self::example_rpc)
     }
 }
 
@@ -138,7 +143,7 @@ impl Step for DrainChannel {
         context.record_event("drained-channel", item)?;
         Ok(StepDecision::force_complete_if_channels_empty(
             (),
-        StepMovement::to(&DrainChannel, ()),
+            StepMovement::to(&DrainChannel, ()),
             [channel_queue().when_empty()],
         ))
     }
