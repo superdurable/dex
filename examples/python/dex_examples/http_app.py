@@ -31,8 +31,8 @@ from dex_examples.http_cors import install_quart_cors
 from dex_examples.patterns.drain_channels.internal.controller import (
     create_drain_internal_blueprint,
 )
-from dex_examples.patterns.drain_channels.signal.controller import (
-    create_drain_signal_blueprint,
+from dex_examples.patterns.drain_channels.external_publishing.controller import (
+    create_draining_channel_blueprint,
 )
 from dex_examples.patterns.entity_store.controller import create_entity_store_blueprint
 from dex_examples.patterns.interruptible.controller import create_interruptible_blueprint
@@ -126,7 +126,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_scalable_parallel_blueprint(app_state))
     quart_app.register_blueprint(create_parent_child_blueprint(app_state))
     quart_app.register_blueprint(create_drain_internal_blueprint(app_state))
-    quart_app.register_blueprint(create_drain_signal_blueprint(app_state))
+    quart_app.register_blueprint(create_draining_channel_blueprint(app_state))
     quart_app.register_blueprint(create_wait_for_state_completion_blueprint(app_state))
     quart_app.register_blueprint(create_timeout_blueprint(app_state))
     quart_app.register_blueprint(create_resource_control_blueprint(app_state))

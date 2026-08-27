@@ -262,10 +262,10 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
-      name: "patterns/drain-channels/signal",
+      name: "patterns/drain-channels/external-publishing",
       trigger: () =>
-        triggerGet(context, "/patterns/drain-channels/signal/startorsignal", {
-          workflowId: newFlowId("drain-signal"),
+        triggerGet(context, "/patterns/drain-channels/external-publishing/start-or-publish", {
+          workflowId: newFlowId("drain-external"),
         }),
       flags: defaultFlags(),
     },

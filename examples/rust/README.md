@@ -61,7 +61,7 @@ remain split so their orchestration boundaries are visible.
 |---|---|---|
 | Cron schedule | [`CronScheduleFlow`](src/patterns/cron) | Fixed-interval durable timer loop |
 | Drain internal Channels | [`DrainInternalChannelsFlow`](src/patterns/drain_channels.rs) | Internal publication, one-at-a-time drain, conditional completion |
-| Drain signal Channels | [`DrainSignalChannelsFlow`](src/patterns/drain_channels.rs) | RPC publication, one-at-a-time drain, conditional completion |
+| Draining External Channel Publishing | [`DrainingExternalChannelFlow`](src/patterns/drain_channels/flow.rs) | RPC publication, one-at-a-time drain, conditional completion |
 | Interruptible execution | [`InterruptibleExecutionFlow`](src/patterns/interruptible.rs) | Handler cancellation and execute timeout |
 | Manual intervention | [`ManualInterventionFlow`](src/patterns/intervention.rs) | Exhausted retry recovery and approval Channel |
 | Simple parallel states | [`SimpleParallelStatesFlow`](src/patterns/parallel.rs) | Parallel Step movements and graceful completion |

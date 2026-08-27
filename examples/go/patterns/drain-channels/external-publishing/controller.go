@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package signal
+package externalpublishing
 
 import (
 	"errors"
@@ -32,13 +32,13 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *DrainSignalChannelsFlow
+	flow   *DrainingExternalChannelFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *DrainSignalChannelsFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *DrainingExternalChannelFlow) {
 	controller := &controller{client: client, flow: flow}
-	group := router.Group("/patterns/drain-channels/signal")
-	group.GET("/start-or-signal", controller.startOrSignal)
+	group := router.Group("/patterns/drain-channels/external-publishing")
+	group.GET("/start-or-publish", controller.startOrPublish)
 }
 
 func patternStartOptions() sdk.StartFlowOptions {
@@ -46,7 +46,7 @@ func patternStartOptions() sdk.StartFlowOptions {
 	return sdk.StartFlowOptions{Timeout: &timeout}
 }
 
-func (controller *controller) startOrSignal(request *gin.Context) {
+func (controller *controller) startOrPublish(request *gin.Context) {
 	flowID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
 		return
@@ -54,11 +54,11 @@ func (controller *controller) startOrSignal(request *gin.Context) {
 	err := controller.client.PublishToChannel(
 		request.Request.Context(),
 		flowID,
-		QueueSignalChannel,
-		"signal from startorsignal endpoint",
+		QueueChannel,
+		"message from start-or-publish endpoint",
 	)
 	if err == nil {
-		httputil.RespondString(request, "Signaled the workflow", nil)
+		httputil.RespondString(request, "Published to the Flow", nil)
 		return
 	}
 	var inactive *sdk.FlowNotActiveError
@@ -70,7 +70,7 @@ func (controller *controller) startOrSignal(request *gin.Context) {
 		request.Request.Context(),
 		controller.flow,
 		flowID,
-		"first message from start",
+		"first message from start-or-publish",
 		patternStartOptions(),
 	)
 	httputil.RespondString(

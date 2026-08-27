@@ -229,10 +229,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
-            "patterns/drain-channels/signal",
+            "patterns/drain-channels/external-publishing",
             lambda c: trigger_get(
-                "/patterns/drain-channels/signal/startorsignal",
-                {"workflowId": new_id("drain-signal")},
+                "/patterns/drain-channels/external-publishing/start-or-publish",
+                {"workflowId": new_id("drain-external")},
             ),
         ),
         FlowSmokeEntry(

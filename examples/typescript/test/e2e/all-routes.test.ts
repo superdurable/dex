@@ -437,9 +437,9 @@ test("design-pattern drain channels", async () => {
     "drain internal",
   );
   requireOk(
-    await get("/patterns/drain-channels/signal/startorsignal", {
-      workflowId: id("drain-signal"),
+    await get("/patterns/drain-channels/external-publishing/start-or-publish", {
+      workflowId: id("drain-external"),
     }),
-    "drain signal",
+    "drain externally published channel",
   );
 });

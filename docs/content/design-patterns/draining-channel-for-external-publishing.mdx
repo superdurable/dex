@@ -1,0 +1,534 @@
+---
+title: Drain External Channel
+---
+
+# Drain External Channel
+
+Process externally published Channel messages, then close the short-lived Flow when its queue is empty.
+
+## Problem and approach
+
+Use this pattern when a Flow handles messages from outside the Worker with potential bursts. A Client can append directly through **PublishToChannel** or potentially use an RPC. The key requirement is to complete the Flow when the Channel is empty, so the Flow stays as short as possible. The Flow restarts when new messages arrive.
+
+The decision atomically checks the Channel while it records the next action. An empty Channel completes the Flow. A queued message takes the fallback movement back to **ProcessMessage**. After completion, the next request starts a new Flow execution with the same Flow ID and passes the message as the start input.
+
+Only one Step may consume a Channel checked by **ForceCompleteIfChannelsEmpty**.
+
+## Step graph
+
+<img
+  alt="Draining external Channel publishing Flow definition with Queue Channel, Example RPC, WaitForScheduleStep, and ForceCompleteIfChannelsEmpty"
+  src="/img/design-patterns/draining-external-channel-publishing.png"
+/>
+
+## Core implementation
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py', go: 'examples/go/patterns/drain-channels/external-publishing/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/externalpublishing/DrainingExternalChannelFlow.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts', rust: 'examples/rust/src/patterns/drain_channels/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+class ProcessMessage(Step[str]):
+    def __init__(self, queue_channel: Channel[str]) -> None:
+        self.queue_channel = queue_channel
+
+    def wait_for(self, context: Context, input: str) -> Wait:
+        del context
+        if input is None:
+            return Wait.until(self.queue_channel.for_one())
+        return Wait.skip_immediately()
+
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: str
+    ) -> StepDecision:
+        if input is not None:
+            print(f"DrainingExternalChannelFlow process message: {input}")
+        else:
+            values = self.queue_channel.results(context)
+            if not values:
+                raise RuntimeError("No channel message found")
+            value = values[0]
+            if value is None:
+                raise RuntimeError("No channel message value found")
+            print(f"DrainingExternalChannelFlow process message: {value}")
+
+        await asyncio.sleep(DRAIN_WINDOW_SECONDS)
+
+        return force_complete_if_channels_empty(
+            None,
+            StepMovement.of(self, None),
+            self.queue_channel,
+        )
+
+
+class DrainingExternalChannelFlow(Flow[str]):
+    QUEUE_CHANNEL = "queueChannel"
+
+    queue_channel = Channel(QUEUE_CHANNEL, str)
+
+    def __init__(self) -> None:
+        self.process_message = ProcessMessage(self.queue_channel)
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.process_message)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(self.queue_channel)
+
+    @rpc
+    def example_rpc(self, context: Context, input: str) -> RPCResult[str]:
+        self.queue_channel.publish(context, input)
+        return RPCResult(input)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+const QueueChannelName = "queueChannel"
+
+var QueueChannel = dex.DefineChannel[string](QueueChannelName)
+
+type DrainingExternalChannelFlow struct {
+	dex.FlowDefaults
+}
+
+func NewDrainingExternalChannelFlow() *DrainingExternalChannelFlow {
+	return &DrainingExternalChannelFlow{}
+}
+
+func (*DrainingExternalChannelFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(processMessageStep{}),
+	}
+}
+
+func (*DrainingExternalChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Channels: []dex.ChannelDef{QueueChannel},
+	}
+}
+
+func (*DrainingExternalChannelFlow) ExampleRPC(
+	ctx dex.Context,
+	input string,
+) (*dex.RPCResult[string], error) {
+	if err := QueueChannel.Publish(ctx, input); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: input}, nil
+}
+
+type processMessageStep struct {
+	dex.StepDefaults
+}
+
+func (processMessageStep) WaitFor(_ dex.Context, input string) (*dex.Wait, error) {
+	if input == "" {
+		return dex.Until(QueueChannel.ForOne()), nil
+	}
+	return dex.SkipWaitImmediately(), nil
+}
+
+func (processMessageStep) Execute(
+	ctx dex.Context,
+	input string,
+) (*dex.StepDecision, error) {
+	if input != "" {
+		fmt.Printf("DrainingExternalChannelFlow process message: %s\n", input)
+	} else {
+		values, err := QueueChannel.GetConditionResults(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if len(values) == 0 {
+			return nil, fmt.Errorf("no channel message found")
+		}
+		fmt.Printf("DrainingExternalChannelFlow process message: %s\n", values[0])
+	}
+	time.Sleep(20 * time.Second)
+	return dex.ForceCompleteIfChannelsEmpty(
+		nil,
+		[]dex.ChannelDef{QueueChannel},
+		dex.MovementOf(processMessageStep{}, ""),
+	), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@Component
+public class DrainingExternalChannelFlow implements Flow<String> {
+    public static final String QUEUE_CHANNEL = "queueChannel";
+
+    public final Channel<String> queueChannel =
+            Channel.define(QUEUE_CHANNEL, String.class);
+
+    private final ProcessMessage processMessage = new ProcessMessage();
+
+    @Override
+    public StepList<String> getSteps() {
+        return StepList.startStep(processMessage);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(queueChannel);
+    }
+
+    @RPC
+    public RPCResult<String> exampleRPC(final Context context, final String input) {
+        queueChannel.publish(context, input);
+        return RPCResult.of(input);
+    }
+
+    final class ProcessMessage implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final String input) {
+            if (input == null) {
+                return Wait.until(queueChannel.forOne());
+            }
+            return Wait.skipImmediately();
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            if (input != null) {
+                System.out.println(
+                        "DrainingExternalChannelFlow process message: " + input);
+            } else {
+                final List<String> values = queueChannel.getConditionResults(context);
+                if (values.isEmpty()) {
+                    throw new IllegalStateException("No channel message found");
+                }
+                final String value = values.get(0);
+                if (value == null) {
+                    throw new IllegalStateException("No channel message value found");
+                }
+                System.out.println(
+                        "DrainingExternalChannelFlow process message: " + value);
+            }
+
+            try {
+                Thread.sleep(20000);
+            } catch (final InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+
+            return StepDecision.forceCompleteIfChannelsEmpty(
+                    null,
+                    StepMovement.of(ProcessMessage.class, null),
+                    queueChannel);
+        }
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export const QUEUE_CHANNEL = "queueChannel";
+
+export const queueChannel = new Channel(QUEUE_CHANNEL, stringCodec);
+
+const optionalInputCodec = optionalCodec(stringCodec);
+
+class ProcessMessage implements Step<string | undefined> {
+  public readonly inputCodec = optionalInputCodec;
+
+  public getStepType(): string {
+    return "ProcessMessage";
+  }
+
+  public waitFor(_context: Context, input: string | undefined): Wait {
+    if (input === undefined) {
+      return Wait.until(queueChannel.forOne());
+    }
+    return Wait.skipImmediately();
+  }
+
+  public async execute(context: Context, input: string | undefined): Promise<StepDecision> {
+    if (input !== undefined) {
+      console.log(`DrainingExternalChannelFlow process message: ${input}`);
+    } else {
+      const values = queueChannel.results(context);
+      if (values.length === 0) {
+        throw new Error("No channel message found");
+      }
+      const value = values[0];
+      if (value === undefined) {
+        throw new Error("No channel message value found");
+      }
+      console.log(`DrainingExternalChannelFlow process message: ${value}`);
+    }
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 200);
+    });
+
+    return forceCompleteIfChannelsEmpty(
+      null,
+      StepMovement.of(ProcessMessage, undefined),
+      queueChannel,
+    );
+  }
+}
+
+export class DrainingExternalChannelFlow implements Flow<string | undefined> {
+  private readonly processMessage = new ProcessMessage();
+
+  public getFlowType(): string {
+    return "DrainingExternalChannelFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.processMessage);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { channels: [queueChannel] };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+  public exampleRPC(context: Context, input: string): RPCResult<string> {
+    queueChannel.publish(context, input);
+    return { output: input };
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub const EXAMPLE_RPC: Rpc<String, String> = Rpc::new("exampleRPC");
+
+#[derive(Default)]
+pub struct DrainingExternalChannelFlow {
+    drain: DrainChannel,
+}
+
+impl DrainingExternalChannelFlow {
+    fn example_rpc(
+        &self,
+        context: &mut Context,
+        input: String,
+    ) -> HandlerResult<RpcResult<String>> {
+        external_queue().publish(context, input.clone())?;
+        Ok(RpcResult::new(input))
+    }
+}
+
+impl Flow for DrainingExternalChannelFlow {
+    type StartInput = String;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.drain)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new().channel(&external_queue())
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new().function(EXAMPLE_RPC, Self::example_rpc)
+    }
+}
+
+#[derive(Default)]
+struct DrainChannel;
+
+impl Step for DrainChannel {
+    type Input = String;
+
+    fn wait_for(&self, _context: &mut Context, input: String) -> HandlerResult<Wait> {
+        if input.is_empty() {
+            return Ok(Wait::until(external_queue().for_one()));
+        }
+        Ok(Wait::skip_immediately())
+    }
+
+    fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        let item = if input.is_empty() {
+            external_queue()
+                .condition_results(context)?
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+        } else {
+            input
+        };
+        context.record_event("drained-channel", item)?;
+        Ok(StepDecision::force_complete_if_channels_empty(
+            String::new(),
+            StepMovement::to(&DrainChannel, String::new()),
+            [external_queue().when_empty()],
+        ))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Controller
+
+The controller first publishes to the active Flow. When publishing reports that the Flow is inactive, it starts a new Flow with the message as its input. Other errors are returned to the caller.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/controller.py', go: 'examples/go/patterns/drain-channels/external-publishing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/DrainChannelsController.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/controller.ts', rust: 'examples/rust/src/patterns/drain_channels/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+@blueprint.get("/start-or-publish")
+async def start_or_publish_draining_channel() -> str:
+    flow_id = required_query("workflowId")
+    try:
+        await app_state.client.publish(
+            flow_id,
+            app_state.drain_external.queue_channel,
+            "message from start-or-publish endpoint",
+        )
+    except FlowNotActiveError:
+        run_id = await app_state.client.start_flow(
+            app_state.drain_external,
+            flow_id,
+            "first message from start-or-publish",
+            start_options(),
+        )
+        return f"Started the workflow with runId {run_id}"
+    return "Published to the Flow"
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (controller *controller) startOrPublish(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	err := controller.client.PublishToChannel(
+		request.Request.Context(),
+		flowID,
+		QueueChannel,
+		"message from start-or-publish endpoint",
+	)
+	if err == nil {
+		httputil.RespondString(request, "Published to the Flow", nil)
+		return
+	}
+	var inactive *sdk.FlowNotActiveError
+	if !errors.As(err, &inactive) {
+		httputil.RespondString(request, "", err)
+		return
+	}
+	runID, startErr := controller.client.StartFlow(
+		request.Request.Context(),
+		controller.flow,
+		flowID,
+		"first message from start-or-publish",
+		patternStartOptions(),
+	)
+	httputil.RespondString(
+		request,
+		fmt.Sprintf("Started the workflow with runId %s", runID),
+		startErr,
+	)
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@GetMapping("/external-publishing/start-or-publish")
+ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowId) {
+    String response;
+    try {
+        client.publish(
+                workflowId,
+                drainingExternalChannelFlow.queueChannel,
+                "message from start-or-publish endpoint");
+        response = "Published to the Flow";
+    } catch (final FlowNotActiveException inactive) {
+        final String runId = client.startFlow(
+                drainingExternalChannelFlow,
+                workflowId,
+                "first message from start-or-publish",
+                ExampleFlows.startOptions());
+        response = "Started the workflow with runId " + runId;
+    }
+    return ResponseEntity.ok(response);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+router.get("/start-or-publish", async (request, response) => {
+  const workflowId = String(request.query.workflowId ?? "");
+  let message: string;
+  try {
+    await client.publish(
+      workflowId,
+      queueChannel,
+      "message from start-or-publish endpoint",
+    );
+    message = "Published to the Flow";
+  } catch (error) {
+    if (isFlowMissingOrInactive(error)) {
+      const runId = await client.startFlow(
+        drainingExternalChannelFlow,
+        workflowId,
+        "first message from start-or-publish",
+        startOptions(),
+      );
+      message = `Started the workflow with runId ${runId}`;
+    } else {
+      throw error;
+    }
+  }
+  response.send(message);
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+match run_blocking(move || {
+    let flow = DrainingExternalChannelFlow::default();
+    match client.publish(
+        &flow_id,
+        &external_queue(),
+        "message from start-or-publish endpoint".to_string(),
+    ) {
+        Ok(()) => Ok("Published to the Flow".to_string()),
+        Err(error) if is_missing_or_inactive(&error) => client
+            .start_flow(&flow, &flow_id, "first message from start-or-publish".to_string())
+            .map(|run_id| format!("Started the workflow with runId {run_id}")),
+        Err(error) => Err(error),
+    }
+}) {
+    Ok(message) => ok_text(message),
+    Err(error) => map_sdk_error(error).into_response(),
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Channel](/primitives/channel)
+- [Client publishing](/primitives/client/basic#publish-to-a-channel)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

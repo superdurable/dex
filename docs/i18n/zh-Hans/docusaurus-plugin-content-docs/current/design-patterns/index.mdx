@@ -1,0 +1,28 @@
+---
+id: index
+title: 设计模式
+sidebar_label: 概览
+slug: /design-patterns
+---
+
+# 设计模式
+
+来自 Dex 示例的可复用 Flow 形状。每个模式页说明问题、做法，并链接到多语言代码。
+
+完整示例位于 examples/go、examples/java、examples/python、examples/typescript 和 examples/rust。可在 examples playground 中试用 HTTP 示例；见 **examples/README.md**。
+
+- [Cron schedule](/design-patterns/cron) — 在一条 Flow 中按固定间隔运行工作。
+- [Drain internal channels](/design-patterns/drain-internal-channels) — 让 producer/consumer Flow 不丢失在途 Channel 消息地完成。
+- [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing) — 处理外部发布的消息，并在 Channel 为空时完成。
+- [Interruptible execution](/design-patterns/interruptible) — 根据 durable 控制消息，优雅地停止或转向长时间工作。
+- [Manual intervention](/design-patterns/intervention) — API 失败时，让人工重试或跳过，而不是放弃 Flow。
+- [Parallel Steps](/design-patterns/parallel) — 并发运行 Step，并可等待结果。
+- [Parent–child Flows](/design-patterns/parent-child) — 启动子 Flow，并从父 Flow 等待其完成。
+- [Polling](/design-patterns/polling) — 用简单 Timer 或带退避的 Step retry 等待外部就绪。
+- [Failure recovery](/design-patterns/recovery) — 用 retry 和补偿路径恢复失败的 Step。
+- [Reminders](/design-patterns/reminders) — 定期发送提醒，直到 opt-out 或超时。
+- [Resettable timer](/design-patterns/resettable-timer) — 根据新活动延长或重置等待窗口。
+- [Scalable parallel](/design-patterns/scalable-parallel) — 用父/子 Flow 控制大规模 fan-out。
+- [Entity Store](/design-patterns/entity-store) — 将每个实体的 durable Flow Attribute 投影到应用自有的 SQL 表。
+- [Timeout](/design-patterns/timeout) — 用优雅的 timeout 和 dead-end 路径限制工作时间。
+- [Wait for Step completion](/design-patterns/wait-for-step-completion) — 让调用方在后台工作继续时等待一个 Step。

@@ -361,13 +361,13 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "patterns/drain-channels/signal",
+			name: "patterns/drain-channels/external-publishing",
 			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{"workflowId": {smokeWorkflowID(t, "drain-signal")}}
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "drain-external")}}
 				return triggerFlowSmokeHTTP(
 					t,
 					http.MethodGet,
-					"/patterns/drain-channels/signal/start-or-signal",
+					"/patterns/drain-channels/external-publishing/start-or-publish",
 					query,
 					nil,
 				)

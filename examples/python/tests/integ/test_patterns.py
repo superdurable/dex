@@ -88,14 +88,14 @@ async def test_drain_internal_channels(
     await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
-async def test_drain_signal_channels(
+async def test_draining_channel_for_external_publishing(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = new_flow_id("drain-signal")
+    flow_id = new_flow_id("drain-external")
     run_id = await client.start_flow(
-        app.drain_signal,
+        app.drain_external,
         flow_id,
         "first message from start",
         start_options(),
@@ -103,8 +103,8 @@ async def test_drain_signal_channels(
     assert run_id
     await client.publish(
         flow_id,
-        app.drain_signal.queue_signal_channel,
-        "signal from test",
+        app.drain_external.queue_channel,
+        "message from test",
     )
 
 

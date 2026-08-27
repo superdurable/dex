@@ -21,47 +21,49 @@ import {
   Wait,
   forceCompleteIfChannelsEmpty,
   optionalCodec,
+  rpc,
   stringCodec,
   type Context,
   type Flow,
   type PersistenceSchema,
+  type RPCResult,
   type Step,
   type StepDecision,
 } from "@superdurable/dex";
 
-export const QUEUE_SIGNAL_CHANNEL = "queueSignalChannel";
+export const QUEUE_CHANNEL = "queueChannel";
 
-export const queueSignalChannel = new Channel(QUEUE_SIGNAL_CHANNEL, stringCodec);
+export const queueChannel = new Channel(QUEUE_CHANNEL, stringCodec);
 
-const signalInputCodec = optionalCodec(stringCodec);
+const optionalInputCodec = optionalCodec(stringCodec);
 
-class ProcessSignal implements Step<string | undefined> {
-  public readonly inputCodec = signalInputCodec;
+class ProcessMessage implements Step<string | undefined> {
+  public readonly inputCodec = optionalInputCodec;
 
   public getStepType(): string {
-    return "ProcessSignal";
+    return "ProcessMessage";
   }
 
   public waitFor(_context: Context, input: string | undefined): Wait {
     if (input === undefined) {
-      return Wait.until(queueSignalChannel.forOne());
+      return Wait.until(queueChannel.forOne());
     }
     return Wait.skipImmediately();
   }
 
   public async execute(context: Context, input: string | undefined): Promise<StepDecision> {
     if (input !== undefined) {
-      console.log(`DrainSignalChannelsFlow process signal value: ${input}`);
+      console.log(`DrainingExternalChannelFlow process message: ${input}`);
     } else {
-      const values = queueSignalChannel.results(context);
+      const values = queueChannel.results(context);
       if (values.length === 0) {
-        throw new Error("No signal request found");
+        throw new Error("No channel message found");
       }
       const value = values[0];
       if (value === undefined) {
-        throw new Error("No signal value found");
+        throw new Error("No channel message value found");
       }
-      console.log(`DrainSignalChannelsFlow process signal value: ${value}`);
+      console.log(`DrainingExternalChannelFlow process message: ${value}`);
     }
 
     // busy wait mirrors Java Thread.sleep inside the workflow step
@@ -71,26 +73,32 @@ class ProcessSignal implements Step<string | undefined> {
 
     return forceCompleteIfChannelsEmpty(
       null,
-      StepMovement.of(ProcessSignal, undefined),
-      queueSignalChannel,
+      StepMovement.of(ProcessMessage, undefined),
+      queueChannel,
     );
   }
 }
 
-export class DrainSignalChannelsFlow implements Flow<string | undefined> {
-  private readonly processSignal = new ProcessSignal();
+export class DrainingExternalChannelFlow implements Flow<string | undefined> {
+  private readonly processMessage = new ProcessMessage();
 
   public getFlowType(): string {
-    return "DrainSignalChannelsFlow";
+    return "DrainingExternalChannelFlow";
   }
 
   public getSteps() {
-    return StepList.startStep(this.processSignal);
+    return StepList.startStep(this.processMessage);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [queueSignalChannel] };
+    return { channels: [queueChannel] };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: stringCodec })
+  public exampleRPC(context: Context, input: string): RPCResult<string> {
+    queueChannel.publish(context, input);
+    return { output: input };
   }
 }
 
-export const drainSignalChannelsFlow = new DrainSignalChannelsFlow();
+export const drainingExternalChannelFlow = new DrainingExternalChannelFlow();

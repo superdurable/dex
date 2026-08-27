@@ -20,8 +20,12 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::drain_channels::flow::{DrainInternalChannelsFlow, DrainSignalChannelsFlow};
-use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
+use crate::patterns::drain_channels::flow::{
+    DrainInternalChannelsFlow, DrainingExternalChannelFlow, external_queue,
+};
+use crate::server::helpers::{
+    SharedClient, is_missing_or_inactive, map_sdk_error, new_flow_id, ok_text, run_blocking,
+};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -36,8 +40,8 @@ pub fn mount(client: SharedClient) -> Router {
             get(start_internal),
         )
         .route(
-            "/patterns/drain-channels/signal/startorsignal",
-            get(start_or_signal),
+            "/patterns/drain-channels/external-publishing/start-or-publish",
+            get(start_or_publish),
         )
         .with_state(client)
 }
@@ -60,20 +64,32 @@ async fn start_internal(
     }
 }
 
-async fn start_or_signal(
+async fn start_or_publish(
     State(client): State<SharedClient>,
     Query(query): Query<StartQuery>,
 ) -> impl IntoResponse {
     let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("drain-signal")
+        new_flow_id("drain-external")
     } else {
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = DrainSignalChannelsFlow::default();
-        client
-            .start_flow(&flow, &flow_id, ())
-            .map(|run_id| format!("Started the workflow with runId {run_id}"))
+        let flow = DrainingExternalChannelFlow::default();
+        match client.publish(
+            &flow_id,
+            &external_queue(),
+            "message from start-or-publish endpoint".to_string(),
+        ) {
+            Ok(()) => Ok("Published to the Flow".to_string()),
+            Err(error) if is_missing_or_inactive(&error) => client
+                .start_flow(
+                    &flow,
+                    &flow_id,
+                    "first message from start-or-publish".to_string(),
+                )
+                .map(|run_id| format!("Started the workflow with runId {run_id}")),
+            Err(error) => Err(error),
+        }
     }) {
         Ok(message) => ok_text(message),
         Err(error) => map_sdk_error(error).into_response(),

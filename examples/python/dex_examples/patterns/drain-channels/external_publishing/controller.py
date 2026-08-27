@@ -22,30 +22,30 @@ from dex_examples.config import start_options
 from dex_examples.shared.query import required_query
 
 
-def create_drain_signal_blueprint(app_state: ExampleApp) -> Blueprint:
+def create_draining_channel_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint(
-        "pattern_drain_signal",
+        "pattern_drain_external",
         __name__,
-        url_prefix="/patterns/drain-channels/signal",
+        url_prefix="/patterns/drain-channels/external-publishing",
     )
 
-    @blueprint.get("/startorsignal")
-    async def start_or_signal_drain_signal_channels() -> str:
+    @blueprint.get("/start-or-publish")
+    async def start_or_publish_draining_channel() -> str:
         flow_id = required_query("workflowId")
         try:
             await app_state.client.publish(
                 flow_id,
-                app_state.drain_signal.queue_signal_channel,
-                "signal from startorsignal endpoint",
+                app_state.drain_external.queue_channel,
+                "message from start-or-publish endpoint",
             )
         except FlowNotActiveError:
             run_id = await app_state.client.start_flow(
-                app_state.drain_signal,
+                app_state.drain_external,
                 flow_id,
-                "first message from start",
+                "first message from start-or-publish",
                 start_options(),
             )
             return f"Started the workflow with runId {run_id}"
-        return "Signaled the workflow"
+        return "Published to the Flow"
 
     return blueprint

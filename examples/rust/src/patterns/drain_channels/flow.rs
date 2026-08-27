@@ -29,8 +29,8 @@
  */
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
-    StepList, StepMovement, Wait,
+    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult, Step,
+    StepDecision, StepList, StepMovement, Wait,
 };
 
 #[derive(Default)]
@@ -90,56 +90,68 @@ impl Step for DrainInternal {
     }
 }
 
-pub const DRAIN_SIGNAL_PUBLISH: Rpc<String, ()> = Rpc::new("DrainSignalPublish");
+pub const EXAMPLE_RPC: Rpc<String, String> = Rpc::new("exampleRPC");
 
 #[derive(Default)]
-pub struct DrainSignalChannelsFlow {
-    drain: DrainSignal,
+pub struct DrainingExternalChannelFlow {
+    drain: DrainChannel,
 }
 
-impl DrainSignalChannelsFlow {
-    fn publish(&self, context: &mut Context, input: String) -> HandlerResult<()> {
-        signal_queue().publish(context, input)
+impl DrainingExternalChannelFlow {
+    fn example_rpc(
+        &self,
+        context: &mut Context,
+        input: String,
+    ) -> HandlerResult<RpcResult<String>> {
+        external_queue().publish(context, input.clone())?;
+        Ok(RpcResult::new(input))
     }
 }
 
-impl Flow for DrainSignalChannelsFlow {
-    type StartInput = ();
+impl Flow for DrainingExternalChannelFlow {
+    type StartInput = String;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.drain)
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&signal_queue())
+        PersistenceSchema::new().channel(&external_queue())
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure(DRAIN_SIGNAL_PUBLISH, Self::publish)
+        RpcList::new().function(EXAMPLE_RPC, Self::example_rpc)
     }
 }
 
 #[derive(Default)]
-struct DrainSignal;
+struct DrainChannel;
 
-impl Step for DrainSignal {
-    type Input = ();
+impl Step for DrainChannel {
+    type Input = String;
 
-    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(signal_queue().for_one()))
+    fn wait_for(&self, _context: &mut Context, input: String) -> HandlerResult<Wait> {
+        if input.is_empty() {
+            return Ok(Wait::until(external_queue().for_one()));
+        }
+        Ok(Wait::skip_immediately())
     }
 
-    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        let item = signal_queue()
-            .condition_results(context)?
-            .into_iter()
-            .next()
-            .unwrap_or_default();
-        context.record_event("drained-signal", item)?;
+    fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        let item = if input.is_empty() {
+            external_queue()
+                .condition_results(context)?
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+        } else {
+            input
+        };
+        context.record_event("drained-channel", item)?;
         Ok(StepDecision::force_complete_if_channels_empty(
-            (),
-            StepMovement::to(&DrainSignal, ()),
-            [signal_queue().when_empty()],
+            String::new(),
+            StepMovement::to(&DrainChannel, String::new()),
+            [external_queue().when_empty()],
         ))
     }
 }
@@ -148,6 +160,6 @@ fn internal_queue() -> Channel<String> {
     Channel::new("drain-internal-queue")
 }
 
-fn signal_queue() -> Channel<String> {
-    Channel::new("drain-signal-queue")
+pub(crate) fn external_queue() -> Channel<String> {
+    Channel::new("drain-channel-queue")
 }

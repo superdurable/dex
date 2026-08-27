@@ -120,9 +120,9 @@ final class FlowSmokeCatalog {
                         "/patterns/drain-channels/internal/start",
                         Map.of("workflowId", environment.newFlowId("drain-internal"))),
                 FlowSmokeEntry.get(
-                        "patterns/drain-channels/signal",
-                        "/patterns/drain-channels/signal/startorsignal",
-                        Map.of("workflowId", environment.newFlowId("drain-signal"))),
+                        "patterns/drain-channels/external-publishing",
+                        "/patterns/drain-channels/external-publishing/start-or-publish",
+                        Map.of("workflowId", environment.newFlowId("drain-external"))),
                 FlowSmokeEntry.get(
                         "patterns/wait-for-state-completion",
                         "/patterns/wait-for-state-completion/start",

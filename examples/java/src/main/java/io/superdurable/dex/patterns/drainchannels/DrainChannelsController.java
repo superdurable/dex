@@ -19,7 +19,7 @@ package io.superdurable.dex.patterns.drainchannels;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import io.superdurable.dex.patterns.drainchannels.internal.DrainInternalChannelsFlow;
-import io.superdurable.dex.patterns.drainchannels.signal.DrainSignalChannelsFlow;
+import io.superdurable.dex.patterns.drainchannels.externalpublishing.DrainingExternalChannelFlow;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,15 +32,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class DrainChannelsController {
     private final Client client;
     private final DrainInternalChannelsFlow drainInternalChannelsFlow;
-    private final DrainSignalChannelsFlow drainSignalChannelsFlow;
+    private final DrainingExternalChannelFlow drainingExternalChannelFlow;
 
     public DrainChannelsController(
             final Client client,
             final DrainInternalChannelsFlow drainInternalChannelsFlow,
-            final DrainSignalChannelsFlow drainSignalChannelsFlow) {
+            final DrainingExternalChannelFlow drainingExternalChannelFlow) {
         this.client = client;
         this.drainInternalChannelsFlow = drainInternalChannelsFlow;
-        this.drainSignalChannelsFlow = drainSignalChannelsFlow;
+        this.drainingExternalChannelFlow = drainingExternalChannelFlow;
     }
 
     @GetMapping("/internal/start")
@@ -53,20 +53,20 @@ public class DrainChannelsController {
         return ResponseEntity.ok(runId);
     }
 
-    @GetMapping("/signal/startorsignal")
-    ResponseEntity<String> startDrainSignalChannels(@RequestParam final String workflowId) {
+    @GetMapping("/external-publishing/start-or-publish")
+    ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowId) {
         String response;
         try {
             client.publish(
                     workflowId,
-                    drainSignalChannelsFlow.queueSignalChannel,
-                    "signal from startorsignal endpoint");
-            response = "Signaled the workflow";
+                    drainingExternalChannelFlow.queueChannel,
+                    "message from start-or-publish endpoint");
+            response = "Published to the Flow";
         } catch (final FlowNotActiveException inactive) {
             final String runId = client.startFlow(
-                    drainSignalChannelsFlow,
+                    drainingExternalChannelFlow,
                     workflowId,
-                    "first message from start",
+                    "first message from start-or-publish",
                     ExampleFlows.startOptions());
             response = "Started the workflow with runId " + runId;
         }

@@ -36,8 +36,8 @@ from dex_examples.patterns.cron.cron_schedule_flow import CronScheduleFlow
 from dex_examples.patterns.drain_channels.internal.drain_internal_channels_flow import (
     DrainInternalChannelsFlow,
 )
-from dex_examples.patterns.drain_channels.signal.drain_signal_channels_flow import (
-    DrainSignalChannelsFlow,
+from dex_examples.patterns.drain_channels.external_publishing.draining_channel_flow import (
+    DrainingExternalChannelFlow,
 )
 from dex_examples.patterns.entity_store.user_profile_flow import UserProfileFlow
 from dex_examples.patterns.interruptible.interruptible_execution_flow import (
@@ -135,7 +135,7 @@ class ExampleApp:
 
         self.cron_schedule = CronScheduleFlow()
         self.drain_internal = DrainInternalChannelsFlow(pattern_service)
-        self.drain_signal = DrainSignalChannelsFlow()
+        self.drain_external = DrainingExternalChannelFlow()
         self.interruptible = InterruptibleExecutionFlow()
         self.manual_intervention = ManualInterventionFlow()
         self.simple_parallel = SimpleParallelStatesFlow()
@@ -191,7 +191,7 @@ class ExampleApp:
             self.shortlist,
             self.cron_schedule,
             self.drain_internal,
-            self.drain_signal,
+            self.drain_external,
             self.interruptible,
             self.manual_intervention,
             self.simple_parallel,
