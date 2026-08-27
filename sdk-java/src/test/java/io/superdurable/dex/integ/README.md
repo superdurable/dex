@@ -21,6 +21,7 @@ persistence, reset, signals, timers, recovery, and failure behavior.
 | `SignalTest` | typed publish, channel combinations, timer skipping, and closed-flow errors |
 | `SkipWaitUntilTest` | execute-only and mixed wait styles |
 | `StepCancellationTest` | global/sibling selectors, local and fallback cancellation, heartbeats, and discarded late results |
+| `StreamTest` | Step/client writes, idempotency, resume tokens, and message metadata |
 | `StateOptionsOverrideTest` | per-movement StepOptions overrides |
 | `StateOptionsTest` | attribute visibility and parallel WaitFor/Execute locks |
 | `StateRecoveryTest` | execute-failure recovery with and without WaitFor |

@@ -163,6 +163,7 @@ func integrationFlows() []dex.Flow {
 		persistenceFlow{},
 		rpcFlow{},
 		channelFlow{},
+		streamTestFlow{},
 		executeOnlyFlow{},
 		executeOnlyValueFlow{},
 		forceFailFlow{},

@@ -2,8 +2,8 @@
 
 This suite mirrors `sdk-java/src/test/java/io/superdurable/dex/integ` in
 idiomatic, strongly typed Rust. Each Java integration test and Workflow has a
-corresponding Rust file with the same behavior and assertions: 17 test files,
-60 test methods, and one Workflow per file.
+corresponding Rust file with the same behavior and assertions. Stream coverage adds
+one SDK-native test and Workflow.
 
 | Java test | Rust module |
 | --- | --- |
@@ -22,6 +22,7 @@ corresponding Rust file with the same behavior and assertions: 17 test files,
 | `StateOptionsOverrideTest` | `state_options_override_test.rs` |
 | `StateOptionsTest` | `state_options_test.rs` |
 | `StateRecoveryTest` | `state_recovery_test.rs` |
+| `StreamTest` | `stream_test.rs` |
 | `TimerTest` | `timer_test.rs` |
 | `WorkflowUncompletedTest` | `workflow_uncompleted_test.rs` |
 
