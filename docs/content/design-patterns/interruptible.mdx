@@ -12,7 +12,217 @@ Use this pattern for work that repeats for a long time, such as polling or batch
 
 ![InterruptibleFlow diagram](/img/design-patterns/interruptible-flow.png)
 
-Runnable examples are available in [examples/go](https://github.com/superdurable/dex/tree/main/examples/go/patterns/interruptible), [examples/java](https://github.com/superdurable/dex/tree/main/examples/java/src/main/java/io/superdurable/dex/patterns/interruptible), [examples/python](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/patterns/interruptible), [examples/typescript](https://github.com/superdurable/dex/tree/main/examples/typescript/src/patterns/interruptible), and [examples/rust](https://github.com/superdurable/dex/tree/main/examples/rust/src/patterns/interruptible).
+## Core implementation
+
+Each sample shows **WorkAStep**. It waits between units of work, completes when the interrupt signal arrives, and otherwise schedules its next loop iteration. **WorkBStep** follows the same pattern. The runnable examples also include Flow registration and the **interrupt** RPC.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/interruptible/interruptible_execution_flow.py',
+    go: 'examples/go/patterns/interruptible/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/interruptible/InterruptibleFlow.java',
+    typescript: 'examples/typescript/src/patterns/interruptible/interruptible-execution-flow.ts',
+    rust: 'examples/rust/src/patterns/interruptible/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class WorkAStep(Step[WorkJobParametersInput]):
+    def __init__(self, interrupt_signal: Attribute[str]) -> None:
+        self.interrupt_signal = interrupt_signal
+
+    def wait_for(self, context: Context, input: WorkJobParametersInput) -> Wait:
+        del context, input
+        return Wait.until(Timer.by_duration(timedelta(seconds=2)))
+
+    def execute(
+        self,
+        context: Context,
+        input: WorkJobParametersInput,
+    ) -> StepDecision:
+        if (self.interrupt_signal.get(context) or "") == INTERRUPT_VALUE:
+            print("A: Interrupted!")
+            return graceful_complete()
+
+        if input.progress > input.job_upper_bound:
+            print("WorkAStep completed")
+            return graceful_complete()
+
+        print(
+            f"[{context.flow_id}][{context.step_execution_id}]: "
+            f"Doing job {input.progress}"
+        )
+        return go_to(
+            WorkAStep,
+            WorkJobParametersInput(input.job_upper_bound, input.progress + 1),
+        )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type workAStep struct {
+	dex.StepDefaults
+}
+
+func (workAStep) WaitFor(
+	ctx dex.Context,
+	input WorkJobParametersInput,
+) (*dex.Wait, error) {
+	return dex.Until(dex.Timer(1500 * time.Millisecond)), nil
+}
+
+func (workAStep) Execute(
+	ctx dex.Context,
+	input WorkJobParametersInput,
+) (*dex.StepDecision, error) {
+	signal, err := InterruptSignal.Get(ctx)
+	if err == nil && signal == "cancel" {
+		fmt.Println("A: Interrupted!")
+		return dex.GracefulComplete(nil), nil
+	}
+	if input.Progress > input.JobUpperBound {
+		fmt.Println("WorkAStep completed")
+		return dex.GracefulComplete(nil), nil
+	}
+	fmt.Printf(
+		"[%s][%s]: Doing job %d\n",
+		ctx.FlowID(),
+		ctx.StepExecutionID(),
+		input.Progress,
+	)
+	next := WorkJobParametersInput{
+		JobUpperBound: input.JobUpperBound,
+		Progress:      input.Progress + 1,
+	}
+	return dex.GoTo(workAStep{}, next), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class WorkAStep implements Step<WorkJobParametersInput> {
+    @Override
+    public Class<WorkJobParametersInput> getInputType() {
+        return WorkJobParametersInput.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final WorkJobParametersInput input) {
+        return Wait.until(Timer.byDuration(Duration.ofMillis(1500)));
+    }
+
+    @Override
+    public StepDecision execute(
+            final Context context,
+            final WorkJobParametersInput input) {
+        final String signal = interruptSignal.get(context);
+        if (signal != null && signal.equals("cancel")) {
+            System.out.println("A: Interrupted!");
+            return StepDecision.gracefulComplete();
+        }
+
+        if (input.progress > input.jobUpperBound) {
+            System.out.println("WorkAStep completed");
+            return StepDecision.gracefulComplete();
+        }
+        System.out.printf(
+                "[%s][%s]: Doing job %s%n",
+                context.getFlowId(),
+                context.getStepExecutionId(),
+                input.progress);
+
+        final WorkJobParametersInput next =
+                new WorkJobParametersInput(input.jobUpperBound, input.progress + 1);
+        return StepDecision.goTo(WorkAStep.class, next);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class WorkAStep implements Step<WorkJobParametersInput> {
+  public constructor(private readonly flow: InterruptibleFlow) {}
+
+  public getStepType(): string {
+    return "WorkAStep";
+  }
+
+  public waitFor(_context: Context, _input: WorkJobParametersInput): Wait {
+    return Wait.until(Timer.byDuration(1_000));
+  }
+
+  public execute(context: Context, input: WorkJobParametersInput): StepDecision {
+    const signal = this.flow.interruptSignal.get(context);
+    if (signal === "cancel") {
+      console.log("A: Interrupted!");
+      return gracefulComplete();
+    }
+
+    if (input.progress > input.jobUpperBound) {
+      console.log("WorkAStep completed");
+      return gracefulComplete();
+    }
+
+    console.log(
+      `[${context.flowId}][${context.stepExecutionId}]: Doing job ${input.progress}`,
+    );
+
+    return goTo(WorkAStep, {
+      jobUpperBound: input.jobUpperBound,
+      progress: input.progress + 1,
+    });
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct WorkAStep;
+
+impl Step for WorkAStep {
+    type Input = WorkJobParametersInput;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(1))))
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        if interrupt_signal().get(context)?.as_deref() == Some("cancel") {
+            println!("A: Interrupted!");
+            return Ok(StepDecision::graceful_complete(()));
+        }
+        if input.progress > input.job_upper_bound {
+            println!("WorkAStep completed");
+            return Ok(StepDecision::graceful_complete(()));
+        }
+        println!(
+            "[{}][{}]: Doing job {}",
+            context.flow_id(),
+            context.step_execution_id(),
+            input.progress
+        );
+        Ok(StepDecision::go_to(
+            &WorkAStep,
+            WorkJobParametersInput {
+                job_upper_bound: input.job_upper_bound,
+                progress: input.progress + 1,
+            },
+        ))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## Related
 
