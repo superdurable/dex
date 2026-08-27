@@ -158,7 +158,15 @@ public class CronScheduleFlow implements Flow<CronScheduleFlow.Input> {
             if (!skip.getConditionResults(context).isEmpty()) {
                 return nextSchedule(state);
             }
-            return runNow(state);
+            final RunInput runInput = new RunInput(state.remainingRuns, state.remainingRuns == 1);
+            if (runInput.isFinal) {
+                return StepDecision.goTo(Run.class, runInput);
+            }
+            return StepDecision.goToMulti(
+                    StepMovement.of(Run.class, runInput),
+                    StepMovement.of(
+                            WaitForSchedule.class,
+                            new ScheduleState(state.interval, state.remainingRuns - 1)));
         }
     }
 
@@ -184,15 +192,4 @@ public class CronScheduleFlow implements Flow<CronScheduleFlow.Input> {
                 new ScheduleState(state.interval, state.remainingRuns - 1));
     }
 
-    private StepDecision runNow(final ScheduleState state) {
-        final RunInput runInput = new RunInput(state.remainingRuns, state.remainingRuns == 1);
-        if (runInput.isFinal) {
-            return StepDecision.goTo(Run.class, runInput);
-        }
-        return StepDecision.goToMulti(
-                StepMovement.of(Run.class, runInput),
-                StepMovement.of(
-                        WaitForSchedule.class,
-                        new ScheduleState(state.interval, state.remainingRuns - 1)));
-    }
 }

@@ -6,7 +6,9 @@ import {dirname, join} from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
 const home = await readFile(join(root, 'index.html'), 'utf8');
 const cloud = await readFile(join(root, 'cloud', 'index.html'), 'utf8');
+const cron = await readFile(join(root, 'design-patterns', 'cron', 'index.html'), 'utf8');
 const production = await readFile(join(root, 'production', 'index.html'), 'utf8');
+const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'cron', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
 const sitemap = await readFile(join(root, 'sitemap.xml'), 'utf8');
 
@@ -47,6 +49,8 @@ assert.match(cloud, /Dex Cloud \/ BYOC/);
 assert.match(cloud, /Coming Soon/);
 assert.match(cloud, /Explore Dex OSS Docs/);
 assert.match(cloud, /https:\/\/superdurable\.io\/byoc/);
+assert.match(cron, /cron-schedule-flow-[a-f0-9]+\.png/);
+assert.match(zhCron, /cron-schedule-flow-[a-f0-9]+\.png/);
 assert.match(production, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/production\/"/);
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/subflow\/"/);
 assert.match(sitemap, /<loc>https:\/\/docs\.superdurable\.io\/production\/<\/loc>/);
@@ -56,6 +60,7 @@ await Promise.all([
   access(join(root, 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'quick-start', 'index.html')),
+  access(join(root, 'img', 'design-patterns', 'cron-schedule-flow.png')),
   access(join(root, 'primitives', 'index.html')),
   access(join(root, 'primitives', 'step', 'index.html')),
   access(join(root, 'references', 'cli', 'index.html')),

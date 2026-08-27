@@ -136,7 +136,18 @@ func (waitForCronSchedule) Execute(
 	if len(skipResults) > 0 {
 		return nextCronSchedule(state), nil
 	}
-	return runCronScheduleNow(state), nil
+	run := cronScheduleRun{
+		RunNumber: state.RemainingRuns,
+		IsFinal:   state.RemainingRuns == 1,
+	}
+	if run.IsFinal {
+		return dex.GoTo(runCronSchedule{}, run), nil
+	}
+	state.RemainingRuns--
+	return dex.GoToMulti(
+		dex.MovementOf(runCronSchedule{}, run),
+		dex.MovementOf(waitForCronSchedule{}, state),
+	), nil
 }
 
 func nextCronSchedule(state cronScheduleState) *dex.StepDecision {
@@ -145,21 +156,6 @@ func nextCronSchedule(state cronScheduleState) *dex.StepDecision {
 	}
 	state.RemainingRuns--
 	return dex.GoTo(waitForCronSchedule{}, state)
-}
-
-func runCronScheduleNow(state cronScheduleState) *dex.StepDecision {
-	run := cronScheduleRun{
-		RunNumber: state.RemainingRuns,
-		IsFinal:   state.RemainingRuns == 1,
-	}
-	if run.IsFinal {
-		return dex.GoTo(runCronSchedule{}, run)
-	}
-	state.RemainingRuns--
-	return dex.GoToMulti(
-		dex.MovementOf(runCronSchedule{}, run),
-		dex.MovementOf(waitForCronSchedule{}, state),
-	)
 }
 
 type runCronSchedule struct {

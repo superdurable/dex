@@ -124,7 +124,23 @@ impl Step for WaitForSchedule {
         if !skip().condition_results(context)?.is_empty() {
             return Ok(next_schedule(state));
         }
-        Ok(run_now(state))
+        let run_input = RunInput {
+            run_number: state.remaining_runs,
+            is_final: state.remaining_runs == 1,
+        };
+        if run_input.is_final {
+            return Ok(StepDecision::go_to(&Run, run_input));
+        }
+        Ok(StepDecision::go_to_many([
+            StepMovement::to(&Run, run_input),
+            StepMovement::to(
+                &WaitForSchedule,
+                ScheduleState {
+                    interval: state.interval,
+                    remaining_runs: state.remaining_runs - 1,
+                },
+            ),
+        ]))
     }
 }
 
@@ -155,26 +171,6 @@ fn next_schedule(state: ScheduleState) -> StepDecision {
             remaining_runs: state.remaining_runs - 1,
         },
     )
-}
-
-fn run_now(state: ScheduleState) -> StepDecision {
-    let run_input = RunInput {
-        run_number: state.remaining_runs,
-        is_final: state.remaining_runs == 1,
-    };
-    if run_input.is_final {
-        return StepDecision::go_to(&Run, run_input);
-    }
-    StepDecision::go_to_many([
-        StepMovement::to(&Run, run_input),
-        StepMovement::to(
-            &WaitForSchedule,
-            ScheduleState {
-                interval: state.interval,
-                remaining_runs: state.remaining_runs - 1,
-            },
-        ),
-    ])
 }
 
 pub fn trigger() -> Channel<()> {
