@@ -62,13 +62,12 @@ class Compensate(Step[TransferRequest]):
 
 
 def compensated_step_options(
-    compensate: Compensate,
     total_duration: timedelta,
 ) -> StepOptions:
     return StepOptions(
         execute_retry=RetryPolicy(total_duration=total_duration)
     ).on_execute_failure_proceed_to(
-        compensate,
+        Compensate,
         StepOptions(execute_retry=COMPENSATE_RETRY),
     )
 
@@ -170,7 +169,7 @@ class MoneyTransferFlow(Flow[TransferRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
         self.compensate = Compensate(service)
-        options = compensated_step_options(self.compensate, timedelta(hours=1))
+        options = compensated_step_options(timedelta(hours=1))
         self.credit = Credit(service, options)
         self.create_credit_memo = CreateCreditMemo(service, self.credit, options)
         self.debit = Debit(service, self.create_credit_memo, options)
