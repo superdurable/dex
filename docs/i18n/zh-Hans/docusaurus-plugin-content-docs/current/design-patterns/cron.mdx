@@ -38,11 +38,9 @@ class _WaitForSchedule(Step[_ScheduleState]):
         self,
         trigger: Channel[None],
         skip: Channel[None],
-        run: _Run,
     ) -> None:
         self.trigger = trigger
         self.skip = skip
-        self.run = run
 
     def wait_for(self, context: Context, state: _ScheduleState) -> Wait:
         del context
@@ -60,11 +58,11 @@ class _WaitForSchedule(Step[_ScheduleState]):
             is_final=state.remaining_runs == 1,
         )
         if run_input.is_final:
-            return go_to(self.run, run_input)
+            return go_to(_Run, run_input)
         return go_to_multi(
-            StepMovement.of(self.run, run_input),
+            StepMovement.of(_Run, run_input),
             StepMovement.of(
-                self,
+                _WaitForSchedule,
                 _ScheduleState(state.interval, state.remaining_runs - 1),
             ),
         )
@@ -135,12 +133,12 @@ final class WaitForSchedule implements Step<ScheduleState> {
         }
         final RunInput runInput = new RunInput(state.remainingRuns, state.remainingRuns == 1);
         if (runInput.isFinal) {
-            return StepDecision.goTo(run, runInput);
+            return StepDecision.goTo(Run.class, runInput);
         }
         return StepDecision.goToMulti(
-                StepMovement.of(run, runInput),
+                StepMovement.of(Run.class, runInput),
                 StepMovement.of(
-                        waitForSchedule,
+                        WaitForSchedule.class,
                         new ScheduleState(state.interval, state.remainingRuns - 1)));
     }
 }
@@ -176,11 +174,11 @@ class WaitForSchedule implements Step<ScheduleState> {
       isFinal: state.remainingRuns === 1,
     };
     if (input.isFinal) {
-      return goTo(this.run, input);
+      return goTo(Run, input);
     }
     return goToMulti(
-      StepMovement.of(this.run, input),
-      StepMovement.of(this, {
+      StepMovement.of(Run, input),
+      StepMovement.of(WaitForSchedule, {
         interval: state.interval,
         remainingRuns: state.remainingRuns - 1,
       }),
