@@ -29,6 +29,7 @@ private static final long serialVersionUID = 0L;
   }
   private ReadStreamRequest() {
     flowId_ = "";
+    flowType_ = "";
     streamName_ = "";
     resumeToken_ = "";
   }
@@ -90,11 +91,50 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int STREAM_NAME_FIELD_NUMBER = 2;
+  public static final int FLOW_TYPE_FIELD_NUMBER = 2;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object flowType_ = "";
+  /**
+   * <code>string flow_type = 2;</code>
+   * @return The flowType.
+   */
+  @java.lang.Override
+  public java.lang.String getFlowType() {
+    java.lang.Object ref = flowType_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      flowType_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string flow_type = 2;</code>
+   * @return The bytes for flowType.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getFlowTypeBytes() {
+    java.lang.Object ref = flowType_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      flowType_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
+  public static final int STREAM_NAME_FIELD_NUMBER = 3;
   @SuppressWarnings("serial")
   private volatile java.lang.Object streamName_ = "";
   /**
-   * <code>string stream_name = 2;</code>
+   * <code>string stream_name = 3;</code>
    * @return The streamName.
    */
   @java.lang.Override
@@ -111,7 +151,7 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>string stream_name = 2;</code>
+   * <code>string stream_name = 3;</code>
    * @return The bytes for streamName.
    */
   @java.lang.Override
@@ -129,11 +169,11 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int RESUME_TOKEN_FIELD_NUMBER = 3;
+  public static final int RESUME_TOKEN_FIELD_NUMBER = 4;
   @SuppressWarnings("serial")
   private volatile java.lang.Object resumeToken_ = "";
   /**
-   * <code>string resume_token = 3;</code>
+   * <code>string resume_token = 4;</code>
    * @return The resumeToken.
    */
   @java.lang.Override
@@ -150,7 +190,7 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>string resume_token = 3;</code>
+   * <code>string resume_token = 4;</code>
    * @return The bytes for resumeToken.
    */
   @java.lang.Override
@@ -168,10 +208,10 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int WAIT_TIME_SECONDS_FIELD_NUMBER = 4;
+  public static final int WAIT_TIME_SECONDS_FIELD_NUMBER = 5;
   private int waitTimeSeconds_ = 0;
   /**
-   * <code>int32 wait_time_seconds = 4;</code>
+   * <code>int32 wait_time_seconds = 5;</code>
    * @return The waitTimeSeconds.
    */
   @java.lang.Override
@@ -196,14 +236,17 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 1, flowId_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, flowType_);
+    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(streamName_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, streamName_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 3, streamName_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(resumeToken_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 3, resumeToken_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 4, resumeToken_);
     }
     if (waitTimeSeconds_ != 0) {
-      output.writeInt32(4, waitTimeSeconds_);
+      output.writeInt32(5, waitTimeSeconds_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -212,15 +255,18 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(1, flowId_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, flowType_);
+    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(streamName_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, streamName_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(3, streamName_);
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(resumeToken_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(3, resumeToken_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(4, resumeToken_);
     }
     if (waitTimeSeconds_ != 0) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt32Size(4, waitTimeSeconds_);
+        .computeInt32Size(5, waitTimeSeconds_);
     }
     return size;
   }
@@ -248,6 +294,8 @@ private static final long serialVersionUID = 0L;
 
     if (!getFlowId()
         .equals(other.getFlowId())) return false;
+    if (!getFlowType()
+        .equals(other.getFlowType())) return false;
     if (!getStreamName()
         .equals(other.getStreamName())) return false;
     if (!getResumeToken()
@@ -267,6 +315,8 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + FLOW_ID_FIELD_NUMBER;
     hash = (53 * hash) + getFlowId().hashCode();
+    hash = (37 * hash) + FLOW_TYPE_FIELD_NUMBER;
+    hash = (53 * hash) + getFlowType().hashCode();
     hash = (37 * hash) + STREAM_NAME_FIELD_NUMBER;
     hash = (53 * hash) + getStreamName().hashCode();
     hash = (37 * hash) + RESUME_TOKEN_FIELD_NUMBER;
@@ -405,6 +455,7 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       flowId_ = "";
+      flowType_ = "";
       streamName_ = "";
       resumeToken_ = "";
       waitTimeSeconds_ = 0;
@@ -445,12 +496,15 @@ private static final long serialVersionUID = 0L;
         result.flowId_ = flowId_;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.streamName_ = streamName_;
+        result.flowType_ = flowType_;
       }
       if (((from_bitField0_ & 0x00000004) != 0)) {
-        result.resumeToken_ = resumeToken_;
+        result.streamName_ = streamName_;
       }
       if (((from_bitField0_ & 0x00000008) != 0)) {
+        result.resumeToken_ = resumeToken_;
+      }
+      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.waitTimeSeconds_ = waitTimeSeconds_;
       }
     }
@@ -472,14 +526,19 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000001;
         onChanged();
       }
+      if (!other.getFlowType().isEmpty()) {
+        flowType_ = other.flowType_;
+        bitField0_ |= 0x00000002;
+        onChanged();
+      }
       if (!other.getStreamName().isEmpty()) {
         streamName_ = other.streamName_;
-        bitField0_ |= 0x00000002;
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       if (!other.getResumeToken().isEmpty()) {
         resumeToken_ = other.resumeToken_;
-        bitField0_ |= 0x00000004;
+        bitField0_ |= 0x00000008;
         onChanged();
       }
       if (other.getWaitTimeSeconds() != 0) {
@@ -517,20 +576,25 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 10
             case 18: {
-              streamName_ = input.readStringRequireUtf8();
+              flowType_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000002;
               break;
             } // case 18
             case 26: {
-              resumeToken_ = input.readStringRequireUtf8();
+              streamName_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000004;
               break;
             } // case 26
-            case 32: {
-              waitTimeSeconds_ = input.readInt32();
+            case 34: {
+              resumeToken_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000008;
               break;
-            } // case 32
+            } // case 34
+            case 40: {
+              waitTimeSeconds_ = input.readInt32();
+              bitField0_ |= 0x00000010;
+              break;
+            } // case 40
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -620,9 +684,81 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
+    private java.lang.Object flowType_ = "";
+    /**
+     * <code>string flow_type = 2;</code>
+     * @return The flowType.
+     */
+    public java.lang.String getFlowType() {
+      java.lang.Object ref = flowType_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        flowType_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string flow_type = 2;</code>
+     * @return The bytes for flowType.
+     */
+    public com.google.protobuf.ByteString
+        getFlowTypeBytes() {
+      java.lang.Object ref = flowType_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        flowType_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string flow_type = 2;</code>
+     * @param value The flowType to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowType(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      flowType_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string flow_type = 2;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFlowType() {
+      flowType_ = getDefaultInstance().getFlowType();
+      bitField0_ = (bitField0_ & ~0x00000002);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string flow_type = 2;</code>
+     * @param value The bytes for flowType to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowTypeBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      flowType_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+
     private java.lang.Object streamName_ = "";
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @return The streamName.
      */
     public java.lang.String getStreamName() {
@@ -638,7 +774,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @return The bytes for streamName.
      */
     public com.google.protobuf.ByteString
@@ -655,7 +791,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @param value The streamName to set.
      * @return This builder for chaining.
      */
@@ -663,22 +799,22 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       streamName_ = value;
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @return This builder for chaining.
      */
     public Builder clearStreamName() {
       streamName_ = getDefaultInstance().getStreamName();
-      bitField0_ = (bitField0_ & ~0x00000002);
+      bitField0_ = (bitField0_ & ~0x00000004);
       onChanged();
       return this;
     }
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @param value The bytes for streamName to set.
      * @return This builder for chaining.
      */
@@ -687,14 +823,14 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       streamName_ = value;
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
 
     private java.lang.Object resumeToken_ = "";
     /**
-     * <code>string resume_token = 3;</code>
+     * <code>string resume_token = 4;</code>
      * @return The resumeToken.
      */
     public java.lang.String getResumeToken() {
@@ -710,7 +846,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string resume_token = 3;</code>
+     * <code>string resume_token = 4;</code>
      * @return The bytes for resumeToken.
      */
     public com.google.protobuf.ByteString
@@ -727,7 +863,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string resume_token = 3;</code>
+     * <code>string resume_token = 4;</code>
      * @param value The resumeToken to set.
      * @return This builder for chaining.
      */
@@ -735,22 +871,22 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       resumeToken_ = value;
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
     /**
-     * <code>string resume_token = 3;</code>
+     * <code>string resume_token = 4;</code>
      * @return This builder for chaining.
      */
     public Builder clearResumeToken() {
       resumeToken_ = getDefaultInstance().getResumeToken();
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000008);
       onChanged();
       return this;
     }
     /**
-     * <code>string resume_token = 3;</code>
+     * <code>string resume_token = 4;</code>
      * @param value The bytes for resumeToken to set.
      * @return This builder for chaining.
      */
@@ -759,14 +895,14 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       resumeToken_ = value;
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
 
     private int waitTimeSeconds_ ;
     /**
-     * <code>int32 wait_time_seconds = 4;</code>
+     * <code>int32 wait_time_seconds = 5;</code>
      * @return The waitTimeSeconds.
      */
     @java.lang.Override
@@ -774,23 +910,23 @@ private static final long serialVersionUID = 0L;
       return waitTimeSeconds_;
     }
     /**
-     * <code>int32 wait_time_seconds = 4;</code>
+     * <code>int32 wait_time_seconds = 5;</code>
      * @param value The waitTimeSeconds to set.
      * @return This builder for chaining.
      */
     public Builder setWaitTimeSeconds(int value) {
 
       waitTimeSeconds_ = value;
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
     /**
-     * <code>int32 wait_time_seconds = 4;</code>
+     * <code>int32 wait_time_seconds = 5;</code>
      * @return This builder for chaining.
      */
     public Builder clearWaitTimeSeconds() {
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000010);
       waitTimeSeconds_ = 0;
       onChanged();
       return this;

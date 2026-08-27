@@ -23,31 +23,43 @@ public interface ReadStreamRequestOrBuilder extends
       getFlowIdBytes();
 
   /**
-   * <code>string stream_name = 2;</code>
+   * <code>string flow_type = 2;</code>
+   * @return The flowType.
+   */
+  java.lang.String getFlowType();
+  /**
+   * <code>string flow_type = 2;</code>
+   * @return The bytes for flowType.
+   */
+  com.google.protobuf.ByteString
+      getFlowTypeBytes();
+
+  /**
+   * <code>string stream_name = 3;</code>
    * @return The streamName.
    */
   java.lang.String getStreamName();
   /**
-   * <code>string stream_name = 2;</code>
+   * <code>string stream_name = 3;</code>
    * @return The bytes for streamName.
    */
   com.google.protobuf.ByteString
       getStreamNameBytes();
 
   /**
-   * <code>string resume_token = 3;</code>
+   * <code>string resume_token = 4;</code>
    * @return The resumeToken.
    */
   java.lang.String getResumeToken();
   /**
-   * <code>string resume_token = 3;</code>
+   * <code>string resume_token = 4;</code>
    * @return The bytes for resumeToken.
    */
   com.google.protobuf.ByteString
       getResumeTokenBytes();
 
   /**
-   * <code>int32 wait_time_seconds = 4;</code>
+   * <code>int32 wait_time_seconds = 5;</code>
    * @return The waitTimeSeconds.
    */
   int getWaitTimeSeconds();

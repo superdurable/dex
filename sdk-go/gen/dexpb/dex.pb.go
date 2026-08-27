@@ -2704,11 +2704,12 @@ func (x *ChannelMessage) GetValue() *Value {
 type WriteStreamRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	FlowId            string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
-	StreamName        string                 `protobuf:"bytes,2,opt,name=stream_name,json=streamName,proto3" json:"stream_name,omitempty"`
-	MaxEstimatedBytes int64                  `protobuf:"varint,3,opt,name=max_estimated_bytes,json=maxEstimatedBytes,proto3" json:"max_estimated_bytes,omitempty"`
-	Value             *Value                 `protobuf:"bytes,4,opt,name=value,proto3" json:"value,omitempty"`
+	FlowType          string                 `protobuf:"bytes,2,opt,name=flow_type,json=flowType,proto3" json:"flow_type,omitempty"`
+	StreamName        string                 `protobuf:"bytes,3,opt,name=stream_name,json=streamName,proto3" json:"stream_name,omitempty"`
+	MaxEstimatedBytes int64                  `protobuf:"varint,4,opt,name=max_estimated_bytes,json=maxEstimatedBytes,proto3" json:"max_estimated_bytes,omitempty"`
+	Value             *Value                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`
 	// Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`.
-	IdempotencyKey string `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	IdempotencyKey string `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -2750,6 +2751,13 @@ func (x *WriteStreamRequest) GetFlowId() string {
 	return ""
 }
 
+func (x *WriteStreamRequest) GetFlowType() string {
+	if x != nil {
+		return x.FlowType
+	}
+	return ""
+}
+
 func (x *WriteStreamRequest) GetStreamName() string {
 	if x != nil {
 		return x.StreamName
@@ -2781,9 +2789,10 @@ func (x *WriteStreamRequest) GetIdempotencyKey() string {
 type ReadStreamRequest struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	FlowId          string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
-	StreamName      string                 `protobuf:"bytes,2,opt,name=stream_name,json=streamName,proto3" json:"stream_name,omitempty"`
-	ResumeToken     string                 `protobuf:"bytes,3,opt,name=resume_token,json=resumeToken,proto3" json:"resume_token,omitempty"`
-	WaitTimeSeconds int32                  `protobuf:"varint,4,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
+	FlowType        string                 `protobuf:"bytes,2,opt,name=flow_type,json=flowType,proto3" json:"flow_type,omitempty"`
+	StreamName      string                 `protobuf:"bytes,3,opt,name=stream_name,json=streamName,proto3" json:"stream_name,omitempty"`
+	ResumeToken     string                 `protobuf:"bytes,4,opt,name=resume_token,json=resumeToken,proto3" json:"resume_token,omitempty"`
+	WaitTimeSeconds int32                  `protobuf:"varint,5,opt,name=wait_time_seconds,json=waitTimeSeconds,proto3" json:"wait_time_seconds,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2821,6 +2830,13 @@ func (*ReadStreamRequest) Descriptor() ([]byte, []int) {
 func (x *ReadStreamRequest) GetFlowId() string {
 	if x != nil {
 		return x.FlowId
+	}
+	return ""
+}
+
+func (x *ReadStreamRequest) GetFlowType() string {
+	if x != nil {
+		return x.FlowType
 	}
 	return ""
 }
@@ -11625,21 +11641,23 @@ const file_dex_proto_rawDesc = "" +
 	"\x0eChannelMessage\x12!\n" +
 	"\fchannel_name\x18\x01 \x01(\tR\vchannelName\x12 \n" +
 	"\x05value\x18\x02 \x01(\v2\n" +
-	".dex.ValueR\x05value\"\xc9\x01\n" +
+	".dex.ValueR\x05value\"\xe6\x01\n" +
 	"\x12WriteStreamRequest\x12\x17\n" +
-	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1f\n" +
-	"\vstream_name\x18\x02 \x01(\tR\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1b\n" +
+	"\tflow_type\x18\x02 \x01(\tR\bflowType\x12\x1f\n" +
+	"\vstream_name\x18\x03 \x01(\tR\n" +
 	"streamName\x12.\n" +
-	"\x13max_estimated_bytes\x18\x03 \x01(\x03R\x11maxEstimatedBytes\x12 \n" +
-	"\x05value\x18\x04 \x01(\v2\n" +
+	"\x13max_estimated_bytes\x18\x04 \x01(\x03R\x11maxEstimatedBytes\x12 \n" +
+	"\x05value\x18\x05 \x01(\v2\n" +
 	".dex.ValueR\x05value\x12'\n" +
-	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\"\x9c\x01\n" +
+	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\"\xb9\x01\n" +
 	"\x11ReadStreamRequest\x12\x17\n" +
-	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1f\n" +
-	"\vstream_name\x18\x02 \x01(\tR\n" +
+	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1b\n" +
+	"\tflow_type\x18\x02 \x01(\tR\bflowType\x12\x1f\n" +
+	"\vstream_name\x18\x03 \x01(\tR\n" +
 	"streamName\x12!\n" +
-	"\fresume_token\x18\x03 \x01(\tR\vresumeToken\x12*\n" +
-	"\x11wait_time_seconds\x18\x04 \x01(\x05R\x0fwaitTimeSeconds\"B\n" +
+	"\fresume_token\x18\x04 \x01(\tR\vresumeToken\x12*\n" +
+	"\x11wait_time_seconds\x18\x05 \x01(\x05R\x0fwaitTimeSeconds\"B\n" +
 	"\x12ReadStreamResponse\x12,\n" +
 	"\amessage\x18\x01 \x01(\v2\x12.dex.StreamMessageR\amessage\"\xbc\x01\n" +
 	"\rStreamMessage\x12 \n" +

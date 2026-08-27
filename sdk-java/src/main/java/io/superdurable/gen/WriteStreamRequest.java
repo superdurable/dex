@@ -29,6 +29,7 @@ private static final long serialVersionUID = 0L;
   }
   private WriteStreamRequest() {
     flowId_ = "";
+    flowType_ = "";
     streamName_ = "";
     idempotencyKey_ = "";
   }
@@ -91,11 +92,50 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int STREAM_NAME_FIELD_NUMBER = 2;
+  public static final int FLOW_TYPE_FIELD_NUMBER = 2;
+  @SuppressWarnings("serial")
+  private volatile java.lang.Object flowType_ = "";
+  /**
+   * <code>string flow_type = 2;</code>
+   * @return The flowType.
+   */
+  @java.lang.Override
+  public java.lang.String getFlowType() {
+    java.lang.Object ref = flowType_;
+    if (ref instanceof java.lang.String) {
+      return (java.lang.String) ref;
+    } else {
+      com.google.protobuf.ByteString bs = 
+          (com.google.protobuf.ByteString) ref;
+      java.lang.String s = bs.toStringUtf8();
+      flowType_ = s;
+      return s;
+    }
+  }
+  /**
+   * <code>string flow_type = 2;</code>
+   * @return The bytes for flowType.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getFlowTypeBytes() {
+    java.lang.Object ref = flowType_;
+    if (ref instanceof java.lang.String) {
+      com.google.protobuf.ByteString b = 
+          com.google.protobuf.ByteString.copyFromUtf8(
+              (java.lang.String) ref);
+      flowType_ = b;
+      return b;
+    } else {
+      return (com.google.protobuf.ByteString) ref;
+    }
+  }
+
+  public static final int STREAM_NAME_FIELD_NUMBER = 3;
   @SuppressWarnings("serial")
   private volatile java.lang.Object streamName_ = "";
   /**
-   * <code>string stream_name = 2;</code>
+   * <code>string stream_name = 3;</code>
    * @return The streamName.
    */
   @java.lang.Override
@@ -112,7 +152,7 @@ private static final long serialVersionUID = 0L;
     }
   }
   /**
-   * <code>string stream_name = 2;</code>
+   * <code>string stream_name = 3;</code>
    * @return The bytes for streamName.
    */
   @java.lang.Override
@@ -130,10 +170,10 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int MAX_ESTIMATED_BYTES_FIELD_NUMBER = 3;
+  public static final int MAX_ESTIMATED_BYTES_FIELD_NUMBER = 4;
   private long maxEstimatedBytes_ = 0L;
   /**
-   * <code>int64 max_estimated_bytes = 3;</code>
+   * <code>int64 max_estimated_bytes = 4;</code>
    * @return The maxEstimatedBytes.
    */
   @java.lang.Override
@@ -141,10 +181,10 @@ private static final long serialVersionUID = 0L;
     return maxEstimatedBytes_;
   }
 
-  public static final int VALUE_FIELD_NUMBER = 4;
+  public static final int VALUE_FIELD_NUMBER = 5;
   private io.superdurable.gen.Value value_;
   /**
-   * <code>.dex.Value value = 4;</code>
+   * <code>.dex.Value value = 5;</code>
    * @return Whether the value field is set.
    */
   @java.lang.Override
@@ -152,7 +192,7 @@ private static final long serialVersionUID = 0L;
     return ((bitField0_ & 0x00000001) != 0);
   }
   /**
-   * <code>.dex.Value value = 4;</code>
+   * <code>.dex.Value value = 5;</code>
    * @return The value.
    */
   @java.lang.Override
@@ -160,14 +200,14 @@ private static final long serialVersionUID = 0L;
     return value_ == null ? io.superdurable.gen.Value.getDefaultInstance() : value_;
   }
   /**
-   * <code>.dex.Value value = 4;</code>
+   * <code>.dex.Value value = 5;</code>
    */
   @java.lang.Override
   public io.superdurable.gen.ValueOrBuilder getValueOrBuilder() {
     return value_ == null ? io.superdurable.gen.Value.getDefaultInstance() : value_;
   }
 
-  public static final int IDEMPOTENCY_KEY_FIELD_NUMBER = 5;
+  public static final int IDEMPOTENCY_KEY_FIELD_NUMBER = 6;
   @SuppressWarnings("serial")
   private volatile java.lang.Object idempotencyKey_ = "";
   /**
@@ -175,7 +215,7 @@ private static final long serialVersionUID = 0L;
    * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
    * </pre>
    *
-   * <code>string idempotency_key = 5;</code>
+   * <code>string idempotency_key = 6;</code>
    * @return The idempotencyKey.
    */
   @java.lang.Override
@@ -196,7 +236,7 @@ private static final long serialVersionUID = 0L;
    * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
    * </pre>
    *
-   * <code>string idempotency_key = 5;</code>
+   * <code>string idempotency_key = 6;</code>
    * @return The bytes for idempotencyKey.
    */
   @java.lang.Override
@@ -231,17 +271,20 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 1, flowId_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 2, flowType_);
+    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(streamName_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 2, streamName_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 3, streamName_);
     }
     if (maxEstimatedBytes_ != 0L) {
-      output.writeInt64(3, maxEstimatedBytes_);
+      output.writeInt64(4, maxEstimatedBytes_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
-      output.writeMessage(4, getValue());
+      output.writeMessage(5, getValue());
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(idempotencyKey_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 5, idempotencyKey_);
+      com.google.protobuf.GeneratedMessage.writeString(output, 6, idempotencyKey_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -250,19 +293,22 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowId_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(1, flowId_);
     }
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(flowType_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, flowType_);
+    }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(streamName_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(2, streamName_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(3, streamName_);
     }
     if (maxEstimatedBytes_ != 0L) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt64Size(3, maxEstimatedBytes_);
+        .computeInt64Size(4, maxEstimatedBytes_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
-        .computeMessageSize(4, getValue());
+        .computeMessageSize(5, getValue());
     }
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(idempotencyKey_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(5, idempotencyKey_);
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, idempotencyKey_);
     }
     return size;
   }
@@ -290,6 +336,8 @@ private static final long serialVersionUID = 0L;
 
     if (!getFlowId()
         .equals(other.getFlowId())) return false;
+    if (!getFlowType()
+        .equals(other.getFlowType())) return false;
     if (!getStreamName()
         .equals(other.getStreamName())) return false;
     if (getMaxEstimatedBytes()
@@ -314,6 +362,8 @@ private static final long serialVersionUID = 0L;
     hash = (19 * hash) + getDescriptor().hashCode();
     hash = (37 * hash) + FLOW_ID_FIELD_NUMBER;
     hash = (53 * hash) + getFlowId().hashCode();
+    hash = (37 * hash) + FLOW_TYPE_FIELD_NUMBER;
+    hash = (53 * hash) + getFlowType().hashCode();
     hash = (37 * hash) + STREAM_NAME_FIELD_NUMBER;
     hash = (53 * hash) + getStreamName().hashCode();
     hash = (37 * hash) + MAX_ESTIMATED_BYTES_FIELD_NUMBER;
@@ -463,6 +513,7 @@ private static final long serialVersionUID = 0L;
       super.clear();
       bitField0_ = 0;
       flowId_ = "";
+      flowType_ = "";
       streamName_ = "";
       maxEstimatedBytes_ = 0L;
       value_ = null;
@@ -508,19 +559,22 @@ private static final long serialVersionUID = 0L;
         result.flowId_ = flowId_;
       }
       if (((from_bitField0_ & 0x00000002) != 0)) {
-        result.streamName_ = streamName_;
+        result.flowType_ = flowType_;
       }
       if (((from_bitField0_ & 0x00000004) != 0)) {
+        result.streamName_ = streamName_;
+      }
+      if (((from_bitField0_ & 0x00000008) != 0)) {
         result.maxEstimatedBytes_ = maxEstimatedBytes_;
       }
       int to_bitField0_ = 0;
-      if (((from_bitField0_ & 0x00000008) != 0)) {
+      if (((from_bitField0_ & 0x00000010) != 0)) {
         result.value_ = valueBuilder_ == null
             ? value_
             : valueBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
-      if (((from_bitField0_ & 0x00000010) != 0)) {
+      if (((from_bitField0_ & 0x00000020) != 0)) {
         result.idempotencyKey_ = idempotencyKey_;
       }
       result.bitField0_ |= to_bitField0_;
@@ -543,9 +597,14 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000001;
         onChanged();
       }
+      if (!other.getFlowType().isEmpty()) {
+        flowType_ = other.flowType_;
+        bitField0_ |= 0x00000002;
+        onChanged();
+      }
       if (!other.getStreamName().isEmpty()) {
         streamName_ = other.streamName_;
-        bitField0_ |= 0x00000002;
+        bitField0_ |= 0x00000004;
         onChanged();
       }
       if (other.getMaxEstimatedBytes() != 0L) {
@@ -556,7 +615,7 @@ private static final long serialVersionUID = 0L;
       }
       if (!other.getIdempotencyKey().isEmpty()) {
         idempotencyKey_ = other.idempotencyKey_;
-        bitField0_ |= 0x00000010;
+        bitField0_ |= 0x00000020;
         onChanged();
       }
       this.mergeUnknownFields(other.getUnknownFields());
@@ -591,27 +650,32 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 10
             case 18: {
-              streamName_ = input.readStringRequireUtf8();
+              flowType_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000002;
               break;
             } // case 18
-            case 24: {
-              maxEstimatedBytes_ = input.readInt64();
+            case 26: {
+              streamName_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000004;
               break;
-            } // case 24
-            case 34: {
+            } // case 26
+            case 32: {
+              maxEstimatedBytes_ = input.readInt64();
+              bitField0_ |= 0x00000008;
+              break;
+            } // case 32
+            case 42: {
               input.readMessage(
                   internalGetValueFieldBuilder().getBuilder(),
                   extensionRegistry);
-              bitField0_ |= 0x00000008;
-              break;
-            } // case 34
-            case 42: {
-              idempotencyKey_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000010;
               break;
             } // case 42
+            case 50: {
+              idempotencyKey_ = input.readStringRequireUtf8();
+              bitField0_ |= 0x00000020;
+              break;
+            } // case 50
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -701,9 +765,81 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
+    private java.lang.Object flowType_ = "";
+    /**
+     * <code>string flow_type = 2;</code>
+     * @return The flowType.
+     */
+    public java.lang.String getFlowType() {
+      java.lang.Object ref = flowType_;
+      if (!(ref instanceof java.lang.String)) {
+        com.google.protobuf.ByteString bs =
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        flowType_ = s;
+        return s;
+      } else {
+        return (java.lang.String) ref;
+      }
+    }
+    /**
+     * <code>string flow_type = 2;</code>
+     * @return The bytes for flowType.
+     */
+    public com.google.protobuf.ByteString
+        getFlowTypeBytes() {
+      java.lang.Object ref = flowType_;
+      if (ref instanceof String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        flowType_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+    /**
+     * <code>string flow_type = 2;</code>
+     * @param value The flowType to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowType(
+        java.lang.String value) {
+      if (value == null) { throw new NullPointerException(); }
+      flowType_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string flow_type = 2;</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearFlowType() {
+      flowType_ = getDefaultInstance().getFlowType();
+      bitField0_ = (bitField0_ & ~0x00000002);
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>string flow_type = 2;</code>
+     * @param value The bytes for flowType to set.
+     * @return This builder for chaining.
+     */
+    public Builder setFlowTypeBytes(
+        com.google.protobuf.ByteString value) {
+      if (value == null) { throw new NullPointerException(); }
+      checkByteStringIsUtf8(value);
+      flowType_ = value;
+      bitField0_ |= 0x00000002;
+      onChanged();
+      return this;
+    }
+
     private java.lang.Object streamName_ = "";
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @return The streamName.
      */
     public java.lang.String getStreamName() {
@@ -719,7 +855,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @return The bytes for streamName.
      */
     public com.google.protobuf.ByteString
@@ -736,7 +872,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @param value The streamName to set.
      * @return This builder for chaining.
      */
@@ -744,22 +880,22 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       streamName_ = value;
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @return This builder for chaining.
      */
     public Builder clearStreamName() {
       streamName_ = getDefaultInstance().getStreamName();
-      bitField0_ = (bitField0_ & ~0x00000002);
+      bitField0_ = (bitField0_ & ~0x00000004);
       onChanged();
       return this;
     }
     /**
-     * <code>string stream_name = 2;</code>
+     * <code>string stream_name = 3;</code>
      * @param value The bytes for streamName to set.
      * @return This builder for chaining.
      */
@@ -768,14 +904,14 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       streamName_ = value;
-      bitField0_ |= 0x00000002;
+      bitField0_ |= 0x00000004;
       onChanged();
       return this;
     }
 
     private long maxEstimatedBytes_ ;
     /**
-     * <code>int64 max_estimated_bytes = 3;</code>
+     * <code>int64 max_estimated_bytes = 4;</code>
      * @return The maxEstimatedBytes.
      */
     @java.lang.Override
@@ -783,23 +919,23 @@ private static final long serialVersionUID = 0L;
       return maxEstimatedBytes_;
     }
     /**
-     * <code>int64 max_estimated_bytes = 3;</code>
+     * <code>int64 max_estimated_bytes = 4;</code>
      * @param value The maxEstimatedBytes to set.
      * @return This builder for chaining.
      */
     public Builder setMaxEstimatedBytes(long value) {
 
       maxEstimatedBytes_ = value;
-      bitField0_ |= 0x00000004;
+      bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
     /**
-     * <code>int64 max_estimated_bytes = 3;</code>
+     * <code>int64 max_estimated_bytes = 4;</code>
      * @return This builder for chaining.
      */
     public Builder clearMaxEstimatedBytes() {
-      bitField0_ = (bitField0_ & ~0x00000004);
+      bitField0_ = (bitField0_ & ~0x00000008);
       maxEstimatedBytes_ = 0L;
       onChanged();
       return this;
@@ -809,14 +945,14 @@ private static final long serialVersionUID = 0L;
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> valueBuilder_;
     /**
-     * <code>.dex.Value value = 4;</code>
+     * <code>.dex.Value value = 5;</code>
      * @return Whether the value field is set.
      */
     public boolean hasValue() {
-      return ((bitField0_ & 0x00000008) != 0);
+      return ((bitField0_ & 0x00000010) != 0);
     }
     /**
-     * <code>.dex.Value value = 4;</code>
+     * <code>.dex.Value value = 5;</code>
      * @return The value.
      */
     public io.superdurable.gen.Value getValue() {
@@ -827,7 +963,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.Value value = 4;</code>
+     * <code>.dex.Value value = 5;</code>
      */
     public Builder setValue(io.superdurable.gen.Value value) {
       if (valueBuilder_ == null) {
@@ -838,12 +974,12 @@ private static final long serialVersionUID = 0L;
       } else {
         valueBuilder_.setMessage(value);
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.Value value = 4;</code>
+     * <code>.dex.Value value = 5;</code>
      */
     public Builder setValue(
         io.superdurable.gen.Value.Builder builderForValue) {
@@ -852,16 +988,16 @@ private static final long serialVersionUID = 0L;
       } else {
         valueBuilder_.setMessage(builderForValue.build());
       }
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000010;
       onChanged();
       return this;
     }
     /**
-     * <code>.dex.Value value = 4;</code>
+     * <code>.dex.Value value = 5;</code>
      */
     public Builder mergeValue(io.superdurable.gen.Value value) {
       if (valueBuilder_ == null) {
-        if (((bitField0_ & 0x00000008) != 0) &&
+        if (((bitField0_ & 0x00000010) != 0) &&
           value_ != null &&
           value_ != io.superdurable.gen.Value.getDefaultInstance()) {
           getValueBuilder().mergeFrom(value);
@@ -872,16 +1008,16 @@ private static final long serialVersionUID = 0L;
         valueBuilder_.mergeFrom(value);
       }
       if (value_ != null) {
-        bitField0_ |= 0x00000008;
+        bitField0_ |= 0x00000010;
         onChanged();
       }
       return this;
     }
     /**
-     * <code>.dex.Value value = 4;</code>
+     * <code>.dex.Value value = 5;</code>
      */
     public Builder clearValue() {
-      bitField0_ = (bitField0_ & ~0x00000008);
+      bitField0_ = (bitField0_ & ~0x00000010);
       value_ = null;
       if (valueBuilder_ != null) {
         valueBuilder_.dispose();
@@ -891,15 +1027,15 @@ private static final long serialVersionUID = 0L;
       return this;
     }
     /**
-     * <code>.dex.Value value = 4;</code>
+     * <code>.dex.Value value = 5;</code>
      */
     public io.superdurable.gen.Value.Builder getValueBuilder() {
-      bitField0_ |= 0x00000008;
+      bitField0_ |= 0x00000010;
       onChanged();
       return internalGetValueFieldBuilder().getBuilder();
     }
     /**
-     * <code>.dex.Value value = 4;</code>
+     * <code>.dex.Value value = 5;</code>
      */
     public io.superdurable.gen.ValueOrBuilder getValueOrBuilder() {
       if (valueBuilder_ != null) {
@@ -910,7 +1046,7 @@ private static final long serialVersionUID = 0L;
       }
     }
     /**
-     * <code>.dex.Value value = 4;</code>
+     * <code>.dex.Value value = 5;</code>
      */
     private com.google.protobuf.SingleFieldBuilder<
         io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
@@ -932,7 +1068,7 @@ private static final long serialVersionUID = 0L;
      * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
      * </pre>
      *
-     * <code>string idempotency_key = 5;</code>
+     * <code>string idempotency_key = 6;</code>
      * @return The idempotencyKey.
      */
     public java.lang.String getIdempotencyKey() {
@@ -952,7 +1088,7 @@ private static final long serialVersionUID = 0L;
      * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
      * </pre>
      *
-     * <code>string idempotency_key = 5;</code>
+     * <code>string idempotency_key = 6;</code>
      * @return The bytes for idempotencyKey.
      */
     public com.google.protobuf.ByteString
@@ -973,7 +1109,7 @@ private static final long serialVersionUID = 0L;
      * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
      * </pre>
      *
-     * <code>string idempotency_key = 5;</code>
+     * <code>string idempotency_key = 6;</code>
      * @param value The idempotencyKey to set.
      * @return This builder for chaining.
      */
@@ -981,7 +1117,7 @@ private static final long serialVersionUID = 0L;
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
       idempotencyKey_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
@@ -990,12 +1126,12 @@ private static final long serialVersionUID = 0L;
      * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
      * </pre>
      *
-     * <code>string idempotency_key = 5;</code>
+     * <code>string idempotency_key = 6;</code>
      * @return This builder for chaining.
      */
     public Builder clearIdempotencyKey() {
       idempotencyKey_ = getDefaultInstance().getIdempotencyKey();
-      bitField0_ = (bitField0_ & ~0x00000010);
+      bitField0_ = (bitField0_ & ~0x00000020);
       onChanged();
       return this;
     }
@@ -1004,7 +1140,7 @@ private static final long serialVersionUID = 0L;
      * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
      * </pre>
      *
-     * <code>string idempotency_key = 5;</code>
+     * <code>string idempotency_key = 6;</code>
      * @param value The bytes for idempotencyKey to set.
      * @return This builder for chaining.
      */
@@ -1013,7 +1149,7 @@ private static final long serialVersionUID = 0L;
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
       idempotencyKey_ = value;
-      bitField0_ |= 0x00000010;
+      bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }

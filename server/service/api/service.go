@@ -506,8 +506,14 @@ func (s *serviceImpl) ReadStream(
 	ctx context.Context,
 	req *dexpb.ReadStreamRequest,
 ) (*dexpb.ReadStreamResponse, error) {
-	if req == nil || req.GetFlowId() == "" || req.GetStreamName() == "" || req.GetWaitTimeSeconds() < 0 {
-		return nil, makeInvalidRequestError("flow ID, Stream name, and non-negative wait time are required")
+	if req == nil ||
+		req.GetFlowId() == "" ||
+		req.GetFlowType() == "" ||
+		req.GetStreamName() == "" ||
+		req.GetWaitTimeSeconds() < 0 {
+		return nil, makeInvalidRequestError(
+			"flow ID, Flow type, Stream name, and non-negative wait time are required",
+		)
 	}
 	waitCtx, cancel := utils.TrimContextByTimeoutWithCappedDDL(
 		ctx,
@@ -515,11 +521,22 @@ func (s *serviceImpl) ReadStream(
 		s.apiCfg.EffectiveMaxWaitSeconds(),
 	)
 	defer cancel()
-	message, err := s.streamStore.Read(waitCtx, req.GetFlowId(), req.GetStreamName(), req.GetResumeToken())
+	message, err := s.streamStore.Read(
+		waitCtx,
+		req.GetFlowType(),
+		req.GetFlowId(),
+		req.GetStreamName(),
+		req.GetResumeToken(),
+	)
 	if err != nil {
 		return nil, streamStoreError(err)
 	}
-	resumeToken, err := streamstore.EncodeResumeToken(req.GetFlowId(), req.GetStreamName(), message.RedisID)
+	resumeToken, err := streamstore.EncodeResumeToken(
+		req.GetFlowType(),
+		req.GetFlowId(),
+		req.GetStreamName(),
+		message.RedisID,
+	)
 	if err != nil {
 		return nil, serviceerrors.Internal(err.Error()).ToGRPCError()
 	}
@@ -534,8 +551,8 @@ func (s *serviceImpl) ReadStream(
 }
 
 func streamWriteInput(req *dexpb.WriteStreamRequest) (streamstore.WriteInput, error) {
-	if req == nil || req.GetFlowId() == "" || req.GetStreamName() == "" {
-		return streamstore.WriteInput{}, fmt.Errorf("flow ID and Stream name are required")
+	if req == nil || req.GetFlowId() == "" || req.GetFlowType() == "" || req.GetStreamName() == "" {
+		return streamstore.WriteInput{}, fmt.Errorf("flow ID, Flow type, and Stream name are required")
 	}
 	if req.GetMaxEstimatedBytes() <= 0 {
 		return streamstore.WriteInput{}, fmt.Errorf("max estimated bytes must be positive")
@@ -548,6 +565,7 @@ func streamWriteInput(req *dexpb.WriteStreamRequest) (streamstore.WriteInput, er
 	}
 	return streamstore.WriteInput{
 		FlowID:               req.GetFlowId(),
+		FlowType:             req.GetFlowType(),
 		StreamName:           req.GetStreamName(),
 		MaxEstimatedBytes:    req.GetMaxEstimatedBytes(),
 		Value:                req.GetValue(),

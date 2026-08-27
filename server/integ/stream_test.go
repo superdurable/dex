@@ -31,7 +31,10 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-const streamTestRedisURL = "redis://127.0.0.1:6379/15"
+const (
+	streamTestFlowType = "stream-test-flow"
+	streamTestRedisURL = "redis://127.0.0.1:6379/15"
+)
 
 func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 	store, redisClient := newStreamTestStore(t)
@@ -68,7 +71,12 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 	require.Equal(t, []string{"public-03", "public-05", "public-07", "public-09"}, messageKeys(flowBMessages))
 	require.WithinDuration(t, time.Now(), flowAMessages[0].CreatedTime, 5*time.Second)
 
-	firstToken, err := streamstore.EncodeResumeToken("flow-a", streamName, flowAMessages[0].RedisID)
+	firstToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType,
+		"flow-a",
+		streamName,
+		flowAMessages[0].RedisID,
+	)
 	require.NoError(t, err)
 	nextMessage := readOneMessage(t, store, "flow-a", streamName, firstToken)
 	require.Equal(t, "public-04", nextMessage.IdempotencyKey)
@@ -77,7 +85,12 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 	duplicate.Value = &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "different"}}
 	require.NoError(t, store.Write(context.Background(), duplicate))
 	require.Equal(t, int64(8), streamLength(t, redisClient, streamName))
-	beforeLastToken, err := streamstore.EncodeResumeToken("flow-a", streamName, flowAMessages[2].RedisID)
+	beforeLastToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType,
+		"flow-a",
+		streamName,
+		flowAMessages[2].RedisID,
+	)
 	require.NoError(t, err)
 	retainedOriginal := readOneMessage(t, store, "flow-a", streamName, beforeLastToken)
 	require.Equal(t, "value-0000", retainedOriginal.Value.GetStringValue())
@@ -96,11 +109,74 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 	oldTokenMessage := readOneMessage(t, store, "flow-a", streamName, firstToken)
 	require.Equal(t, "public-10", oldTokenMessage.IdempotencyKey)
 
-	wrongScopeToken, err := streamstore.EncodeResumeToken("flow-b", streamName, flowBMessages[0].RedisID)
+	wrongScopeToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType,
+		"flow-b",
+		streamName,
+		flowBMessages[0].RedisID,
+	)
 	require.NoError(t, err)
 	readCtx, cancelRead := context.WithTimeout(context.Background(), time.Second)
 	defer cancelRead()
-	_, err = store.Read(readCtx, "flow-a", streamName, wrongScopeToken)
+	_, err = store.Read(readCtx, streamTestFlowType, "flow-a", streamName, wrongScopeToken)
+	require.ErrorIs(t, err, streamstore.ErrInvalidResumeToken)
+}
+
+func TestStreamStoreFlowTypesIsolateStreamScopes(t *testing.T) {
+	store, redisClient := newStreamTestStore(t)
+	streamName := "flow-type-scope-" + newRequestID()
+	firstFlowType := "first-flow-type"
+	secondFlowType := "second-flow-type"
+	t.Cleanup(func() { deleteStreamTestKeysForFlowType(t, redisClient, firstFlowType, streamName) })
+	t.Cleanup(func() { deleteStreamTestKeysForFlowType(t, redisClient, secondFlowType, streamName) })
+
+	baseInput := streamInput("shared-flow", streamName, 0, "payload-0000")
+	charge := estimatedCharge(baseInput, 1)
+	for _, flowType := range []string{firstFlowType, secondFlowType} {
+		leaseKey := streamTestBaseKeyForFlowType(flowType, streamName) + ":trim-lease"
+		require.NoError(t, redisClient.Set(context.Background(), leaseKey, "held", 10*time.Second).Err())
+	}
+	for index := 0; index < 2; index++ {
+		firstInput := streamInput("shared-flow", streamName, index, "payload-0000")
+		firstInput.FlowType = firstFlowType
+		firstInput.MaxEstimatedBytes = charge * 2
+		require.NoError(t, store.Write(context.Background(), firstInput))
+
+		secondInput := streamInput("shared-flow", streamName, index, "payload-0000")
+		secondInput.FlowType = secondFlowType
+		secondInput.MaxEstimatedBytes = charge * 3
+		require.NoError(t, store.Write(context.Background(), secondInput))
+	}
+	firstThird := streamInput("shared-flow", streamName, 2, "payload-0000")
+	firstThird.FlowType = firstFlowType
+	firstThird.MaxEstimatedBytes = charge * 2
+	require.ErrorIs(t, store.Write(context.Background(), firstThird), streamstore.ErrCapacityExceeded)
+	secondThird := streamInput("shared-flow", streamName, 2, "payload-0000")
+	secondThird.FlowType = secondFlowType
+	secondThird.MaxEstimatedBytes = charge * 3
+	require.NoError(t, store.Write(context.Background(), secondThird))
+
+	require.Equal(t, int64(2), streamLengthForFlowType(t, redisClient, firstFlowType, streamName))
+	require.Equal(t, int64(3), streamLengthForFlowType(t, redisClient, secondFlowType, streamName))
+	require.NotEqual(
+		t,
+		streamTestBaseKeyForFlowType(firstFlowType, streamName),
+		streamTestBaseKeyForFlowType(secondFlowType, streamName),
+	)
+	readCtx, cancelRead := context.WithTimeout(context.Background(), time.Second)
+	firstMessage, err := store.Read(readCtx, firstFlowType, "shared-flow", streamName, "")
+	cancelRead()
+	require.NoError(t, err)
+	firstToken, err := streamstore.EncodeResumeToken(
+		firstFlowType,
+		"shared-flow",
+		streamName,
+		firstMessage.RedisID,
+	)
+	require.NoError(t, err)
+	wrongTypeCtx, cancelWrongTypeRead := context.WithTimeout(context.Background(), time.Second)
+	defer cancelWrongTypeRead()
+	_, err = store.Read(wrongTypeCtx, secondFlowType, "shared-flow", streamName, firstToken)
 	require.ErrorIs(t, err, streamstore.ErrInvalidResumeToken)
 }
 
@@ -294,6 +370,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	flowID := "nonexistent-" + newRequestID()
 	_, err := flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            flowID,
+		FlowType:          streamTestFlowType,
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1 << 20,
 		Value:             stringValue("missing-key"),
@@ -301,6 +378,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            flowID,
+		FlowType:          streamTestFlowType,
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1 << 20,
 		Value:             stringValue("first"),
@@ -309,6 +387,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	require.NoError(t, err)
 	response, err := flowClient.ReadStream(ctx, &dexpb.ReadStreamRequest{
 		FlowId:          flowID,
+		FlowType:        streamTestFlowType,
 		StreamName:      streamName,
 		WaitTimeSeconds: 2,
 	})
@@ -321,6 +400,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	require.NoError(t, err)
 	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            flowID,
+		FlowType:          streamTestFlowType,
 		StreamName:        streamName,
 		MaxEstimatedBytes: chargedBytes*2 - 1,
 		Value:             stringValue("first"),
@@ -330,6 +410,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	require.Equal(t, int64(1), streamLength(t, redisClient, streamName))
 	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            flowID,
+		FlowType:          streamTestFlowType,
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1 << 20,
 		Value:             stringValue(string(make([]byte, 64))),
@@ -339,6 +420,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	require.Equal(t, int64(1), streamLength(t, redisClient, streamName))
 	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            flowID,
+		FlowType:          streamTestFlowType,
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1,
 		Value:             stringValue("too-large"),
@@ -348,6 +430,7 @@ func TestStreamAPITemporal(t *testing.T) {
 
 	_, err = flowClient.ReadStream(ctx, &dexpb.ReadStreamRequest{
 		FlowId:          flowID,
+		FlowType:        streamTestFlowType,
 		StreamName:      streamName,
 		ResumeToken:     "malformed",
 		WaitTimeSeconds: 1,
@@ -360,6 +443,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	go func() {
 		blockingResponse, readErr := flowClient.ReadStream(ctx, &dexpb.ReadStreamRequest{
 			FlowId:          flowID,
+			FlowType:        streamTestFlowType,
 			StreamName:      streamName,
 			ResumeToken:     response.GetMessage().GetResumeToken(),
 			WaitTimeSeconds: 5,
@@ -373,6 +457,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	}()
 	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            "different-flow",
+		FlowType:          streamTestFlowType,
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1 << 20,
 		Value:             stringValue("other"),
@@ -382,6 +467,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	require.Never(t, readFinished.Load, 200*time.Millisecond, 10*time.Millisecond)
 	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            flowID,
+		FlowType:          streamTestFlowType,
 		StreamName:        streamName,
 		MaxEstimatedBytes: 1 << 20,
 		Value:             stringValue("second"),
@@ -401,6 +487,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	}
 	_, err = flowClient.ReadStream(ctx, &dexpb.ReadStreamRequest{
 		FlowId:          flowID,
+		FlowType:        streamTestFlowType,
 		StreamName:      streamName,
 		ResumeToken:     latestToken,
 		WaitTimeSeconds: 1,
@@ -425,6 +512,7 @@ func TestStreamFailureIsolationTemporal(t *testing.T) {
 	defer cancel()
 	_, err := runtime.FlowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            "flow",
+		FlowType:          streamTestFlowType,
 		StreamName:        "unavailable",
 		MaxEstimatedBytes: 1024,
 		Value:             stringValue("value"),
@@ -445,6 +533,7 @@ func TestStreamDisabledTemporal(t *testing.T) {
 	defer cancel()
 	_, err := runtime.FlowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            "flow",
+		FlowType:          streamTestFlowType,
 		StreamName:        "disabled",
 		MaxEstimatedBytes: 1024,
 		Value:             stringValue("value"),
@@ -513,6 +602,7 @@ func newStreamRedisClient(t testing.TB) *redis.Client {
 func streamInput(flowID string, streamName string, index int, value string) streamstore.WriteInput {
 	return streamstore.WriteInput{
 		FlowID:               flowID,
+		FlowType:             streamTestFlowType,
 		StreamName:           streamName,
 		Value:                &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value}},
 		InternalIdentity:     fmt.Sprintf("internal-%02d", index),
@@ -535,14 +625,19 @@ func readAvailableMessages(
 	resumeToken := ""
 	for {
 		readCtx, cancelRead := context.WithTimeout(context.Background(), 30*time.Millisecond)
-		message, err := store.Read(readCtx, flowID, streamName, resumeToken)
+		message, err := store.Read(readCtx, streamTestFlowType, flowID, streamName, resumeToken)
 		cancelRead()
 		if err != nil {
 			require.ErrorIs(t, err, streamstore.ErrWaitTimeout)
 			return messages
 		}
 		messages = append(messages, message)
-		resumeToken, err = streamstore.EncodeResumeToken(flowID, streamName, message.RedisID)
+		resumeToken, err = streamstore.EncodeResumeToken(
+			streamTestFlowType,
+			flowID,
+			streamName,
+			message.RedisID,
+		)
 		require.NoError(t, err)
 	}
 }
@@ -557,7 +652,7 @@ func readOneMessage(
 	t.Helper()
 	readCtx, cancelRead := context.WithTimeout(context.Background(), time.Second)
 	defer cancelRead()
-	message, err := store.Read(readCtx, flowID, streamName, resumeToken)
+	message, err := store.Read(readCtx, streamTestFlowType, flowID, streamName, resumeToken)
 	require.NoError(t, err)
 	return message
 }
@@ -572,7 +667,20 @@ func messageKeys(messages []*streamstore.Message) []string {
 
 func streamLength(t testing.TB, client *redis.Client, streamName string) int64 {
 	t.Helper()
-	length, err := client.XLen(context.Background(), streamTestBaseKey(streamName)+":fifo").Result()
+	return streamLengthForFlowType(t, client, streamTestFlowType, streamName)
+}
+
+func streamLengthForFlowType(
+	t testing.TB,
+	client *redis.Client,
+	flowType string,
+	streamName string,
+) int64 {
+	t.Helper()
+	length, err := client.XLen(
+		context.Background(),
+		streamTestBaseKeyForFlowType(flowType, streamName)+":fifo",
+	).Result()
 	require.NoError(t, err)
 	return length
 }
@@ -597,7 +705,20 @@ func requireStreamAccountingConsistent(t testing.TB, client *redis.Client, strea
 
 func deleteStreamTestKeys(t testing.TB, client *redis.Client, streamName string) {
 	t.Helper()
-	keys, err := client.Keys(context.Background(), streamTestBaseKey(streamName)+"*").Result()
+	deleteStreamTestKeysForFlowType(t, client, streamTestFlowType, streamName)
+}
+
+func deleteStreamTestKeysForFlowType(
+	t testing.TB,
+	client *redis.Client,
+	flowType string,
+	streamName string,
+) {
+	t.Helper()
+	keys, err := client.Keys(
+		context.Background(),
+		streamTestBaseKeyForFlowType(flowType, streamName)+"*",
+	).Result()
 	require.NoError(t, err)
 	if len(keys) > 0 {
 		require.NoError(t, client.Del(context.Background(), keys...).Err())
@@ -605,5 +726,10 @@ func deleteStreamTestKeys(t testing.TB, client *redis.Client, streamName string)
 }
 
 func streamTestBaseKey(streamName string) string {
-	return fmt.Sprintf("dex:stream:v1:%x", sha256.Sum256([]byte(streamName)))
+	return streamTestBaseKeyForFlowType(streamTestFlowType, streamName)
+}
+
+func streamTestBaseKeyForFlowType(flowType string, streamName string) string {
+	streamScope := fmt.Sprintf("%d:%s%d:%s", len(flowType), flowType, len(streamName), streamName)
+	return fmt.Sprintf("dex:stream:v1:%x", sha256.Sum256([]byte(streamScope)))
 }

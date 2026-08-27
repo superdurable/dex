@@ -40,6 +40,7 @@ const resumeTokenVersion = 1
 
 type WriteInput struct {
 	FlowID               string
+	FlowType             string
 	StreamName           string
 	MaxEstimatedBytes    int64
 	Value                *dexpb.Value
@@ -63,6 +64,7 @@ type Store struct {
 type resumeToken struct {
 	Version    int    `json:"v"`
 	FlowID     string `json:"f"`
+	FlowType   string `json:"t"`
 	StreamName string `json:"s"`
 	RedisID    string `json:"i"`
 }
@@ -122,7 +124,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 		messageTrimTarget = chargedBytes
 	}
 	scriptOutput, err := runWriteScript(ctx, s.client, writeScriptInput{
-		keys:                   streamKeys(input.StreamName, input.FlowID),
+		keys:                   streamKeys(input.FlowType, input.StreamName, input.FlowID),
 		internalIdentity:       input.InternalIdentity,
 		publicIdempotencyKey:   input.PublicIdempotencyKey,
 		payload:                payload,
@@ -136,7 +138,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 		return err
 	}
 	if scriptOutput.needsTrim {
-		s.coordinator.Schedule(input.StreamName, scriptOutput.trimTargetBytes)
+		s.coordinator.Schedule(input.FlowType, input.StreamName, scriptOutput.trimTargetBytes)
 	}
 	switch scriptOutput.status {
 	case writeScriptStatusSucceeded:
@@ -150,6 +152,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 
 func (s *Store) Read(
 	ctx context.Context,
+	flowType string,
 	flowID string,
 	streamName string,
 	encodedResumeToken string,
@@ -157,7 +160,7 @@ func (s *Store) Read(
 	if s.client == nil {
 		return nil, ErrDisabled
 	}
-	redisID, err := decodeResumeToken(encodedResumeToken, flowID, streamName)
+	redisID, err := decodeResumeToken(encodedResumeToken, flowType, flowID, streamName)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +173,7 @@ func (s *Store) Read(
 		return nil, ErrWaitTimeout
 	}
 	result, err := s.client.XRead(ctx, &redis.XReadArgs{
-		Streams: []string{streamKeys(streamName, flowID).instance, redisID},
+		Streams: []string{streamKeys(flowType, streamName, flowID).instance, redisID},
 		Count:   1,
 		Block:   blockDuration,
 	}).Result()
@@ -211,13 +214,14 @@ func (s *Store) Read(
 	}, nil
 }
 
-func EncodeResumeToken(flowID string, streamName string, redisID string) (string, error) {
+func EncodeResumeToken(flowType string, flowID string, streamName string, redisID string) (string, error) {
 	if _, err := createdTimeFromRedisID(redisID); err != nil {
 		return "", err
 	}
 	payload, err := json.Marshal(resumeToken{
 		Version:    resumeTokenVersion,
 		FlowID:     flowID,
+		FlowType:   flowType,
 		StreamName: streamName,
 		RedisID:    redisID,
 	})
@@ -250,7 +254,7 @@ func percentageOf(capacity int64, percent int32) int64 {
 	return (capacity/100)*percentage + (capacity%100)*percentage/100
 }
 
-func decodeResumeToken(encoded string, flowID string, streamName string) (string, error) {
+func decodeResumeToken(encoded string, flowType string, flowID string, streamName string) (string, error) {
 	if encoded == "" {
 		return "0-0", nil
 	}
@@ -262,7 +266,10 @@ func decodeResumeToken(encoded string, flowID string, streamName string) (string
 	if err := json.Unmarshal(payload, &token); err != nil {
 		return "", ErrInvalidResumeToken
 	}
-	if token.Version != resumeTokenVersion || token.FlowID != flowID || token.StreamName != streamName {
+	if token.Version != resumeTokenVersion ||
+		token.FlowID != flowID ||
+		token.FlowType != flowType ||
+		token.StreamName != streamName {
 		return "", ErrInvalidResumeToken
 	}
 	if _, err := createdTimeFromRedisID(token.RedisID); err != nil {
@@ -294,8 +301,9 @@ type redisKeys struct {
 	lease        string
 }
 
-func streamKeys(streamName string, flowID string) redisKeys {
-	streamDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(streamName)))
+func streamKeys(flowType string, streamName string, flowID string) redisKeys {
+	streamScope := fmt.Sprintf("%d:%s%d:%s", len(flowType), flowType, len(streamName), streamName)
+	streamDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(streamScope)))
 	base := "dex:stream:v1:" + streamDigest
 	flowDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(flowID)))
 	return redisKeys{

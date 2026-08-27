@@ -325,18 +325,20 @@ message ChannelMessage {
 
 message WriteStreamRequest {
   string flow_id = 1;
-  string stream_name = 2;
-  int64 max_estimated_bytes = 3;
-  Value value = 4;
+  string flow_type = 2;
+  string stream_name = 3;
+  int64 max_estimated_bytes = 4;
+  Value value = 5;
   // Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`.
-  string idempotency_key = 5;
+  string idempotency_key = 6;
 }
 
 message ReadStreamRequest {
   string flow_id = 1;
-  string stream_name = 2;
-  string resume_token = 3;
-  int32 wait_time_seconds = 4;
+  string flow_type = 2;
+  string stream_name = 3;
+  string resume_token = 4;
+  int32 wait_time_seconds = 5;
 }
 
 message ReadStreamResponse {

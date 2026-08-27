@@ -388,6 +388,7 @@ export interface ChannelMessage {
 
 export interface WriteStreamRequest {
   flowId: string;
+  flowType: string;
   streamName: string;
   maxEstimatedBytes: bigint;
   value:
@@ -399,6 +400,7 @@ export interface WriteStreamRequest {
 
 export interface ReadStreamRequest {
   flowId: string;
+  flowType: string;
   streamName: string;
   resumeToken: string;
   waitTimeSeconds: number;
@@ -3213,7 +3215,7 @@ export const ChannelMessage: MessageFns<ChannelMessage> = {
 };
 
 function createBaseWriteStreamRequest(): WriteStreamRequest {
-  return { flowId: "", streamName: "", maxEstimatedBytes: 0n, value: undefined, idempotencyKey: "" };
+  return { flowId: "", flowType: "", streamName: "", maxEstimatedBytes: 0n, value: undefined, idempotencyKey: "" };
 }
 
 export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
@@ -3221,20 +3223,23 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
     if (message.flowId !== "") {
       writer.uint32(10).string(message.flowId);
     }
+    if (message.flowType !== "") {
+      writer.uint32(18).string(message.flowType);
+    }
     if (message.streamName !== "") {
-      writer.uint32(18).string(message.streamName);
+      writer.uint32(26).string(message.streamName);
     }
     if (message.maxEstimatedBytes !== 0n) {
       if (BigInt.asIntN(64, message.maxEstimatedBytes) !== message.maxEstimatedBytes) {
         throw new globalThis.Error("value provided for field message.maxEstimatedBytes of type int64 too large");
       }
-      writer.uint32(24).int64(message.maxEstimatedBytes);
+      writer.uint32(32).int64(message.maxEstimatedBytes);
     }
     if (message.value !== undefined) {
-      Value.encode(message.value, writer.uint32(34).fork()).join();
+      Value.encode(message.value, writer.uint32(42).fork()).join();
     }
     if (message.idempotencyKey !== "") {
-      writer.uint32(42).string(message.idempotencyKey);
+      writer.uint32(50).string(message.idempotencyKey);
     }
     return writer;
   },
@@ -3259,27 +3264,35 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
             break;
           }
 
-          message.streamName = reader.string();
+          message.flowType = reader.string();
           continue;
         }
         case 3: {
-          if (tag !== 24) {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.streamName = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
             break;
           }
 
           message.maxEstimatedBytes = reader.int64() as bigint;
           continue;
         }
-        case 4: {
-          if (tag !== 34) {
+        case 5: {
+          if (tag !== 42) {
             break;
           }
 
           message.value = Value.decode(reader, reader.uint32());
           continue;
         }
-        case 5: {
-          if (tag !== 42) {
+        case 6: {
+          if (tag !== 50) {
             break;
           }
 
@@ -3301,6 +3314,7 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
   fromPartial<I extends Exact<DeepPartial<WriteStreamRequest>, I>>(object: I): WriteStreamRequest {
     const message = createBaseWriteStreamRequest();
     message.flowId = object.flowId ?? "";
+    message.flowType = object.flowType ?? "";
     message.streamName = object.streamName ?? "";
     message.maxEstimatedBytes = (object.maxEstimatedBytes !== undefined && object.maxEstimatedBytes !== null)
       ? BigInt(object.maxEstimatedBytes)
@@ -3312,7 +3326,7 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
 };
 
 function createBaseReadStreamRequest(): ReadStreamRequest {
-  return { flowId: "", streamName: "", resumeToken: "", waitTimeSeconds: 0 };
+  return { flowId: "", flowType: "", streamName: "", resumeToken: "", waitTimeSeconds: 0 };
 }
 
 export const ReadStreamRequest: MessageFns<ReadStreamRequest> = {
@@ -3320,14 +3334,17 @@ export const ReadStreamRequest: MessageFns<ReadStreamRequest> = {
     if (message.flowId !== "") {
       writer.uint32(10).string(message.flowId);
     }
+    if (message.flowType !== "") {
+      writer.uint32(18).string(message.flowType);
+    }
     if (message.streamName !== "") {
-      writer.uint32(18).string(message.streamName);
+      writer.uint32(26).string(message.streamName);
     }
     if (message.resumeToken !== "") {
-      writer.uint32(26).string(message.resumeToken);
+      writer.uint32(34).string(message.resumeToken);
     }
     if (message.waitTimeSeconds !== 0) {
-      writer.uint32(32).int32(message.waitTimeSeconds);
+      writer.uint32(40).int32(message.waitTimeSeconds);
     }
     return writer;
   },
@@ -3352,7 +3369,7 @@ export const ReadStreamRequest: MessageFns<ReadStreamRequest> = {
             break;
           }
 
-          message.streamName = reader.string();
+          message.flowType = reader.string();
           continue;
         }
         case 3: {
@@ -3360,11 +3377,19 @@ export const ReadStreamRequest: MessageFns<ReadStreamRequest> = {
             break;
           }
 
-          message.resumeToken = reader.string();
+          message.streamName = reader.string();
           continue;
         }
         case 4: {
-          if (tag !== 32) {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.resumeToken = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
             break;
           }
 
@@ -3386,6 +3411,7 @@ export const ReadStreamRequest: MessageFns<ReadStreamRequest> = {
   fromPartial<I extends Exact<DeepPartial<ReadStreamRequest>, I>>(object: I): ReadStreamRequest {
     const message = createBaseReadStreamRequest();
     message.flowId = object.flowId ?? "";
+    message.flowType = object.flowType ?? "";
     message.streamName = object.streamName ?? "";
     message.resumeToken = object.resumeToken ?? "";
     message.waitTimeSeconds = object.waitTimeSeconds ?? 0;

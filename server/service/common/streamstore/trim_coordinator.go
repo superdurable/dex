@@ -36,7 +36,7 @@ type trimCoordinator struct {
 
 	mutex     sync.Mutex
 	ready     *sync.Cond
-	pending   map[string]*trimState
+	pending   map[streamScope]*trimState
 	closed    bool
 	wait      sync.WaitGroup
 	stop      chan struct{}
@@ -49,8 +49,13 @@ type trimState struct {
 	isRunning   bool
 }
 
-type trimTask struct {
+type streamScope struct {
+	flowType   string
 	streamName string
+}
+
+type trimTask struct {
+	scope      streamScope
 	target     int64
 	generation uint64
 }
@@ -70,7 +75,7 @@ func newTrimCoordinator(
 		ownerID: uuid.NewString(),
 		ctx:     coordinatorCtx,
 		cancel:  cancelCoordinator,
-		pending: make(map[string]*trimState),
+		pending: make(map[streamScope]*trimState),
 		stop:    make(chan struct{}),
 	}
 	coordinator.ready = sync.NewCond(&coordinator.mutex)
@@ -81,16 +86,17 @@ func newTrimCoordinator(
 	return coordinator
 }
 
-func (c *trimCoordinator) Schedule(streamName string, targetBytes int64) {
+func (c *trimCoordinator) Schedule(flowType string, streamName string, targetBytes int64) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	if c.closed {
 		return
 	}
-	state := c.pending[streamName]
+	scope := streamScope{flowType: flowType, streamName: streamName}
+	state := c.pending[scope]
 	if state == nil {
 		state = &trimState{targetBytes: targetBytes}
-		c.pending[streamName] = state
+		c.pending[scope] = state
 	} else {
 		if targetBytes < state.targetBytes {
 			state.targetBytes = targetBytes
@@ -121,7 +127,7 @@ func (c *trimCoordinator) runWorker() {
 		if !ok {
 			return
 		}
-		if err := c.trim(task.streamName, task.target); err != nil && !c.isClosed() {
+		if err := c.trim(task.scope, task.target); err != nil && !c.isClosed() {
 			c.logger.Error("background Stream trim failed", tag.Error(err))
 		}
 		c.finishTask(task)
@@ -135,13 +141,13 @@ func (c *trimCoordinator) nextTask() (trimTask, bool) {
 		if c.closed {
 			return trimTask{}, false
 		}
-		for streamName, state := range c.pending {
+		for scope, state := range c.pending {
 			if state.isRunning {
 				continue
 			}
 			state.isRunning = true
 			return trimTask{
-				streamName: streamName,
+				scope:      scope,
 				target:     state.targetBytes,
 				generation: state.generation,
 			}, true
@@ -153,20 +159,20 @@ func (c *trimCoordinator) nextTask() (trimTask, bool) {
 func (c *trimCoordinator) finishTask(task trimTask) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	state := c.pending[task.streamName]
+	state := c.pending[task.scope]
 	if state == nil {
 		return
 	}
 	if state.generation == task.generation {
-		delete(c.pending, task.streamName)
+		delete(c.pending, task.scope)
 		return
 	}
 	state.isRunning = false
 	c.ready.Signal()
 }
 
-func (c *trimCoordinator) trim(streamName string, targetBytes int64) error {
-	keys := streamKeys(streamName, "")
+func (c *trimCoordinator) trim(scope streamScope, targetBytes int64) error {
+	keys := streamKeys(scope.flowType, scope.streamName, "")
 	leaseOwner := c.ownerID + ":" + uuid.NewString()
 	for {
 		if c.isClosed() {

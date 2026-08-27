@@ -34,14 +34,14 @@ is intentionally excluded from server readiness; only Stream RPCs fail when it
 is unavailable. Configure dedicated Redis memory with `maxmemory` and
 `noeviction` so memory pressure becomes a visible write error.
 
-Capacity is not stored in Redis. Each write supplies the limit for all Flow
-instances with that Stream name. Charged bytes approximate the serialized
-Value, Flow ID, public and internal idempotency identities, and configured
-overhead. Client idempotency keys cannot contain `#`; Step SDKs use
-`<runID>#<stepExecutionID>`. Reaching the default 90% trigger starts singleton
-background FIFO trimming toward the 80% target. A write that would exceed 100%
-is not appended; it returns `ResourceExhausted` after scheduling trim and can
-be retried later.
+Capacity is not stored in Redis. Each write supplies the limit shared by all
+Flow instances with the same Flow type and Stream name. Charged bytes
+approximate the serialized Value, Flow ID, public and internal idempotency
+identities, and configured overhead. Client idempotency keys cannot contain
+`#`; Step SDKs use `<runID>#<stepExecutionID>`. Reaching the default 90% trigger
+starts singleton background FIFO trimming toward the 80% target. A write that
+would exceed 100% is not appended; it returns `ResourceExhausted` after
+scheduling trim and can be retried later.
 
 ## License
 

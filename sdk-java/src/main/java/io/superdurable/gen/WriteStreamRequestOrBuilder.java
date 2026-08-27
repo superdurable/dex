@@ -23,35 +23,47 @@ public interface WriteStreamRequestOrBuilder extends
       getFlowIdBytes();
 
   /**
-   * <code>string stream_name = 2;</code>
+   * <code>string flow_type = 2;</code>
+   * @return The flowType.
+   */
+  java.lang.String getFlowType();
+  /**
+   * <code>string flow_type = 2;</code>
+   * @return The bytes for flowType.
+   */
+  com.google.protobuf.ByteString
+      getFlowTypeBytes();
+
+  /**
+   * <code>string stream_name = 3;</code>
    * @return The streamName.
    */
   java.lang.String getStreamName();
   /**
-   * <code>string stream_name = 2;</code>
+   * <code>string stream_name = 3;</code>
    * @return The bytes for streamName.
    */
   com.google.protobuf.ByteString
       getStreamNameBytes();
 
   /**
-   * <code>int64 max_estimated_bytes = 3;</code>
+   * <code>int64 max_estimated_bytes = 4;</code>
    * @return The maxEstimatedBytes.
    */
   long getMaxEstimatedBytes();
 
   /**
-   * <code>.dex.Value value = 4;</code>
+   * <code>.dex.Value value = 5;</code>
    * @return Whether the value field is set.
    */
   boolean hasValue();
   /**
-   * <code>.dex.Value value = 4;</code>
+   * <code>.dex.Value value = 5;</code>
    * @return The value.
    */
   io.superdurable.gen.Value getValue();
   /**
-   * <code>.dex.Value value = 4;</code>
+   * <code>.dex.Value value = 5;</code>
    */
   io.superdurable.gen.ValueOrBuilder getValueOrBuilder();
 
@@ -60,7 +72,7 @@ public interface WriteStreamRequestOrBuilder extends
    * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
    * </pre>
    *
-   * <code>string idempotency_key = 5;</code>
+   * <code>string idempotency_key = 6;</code>
    * @return The idempotencyKey.
    */
   java.lang.String getIdempotencyKey();
@@ -69,7 +81,7 @@ public interface WriteStreamRequestOrBuilder extends
    * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
    * </pre>
    *
-   * <code>string idempotency_key = 5;</code>
+   * <code>string idempotency_key = 6;</code>
    * @return The bytes for idempotencyKey.
    */
   com.google.protobuf.ByteString
