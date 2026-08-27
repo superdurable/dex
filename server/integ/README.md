@@ -37,7 +37,6 @@ make streamIntegTests
 ```
 
 The focused suite covers cross-Flow global FIFO, independent trim-trigger and
-trim-target watermarks, hard-capacity rejection and retry, idempotency, stale
-global references, resume behavior, long polling, concurrent writers,
-concurrent trigger lease contention and recovery, disabled configuration, and
-Redis failure isolation.
+trim-target watermarks, hard-capacity rejection and retry, idempotency, resume
+behavior, long polling, concurrent writers, concurrent trigger lease contention
+and recovery, disabled configuration, and Redis failure isolation.

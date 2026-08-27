@@ -238,33 +238,6 @@ func TestStreamStoreConcurrentTriggersUseSingletonTrimLease(t *testing.T) {
 	requireStreamAccountingConsistent(t, redisClient, streamName)
 }
 
-func TestStreamStoreStaleGlobalReferencePreservesRewrittenIdempotency(t *testing.T) {
-	store, redisClient := newStreamTestStore(t)
-	streamName := "stale-global-reference-" + newRequestID()
-	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
-	original := streamInput("flow-a", streamName, 0, "original-00")
-	original.MaxEstimatedBytes = 1 << 20
-	require.NoError(t, store.Write(context.Background(), original))
-	require.NoError(t, redisClient.Del(
-		context.Background(),
-		streamTestInstanceKey(streamName, original.FlowID),
-	).Err())
-
-	original.Value = &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "rewritten-0"}}
-	require.NoError(t, store.Write(context.Background(), original))
-	charge := estimatedCharge(original, 1)
-	trigger := streamInput("flow-b", streamName, 1, "trigger-000")
-	trigger.MaxEstimatedBytes = charge * 2
-	require.ErrorIs(t, store.Write(context.Background(), trigger), streamstore.ErrCapacityExceeded)
-	require.Eventually(t, func() bool {
-		return streamLength(t, redisClient, streamName) == 1
-	}, 2*time.Second, 10*time.Millisecond)
-	require.NoError(t, store.Write(context.Background(), original))
-	messages := readAvailableMessages(t, store, "flow-a", streamName)
-	require.Len(t, messages, 1)
-	require.Equal(t, "rewritten-0", messages[0].Value.GetStringValue())
-}
-
 func TestStreamAPITemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
@@ -578,8 +551,4 @@ func deleteStreamTestKeys(t testing.TB, client *redis.Client, streamName string)
 
 func streamTestBaseKey(streamName string) string {
 	return fmt.Sprintf("dex:stream:v1:%x", sha256.Sum256([]byte(streamName)))
-}
-
-func streamTestInstanceKey(streamName string, flowID string) string {
-	return fmt.Sprintf("%s:instance:%x", streamTestBaseKey(streamName), sha256.Sum256([]byte(flowID)))
 }

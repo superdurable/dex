@@ -288,14 +288,7 @@ local messageTarget = tonumber(ARGV[8])
 
 local existingID = redis.call('HGET', idemKey, identity)
 if existingID then
-  local retained = redis.call('XRANGE', instanceKey, existingID, existingID, 'COUNT', 1)
-  if #retained > 0 then
-    local existingTotal = tonumber(redis.call('GET', chargedKey) or '0')
-    local existingNeedsTrim = 0
-    if existingTotal >= trigger then existingNeedsTrim = 1 end
-    return {existingID, 1, existingTotal, existingNeedsTrim, messageTarget, 0}
-  end
-  redis.call('HDEL', idemKey, identity)
+  return {existingID, 1, 0, 0, 0, 0}
 end
 
 local currentTotal = tonumber(redis.call('GET', chargedKey) or '0')
