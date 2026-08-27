@@ -187,43 +187,39 @@ func (c *trimCoordinator) trim(streamName string, targetBytes int64) error {
 		if c.isClosed() {
 			return
 		}
-		if _, err := releaseLeaseScript.Run(c.ctx, c.client, []string{keys.lease}, leaseOwner).Result(); err != nil {
+		if err := runReleaseLeaseScript(c.ctx, c.client, releaseLeaseScriptInput{
+			leaseKey:   keys.lease,
+			leaseOwner: leaseOwner,
+		}); err != nil {
 			c.logger.Error("release Stream trim lease failed", tag.Error(err))
 		}
 	}()
 
 	for {
-		renewed, err := renewLeaseScript.Run(
+		renewOutput, err := runRenewLeaseScript(
 			c.ctx,
 			c.client,
-			[]string{keys.lease},
-			leaseOwner,
-			trimLeaseTTL.Milliseconds(),
-		).Int64()
+			renewLeaseScriptInput{
+				leaseKey:   keys.lease,
+				leaseOwner: leaseOwner,
+				leaseTTL:   trimLeaseTTL,
+			},
+		)
 		if err != nil {
-			return fmt.Errorf("renew Redis trim lease: %w", err)
+			return err
 		}
-		if renewed == 0 {
+		if !renewOutput.isRenewed {
 			return nil
 		}
-		result, err := trimScript.Run(c.ctx, c.client, []string{
-			keys.fifo,
-			keys.chargedBytes,
-			keys.idempotency,
-			keys.lease,
-		}, targetBytes, backgroundTrimBatchSize, leaseOwner).Result()
+		trimOutput, err := runTrimScript(c.ctx, c.client, trimScriptInput{
+			keys:        keys,
+			targetBytes: targetBytes,
+			leaseOwner:  leaseOwner,
+		})
 		if err != nil {
-			return fmt.Errorf("trim Redis Stream: %w", err)
+			return err
 		}
-		values, err := scriptValues(result, 2)
-		if err != nil {
-			return fmt.Errorf("decode Redis trim result: %w", err)
-		}
-		remainingBytes, err := scriptInt64(values[0])
-		if err != nil {
-			return fmt.Errorf("decode Redis trim bytes: %w", err)
-		}
-		if remainingBytes < 0 || remainingBytes <= targetBytes {
+		if trimOutput.remainingBytes < 0 || trimOutput.remainingBytes <= targetBytes {
 			return nil
 		}
 		if !c.waitFor(trimBatchYieldTime) {

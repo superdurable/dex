@@ -112,63 +112,39 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 	if err != nil {
 		return err
 	}
-	keys := streamKeys(input.StreamName, input.FlowID)
 	trimTrigger := percentageOf(input.MaxEstimatedBytes, s.cfg.EffectiveTrimTriggerPercent())
 	baseTrimTarget := percentageOf(input.MaxEstimatedBytes, s.cfg.EffectiveTrimTargetPercent())
 	messageTrimTarget := baseTrimTarget
 	if messageTrimTarget < chargedBytes {
 		messageTrimTarget = chargedBytes
 	}
-	result, err := writeScript.Run(ctx, s.client, []string{
-		keys.fifo,
-		keys.chargedBytes,
-		keys.idempotency,
-		keys.instance,
-	},
-		input.InternalIdentity,
-		input.PublicIdempotencyKey,
-		payload,
-		chargedBytes,
-		input.MaxEstimatedBytes,
-		trimTrigger,
-		baseTrimTarget,
-		messageTrimTarget,
-		s.cfg.EffectiveIdleTTL().Milliseconds(),
-	).Result()
+	scriptOutput, err := runWriteScript(ctx, s.client, writeScriptInput{
+		keys:                   streamKeys(input.StreamName, input.FlowID),
+		internalIdentity:       input.InternalIdentity,
+		publicIdempotencyKey:   input.PublicIdempotencyKey,
+		payload:                payload,
+		chargedBytes:           chargedBytes,
+		capacityBytes:          input.MaxEstimatedBytes,
+		trimTriggerBytes:       trimTrigger,
+		baseTrimTargetBytes:    baseTrimTarget,
+		messageTrimTargetBytes: messageTrimTarget,
+		idleTTL:                s.cfg.EffectiveIdleTTL(),
+	})
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
-		}
-		return fmt.Errorf("%w: write message: %v", ErrUnavailable, err)
+		return err
 	}
-	values, err := scriptValues(result, 6)
-	if err != nil {
-		return fmt.Errorf("decode Stream write result: %w", err)
+	if scriptOutput.needsTrim {
+		s.coordinator.Schedule(input.StreamName, scriptOutput.trimTargetBytes)
 	}
-	needsTrim, err := scriptInt64(values[3])
-	if err != nil {
-		return fmt.Errorf("decode Stream trim result: %w", err)
-	}
-	if needsTrim != 0 {
-		targetBytes, err := scriptInt64(values[4])
-		if err != nil {
-			return fmt.Errorf("decode Stream trim target: %w", err)
-		}
-		s.coordinator.Schedule(input.StreamName, targetBytes)
-	}
-	statusCode, err := scriptInt64(values[5])
-	if err != nil {
-		return fmt.Errorf("decode Stream write status: %w", err)
-	}
-	switch statusCode {
-	case 0:
+	switch scriptOutput.status {
+	case writeScriptStatusSucceeded:
 		return nil
-	case 1:
+	case writeScriptStatusMessageTooLarge:
 		return ErrMessageTooLarge
-	case 2:
+	case writeScriptStatusCapacityExceeded:
 		return ErrCapacityExceeded
 	default:
-		return fmt.Errorf("unexpected Stream write status %d", statusCode)
+		panic("validated Stream write status was not handled")
 	}
 }
 
@@ -328,27 +304,6 @@ func streamKeys(streamName string, flowID string) redisKeys {
 		idempotency:  base + ":idem",
 		instance:     base + ":instance:" + flowDigest,
 		lease:        base + ":trim-lease",
-	}
-}
-
-func scriptValues(result any, expected int) ([]any, error) {
-	values, ok := result.([]any)
-	if !ok || len(values) != expected {
-		return nil, fmt.Errorf("expected %d values", expected)
-	}
-	return values, nil
-}
-
-func scriptInt64(value any) (int64, error) {
-	switch typed := value.(type) {
-	case int64:
-		return typed, nil
-	case string:
-		return strconv.ParseInt(typed, 10, 64)
-	case []byte:
-		return strconv.ParseInt(string(typed), 10, 64)
-	default:
-		return 0, fmt.Errorf("unexpected integer type %T", value)
 	}
 }
 
