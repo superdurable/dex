@@ -22,6 +22,7 @@ import {
   FlowDefinitionError,
   InvalidStepResultError,
   Registry,
+  Stream,
   StepList,
   Timer,
   ValueMappingError,
@@ -46,9 +47,11 @@ import {
 } from "../src/attribute-store-sync.js";
 import {
   Context as ProtoContext,
+  FlowServiceClient,
   InvokeExecuteMethodRequest,
   InvokeWaitForMethodRequest,
   InvokeWorkerRPCRequest,
+  type WriteStreamRequest,
 } from "../src/gen/dex.js";
 import { codecOrJson, encodeValue, type ValueHydrator } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
@@ -58,6 +61,8 @@ import { InvocationContext } from "../src/invocation-context.js";
 interface OrderInput {
   readonly orderId: string;
 }
+
+const testFlowService = {} as InstanceType<typeof FlowServiceClient>;
 
 interface OrderOutput {
   readonly accepted: boolean;
@@ -89,6 +94,7 @@ const orderOutput = jsonCodec<OrderOutput>({
 
 const status = new Attribute("status", stringCodec);
 const commands = new Channel("commands", orderInput);
+const progress = new Stream("progress", stringCodec, 10 * 1024 * 1024);
 
 class ApproveOrder implements Step<OrderInput> {
   public readonly inputCodec = orderInput;
@@ -134,7 +140,7 @@ class Orders implements Flow<OrderInput> {
   }
 
   public getPersistenceSchema() {
-    return { attributes: [status], channels: [commands] };
+    return { attributes: [status], channels: [commands], streams: [progress] };
   }
 
   @rpc({
@@ -244,7 +250,7 @@ test("object Step and RPC omit codecs and still encode JSON", async () => {
   const hydrator = {
     hydrateAll: async (values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
-  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, testFlowService);
   const executed = await dispatcher.invokeExecute(
     InvokeExecuteMethodRequest.create({
       context: ProtoContext.create(),
@@ -357,7 +363,7 @@ test("invalid Step results include Flow and Step context", async () => {
   const hydrator = {
     hydrateAll: async (values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
-  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, testFlowService);
   const invocation = dispatcher.invokeExecute(
     InvokeExecuteMethodRequest.create({
       context: ProtoContext.create(),
@@ -431,7 +437,7 @@ test("Worker maps only user-provided Condition IDs", async () => {
   const hydrator = {
     hydrateAll: async (values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
-  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, testFlowService);
   const invoke = (input: string) =>
     dispatcher.invokeWaitFor(
       InvokeWaitForMethodRequest.create({
@@ -456,6 +462,71 @@ test("Worker maps only user-provided Condition IDs", async () => {
   await assert.rejects(invoke("missing"), /requires every Condition/);
   await assert.rejects(invoke("duplicate"), /duplicate Condition ID/);
   assert.throws(() => conditionChannel.forOne(""), /must not be empty/);
+});
+
+test("Step Stream writes use the Step execution idempotency key", async () => {
+  const thinking = new Stream("thinking", stringCodec, 1_048_576);
+  class StreamStep implements Step<string> {
+    public readonly inputCodec = stringCodec;
+
+    public getStepType(): string {
+      return "StreamStep";
+    }
+
+    public async execute(context: Context, input: string): Promise<StepDecision> {
+      await thinking.write(context, input);
+      return gracefulComplete(input);
+    }
+  }
+  class StreamFlow implements Flow<string> {
+    public readonly start = new StreamStep();
+
+    public getFlowType(): string {
+      return "StreamFlow";
+    }
+
+    public getSteps(): StepList<string> {
+      return StepList.startStep(this.start);
+    }
+
+    public getPersistenceSchema() {
+      return { streams: [thinking] };
+    }
+  }
+  let written: WriteStreamRequest | undefined;
+  const flowService = {
+    writeStream(request: WriteStreamRequest, callback: (error: Error | null) => void) {
+      written = request;
+      callback(null);
+    },
+  } as unknown as InstanceType<typeof FlowServiceClient>;
+  const flow = new StreamFlow();
+  const hydrator = {
+    hydrateAll: async (values: readonly unknown[]) => values,
+  } as unknown as ValueHydrator;
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, flowService);
+  await dispatcher.invokeExecute(
+    InvokeExecuteMethodRequest.create({
+      context: ProtoContext.create({
+        flowId: "flow-1",
+        runId: "run-1",
+        stepExecutionId: "step-1",
+      }),
+      flowType: flow.getFlowType(),
+      stepType: flow.start.getStepType(),
+      stepInput: encodeValue(stringCodec, "checking"),
+      attributes: [],
+      stepExeLocals: [],
+    }),
+  );
+  assert.deepEqual(written, {
+    flowId: "flow-1",
+    flowType: "StreamFlow",
+    streamName: "thinking",
+    maxEstimatedBytes: 1_048_576n,
+    value: encodeValue(stringCodec, "checking"),
+    idempotencyKey: "run-1#step-1",
+  });
 });
 
 test("map introspection tracks buffered changes", () => {
@@ -483,6 +554,7 @@ test("map introspection tracks buffered changes", () => {
   const context = new InvocationContext(
     "rpc",
     registeredFlowByName(registry, "MapFlow"),
+    testFlowService,
     ProtoContext.create(),
     [
       { key: physical("items", special), value: encodeValue(stringCodec, "initial") },
@@ -536,8 +608,12 @@ async function compileStrongTypes(client: Client): Promise<void> {
     "ready",
     30_000,
   );
+  await client.writeStream("order-1", progress, "frontend/1", "starting");
+  const progressMessage = await client.readStream("order-1", progress, "", 30_000);
+  const progressValue: string = progressMessage.value;
   void runId;
   void output;
+  void progressValue;
 
   // @ts-expect-error wrong Flow input
   await client.startFlow(orders, "order-1", { accepted: true });

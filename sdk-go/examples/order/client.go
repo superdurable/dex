@@ -114,6 +114,37 @@ func publishOrderCommand(
 	)
 }
 
+func writeOrderProgress(
+	ctx context.Context,
+	client *dex.Client,
+	flowID string,
+) error {
+	return client.WriteStream(
+		ctx,
+		flowID,
+		OrderProgress,
+		"frontend/started",
+		"waiting for inventory",
+	)
+}
+
+func readOrderProgress(
+	ctx context.Context,
+	client *dex.Client,
+	flowID string,
+	resumeToken string,
+) (string, dex.StreamMessage, error) {
+	var progress string
+	message, err := client.ReadStream(
+		ctx,
+		flowID,
+		OrderProgress,
+		resumeToken,
+		&progress,
+	)
+	return progress, message, err
+}
+
 func invokeUpdateOrder(
 	ctx context.Context,
 	client *dex.Client,
@@ -204,7 +235,6 @@ func waitForOrderStatus(
 		flowID,
 		OrderStatus,
 		"shipped",
-		dex.WaitOptions{Timeout: time.Minute},
 	)
 }
 
@@ -219,7 +249,6 @@ func waitForItemQuantity(
 		ItemQuantities,
 		"sku-1",
 		3,
-		dex.WaitOptions{Timeout: time.Minute},
 	)
 }
 
@@ -276,7 +305,6 @@ func waitForOrder(
 		flowID,
 		dex.WaitForFlowOptions{
 			NeedsResults: true,
-			Timeout:      time.Minute,
 		},
 	)
 }
@@ -353,7 +381,6 @@ func waitForOrderStep(
 		dex.StepExecutionID{
 			StepType: dex.GetFinalStepType(WaitForCommand),
 		},
-		dex.WaitOptions{Timeout: time.Minute},
 	)
 }
 

@@ -53,6 +53,7 @@ var (
 	clientTestItems    = DefineAttributeMap[int]("items")
 	clientTestCommands = DefineChannel[string]("commands")
 	clientTestByOrder  = DefineChannelMap[string]("commands-by-order")
+	clientTestThinking = DefineStream[clientTestRPCOutput]("thinking", 1<<20)
 )
 
 type clientTestStep struct {
@@ -91,6 +92,7 @@ func (clientTestFlow) GetPersistenceSchema() PersistenceSchema {
 	return PersistenceSchema{
 		Attributes: []AttributeDef{clientTestStatus, clientTestItems},
 		Channels:   []ChannelDef{clientTestCommands, clientTestByOrder},
+		Streams:    []StreamDef{clientTestThinking},
 	}
 }
 
@@ -126,6 +128,33 @@ type clientTestFlowService struct {
 	waitStepRequest      *dexpb.WaitForStepCompletionRequest
 	continueAsNewRequest *dexpb.TriggerContinueAsNewRequest
 	getAttributesRequest *dexpb.GetAttributesRequest
+	writeStreamRequest   *dexpb.WriteStreamRequest
+	readStreamRequest    *dexpb.ReadStreamRequest
+}
+
+func (service *clientTestFlowService) WriteStream(
+	_ context.Context,
+	request *dexpb.WriteStreamRequest,
+) (*emptypb.Empty, error) {
+	service.writeStreamRequest = request
+	return &emptypb.Empty{}, nil
+}
+
+func (service *clientTestFlowService) ReadStream(
+	_ context.Context,
+	request *dexpb.ReadStreamRequest,
+) (*dexpb.ReadStreamResponse, error) {
+	service.readStreamRequest = request
+	value, err := encodeValue(clientTestRPCOutput{Status: "working"})
+	if err != nil {
+		return nil, err
+	}
+	return &dexpb.ReadStreamResponse{Message: &dexpb.StreamMessage{
+		Value:          value,
+		ResumeToken:    "resume-1",
+		CreatedTime:    timestamppb.New(time.Unix(123, 456)),
+		IdempotencyKey: "client-1",
+	}}, nil
 }
 
 func (service *clientTestFlowService) StartFlow(
@@ -531,11 +560,44 @@ func TestClientFlowAndPersistenceTransport(t *testing.T) {
 		"order-1",
 		clientTestStatus,
 		"done",
-		WaitOptions{},
 	))
 	_, err = uuid.Parse(service.waitAttributeRequest.RequestId)
 	require.NoError(t, err)
-	require.Equal(t, int32(0), service.waitAttributeRequest.WaitTimeSeconds)
+	require.Equal(t, serverCappedLongPollSeconds, service.waitAttributeRequest.WaitTimeSeconds)
+}
+
+func TestClientStreamTransportAndMetadata(t *testing.T) {
+	client, service := newClientIntegration(t)
+	ctx := context.Background()
+	require.NoError(t, client.WriteStream(
+		ctx,
+		"order-1",
+		clientTestThinking,
+		"client-1",
+		clientTestRPCOutput{Status: "starting"},
+	))
+	require.Equal(t, "order-1", service.writeStreamRequest.FlowId)
+	require.Equal(t, "dex.clientTestFlow", service.writeStreamRequest.FlowType)
+	require.Equal(t, "thinking", service.writeStreamRequest.StreamName)
+	require.Equal(t, int64(1<<20), service.writeStreamRequest.MaxEstimatedBytes)
+	require.Equal(t, "client-1", service.writeStreamRequest.IdempotencyKey)
+	require.ErrorContains(t, client.WriteStream(
+		ctx,
+		"order-1",
+		clientTestThinking,
+		"reserved#key",
+		clientTestRPCOutput{},
+	), "must not contain")
+
+	var value clientTestRPCOutput
+	message, err := client.ReadStream(ctx, "order-1", clientTestThinking, "previous", &value)
+	require.NoError(t, err)
+	require.Equal(t, clientTestRPCOutput{Status: "working"}, value)
+	require.Equal(t, "resume-1", message.ResumeToken)
+	require.Equal(t, time.Unix(123, 456).UTC(), message.CreatedTime)
+	require.Equal(t, "client-1", message.IdempotencyKey)
+	require.Equal(t, "previous", service.readStreamRequest.ResumeToken)
+	require.Equal(t, serverCappedLongPollSeconds, service.readStreamRequest.WaitTimeSeconds)
 }
 
 func TestClientConstructionAndLocalValidation(t *testing.T) {
@@ -608,6 +670,7 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 
 	result, err := client.WaitForFlow(ctx, "order-1", WaitForFlowOptions{NeedsResults: true})
 	require.NoError(t, err)
+	require.Equal(t, serverCappedLongPollSeconds, service.waitFlowRequest.WaitTimeSeconds)
 	require.Equal(t, FlowCompleted, result.Status)
 	var completion string
 	require.NoError(t, result.Completions[0].Output.Decode(&completion))
@@ -678,9 +741,9 @@ func TestClientRPCResultsAndAdministrativeTransport(t *testing.T) {
 		ctx,
 		"order-1",
 		StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
-		WaitOptions{},
 	))
 	require.Equal(t, "1", service.waitStepRequest.StepExecutionNumber)
+	require.Equal(t, serverCappedLongPollSeconds, service.waitStepRequest.WaitTimeSeconds)
 	_, err = uuid.Parse(service.waitStepRequest.RequestId)
 	require.NoError(t, err)
 	require.NoError(t, client.TriggerContinueAsNew(ctx, "order-1"))
@@ -742,7 +805,6 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 				"inactive",
 				clientTestStatus,
 				"value",
-				WaitOptions{},
 			)
 		}},
 		{name: "stop", call: func() error {
@@ -764,7 +826,6 @@ func TestClientExplicitServiceErrors(t *testing.T) {
 				ctx,
 				"inactive",
 				StepExecutionID{StepType: GetFinalStepType(clientTestStep{})},
-				WaitOptions{},
 			)
 		}},
 		{name: "continue as new", call: func() error {

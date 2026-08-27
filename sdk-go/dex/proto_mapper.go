@@ -1058,22 +1058,8 @@ func validateTimeTravelOptions(options TimeTravelOptions) error {
 	return nil
 }
 
-func mapWaitOptions(options WaitOptions) (int32, error) {
-	timeout, err := durationSeconds32(options.Timeout)
-	if err != nil {
-		return 0, err
-	}
-	return timeout, nil
-}
-
-func mapWaitForFlowOptions(
-	options WaitForFlowOptions,
-) (bool, int32, error) {
-	timeout, err := durationSeconds32(options.Timeout)
-	if err != nil {
-		return false, 0, err
-	}
-	return options.NeedsResults, timeout, nil
+func mapWaitForFlowOptions(options WaitForFlowOptions) bool {
+	return options.NeedsResults
 }
 
 func mapInvokeOptions(

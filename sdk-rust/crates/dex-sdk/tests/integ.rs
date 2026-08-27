@@ -101,6 +101,10 @@ mod state_recovery_workflow;
 mod step_cancellation_test;
 #[path = "integ/step_cancellation_workflow.rs"]
 mod step_cancellation_workflow;
+#[path = "integ/stream_test.rs"]
+mod stream_test;
+#[path = "integ/stream_workflow.rs"]
+mod stream_workflow;
 #[path = "integ/subflow_test.rs"]
 mod subflow_test;
 #[path = "integ/subflow_workflow.rs"]

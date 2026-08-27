@@ -31,6 +31,7 @@ var (
 	ItemQuantities  = dex.DefineAttributeMap[int]("item-quantities")
 	Commands        = dex.DefineChannel[Command]("commands")
 	CommandsByOrder = dex.DefineChannelMap[Command]("commands-by-order")
+	OrderProgress   = dex.DefineStream[string]("order-progress", 10<<20)
 )
 
 type Command struct {
@@ -53,6 +54,9 @@ func (WaitForCommandStep) WaitFor(
 	ctx dex.Context,
 	input OrderInput,
 ) (*dex.Wait, error) {
+	if err := OrderProgress.Write(ctx, "waiting for a command"); err != nil {
+		return nil, err
+	}
 	if err := OrderStatus.Set(ctx, "waiting"); err != nil {
 		return nil, err
 	}
@@ -120,6 +124,7 @@ func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{OrderStatus, ItemQuantities},
 		Channels:   []dex.ChannelDef{Commands, CommandsByOrder},
+		Streams:    []dex.StreamDef{OrderProgress},
 	}
 }
 

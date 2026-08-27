@@ -249,12 +249,6 @@ func TestAttributeWriteSyncMapping(t *testing.T) {
 }
 
 func TestClientOptionMapping(t *testing.T) {
-	timeout, err := mapWaitOptions(WaitOptions{
-		Timeout: time.Second,
-	})
-	require.NoError(t, err)
-	require.Equal(t, int32(1), timeout)
-
 	attribute := DefineAttribute[string]("status")
 	_, locks, err := mapInvokeOptions(InvokeOptions{
 		LockAttributes: []AttributeLock{LockAttribute(attribute)},

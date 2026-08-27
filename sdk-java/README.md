@@ -57,7 +57,23 @@ supported. Steps, attributes, and channels declare Java classes, not codecs:
 ```java
 Attribute<String> status = Attribute.define("status", String.class);
 Channel<Void> wakeup = Channel.define("wakeup", Void.class);
+Stream<String> progress = Stream.define("progress", String.class, 10L * 1024L * 1024L);
 ```
+
+Register a Stream in exactly one Flow persistence schema. Its approximate byte
+budget is shared by all instances of that Flow type. Step writes are immediate,
+generate `runID#stepExecutionID`, and allow one write per Stream per invocation.
+
+```java
+progress.write(context, "running");
+client.writeStream(flowId, progress, "frontend/1", "starting");
+StreamMessage<String> message = client.readStream(
+        flowId, progress, resumeToken, Duration.ofSeconds(30));
+resumeToken = message.getResumeToken();
+```
+
+Client keys cannot contain `#`. Reads return the decoded value, resume token,
+creation time, and idempotency key.
 
 Wait factories read from the domain nouns they create:
 

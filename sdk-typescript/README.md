@@ -5,7 +5,7 @@ contracts and a Promise-based gRPC Client. The Client and Worker runtime use
 `@grpc/grpc-js`. Blob caching uses the shared Rust DXBC implementation through
 a Node-API addon.
 
-Application values use `Codec<T>`. Flow, Step, RPC, Attribute, and Channel
+Application values use `Codec<T>`. Flow, Step, RPC, Attribute, Channel, and Stream
 definitions retain their input and output types. Client methods return Promise
 because Node network I/O is asynchronous.
 
@@ -49,6 +49,23 @@ class Orders implements Flow<{ orderId: string }> {
 const orders = new Orders();
 const registry = new Registry([orders]);
 ```
+
+Streams provide best-effort resumable progress messages. Register the exact
+definition in one Flow schema; its approximate byte budget is shared by all
+instances of that Flow type. Step writes are immediate and use the generated
+`runID#stepExecutionID` idempotency key.
+
+```typescript
+const progress = new Stream("progress", stringCodec, 10 * 1024 * 1024);
+
+await progress.write(context, "running");
+await client.writeStream(flowId, progress, "frontend/1", "starting");
+const message = await client.readStream(flowId, progress, resumeToken, 30_000);
+resumeToken = message.resumeToken;
+```
+
+A Step invocation may write once per Stream. Client keys cannot contain `#`.
+Reads return the decoded value, resume token, creation time, and idempotency key.
 
 Flows return all Steps once. Start with `StepList.startStep(step)` and append
 heterogeneous Steps with `.otherSteps(...)`. Use

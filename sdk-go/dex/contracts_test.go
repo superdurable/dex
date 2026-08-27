@@ -34,6 +34,7 @@ var (
 	commandChannel   = dex.DefineChannel[command]("commands")
 	commandByOrder   = dex.DefineChannelMap[command]("commands-by-order")
 	noPayloadChannel = dex.DefineChannel[dex.None]("no-payload")
+	progressStream   = dex.DefineStream[string]("progress", 10<<20)
 )
 
 type command struct {
@@ -66,6 +67,9 @@ func (waitingStep) WaitFor(
 	ctx dex.Context,
 	input stepInput,
 ) (*dex.Wait, error) {
+	if err := progressStream.Write(ctx, "waiting"); err != nil {
+		return nil, err
+	}
 	if err := statusAttribute.Set(ctx, input.OrderID); err != nil {
 		return nil, err
 	}
@@ -150,6 +154,7 @@ func (contractFlow) GetPersistenceSchema() dex.PersistenceSchema {
 			commandByOrder,
 			noPayloadChannel,
 		},
+		Streams: []dex.StreamDef{progressStream},
 	}
 }
 
@@ -488,7 +493,6 @@ var _ func(
 	string,
 	dex.AttributeDef,
 	any,
-	dex.WaitOptions,
 ) error = (*dex.Client).WaitForAttributeEqual
 
 var _ func(
@@ -498,8 +502,25 @@ var _ func(
 	dex.AttributeDef,
 	string,
 	any,
-	dex.WaitOptions,
 ) error = (*dex.Client).WaitForAttributeMapInstanceEqual
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	dex.StreamDef,
+	string,
+	any,
+) error = (*dex.Client).WriteStream
+
+var _ func(
+	*dex.Client,
+	context.Context,
+	string,
+	dex.StreamDef,
+	string,
+	any,
+) (dex.StreamMessage, error) = (*dex.Client).ReadStream
 
 var _ func(
 	*dex.Client,

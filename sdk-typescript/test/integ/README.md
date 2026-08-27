@@ -1,7 +1,7 @@
 # IWF integration port
 
-This directory mirrors the complete Java integration inventory: 28 Flow
-fixtures and 16 integration scenario files. Every Flow has its own module;
+This directory mirrors the complete Java integration inventory. Every Flow has
+its own module;
 `iwf_flows.ts` only creates the shared instances used by scenarios.
 
 The `*.integration.test.ts` files port all 58 Java assertions and run through
@@ -35,6 +35,7 @@ Full integration verification:
   `mixed_sync_async_flow.ts` exercise both styles on one Worker.
 - Persistence integration covers singleton Attribute equality waits; local
   contracts cover Condition IDs and buffered map introspection.
+- Stream integration covers Step/client writes, idempotency, resume tokens, and message metadata.
 
 ## Error coverage
 

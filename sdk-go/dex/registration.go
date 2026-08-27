@@ -26,6 +26,7 @@ import (
 // after NewRegistry returns.
 type Registry struct {
 	flows            map[string]*registeredFlow
+	streamFlows      map[*streamDefinition]*registeredFlow
 	attributeIndexes map[string]dexpb.IndexType
 }
 
@@ -38,6 +39,7 @@ type registeredFlow struct {
 	rpcs           map[string]*registeredRPC
 	attributes     map[string]registeredAttribute
 	channels       map[string]registeredChannel
+	streams        map[string]registeredStream
 }
 
 type registeredStep struct {
@@ -63,6 +65,11 @@ type registeredChannel struct {
 	isMap bool
 }
 
+type registeredStream struct {
+	def        StreamDef
+	definition *streamDefinition
+}
+
 // NewRegistry validates and assembles Flow definitions atomically.
 //
 // flows may be empty, but every Flow must be non-nil and have a unique,
@@ -77,7 +84,8 @@ type registeredChannel struct {
 //	}
 func NewRegistry(flows []Flow) (*Registry, error) {
 	assembled := &Registry{
-		flows: make(map[string]*registeredFlow, len(flows)),
+		flows:       make(map[string]*registeredFlow, len(flows)),
+		streamFlows: make(map[*streamDefinition]*registeredFlow),
 	}
 	indexTypes := make(map[string]IndexType)
 	for index, flow := range flows {
@@ -99,6 +107,16 @@ func NewRegistry(flows []Flow) (*Registry, error) {
 				"",
 				fmt.Errorf("duplicate flow type %q", registered.flowType),
 			)
+		}
+		for _, stream := range registered.streams {
+			if owner, found := assembled.streamFlows[stream.definition]; found {
+				return nil, newFlowDefinitionError(
+					registered.flowType,
+					fmt.Sprintf("stream %q", stream.definition.name),
+					fmt.Errorf("stream is already registered by flow %q", owner.flowType),
+				)
+			}
+			assembled.streamFlows[stream.definition] = registered
 		}
 		assembled.flows[registered.flowType] = registered
 	}
@@ -129,6 +147,7 @@ func (registry *Registry) registerFlow(
 		rpcs:           make(map[string]*registeredRPC),
 		attributes:     make(map[string]registeredAttribute),
 		channels:       make(map[string]registeredChannel),
+		streams:        make(map[string]registeredStream),
 	}
 	if err := registered.registerPersistence(
 		flow.GetPersistenceSchema(),
@@ -169,6 +188,14 @@ func (flow *registeredFlow) registerPersistence(
 			return fmt.Errorf("channel at index %d is nil", index)
 		}
 		if err := flow.registerChannel(definition); err != nil {
+			return err
+		}
+	}
+	for index, definition := range schema.Streams {
+		if nilInterface(definition) {
+			return fmt.Errorf("stream at index %d is nil", index)
+		}
+		if err := flow.registerStream(definition); err != nil {
 			return err
 		}
 	}
@@ -231,6 +258,21 @@ func (flow *registeredFlow) registerChannel(
 		def:   definition,
 		name:  name,
 		isMap: definition.channelIsMap(),
+	}
+	return nil
+}
+
+func (flow *registeredFlow) registerStream(definition StreamDef) error {
+	stream := definition.streamDefinition()
+	if err := validateStreamDefinition(stream); err != nil {
+		return err
+	}
+	if _, found := flow.streams[stream.name]; found {
+		return fmt.Errorf("duplicate stream %q", stream.name)
+	}
+	flow.streams[stream.name] = registeredStream{
+		def:        definition,
+		definition: stream,
 	}
 	return nil
 }
@@ -642,6 +684,40 @@ func (registry *Registry) resolveChannel(
 		fmt.Sprintf("channel %q", name),
 		fmt.Errorf("channel is not registered"),
 	)
+}
+
+func (registry *Registry) resolveStream(
+	reference StreamDef,
+) (*registeredFlow, registeredStream, error) {
+	if nilInterface(reference) {
+		return nil, registeredStream{}, fmt.Errorf("dex: stream definition is nil")
+	}
+	definition := reference.streamDefinition()
+	if err := validateStreamDefinition(definition); err != nil {
+		return nil, registeredStream{}, fmt.Errorf("dex: %w", err)
+	}
+	flow, found := registry.streamFlows[definition]
+	if found {
+		return flow, flow.streams[definition.name], nil
+	}
+	return nil, registeredStream{}, newFlowDefinitionError(
+		"",
+		fmt.Sprintf("stream %q", definition.name),
+		fmt.Errorf("stream is not registered"),
+	)
+}
+
+func (flow *registeredFlow) resolveStream(
+	definition *streamDefinition,
+) (registeredStream, error) {
+	if err := validateStreamDefinition(definition); err != nil {
+		return registeredStream{}, err
+	}
+	registered, found := flow.streams[definition.name]
+	if !found || registered.definition != definition {
+		return registeredStream{}, fmt.Errorf("stream %q is not declared", definition.name)
+	}
+	return registered, nil
 }
 
 func (flow *registeredFlow) lookupStep(

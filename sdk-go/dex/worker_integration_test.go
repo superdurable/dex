@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var (
@@ -37,6 +38,7 @@ var (
 	workerTestItems    = DefineAttributeMap[int]("items", SyncToAttributeStore())
 	workerTestCommands = DefineChannel[string]("commands")
 	workerTestByOrder  = DefineChannelMap[string]("commands-by-order")
+	workerTestThinking = DefineStream[string]("thinking", 1<<20)
 )
 
 type workerTestInput struct {
@@ -99,6 +101,16 @@ func (workerWaitingStep) WaitFor(
 	}
 	if err := workerTestByOrder.Publish(ctx, input.OrderID, "published"); err != nil {
 		return nil, err
+	}
+	if input.Mode == "stream" || input.Mode == "stream-twice" {
+		if err := workerTestThinking.Write(ctx, "checking inventory"); err != nil {
+			return nil, err
+		}
+	}
+	if input.Mode == "stream-twice" {
+		if err := workerTestThinking.Write(ctx, "duplicate"); err != nil {
+			return nil, err
+		}
 	}
 	if input.Mode == "nil-wait" {
 		return nil, nil
@@ -204,6 +216,7 @@ func (workerTestFlow) GetPersistenceSchema() PersistenceSchema {
 	return PersistenceSchema{
 		Attributes: []AttributeDef{workerTestStatus, workerTestItems},
 		Channels:   []ChannelDef{workerTestCommands, workerTestByOrder},
+		Streams:    []StreamDef{workerTestThinking},
 	}
 }
 
@@ -219,6 +232,11 @@ func (workerTestFlow) Update(
 	}
 	if input.Mode == "status" {
 		return nil, status.Error(codes.PermissionDenied, "denied")
+	}
+	if input.Mode == "stream" {
+		if err := workerTestThinking.Write(ctx, "rpc"); err != nil {
+			return nil, err
+		}
 	}
 	before := workerTestCommands.Size(ctx)
 	if err := workerTestCommands.Publish(ctx, "local"); err != nil {
@@ -411,6 +429,37 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	require.True(t, rpcResponse.UpsertAttributes[0].GetSyncConfig().GetEnabled())
 	require.Len(t, rpcResponse.RecordEvents, 1)
 	require.Len(t, rpcResponse.StepDecision.NextSteps, 1)
+}
+
+func TestWorkerStreamWriteUsesStepIdentity(t *testing.T) {
+	flowService := &workerStreamFlowServiceClient{}
+	client, closeService := newWorkerTestClientWithFlowService(t, nil, flowService)
+	defer closeService()
+
+	request := &dexpb.InvokeWaitForMethodRequest{
+		Context:   workerStepContext(),
+		FlowType:  GetFinalFlowType(workerFlow),
+		StepType:  GetFinalStepType(workerTestWait),
+		StepInput: mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-1", Mode: "stream"}),
+	}
+	_, err := client.InvokeWaitForMethod(context.Background(), request)
+	require.NoError(t, err)
+	require.Equal(t, "flow-1", flowService.request.FlowId)
+	require.Equal(t, GetFinalFlowType(workerFlow), flowService.request.FlowType)
+	require.Equal(t, "thinking", flowService.request.StreamName)
+	require.Equal(t, int64(1<<20), flowService.request.MaxEstimatedBytes)
+	require.Equal(t, "run-1#waiting-1", flowService.request.IdempotencyKey)
+	require.Equal(t, "checking inventory", flowService.request.Value.GetStringValue())
+
+	request.StepInput = mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-1", Mode: "stream-twice"})
+	_, err = client.InvokeWaitForMethod(context.Background(), request)
+	require.ErrorContains(t, err, "already written")
+
+	_, err = client.InvokeWorkerRPC(context.Background(), workerRPCRequest(
+		t,
+		workerTestInput{OrderID: "order-1", Mode: "stream"},
+	))
+	require.ErrorContains(t, err, "invalid invocation context")
 }
 
 func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
@@ -1091,6 +1140,18 @@ func newWorkerTestClient(
 	t *testing.T,
 	hydrator valueHydrator,
 ) (dexpb.WorkerServiceClient, func()) {
+	return newWorkerTestClientWithFlowService(
+		t,
+		hydrator,
+		&fakeHydrationFlowServiceClient{},
+	)
+}
+
+func newWorkerTestClientWithFlowService(
+	t *testing.T,
+	hydrator valueHydrator,
+	flowService dexpb.FlowServiceClient,
+) (dexpb.WorkerServiceClient, func()) {
 	if hydrator == nil {
 		hydrator = concreteValueHydrator{}
 	}
@@ -1098,7 +1159,10 @@ func newWorkerTestClient(
 	require.NoError(t, err)
 	listener := bufconn.Listen(1 << 20)
 	grpcServer := grpc.NewServer()
-	dexpb.RegisterWorkerServiceServer(grpcServer, newWorkerService(registered, hydrator, nil))
+	dexpb.RegisterWorkerServiceServer(
+		grpcServer,
+		newWorkerService(registered, hydrator, flowService, nil),
+	)
 	serveResult := make(chan error, 1)
 	go func() {
 		serveResult <- grpcServer.Serve(listener)
@@ -1116,6 +1180,20 @@ func newWorkerTestClient(
 		require.NoError(t, conn.Close())
 		requireServeStopped(t, <-serveResult)
 	}
+}
+
+type workerStreamFlowServiceClient struct {
+	dexpb.FlowServiceClient
+	request *dexpb.WriteStreamRequest
+}
+
+func (client *workerStreamFlowServiceClient) WriteStream(
+	_ context.Context,
+	request *dexpb.WriteStreamRequest,
+	_ ...grpc.CallOption,
+) (*emptypb.Empty, error) {
+	client.request = request
+	return &emptypb.Empty{}, nil
 }
 
 func newFlowServiceTestClient(

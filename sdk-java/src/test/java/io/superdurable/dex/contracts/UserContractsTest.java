@@ -32,6 +32,7 @@ import io.superdurable.dex.Registry;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepDecision;
+import io.superdurable.dex.Stream;
 import io.superdurable.dex.Wait;
 import io.superdurable.dex.WorkerOptions;
 import io.superdurable.dex.exceptions.FlowDefinitionException;
@@ -52,6 +53,8 @@ public class UserContractsTest {
     private static final AttributeMap<String> ITEMS = AttributeMap.define("items", String.class);
     private static final Channel<OrderInput> COMMANDS =
             Channel.define("commands", OrderInput.class);
+    private static final Stream<String> PROGRESS =
+            Stream.define("progress", String.class, 10L * 1024L * 1024L);
     private static final Step<OrderInput> APPROVE = new ApproveStep();
     private static final Flow<OrderInput> ORDERS = new OrderFlow();
 
@@ -67,6 +70,7 @@ public class UserContractsTest {
         Assertions.assertEquals("GetOrder", rpcAnnotationName());
         Assertions.assertNotNull(PersistenceSchema.of(Collections.singletonList(STATUS)));
         Assertions.assertNotNull(PersistenceSchema.of(Collections.singletonList(COMMANDS)));
+        Assertions.assertNotNull(PersistenceSchema.of(Collections.singletonList(PROGRESS)));
         Assertions.assertThrows(
                 IllegalArgumentException.class,
                 () -> PersistenceSchema.of(
@@ -245,7 +249,8 @@ public class UserContractsTest {
         public PersistenceSchema getPersistenceSchema() {
             return PersistenceSchema.of(
                     Arrays.asList(STATUS, ITEMS),
-                    Collections.singletonList(COMMANDS));
+                    Collections.singletonList(COMMANDS),
+                    Collections.singletonList(PROGRESS));
         }
 
         @RPC(

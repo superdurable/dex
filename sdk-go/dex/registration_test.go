@@ -325,6 +325,7 @@ func TestRegistryAssemblesScopedDefinitions(t *testing.T) {
 		Indexed(AttributeIndex{Type: IndexKeyword}),
 	)
 	commands := DefineChannel[registrationInput]("commands")
+	progress := DefineStream[string]("progress", 1<<20)
 	first := &registrationFlow{
 		flowType: "first",
 		steps: []StepDef{
@@ -334,6 +335,7 @@ func TestRegistryAssemblesScopedDefinitions(t *testing.T) {
 		schema: PersistenceSchema{
 			Attributes: []AttributeDef{status},
 			Channels:   []ChannelDef{commands},
+			Streams:    []StreamDef{progress},
 		},
 	}
 	second := &registrationFlow{
@@ -350,6 +352,7 @@ func TestRegistryAssemblesScopedDefinitions(t *testing.T) {
 	require.Len(t, firstRegistration.steps, 2)
 	require.Len(t, firstRegistration.attributes, 1)
 	require.Len(t, firstRegistration.channels, 1)
+	require.Len(t, firstRegistration.streams, 1)
 	require.False(t, firstRegistration.steps["start"].skipWaitFor)
 	require.True(t, firstRegistration.steps["execute-only"].skipWaitFor)
 	_, found = firstRegistration.lookupRPC("Update")
@@ -489,6 +492,7 @@ func TestRegistryValidatesPersistenceSchema(t *testing.T) {
 			IndexKey: "shared",
 		}),
 	)
+	sharedStream := DefineStream[string]("shared", 1<<20)
 
 	tests := []struct {
 		name  string
@@ -579,6 +583,63 @@ func TestRegistryValidatesPersistenceSchema(t *testing.T) {
 				},
 			}},
 			error: "duplicate channel",
+		},
+		{
+			name: "nil stream",
+			flows: []Flow{&registrationFlow{
+				flowType: "flow",
+				schema: PersistenceSchema{
+					Streams: []StreamDef{nil},
+				},
+			}},
+			error: "stream at index 0 is nil",
+		},
+		{
+			name: "empty stream",
+			flows: []Flow{&registrationFlow{
+				flowType: "flow",
+				schema: PersistenceSchema{
+					Streams: []StreamDef{DefineStream[string]("", 1)},
+				},
+			}},
+			error: "stream name must not be empty",
+		},
+		{
+			name: "invalid stream capacity",
+			flows: []Flow{&registrationFlow{
+				flowType: "flow",
+				schema: PersistenceSchema{
+					Streams: []StreamDef{DefineStream[string]("stream", 0)},
+				},
+			}},
+			error: "max estimated bytes must be positive",
+		},
+		{
+			name: "duplicate stream",
+			flows: []Flow{&registrationFlow{
+				flowType: "flow",
+				schema: PersistenceSchema{
+					Streams: []StreamDef{
+						DefineStream[string]("same", 1),
+						DefineStream[int]("same", 2),
+					},
+				},
+			}},
+			error: "duplicate stream",
+		},
+		{
+			name: "stream registered by multiple flows",
+			flows: []Flow{
+				&registrationFlow{
+					flowType: "first",
+					schema:   PersistenceSchema{Streams: []StreamDef{sharedStream}},
+				},
+				&registrationFlow{
+					flowType: "second",
+					schema:   PersistenceSchema{Streams: []StreamDef{sharedStream}},
+				},
+			},
+			error: "already registered by flow",
 		},
 		{
 			name: "shared index conflict",

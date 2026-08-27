@@ -125,6 +125,7 @@ jobs:
             dex/runtime_errors.py \
             dex/step.py \
             dex/step_execution.py \
+            dex/stream.py \
             dex/timer.py \
             dex/wait.py \
             dex/worker.py \

@@ -78,6 +78,7 @@ export class Worker {
     const dispatcher = new WorkerDispatcher(
       registry,
       new ValueHydrator(this.flowService, blobCache),
+      this.flowService,
     );
     this.server.addService(WorkerServiceService, workerService(dispatcher));
     this.stopped = new Promise((resolve) => {

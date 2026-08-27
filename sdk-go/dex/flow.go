@@ -98,12 +98,12 @@ func (FlowDefaults) GetFlowType() string {
 	return ""
 }
 
-// PersistenceSchema is the set of AttributeDef and ChannelDef values a Flow
-// registers. Every attribute or channel used from WaitFor, Execute, or RPC must
-// appear here.
+// PersistenceSchema registers a Flow's Attribute, Channel, and Stream definitions.
 type PersistenceSchema struct {
 	// Attributes contains every Attribute and AttributeMap used by the Flow.
 	Attributes []AttributeDef
 	// Channels contains every Channel and ChannelMap used by the Flow.
 	Channels []ChannelDef
+	// Streams contains every best-effort Stream owned by the Flow type.
+	Streams []StreamDef
 }

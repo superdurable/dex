@@ -25,6 +25,7 @@ import {
   FlowRetryPolicy,
   FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
   FlowConfig as ProtoFlowConfig,
+  FlowServiceClient,
   ActiveStepSearchMode as ProtoActiveStepSearchMode,
   StepDurability as ProtoStepDurability,
   IndexType as ProtoIndexType,
@@ -80,6 +81,7 @@ export class WorkerDispatcher {
   public constructor(
     private readonly registry: Registry,
     private readonly hydrator: ValueHydrator,
+    private readonly flowService: InstanceType<typeof FlowServiceClient>,
   ) {}
 
   public async invokeWaitFor(
@@ -93,6 +95,7 @@ export class WorkerDispatcher {
     const context = new InvocationContext(
       "waitFor",
       flow,
+      this.flowService,
       request.context,
       request.attributes,
       [],
@@ -135,6 +138,7 @@ export class WorkerDispatcher {
     const context = new InvocationContext(
       "execute",
       flow,
+      this.flowService,
       request.context,
       request.attributes,
       request.stepExeLocals,
@@ -175,6 +179,7 @@ export class WorkerDispatcher {
       const context = new InvocationContext(
         "execute",
         flow,
+        this.flowService,
         request.context,
         request.attributes,
         request.stepExeLocals,
@@ -206,6 +211,7 @@ export class WorkerDispatcher {
     const context = new InvocationContext(
       "rpc",
       flow,
+      this.flowService,
       request.context,
       request.attributes,
       [],

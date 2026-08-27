@@ -13,14 +13,18 @@ use std::time::{Duration, SystemTime};
 
 use dex_protocol::dex::{
     AttributeWrite, ChannelInfo, ChannelMessage, ConditionResults, ConditionStatus,
-    Context as ProtoContext, Kv, Value as ProtoValue, value,
+    Context as ProtoContext, Kv, Value as ProtoValue, WriteStreamRequest,
+    flow_service_client::FlowServiceClient, value,
 };
+use tokio::runtime::Handle;
+use tonic::transport::Channel as TransportChannel;
 
 use crate::persistence::PersistenceKind;
 use crate::registry::{RegisteredFlow, decode_instance, physical_name};
 use crate::value_mapper;
 use crate::{
-    Attribute, AttributeMap, Channel, ChannelMap, FlowResult, HandlerError, HandlerResult, Value,
+    Attribute, AttributeMap, Channel, ChannelMap, FlowResult, HandlerError, HandlerResult, Stream,
+    Value,
 };
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -28,6 +32,16 @@ pub(crate) enum InvocationMethod {
     WaitFor,
     Execute,
     Rpc,
+}
+
+pub(crate) struct ContextInput {
+    pub(crate) method: InvocationMethod,
+    pub(crate) flow: RegisteredFlow,
+    pub(crate) metadata: ProtoContext,
+    pub(crate) attributes: Vec<Kv>,
+    pub(crate) locals: Vec<Kv>,
+    pub(crate) condition_results: Option<ConditionResults>,
+    pub(crate) channel_infos: HashMap<String, ChannelInfo>,
 }
 
 /// Provides invocation metadata and staged durable changes to Step and RPC handlers.
@@ -38,6 +52,8 @@ pub(crate) enum InvocationMethod {
 pub struct Context {
     method: InvocationMethod,
     flow: RegisteredFlow,
+    runtime_handle: Handle,
+    flow_service: FlowServiceClient<TransportChannel>,
     metadata: ProtoContext,
     attributes: HashMap<String, ProtoValue>,
     locals: HashMap<String, ProtoValue>,
@@ -48,10 +64,36 @@ pub struct Context {
     events: Vec<Kv>,
     event_names: HashSet<String>,
     publications: Vec<ChannelMessage>,
+    stream_writes: HashSet<usize>,
     cancellation: InvocationCancellation,
 }
 
 impl Context {
+    pub(crate) fn new(
+        input: ContextInput,
+        runtime_handle: Handle,
+        flow_service: FlowServiceClient<TransportChannel>,
+    ) -> HandlerResult<Self> {
+        Ok(Self {
+            method: input.method,
+            flow: input.flow,
+            runtime_handle,
+            flow_service,
+            metadata: input.metadata,
+            attributes: map_values("Attribute", input.attributes)?,
+            locals: map_values("step-execution local", input.locals)?,
+            condition_results: input.condition_results,
+            channel_infos: input.channel_infos,
+            attribute_writes: HashMap::new(),
+            local_writes: HashMap::new(),
+            events: Vec::new(),
+            event_names: HashSet::new(),
+            publications: Vec::new(),
+            stream_writes: HashSet::new(),
+            cancellation: InvocationCancellation::new(),
+        })
+    }
+
     /// Returns the application-assigned Flow ID.
     pub fn flow_id(&self) -> &str {
         &self.metadata.flow_id
@@ -405,30 +447,67 @@ impl Context {
         self.channel_results_value(channel.name(), PersistenceKind::ChannelMap, Some(instance))
     }
 
-    pub(crate) fn new(
-        method: InvocationMethod,
-        flow: RegisteredFlow,
-        metadata: ProtoContext,
-        attributes: Vec<Kv>,
-        locals: Vec<Kv>,
-        condition_results: Option<ConditionResults>,
-        channel_infos: HashMap<String, ChannelInfo>,
-    ) -> HandlerResult<Self> {
-        Ok(Self {
-            method,
-            flow,
-            metadata,
-            attributes: map_values("Attribute", attributes)?,
-            locals: map_values("step-execution local", locals)?,
-            condition_results,
-            channel_infos,
-            attribute_writes: HashMap::new(),
-            local_writes: HashMap::new(),
-            events: Vec::new(),
-            event_names: HashSet::new(),
-            publications: Vec::new(),
-            cancellation: InvocationCancellation::new(),
-        })
+    /// Appends one immediate best-effort Stream message from a Step invocation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandlerError`] for RPC Contexts, unregistered or duplicate Streams, encoding
+    /// failures, or a failed FlowService write.
+    pub fn write_stream<T: Value>(&mut self, stream: &Stream<T>, value: T) -> HandlerResult<()> {
+        if self.method == InvocationMethod::Rpc {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "Stream writes require a Step Context",
+            ));
+        }
+        let definition = self
+            .flow
+            .persistence
+            .get(stream.name())
+            .filter(|definition| {
+                definition.kind == PersistenceKind::Stream
+                    && definition.stream_identity == Some(stream.identity())
+            })
+            .ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("Stream does not belong to Flow: {}", stream.name()),
+                )
+            })?;
+        if definition.max_estimated_bytes != Some(stream.max_estimated_bytes()) {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!(
+                    "Stream capacity does not match its registered definition: {}",
+                    stream.name()
+                ),
+            ));
+        }
+        if self.stream_writes.contains(&stream.identity()) {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!(
+                    "Stream {} was already written by this Step execution",
+                    stream.name()
+                ),
+            ));
+        }
+        let request = WriteStreamRequest {
+            flow_id: self.flow_id().to_string(),
+            flow_type: self.flow.name.to_string(),
+            stream_name: stream.name().to_string(),
+            max_estimated_bytes: stream.max_estimated_bytes(),
+            value: Some(value_mapper::encode_handler(&value)?),
+            idempotency_key: format!("{}#{}", self.run_id(), self.step_execution_id()),
+        };
+        let mut service = self.flow_service.clone();
+        self.runtime_handle
+            .block_on(async move { service.write_stream(request).await })
+            .map_err(|status| {
+                HandlerError::new("tonic::Status", format!("WriteStream failed: {status}"))
+            })?;
+        self.stream_writes.insert(stream.identity());
+        Ok(())
     }
 
     pub(crate) fn cancellation(&self) -> InvocationCancellation {
@@ -684,13 +763,17 @@ fn require_name(value: &str, kind: &str) -> HandlerResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Context, InvocationMethod};
+    use super::{Context, ContextInput, InvocationMethod};
     use crate::{
         AttributeMap, ChannelMap, Flow, PersistenceSchema, Registry, registry::physical_name,
         value_mapper,
     };
-    use dex_protocol::dex::{ChannelInfo, Context as ProtoContext, Kv};
+    use dex_protocol::dex::{
+        ChannelInfo, Context as ProtoContext, Kv, flow_service_client::FlowServiceClient,
+    };
     use std::collections::HashMap;
+    use tokio::runtime::Runtime;
+    use tonic::transport::Endpoint;
 
     struct MapFlow {
         attributes: AttributeMap<String>,
@@ -718,26 +801,35 @@ mod tests {
         let attributes = AttributeMap::<String>::new("items");
         let channels = ChannelMap::<String>::new("messages");
         let special = "special / key";
+        let runtime = Runtime::new().expect("create test runtime");
+        let flow_service = {
+            let _runtime_guard = runtime.enter();
+            FlowServiceClient::new(Endpoint::from_static("http://127.0.0.1:1").connect_lazy())
+        };
         let mut context = Context::new(
-            InvocationMethod::Rpc,
-            registered,
-            ProtoContext::default(),
-            vec![
-                Kv {
-                    key: physical_name("items", special),
-                    value: Some(value_mapper::encode_handler(&"initial".to_string()).unwrap()),
-                },
-                Kv {
-                    key: physical_name("items", "z"),
-                    value: Some(value_mapper::encode_handler(&"remove".to_string()).unwrap()),
-                },
-            ],
-            Vec::new(),
-            None,
-            HashMap::from([
-                (physical_name("messages", special), ChannelInfo { size: 1 }),
-                (physical_name("messages", "empty"), ChannelInfo { size: 0 }),
-            ]),
+            ContextInput {
+                method: InvocationMethod::Rpc,
+                flow: registered,
+                metadata: ProtoContext::default(),
+                attributes: vec![
+                    Kv {
+                        key: physical_name("items", special),
+                        value: Some(value_mapper::encode_handler(&"initial".to_string()).unwrap()),
+                    },
+                    Kv {
+                        key: physical_name("items", "z"),
+                        value: Some(value_mapper::encode_handler(&"remove".to_string()).unwrap()),
+                    },
+                ],
+                locals: Vec::new(),
+                condition_results: None,
+                channel_infos: HashMap::from([
+                    (physical_name("messages", special), ChannelInfo { size: 1 }),
+                    (physical_name("messages", "empty"), ChannelInfo { size: 0 }),
+                ]),
+            },
+            runtime.handle().clone(),
+            flow_service,
         )
         .expect("create RPC Context");
 

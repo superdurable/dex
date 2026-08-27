@@ -9,6 +9,7 @@
 import type { Attribute, AttributeMap } from "./persistence.js";
 import type { Channel, ChannelMap } from "./wait.js";
 import type { Codec } from "./codec.js";
+import type { Stream } from "./stream.js";
 
 /**
  * Exposes execution metadata and decision-local persistence operations.
@@ -128,4 +129,11 @@ export interface Context {
    * @returns Keys including publications buffered by the current RPC.
    */
   channelMapKeys(channel: ChannelMap<unknown>): readonly string[];
+  /**
+   * Appends one immediate best-effort Stream message.
+   * @typeParam T - Stream message type.
+   * @param stream - Stream registered by the current Flow type.
+   * @param value - Typed message to append.
+   */
+  writeStream<T>(stream: Stream<T>, value: T): Promise<void>;
 }

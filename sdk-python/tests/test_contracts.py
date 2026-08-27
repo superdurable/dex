@@ -9,7 +9,7 @@
 # See LICENSE and LEGACY_NOTICES.md.
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 import pytest
@@ -41,6 +41,7 @@ from dex import (
     StepDurability,
     StepList,
     StepOptions,
+    Stream,
     Timer,
     ValueMappingError,
     Wait,
@@ -50,9 +51,9 @@ from dex import (
     open_blob_cache,
     rpc,
 )
+from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
-from dex._invocation_context import InvocationContext, InvocationMethod
 from dex.client import Client as ClientModuleClient
 from dex.client_options import ClientOptions as ClientModuleOptions
 from dex.dexpb import dex_pb2 as pb
@@ -183,9 +184,11 @@ def test_python_defaults_match_java_contracts() -> None:
 
 def test_persistence_schema_groups_definition_types() -> None:
     items = AttributeMap("items", int)
-    schema = PersistenceSchema.of(STATUS, items, COMMANDS)
+    events = Stream("events", str, 1024)
+    schema = PersistenceSchema.of(STATUS, items, COMMANDS, events)
     assert schema.attributes == (STATUS, items)
     assert schema.channels == (COMMANDS,)
+    assert schema.streams == (events,)
     with pytest.raises(TypeError, match="unsupported persistence definition"):
         PersistenceSchema.of(cast(Any, object()))
 
@@ -333,6 +336,7 @@ def test_invalid_step_result_has_flow_and_step_context() -> None:
         registry,
         values,
         cast(Any, PassthroughHydrator()),
+        lambda _request: pb.WriteStreamRequest(),
     )
     request = pb.InvokeExecuteMethodRequest(
         flow_type="InvalidFlow",
@@ -416,6 +420,7 @@ def test_worker_maps_only_user_provided_condition_ids() -> None:
         registry,
         values,
         cast(Any, PassthroughHydrator()),
+        lambda _request: pb.WriteStreamRequest(),
     )
 
     def invoke(input: str) -> pb.InvokeWaitForMethodResponse:
@@ -460,6 +465,7 @@ def test_map_introspection_tracks_buffered_changes() -> None:
         registry._flow_by_type("MapFlow"),
         pb.Context(),
         values,
+        lambda _request: pb.WriteStreamRequest(),
         (
             pb.KV(
                 key=Registry.physical_name("items", special),
@@ -543,3 +549,105 @@ def test_attribute_store_sync_mapping_preserves_presence() -> None:
     assert list(disabled.attribute_store_names.names) == []
     assert disabled.HasField("attribute_store_names")
     client.close()
+
+
+def test_step_stream_write_uses_execution_idempotency_key() -> None:
+    thinking = Stream("thinking", str, 1_048_576)
+
+    class StreamFlow(Flow[str]):
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(thinking)
+
+    registry = Registry((StreamFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    requests: list[pb.WriteStreamRequest] = []
+    context = InvocationContext(
+        InvocationMethod.EXECUTE,
+        registry._flow_by_type("StreamFlow"),
+        pb.Context(
+            flow_id="flow-1",
+            run_id="run-1",
+            step_execution_id="step-1",
+        ),
+        values,
+        requests.append,
+        (),
+    )
+
+    assert thinking.write(context, "checking") is None
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.flow_id == "flow-1"
+    assert request.flow_type == "StreamFlow"
+    assert request.stream_name == "thinking"
+    assert request.max_estimated_bytes == 1_048_576
+    assert request.idempotency_key == "run-1#step-1"
+    assert values.decode(request.value, values.codec(str)) == "checking"
+    with pytest.raises(ValueError, match="already written"):
+        thinking.write(context, "again")
+
+    rpc_context = InvocationContext(
+        InvocationMethod.RPC,
+        registry._flow_by_type("StreamFlow"),
+        pb.Context(),
+        values,
+        requests.append,
+        (),
+    )
+    with pytest.raises(ValueError, match="Step Context"):
+        thinking.write(rpc_context, "rejected")
+
+
+def test_client_stream_transport_and_metadata() -> None:
+    thinking = Stream("thinking", str, 1_048_576)
+
+    class StreamFlow(Flow[str]):
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(thinking)
+
+    class StreamService:
+        def __init__(self) -> None:
+            self.write_request: pb.WriteStreamRequest | None = None
+            self.read_request: pb.ReadStreamRequest | None = None
+
+        def WriteStream(self, request: pb.WriteStreamRequest) -> object:
+            self.write_request = request
+            return object()
+
+        def ReadStream(self, request: pb.ReadStreamRequest) -> pb.ReadStreamResponse:
+            self.read_request = request
+            created_time = datetime(2026, 8, 27, 12, tzinfo=timezone.utc)
+            response = pb.ReadStreamResponse()
+            response.message.value.string_value = "working"
+            response.message.resume_token = "resume-1"
+            response.message.created_time.FromDatetime(created_time)
+            response.message.idempotency_key = "client-1"
+            return response
+
+    client = Client(Registry((StreamFlow(),)), cast(BlobCache, object()))
+    service = StreamService()
+    client._service = cast(Any, service)
+    try:
+        client.write_stream("flow-1", thinking, "client-1", "starting")
+        message = client.read_stream(
+            "flow-1",
+            thinking,
+            "previous",
+            timedelta(seconds=2),
+        )
+        assert service.write_request is not None
+        assert service.write_request.flow_type == "StreamFlow"
+        assert service.write_request.stream_name == "thinking"
+        assert service.write_request.max_estimated_bytes == 1_048_576
+        assert service.write_request.idempotency_key == "client-1"
+        assert service.read_request is not None
+        assert service.read_request.resume_token == "previous"
+        assert service.read_request.wait_time_seconds == 2
+        assert message.value == "working"
+        assert message.resume_token == "resume-1"
+        assert message.created_time == datetime(2026, 8, 27, 12, tzinfo=timezone.utc)
+        assert message.idempotency_key == "client-1"
+        with pytest.raises(ValueError, match="must not contain"):
+            client.write_stream("flow-1", thinking, "bad#key", "ignored")
+    finally:
+        client.close()

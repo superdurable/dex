@@ -32,9 +32,10 @@ const (
 
 type invocationContext struct {
 	context.Context
-	method invocationMethod
-	flow   *registeredFlow
-	active bool
+	method  invocationMethod
+	flow    *registeredFlow
+	service dexpb.FlowServiceClient
+	active  bool
 
 	flowID              string
 	runID               string
@@ -55,6 +56,7 @@ type invocationContext struct {
 	events         map[string]struct{}
 	recordedEvents []*dexpb.KV
 	publications   []*dexpb.ChannelMessage
+	streamWrites   map[*streamDefinition]struct{}
 
 	conditionResults *dexpb.ConditionResults
 	channelSizes     map[string]int
@@ -64,12 +66,16 @@ func newInvocationContext(
 	ctx context.Context,
 	method invocationMethod,
 	flow *registeredFlow,
+	service dexpb.FlowServiceClient,
 	metadata *dexpb.Context,
 	attributes []*dexpb.KV,
 	locals []*dexpb.KV,
 	conditionResults *dexpb.ConditionResults,
 	channelInfos map[string]*dexpb.ChannelInfo,
 ) (*invocationContext, error) {
+	if service == nil {
+		panic("dex: invocation context requires FlowService client")
+	}
 	attributeValues, err := buildInvocationValues("attribute", attributes)
 	if err != nil {
 		return nil, err
@@ -89,6 +95,7 @@ func newInvocationContext(
 		Context:          ctx,
 		method:           method,
 		flow:             flow,
+		service:          service,
 		active:           true,
 		flowID:           metadata.FlowId,
 		runID:            metadata.RunId,
@@ -98,6 +105,7 @@ func newInvocationContext(
 		locals:           localValues,
 		localWrites:      make(map[string]*dexpb.KV),
 		events:           make(map[string]struct{}),
+		streamWrites:     make(map[*streamDefinition]struct{}),
 		conditionResults: conditionResults,
 		channelSizes:     sizes,
 	}
@@ -108,6 +116,40 @@ func newInvocationContext(
 		invocation.firstAttemptAt = time.Unix(metadata.FirstAttemptTimestamp, 0)
 	}
 	return invocation, nil
+}
+
+func (invocation *invocationContext) writeStream(
+	definition *streamDefinition,
+	value any,
+) error {
+	if !invocation.active || invocation.method == invocationRPC {
+		return errInvalidInvocationContext
+	}
+	registered, err := invocation.flow.resolveStream(definition)
+	if err != nil {
+		return fmt.Errorf("dex: %w", err)
+	}
+	if _, found := invocation.streamWrites[registered.definition]; found {
+		return fmt.Errorf("dex: stream %q was already written by this Step execution", definition.name)
+	}
+	encoded, err := encodeValue(value)
+	if err != nil {
+		return err
+	}
+	idempotencyKey := invocation.runID + "#" + invocation.stepExecutionID
+	_, err = invocation.service.WriteStream(invocation, &dexpb.WriteStreamRequest{
+		FlowId:            invocation.flowID,
+		FlowType:          invocation.flow.flowType,
+		StreamName:        definition.name,
+		MaxEstimatedBytes: definition.maxEstimatedBytes,
+		Value:             encoded,
+		IdempotencyKey:    idempotencyKey,
+	})
+	if err != nil {
+		return translateRPCError(err, "WriteStream", invocation.flowID, flowTargetNone)
+	}
+	invocation.streamWrites[registered.definition] = struct{}{}
+	return nil
 }
 
 func buildInvocationValues(

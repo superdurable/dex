@@ -22,6 +22,7 @@ import io.superdurable.gen.CloseDecision;
 import io.superdurable.gen.CloseDecisionType;
 import io.superdurable.gen.ConditionCombination;
 import io.superdurable.gen.ExecuteMethodFailurePolicy;
+import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.InvokeExecuteMethodRequest;
 import io.superdurable.gen.InvokeExecuteMethodResponse;
 import io.superdurable.gen.InvokeWaitForMethodRequest;
@@ -51,14 +52,17 @@ final class WorkerDispatcher {
     private final Registry registry;
     private final ValueMapper values;
     private final ValueHydrator hydrator;
+    private final FlowServiceGrpc.FlowServiceBlockingStub flowService;
 
     WorkerDispatcher(
             final Registry registry,
             final ValueMapper values,
-            final ValueHydrator hydrator) {
+            final ValueHydrator hydrator,
+            final FlowServiceGrpc.FlowServiceBlockingStub flowService) {
         this.registry = registry;
         this.values = values;
         this.hydrator = hydrator;
+        this.flowService = flowService;
     }
 
     InvokeWaitForMethodResponse invokeWaitFor(final InvokeWaitForMethodRequest original) {
@@ -70,6 +74,7 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
+                flowService,
                 request.getAttributesList(),
                 null,
                 null,
@@ -102,6 +107,7 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
+                flowService,
                 request.getAttributesList(),
                 request.getStepExeLocalsList(),
                 request.hasConditionResults() ? request.getConditionResults() : null,
@@ -132,6 +138,7 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
+                flowService,
                 request.getAttributesList(),
                 request.getStepExeLocalsList(),
                 request.hasConditionResults() ? request.getConditionResults() : null,
@@ -158,6 +165,7 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
+                flowService,
                 request.getAttributesList(),
                 null,
                 null,

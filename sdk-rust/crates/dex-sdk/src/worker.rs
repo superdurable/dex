@@ -122,7 +122,12 @@ impl Worker {
         };
         let attribute_indexes = registry.attribute_indexes().clone();
         let hydrator = ValueHydrator::new(flow_service.clone(), blob_cache);
-        let dispatcher = WorkerDispatcher::new(registry, hydrator);
+        let dispatcher = WorkerDispatcher::new(
+            registry,
+            hydrator,
+            flow_service.clone(),
+            runtime.handle().clone(),
+        );
         let (shutdown, _) = watch::channel(false);
         Ok(Self {
             runtime,

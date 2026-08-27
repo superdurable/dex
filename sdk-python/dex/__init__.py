@@ -47,14 +47,14 @@ from dex.flow_info import (
 from dex.flow_options import (
     FlowTimeoutPolicy,
     IdReusePolicy,
+    StartFlowOptions,
+    StopFlowOptions,
+    StopType,
+    SubFlowOptions,
+    SubFlowReusePolicy,
     TimeTravelOptions,
     TimeTravelStepMethod,
     TimeTravelType,
-    StartFlowOptions,
-    SubFlowOptions,
-    SubFlowReusePolicy,
-    StopFlowOptions,
-    StopType,
 )
 from dex.flow_result import FlowResult, StepCompletion
 from dex.runtime_errors import (
@@ -89,8 +89,9 @@ from dex.step import (
     graceful_complete,
 )
 from dex.step_execution import StepExecutionId, TimerId
-from dex.timer import Timer
+from dex.stream import Stream, StreamMessage
 from dex.subflow import SubFlow
+from dex.timer import Timer
 from dex.wait import Wait
 from dex.worker import Worker
 from dex.worker_options import WorkerOptions, WorkerTarget
@@ -159,6 +160,8 @@ __all__ = [
     "StepDurability",
     "StepMovement",
     "StepOptions",
+    "Stream",
+    "StreamMessage",
     "StopFlowOptions",
     "StopType",
     "Timer",

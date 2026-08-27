@@ -1,7 +1,7 @@
 # Dex Go SDK
 
 The Go SDK is being rewritten around the current Dex `Flow`, `Step`,
-`Attribute`, `Channel`, `WaitFor`, and `Execute` contracts.
+`Attribute`, `Channel`, `Stream`, `WaitFor`, and `Execute` contracts.
 
 The rewrite provides the public model, value/protobuf mapping, immutable
 registration, application-hosted WorkerService, and typed FlowService Client.
@@ -22,6 +22,7 @@ var (
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword}),
 	)
 	Commands = dex.DefineChannel[Command]("commands")
+	Progress = dex.DefineStream[string]("progress", 10<<20)
 )
 
 type WaitForCommandStep struct {
@@ -32,6 +33,9 @@ func (WaitForCommandStep) WaitFor(
 	ctx dex.Context,
 	input OrderInput,
 ) (*dex.Wait, error) {
+	if err := Progress.Write(ctx, "waiting for a command"); err != nil {
+		return nil, err
+	}
 	if err := OrderStatus.Set(ctx, "waiting"); err != nil {
 		return nil, err
 	}
@@ -74,6 +78,7 @@ func (OrderFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{OrderStatus},
 		Channels:   []dex.ChannelDef{Commands},
+		Streams:    []dex.StreamDef{Progress},
 	}
 }
 ```
@@ -191,6 +196,27 @@ Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
 include buffered publishes, but omit empty instances. Keys are decoded and
 sorted. Use `ForceCompleteIfChannelsEmpty` for atomic conditional completion.
+
+## Resumable Streams
+
+Streams carry best-effort progress messages without adding durable Flow history.
+The byte budget is approximate and shared by every Flow instance with the same
+Flow type and Stream name. Register one definition in exactly one Flow schema.
+
+```go
+if err := client.WriteStream(ctx, flowID, Progress, "frontend/1", "starting"); err != nil {
+	return err
+}
+
+var progress string
+message, err := client.ReadStream(ctx, flowID, Progress, resumeToken, &progress)
+```
+
+Client idempotency keys cannot contain `#`. Step writes generate
+`runID#stepExecutionID` and allow one write per Stream per invocation. Reads
+return `ResumeToken`, `CreatedTime`, and `IdempotencyKey`. An empty token starts
+at the retained head. Use `context.WithTimeout` or `context.WithDeadline` to
+bound a read; Go wait APIs do not expose a second timeout option.
 
 SubFlows are normal, independently addressable Flows used as durable Conditions:
 

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from inspect import isawaitable
 from typing import Any, Callable, Sequence, TypeVar, cast
 from urllib.parse import unquote
 
@@ -20,9 +21,12 @@ from dex.codec import Codec
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, _RegisteredFlow
 from dex.flow_result import FlowResult, flow_result_from_proto
+from dex.stream import Stream
 
 ValueT = TypeVar("ValueT")
-_Definition = Attribute[Any] | AttributeMap[Any] | Channel[Any] | ChannelMap[Any]
+_Definition = (
+    Attribute[Any] | AttributeMap[Any] | Channel[Any] | ChannelMap[Any] | Stream[Any]
+)
 
 
 class InvocationMethod(Enum):
@@ -38,6 +42,7 @@ class InvocationContext:
         flow: _RegisteredFlow,
         metadata: pb.Context,
         values: ValueMapper,
+        stream_writer: Callable[[pb.WriteStreamRequest], Any],
         attributes: Sequence[pb.KV],
         locals: Sequence[pb.KV] = (),
         condition_results: pb.ConditionResults | None = None,
@@ -48,6 +53,7 @@ class InvocationContext:
         self._flow = flow
         self._metadata = metadata
         self._values = values
+        self._stream_writer = stream_writer
         self._attributes = self._map_values("Attribute", attributes)
         self._locals = self._map_values("step-execution local", locals)
         self._condition_results = condition_results
@@ -58,6 +64,7 @@ class InvocationContext:
         self.events: list[pb.KV] = []
         self.publications: list[pb.ChannelMessage] = []
         self._event_names: set[str] = set()
+        self._stream_writes: set[int] = set()
 
     @property
     def flow_id(self) -> str:
@@ -150,6 +157,48 @@ class InvocationContext:
             raise ValueError(f"event was already recorded: {name}")
         self._event_names.add(name)
         self.events.append(pb.KV(key=name, value=self._values.encode_dynamic(value)))
+
+    def _write_stream(
+        self,
+        definition: Stream[ValueT],
+        value: ValueT,
+    ) -> Any:
+        if self._method is InvocationMethod.RPC:
+            raise ValueError("Stream writes require a Step Context")
+        self._require_registered(definition)
+        identity = id(definition)
+        if identity in self._stream_writes:
+            raise ValueError(
+                f"Stream {definition.name} was already written by this Step execution"
+            )
+        request = pb.WriteStreamRequest(
+            flow_id=self.flow_id,
+            flow_type=self._flow.name,
+            stream_name=definition.name,
+            max_estimated_bytes=definition.max_estimated_bytes,
+            value=self._values.encode(
+                value,
+                self._values.codec(definition.value_type),
+            ),
+            idempotency_key=f"{self.run_id}#{self.step_execution_id}",
+        )
+        result = self._stream_writer(request)
+        if isawaitable(result):
+            self._stream_writes.add(identity)
+            return self._finish_async_stream_write(result, identity)
+        self._stream_writes.add(identity)
+        return None
+
+    async def _finish_async_stream_write(
+        self,
+        result: Any,
+        identity: int,
+    ) -> None:
+        try:
+            await result
+        except BaseException:
+            self._stream_writes.remove(identity)
+            raise
 
     def _get_attribute(
         self,

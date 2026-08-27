@@ -16,6 +16,7 @@ package io.superdurable.dex;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
@@ -44,6 +45,7 @@ import io.superdurable.gen.SyncAttributeIndexResponse;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WorkerServiceGrpc;
 import io.superdurable.gen.WorkerErrorResponse;
+import io.superdurable.gen.WriteStreamRequest;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -104,6 +106,23 @@ final class WorkerServiceIntegrationTest {
                     io.superdurable.gen.IndexType.INDEX_TYPE_KEYWORD,
                     running.syncRequest.get().getAttributeIndexesOrThrow("JavaWorkerStatus"));
             assertFalse(running.listeningDuringSync.get());
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void stepStreamWritesUseExecutionIdempotencyKey() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            running.client.invokeExecuteMethod(executeRequest(concrete("stream")));
+            final WriteStreamRequest request = running.writeStreamRequest.get();
+            assertEquals("flow-1", request.getFlowId());
+            assertEquals("BridgeFlow", request.getFlowType());
+            assertEquals("thinking", request.getStreamName());
+            assertEquals(1_048_576, request.getMaxEstimatedBytes());
+            assertEquals("run-1#step-1", request.getIdempotencyKey());
+            assertEquals("stream", request.getValue().getStringValue());
         } finally {
             running.close();
         }
@@ -181,6 +200,7 @@ final class WorkerServiceIntegrationTest {
                 registry.getFlow("MapFlow"),
                 io.superdurable.gen.Context.getDefaultInstance(),
                 values,
+                null,
                 Arrays.asList(
                         KV.newBuilder()
                                 .setKey(Registry.physicalName("items", special))
@@ -280,6 +300,7 @@ final class WorkerServiceIntegrationTest {
 								.setErrorType("worker type"))
                         .build(),
                 new ValueMapper(new ObjectMapper()),
+                null,
                 Collections.<KV>emptyList(),
                 Collections.<KV>emptyList(),
                 null,
@@ -558,6 +579,8 @@ final class WorkerServiceIntegrationTest {
                 new AtomicReference<SyncAttributeIndexRequest>();
         final AtomicReference<Boolean> listeningDuringSync =
                 new AtomicReference<Boolean>();
+        final AtomicReference<WriteStreamRequest> writeStreamRequest =
+                new AtomicReference<WriteStreamRequest>();
         final Server ownedFlowServer;
         final String effectiveServerAddress;
         if (serverAddress == null) {
@@ -576,6 +599,15 @@ final class WorkerServiceIntegrationTest {
                                 listeningDuringSync.set(Boolean.FALSE);
                             }
                             observer.onNext(SyncAttributeIndexResponse.getDefaultInstance());
+                            observer.onCompleted();
+                        }
+
+                        @Override
+                        public void writeStream(
+                                final WriteStreamRequest request,
+                                final StreamObserver<Empty> observer) {
+                            writeStreamRequest.set(request);
+                            observer.onNext(Empty.getDefaultInstance());
                             observer.onCompleted();
                         }
                     })
@@ -622,7 +654,8 @@ final class WorkerServiceIntegrationTest {
                 client,
                 ownedFlowServer,
                 syncRequest,
-                listeningDuringSync);
+                listeningDuringSync,
+                writeStreamRequest);
     }
 
     private static InvokeWaitForMethodRequest waitRequest(final Value input) {
@@ -712,6 +745,7 @@ final class WorkerServiceIntegrationTest {
         private final Server ownedFlowServer;
         private final AtomicReference<SyncAttributeIndexRequest> syncRequest;
         private final AtomicReference<Boolean> listeningDuringSync;
+        private final AtomicReference<WriteStreamRequest> writeStreamRequest;
 
         private RunningWorker(
                 final Worker worker,
@@ -721,7 +755,8 @@ final class WorkerServiceIntegrationTest {
                 final WorkerServiceGrpc.WorkerServiceBlockingStub client,
                 final Server ownedFlowServer,
                 final AtomicReference<SyncAttributeIndexRequest> syncRequest,
-                final AtomicReference<Boolean> listeningDuringSync) {
+                final AtomicReference<Boolean> listeningDuringSync,
+                final AtomicReference<WriteStreamRequest> writeStreamRequest) {
             this.worker = worker;
             this.workerThread = workerThread;
             this.workerFailure = workerFailure;
@@ -730,6 +765,7 @@ final class WorkerServiceIntegrationTest {
             this.ownedFlowServer = ownedFlowServer;
             this.syncRequest = syncRequest;
             this.listeningDuringSync = listeningDuringSync;
+            this.writeStreamRequest = writeStreamRequest;
         }
 
         @Override
@@ -746,8 +782,10 @@ final class WorkerServiceIntegrationTest {
 
     private static class BridgeFlow implements Flow<String> {
         private final Channel<Void> commands = Channel.define("commands", Void.class);
+        private final Stream<String> thinking =
+                Stream.define("thinking", String.class, 1_048_576);
         private final BridgeOtherStep other = new BridgeOtherStep();
-        private final BridgeStep start = new BridgeStep(commands);
+        private final BridgeStep start = new BridgeStep(commands, thinking);
         private final Attribute<String> status = Attribute.define(
                 "status",
                 String.class,
@@ -791,7 +829,7 @@ final class WorkerServiceIntegrationTest {
 
         @Override
         public PersistenceSchema getPersistenceSchema() {
-            return PersistenceSchema.of(status, commands);
+            return PersistenceSchema.of(status, commands, thinking);
         }
     }
 
@@ -804,8 +842,13 @@ final class WorkerServiceIntegrationTest {
         private final CountDownLatch blockStarted = new CountDownLatch(1);
         private final CountDownLatch cancellationObserved = new CountDownLatch(1);
         private final Channel<Void> commands;
-        private BridgeStep(final Channel<Void> commands) {
+        private final Stream<String> thinking;
+
+        private BridgeStep(
+                final Channel<Void> commands,
+                final Stream<String> thinking) {
             this.commands = commands;
+            this.thinking = thinking;
         }
 
         @Override
@@ -847,6 +890,9 @@ final class WorkerServiceIntegrationTest {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
+            if ("stream".equals(input)) {
+                thinking.write(context, input);
+            }
             handlerThread.set(Thread.currentThread().getName());
             if ("fail".equals(input)) {
                 throw new BridgeFailureException("bridge failed");

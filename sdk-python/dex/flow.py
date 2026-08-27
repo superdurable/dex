@@ -36,13 +36,14 @@ from dex.context import Context
 from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import FlowDefinitionError
 from dex.step import Step, StepDecision, StepList, StepMovement, _StepDef
+from dex.stream import Stream
 from dex.wait import Wait
 
 OutputT = TypeVar("OutputT")
 StartT = TypeVar("StartT")
 CallableT = TypeVar("CallableT", bound=Callable[..., Any])
 _PersistenceDefinition = (
-    Attribute[Any] | AttributeMap[Any] | Channel[Any] | ChannelMap[Any]
+    Attribute[Any] | AttributeMap[Any] | Channel[Any] | ChannelMap[Any] | Stream[Any]
 )
 
 
@@ -152,13 +153,14 @@ class RPCResult(Generic[OutputT]):
 
 @dataclass(frozen=True)
 class PersistenceSchema:
-    """Declare the Attributes and Channels owned by a Flow type.
+    """Declare the Attributes, Channels, and Streams owned by a Flow type.
 
     Definitions must have unique names and are immutable after Registry creation.
 
     Attributes:
         attributes: Singleton and map Attribute definitions.
         channels: Singleton and map Channel definitions.
+        streams: Best-effort Stream definitions.
 
     Examples:
         >>> schema = PersistenceSchema.of(status, balances, approvals, events)
@@ -166,13 +168,14 @@ class PersistenceSchema:
 
     attributes: tuple[Attribute[Any] | AttributeMap[Any], ...] = ()
     channels: tuple[Channel[Any] | ChannelMap[Any], ...] = ()
+    streams: tuple[Stream[Any], ...] = ()
 
     @staticmethod
     def of(*definitions: _PersistenceDefinition) -> PersistenceSchema:
-        """Partition persistence definitions into Attributes and Channels.
+        """Partition persistence definitions into Attributes, Channels, and Streams.
 
         Args:
-            *definitions: Attribute, AttributeMap, Channel, or ChannelMap definitions.
+            *definitions: Attribute, AttributeMap, Channel, ChannelMap, or Stream definitions.
 
         Returns:
             A schema with each category kept in argument order.
@@ -182,14 +185,17 @@ class PersistenceSchema:
         """
         attributes: list[Attribute[Any] | AttributeMap[Any]] = []
         channels: list[Channel[Any] | ChannelMap[Any]] = []
+        streams: list[Stream[Any]] = []
         for definition in definitions:
             if isinstance(definition, (Attribute, AttributeMap)):
                 attributes.append(definition)
             elif isinstance(definition, (Channel, ChannelMap)):
                 channels.append(definition)
+            elif isinstance(definition, Stream):
+                streams.append(definition)
             else:
                 raise TypeError("unsupported persistence definition")
-        return PersistenceSchema(tuple(attributes), tuple(channels))
+        return PersistenceSchema(tuple(attributes), tuple(channels), tuple(streams))
 
 
 class Flow(Generic[StartT], ABC):
@@ -324,6 +330,7 @@ class Registry:
     _steps: tuple[_RegisteredStep, ...]
     _rpcs: tuple[_RegisteredRPC, ...]
     _registered_flows: MappingProxyType[str, _RegisteredFlow]
+    _stream_flows: MappingProxyType[int, _RegisteredFlow]
     _attribute_indexes: MappingProxyType[str, pb.IndexType]
 
     def __init__(
@@ -379,6 +386,18 @@ class Registry:
             "_registered_flows",
             MappingProxyType(registered_flows),
         )
+        stream_flows: dict[int, _RegisteredFlow] = {}
+        for registered_flow in registered_flows.values():
+            for definition in registered_flow.persistence.values():
+                if not isinstance(definition, Stream):
+                    continue
+                stream = definition
+                if id(stream) in stream_flows:
+                    raise FlowDefinitionError(
+                        f"Stream {stream.name} is registered by multiple Flows"
+                    )
+                stream_flows[id(stream)] = registered_flow
+        object.__setattr__(self, "_stream_flows", MappingProxyType(stream_flows))
         object.__setattr__(
             self,
             "_attribute_indexes",
@@ -535,7 +554,7 @@ class Registry:
         attribute_indexes: dict[str, pb.IndexType],
     ) -> dict[str, _PersistenceDefinition]:
         persistence: dict[str, _PersistenceDefinition] = {}
-        for definition in (*schema.attributes, *schema.channels):
+        for definition in (*schema.attributes, *schema.channels, *schema.streams):
             if definition.name in persistence:
                 raise ValueError(f"duplicate persistence definition {definition.name}")
             persistence[definition.name] = definition
@@ -739,6 +758,25 @@ class Registry:
                 f"Flow {flow.get_flow_type()} instance is not registered"
             )
         return registered
+
+    def _flow_for_stream(self, stream: Stream[Any]) -> _RegisteredFlow:
+        """Return the Flow owning an exact registered Stream definition.
+
+        Args:
+            stream: Stream object registered in one Flow schema.
+
+        Returns:
+            The owning registered Flow.
+
+        Raises:
+            FlowDefinitionError: If the exact Stream object is not registered.
+        """
+        try:
+            return self._stream_flows[id(stream)]
+        except KeyError as error:
+            raise FlowDefinitionError(
+                f"Stream is not registered: {stream.name}"
+            ) from error
 
     def _rpc_for_method(
         self,

@@ -49,10 +49,12 @@ class WorkerDispatcher:
         registry: Registry,
         values: ValueMapper,
         hydrator: ValueHydrator,
+        stream_writer: Callable[[pb.WriteStreamRequest], Any],
     ) -> None:
         self._registry = registry
         self._values = values
         self._hydrator = hydrator
+        self._stream_writer = stream_writer
 
     def invoke_wait_for(
         self,
@@ -67,6 +69,7 @@ class WorkerDispatcher:
             flow,
             request.context,
             self._values,
+            self._stream_writer,
             request.attributes,
             is_active=is_active,
         )
@@ -112,6 +115,7 @@ class WorkerDispatcher:
             flow,
             request.context,
             self._values,
+            self._stream_writer,
             request.attributes,
             request.step_exe_locals,
             condition_results,
@@ -162,6 +166,7 @@ class WorkerDispatcher:
             flow,
             request.context,
             self._values,
+            self._stream_writer,
             request.attributes,
             request.step_exe_locals,
             condition_results,
@@ -199,6 +204,7 @@ class WorkerDispatcher:
             flow,
             request.context,
             self._values,
+            self._stream_writer,
             request.attributes,
             channel_infos=dict(request.channel_infos),
             is_active=is_active,
