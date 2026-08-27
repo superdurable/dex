@@ -57,9 +57,9 @@ final class StateOptionsLockingWorkflow implements Flow<Integer> {
         public StepDecision execute(final Context context, final Integer parallelism) {
             final StepMovement<?>[] movements = new StepMovement<?>[parallelism + 1];
             for (int index = 0; index < parallelism; index++) {
-                movements[index] = StepMovement.of(locked, index);
+                movements[index] = StepMovement.of(LockedStep.class, index);
             }
-            movements[parallelism] = StepMovement.of(complete, parallelism);
+            movements[parallelism] = StepMovement.of(CompleteStep.class, parallelism);
             return StepDecision.goToMulti(movements);
         }
     }

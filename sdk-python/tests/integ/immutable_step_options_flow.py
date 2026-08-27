@@ -37,7 +37,9 @@ class ImmutableOptionsStartStep(Step[int]):
             wait_for_retry=RetryPolicy(maximum_attempts=1),
             wait_for_failure=WaitForFailurePolicy.PROCEED,
         )
-        return go_to_multi(StepMovement.of(self.failing_wait, 1, options=override))
+        return go_to_multi(
+            StepMovement.of(ImmutableOptionsFailingWaitStep, 1, options=override)
+        )
 
 
 class ImmutableOptionsFailingWaitStep(Step[int]):
@@ -49,7 +51,7 @@ class ImmutableOptionsFailingWaitStep(Step[int]):
         if not context.wait_for_method_failed():
             raise RuntimeError("wait failure was not reported")
         if input == 1:
-            return go_to(self, 2)
+            return go_to(ImmutableOptionsFailingWaitStep, 2)
         return graceful_complete(input)
 
     def get_step_options(self) -> StepOptions:

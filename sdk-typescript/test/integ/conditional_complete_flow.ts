@@ -49,7 +49,7 @@ class ConditionalStep implements Step<boolean> {
     const selected = useSignal ? this.signal : this.internal;
     return forceCompleteIfChannelsEmpty(
       next,
-      StepMovement.of(this, useSignal),
+      StepMovement.of(ConditionalStep, useSignal),
       selected,
     );
   }

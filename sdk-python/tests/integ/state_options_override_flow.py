@@ -43,7 +43,9 @@ class OverrideFirstStep(Step[str]):
             wait_for_retry=RetryPolicy(maximum_attempts=2),
             wait_for_failure=WaitForFailurePolicy.PROCEED,
         )
-        return go_to_multi(StepMovement.of(self.second, self.output, options=options))
+        return go_to_multi(
+            StepMovement.of(OverrideCompleteStep, self.output, options=options)
+        )
 
 
 class OverrideCompleteStep(Step[str]):

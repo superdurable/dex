@@ -87,7 +87,7 @@ class SignalFirstStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         if self.second.results(context):
             raise RuntimeError("second signal should still be waiting")
-        return go_to(self.combination, input + self.first.results(context)[0])
+        return go_to(SignalCombinationStep, input + self.first.results(context)[0])
 
 
 class SignalFlow(Flow[int]):

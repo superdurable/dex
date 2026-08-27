@@ -53,7 +53,8 @@ final class StateOptionsOverrideWorkflow implements Flow<String> {
                     .waitForFailure(WaitForFailurePolicy.PROCEED)
                     .build();
             output += "_state1_decide";
-            return StepDecision.goToMulti(StepMovement.of(second, output, options));
+            return StepDecision.goToMulti(
+                    StepMovement.of(CompleteStep.class, output, options));
         }
     }
 

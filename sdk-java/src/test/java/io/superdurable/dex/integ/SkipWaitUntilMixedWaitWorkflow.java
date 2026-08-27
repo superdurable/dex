@@ -43,7 +43,7 @@ final class SkipWaitUntilMixedWaitWorkflow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(second, input + 1);
+            return StepDecision.goTo(MixedTimerStep.class, input + 1);
         }
 
         @Override

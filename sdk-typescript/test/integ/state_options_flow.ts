@@ -92,7 +92,7 @@ class OptionsSecondStep implements Step<void> {
     if (this.bothValue.get(context) !== "both") {
       throw new Error("shared attribute was not loaded in execute");
     }
-    return goTo(this.third, undefined);
+    return goTo(OptionsThirdStep, undefined);
   }
 
   public getStepOptions(): StepOptions {
@@ -121,7 +121,7 @@ class OptionsFirstStep implements Step<void> {
     this.executeValue.set(context, "execute");
     this.waitValue.set(context, "wait_until");
     this.bothValue.set(context, "both");
-    return goTo(this.second, undefined);
+    return goTo(OptionsSecondStep, undefined);
   }
 }
 

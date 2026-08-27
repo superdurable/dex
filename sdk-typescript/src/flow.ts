@@ -10,7 +10,7 @@ import { AttributeMap, IndexType, type Attribute, type PersistenceSchema } from 
 import { IndexType as ProtoIndexType } from "./gen/dex.js";
 import { FlowDefinitionError } from "./errors.js";
 import { registeredRPCs, type RegisteredRPC } from "./rpc.js";
-import { StepList, type Step, type StepDecision } from "./step.js";
+import { StepList, type Step, type StepClass, type StepDecision } from "./step.js";
 import { requireName } from "./validation.js";
 import type { Channel, ChannelMap } from "./wait.js";
 import type { Context } from "./context.js";
@@ -105,6 +105,7 @@ export interface RegisteredFlow {
   readonly flow: Flow<any>;
   readonly hasTimeoutHandler: boolean;
   readonly steps: readonly RegisteredStep[];
+  readonly stepsByClass: ReadonlyMap<StepClass<any>, RegisteredStep>;
   readonly startStep?: RegisteredStep;
   readonly rpcs: readonly RegisteredRPC[];
   readonly persistence: ReadonlyMap<
@@ -221,6 +222,7 @@ function doRegisterFlow(
   }
   const stepNames = new Set<string>();
   const steps: RegisteredStep[] = [];
+  const stepsByClass = new Map<StepClass<any>, RegisteredStep>();
   let startStep: RegisteredStep | undefined;
   let hasStartStep = false;
   for (const definition of stepDefinitions) {
@@ -231,13 +233,18 @@ function doRegisterFlow(
       hasStartStep = true;
     }
     const step = definition.step;
+    const stepClass = registeredStepClass(step);
     const stepName = stepType(name, step);
     if (stepNames.has(stepName)) {
       throw new FlowDefinitionError(`Flow ${name} has duplicate Step ${stepName}`);
     }
+    if (stepsByClass.has(stepClass)) {
+      throw new FlowDefinitionError(`Flow ${name} has duplicate Step class ${stepClass.name}`);
+    }
     stepNames.add(stepName);
     const registered = { name: stepName, step, isStartStep: definition.isStartStep };
     steps.push(registered);
+    stepsByClass.set(stepClass, registered);
     if (definition.isStartStep) {
       startStep = registered;
     }
@@ -284,10 +291,18 @@ function doRegisterFlow(
     flow,
     hasTimeoutHandler: typeof flow.handleTimeout === "function",
     steps: Object.freeze(steps),
+    stepsByClass,
     ...(startStep === undefined ? {} : { startStep }),
     rpcs,
     persistence,
   });
+}
+
+function registeredStepClass<Input>(step: Step<Input>): StepClass<Input> {
+  if (step.constructor === Object) {
+    throw new FlowDefinitionError("Step must be a class instance");
+  }
+  return step.constructor as StepClass<Input>;
 }
 
 function protoIndexType(indexType: IndexType): ProtoIndexType {

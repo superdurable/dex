@@ -92,7 +92,7 @@ class SignalFirstStep implements Step<number> {
     if (this.second.results(context).length !== 0) {
       throw new Error("second signal should still be waiting");
     }
-    return goTo(this.combination, input + (this.first.results(context)[0] ?? 0));
+    return goTo(SignalCombinationStep, input + (this.first.results(context)[0] ?? 0));
   }
 }
 

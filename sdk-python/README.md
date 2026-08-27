@@ -129,9 +129,9 @@ its normal decision:
 
 ```python
 return (
-    dex.go_to(self.record_quote, quote)
-    .with_canceling_sibling_steps(self.carrier_a, self.carrier_b)
-    .with_canceling_steps(self.global_quote_timeout)
+    dex.go_to(RecordQuote, quote)
+    .with_canceling_sibling_steps(QuoteCarrierA, QuoteCarrierB)
+    .with_canceling_steps(GlobalQuoteTimeout)
 )
 ```
 

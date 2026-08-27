@@ -531,7 +531,7 @@ class WorkerDispatcher:
     def _map_cancellation_steps(
         self,
         flow: _RegisteredFlow,
-        steps: tuple[Step[Any], ...],
+        steps: tuple[type[Step[Any]], ...],
     ) -> list[str]:
         step_types: list[str] = []
         seen: set[str] = set()
@@ -587,13 +587,9 @@ class WorkerDispatcher:
     @staticmethod
     def _registered_movement_target(
         flow: _RegisteredFlow,
-        step: object,
+        step: type[Step[Any]],
     ) -> _RegisteredStep:
-        step_type = getattr(step, "get_step_type", lambda: "")()
-        target = flow.step(step_type)
-        if target.step is not step:
-            raise ValueError("Step movement target does not belong to Flow")
-        return target
+        return flow.step_class(step)
 
     @staticmethod
     def _require_persistence_identity(

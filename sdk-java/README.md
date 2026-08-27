@@ -106,14 +106,10 @@ A successful Step can cancel queued or active executions by registered Step
 type while still choosing its normal next or close action:
 
 ```java
-private final QuoteCarrierA carrierA = new QuoteCarrierA();
-private final QuoteCarrierB carrierB = new QuoteCarrierB();
-private final RecordQuote recordQuote = new RecordQuote();
-
 @Override
 public StepDecision execute(Context context, Quote quote) {
-    return StepDecision.goTo(recordQuote, quote)
-            .withCancelingSiblingSteps(carrierA, carrierB);
+    return StepDecision.goTo(RecordQuote.class, quote)
+            .withCancelingSiblingSteps(QuoteCarrierA.class, QuoteCarrierB.class);
 }
 ```
 
@@ -121,8 +117,8 @@ public StepDecision execute(Context context, Quote quote) {
 type in the current Flow. `withCancelingSiblingSteps(...)` selects only
 executions whose `Context.getFromStepExecutionId()` is the same as the current
 execution's source. Both methods are immutable: repeated calls form a union,
-duplicate registered Steps are removed, and a Flow-wide selector supersedes a
-sibling selector for the same Step type. Passing an unregistered or null Step
+duplicate registered Step classes are removed, and a Flow-wide selector supersedes a
+sibling selector for the same Step type. Passing an unregistered or null Step class
 causes an invalid Step result.
 
 Dex resolves selectors from a snapshot after the current execution succeeds.

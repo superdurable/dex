@@ -30,8 +30,8 @@ import java.util.List;
  * if (order.cancelled) {
  *     return StepDecision.forceComplete("cancelled");
  * }
- * return StepDecision.goTo(chargeOrder, order)
- *         .withCancelingSiblingSteps(reserveInventory, quoteShipping);
+ * return StepDecision.goTo(ChargeOrder.class, order)
+ *         .withCancelingSiblingSteps(ReserveInventory.class, QuoteShipping.class);
  * }</pre>
  */
 public final class StepDecision {
@@ -51,8 +51,8 @@ public final class StepDecision {
     private final String reason;
     private final List<Object> emptyChannels;
     private final StepMovement<?> fallback;
-    private final List<Step<?>> cancelingSteps;
-    private final List<Step<?>> cancelingSiblingSteps;
+    private final List<Class<? extends Step<?>>> cancelingSteps;
+    private final List<Class<? extends Step<?>>> cancelingSiblingSteps;
 
     private StepDecision(
             final Kind kind,
@@ -62,8 +62,8 @@ public final class StepDecision {
             final String reason,
             final List<Object> emptyChannels,
             final StepMovement<?> fallback,
-            final List<Step<?>> cancelingSteps,
-            final List<Step<?>> cancelingSiblingSteps) {
+            final List<Class<? extends Step<?>>> cancelingSteps,
+            final List<Class<? extends Step<?>>> cancelingSiblingSteps) {
         this.kind = kind;
         this.movements = Collections.unmodifiableList(movements);
         this.hasOutput = hasOutput;
@@ -78,13 +78,15 @@ public final class StepDecision {
     /**
      * Schedules one typed next Step.
      *
-     * @param step the target Step
+     * @param stepClass the target Step class
      * @param input the typed target input
      * @param <I> the target Step input type
      * @return a next-Step decision
      */
-    public static <I> StepDecision goTo(final Step<I> step, final I input) {
-        return goToMulti(StepMovement.of(step, input));
+    public static <I> StepDecision goTo(
+            final Class<? extends Step<I>> stepClass,
+            final I input) {
+        return goToMulti(StepMovement.of(stepClass, input));
     }
 
     /**
@@ -102,8 +104,8 @@ public final class StepDecision {
                 null,
                 Collections.<Object>emptyList(),
                 null,
-                Collections.<Step<?>>emptyList(),
-                Collections.<Step<?>>emptyList());
+                Collections.<Class<? extends Step<?>>>emptyList(),
+                Collections.<Class<? extends Step<?>>>emptyList());
     }
 
     /**
@@ -176,8 +178,8 @@ public final class StepDecision {
                 null,
                 Arrays.<Object>asList(channels.clone()),
                 fallback,
-                Collections.<Step<?>>emptyList(),
-                Collections.<Step<?>>emptyList());
+                Collections.<Class<? extends Step<?>>>emptyList(),
+                Collections.<Class<? extends Step<?>>>emptyList());
     }
 
     /**
@@ -212,8 +214,8 @@ public final class StepDecision {
                 reason,
                 Collections.<Object>emptyList(),
                 null,
-                Collections.<Step<?>>emptyList(),
-                Collections.<Step<?>>emptyList());
+                Collections.<Class<? extends Step<?>>>emptyList(),
+                Collections.<Class<? extends Step<?>>>emptyList());
     }
 
     /**
@@ -226,16 +228,17 @@ public final class StepDecision {
      * for that handler to return.
      *
      * <p>Repeated calls take the union of their arguments. A Flow-wide selection supersedes a
-     * sibling-only selection for the same registered Step. Each argument must be the exact Step
-     * instance registered with the current Flow; a {@code null} or external Step causes an invalid
-     * Step result.
+     * sibling-only selection for the same registered Step class. Each argument must be one class
+     * registered with the current Flow; a {@code null} or external Step class causes an invalid Step result.
      *
-     * @param steps registered Steps whose queued or active executions should be canceled
+     * @param stepClasses registered Step classes whose queued or active executions should be canceled
      * @return a new decision containing the combined cancellation selection
      */
-    public StepDecision withCancelingSteps(final Step<?>... steps) {
-        final List<Step<?>> global = CancellationSteps.add(cancelingSteps, steps);
-        final List<Step<?>> siblings = new ArrayList<Step<?>>(cancelingSiblingSteps);
+    public StepDecision withCancelingSteps(final Class<? extends Step<?>>... stepClasses) {
+        final List<Class<? extends Step<?>>> global =
+                CancellationSteps.add(cancelingSteps, stepClasses);
+        final List<Class<? extends Step<?>>> siblings =
+                new ArrayList<Class<? extends Step<?>>>(cancelingSiblingSteps);
         CancellationSteps.remove(siblings, global);
         return copy(global, siblings);
     }
@@ -245,21 +248,23 @@ public final class StepDecision {
      *
      * <p>A sibling has the same {@link Context#getFromStepExecutionId()} as the execution returning
      * this decision. Dex applies the same snapshot, no-op, and handler interruption semantics as
-     * {@link #withCancelingSteps(Step[])}. Repeated calls take the union of their arguments, while a
+     * {@link #withCancelingSteps(Class[])}. Repeated calls take the union of their arguments, while a
      * Flow-wide selection for a Step type supersedes its sibling-only selection.
      *
-     * @param steps registered Steps whose matching sibling executions should be canceled
+     * @param stepClasses registered Step classes whose matching sibling executions should be canceled
      * @return a new decision containing the combined sibling cancellation selection
      */
-    public StepDecision withCancelingSiblingSteps(final Step<?>... steps) {
-        final List<Step<?>> siblings = CancellationSteps.add(cancelingSiblingSteps, steps);
+    public StepDecision withCancelingSiblingSteps(
+            final Class<? extends Step<?>>... stepClasses) {
+        final List<Class<? extends Step<?>>> siblings =
+                CancellationSteps.add(cancelingSiblingSteps, stepClasses);
         CancellationSteps.remove(siblings, cancelingSteps);
         return copy(cancelingSteps, siblings);
     }
 
     private StepDecision copy(
-            final List<Step<?>> global,
-            final List<Step<?>> siblings) {
+            final List<Class<? extends Step<?>>> global,
+            final List<Class<? extends Step<?>>> siblings) {
         return new StepDecision(
                 kind,
                 movements,
@@ -300,11 +305,11 @@ public final class StepDecision {
         return fallback;
     }
 
-    List<Step<?>> getCancelingSteps() {
+    List<Class<? extends Step<?>>> getCancelingSteps() {
         return cancelingSteps;
     }
 
-    List<Step<?>> getCancelingSiblingSteps() {
+    List<Class<? extends Step<?>>> getCancelingSiblingSteps() {
         return cancelingSiblingSteps;
     }
 }

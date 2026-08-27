@@ -53,7 +53,7 @@ final class StateRecoveryWorkflow implements Flow<Integer> {
                             .maximumAttempts(1)
                             .backoffCoefficient(2.0)
                             .build())
-                    .onExecuteFailureProceedTo(recover)
+                    .onExecuteFailureProceedTo(RecoverStep.class)
                     .build();
         }
     }
@@ -75,7 +75,7 @@ final class StateRecoveryWorkflow implements Flow<Integer> {
                 return StepDecision.gracefulComplete(input);
             }
             if (input == 5) {
-                return StepDecision.goTo(start, input * 2);
+                return StepDecision.goTo(FailingStep.class, input * 2);
             }
             return StepDecision.forceFail("unexpected input " + input);
         }

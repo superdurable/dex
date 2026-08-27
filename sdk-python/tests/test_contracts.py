@@ -215,6 +215,28 @@ def test_registry_rejects_duplicate_interfaces() -> None:
         Registry((ORDERS, ORDERS))
 
 
+def test_registry_rejects_duplicate_step_classes() -> None:
+    class DuplicateStep(Step[int]):
+        def __init__(self, step_type: str) -> None:
+            self._step_type = step_type
+
+        def get_step_type(self) -> str:
+            return self._step_type
+
+        def execute(self, context: Context, input: int) -> StepDecision:
+            del context
+            return graceful_complete(input)
+
+    class DuplicateStepFlow(Flow[int]):
+        def get_steps(self) -> StepList[int]:
+            return StepList.start_step(DuplicateStep("first")).other_steps(
+                DuplicateStep("second")
+            )
+
+    with pytest.raises(FlowDefinitionError, match="duplicate Step class"):
+        Registry((DuplicateStepFlow(),))
+
+
 def test_registry_wraps_user_definition_failures_with_flow_context() -> None:
     class BrokenFlow(Flow[None]):
         def get_steps(self) -> StepList[None]:

@@ -51,6 +51,6 @@ export class NoStartFlow implements Flow {
     if (_context.flowId === "" || _context.runId === "") {
       throw new Error("invalid RPC context");
     }
-    return { output: 100, nextSteps: [StepMovement.of(this.triggered, undefined)] };
+    return { output: 100, nextSteps: [StepMovement.of(TriggeredStep, undefined)] };
   }
 }

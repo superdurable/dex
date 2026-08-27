@@ -58,7 +58,7 @@ class RpcFirstStep implements Step<number> {
   }
 
   public execute(_context: Context, _input: number): StepDecision {
-    return goTo(this.second, 0);
+    return goTo(RpcSecondStep, 0);
   }
 }
 

@@ -128,9 +128,9 @@ class RPCResult(Generic[OutputT]):
 
     output: OutputT
     next_steps: tuple[StepMovement[Any], ...] = ()
-    canceling_steps: tuple[Step[Any], ...] = ()
+    canceling_steps: tuple[type[Step[Any]], ...] = ()
 
-    def with_canceling_steps(self, *steps: Step[Any]) -> RPCResult[OutputT]:
+    def with_canceling_steps(self, *steps: type[Step[Any]]) -> RPCResult[OutputT]:
         """Return a result canceling all current executions of selected Step types.
 
         Dex resolves the selection after RPC persistence commits and before ``next_steps``.
@@ -138,7 +138,7 @@ class RPCResult(Generic[OutputT]):
         siblings because an RPC has no Step execution lineage.
 
         Args:
-            *steps: Exact Step instances registered with the current Flow.
+            *steps: Step classes registered with the current Flow.
 
         Returns:
             A new RPCResult containing the combined cancellation selectors.
@@ -271,6 +271,7 @@ class _RegisteredFlow:
     flow: Flow[Any]
     has_timeout_handler: bool
     steps: MappingProxyType[str, _RegisteredStep]
+    steps_by_class: MappingProxyType[type[Step[Any]], _RegisteredStep]
     start_step: _RegisteredStep | None
     rpcs: MappingProxyType[str, _RegisteredRPC]
     persistence: MappingProxyType[str, _PersistenceDefinition]
@@ -281,6 +282,15 @@ class _RegisteredFlow:
         except KeyError as error:
             raise FlowDefinitionError(
                 f"Flow {self.name} Step is not registered: {name}"
+            ) from error
+
+    def step_class(self, step_class: type[Step[Any]]) -> _RegisteredStep:
+        try:
+            return self.steps_by_class[step_class]
+        except KeyError as error:
+            raise FlowDefinitionError(
+                f"Flow {self.name} Step class is not registered: "
+                f"{step_class.__qualname__}"
             ) from error
 
     def rpc(self, name: str) -> _RegisteredRPC:
@@ -424,6 +434,7 @@ class Registry:
         if not isinstance(definitions, StepList):
             raise TypeError("Flow steps must be a StepList")
         registered_steps: dict[str, _RegisteredStep] = {}
+        registered_steps_by_class: dict[type[Step[Any]], _RegisteredStep] = {}
         start_step: _RegisteredStep | None = None
         for definition in definitions:
             if not isinstance(definition, _StepDef):
@@ -436,6 +447,9 @@ class Registry:
             require_name(step_name)
             if step_name in registered_steps:
                 raise ValueError(f"duplicate Step {step_name}")
+            step_class = type(step)
+            if step_class in registered_steps_by_class:
+                raise ValueError(f"duplicate Step class {step_class.__qualname__}")
             registered_step = _RegisteredStep(
                 step_name,
                 step,
@@ -448,6 +462,7 @@ class Registry:
                 type(step).wait_for is Step.wait_for,
             )
             registered_steps[step_name] = registered_step
+            registered_steps_by_class[step_class] = registered_step
             if definition.is_start_step:
                 start_step = registered_step
 
@@ -489,6 +504,7 @@ class Registry:
                 flow, allow_async_handlers=allow_async_handlers
             ),
             MappingProxyType(registered_steps),
+            MappingProxyType(registered_steps_by_class),
             start_step,
             MappingProxyType(registered_rpcs),
             MappingProxyType(persistence),

@@ -38,7 +38,7 @@ class ImmutableFailingWaitStep implements Step<number> {
     if (!context.waitForMethodFailed()) {
       throw new Error("wait failure was not reported");
     }
-    return input === 1 ? goTo(this, 2) : gracefulComplete(input);
+    return input === 1 ? goTo(ImmutableFailingWaitStep, 2) : gracefulComplete(input);
   }
 
   public getStepOptions(): StepOptions {
@@ -52,15 +52,13 @@ class ImmutableFailingWaitStep implements Step<number> {
 class ImmutableStartStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
-  public constructor(private readonly failing: ImmutableFailingWaitStep) {}
-
   public getStepType(): string {
     return "ImmutableStartStep";
   }
 
   public execute(_context: Context, _input: number): StepDecision {
     return goToMulti(
-      StepMovement.of(this.failing, 1, {
+      StepMovement.of(ImmutableFailingWaitStep, 1, {
         waitForRetry: { maximumAttempts: 1 },
         waitForFailure: "proceed",
       }),
@@ -70,7 +68,7 @@ class ImmutableStartStep implements Step<number> {
 
 export class ImmutableStepOptionsFlow implements Flow<number> {
   private readonly failing = new ImmutableFailingWaitStep();
-  private readonly start = new ImmutableStartStep(this.failing);
+  private readonly start = new ImmutableStartStep();
 
   public getFlowType(): string {
     return "ImmutableStepOptionsFlow";

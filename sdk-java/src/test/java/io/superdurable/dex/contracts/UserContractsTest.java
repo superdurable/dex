@@ -124,6 +124,15 @@ public class UserContractsTest {
     }
 
     @Test
+    public void registryRejectsDuplicateStepClasses() {
+        final FlowDefinitionException exception = Assertions.assertThrows(
+                FlowDefinitionException.class,
+                () -> new Registry(Collections.<Flow<?>>singletonList(
+                        new DuplicateStepClassFlow())));
+        Assertions.assertTrue(exception.getMessage().contains("duplicate Step class"));
+    }
+
+    @Test
     public void clientValidatesInputBeforeTransport() {
         final Client client = new Client(
                 new Registry(Collections.<Flow<?>>singletonList(ORDERS)),
@@ -277,6 +286,37 @@ public class UserContractsTest {
         @Override
         public StepList<String> getSteps() {
             return uncheckedStartStep(new IntegerStartStep());
+        }
+    }
+
+    public static class DuplicateStepClassFlow implements Flow<Integer> {
+        @Override
+        public StepList<Integer> getSteps() {
+            return StepList.startStep(new NamedIntegerStep("first"))
+                    .otherSteps(new NamedIntegerStep("second"));
+        }
+    }
+
+    public static class NamedIntegerStep implements Step<Integer> {
+        private final String stepType;
+
+        public NamedIntegerStep(final String stepType) {
+            this.stepType = stepType;
+        }
+
+        @Override
+        public String getStepType() {
+            return stepType;
+        }
+
+        @Override
+        public Class<Integer> getInputType() {
+            return Integer.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Integer input) {
+            return StepDecision.gracefulComplete(input);
         }
     }
 

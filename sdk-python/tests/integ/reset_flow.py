@@ -44,7 +44,7 @@ class ResetWaitStep(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        return go_to(self.complete, None)
+        return go_to(ResetCompleteStep, None)
 
 
 class ResetFlow(Flow[None]):

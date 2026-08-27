@@ -222,6 +222,7 @@ public final class Client implements AutoCloseable {
             request.setStartStepType(registered.getStartStep().getName())
                     .setStepInput(values.encode(input));
             final io.superdurable.gen.StepOptions stepOptions = mappings.mapStepOptions(
+                    registered,
                     registered.getStartStep().getStep().getStepOptions());
             final io.superdurable.gen.StepOptions.Builder mappedStep = stepOptions == null
                     ? io.superdurable.gen.StepOptions.newBuilder()

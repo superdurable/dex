@@ -25,8 +25,6 @@ import {
 class RecoverNoWaitStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
 
-  public constructor(private readonly failingStep: () => FailingNoWaitStep) {}
-
   public getStepType(): string {
     return "RecoverNoWaitStep";
   }
@@ -36,7 +34,7 @@ class RecoverNoWaitStep implements Step<number> {
       return gracefulComplete(input);
     }
     if (input === 5) {
-      return goTo(this.failingStep(), input * 2);
+      return goTo(FailingNoWaitStep, input * 2);
     }
     return forceFail(`unexpected input ${input}`);
   }
@@ -44,8 +42,6 @@ class RecoverNoWaitStep implements Step<number> {
 
 class FailingNoWaitStep implements Step<number> {
   public readonly inputCodec = doubleCodec;
-
-  public constructor(private readonly recover: RecoverNoWaitStep) {}
 
   public getStepType(): string {
     return "FailingNoWaitStep";
@@ -58,16 +54,14 @@ class FailingNoWaitStep implements Step<number> {
   public getStepOptions(): StepOptions {
     return {
       executeRetry: { maximumAttempts: 1, backoffCoefficient: 2 },
-      executeFailure: ExecuteFailure.proceedTo(this.recover),
+      executeFailure: ExecuteFailure.proceedTo(RecoverNoWaitStep),
     };
   }
 }
 
 export class StateRecoveryNoWaitFlow implements Flow<number> {
-  private readonly recover: RecoverNoWaitStep = new RecoverNoWaitStep(
-    (): FailingNoWaitStep => this.start,
-  );
-  private readonly start: FailingNoWaitStep = new FailingNoWaitStep(this.recover);
+  private readonly recover: RecoverNoWaitStep = new RecoverNoWaitStep();
+  private readonly start: FailingNoWaitStep = new FailingNoWaitStep();
 
   public getFlowType(): string {
     return "StateRecoveryNoWaitFlow";

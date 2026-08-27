@@ -63,7 +63,7 @@ final class SignalWorkflow implements Flow<Integer> {
                 throw new IllegalStateException("second signal should still be waiting");
             }
             final int value = first.getConditionResults(context).get(0);
-            return StepDecision.goTo(combination, input + value);
+            return StepDecision.goTo(SignalCombinationStep.class, input + value);
         }
     }
 

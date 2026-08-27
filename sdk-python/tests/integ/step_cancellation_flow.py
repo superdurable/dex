@@ -56,20 +56,20 @@ class CancellationStart(Step[str]):
         scenario = self.flow.scenario
         if scenario is CancellationScenario.HEARTBEAT_WAIT_FOR:
             return go_to_multi(
-                StepMovement.of(self.flow.blocking_wait_for, None),
-                StepMovement.of(self.flow.winner, None),
+                StepMovement.of(CancellationBlockingWaitFor, None),
+                StepMovement.of(CancellationWinner, None),
             )
         if scenario in {
             CancellationScenario.GLOBAL_SELECTOR,
             CancellationScenario.SIBLING_SELECTOR,
         }:
             return go_to_multi(
-                StepMovement.of(self.flow.first_parent, None),
-                StepMovement.of(self.flow.second_parent, None),
+                StepMovement.of(CancellationFirstParent, None),
+                StepMovement.of(CancellationSecondParent, None),
             )
         return go_to_multi(
-            StepMovement.of(self.flow.blocking_execute, None),
-            StepMovement.of(self.flow.winner, None),
+            StepMovement.of(CancellationBlockingExecute, None),
+            StepMovement.of(CancellationWinner, None),
         )
 
 
@@ -94,7 +94,7 @@ class CancellationBlockingExecute(Step[None]):
             self.flow.cancellation_observed.set()
         self.flow.late_write.set(context, "late")
         self.flow.late_handler_returned.set()
-        return go_to(self.flow.recovery, None)
+        return go_to(CancellationRecovery, None)
 
     def get_step_options(self) -> StepOptions:
         options = StepOptions(
@@ -118,7 +118,7 @@ class CancellationBlockingExecute(Step[None]):
                 else StepDurability.SYNC
             ),
         )
-        return options.on_execute_failure_proceed_to(self.flow.recovery)
+        return options.on_execute_failure_proceed_to(CancellationRecovery)
 
 
 class CancellationBlockingWaitFor(Step[None]):
@@ -172,10 +172,10 @@ class CancellationWinner(Step[None]):
         if self.flow.scenario is CancellationScenario.LOCAL_EXECUTE:
             await asyncio.wait_for(self.flow.blocking_started.wait(), timeout=10)
             await asyncio.sleep(1)
-        selected: Step[Any] = self.flow.blocking_execute
+        selected: type[Step[Any]] = CancellationBlockingExecute
         if self.flow.scenario is CancellationScenario.HEARTBEAT_WAIT_FOR:
-            selected = self.flow.blocking_wait_for
-        return go_to(self.flow.final, self.flow.scenario.value).with_canceling_steps(
+            selected = CancellationBlockingWaitFor
+        return go_to(CancellationFinal, self.flow.scenario.value).with_canceling_steps(
             selected
         )
 
@@ -207,8 +207,8 @@ class CancellationFirstParent(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
         return go_to_multi(
-            StepMovement.of(self.flow.selector_winner, None),
-            StepMovement.of(self.flow.selector_waiting, "first"),
+            StepMovement.of(CancellationSelectorWinner, None),
+            StepMovement.of(CancellationSelectorWaiting, "first"),
         )
 
 
@@ -218,7 +218,7 @@ class CancellationSecondParent(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        return go_to(self.flow.selector_waiting, "second")
+        return go_to(CancellationSelectorWaiting, "second")
 
 
 class CancellationSelectorWinner(Step[None]):
@@ -234,10 +234,10 @@ class CancellationSelectorWinner(Step[None]):
     ) -> StepDecision:
         del context, input
         await asyncio.wait_for(self.flow.selector_waits_registered.wait(), timeout=10)
-        decision = go_to(self.flow.final, self.flow.scenario.value)
+        decision = go_to(CancellationFinal, self.flow.scenario.value)
         if self.flow.scenario is CancellationScenario.GLOBAL_SELECTOR:
-            return decision.with_canceling_steps(self.flow.selector_waiting)
-        return decision.with_canceling_sibling_steps(self.flow.selector_waiting)
+            return decision.with_canceling_steps(CancellationSelectorWaiting)
+        return decision.with_canceling_sibling_steps(CancellationSelectorWaiting)
 
 
 class CancellationSelectorWaiting(Step[str]):

@@ -36,7 +36,7 @@ class FailingWaitStep implements Step<string> {
   }
 
   public execute(_context: Context, input: string): StepDecision {
-    return goTo(this.second, `${input}-recovered`);
+    return goTo(CompleteStringStep, `${input}-recovered`);
   }
 
   public getStepOptions(): StepOptions {

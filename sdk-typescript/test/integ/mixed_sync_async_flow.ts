@@ -29,8 +29,6 @@ import {
 class SyncWaitAsyncExecuteStep implements Step<string> {
   public readonly inputCodec = stringCodec;
 
-  public constructor(private readonly next: AsyncWaitSyncExecuteStep) {}
-
   public getStepType(): string {
     return "SyncWaitAsyncExecuteStep";
   }
@@ -43,15 +41,13 @@ class SyncWaitAsyncExecuteStep implements Step<string> {
   public async execute(context: Context, input: string): Promise<StepDecision> {
     await Promise.resolve();
     const prefix = context.getStepExecutionLocal("prefix", stringCodec) ?? input;
-    return goTo(this.next, `${prefix}-async-exec`);
+    return goTo(AsyncWaitSyncExecuteStep, `${prefix}-async-exec`);
   }
 }
 
 // Async waitFor + sync execute, then hands off to a fully sync step.
 class AsyncWaitSyncExecuteStep implements Step<string> {
   public readonly inputCodec = stringCodec;
-
-  public constructor(private readonly next: SyncCompleteStep) {}
 
   public getStepType(): string {
     return "AsyncWaitSyncExecuteStep";
@@ -63,7 +59,7 @@ class AsyncWaitSyncExecuteStep implements Step<string> {
   }
 
   public execute(_context: Context, input: string): StepDecision {
-    return goTo(this.next, `${input}-sync-exec`);
+    return goTo(SyncCompleteStep, `${input}-sync-exec`);
   }
 }
 
@@ -81,8 +77,8 @@ class SyncCompleteStep implements Step<string> {
 
 export class MixedSyncAsyncStepsFlow implements Flow<string> {
   private readonly third = new SyncCompleteStep();
-  private readonly second = new AsyncWaitSyncExecuteStep(this.third);
-  private readonly first = new SyncWaitAsyncExecuteStep(this.second);
+  private readonly second = new AsyncWaitSyncExecuteStep();
+  private readonly first = new SyncWaitAsyncExecuteStep();
 
   public getFlowType(): string {
     return "MixedSyncAsyncStepsFlow";

@@ -68,7 +68,7 @@ class ResetWorkflow implements Flow<Void> {
     public RPCResult<Void> withLocking(final Context context) {
         writeAttributes(context);
         channel.publish(context, null);
-        return RPCResult.<Void>of(null, StepMovement.of(second, null));
+        return RPCResult.<Void>of(null, StepMovement.of(LockCompleteStep.class, null));
     }
 
     @RPC(lockAttributeMaps = {
@@ -82,7 +82,7 @@ class ResetWorkflow implements Flow<Void> {
     public RPCResult<Void> withoutLocking(final Context context) {
         writeAttributes(context);
         channel.publish(context, null);
-        return RPCResult.<Void>of(null, StepMovement.of(second, null));
+        return RPCResult.<Void>of(null, StepMovement.of(LockCompleteStep.class, null));
     }
 
     private void writeAttributes(final Context context) {
@@ -104,7 +104,7 @@ class ResetWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.goTo(second, null);
+            return StepDecision.goTo(LockCompleteStep.class, null);
         }
     }
 

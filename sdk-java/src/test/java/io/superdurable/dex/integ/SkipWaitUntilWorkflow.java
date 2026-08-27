@@ -35,7 +35,7 @@ final class SkipWaitUntilWorkflow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goTo(second, input + 1);
+            return StepDecision.goTo(ExecuteOnlySecondStep.class, input + 1);
         }
     }
 

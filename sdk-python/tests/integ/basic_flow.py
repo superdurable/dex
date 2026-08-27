@@ -36,7 +36,7 @@ class BasicFirstStep(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
-        return go_to(self.second, input + 1)
+        return go_to(BasicSecondStep, input + 1)
 
 
 class BasicFlow(Flow[int]):

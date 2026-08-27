@@ -18,15 +18,16 @@ final class CancellationSteps {
     private CancellationSteps() {
     }
 
-    static List<Step<?>> add(
-            final List<Step<?>> existing,
-            final Step<?>[] additions) {
-        final List<Step<?>> combined = new ArrayList<Step<?>>(existing);
+    static List<Class<? extends Step<?>>> add(
+            final List<Class<? extends Step<?>>> existing,
+            final Class<? extends Step<?>>[] additions) {
+        final List<Class<? extends Step<?>>> combined =
+                new ArrayList<Class<? extends Step<?>>>(existing);
         if (additions == null) {
             combined.add(null);
             return combined;
         }
-        for (Step<?> addition : additions) {
+        for (Class<? extends Step<?>> addition : additions) {
             if (!contains(combined, addition)) {
                 combined.add(addition);
             }
@@ -35,8 +36,8 @@ final class CancellationSteps {
     }
 
     static void remove(
-            final List<Step<?>> target,
-            final List<Step<?>> removals) {
+            final List<Class<? extends Step<?>>> target,
+            final List<Class<? extends Step<?>>> removals) {
         for (int index = target.size() - 1; index >= 0; index--) {
             if (contains(removals, target.get(index))) {
                 target.remove(index);
@@ -44,15 +45,17 @@ final class CancellationSteps {
         }
     }
 
-    static List<Step<?>> immutable(final List<Step<?>> steps) {
-        return Collections.unmodifiableList(new ArrayList<Step<?>>(steps));
+    static List<Class<? extends Step<?>>> immutable(
+            final List<Class<? extends Step<?>>> steps) {
+        return Collections.unmodifiableList(
+                new ArrayList<Class<? extends Step<?>>>(steps));
     }
 
     private static boolean contains(
-            final List<Step<?>> steps,
-            final Step<?> candidate) {
-        for (Step<?> step : steps) {
-            if (step == candidate) {
+            final List<Class<? extends Step<?>>> steps,
+            final Class<? extends Step<?>> candidate) {
+        for (Class<? extends Step<?>> stepClass : steps) {
+            if (stepClass == candidate) {
                 return true;
             }
         }

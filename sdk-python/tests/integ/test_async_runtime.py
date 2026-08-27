@@ -145,7 +145,7 @@ class StartChild(Step[int]):
         child_id = unique_id("async-child")
         await client.start_flow(self._child, child_id, 0)
         (await client.wait_for_flow(child_id, WAIT_TIMEOUT)).single_output(int)
-        return go_to(self._finish, input)
+        return go_to(Finish, input)
 
 
 class Finish(Step[int]):

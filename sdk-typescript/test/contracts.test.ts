@@ -288,6 +288,34 @@ test("registry rejects duplicate definitions", () => {
   assert.throws(() => new Registry([orders, orders]), FlowDefinitionError);
 });
 
+test("registry rejects duplicate Step classes", () => {
+  class DuplicateStep implements Step<number> {
+    public constructor(private readonly type: string) {}
+
+    public getStepType(): string {
+      return this.type;
+    }
+
+    public execute(_context: Context, input: number): StepDecision {
+      return gracefulComplete(input);
+    }
+  }
+
+  class DuplicateStepFlow implements Flow<number> {
+    public getFlowType(): string {
+      return "DuplicateStepFlow";
+    }
+
+    public getSteps(): StepList<number> {
+      return StepList.startStep(new DuplicateStep("first")).otherSteps(
+        new DuplicateStep("second"),
+      );
+    }
+  }
+
+  assert.throws(() => new Registry([new DuplicateStepFlow()]), /duplicate Step class/);
+});
+
 test("value mapping failures have a stable error type", () => {
   const invalid = {
     get orderId(): string {

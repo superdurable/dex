@@ -122,6 +122,8 @@ public final class Registry {
         }
         final Map<String, RegisteredStep> steps =
                 new LinkedHashMap<String, RegisteredStep>();
+        final Map<Class<?>, RegisteredStep> stepsByClass =
+                new LinkedHashMap<Class<?>, RegisteredStep>();
         RegisteredStep startStep = null;
         for (StepDef definition : definitions.getDefinitions()) {
             if (definition == null || definition.getStep() == null) {
@@ -139,9 +141,15 @@ public final class Registry {
                 throw new FlowDefinitionException(
                         "Flow " + flowType + " has duplicate Step " + stepType);
             }
+            if (stepsByClass.containsKey(step.getClass())) {
+                throw new FlowDefinitionException(
+                        "Flow " + flowType + " has duplicate Step class "
+                                + step.getClass().getName());
+            }
             final RegisteredStep registered =
                     new RegisteredStep(stepType, step, definition.isStartStep());
             steps.put(stepType, registered);
+            stepsByClass.put(step.getClass(), registered);
             if (definition.isStartStep()) {
                 if (startStep != null) {
                     throw new FlowDefinitionException(
@@ -163,7 +171,14 @@ public final class Registry {
                 assemblePersistence(flowType, schema, attributeIndexes);
         final Map<String, RegisteredRpc> rpcs = assembleRpcs(flowType, flow, persistence);
         return new RegisteredFlow(
-                flowType, flow, overridesTimeoutHandler(flow), steps, startStep, rpcs, persistence);
+                flowType,
+                flow,
+                overridesTimeoutHandler(flow),
+                steps,
+                stepsByClass,
+                startStep,
+                rpcs,
+                persistence);
     }
 
     private static boolean overridesTimeoutHandler(final Flow<?> flow) {
@@ -467,6 +482,7 @@ public final class Registry {
         private final Flow<?> flow;
         private final boolean hasTimeoutHandler;
         private final Map<String, RegisteredStep> steps;
+        private final Map<Class<?>, RegisteredStep> stepsByClass;
         private final RegisteredStep startStep;
         private final Map<String, RegisteredRpc> rpcs;
         private final Map<String, PersistenceDefinition> persistence;
@@ -476,6 +492,7 @@ public final class Registry {
                 final Flow<?> flow,
                 final boolean hasTimeoutHandler,
                 final Map<String, RegisteredStep> steps,
+                final Map<Class<?>, RegisteredStep> stepsByClass,
                 final RegisteredStep startStep,
                 final Map<String, RegisteredRpc> rpcs,
                 final Map<String, PersistenceDefinition> persistence) {
@@ -483,6 +500,7 @@ public final class Registry {
             this.flow = flow;
             this.hasTimeoutHandler = hasTimeoutHandler;
             this.steps = Collections.unmodifiableMap(steps);
+            this.stepsByClass = Collections.unmodifiableMap(stepsByClass);
             this.startStep = startStep;
             this.rpcs = Collections.unmodifiableMap(rpcs);
             this.persistence = Collections.unmodifiableMap(persistence);
@@ -492,6 +510,19 @@ public final class Registry {
         Flow<?> getFlow() { return flow; }
         boolean hasTimeoutHandler() { return hasTimeoutHandler; }
         Map<String, RegisteredStep> getSteps() { return steps; }
+        RegisteredStep getStep(final Class<?> stepClass) {
+            if (stepClass == null) {
+                throw new FlowDefinitionException(
+                        "Flow " + name + " Step class is required");
+            }
+            final RegisteredStep step = stepsByClass.get(stepClass);
+            if (step == null) {
+                throw new FlowDefinitionException(
+                        "Flow " + name + " Step class is not registered: "
+                                + stepClass.getName());
+            }
+            return step;
+        }
         RegisteredStep getStartStep() { return startStep; }
         Map<String, RegisteredRpc> getRpcs() { return rpcs; }
         Map<String, PersistenceDefinition> getPersistence() { return persistence; }

@@ -50,7 +50,7 @@ class BasicFirstStep implements Step<number> {
 
   public async execute(_context: Context, input: number): Promise<StepDecision> {
     await Promise.resolve();
-    return goTo(this.second, input + 1);
+    return goTo(BasicSecondStep, input + 1);
   }
 }
 

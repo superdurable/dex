@@ -47,7 +47,7 @@ class MixedImmediateStep(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
-        return go_to(self.second, input + 1)
+        return go_to(MixedTimerStep, input + 1)
 
     def get_step_options(self) -> StepOptions:
         return self.options

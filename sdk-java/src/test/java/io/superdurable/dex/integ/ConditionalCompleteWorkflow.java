@@ -65,7 +65,7 @@ class ConditionalCompleteWorkflow implements Flow<Boolean> {
             final Channel<Void> selected = useSignal ? signal : internal;
             return StepDecision.forceCompleteIfChannelsEmpty(
                     next,
-                    StepMovement.of(this, useSignal),
+                    StepMovement.of(ConditionalStep.class, useSignal),
                     selected);
         }
     }

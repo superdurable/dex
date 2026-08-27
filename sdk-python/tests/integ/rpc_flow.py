@@ -44,7 +44,7 @@ class RpcFirstStep(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input
-        return go_to(self.second, 0)
+        return go_to(RpcSecondStep, 0)
 
 
 class RpcFlow(Flow[int]):
