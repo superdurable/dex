@@ -35,7 +35,7 @@ pub const PRODUCT_FLOW_TYPES: [&str; 10] = [
 
 pub const PATTERN_FLOW_TYPES: [&str; 19] = [
     "CronScheduleFlow",
-    "DrainInternalChannelsFlow",
+    "DrainInternalChannelFlow",
     "DrainingExternalChannelFlow",
     "InterruptibleExecutionFlow",
     "ManualInterventionFlow",

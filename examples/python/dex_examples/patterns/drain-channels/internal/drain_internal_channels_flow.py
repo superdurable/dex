@@ -37,29 +37,29 @@ from dex_examples.patterns.drain_channels.internal.mongo_document import (
 
 
 class Finalize(Step[None]):
-    def __init__(self, upsert_mongo_data: Channel[MongoDocument]) -> None:
-        self.upsert_mongo_data = upsert_mongo_data
+    def __init__(self, side_step_data: Channel[MongoDocument]) -> None:
+        self.side_step_data = side_step_data
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
-        self.upsert_mongo_data.publish(
+        self.side_step_data.publish(
             context,
             MongoDocument("documentId-1", "FINALIZED", True),
         )
         return graceful_complete()
 
 
-class ProcessData(Step[str]):
+class MainStep(Step[str]):
     def __init__(
         self,
         finalize: Finalize,
         external_service: ServiceDependency,
-        upsert_mongo_data: Channel[MongoDocument],
+        side_step_data: Channel[MongoDocument],
         execution_counter: Attribute[int],
     ) -> None:
         self.finalize = finalize
         self.external_service = external_service
-        self.upsert_mongo_data = upsert_mongo_data
+        self.side_step_data = side_step_data
         self.execution_counter = execution_counter
 
     def execute(self, context: Context, input: str) -> StepDecision:
@@ -67,7 +67,7 @@ class ProcessData(Step[str]):
         self.execution_counter.set(context, execution_count)
 
         statuses = {1: "RECEIVED", 2: "ACCEPTED", 3: "PASSED"}
-        self.upsert_mongo_data.publish(
+        self.side_step_data.publish(
             context,
             MongoDocument(input, statuses.get(execution_count, "ERROR"), False),
         )
@@ -84,22 +84,22 @@ class ProcessData(Step[str]):
         return go_to(Finalize, None)
 
 
-class UpsertMongoRecord(Step[None]):
+class SideStep(Step[None]):
     def __init__(
         self,
         mongo_collection: ServiceDependency,
-        upsert_mongo_data: Channel[MongoDocument],
+        side_step_data: Channel[MongoDocument],
     ) -> None:
         self.mongo_collection = mongo_collection
-        self.upsert_mongo_data = upsert_mongo_data
+        self.side_step_data = side_step_data
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.until(self.upsert_mongo_data.for_one())
+        return Wait.until(self.side_step_data.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
-        documents = self.upsert_mongo_data.results(context)
+        documents = self.side_step_data.results(context)
         if not documents:
             raise RuntimeError("No document was sent")
 
@@ -117,56 +117,56 @@ class UpsertMongoRecord(Step[None]):
 class Init(Step[str]):
     def __init__(
         self,
-        upsert_mongo_record: UpsertMongoRecord,
-        process_data: ProcessData,
+        side_step: SideStep,
+        main_step: MainStep,
         execution_counter: Attribute[int],
     ) -> None:
-        self.upsert_mongo_record = upsert_mongo_record
-        self.process_data = process_data
+        self.side_step = side_step
+        self.main_step = main_step
         self.execution_counter = execution_counter
 
     def execute(self, context: Context, input: str) -> StepDecision:
         self.execution_counter.set(context, 0)
         return go_to_multi(
-            StepMovement.of(UpsertMongoRecord, None),
-            StepMovement.of(ProcessData, input),
+            StepMovement.of(self.side_step, None),
+            StepMovement.of(self.main_step, input),
         )
 
 
-class DrainInternalChannelsFlow(Flow[str]):
-    UPSERT_MONGO_DATA_INTERNAL_CHANNEL = "upsert_mongo_data_internal_channel"
-    PROCESS_DATA_STATE_EXECUTION_COUNTER = "process_data_state_execution_counter"
+class DrainInternalChannelFlow(Flow[str]):
+    SIDE_STEP_DATA_CHANNEL = "SideStepData"
+    MAIN_STEP_EXECUTION_COUNTER = "main_step_execution_counter"
 
-    process_data_state_execution_counter = Attribute(
-        PROCESS_DATA_STATE_EXECUTION_COUNTER,
+    main_step_execution_counter = Attribute(
+        MAIN_STEP_EXECUTION_COUNTER,
         int,
     )
-    upsert_mongo_data = Channel(UPSERT_MONGO_DATA_INTERNAL_CHANNEL, MongoDocument)
+    side_step_data = Channel(SIDE_STEP_DATA_CHANNEL, MongoDocument)
 
     def __init__(self, service: ServiceDependency) -> None:
-        self.finalize = Finalize(self.upsert_mongo_data)
-        self.process_data = ProcessData(
+        self.finalize = Finalize(self.side_step_data)
+        self.main_step = MainStep(
             self.finalize,
             service,
-            self.upsert_mongo_data,
-            self.process_data_state_execution_counter,
+            self.side_step_data,
+            self.main_step_execution_counter,
         )
-        self.upsert_mongo_record = UpsertMongoRecord(service, self.upsert_mongo_data)
+        self.side_step = SideStep(service, self.side_step_data)
         self.init = Init(
-            self.upsert_mongo_record,
-            self.process_data,
-            self.process_data_state_execution_counter,
+            self.side_step,
+            self.main_step,
+            self.main_step_execution_counter,
         )
 
     def get_steps(self) -> StepList[str]:
         return StepList.start_step(self.init).other_steps(
-            self.upsert_mongo_record,
-            self.process_data,
+            self.side_step,
+            self.main_step,
             self.finalize,
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(
-            self.process_data_state_execution_counter,
-            self.upsert_mongo_data,
+            self.main_step_execution_counter,
+            self.side_step_data,
         )

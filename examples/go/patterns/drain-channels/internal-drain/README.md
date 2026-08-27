@@ -1,4 +1,4 @@
-# DrainInternalChannelsFlow
+# DrainInternalChannelFlow
 
 ## Endpoints
 

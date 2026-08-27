@@ -33,25 +33,23 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 @Component
-public class DrainInternalChannelsFlow implements Flow<String> {
-    public static final String UPSERT_MONGO_DATA_INTERNAL_CHANNEL =
-            "upsert_mongo_data_internal_channel";
-    public static final String PROCESS_DATA_STATE_EXECUTION_COUNTER =
-            "process_data_state_execution_counter";
+public class DrainInternalChannelFlow implements Flow<String> {
+    public static final String SIDE_STEP_DATA_CHANNEL = "SideStepData";
+    public static final String MAIN_STEP_EXECUTION_COUNTER = "main_step_execution_counter";
 
-    public final Attribute<Integer> processDataStateExecutionCounter =
-            Attribute.define(PROCESS_DATA_STATE_EXECUTION_COUNTER, Integer.class);
-    public final Channel<MongoDocument> upsertMongoData =
-            Channel.define(UPSERT_MONGO_DATA_INTERNAL_CHANNEL, MongoDocument.class);
+    public final Attribute<Integer> mainStepExecutionCounter =
+            Attribute.define(MAIN_STEP_EXECUTION_COUNTER, Integer.class);
+    public final Channel<MongoDocument> sideStepData =
+            Channel.define(SIDE_STEP_DATA_CHANNEL, MongoDocument.class);
 
     private final ServiceDependency externalService;
     private final ServiceDependency mongoCollection;
     private final Init init = new Init();
-    private final UpsertMongoRecord upsertMongoRecord = new UpsertMongoRecord();
-    private final ProcessData processData = new ProcessData();
+    private final SideStep sideStep = new SideStep();
+    private final MainStep mainStep = new MainStep();
     private final Finalize finalize = new Finalize();
 
-    public DrainInternalChannelsFlow(final ServiceDependency service) {
+    public DrainInternalChannelFlow(final ServiceDependency service) {
         this.externalService = service;
         this.mongoCollection = service;
     }
@@ -59,12 +57,12 @@ public class DrainInternalChannelsFlow implements Flow<String> {
     @Override
     public StepList<String> getSteps() {
         return StepList.startStep(init)
-                .otherSteps(upsertMongoRecord, processData, finalize);
+                .otherSteps(sideStep, mainStep, finalize);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(processDataStateExecutionCounter, upsertMongoData);
+        return PersistenceSchema.of(mainStepExecutionCounter, sideStepData);
     }
 
     final class Init implements Step<String> {
@@ -75,14 +73,14 @@ public class DrainInternalChannelsFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            processDataStateExecutionCounter.set(context, 0);
+            mainStepExecutionCounter.set(context, 0);
             return StepDecision.goToMulti(
-                    StepMovement.of(UpsertMongoRecord.class, null),
-                    StepMovement.of(ProcessData.class, input));
+                    StepMovement.of(sideStep, null),
+                    StepMovement.of(mainStep, input));
         }
     }
 
-    final class UpsertMongoRecord implements Step<Void> {
+    final class SideStep implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
@@ -90,12 +88,12 @@ public class DrainInternalChannelsFlow implements Flow<String> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.until(upsertMongoData.forOne());
+            return Wait.until(sideStepData.forOne());
         }
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            final List<MongoDocument> documents = upsertMongoData.getConditionResults(context);
+            final List<MongoDocument> documents = sideStepData.getConditionResults(context);
             if (documents.isEmpty()) {
                 throw new IllegalStateException("No document was sent");
             }
@@ -114,11 +112,11 @@ public class DrainInternalChannelsFlow implements Flow<String> {
             if (document.finalCommand) {
                 return StepDecision.gracefulComplete();
             }
-            return StepDecision.goTo(UpsertMongoRecord.class, null);
+            return StepDecision.goTo(sideStep, null);
         }
     }
 
-    final class ProcessData implements Step<String> {
+    final class MainStep implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -126,8 +124,8 @@ public class DrainInternalChannelsFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            final int executionCount = processDataStateExecutionCounter.get(context) + 1;
-            processDataStateExecutionCounter.set(context, executionCount);
+            final int executionCount = mainStepExecutionCounter.get(context) + 1;
+            mainStepExecutionCounter.set(context, executionCount);
 
             final String status;
             switch (executionCount) {
@@ -144,7 +142,7 @@ public class DrainInternalChannelsFlow implements Flow<String> {
                     status = "ERROR";
                     break;
             }
-            upsertMongoData.publish(
+            sideStepData.publish(
                     context,
                     new MongoDocument(input, status, false));
 
@@ -154,7 +152,7 @@ public class DrainInternalChannelsFlow implements Flow<String> {
                     "a call to send metrics or add a log to logrepo");
 
             if (executionCount <= 3) {
-                return StepDecision.goTo(ProcessData.class, input);
+                return StepDecision.goTo(mainStep, input);
             }
             return StepDecision.goTo(Finalize.class, null);
         }
@@ -168,7 +166,7 @@ public class DrainInternalChannelsFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            upsertMongoData.publish(
+            sideStepData.publish(
                     context,
                     new MongoDocument("documentId-1", "FINALIZED", true));
             return StepDecision.gracefulComplete();

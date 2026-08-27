@@ -32,7 +32,7 @@ use dex_sdk::{Registry, SdkResult};
 pub fn register(registry: Registry) -> SdkResult<Registry> {
     registry
         .register(cron::CronScheduleFlow::default())?
-        .register(drain_channels::DrainInternalChannelsFlow::default())?
+        .register(drain_channels::DrainInternalChannelFlow::default())?
         .register(drain_channels::DrainingExternalChannelFlow::default())?
         .register(interruptible::InterruptibleExecutionFlow::default())?
         .register(intervention::ManualInterventionFlow::default())?

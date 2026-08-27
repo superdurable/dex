@@ -34,7 +34,7 @@ from dex import (
 from dex_examples.config import ExamplesConfig
 from dex_examples.patterns.cron.cron_schedule_flow import CronScheduleFlow
 from dex_examples.patterns.drain_channels.internal.drain_internal_channels_flow import (
-    DrainInternalChannelsFlow,
+    DrainInternalChannelFlow,
 )
 from dex_examples.patterns.drain_channels.external_publishing.draining_channel_flow import (
     DrainingExternalChannelFlow,
@@ -134,7 +134,7 @@ class ExampleApp:
         )
 
         self.cron_schedule = CronScheduleFlow()
-        self.drain_internal = DrainInternalChannelsFlow(pattern_service)
+        self.drain_internal = DrainInternalChannelFlow(pattern_service)
         self.drain_external = DrainingExternalChannelFlow()
         self.interruptible = InterruptibleExecutionFlow()
         self.manual_intervention = ManualInterventionFlow()

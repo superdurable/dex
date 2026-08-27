@@ -28,41 +28,41 @@ import (
 )
 
 const (
-	UpsertMongoDataInternalChannel   = "upsert_mongo_data_internal_channel"
-	ProcessDataStateExecutionCounter = "process_data_state_execution_counter"
+	SideStepDataChannelName  = "SideStepData"
+	MainStepExecutionCounter = "main_step_execution_counter"
 )
 
 var (
-	ProcessDataStateExecutionCounterAttribute = dex.DefineAttribute[int](
-		ProcessDataStateExecutionCounter,
+	MainStepExecutionCounterAttribute = dex.DefineAttribute[int](
+		MainStepExecutionCounter,
 	)
-	UpsertMongoData = dex.DefineChannel[MongoDocument](UpsertMongoDataInternalChannel)
+	SideStepData = dex.DefineChannel[MongoDocument](SideStepDataChannelName)
 )
 
-type DrainInternalChannelsFlow struct {
+type DrainInternalChannelFlow struct {
 	dex.FlowDefaults
 	service patternsservice.ServiceDependency
 }
 
-func NewDrainInternalChannelsFlow(
+func NewDrainInternalChannelFlow(
 	service patternsservice.ServiceDependency,
-) *DrainInternalChannelsFlow {
-	return &DrainInternalChannelsFlow{service: service}
+) *DrainInternalChannelFlow {
+	return &DrainInternalChannelFlow{service: service}
 }
 
-func (flow *DrainInternalChannelsFlow) GetSteps() []dex.StepDef {
+func (flow *DrainInternalChannelFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initStep{}),
-		dex.DefineStep(upsertMongoRecordStep{service: flow.service}),
-		dex.DefineStep(processDataStep{service: flow.service}),
+		dex.DefineStep(sideStep{service: flow.service}),
+		dex.DefineStep(mainStep{service: flow.service}),
 		dex.DefineStep(finalizeStep{}),
 	}
 }
 
-func (*DrainInternalChannelsFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*DrainInternalChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{ProcessDataStateExecutionCounterAttribute},
-		Channels:   []dex.ChannelDef{UpsertMongoData},
+		Attributes: []dex.AttributeDef{MainStepExecutionCounterAttribute},
+		Channels:   []dex.ChannelDef{SideStepData},
 	}
 }
 
@@ -74,32 +74,32 @@ func (initStep) Execute(
 	ctx dex.Context,
 	input string,
 ) (*dex.StepDecision, error) {
-	if err := ProcessDataStateExecutionCounterAttribute.Set(ctx, 0); err != nil {
+	if err := MainStepExecutionCounterAttribute.Set(ctx, 0); err != nil {
 		return nil, err
 	}
 	return dex.GoToMulti(
-		dex.MovementOf(upsertMongoRecordStep{}, nil),
-		dex.MovementOf(processDataStep{}, input),
+		dex.MovementOf(sideStep{}, nil),
+		dex.MovementOf(mainStep{}, input),
 	), nil
 }
 
-type upsertMongoRecordStep struct {
+type sideStep struct {
 	dex.StepDefaults
 	service patternsservice.ServiceDependency
 }
 
-func (upsertMongoRecordStep) WaitFor(
+func (sideStep) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
-	return dex.Until(UpsertMongoData.ForOne()), nil
+	return dex.Until(SideStepData.ForOne()), nil
 }
 
-func (step upsertMongoRecordStep) Execute(
+func (step sideStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
-	documents, err := UpsertMongoData.GetConditionResults(ctx)
+	documents, err := SideStepData.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -113,24 +113,24 @@ func (step upsertMongoRecordStep) Execute(
 	if document.FinalCommand {
 		return dex.GracefulComplete(nil), nil
 	}
-	return dex.GoTo(upsertMongoRecordStep{}, nil), nil
+	return dex.GoTo(sideStep{}, nil), nil
 }
 
-type processDataStep struct {
+type mainStep struct {
 	dex.StepDefaultsNoWaitFor[string]
 	service patternsservice.ServiceDependency
 }
 
-func (step processDataStep) Execute(
+func (step mainStep) Execute(
 	ctx dex.Context,
 	input string,
 ) (*dex.StepDecision, error) {
-	executionCount, err := ProcessDataStateExecutionCounterAttribute.Get(ctx)
+	executionCount, err := MainStepExecutionCounterAttribute.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
 	executionCount++
-	if err := ProcessDataStateExecutionCounterAttribute.Set(ctx, executionCount); err != nil {
+	if err := MainStepExecutionCounterAttribute.Set(ctx, executionCount); err != nil {
 		return nil, err
 	}
 	status := "ERROR"
@@ -142,7 +142,7 @@ func (step processDataStep) Execute(
 	case 3:
 		status = "PASSED"
 	}
-	if err := UpsertMongoData.Publish(ctx, MongoDocument{
+	if err := SideStepData.Publish(ctx, MongoDocument{
 		ID:           input,
 		Status:       status,
 		FinalCommand: false,
@@ -154,7 +154,7 @@ func (step processDataStep) Execute(
 	)
 	step.service.ExternalAPICall("a call to send metrics or add a log to logrepo")
 	if executionCount <= 3 {
-		return dex.GoTo(processDataStep{}, input), nil
+		return dex.GoTo(mainStep{}, input), nil
 	}
 	return dex.GoTo(finalizeStep{}, nil), nil
 }
@@ -167,7 +167,7 @@ func (finalizeStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
-	if err := UpsertMongoData.Publish(ctx, MongoDocument{
+	if err := SideStepData.Publish(ctx, MongoDocument{
 		ID:           "documentId-1",
 		Status:       "FINALIZED",
 		FinalCommand: true,
@@ -177,4 +177,4 @@ func (finalizeStep) Execute(
 	return dex.GracefulComplete(nil), nil
 }
 
-var _ dex.Flow = (*DrainInternalChannelsFlow)(nil)
+var _ dex.Flow = (*DrainInternalChannelFlow)(nil)

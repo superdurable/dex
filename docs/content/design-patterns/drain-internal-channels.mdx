@@ -8,93 +8,71 @@ Finish a producer/consumer Flow after its internally published Channel messages 
 
 ## Problem and approach
 
-Use this pattern when one branch of a Flow publishes work for another branch. **Init** starts the producer and consumer in parallel. **ProcessData** publishes one document command at a time to **upsertMongoData**. **UpsertMongoRecord** waits for one Channel value, writes it, and waits again.
+Use this pattern when one branch of a Flow publishes work for another branch. **Init** starts **MainStep** and **SideStep** in parallel. **MainStep** publishes each document command to **SideStepData**. **SideStep** waits for one Channel value, writes it, and waits again.
 
-After the producer has published all ordinary commands, **Finalize** publishes one final command to the same Channel. The consumer completes only after it has processed that command, so every earlier published document is handled before the Flow finishes. With several producer branches, make **Finalize** wait for all producers before it publishes the final command.
+The key is the sentinel published by **Finalize**. After **MainStep** has published every ordinary message, **Finalize** publishes a final command to **SideStepData**. Because a Channel is a FIFO queue, **SideStep** cannot receive that sentinel until it has received every earlier message. It completes only when it receives the sentinel, so the Flow does not finish before every published document is handled. With several producer branches, make **Finalize** wait for all producers before it publishes the sentinel.
 
-This Flow has no RPC. It is started by the Client; communication between its concurrent Step branches uses the Channel.
-
-import DrainingChannelsForInternalPublishingDiagram from '@site/src/components/design-patterns/DrainingChannelsForInternalPublishingDiagram';
-
-<DrainingChannelsForInternalPublishingDiagram />
+![DrainInternalChannelFlow: Init starts MainStep and SideStep. MainStep and Finalize publish to SideStepData; SideStep consumes the FIFO queue and completes after the sentinel.](/img/design-patterns/drain-internal-channel.png)
 
 ## Code examples
-
-Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix /patterns/name/... where applicable). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
-
-The excerpts show the producer publish, the consumer wait and loop, and the completion decision. The Rust example queues all producer values in **Seed** and atomically completes after the Channel is empty instead of using a final command.
 
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/patterns/drain-channels/internal/drain_internal_channels_flow.py',
     go: 'examples/go/patterns/drain-channels/internal-drain/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/internal/DrainInternalChannelsFlow.java',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/internal/DrainInternalChannelFlow.java',
     typescript: 'examples/typescript/src/patterns/drain-channels/internal/drain-internal-channels-flow.ts',
     rust: 'examples/rust/src/patterns/drain_channels/flow.rs',
   }}>
 <SdkSnippet lang="python">
 
 ```python
-def execute(self, context: Context, input: str) -> StepDecision:
-    execution_count = self.execution_counter.get(context) + 1
-    self.execution_counter.set(context, execution_count)
+class MainStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        execution_count = self.execution_counter.get(context) + 1
+        self.execution_counter.set(context, execution_count)
+        statuses = {1: "RECEIVED", 2: "ACCEPTED", 3: "PASSED"}
+        self.side_step_data.publish(
+            context,
+            MongoDocument(input, statuses.get(execution_count, "ERROR"), False),
+        )
+        if execution_count <= 3:
+            return go_to(self, input)
+        return go_to(self.finalize, None)
 
-    statuses = {1: "RECEIVED", 2: "ACCEPTED", 3: "PASSED"}
-    self.upsert_mongo_data.publish(
-        context,
-        MongoDocument(input, statuses.get(execution_count, "ERROR"), False),
-    )
+class SideStep(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        del context, input
+        return Wait.until(self.side_step_data.for_one())
 
-    self.external_service.external_api_call(
-        "external service call to process data (e.g. notify the job seeker)"
-    )
-    self.external_service.external_api_call(
-        "a call to send metrics or add a log to logrepo"
-    )
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del input
+        document = self.side_step_data.results(context)[0]
+        self.mongo_collection.upsert(document)
+        if document.final_command:
+            return graceful_complete()
+        return go_to(self, None)
 
-    if execution_count <= 3:
-        return go_to(self, input)
-    return go_to(self.finalize, None)
-
-def wait_for(self, context: Context, input: None) -> Wait:
-    del context, input
-    return Wait.until(self.upsert_mongo_data.for_one())
-
-def execute(self, context: Context, input: None) -> StepDecision:
-    del input
-    documents = self.upsert_mongo_data.results(context)
-    if not documents:
-        raise RuntimeError("No document was sent")
-
-    document = documents[0]
-    if document is None:
-        raise RuntimeError("No data was sent")
-
-    self.mongo_collection.upsert(document)
-    if document.final_command:
+class Finalize(Step[None]):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del input
+        self.side_step_data.publish(
+            context, MongoDocument("documentId-1", "FINALIZED", True)
+        )
         return graceful_complete()
-    return go_to(self, None)
-
-def execute(self, context: Context, input: None) -> StepDecision:
-    del input
-    self.upsert_mongo_data.publish(
-        context,
-        MongoDocument("documentId-1", "FINALIZED", True),
-    )
-    return graceful_complete()
 ```
 
 </SdkSnippet>
   <SdkSnippet lang="go">
 
 ```go
-func (step processDataStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
-	executionCount, err := ProcessDataStateExecutionCounterAttribute.Get(ctx)
+func (step mainStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	executionCount, err := MainStepExecutionCounterAttribute.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
 	executionCount++
-	if err := ProcessDataStateExecutionCounterAttribute.Set(ctx, executionCount); err != nil {
+	if err := MainStepExecutionCounterAttribute.Set(ctx, executionCount); err != nil {
 		return nil, err
 	}
 	status := "ERROR"
@@ -106,7 +84,7 @@ func (step processDataStep) Execute(ctx dex.Context, input string) (*dex.StepDec
 	case 3:
 		status = "PASSED"
 	}
-	if err := UpsertMongoData.Publish(ctx, MongoDocument{
+	if err := SideStepData.Publish(ctx, MongoDocument{
 		ID:           input,
 		Status:       status,
 		FinalCommand: false,
@@ -114,16 +92,20 @@ func (step processDataStep) Execute(ctx dex.Context, input string) (*dex.StepDec
 		return nil, err
 	}
 	if executionCount <= 3 {
-		return dex.GoTo(processDataStep{}, input), nil
+		return dex.GoTo(mainStep{}, input), nil
 	}
 	return dex.GoTo(finalizeStep{}, nil), nil
 }
 
-func (upsertMongoRecordStep) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
-	return dex.Until(UpsertMongoData.ForOne()), nil
+func (sideStep) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.Until(SideStepData.ForOne()), nil
 }
 
-func (step upsertMongoRecordStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+func (step sideStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	documents, err := SideStepData.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
 	document := documents[0]
 	if err := step.service.Upsert(document); err != nil {
 		return nil, err
@@ -131,11 +113,11 @@ func (step upsertMongoRecordStep) Execute(ctx dex.Context, _ dex.None) (*dex.Ste
 	if document.FinalCommand {
 		return dex.GracefulComplete(nil), nil
 	}
-	return dex.GoTo(upsertMongoRecordStep{}, nil), nil
+	return dex.GoTo(sideStep{}, nil), nil
 }
 
 func (finalizeStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	if err := UpsertMongoData.Publish(ctx, MongoDocument{
+	if err := SideStepData.Publish(ctx, MongoDocument{
 		ID: "documentId-1", Status: "FINALIZED", FinalCommand: true,
 	}); err != nil {
 		return nil, err
@@ -148,9 +130,10 @@ func (finalizeStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, err
   <SdkSnippet lang="java">
 
 ```java
-public StepDecision execute(final Context context, final String input) {
-    final int executionCount = processDataStateExecutionCounter.get(context) + 1;
-    processDataStateExecutionCounter.set(context, executionCount);
+final class MainStep implements Step<String> {
+    public StepDecision execute(final Context context, final String input) {
+    final int executionCount = mainStepExecutionCounter.get(context) + 1;
+    mainStepExecutionCounter.set(context, executionCount);
 
     final String status;
     switch (executionCount) {
@@ -167,33 +150,38 @@ public StepDecision execute(final Context context, final String input) {
             status = "ERROR";
             break;
     }
-    upsertMongoData.publish(
+    sideStepData.publish(
             context,
             new MongoDocument(input, status, false));
     if (executionCount <= 3) {
-        return StepDecision.goTo(processData, input);
+        return StepDecision.goTo(mainStep, input);
     }
     return StepDecision.goTo(finalize, null);
+    }
 }
 
+final class SideStep implements Step<Void> {
 public Wait waitFor(final Context context, final Void input) {
-    return Wait.until(upsertMongoData.forOne());
+    return Wait.until(sideStepData.forOne());
 }
 
 public StepDecision execute(final Context context, final Void input) {
-    final MongoDocument document = upsertMongoData.getConditionResults(context).get(0);
+    final MongoDocument document = sideStepData.getConditionResults(context).get(0);
     mongoCollection.upsert(document);
     if (document.finalCommand) {
         return StepDecision.gracefulComplete();
     }
-    return StepDecision.goTo(upsertMongoRecord, null);
+    return StepDecision.goTo(sideStep, null);
+}
 }
 
+final class Finalize implements Step<Void> {
 public StepDecision execute(final Context context, final Void input) {
-    upsertMongoData.publish(
+    sideStepData.publish(
             context,
             new MongoDocument("documentId-1", "FINALIZED", true));
     return StepDecision.gracefulComplete();
+}
 }
 ```
 
@@ -202,8 +190,8 @@ public StepDecision execute(final Context context, final Void input) {
 
 ```typescript
 public execute(context: Context, input: string): StepDecision {
-  const executionCount = this.flow.processDataStateExecutionCounter.get(context) + 1;
-  this.flow.processDataStateExecutionCounter.set(context, executionCount);
+  const executionCount = this.flow.mainStepExecutionCounter.get(context) + 1;
+  this.flow.mainStepExecutionCounter.set(context, executionCount);
 
   let status: string;
   switch (executionCount) {
@@ -221,32 +209,32 @@ public execute(context: Context, input: string): StepDecision {
       break;
   }
 
-  upsertMongoData.publish(context, {
+  sideStepData.publish(context, {
     id: input,
     status,
     finalCommand: false,
   });
   if (executionCount <= 3) {
-    return goTo(this.flow.processDataStep, input);
+    return goTo(this.flow.mainStep, input);
   }
   return goTo(this.flow.finalizeStep, undefined);
 }
 
 public waitFor(_context: Context, _input: void): Wait {
-  return Wait.until(upsertMongoData.forOne());
+  return Wait.until(sideStepData.forOne());
 }
 
 public execute(context: Context, _input: void): StepDecision {
-  const document = upsertMongoData.results(context)[0];
+  const document = sideStepData.results(context)[0];
   this.flow.mongoCollection.upsert(document);
   if (document.finalCommand) {
     return gracefulComplete();
   }
-  return goTo(this.flow.upsertMongoRecordStep, undefined);
+  return goTo(this.flow.sideStep, undefined);
 }
 
 public execute(context: Context, _input: void): StepDecision {
-  upsertMongoData.publish(context, {
+  sideStepData.publish(context, {
     id: "documentId-1",
     status: "FINALIZED",
     finalCommand: true,
@@ -259,29 +247,47 @@ public execute(context: Context, _input: void): StepDecision {
   <SdkSnippet lang="rust">
 
 ```rust
-fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-    for item in input {
-        internal_queue().publish(context, item)?;
+impl Step for MainStep {
+    type Input = Vec<String>;
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        for value in input {
+            side_step_data().publish(context, SideStepData::Message(value))?;
+        }
+        Ok(StepDecision::go_to(&Finalize, ()))
     }
-    Ok(StepDecision::go_to(&DrainInternal, ()))
 }
 
-fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-    Ok(Wait::until(internal_queue().for_one()))
+impl Step for SideStep {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        Ok(Wait::until(side_step_data().for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        let command = side_step_data()
+            .condition_results(context)?
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        match command {
+            SideStepData::Message(value) => {
+                context.record_event("drained-internal", value)?;
+                Ok(StepDecision::go_to(&SideStep, ()))
+            }
+            SideStepData::Final => Ok(StepDecision::graceful_complete(())),
+        }
+    }
 }
 
-fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-    let item = internal_queue()
-        .condition_results(context)?
-        .into_iter()
-        .next()
-        .unwrap_or_default();
-    context.record_event("drained-internal", item)?;
-    Ok(StepDecision::force_complete_if_channels_empty(
-        (),
-        StepMovement::to(&DrainInternal, ()),
-        [internal_queue().when_empty()],
-    ))
+impl Step for Finalize {
+    type Input = ();
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        side_step_data().publish(context, SideStepData::Final)?;
+        Ok(StepDecision::graceful_complete(()))
+    }
 }
 ```
 
