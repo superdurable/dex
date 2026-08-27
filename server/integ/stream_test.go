@@ -48,15 +48,24 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 		inputs[index] = streamInput(flowID, streamName, index, "value-0000")
 	}
 	charge := estimatedCharge(inputs[0], 1)
-	for index := range inputs {
+	leaseKey := streamTestBaseKey(streamName) + ":trim-lease"
+	require.NoError(t, redisClient.Set(context.Background(), leaseKey, "held", 10*time.Second).Err())
+	for index := 0; index < 10; index++ {
 		inputs[index].MaxEstimatedBytes = charge * 10
 		require.NoError(t, store.Write(context.Background(), inputs[index]))
 	}
+	inputs[10].MaxEstimatedBytes = charge * 10
+	require.ErrorIs(t, store.Write(context.Background(), inputs[10]), streamstore.ErrCapacityExceeded)
+	require.Equal(t, int64(10), streamLength(t, redisClient, streamName))
+	require.NoError(t, redisClient.Del(context.Background(), leaseKey).Err())
+	require.Eventually(t, func() bool {
+		return streamLength(t, redisClient, streamName) == 8
+	}, 3*time.Second, 10*time.Millisecond)
 
 	flowAMessages := readAvailableMessages(t, store, "flow-a", streamName)
 	flowBMessages := readAvailableMessages(t, store, "flow-b", streamName)
 	requireStreamAccountingConsistent(t, redisClient, streamName)
-	require.Equal(t, []string{"public-02", "public-04", "public-06", "public-08", "public-10"}, messageKeys(flowAMessages))
+	require.Equal(t, []string{"public-02", "public-04", "public-06", "public-08"}, messageKeys(flowAMessages))
 	require.Equal(t, []string{"public-03", "public-05", "public-07", "public-09"}, messageKeys(flowBMessages))
 	require.WithinDuration(t, time.Now(), flowAMessages[0].CreatedTime, 5*time.Second)
 
@@ -65,18 +74,26 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 	nextMessage := readOneMessage(t, store, "flow-a", streamName, firstToken)
 	require.Equal(t, "public-04", nextMessage.IdempotencyKey)
 
-	duplicate := inputs[10]
+	duplicate := inputs[8]
 	duplicate.Value = &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "different"}}
 	require.NoError(t, store.Write(context.Background(), duplicate))
-	require.Equal(t, int64(9), streamLength(t, redisClient, streamName))
-	beforeLastToken, err := streamstore.EncodeResumeToken("flow-a", streamName, flowAMessages[3].RedisID)
+	require.Equal(t, int64(8), streamLength(t, redisClient, streamName))
+	beforeLastToken, err := streamstore.EncodeResumeToken("flow-a", streamName, flowAMessages[2].RedisID)
 	require.NoError(t, err)
 	retainedOriginal := readOneMessage(t, store, "flow-a", streamName, beforeLastToken)
 	require.Equal(t, "value-0000", retainedOriginal.Value.GetStringValue())
 
-	trimTrigger := streamInput("flow-b", streamName, 11, "value-0000")
+	trimTrigger := inputs[10]
 	trimTrigger.MaxEstimatedBytes = charge * 3
+	require.ErrorIs(t, store.Write(context.Background(), trimTrigger), streamstore.ErrCapacityExceeded)
+	require.Eventually(t, func() bool {
+		return streamLength(t, redisClient, streamName) <= 2
+	}, 3*time.Second, 10*time.Millisecond)
 	require.NoError(t, store.Write(context.Background(), trimTrigger))
+	require.Eventually(t, func() bool {
+		return streamLength(t, redisClient, streamName) <= 2
+	}, 3*time.Second, 10*time.Millisecond)
+	requireStreamAccountingConsistent(t, redisClient, streamName)
 	oldTokenMessage := readOneMessage(t, store, "flow-a", streamName, firstToken)
 	require.Equal(t, "public-10", oldTokenMessage.IdempotencyKey)
 
@@ -104,15 +121,18 @@ func TestStreamStoreTrimmedIdentityCanWriteAgain(t *testing.T) {
 	}
 	trigger := streamInput("flow-a", streamName, 80, "trigger-000")
 	trigger.MaxEstimatedBytes = charge * 2
-	require.NoError(t, store.Write(context.Background(), trigger))
+	require.ErrorIs(t, store.Write(context.Background(), trigger), streamstore.ErrCapacityExceeded)
 	require.Eventually(t, func() bool {
-		return streamLength(t, redisClient, streamName) <= 2
+		return streamLength(t, redisClient, streamName) <= 1
 	}, 3*time.Second, 10*time.Millisecond)
 	requireStreamAccountingConsistent(t, redisClient, streamName)
 
 	original.Value = &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "rewritten-0"}}
 	original.MaxEstimatedBytes = charge * 2
 	require.NoError(t, store.Write(context.Background(), original))
+	require.Eventually(t, func() bool {
+		return streamLength(t, redisClient, streamName) <= 1
+	}, 3*time.Second, 10*time.Millisecond)
 	messages := readAvailableMessages(t, store, "flow-a", streamName)
 	foundRewritten := false
 	for _, message := range messages {
@@ -158,9 +178,13 @@ func TestStreamStoreConcurrentTrimLeaseRecovery(t *testing.T) {
 	require.NoError(t, redisClient.Set(context.Background(), leaseKey, "failed-owner", 250*time.Millisecond).Err())
 	trigger := streamInput("flow-a", streamName, 200, "payload-0000")
 	trigger.MaxEstimatedBytes = charge * 10
+	require.ErrorIs(t, firstStore.Write(context.Background(), trigger), streamstore.ErrCapacityExceeded)
+	require.Eventually(t, func() bool {
+		return streamLength(t, redisClient, streamName) <= 8
+	}, 4*time.Second, 10*time.Millisecond)
 	require.NoError(t, firstStore.Write(context.Background(), trigger))
 	require.Eventually(t, func() bool {
-		return streamLength(t, redisClient, streamName) <= 9
+		return streamLength(t, redisClient, streamName) <= 8
 	}, 4*time.Second, 10*time.Millisecond)
 	requireStreamAccountingConsistent(t, redisClient, streamName)
 
@@ -206,7 +230,7 @@ func TestStreamStoreStaleGlobalReferencePreservesRewrittenIdempotency(t *testing
 	charge := estimatedCharge(original, 1)
 	trigger := streamInput("flow-b", streamName, refreshIndex, "trigger-000")
 	trigger.MaxEstimatedBytes = charge * 4
-	require.NoError(t, store.Write(context.Background(), trigger))
+	require.ErrorIs(t, store.Write(context.Background(), trigger), streamstore.ErrCapacityExceeded)
 	require.Eventually(t, func() bool {
 		return streamLength(t, redisClient, streamName) <= 3
 	}, 2*time.Second, 10*time.Millisecond)
@@ -252,6 +276,19 @@ func TestStreamAPITemporal(t *testing.T) {
 	require.Equal(t, "client-key", response.GetMessage().GetIdempotencyKey())
 	require.NotEmpty(t, response.GetMessage().GetResumeToken())
 	require.WithinDuration(t, time.Now(), response.GetMessage().GetCreatedTime().AsTime(), 5*time.Second)
+	chargedBytes, err := redisClient.Get(context.Background(), streamTestBaseKey(streamName)+":charged").Int64()
+	require.NoError(t, err)
+	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
+		FlowId:            flowID,
+		StreamName:        streamName,
+		MaxEstimatedBytes: chargedBytes*2 - 1,
+		Value:             stringValue("first"),
+		Producer: &dexpb.WriteStreamRequest_Client{
+			Client: &dexpb.ClientStreamProducer{IdempotencyKey: "second-key"},
+		},
+	})
+	require.Equal(t, codes.ResourceExhausted, status.Code(err))
+	require.Equal(t, int64(1), streamLength(t, redisClient, streamName))
 	_, err = flowClient.WriteStream(ctx, &dexpb.WriteStreamRequest{
 		FlowId:            flowID,
 		StreamName:        streamName,
@@ -385,7 +422,8 @@ func BenchmarkStreamStoreWrite(b *testing.B) {
 				RedisURL:           streamTestRedisURL,
 				IdleTTL:            ptr.Any(10 * time.Minute),
 				TrimWorkers:        2,
-				TrimReservePercent: 10,
+				TrimTriggerPercent: 90,
+				TrimTargetPercent:  80,
 			}, log.NewNoop())
 			require.NoError(b, err)
 			defer func() { require.NoError(b, store.Close()) }()
@@ -396,7 +434,7 @@ func BenchmarkStreamStoreWrite(b *testing.B) {
 			b.ResetTimer()
 			for index := 0; index < b.N; index++ {
 				input := streamInput("flow-"+strconv.Itoa(index%100), streamName, index, payload)
-				input.MaxEstimatedBytes = 32 << 20
+				input.MaxEstimatedBytes = 1 << 40
 				require.NoError(b, store.Write(context.Background(), input))
 			}
 		})
@@ -408,7 +446,8 @@ func newStreamTestStore(t testing.TB, idleTTL *time.Duration) (*streamstore.Stor
 	store, err := streamstore.New(&config.StreamStoreConfig{
 		RedisURL:                      streamTestRedisURL,
 		EstimatedMessageOverheadBytes: 1,
-		TrimReservePercent:            10,
+		TrimTriggerPercent:            90,
+		TrimTargetPercent:             80,
 		IdleTTL:                       idleTTL,
 		TrimWorkers:                   2,
 	}, log.NewNoop())

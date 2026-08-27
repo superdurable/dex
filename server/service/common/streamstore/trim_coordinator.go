@@ -91,10 +91,12 @@ func (c *trimCoordinator) Schedule(streamName string, targetBytes int64) {
 	if state == nil {
 		state = &trimState{targetBytes: targetBytes}
 		c.pending[streamName] = state
-	} else if targetBytes < state.targetBytes {
-		state.targetBytes = targetBytes
 	} else {
-		return
+		if targetBytes < state.targetBytes {
+			state.targetBytes = targetBytes
+		} else if !state.isRunning {
+			return
+		}
 	}
 	state.generation++
 	c.ready.Signal()

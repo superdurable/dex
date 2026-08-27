@@ -28,15 +28,17 @@ Integration and replay test instructions are available in
 
 The optional `streamStore` configuration enables Redis 7+ Standalone-backed
 resumable Streams. `redisURL` enables the feature. The remaining settings tune
-approximate per-message charging, trim reserve, native idle TTL, and background
-trim concurrency. Redis is intentionally excluded from server readiness; only
-Stream RPCs fail when it is unavailable. Configure dedicated Redis memory with
+approximate per-message charging, trim watermarks, native idle TTL, and
+background trim concurrency. Redis is intentionally excluded from server
+readiness; only Stream RPCs fail when it is unavailable. Configure dedicated Redis memory with
 `maxmemory` and `noeviction` so memory pressure becomes a visible write error.
 
 Capacity is not stored in Redis. Each write supplies the limit for all Flow
 instances with that Stream name. Charged bytes approximate the serialized
 Value, Flow ID, public and internal idempotency identities, and configured
-overhead. Crossing the limit trims global FIFO order toward the reserve target.
+overhead. Reaching the default 90% trigger starts singleton background FIFO
+trimming toward the 80% target. A write that would exceed 100% is not appended;
+it returns `ResourceExhausted` after scheduling trim and can be retried later.
 The default 24-hour idle TTL is refreshed by writes and retained idempotent
 replays, not reads; set `idleTTL: 0` to disable it.
 

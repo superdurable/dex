@@ -56,6 +56,7 @@ blobStore:
 # streamStore:
 #   redisURL: redis://redis:6379/0
 #   estimatedMessageOverheadBytes: 512
-#   trimReservePercent: 10
+#   trimTriggerPercent: 90
+#   trimTargetPercent: 80
 #   idleTTL: 24h
 #   trimWorkers: 4

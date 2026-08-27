@@ -593,7 +593,7 @@ func streamStoreError(err error) error {
 			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,
 			err.Error(),
 		).ToGRPCError()
-	case errors.Is(err, streamstore.ErrMessageTooLarge):
+	case errors.Is(err, streamstore.ErrMessageTooLarge), errors.Is(err, streamstore.ErrCapacityExceeded):
 		return serviceerrors.NewErrorAndStatus(
 			codes.ResourceExhausted,
 			dexpb.ErrorSubStatus_ERROR_SUB_STATUS_UNCATEGORIZED,

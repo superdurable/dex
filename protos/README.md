@@ -31,6 +31,11 @@ by `flow_id` and `stream_name`. Every write carries `max_estimated_bytes` and a
 client or Step producer identity. The server uses that identity for
 first-write-wins idempotency.
 
+Capacity applies across every Flow instance of the same Stream name. Reaching
+the trim trigger schedules background global FIFO trimming toward the target.
+A write that would exceed the hard capacity is not appended and returns
+`ResourceExhausted`; retry it after trimming creates space.
+
 `ReadStream` long-polls one message after an opaque, scope-bound resume token.
 An empty token starts at the earliest retained message. A token older than the
 retained head also resumes at that head. Each response includes the message

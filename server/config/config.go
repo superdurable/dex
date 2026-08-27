@@ -72,8 +72,10 @@ const (
 	DefaultAttributeIndexSyncTimeout = 2 * time.Minute
 	// DefaultStreamEstimatedMessageOverheadBytes approximates Redis bookkeeping per message.
 	DefaultStreamEstimatedMessageOverheadBytes int64 = 512
-	// DefaultStreamTrimReservePercent creates headroom after capacity-triggered trimming.
-	DefaultStreamTrimReservePercent int32 = 10
+	// DefaultStreamTrimTriggerPercent starts asynchronous trimming at ninety percent of capacity.
+	DefaultStreamTrimTriggerPercent int32 = 90
+	// DefaultStreamTrimTargetPercent stops asynchronous trimming at eighty percent of capacity.
+	DefaultStreamTrimTargetPercent int32 = 80
 	// DefaultStreamIdleTTL expires inactive Stream data without a background scan.
 	DefaultStreamIdleTTL = 24 * time.Hour
 	// DefaultStreamTrimWorkers bounds process-wide asynchronous trim concurrency.
@@ -153,8 +155,10 @@ type (
 		RedisURL string `yaml:"redisURL"`
 		// EstimatedMessageOverheadBytes is charged per message beyond payload and identity bytes. Default 512. Must be non-negative.
 		EstimatedMessageOverheadBytes int64 `yaml:"estimatedMessageOverheadBytes"`
-		// TrimReservePercent trims below capacity by this percentage. Default 10. Valid range is 1 through 99.
-		TrimReservePercent int32 `yaml:"trimReservePercent"`
+		// TrimTriggerPercent starts asynchronous trimming at this capacity percentage. Default 90. Valid range is 1 through 99.
+		TrimTriggerPercent int32 `yaml:"trimTriggerPercent"`
+		// TrimTargetPercent stops asynchronous trimming at this capacity percentage. Default 80. Must be below TrimTriggerPercent.
+		TrimTargetPercent int32 `yaml:"trimTargetPercent"`
 		// IdleTTL expires inactive keys using Redis native TTL. Default 24h when omitted; explicit 0 disables expiration.
 		IdleTTL *time.Duration `yaml:"idleTTL"`
 		// TrimWorkers bounds concurrent background trim jobs per server process. Default 4. Must be positive after defaults.
@@ -487,12 +491,20 @@ func (c StreamStoreConfig) EffectiveEstimatedMessageOverheadBytes() int64 {
 	return c.EstimatedMessageOverheadBytes
 }
 
-// EffectiveTrimReservePercent returns the configured reserve or ten-percent default.
-func (c StreamStoreConfig) EffectiveTrimReservePercent() int32 {
-	if c.TrimReservePercent == 0 {
-		return DefaultStreamTrimReservePercent
+// EffectiveTrimTriggerPercent returns the configured trigger or ninety-percent default.
+func (c StreamStoreConfig) EffectiveTrimTriggerPercent() int32 {
+	if c.TrimTriggerPercent == 0 {
+		return DefaultStreamTrimTriggerPercent
 	}
-	return c.TrimReservePercent
+	return c.TrimTriggerPercent
+}
+
+// EffectiveTrimTargetPercent returns the configured target or eighty-percent default.
+func (c StreamStoreConfig) EffectiveTrimTargetPercent() int32 {
+	if c.TrimTargetPercent == 0 {
+		return DefaultStreamTrimTargetPercent
+	}
+	return c.TrimTargetPercent
 }
 
 // EffectiveIdleTTL returns the configured TTL, defaulting to 24 hours when omitted.
@@ -516,9 +528,13 @@ func (c StreamStoreConfig) Validate() error {
 	if c.EstimatedMessageOverheadBytes < 0 {
 		return fmt.Errorf("stream store estimatedMessageOverheadBytes must be non-negative")
 	}
-	reservePercent := c.EffectiveTrimReservePercent()
-	if reservePercent < 1 || reservePercent > 99 {
-		return fmt.Errorf("stream store trimReservePercent must be between 1 and 99")
+	triggerPercent := c.EffectiveTrimTriggerPercent()
+	if triggerPercent < 1 || triggerPercent > 99 {
+		return fmt.Errorf("stream store trimTriggerPercent must be between 1 and 99")
+	}
+	targetPercent := c.EffectiveTrimTargetPercent()
+	if targetPercent < 1 || targetPercent >= triggerPercent {
+		return fmt.Errorf("stream store trimTargetPercent must be positive and less than trimTriggerPercent")
 	}
 	if c.EffectiveIdleTTL() < 0 {
 		return fmt.Errorf("stream store idleTTL must be non-negative")

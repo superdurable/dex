@@ -30,6 +30,7 @@ import (
 var (
 	ErrDisabled           = errors.New("Stream Store is disabled")
 	ErrMessageTooLarge    = errors.New("Stream message exceeds maxEstimatedBytes")
+	ErrCapacityExceeded   = errors.New("Stream capacity is exhausted; retry after background trimming")
 	ErrWaitTimeout        = errors.New("Stream read timed out")
 	ErrInvalidResumeToken = errors.New("invalid Stream resume token")
 	ErrUnavailable        = errors.New("Stream Redis is unavailable")
@@ -112,7 +113,8 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 		return err
 	}
 	keys := streamKeys(input.StreamName, input.FlowID)
-	baseTrimTarget := reserveTarget(input.MaxEstimatedBytes, s.cfg.EffectiveTrimReservePercent())
+	trimTrigger := percentageOf(input.MaxEstimatedBytes, s.cfg.EffectiveTrimTriggerPercent())
+	baseTrimTarget := percentageOf(input.MaxEstimatedBytes, s.cfg.EffectiveTrimTargetPercent())
 	messageTrimTarget := baseTrimTarget
 	if messageTrimTarget < chargedBytes {
 		messageTrimTarget = chargedBytes
@@ -128,10 +130,10 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 		payload,
 		chargedBytes,
 		input.MaxEstimatedBytes,
+		trimTrigger,
 		baseTrimTarget,
 		messageTrimTarget,
 		s.cfg.EffectiveIdleTTL().Milliseconds(),
-		syncTrimBatchSize,
 	).Result()
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -142,13 +144,6 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 	values, err := scriptValues(result, 6)
 	if err != nil {
 		return fmt.Errorf("decode Stream write result: %w", err)
-	}
-	statusCode, err := scriptInt64(values[5])
-	if err != nil {
-		return fmt.Errorf("decode Stream write status: %w", err)
-	}
-	if statusCode == 1 {
-		return ErrMessageTooLarge
 	}
 	needsTrim, err := scriptInt64(values[3])
 	if err != nil {
@@ -161,7 +156,20 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 		}
 		s.coordinator.Schedule(input.StreamName, targetBytes)
 	}
-	return nil
+	statusCode, err := scriptInt64(values[5])
+	if err != nil {
+		return fmt.Errorf("decode Stream write status: %w", err)
+	}
+	switch statusCode {
+	case 0:
+		return nil
+	case 1:
+		return ErrMessageTooLarge
+	case 2:
+		return ErrCapacityExceeded
+	default:
+		return fmt.Errorf("unexpected Stream write status %d", statusCode)
+	}
 }
 
 func (s *Store) Read(
@@ -261,9 +269,9 @@ func (s *Store) chargedBytes(input WriteInput, payloadBytes int) (int64, error) 
 	return total, nil
 }
 
-func reserveTarget(capacity int64, reservePercent int32) int64 {
-	retainedPercent := int64(100 - reservePercent)
-	return (capacity/100)*retainedPercent + (capacity%100)*retainedPercent/100
+func percentageOf(capacity int64, percent int32) int64 {
+	percentage := int64(percent)
+	return (capacity/100)*percentage + (capacity%100)*percentage/100
 }
 
 func decodeResumeToken(encoded string, flowID string, streamName string) (string, error) {
