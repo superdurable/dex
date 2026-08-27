@@ -72,7 +72,7 @@ saved queries, configurable columns, Indexed Attributes, and timezone
 preferences.
 
 The Run page opens on Step graph and also provides Overview (Live Flow State beside
-Selected event, then Run input beside Identity), Timeline, attributes, timers, queued
+Selected event, then Run input beside Identity), Timeline, Streams, attributes, timers, queued
 steps, channels, completed outputs, stop, and time travel. Timeline and Step graph keep
 Selected event in the sidebar, where the critical-action **Review time travel**
 entry opens the operation with that Step execution and its WaitFor or Execute
@@ -100,6 +100,9 @@ Timeline and Step graph share structured event details for flow, step method, RP
 and channel events. A Raw JSON tab preserves the complete server payload.
 Successful Temporal RPC Updates appear as the same RPC events as result signals.
 Blob-backed RPC input and output hydrate through the existing selected-event loader.
+The Streams tab accepts a Stream name, reads its retained messages from the beginning,
+and then continuously long-polls for the next message. Each message displays its creation
+time and idempotency key. Stream retention is best effort, so older messages can be trimmed.
 External attribute writes appear as Attributes updated events, with a
 SetAttributes type label and the changed values in the event details.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.

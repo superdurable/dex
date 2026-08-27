@@ -30,9 +30,10 @@ import { FlowStatePanel } from './details/FlowStatePanel';
 import { TimeTravelDialog } from './details/TimeTravelDialog';
 import { StopFlowDialog } from './details/StopFlowDialog';
 import { StepGraph } from './details/StepGraph';
+import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 
-type RunTab = 'overview' | 'steps' | 'timeline';
+type RunTab = 'overview' | 'steps' | 'timeline' | 'stream';
 
 interface SelectedEventConnector {
   height: number;
@@ -310,6 +311,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
     ['overview', 'Overview'],
     ['steps', 'Step graph'],
     ['timeline', 'Timeline'],
+    ['stream', 'Streams'],
   ];
   const latestEvent = history.at(-1);
   const selectedRaw = selectedEvent ?? latestEvent ?? null;
@@ -511,7 +513,10 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
               onSelectEvent={setSelectedEvent}
             />
           )}
-          {nextPageToken && (
+          {tab === 'stream' && summary && (
+            <StreamPanel flowId={flowId} flowType={summary.flowType} />
+          )}
+          {tab !== 'stream' && nextPageToken && (
             <div className="load-more">
               <button
                 className="button ghost"
@@ -529,7 +534,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
             </div>
           )}
         </section>
-        {tab !== 'overview' && (
+        {(tab === 'steps' || tab === 'timeline') && (
           <aside className="run-sidebar">
             <button
               type="button"

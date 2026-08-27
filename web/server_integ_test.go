@@ -29,6 +29,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type flowService struct {
@@ -38,6 +39,7 @@ type flowService struct {
 	searchRequests     chan *dexpb.SearchFlowsRequest
 	loadBlobsRequests  chan *dexpb.LoadBlobsRequest
 	loadBlobsError     error
+	streamRequests     chan *dexpb.ReadStreamRequest
 	stopRequests       chan *dexpb.StopFlowRequest
 	timeTravelRequests chan *dexpb.ResetFlowRequest
 }
@@ -131,6 +133,56 @@ func TestWebServerMapsGRPCErrors(t *testing.T) {
 	}
 	if result.GRPCCode != int32(codes.NotFound) {
 		t.Fatalf("missing summary gRPC code = %d", result.GRPCCode)
+	}
+}
+
+func TestWebServerReadsStream(t *testing.T) {
+	service := &flowService{streamRequests: make(chan *dexpb.ReadStreamRequest, 2)}
+	harness := newHarness(t, service)
+
+	response := get(
+		t,
+		harness.http.URL+"/api/flows/stream?flowId=checkout-1&flowType=CheckoutFlow&streamName=thinking&resumeToken=previous-token",
+	)
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("read stream status = %d body=%q", response.StatusCode, readBody(t, response))
+	}
+	var result struct {
+		Value          string `json:"value"`
+		ResumeToken    string `json:"resumeToken"`
+		CreatedTime    string `json:"createdTime"`
+		IdempotencyKey string `json:"idempotencyKey"`
+	}
+	decodeResponse(t, response, &result)
+	if result.Value != "reasoning token" ||
+		result.ResumeToken != "next-token" ||
+		result.CreatedTime != "2026-08-27T12:34:56Z" ||
+		result.IdempotencyKey != "run-1#Step-1" {
+		t.Fatalf("unexpected Stream message: %+v", result)
+	}
+	streamRequest := <-service.streamRequests
+	if streamRequest.GetFlowId() != "checkout-1" ||
+		streamRequest.GetFlowType() != "CheckoutFlow" ||
+		streamRequest.GetStreamName() != "thinking" ||
+		streamRequest.GetResumeToken() != "previous-token" ||
+		streamRequest.GetWaitTimeSeconds() != 0 {
+		t.Fatalf("unexpected ReadStream request: %+v", streamRequest)
+	}
+
+	timeoutResponse := get(
+		t,
+		harness.http.URL+"/api/flows/stream?flowId=checkout-1&flowType=CheckoutFlow&streamName=timeout",
+	)
+	defer timeoutResponse.Body.Close()
+	if timeoutResponse.StatusCode != http.StatusRequestTimeout {
+		t.Fatalf("stream timeout status = %d body=%q", timeoutResponse.StatusCode, readBody(t, timeoutResponse))
+	}
+
+	missingInput := get(t, harness.http.URL+"/api/flows/stream?flowId=checkout-1&flowType=CheckoutFlow")
+	defer missingInput.Body.Close()
+	if missingInput.StatusCode != http.StatusBadRequest {
+		t.Fatalf("missing Stream name status = %d", missingInput.StatusCode)
 	}
 }
 
@@ -340,6 +392,24 @@ func (s *flowService) GetFlowSummary(
 		)
 	}
 	return nil, status.Error(codes.InvalidArgument, "invalid flow")
+}
+
+func (s *flowService) ReadStream(
+	_ context.Context,
+	request *dexpb.ReadStreamRequest,
+) (*dexpb.ReadStreamResponse, error) {
+	if s.streamRequests != nil {
+		s.streamRequests <- request
+	}
+	if request.GetStreamName() == "timeout" {
+		return nil, status.Error(codes.DeadlineExceeded, "stream read timed out")
+	}
+	return &dexpb.ReadStreamResponse{Message: &dexpb.StreamMessage{
+		Value:          &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "reasoning token"}},
+		ResumeToken:    "next-token",
+		CreatedTime:    timestamppb.New(time.Date(2026, time.August, 27, 12, 34, 56, 0, time.UTC)),
+		IdempotencyKey: "run-1#Step-1",
+	}}, nil
 }
 
 func (s *flowService) LoadBlobs(

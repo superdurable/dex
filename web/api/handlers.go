@@ -45,6 +45,7 @@ func RegisterHandlers(mux *http.ServeMux, client dexpb.FlowServiceClient) {
 	mux.HandleFunc("GET /api/flows/history", handler.getHistoryEvents)
 	mux.HandleFunc("GET /api/flows/state", handler.getFlowState)
 	mux.HandleFunc("GET /api/flows/wait", handler.waitForHistoryEvent)
+	mux.HandleFunc("GET /api/flows/stream", handler.readStream)
 	mux.HandleFunc("POST /api/flows/time-travel", handler.timeTravelFlow)
 	mux.HandleFunc("POST /api/flows/stop", handler.stopFlow)
 	mux.HandleFunc("POST /api/blobs/load", handler.loadBlobs)
@@ -211,6 +212,31 @@ func (h *handler) waitForHistoryEvent(response http.ResponseWriter, request *htt
 		return
 	}
 	writeJSON(response, http.StatusOK, mapped)
+}
+
+func (h *handler) readStream(response http.ResponseWriter, request *http.Request) {
+	flowID := request.URL.Query().Get("flowId")
+	flowType := request.URL.Query().Get("flowType")
+	streamName := strings.TrimSpace(request.URL.Query().Get("streamName"))
+	if flowID == "" || flowType == "" || streamName == "" {
+		WriteError(response, http.StatusBadRequest, "flowId, flowType, and streamName are required", nil)
+		return
+	}
+	result, err := h.client.ReadStream(request.Context(), &dexpb.ReadStreamRequest{
+		FlowId:      flowID,
+		FlowType:    flowType,
+		StreamName:  streamName,
+		ResumeToken: request.URL.Query().Get("resumeToken"),
+	})
+	if err != nil {
+		writeGRPCError(response, err, "ReadStream")
+		return
+	}
+	if result.GetMessage() == nil {
+		WriteError(response, http.StatusBadGateway, "ReadStream returned no message", nil)
+		return
+	}
+	writeJSON(response, http.StatusOK, mapStreamMessage(result.GetMessage()))
 }
 
 func (h *handler) timeTravelFlow(response http.ResponseWriter, request *http.Request) {

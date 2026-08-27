@@ -887,6 +887,126 @@ pre {
   min-width: 0;
 }
 
+.stream-panel {
+  display: grid;
+  gap: 18px;
+  max-width: 960px;
+  padding: 4px 0 28px;
+}
+
+.stream-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.stream-panel-header h2 {
+  margin: 3px 0 6px;
+  font-size: 20px;
+}
+
+.stream-panel-header p:not(.eyebrow) {
+  max-width: 660px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.stream-listening-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: white;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stream-listening-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-soft);
+}
+
+.stream-form {
+  display: grid;
+  gap: 7px;
+  max-width: 560px;
+}
+
+.stream-form > label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stream-form > div {
+  display: flex;
+  gap: 8px;
+}
+
+.stream-form input {
+  min-width: 0;
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: white;
+}
+
+.stream-empty {
+  margin: 4px 0 0;
+  padding: 22px;
+  border: 1px dashed #bdcfb4;
+  border-radius: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.stream-message-list {
+  display: grid;
+  gap: 10px;
+  max-height: min(60vh, 720px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.stream-message {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 3px 12px rgba(45, 79, 42, 0.04);
+}
+
+.stream-message-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.stream-message-meta code {
+  overflow: hidden;
+  max-width: 70%;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: var(--ink);
+  background: var(--canvas);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .run-sidebar {
   position: relative;
   min-width: 0;
@@ -2724,6 +2844,16 @@ pre {
 
   .run-tabs button {
     flex: none;
+  }
+
+  .stream-panel-header,
+  .stream-form > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stream-listening-status {
+    align-self: flex-start;
   }
 
   .metric-grid {
