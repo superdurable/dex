@@ -18,8 +18,6 @@ The Flow has three Step definitions:
 
 External code uses the Client to publish the **Trigger** or **Skip** Channel. This pattern does not define an RPC.
 
-The Channels sit on the Flow boundary because publishing crosses it. Their green arrows are one-way publishes. The blue and orange arrows are **StepDecision** movements: the blue **GoToMulti** starts **Run** and the next **WaitForSchedule** together, while the orange **GoTo** from **Skip** returns only to **WaitForSchedule**.
-
 ## Timing and control
 
 Start one Flow with an interval in minutes, hours, or days, plus a positive run count. The next durable **Timer** starts when the current occurrence starts work, not when work finishes. The interval therefore measures one run start to the next. Work can overlap when it takes longer than the interval.
