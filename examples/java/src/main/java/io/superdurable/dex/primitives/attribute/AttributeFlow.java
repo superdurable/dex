@@ -32,7 +32,6 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepOptions;
 import io.superdurable.dex.Wait;
-import java.util.List;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -50,7 +49,7 @@ public class AttributeFlow implements Flow<String> {
                     String.class,
                     new AttributeIndex(AttributeIndex.Type.KEYWORD, "OrderProgress"));
     private final FlowConfig attributeStoreConfig = FlowConfig.newBuilder()
-            .attributeStoreNames(List.of("profiles"))
+            .attributeStoreNames("profiles")
             .build();
     private final AttributeStep start = new AttributeStep();
 
