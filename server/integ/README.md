@@ -36,7 +36,8 @@ docker compose -f docker-compose/integ-dependencies.yml up -d redis
 make streamIntegTests
 ```
 
-The focused suite covers cross-Flow global FIFO watermarks, hard-capacity
-rejection and retry, idempotency, stale TTL references, resume behavior, long
-polling, concurrent writers, trim lease recovery, native TTL, disabled
-configuration, and Redis failure isolation.
+The focused suite covers cross-Flow global FIFO, independent trim-trigger and
+trim-target watermarks, hard-capacity rejection and retry, idempotency, stale
+TTL references, resume behavior, long polling, concurrent writers, concurrent
+trigger lease contention and recovery, native TTL, disabled configuration, and
+Redis failure isolation.
