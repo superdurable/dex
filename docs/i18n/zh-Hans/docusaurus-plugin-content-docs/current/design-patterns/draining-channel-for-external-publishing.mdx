@@ -8,9 +8,9 @@ title: 排空外部 Channel
 
 ## 问题与做法
 
-当一条 Flow 要处理 Worker 外部发来的一批消息，但这批消息处理完后没有其他 durable 工作时，使用这个模式。Client 可以通过 **PublishToChannel** 直接追加消息；这是单向操作，Client 不会收到 Flow 响应。活跃 Flow 也可以提供 **exampleRPC**，它向同一个 Channel 追加消息并返回响应。**ProcessMessage** 等待一条消息、处理它，然后返回 **ForceCompleteIfChannelsEmpty**。
+当一条 Flow 要处理 Worker 外部发来的消息，并且消息可能突发到来时，使用这个模式。Client 可以通过 **PublishToChannel** 直接追加消息，或者使用 RPC。关键要求是在 Channel 为空时完成 Flow，从而尽可能让 Flow 保持短生命周期。有新消息到来时，Flow 会重新启动。
 
-这个 decision 会在记录下一步动作时原子地检查 Channel。Channel 为空时完成 Flow；仍有消息时，Dex 会走 fallback movement 回到 **ProcessMessage**。前一次 execution 完成后，下一个请求必须用相同的 Flow ID 启动新的 Flow execution，才能追加下一条消息。
+这个 decision 会在记录下一步动作时原子地检查 Channel。Channel 为空时完成 Flow；仍有消息时，Dex 会走 fallback movement 回到 **ProcessMessage**。前一次 execution 完成后，下一个请求会使用相同的 Flow ID 启动新的 Flow execution，并将消息作为启动输入。
 
 被 **ForceCompleteIfChannelsEmpty** 检查的 Channel 只能由一个 Step 消费。
 
@@ -21,11 +21,7 @@ title: 排空外部 Channel
   src="/img/design-patterns/draining-external-channel-publishing.png"
 />
 
-大边框表示 Flow definition。Channel 和 RPC 是外部接口，因此它们跨越这个边框。**queueChannel** 是单向的；**exampleRPC** 同时传递请求和响应。这张图表示 Step definition，不表示 Step execution。**ProcessMessage** 是唯一的 Step definition；fallback 边回到它。
-
 ## 核心实现
-
-每个语言 tab 先定义完整的消息处理 Step，包括类型名称以及两个 handler；再定义拥有该 Step 和 **exampleRPC** handler 的 Flow。Step 消费 **queueChannel**；Flow-level RPC 只向这个 Channel 发布消息并返回响应。
 
 <SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py', go: 'examples/go/patterns/drain-channels/external-publishing/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/externalpublishing/DrainingExternalChannelFlow.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts', rust: 'examples/rust/src/patterns/drain_channels/flow.rs'}}>
 <SdkSnippet lang="python">
@@ -227,7 +223,7 @@ public class DrainingExternalChannelFlow implements Flow<String> {
 
             return StepDecision.forceCompleteIfChannelsEmpty(
                     null,
-                    StepMovement.of(processMessage, null),
+                    StepMovement.of(ProcessMessage.class, null),
                     queueChannel);
         }
     }
@@ -279,7 +275,7 @@ class ProcessMessage implements Step<string | undefined> {
 
     return forceCompleteIfChannelsEmpty(
       null,
-      StepMovement.of(this, undefined),
+      StepMovement.of(ProcessMessage, undefined),
       queueChannel,
     );
   }
@@ -325,20 +321,20 @@ impl DrainingExternalChannelFlow {
         context: &mut Context,
         input: String,
     ) -> HandlerResult<RpcResult<String>> {
-        channel_queue().publish(context, input.clone())?;
+        external_queue().publish(context, input.clone())?;
         Ok(RpcResult::new(input))
     }
 }
 
 impl Flow for DrainingExternalChannelFlow {
-    type StartInput = ();
+    type StartInput = String;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.drain)
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&channel_queue())
+        PersistenceSchema::new().channel(&external_queue())
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -350,25 +346,181 @@ impl Flow for DrainingExternalChannelFlow {
 struct DrainChannel;
 
 impl Step for DrainChannel {
-    type Input = ();
+    type Input = String;
 
-    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(channel_queue().for_one()))
+    fn wait_for(&self, _context: &mut Context, input: String) -> HandlerResult<Wait> {
+        if input.is_empty() {
+            return Ok(Wait::until(external_queue().for_one()));
+        }
+        Ok(Wait::skip_immediately())
     }
 
-    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        let item = channel_queue()
-            .condition_results(context)?
-            .into_iter()
-            .next()
-            .unwrap_or_default();
+    fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        let item = if input.is_empty() {
+            external_queue()
+                .condition_results(context)?
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+        } else {
+            input
+        };
         context.record_event("drained-channel", item)?;
         Ok(StepDecision::force_complete_if_channels_empty(
-            (),
-            StepMovement::to(&DrainChannel, ()),
-            [channel_queue().when_empty()],
+            String::new(),
+            StepMovement::to(&DrainChannel, String::new()),
+            [external_queue().when_empty()],
         ))
     }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Controller
+
+Controller 会先向活跃 Flow 发布消息。发布操作表明 Flow 不活跃时，Controller 会使用该消息作为输入启动新的 Flow；其他错误会返回给调用方。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/controller.py', go: 'examples/go/patterns/drain-channels/external-publishing/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/DrainChannelsController.java', typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/controller.ts', rust: 'examples/rust/src/patterns/drain_channels/controller.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+@blueprint.get("/start-or-publish")
+async def start_or_publish_draining_channel() -> str:
+    flow_id = required_query("workflowId")
+    try:
+        await app_state.client.publish(
+            flow_id,
+            app_state.drain_external.queue_channel,
+            "message from start-or-publish endpoint",
+        )
+    except FlowNotActiveError:
+        run_id = await app_state.client.start_flow(
+            app_state.drain_external,
+            flow_id,
+            "first message from start-or-publish",
+            start_options(),
+        )
+        return f"Started the workflow with runId {run_id}"
+    return "Published to the Flow"
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (controller *controller) startOrPublish(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	err := controller.client.PublishToChannel(
+		request.Request.Context(),
+		flowID,
+		QueueChannel,
+		"message from start-or-publish endpoint",
+	)
+	if err == nil {
+		httputil.RespondString(request, "Published to the Flow", nil)
+		return
+	}
+	var inactive *sdk.FlowNotActiveError
+	if !errors.As(err, &inactive) {
+		httputil.RespondString(request, "", err)
+		return
+	}
+	runID, startErr := controller.client.StartFlow(
+		request.Request.Context(),
+		controller.flow,
+		flowID,
+		"first message from start-or-publish",
+		patternStartOptions(),
+	)
+	httputil.RespondString(
+		request,
+		fmt.Sprintf("Started the workflow with runId %s", runID),
+		startErr,
+	)
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@GetMapping("/external-publishing/start-or-publish")
+ResponseEntity<String> startDrainingChannel(@RequestParam final String workflowId) {
+    String response;
+    try {
+        client.publish(
+                workflowId,
+                drainingExternalChannelFlow.queueChannel,
+                "message from start-or-publish endpoint");
+        response = "Published to the Flow";
+    } catch (final FlowNotActiveException inactive) {
+        final String runId = client.startFlow(
+                drainingExternalChannelFlow,
+                workflowId,
+                "first message from start-or-publish",
+                ExampleFlows.startOptions());
+        response = "Started the workflow with runId " + runId;
+    }
+    return ResponseEntity.ok(response);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+router.get("/start-or-publish", async (request, response) => {
+  const workflowId = String(request.query.workflowId ?? "");
+  let message: string;
+  try {
+    await client.publish(
+      workflowId,
+      queueChannel,
+      "message from start-or-publish endpoint",
+    );
+    message = "Published to the Flow";
+  } catch (error) {
+    if (isFlowMissingOrInactive(error)) {
+      const runId = await client.startFlow(
+        drainingExternalChannelFlow,
+        workflowId,
+        "first message from start-or-publish",
+        startOptions(),
+      );
+      message = `Started the workflow with runId ${runId}`;
+    } else {
+      throw error;
+    }
+  }
+  response.send(message);
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+match run_blocking(move || {
+    let flow = DrainingExternalChannelFlow::default();
+    match client.publish(
+        &flow_id,
+        &external_queue(),
+        "message from start-or-publish endpoint".to_string(),
+    ) {
+        Ok(()) => Ok("Published to the Flow".to_string()),
+        Err(error) if is_missing_or_inactive(&error) => client
+            .start_flow(&flow, &flow_id, "first message from start-or-publish".to_string())
+            .map(|run_id| format!("Started the workflow with runId {run_id}")),
+        Err(error) => Err(error),
+    }
+}) {
+    Ok(message) => ok_text(message),
+    Err(error) => map_sdk_error(error).into_response(),
 }
 ```
 

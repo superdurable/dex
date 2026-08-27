@@ -21,9 +21,11 @@ use axum::{
 use serde::Deserialize;
 
 use crate::patterns::drain_channels::flow::{
-    DrainInternalChannelsFlow, DrainingExternalChannelFlow,
+    DrainInternalChannelsFlow, DrainingExternalChannelFlow, external_queue,
 };
-use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
+use crate::server::helpers::{
+    SharedClient, is_missing_or_inactive, map_sdk_error, new_flow_id, ok_text, run_blocking,
+};
 
 #[derive(Deserialize)]
 struct StartQuery {
@@ -73,9 +75,21 @@ async fn start_or_publish(
     };
     match run_blocking(move || {
         let flow = DrainingExternalChannelFlow::default();
-        client
-            .start_flow(&flow, &flow_id, ())
-            .map(|run_id| format!("Started the workflow with runId {run_id}"))
+        match client.publish(
+            &flow_id,
+            &external_queue(),
+            "message from start-or-publish endpoint".to_string(),
+        ) {
+            Ok(()) => Ok("Published to the Flow".to_string()),
+            Err(error) if is_missing_or_inactive(&error) => client
+                .start_flow(
+                    &flow,
+                    &flow_id,
+                    "first message from start-or-publish".to_string(),
+                )
+                .map(|run_id| format!("Started the workflow with runId {run_id}")),
+            Err(error) => Err(error),
+        }
     }) {
         Ok(message) => ok_text(message),
         Err(error) => map_sdk_error(error).into_response(),

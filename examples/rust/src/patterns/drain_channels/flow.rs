@@ -103,20 +103,20 @@ impl DrainingExternalChannelFlow {
         context: &mut Context,
         input: String,
     ) -> HandlerResult<RpcResult<String>> {
-        channel_queue().publish(context, input.clone())?;
+        external_queue().publish(context, input.clone())?;
         Ok(RpcResult::new(input))
     }
 }
 
 impl Flow for DrainingExternalChannelFlow {
-    type StartInput = ();
+    type StartInput = String;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.drain)
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&channel_queue())
+        PersistenceSchema::new().channel(&external_queue())
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -128,23 +128,30 @@ impl Flow for DrainingExternalChannelFlow {
 struct DrainChannel;
 
 impl Step for DrainChannel {
-    type Input = ();
+    type Input = String;
 
-    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(channel_queue().for_one()))
+    fn wait_for(&self, _context: &mut Context, input: String) -> HandlerResult<Wait> {
+        if input.is_empty() {
+            return Ok(Wait::until(external_queue().for_one()));
+        }
+        Ok(Wait::skip_immediately())
     }
 
-    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        let item = channel_queue()
-            .condition_results(context)?
-            .into_iter()
-            .next()
-            .unwrap_or_default();
+    fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        let item = if input.is_empty() {
+            external_queue()
+                .condition_results(context)?
+                .into_iter()
+                .next()
+                .unwrap_or_default()
+        } else {
+            input
+        };
         context.record_event("drained-channel", item)?;
         Ok(StepDecision::force_complete_if_channels_empty(
-            (),
-            StepMovement::to(&DrainChannel, ()),
-            [channel_queue().when_empty()],
+            String::new(),
+            StepMovement::to(&DrainChannel, String::new()),
+            [external_queue().when_empty()],
         ))
     }
 }
@@ -153,6 +160,6 @@ fn internal_queue() -> Channel<String> {
     Channel::new("drain-internal-queue")
 }
 
-fn channel_queue() -> Channel<String> {
+pub(crate) fn external_queue() -> Channel<String> {
     Channel::new("drain-channel-queue")
 }
