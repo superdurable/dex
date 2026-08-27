@@ -1660,6 +1660,14 @@ code {
   justify-content: center;
 }
 
+.draining-channel-lucid-graph {
+  display: block;
+  width: min(100%, 56rem);
+  height: auto;
+  margin: 1.5rem auto;
+  filter: drop-shadow(0 10px 18px rgba(52, 64, 74, 0.12));
+}
+
 .draining-channel-flow {
   position: relative;
   display: flex;
