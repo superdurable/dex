@@ -93,11 +93,7 @@ jobs:
       - name: Build publishable crates
         run: |
           cargo package --locked --allow-dirty -p dex-blob-cache -p dex-protocol
-          if [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
-            cargo package --locked --allow-dirty --no-verify -p dex-sdk
-          else
-            cargo package --locked --allow-dirty -p dex-sdk
-          fi
+          cargo package --locked --allow-dirty --no-verify -p dex-sdk
       - name: Upload crate archives
         uses: actions/upload-artifact@v7
         with:
