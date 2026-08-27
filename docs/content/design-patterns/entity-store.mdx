@@ -79,7 +79,7 @@ var DisplayName = dex.DefineAttribute[string](
 )
 
 config := dex.FlowConfig{
-    AttributeStoreNames: ptr.Any([]string{"entityStore"}),
+    AttributeStoreNames: []string{"entityStore"},
 }
 ```
 

@@ -27,7 +27,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/examples/go/server/httputil"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
-	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
 type controller struct {
@@ -145,7 +144,7 @@ func entityStoreStartOptions(profile UserProfile) (sdk.StartFlowOptions, error) 
 	options := patternStartOptions()
 	options.Attributes = attributes
 	options.ConfigOverride = &sdk.FlowConfig{
-		AttributeStoreNames: ptr.Any([]string{StoreName}),
+		AttributeStoreNames: []string{StoreName},
 	}
 	return options, nil
 }

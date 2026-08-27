@@ -586,7 +586,7 @@ await client.start_flow(flow, user_id, None, options)
 ```go
 options := dex.StartFlowOptions{
 	ConfigOverride: &dex.FlowConfig{
-		AttributeStoreNames: ptr.Any([]string{"entityStore"}),
+		AttributeStoreNames: []string{"entityStore"},
 	},
 }
 _, err := client.StartFlow(ctx, flow, userID, nil, options)

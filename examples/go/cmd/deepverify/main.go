@@ -871,7 +871,7 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 	options := hourStartOptions()
 	options.Attributes = attributes
 	options.ConfigOverride = &dex.FlowConfig{
-		AttributeStoreNames: ptr.Any([]string{entitystore.StoreName}),
+		AttributeStoreNames: []string{entitystore.StoreName},
 	}
 	if _, err := client.StartFlow(ctx, registry.UserProfile, flowID, nil, options); err != nil {
 		return fail(name, "start", err)
