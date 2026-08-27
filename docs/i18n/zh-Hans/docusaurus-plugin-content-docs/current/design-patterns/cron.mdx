@@ -14,7 +14,7 @@ title: Cron schedule
 
 1. **InitStep** 校验 interval 和 run count 都是正数，然后转到 **WaitForSchedule**。
 2. **WaitForSchedule** 等待 interval **Timer**、**Trigger** 或 **Skip**。**Skip** 消耗一次 occurrence 并开始下一个 interval。Timer 或 **Trigger** 会同时启动 **Run** 和下一次 **WaitForSchedule**。
-3. **Run** 记录 scheduled work。除非这是最后一次 occurrence，否则它到达 dead end；最后一次会完成 Flow。
+3. **Run** 执行 scheduled work。除非这是最后一次 occurrence，否则它到达 dead end；最后一次会完成 Flow。
 
 外部代码通过 Client 发布 **Trigger** 或 **Skip** Channel。
 

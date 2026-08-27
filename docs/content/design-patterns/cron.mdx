@@ -14,7 +14,7 @@ The Flow has three Step definitions:
 
 1. **InitStep** validates a positive interval and run count, then moves to **WaitForSchedule**.
 2. **WaitForSchedule** waits for the interval **Timer**, **Trigger**, or **Skip**. **Skip** consumes an occurrence and starts the next interval. The timer or **Trigger** starts **Run** and the next **WaitForSchedule** occurrence together.
-3. **Run** records the scheduled work. It reaches a dead end unless this is the final occurrence, which completes the Flow.
+3. **Run** does the scheduled work. It reaches a dead end unless this is the final occurrence, which completes the Flow.
 
 External code uses the Client to publish the **Trigger** or **Skip** Channel.
 
