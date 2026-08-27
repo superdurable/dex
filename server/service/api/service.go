@@ -535,7 +535,7 @@ func (s *serviceImpl) ReadStream(
 		req.GetFlowType(),
 		req.GetFlowId(),
 		req.GetStreamName(),
-		message.RedisID,
+		message.MessageID,
 	)
 	if err != nil {
 		return nil, serviceerrors.Internal(err.Error()).ToGRPCError()

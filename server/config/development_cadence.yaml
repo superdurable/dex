@@ -43,3 +43,5 @@ blobStore:
       storageId: "local-cadence"
       storageType: "local"
       localDirectory: "./dex-blobs-cadence"
+streamStore:
+  backend: memory

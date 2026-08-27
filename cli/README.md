@@ -62,6 +62,9 @@ Choose another blob directory with:
 dexcli dev --blob-store-dir ./dex-blobs
 ```
 
+`dexcli dev` enables the in-memory Stream Store without Redis. Stream messages
+and their idempotency records are discarded when the CLI process stops.
+
 `--blob-store-dir` takes precedence over the directory derived from
 `--sqlite-db-filename`.
 

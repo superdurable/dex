@@ -55,7 +55,7 @@ class FlowServiceStub:
     WaitForStepCompletion, WaitForAttribute)
     sub_status LONG_POLL_TIME_OUT
     Canceled          — caller canceled the RPC context
-    Unavailable       — Temporal/Cadence backend or Stream Redis unavailable;
+    Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
     never Dex application WorkerService
     Internal          — unexpected / violated trusted invariant
     Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
@@ -234,7 +234,7 @@ class FlowServiceServicer:
     WaitForStepCompletion, WaitForAttribute)
     sub_status LONG_POLL_TIME_OUT
     Canceled          — caller canceled the RPC context
-    Unavailable       — Temporal/Cadence backend or Stream Redis unavailable;
+    Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
     never Dex application WorkerService
     Internal          — unexpected / violated trusted invariant
     Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
@@ -554,7 +554,7 @@ class FlowService:
     WaitForStepCompletion, WaitForAttribute)
     sub_status LONG_POLL_TIME_OUT
     Canceled          — caller canceled the RPC context
-    Unavailable       — Temporal/Cadence backend or Stream Redis unavailable;
+    Unavailable       — Temporal/Cadence backend or Stream Store backend unavailable;
     never Dex application WorkerService
     Internal          — unexpected / violated trusted invariant
     Unimplemented     — Cadence: WaitForStepCompletion, WaitForAttribute,
