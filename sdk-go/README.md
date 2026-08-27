@@ -248,7 +248,7 @@ var CustomerEmail = dex.DefineAttribute[string](
 )
 
 config := &dex.FlowConfig{
-	AttributeStoreNames: ptr.Any([]string{"profiles", "audit"}),
+	AttributeStoreNames: dex.AttributeStoreNames("profiles", "audit"),
 }
 ```
 

@@ -194,6 +194,7 @@ func TestPublicContractsCompile(t *testing.T) {
 		ActiveStepSearchMode:   &mode,
 		ContinueAsNewThreshold: ptr.Any(int32(100)),
 		StepDurability:         &durability,
+		AttributeStoreNames:    dex.AttributeStoreNames("profiles"),
 	}
 	options := dex.StartFlowOptions{
 		Timeout:        ptr.Any(time.Minute),
@@ -205,6 +206,12 @@ func TestPublicContractsCompile(t *testing.T) {
 		options.StartDelay == nil ||
 		len(options.Attributes) != 2 {
 		t.Fatal("start flow options are missing")
+	}
+	if config.AttributeStoreNames == nil || len(*config.AttributeStoreNames) != 1 {
+		t.Fatal("attribute store names are missing")
+	}
+	if disabled := dex.AttributeStoreNames(); disabled == nil || len(*disabled) != 0 {
+		t.Fatal("empty attribute store names must preserve an explicit empty override")
 	}
 
 	registry, err := dex.NewRegistry([]dex.Flow{flow})
