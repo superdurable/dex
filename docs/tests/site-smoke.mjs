@@ -49,9 +49,8 @@ assert.match(cloud, /Dex Cloud \/ BYOC/);
 assert.match(cloud, /Coming Soon/);
 assert.match(cloud, /Explore Dex OSS Docs/);
 assert.match(cloud, /https:\/\/superdurable\.io\/byoc/);
-assert.match(cron, /CronScheduleFlow/);
-assert.match(cron, /WaitForSchedule/);
-assert.match(zhCron, /CronScheduleFlow/);
+assert.match(cron, /cron-schedule-flow-[a-f0-9]+\.png/);
+assert.match(zhCron, /cron-schedule-flow-[a-f0-9]+\.png/);
 assert.match(production, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/production\/"/);
 assert.match(zhSubflow, /rel="canonical" href="https:\/\/docs\.superdurable\.io\/zh-Hans\/primitives\/subflow\/"/);
 assert.match(sitemap, /<loc>https:\/\/docs\.superdurable\.io\/production\/<\/loc>/);
@@ -61,6 +60,7 @@ await Promise.all([
   access(join(root, 'intro', 'what-is-durable-execution', 'index.html')),
   access(join(root, 'intro', 'what-is-dex', 'index.html')),
   access(join(root, 'quick-start', 'index.html')),
+  access(join(root, 'img', 'design-patterns', 'cron-schedule-flow.png')),
   access(join(root, 'primitives', 'index.html')),
   access(join(root, 'primitives', 'step', 'index.html')),
   access(join(root, 'references', 'cli', 'index.html')),
