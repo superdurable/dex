@@ -18,14 +18,6 @@ The Flow has three Step definitions:
 
 External code uses the Client to publish the **Trigger** or **Skip** Channel.
 
-## Timing and control
-
-Start one Flow with an interval in minutes, hours, or days, plus a positive run count. The next durable **Timer** starts when the current occurrence starts work, not when work finishes. The interval therefore measures one run start to the next. Work can overlap when it takes longer than the interval.
-
-Publish to **Trigger** to run the pending occurrence immediately. Publish to **Skip** to consume it without running work. Both choices start the next interval from that occurrence. A skipped occurrence still consumes one run from the configured limit. Stop the Flow to cancel its active timer and end the schedule.
-
-This is a fixed-interval pattern. It is not a calendar-aligned scheduler or a cron-expression API.
-
 ## Core implementation
 
 Each sample wires the two Channels into **WaitForSchedule**. The code below is the scheduling decision; the runnable example also includes input types, Flow registration, and the work implementation.

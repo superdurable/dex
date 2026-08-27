@@ -18,14 +18,6 @@ title: Cron schedule
 
 外部代码通过 Client 发布 **Trigger** 或 **Skip** Channel。
 
-## 时间与控制
-
-启动 Flow 时传入分钟、小时或天级别的 interval，以及正的 run count。下一次 durable **Timer** 在当前 occurrence 开始工作时启动，不等待工作完成。因此 interval 测量的是一次 run start 到下一次 run start 的时间。工作时间比 interval 长时，run 可以重叠。
-
-发布 **Trigger** 可以立即执行正在等待的 occurrence。发布 **Skip** 会消耗它而不执行工作。两种操作都会从这次 occurrence 开始下一个 interval。Skip 也会消耗配置限制中的一次 run。停止 Flow 会取消 active Timer 并结束 schedule。
-
-这是固定间隔 pattern，不是按日历对齐的 scheduler，也不是 cron expression API。
-
 ## 核心实现
 
 每个 sample 都把两个 Channel 注入 **WaitForSchedule**。下面的代码是 scheduling decision；完整 runnable example 还包括 input type、Flow registration 和 work implementation。
