@@ -177,7 +177,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	interruptible.RegisterRoutes(router, client, registry.Interruptible)
 	reminders.RegisterRoutes(router, client, registry.Reminder)
 	entitystore.RegisterRoutes(router, client, registry.UserProfile)
-	intervention.RegisterRoutes(router, client, registry.ManualIntervention)
+	intervention.RegisterRoutes(router, client, registry.ManualRecovery)
 	resettabletimer.RegisterRoutes(router, client, registry.ResettableTimer)
 	parallel.RegisterRoutes(router, client, registry.SimpleParallel, registry.ParallelWithAwait)
 	recovery.RegisterRoutes(router, client, registry.FailureRecovery)

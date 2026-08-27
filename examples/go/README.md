@@ -140,7 +140,7 @@ Under [`patterns/`](./patterns):
 - [Cron schedule](./patterns/cron) (auto-started; no HTTP)
 - [Drain internal / externally published channels](./patterns/drain-channels)
 - [Interruptible execution](./patterns/interruptible)
-- [Manual intervention](./patterns/intervention)
+- [Manual recovery](./patterns/intervention)
 - [Parallel states](./patterns/parallel)
 - [Parent–child](./patterns/parent-child)
 - [Polling (simple / backoff)](./patterns/polling)

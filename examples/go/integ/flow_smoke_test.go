@@ -258,13 +258,13 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			flags: flowSmokeFlags{noStartStep: true},
 		},
 		{
-			name: "patterns/intervention",
+			name: "patterns/manual-recovery",
 			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{"workflowId": {smokeWorkflowID(t, "intervention")}}
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "manual-recovery")}}
 				return triggerFlowSmokeHTTP(
 					t,
 					http.MethodGet,
-					"/patterns/intervention/start",
+					"/patterns/manual-recovery/start",
 					query,
 					nil,
 				)

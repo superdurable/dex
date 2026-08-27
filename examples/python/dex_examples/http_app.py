@@ -36,7 +36,7 @@ from dex_examples.patterns.drain_channels.external_publishing.controller import 
 )
 from dex_examples.patterns.entity_store.controller import create_entity_store_blueprint
 from dex_examples.patterns.interruptible.controller import create_interruptible_blueprint
-from dex_examples.patterns.intervention.controller import create_intervention_blueprint
+from dex_examples.patterns.intervention.controller import create_manual_recovery_blueprint
 from dex_examples.patterns.parallel.controller import create_parallel_blueprint
 from dex_examples.patterns.parent_child.controller import create_parent_child_blueprint
 from dex_examples.patterns.polling.controller import create_polling_pattern_blueprint
@@ -119,7 +119,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_interruptible_blueprint(app_state))
     quart_app.register_blueprint(create_reminders_blueprint(app_state))
     quart_app.register_blueprint(create_entity_store_blueprint(app_state))
-    quart_app.register_blueprint(create_intervention_blueprint(app_state))
+    quart_app.register_blueprint(create_manual_recovery_blueprint(app_state))
     quart_app.register_blueprint(create_resettable_timer_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_blueprint(app_state))
     quart_app.register_blueprint(create_recovery_blueprint(app_state))

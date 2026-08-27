@@ -241,8 +241,8 @@ func runPatternScenarios(
 		{"pattern/interruptible", func() result { return verifyInterruptible(ctx, client, stamp) }},
 		{"pattern/reminder", func() result { return verifyReminder(ctx, client, stamp) }},
 		{"pattern/entity-store", func() result { return verifyEntityStore(ctx, client, stamp) }},
-		{"pattern/intervention-retry", func() result { return verifyInterventionRetry(ctx, client, stamp) }},
-		{"pattern/intervention-skip", func() result { return verifyInterventionSkip(ctx, client, stamp) }},
+		{"pattern/manual-recovery-retry", func() result { return verifyManualRecoveryRetry(ctx, client, stamp) }},
+		{"pattern/manual-recovery-skip", func() result { return verifyManualRecoverySkip(ctx, client, stamp) }},
 		{"pattern/parallel-simple", func() result { return verifyParallelSimple(ctx, client, stamp) }},
 		{"pattern/parallel-await", func() result { return verifyParallelAwait(ctx, client, stamp) }},
 		{"pattern/recovery", func() result { return verifyRecovery(ctx, client, stamp) }},
@@ -918,35 +918,19 @@ func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) re
 	return pass(name, "create+update+get+clear on "+flowID)
 }
 
-func verifyInterventionRetry(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/intervention-retry"
-	flowID := "dv-interv-retry-" + stamp
+func verifyManualRecoveryRetry(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/manual-recovery-retry"
+	flowID := "dv-manual-recovery-retry-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.ManualIntervention, flowID, nil, hourStartOptions(),
+		ctx, registry.ManualRecovery, flowID, true, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "start", err)
 	}
-	time.Sleep(500 * time.Millisecond)
 	if err := client.PublishToChannel(
-		ctx, flowID, intervention.DataChannel, "failed",
+		ctx, flowID, intervention.RetryChannel, nil,
 	); err != nil {
-		return fail(name, "publish failed data", err)
-	}
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(300 * time.Millisecond)
-		if err := client.PublishToChannel(
-			ctx, flowID, intervention.RetryChannel, nil,
-		); err == nil {
-			break
-		}
-	}
-	time.Sleep(500 * time.Millisecond)
-	if err := client.PublishToChannel(
-		ctx, flowID, intervention.DataChannel, "ok",
-	); err != nil {
-		return fail(name, "publish ok data", err)
+		return fail(name, "publish retry", err)
 	}
 	wait, err := waitCompleted(ctx, client, flowID, 60*time.Second)
 	if err != nil {
@@ -956,48 +940,36 @@ func verifyInterventionRetry(ctx context.Context, client *dex.Client, stamp stri
 	if err != nil {
 		return fail(name, "", err)
 	}
-	if !strings.Contains(output, "Number of retries: 1") {
+	if output != "work completed" {
 		return fail(name, "output="+output, nil)
 	}
 	return pass(name, output)
 }
 
-func verifyInterventionSkip(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/intervention-skip"
-	flowID := "dv-interv-skip-" + stamp
+func verifyManualRecoverySkip(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/manual-recovery-skip"
+	flowID := "dv-manual-recovery-skip-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.ManualIntervention, flowID, nil, hourStartOptions(),
+		ctx, registry.ManualRecovery, flowID, true, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "start", err)
 	}
-	time.Sleep(500 * time.Millisecond)
 	if err := client.PublishToChannel(
-		ctx, flowID, intervention.DataChannel, "failed",
+		ctx, flowID, intervention.SkipChannel, nil,
 	); err != nil {
-		return fail(name, "publish failed", err)
+		return fail(name, "publish skip", err)
 	}
-	deadline := time.Now().Add(20 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(300 * time.Millisecond)
-		if err := client.PublishToChannel(
-			ctx, flowID, intervention.SkipChannel, nil,
-		); err == nil {
-			break
-		}
-	}
-	wait, err := waitCompleted(ctx, client, flowID, 45*time.Second)
+	wait, err := client.WaitForFlow(ctx, flowID, dex.WaitForFlowOptions{
+		Timeout: 60 * time.Second,
+	})
 	if err != nil {
 		return fail(name, "", err)
 	}
-	output, err := decodeStringCompletion(wait)
-	if err != nil {
-		return fail(name, "", err)
+	if wait.Status != dex.FlowFailed {
+		return fail(name, fmt.Sprintf("expected FlowFailed got %v", wait.Status), nil)
 	}
-	if !strings.Contains(output, "Number of retries: 0") {
-		return fail(name, "output="+output, nil)
-	}
-	return pass(name, output)
+	return pass(name, wait.ErrorMessage)
 }
 
 func verifyParallelSimple(ctx context.Context, client *dex.Client, stamp string) result {

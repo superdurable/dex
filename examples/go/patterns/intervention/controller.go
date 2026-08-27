@@ -30,12 +30,12 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *ManualInterventionFlow
+	flow   *ManualRecoveryFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *ManualInterventionFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *ManualRecoveryFlow) {
 	controller := &controller{client: client, flow: flow}
-	group := router.Group("/patterns/intervention")
+	group := router.Group("/patterns/manual-recovery")
 	group.GET("/start", controller.start)
 }
 
@@ -53,7 +53,7 @@ func (controller *controller) start(request *gin.Context) {
 		request.Request.Context(),
 		controller.flow,
 		flowID,
-		nil,
+		false,
 		patternStartOptions(),
 	)
 	httputil.RespondString(request, runID, err)

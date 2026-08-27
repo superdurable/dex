@@ -27,7 +27,7 @@ import { createDrainInternalRouter } from "./patterns/drain-channels/internal/co
 import { createDrainingChannelRouter } from "./patterns/drain-channels/external-publishing/controller.js";
 import { createEntityStoreRouter } from "./patterns/entity-store/controller.js";
 import { createInterruptibleRouter } from "./patterns/interruptible/controller.js";
-import { createInterventionRouter } from "./patterns/intervention/controller.js";
+import { createManualRecoveryRouter } from "./patterns/intervention/controller.js";
 import { createParallelRouter } from "./patterns/parallel/controller.js";
 import { createParentChildRouter } from "./patterns/parent-child/controller.js";
 import { createPatternPollingRouter } from "./patterns/polling/controller.js";
@@ -106,7 +106,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));
   app.use("/patterns/entity-store", createEntityStoreRouter(client));
-  app.use("/patterns/intervention", createInterventionRouter(client));
+  app.use("/patterns/manual-recovery", createManualRecoveryRouter(client));
   app.use("/patterns/resettable-timer", createResettableTimerRouter(client));
   app.use("/patterns/parallel", createParallelRouter(client));
   app.use("/patterns/recovery", createRecoveryRouter(client));

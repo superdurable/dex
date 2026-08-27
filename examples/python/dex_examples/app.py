@@ -43,8 +43,8 @@ from dex_examples.patterns.entity_store.user_profile_flow import UserProfileFlow
 from dex_examples.patterns.interruptible.interruptible_execution_flow import (
     InterruptibleFlow,
 )
-from dex_examples.patterns.intervention.manual_intervention_flow import (
-    ManualInterventionFlow,
+from dex_examples.patterns.intervention.manual_recovery_flow import (
+    ManualRecoveryFlow,
 )
 from dex_examples.patterns.parallel.parallel_states_with_await_flow import (
     ParallelStatesWithAwaitFlow,
@@ -137,7 +137,7 @@ class ExampleApp:
         self.drain_internal = DrainInternalChannelFlow(pattern_service)
         self.drain_external = DrainingExternalChannelFlow()
         self.interruptible = InterruptibleFlow()
-        self.manual_intervention = ManualInterventionFlow()
+        self.manual_recovery = ManualRecoveryFlow()
         self.simple_parallel = SimpleParallelStatesFlow()
         self.parallel_with_await = ParallelStatesWithAwaitFlow()
         self.simple_polling = SimplePollingFlow()
@@ -193,7 +193,7 @@ class ExampleApp:
             self.drain_internal,
             self.drain_external,
             self.interruptible,
-            self.manual_intervention,
+            self.manual_recovery,
             self.simple_parallel,
             self.parallel_with_await,
             self.simple_polling,

@@ -90,7 +90,7 @@ var (
 	Interruptible          *interruptible.InterruptibleFlow
 	Reminder               *reminders.ReminderFlow
 	UserProfile            *entitystore.UserProfileFlow
-	ManualIntervention     *intervention.ManualInterventionFlow
+	ManualRecovery         *intervention.ManualRecoveryFlow
 	ResettableTimer        *resettabletimer.ResettableTimerFlow
 	SimpleParallel         *parallel.SimpleParallelStatesFlow
 	ParallelWithAwait      *parallel.ParallelStatesWithAwaitFlow
@@ -157,7 +157,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	Interruptible = interruptible.NewInterruptibleFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
 	UserProfile = entitystore.NewUserProfileFlow()
-	ManualIntervention = intervention.NewManualInterventionFlow(patternService)
+	ManualRecovery = intervention.NewManualRecoveryFlow()
 	ResettableTimer = resettabletimer.NewResettableTimerFlow()
 	SimpleParallel = parallel.NewSimpleParallelStatesFlow(patternService)
 	ParallelWithAwait = parallel.NewParallelStatesWithAwaitFlow(patternService)
@@ -214,7 +214,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		Interruptible,
 		Reminder,
 		UserProfile,
-		ManualIntervention,
+		ManualRecovery,
 		ResettableTimer,
 		SimpleParallel,
 		ParallelWithAwait,

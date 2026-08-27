@@ -19,17 +19,17 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { manualInterventionFlow } from "./manual-intervention-flow.js";
+import { manualRecoveryFlow } from "./manual-recovery-flow.js";
 
-export function createInterventionRouter(client: Client): Router {
+export function createManualRecoveryRouter(client: Client): Router {
   const router = Router();
 
   router.get("/start", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const runId = await client.startFlow(
-      manualInterventionFlow,
+      manualRecoveryFlow,
       workflowId,
-      undefined,
+      false,
       startOptions(),
     );
     response.send(runId);

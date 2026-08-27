@@ -127,16 +127,16 @@ async def _status_is(client: AsyncClient, flow_id: str, status: FlowStatus) -> b
     return await flow_status_or_none(client, flow_id) is status
 
 
-async def test_manual_intervention_completes(
+async def test_manual_recovery_retry_completes(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = new_flow_id("intervention")
-    await client.start_flow(app.manual_intervention, flow_id, None, start_options())
-    await client.publish(flow_id, app.manual_intervention.data_channel, "success")
+    flow_id = new_flow_id("manual-recovery")
+    await client.start_flow(app.manual_recovery, flow_id, True, start_options())
+    await client.publish(flow_id, app.manual_recovery.retry_channel, None)
     output = (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(str)
-    assert "Workflow Completed" in output
+    assert output == "work completed"
 
 
 async def test_parallel_simple_and_with_await(
