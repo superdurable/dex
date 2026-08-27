@@ -136,8 +136,8 @@ type FlowConfig struct {
 	// WorkerTarget routes future Step and RPC invocations.
 	WorkerTarget *WorkerTarget
 	// AttributeStoreNames selects Server-configured Attribute Stores for opted-in writes.
-	// Nil preserves the current targets; an empty slice disables future asynchronous projections.
-	AttributeStoreNames *[]string
+	// A nil slice preserves the current targets; an empty non-nil slice disables future projections.
+	AttributeStoreNames []string
 }
 
 // StartFlowOptions configures a new Flow execution.

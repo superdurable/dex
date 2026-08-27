@@ -43,12 +43,17 @@ final class AttributeStoreSyncTest {
             assertFalse(absent.hasAttributeStoreNames());
 
             final io.superdurable.gen.FlowConfig selected = client.mapFlowConfig(
-                    FlowConfig.newBuilder().attributeStoreNames(Arrays.asList("reporting", "audit")).build());
+                    FlowConfig.newBuilder().attributeStoreNames("reporting", "audit").build());
             assertTrue(selected.hasAttributeStoreNames());
             assertEquals(Arrays.asList("reporting", "audit"), selected.getAttributeStoreNames().getNamesList());
 
+            final io.superdurable.gen.FlowConfig selectedSingle = client.mapFlowConfig(
+                    FlowConfig.newBuilder().attributeStoreNames("reporting").build());
+            assertTrue(selectedSingle.hasAttributeStoreNames());
+            assertEquals(Collections.singletonList("reporting"), selectedSingle.getAttributeStoreNames().getNamesList());
+
             final io.superdurable.gen.FlowConfig disabled = client.mapFlowConfig(
-                    FlowConfig.newBuilder().attributeStoreNames(Collections.<String>emptyList()).build());
+                    FlowConfig.newBuilder().attributeStoreNames().build());
             assertTrue(disabled.hasAttributeStoreNames());
             assertEquals(Collections.emptyList(), disabled.getAttributeStoreNames().getNamesList());
 

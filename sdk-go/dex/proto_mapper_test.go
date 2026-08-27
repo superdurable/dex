@@ -194,8 +194,6 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	attributeMap := DefineAttributeMap[string]("status-by-tenant", SyncToAttributeStore())
 	initialMap, err := InitialAttributeMapValue(attributeMap, "tenant-1", "ready")
 	require.NoError(t, err)
-	storeNames := []string{"reporting", "audit"}
-
 	flowTimeout, timeoutPolicy, options, err := mapStartFlowOptions(StartFlowOptions{
 		Timeout:       &timeout,
 		TimeoutPolicy: TimeoutFail,
@@ -204,7 +202,7 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 		ConfigOverride: &FlowConfig{
 			ActiveStepSearchMode: &searchMode,
 			StepDurability:       &durability,
-			AttributeStoreNames:  &storeNames,
+			AttributeStoreNames:  []string{"reporting", "audit"},
 			WorkerTarget: &WorkerTarget{
 				Address:  "worker:7233",
 				Headless: true,
@@ -224,9 +222,8 @@ func TestStartAndFlowConfigMappingPreservesPresence(t *testing.T) {
 	require.Equal(t, []string{"reporting", "audit"}, options.FlowConfigOverride.GetAttributeStoreNames().GetNames())
 	require.NotNil(t, options.FlowConfigOverride.AttributeStoreNames)
 
-	disabled := []string{}
 	_, _, disabledOptions, err := mapStartFlowOptions(StartFlowOptions{
-		ConfigOverride: &FlowConfig{AttributeStoreNames: &disabled},
+		ConfigOverride: &FlowConfig{AttributeStoreNames: []string{}},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, disabledOptions.FlowConfigOverride.AttributeStoreNames)

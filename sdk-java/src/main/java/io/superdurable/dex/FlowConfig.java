@@ -11,6 +11,7 @@
 package io.superdurable.dex;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
@@ -172,6 +173,27 @@ public final class FlowConfig {
                     ? null
                     : Collections.unmodifiableList(new ArrayList<>(value));
             return this;
+        }
+
+        /**
+         * Selects Server-configured Attribute Stores for enabled Attribute writes.
+         *
+         * <p>This overload is convenient when a Flow uses one or a few stores. Each enabled
+         * Attribute write is projected to every supplied store. Calling this method with no names
+         * explicitly disables future projections; omitting it leaves the current or server-selected
+         * values unchanged. Already queued projections retain their original targets.
+         *
+         * <pre>{@code
+         * FlowConfig config = FlowConfig.newBuilder()
+         *         .attributeStoreNames("profiles")
+         *         .build();
+         * }</pre>
+         *
+         * @param values the Attribute Store names; no names disables future projections
+         * @return this builder
+         */
+        public Builder attributeStoreNames(final String... values) {
+            return attributeStoreNames(values == null ? null : Arrays.asList(values));
         }
 
         /**

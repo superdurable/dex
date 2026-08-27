@@ -248,15 +248,15 @@ var CustomerEmail = dex.DefineAttribute[string](
 )
 
 config := &dex.FlowConfig{
-	AttributeStoreNames: ptr.Any([]string{"profiles", "audit"}),
+	AttributeStoreNames: []string{"profiles", "audit"},
 }
 ```
 
 Store updates are asynchronous. Every enabled Attribute write is sent to every
 selected Store. Deleting an opted-in Attribute writes SQL `NULL`, and a Store
 failure does not roll back the Flow Attribute. A `nil` `AttributeStoreNames`
-preserves current targets; a pointer to an empty slice disables future
-synchronization while preserving protocol presence.
+preserves current targets; an empty non-nil slice disables future synchronization
+while preserving protocol presence.
 
 `DefineStep` and `DefineStartStep` retain the step input type behind a private
 `typedStepDef` that implements the sealed `StepDef` interface. Runtime
