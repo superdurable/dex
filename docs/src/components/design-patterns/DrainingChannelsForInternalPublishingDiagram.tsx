@@ -42,10 +42,9 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'Draining Channels for Internal Publishing Flow',
-  producer: 'Producer branch',
-  consumer: 'Consumer branch',
-  start: 'Start',
+  label: 'Drain Internal Channel Flow',
+  flow: 'FLOW',
+  flowName: 'DrainInternalChannelsFlow',
   initialize: 'Init',
   startBranches: 'Start producer and consumer',
   process: 'ProcessData',
