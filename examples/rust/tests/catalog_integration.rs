@@ -16,7 +16,7 @@ use std::collections::HashSet;
 
 use dex_examples_rust::patterns::{
     cron::CronScheduleFlow,
-    drain_channels::{DrainInternalChannelsFlow, DrainingExternalChannelFlow},
+    drain_channels::{DrainInternalChannelFlow, DrainingExternalChannelFlow},
     entity_store::UserProfileFlow,
     interruptible::InterruptibleExecutionFlow,
     intervention::ManualInterventionFlow,
@@ -60,7 +60,7 @@ fn catalog_matches_every_cross_language_example() {
     ];
     let pattern_flows = [
         CronScheduleFlow::default().flow_type(),
-        DrainInternalChannelsFlow::default().flow_type(),
+        DrainInternalChannelFlow::default().flow_type(),
         DrainingExternalChannelFlow::default().flow_type(),
         InterruptibleExecutionFlow::default().flow_type(),
         ManualInterventionFlow::default().flow_type(),

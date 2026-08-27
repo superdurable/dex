@@ -18,7 +18,7 @@ package io.superdurable.dex.patterns.drainchannels;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
-import io.superdurable.dex.patterns.drainchannels.internal.DrainInternalChannelsFlow;
+import io.superdurable.dex.patterns.drainchannels.internal.DrainInternalChannelFlow;
 import io.superdurable.dex.patterns.drainchannels.externalpublishing.DrainingExternalChannelFlow;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
@@ -31,22 +31,22 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/patterns/drain-channels")
 public class DrainChannelsController {
     private final Client client;
-    private final DrainInternalChannelsFlow drainInternalChannelsFlow;
+    private final DrainInternalChannelFlow drainInternalChannelFlow;
     private final DrainingExternalChannelFlow drainingExternalChannelFlow;
 
     public DrainChannelsController(
             final Client client,
-            final DrainInternalChannelsFlow drainInternalChannelsFlow,
+            final DrainInternalChannelFlow drainInternalChannelFlow,
             final DrainingExternalChannelFlow drainingExternalChannelFlow) {
         this.client = client;
-        this.drainInternalChannelsFlow = drainInternalChannelsFlow;
+        this.drainInternalChannelFlow = drainInternalChannelFlow;
         this.drainingExternalChannelFlow = drainingExternalChannelFlow;
     }
 
     @GetMapping("/internal/start")
     ResponseEntity<String> startDrainInternalChannels(@RequestParam final String workflowId) {
         final String runId = client.startFlow(
-                drainInternalChannelsFlow,
+                drainInternalChannelFlow,
                 workflowId,
                 null,
                 ExampleFlows.startOptions());

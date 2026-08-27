@@ -30,10 +30,10 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *DrainInternalChannelsFlow
+	flow   *DrainInternalChannelFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *DrainInternalChannelsFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *DrainInternalChannelFlow) {
 	controller := &controller{client: client, flow: flow}
 	group := router.Group("/patterns/drain-channels/internal")
 	group.GET("/start", controller.start)

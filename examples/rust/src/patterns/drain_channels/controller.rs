@@ -21,7 +21,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::patterns::drain_channels::flow::{
-    DrainInternalChannelsFlow, DrainingExternalChannelFlow, external_queue,
+    DrainInternalChannelFlow, DrainingExternalChannelFlow, external_queue,
 };
 use crate::server::helpers::{
     SharedClient, is_missing_or_inactive, map_sdk_error, new_flow_id, ok_text, run_blocking,
@@ -56,7 +56,7 @@ async fn start_internal(
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = DrainInternalChannelsFlow::default();
+        let flow = DrainInternalChannelFlow::default();
         client.start_flow(&flow, &flow_id, vec!["start-input".to_string()])
     }) {
         Ok(run_id) => ok_text(run_id),

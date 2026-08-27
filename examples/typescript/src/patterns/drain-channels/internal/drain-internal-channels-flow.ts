@@ -42,48 +42,48 @@ import {
   type MongoDocument,
 } from "./mongo-document.js";
 
-export const UPSERT_MONGO_DATA_INTERNAL_CHANNEL = "upsert_mongo_data_internal_channel";
-export const PROCESS_DATA_STATE_EXECUTION_COUNTER = "process_data_state_execution_counter";
+export const SIDE_STEP_DATA_CHANNEL = "SideStepData";
+export const MAIN_STEP_EXECUTION_COUNTER = "main_step_execution_counter";
 
 const mongoDocumentInputCodec = jsonCodec<MongoDocument>(mongoDocumentCodec);
 const stringInputCodec = stringCodec;
 
-const upsertMongoData = new Channel(
-  UPSERT_MONGO_DATA_INTERNAL_CHANNEL,
+const sideStepData = new Channel(
+  SIDE_STEP_DATA_CHANNEL,
   mongoDocumentInputCodec,
 );
 
 class Init implements Step<string> {
   public readonly inputCodec = stringInputCodec;
 
-  public constructor(private readonly flow: DrainInternalChannelsFlow) {}
+  public constructor(private readonly flow: DrainInternalChannelFlow) {}
 
   public getStepType(): string {
     return "Init";
   }
 
   public execute(context: Context, input: string): StepDecision {
-    this.flow.processDataStateExecutionCounter.set(context, 0);
+    this.flow.mainStepExecutionCounter.set(context, 0);
     return goToMulti(
-      StepMovement.of(UpsertMongoRecord, undefined),
-      StepMovement.of(ProcessData, input),
+      StepMovement.of(SideStep, undefined),
+      StepMovement.of(MainStep, input),
     );
   }
 }
 
-class UpsertMongoRecord implements Step<void> {
-  public constructor(private readonly flow: DrainInternalChannelsFlow) {}
+class SideStep implements Step<void> {
+  public constructor(private readonly flow: DrainInternalChannelFlow) {}
 
   public getStepType(): string {
-    return "UpsertMongoRecord";
+    return "SideStep";
   }
 
   public waitFor(_context: Context, _input: void): Wait {
-    return Wait.until(upsertMongoData.forOne());
+    return Wait.until(sideStepData.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    const documents = upsertMongoData.results(context);
+    const documents = sideStepData.results(context);
     if (documents.length === 0) {
       throw new Error("No document was sent");
     }
@@ -98,22 +98,22 @@ class UpsertMongoRecord implements Step<void> {
     if (document.finalCommand) {
       return gracefulComplete();
     }
-    return goTo(UpsertMongoRecord, undefined);
+    return goTo(SideStep, undefined);
   }
 }
 
-class ProcessData implements Step<string> {
+class MainStep implements Step<string> {
   public readonly inputCodec = stringInputCodec;
 
-  public constructor(private readonly flow: DrainInternalChannelsFlow) {}
+  public constructor(private readonly flow: DrainInternalChannelFlow) {}
 
   public getStepType(): string {
-    return "ProcessData";
+    return "MainStep";
   }
 
   public execute(context: Context, input: string): StepDecision {
-    const executionCount = this.flow.processDataStateExecutionCounter.get(context) + 1;
-    this.flow.processDataStateExecutionCounter.set(context, executionCount);
+    const executionCount = this.flow.mainStepExecutionCounter.get(context) + 1;
+    this.flow.mainStepExecutionCounter.set(context, executionCount);
 
     let status: string;
     switch (executionCount) {
@@ -131,7 +131,7 @@ class ProcessData implements Step<string> {
         break;
     }
 
-    upsertMongoData.publish(context, {
+    sideStepData.publish(context, {
       id: input,
       status,
       finalCommand: false,
@@ -145,21 +145,21 @@ class ProcessData implements Step<string> {
     );
 
     if (executionCount <= 3) {
-      return goTo(ProcessData, input);
+      return goTo(MainStep, input);
     }
     return goTo(Finalize, undefined);
   }
 }
 
 class Finalize implements Step<void> {
-  public constructor(private readonly flow: DrainInternalChannelsFlow) {}
+  public constructor(private readonly flow: DrainInternalChannelFlow) {}
 
   public getStepType(): string {
     return "Finalize";
   }
 
   public execute(context: Context, _input: void): StepDecision {
-    upsertMongoData.publish(context, {
+    sideStepData.publish(context, {
       id: "documentId-1",
       status: "FINALIZED",
       finalCommand: true,
@@ -168,15 +168,15 @@ class Finalize implements Step<void> {
   }
 }
 
-export class DrainInternalChannelsFlow implements Flow<string> {
-  public readonly processDataStateExecutionCounter = new Attribute(
-    PROCESS_DATA_STATE_EXECUTION_COUNTER,
+export class DrainInternalChannelFlow implements Flow<string> {
+  public readonly mainStepExecutionCounter = new Attribute(
+    MAIN_STEP_EXECUTION_COUNTER,
     doubleCodec,
   );
 
   private readonly initStep = new Init(this);
-  private readonly upsertMongoRecord = new UpsertMongoRecord(this);
-  private readonly processData = new ProcessData(this);
+  private readonly sideStepInstance = new SideStep(this);
+  private readonly mainStepInstance = new MainStep(this);
   private readonly finalize = new Finalize(this);
 
   public constructor(
@@ -184,12 +184,12 @@ export class DrainInternalChannelsFlow implements Flow<string> {
     public readonly mongoCollection: ServiceDependency = serviceDependency,
   ) {}
 
-  public get upsertMongoRecordStep(): Step<void> {
-    return this.upsertMongoRecord;
+  public get sideStep(): Step<void> {
+    return this.sideStepInstance;
   }
 
-  public get processDataStep(): Step<string> {
-    return this.processData;
+  public get mainStep(): Step<string> {
+    return this.mainStepInstance;
   }
 
   public get finalizeStep(): Step<void> {
@@ -197,23 +197,23 @@ export class DrainInternalChannelsFlow implements Flow<string> {
   }
 
   public getFlowType(): string {
-    return "DrainInternalChannelsFlow";
+    return "DrainInternalChannelFlow";
   }
 
   public getSteps() {
     return StepList.startStep(this.initStep).otherSteps(
-      this.upsertMongoRecord,
-      this.processData,
+      this.sideStepInstance,
+      this.mainStepInstance,
       this.finalize,
     );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [this.processDataStateExecutionCounter],
-      channels: [upsertMongoData],
+      attributes: [this.mainStepExecutionCounter],
+      channels: [sideStepData],
     };
   }
 }
 
-export const drainInternalChannelsFlow = new DrainInternalChannelsFlow();
+export const drainInternalChannelFlow = new DrainInternalChannelFlow();

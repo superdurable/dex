@@ -100,7 +100,7 @@ var (
 	ScalableChild          *scalableparallel.ChildFlow
 	ParentChild            *parentchild.ParentFlowV2
 	ParentChildChild       *parentchild.ChildFlow
-	DrainInternal          *draininternal.DrainInternalChannelsFlow
+	DrainInternal          *draininternal.DrainInternalChannelFlow
 	DrainExternal          *drainexternal.DrainingExternalChannelFlow
 	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
 	GracefulTimeout        *timeout.FlowGracefulTimeout
@@ -169,7 +169,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	RequestReceiver = scalableparallel.NewRequestReceiverFlow(getClient, ScalableParent)
 	ParentChildChild = parentchild.NewChildFlow()
 	ParentChild = parentchild.NewParentFlowV2(getClient, ParentChildChild)
-	DrainInternal = draininternal.NewDrainInternalChannelsFlow(patternService)
+	DrainInternal = draininternal.NewDrainInternalChannelFlow(patternService)
 	DrainExternal = drainexternal.NewDrainingExternalChannelFlow()
 	WaitForStateCompletion = waitforstatecompletion.NewWaitForStateCompletionFlow(patternService)
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()

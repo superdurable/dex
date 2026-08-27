@@ -32,61 +32,101 @@ use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult, Step,
     StepDecision, StepList, StepMovement, Wait,
 };
+use serde::{Deserialize, Serialize};
 
 #[derive(Default)]
-pub struct DrainInternalChannelsFlow {
-    seed: Seed,
-    drain: DrainInternal,
+pub struct DrainInternalChannelFlow {
+    init: Init,
+    main: MainStep,
+    side: SideStep,
+    finalize: Finalize,
 }
 
-impl Flow for DrainInternalChannelsFlow {
+impl Flow for DrainInternalChannelFlow {
     type StartInput = Vec<String>;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.seed).and(&self.drain)
+        StepList::start(&self.init)
+            .and(&self.main)
+            .and(&self.side)
+            .and(&self.finalize)
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&internal_queue())
+        PersistenceSchema::new().channel(&side_step_data())
     }
 }
 
 #[derive(Default)]
-struct Seed;
+struct Init;
 
-impl Step for Seed {
+impl Step for Init {
+    type Input = Vec<String>;
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to_many([
+            StepMovement::to(&MainStep, input),
+            StepMovement::to(&SideStep, ()),
+        ]))
+    }
+}
+
+#[derive(Default)]
+struct MainStep;
+
+impl Step for MainStep {
     type Input = Vec<String>;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        for item in input {
-            internal_queue().publish(context, item)?;
+        for value in input {
+            side_step_data().publish(context, SideStepData::Message(value))?;
         }
-        Ok(StepDecision::go_to(&DrainInternal, ()))
+        Ok(StepDecision::go_to(&Finalize, ()))
     }
 }
 
 #[derive(Default)]
-struct DrainInternal;
+struct SideStep;
 
-impl Step for DrainInternal {
+impl Step for SideStep {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(internal_queue().for_one()))
+        Ok(Wait::until(side_step_data().for_one()))
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        let item = internal_queue()
+        let command = side_step_data()
             .condition_results(context)?
             .into_iter()
             .next()
             .unwrap_or_default();
-        context.record_event("drained-internal", item)?;
-        Ok(StepDecision::force_complete_if_channels_empty(
-            (),
-            StepMovement::to(&DrainInternal, ()),
-            [internal_queue().when_empty()],
-        ))
+        match command {
+            SideStepData::Message(value) => {
+                context.record_event("drained-internal", value)?;
+                Ok(StepDecision::go_to(&SideStep, ()))
+            }
+            SideStepData::Final => Ok(StepDecision::graceful_complete(())),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+enum SideStepData {
+    #[default]
+    Final,
+    Message(String),
+}
+
+#[derive(Default)]
+struct Finalize;
+
+impl Step for Finalize {
+    type Input = ();
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        side_step_data().publish(context, SideStepData::Final)?;
+        Ok(StepDecision::graceful_complete(()))
     }
 }
 
@@ -156,8 +196,8 @@ impl Step for DrainChannel {
     }
 }
 
-fn internal_queue() -> Channel<String> {
-    Channel::new("drain-internal-queue")
+fn side_step_data() -> Channel<SideStepData> {
+    Channel::new("SideStepData")
 }
 
 pub(crate) fn external_queue() -> Channel<String> {

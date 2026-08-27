@@ -19,7 +19,7 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../../config/env.js";
-import { drainInternalChannelsFlow } from "./drain-internal-channels-flow.js";
+import { drainInternalChannelFlow } from "./drain-internal-channels-flow.js";
 
 export function createDrainInternalRouter(client: Client): Router {
   const router = Router();
@@ -27,7 +27,7 @@ export function createDrainInternalRouter(client: Client): Router {
   router.get("/start", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const runId = await client.startFlow(
-      drainInternalChannelsFlow,
+      drainInternalChannelFlow,
       workflowId,
       "start-input",
       startOptions(),

@@ -60,7 +60,7 @@ remain split so their orchestration boundaries are visible.
 | Java/Python/TypeScript pattern | Rust Flow | Demonstrated SDK features |
 |---|---|---|
 | Cron schedule | [`CronScheduleFlow`](src/patterns/cron) | Fixed-interval durable timer loop |
-| Drain internal Channels | [`DrainInternalChannelsFlow`](src/patterns/drain_channels.rs) | Internal publication, one-at-a-time drain, conditional completion |
+| Drain internal Channel | [`DrainInternalChannelFlow`](src/patterns/drain_channels.rs) | Internal publication, one-at-a-time drain, sentinel completion |
 | Draining External Channel Publishing | [`DrainingExternalChannelFlow`](src/patterns/drain_channels/flow.rs) | RPC publication, one-at-a-time drain, conditional completion |
 | Interruptible execution | [`InterruptibleExecutionFlow`](src/patterns/interruptible.rs) | Handler cancellation and execute timeout |
 | Manual intervention | [`ManualInterventionFlow`](src/patterns/intervention.rs) | Exhausted retry recovery and approval Channel |
