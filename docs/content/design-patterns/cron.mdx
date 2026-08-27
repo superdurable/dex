@@ -20,7 +20,7 @@ External code uses the Client to publish the **Trigger** or **Skip** Channel.
 
 ## Core implementation
 
-Each sample wires the two Channels into **WaitForSchedule**. The code below is the scheduling decision; the runnable example also includes input types, Flow registration, and the work implementation.
+Each sample shows the **WaitForSchedule** Step definition and its scheduling decision. The runnable example also includes input types, Flow registration, and the work implementation.
 
 <SdkTabs
   examples={{
@@ -33,36 +33,51 @@ Each sample wires the two Channels into **WaitForSchedule**. The code below is t
 <SdkSnippet lang="python">
 
 ```python
-def wait_for(self, context: Context, state: _ScheduleState) -> Wait:
-    del context
-    return Wait.any_of(
-        Timer.by_duration(state.interval.duration()),
-        self.trigger.for_one(),
-        self.skip.for_one(),
-    )
+class _WaitForSchedule(Step[_ScheduleState]):
+    def __init__(
+        self,
+        trigger: Channel[None],
+        skip: Channel[None],
+        run: _Run,
+    ) -> None:
+        self.trigger = trigger
+        self.skip = skip
+        self.run = run
 
-def execute(self, context: Context, state: _ScheduleState) -> StepDecision:
-    if self.skip.results(context):
-        return self._next_schedule(state)
-    run_input = _RunInput(
-        run_number=state.remaining_runs,
-        is_final=state.remaining_runs == 1,
-    )
-    if run_input.is_final:
-        return go_to(self.run, run_input)
-    return go_to_multi(
-        StepMovement.of(self.run, run_input),
-        StepMovement.of(
-            self,
-            _ScheduleState(state.interval, state.remaining_runs - 1),
-        ),
-    )
+    def wait_for(self, context: Context, state: _ScheduleState) -> Wait:
+        del context
+        return Wait.any_of(
+            Timer.by_duration(state.interval.duration()),
+            self.trigger.for_one(),
+            self.skip.for_one(),
+        )
+
+    def execute(self, context: Context, state: _ScheduleState) -> StepDecision:
+        if self.skip.results(context):
+            return self._next_schedule(state)
+        run_input = _RunInput(
+            run_number=state.remaining_runs,
+            is_final=state.remaining_runs == 1,
+        )
+        if run_input.is_final:
+            return go_to(self.run, run_input)
+        return go_to_multi(
+            StepMovement.of(self.run, run_input),
+            StepMovement.of(
+                self,
+                _ScheduleState(state.interval, state.remaining_runs - 1),
+            ),
+        )
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
+type waitForCronSchedule struct {
+	dex.StepDefaults
+}
+
 func (waitForCronSchedule) WaitFor(
 	_ dex.Context,
 	state cronScheduleState,
@@ -135,32 +150,42 @@ final class WaitForSchedule implements Step<ScheduleState> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-public waitFor(_context: Context, state: ScheduleState): Wait {
-  return Wait.anyOf(
-    Timer.byDuration(intervalMs(state.interval)),
-    this.trigger.forOne(),
-    this.skip.forOne(),
-  );
-}
+class WaitForSchedule implements Step<ScheduleState> {
+  public readonly inputCodec = scheduleStateCodec;
 
-public execute(context: Context, state: ScheduleState): StepDecision {
-  if (this.skip.results(context).length > 0) {
-    return this.nextSchedule(state);
+  public constructor(
+    private readonly trigger: Channel<void>,
+    private readonly skip: Channel<void>,
+    private readonly run: Run,
+  ) {}
+
+  public waitFor(_context: Context, state: ScheduleState): Wait {
+    return Wait.anyOf(
+      Timer.byDuration(intervalMs(state.interval)),
+      this.trigger.forOne(),
+      this.skip.forOne(),
+    );
   }
-  const input: RunInput = {
-    runNumber: state.remainingRuns,
-    isFinal: state.remainingRuns === 1,
-  };
-  if (input.isFinal) {
-    return goTo(this.run, input);
+
+  public execute(context: Context, state: ScheduleState): StepDecision {
+    if (this.skip.results(context).length > 0) {
+      return this.nextSchedule(state);
+    }
+    const input: RunInput = {
+      runNumber: state.remainingRuns,
+      isFinal: state.remainingRuns === 1,
+    };
+    if (input.isFinal) {
+      return goTo(this.run, input);
+    }
+    return goToMulti(
+      StepMovement.of(this.run, input),
+      StepMovement.of(this, {
+        interval: state.interval,
+        remainingRuns: state.remainingRuns - 1,
+      }),
+    );
   }
-  return goToMulti(
-    StepMovement.of(this.run, input),
-    StepMovement.of(this, {
-      interval: state.interval,
-      remainingRuns: state.remainingRuns - 1,
-    }),
-  );
 }
 ```
 
@@ -168,35 +193,42 @@ public execute(context: Context, state: ScheduleState): StepDecision {
 <SdkSnippet lang="rust">
 
 ```rust
-fn wait_for(&self, _context: &mut Context, state: Self::Input) -> HandlerResult<Wait> {
-    Ok(Wait::any_of([
-        Timer::by_duration(state.interval.duration()),
-        trigger().for_one(),
-        skip().for_one(),
-    ]))
-}
+#[derive(Default)]
+struct WaitForSchedule;
 
-fn execute(&self, context: &mut Context, state: Self::Input) -> HandlerResult<StepDecision> {
-    if !skip().condition_results(context)?.is_empty() {
-        return Ok(next_schedule(state));
+impl Step for WaitForSchedule {
+    type Input = ScheduleState;
+
+    fn wait_for(&self, _context: &mut Context, state: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            Timer::by_duration(state.interval.duration()),
+            trigger().for_one(),
+            skip().for_one(),
+        ]))
     }
-    let run_input = RunInput {
-        run_number: state.remaining_runs,
-        is_final: state.remaining_runs == 1,
-    };
-    if run_input.is_final {
-        return Ok(StepDecision::go_to(&Run, run_input));
+
+    fn execute(&self, context: &mut Context, state: Self::Input) -> HandlerResult<StepDecision> {
+        if !skip().condition_results(context)?.is_empty() {
+            return Ok(next_schedule(state));
+        }
+        let run_input = RunInput {
+            run_number: state.remaining_runs,
+            is_final: state.remaining_runs == 1,
+        };
+        if run_input.is_final {
+            return Ok(StepDecision::go_to(&Run, run_input));
+        }
+        Ok(StepDecision::go_to_many([
+            StepMovement::to(&Run, run_input),
+            StepMovement::to(
+                &WaitForSchedule,
+                ScheduleState {
+                    interval: state.interval,
+                    remaining_runs: state.remaining_runs - 1,
+                },
+            ),
+        ]))
     }
-    Ok(StepDecision::go_to_many([
-        StepMovement::to(&Run, run_input),
-        StepMovement::to(
-            &WaitForSchedule,
-            ScheduleState {
-                interval: state.interval,
-                remaining_runs: state.remaining_runs - 1,
-            },
-        ),
-    ]))
 }
 ```
 
