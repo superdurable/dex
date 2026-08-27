@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::drain_channels::flow::{DrainInternalChannelsFlow, DrainSignalChannelsFlow};
+use crate::patterns::drain_channels::flow::{DrainInternalChannelsFlow, DrainingChannelFlow};
 use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
 
 #[derive(Deserialize)]
@@ -36,8 +36,8 @@ pub fn mount(client: SharedClient) -> Router {
             get(start_internal),
         )
         .route(
-            "/patterns/drain-channels/signal/startorsignal",
-            get(start_or_signal),
+            "/patterns/drain-channels/external-publishing/start-or-publish",
+            get(start_or_publish),
         )
         .with_state(client)
 }
@@ -60,17 +60,17 @@ async fn start_internal(
     }
 }
 
-async fn start_or_signal(
+async fn start_or_publish(
     State(client): State<SharedClient>,
     Query(query): Query<StartQuery>,
 ) -> impl IntoResponse {
     let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("drain-signal")
+        new_flow_id("drain-external")
     } else {
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = DrainSignalChannelsFlow::default();
+        let flow = DrainingChannelFlow::default();
         client
             .start_flow(&flow, &flow_id, ())
             .map(|run_id| format!("Started the workflow with runId {run_id}"))

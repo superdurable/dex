@@ -26,7 +26,7 @@ stops them even if the user never responds.
 
 ## Channels and persistence
 
-- `OptOutReminder` — signal channel the user publishes to in order to stop
+- `OptOutReminder` — Channel the user publishes to in order to stop
   receiving reminders.
 - `CompleteProcess` — internal channel `accept` uses to wake `ProcessTimeout`.
 - `Status` — a `str` attribute holding `INITIATED` or `ACCEPTED`.

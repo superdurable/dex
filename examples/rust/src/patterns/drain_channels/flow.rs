@@ -90,20 +90,20 @@ impl Step for DrainInternal {
     }
 }
 
-pub const DRAIN_SIGNAL_PUBLISH: Rpc<String, ()> = Rpc::new("DrainSignalPublish");
+pub const DRAIN_CHANNEL_PUBLISH: Rpc<String, ()> = Rpc::new("DrainChannelPublish");
 
 #[derive(Default)]
-pub struct DrainSignalChannelsFlow {
-    drain: DrainSignal,
+pub struct DrainingChannelFlow {
+    drain: DrainChannel,
 }
 
-impl DrainSignalChannelsFlow {
+impl DrainingChannelFlow {
     fn publish(&self, context: &mut Context, input: String) -> HandlerResult<()> {
-        signal_queue().publish(context, input)
+        channel_queue().publish(context, input)
     }
 }
 
-impl Flow for DrainSignalChannelsFlow {
+impl Flow for DrainingChannelFlow {
     type StartInput = ();
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
@@ -111,35 +111,35 @@ impl Flow for DrainSignalChannelsFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&signal_queue())
+        PersistenceSchema::new().channel(&channel_queue())
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure(DRAIN_SIGNAL_PUBLISH, Self::publish)
+        RpcList::new().procedure(DRAIN_CHANNEL_PUBLISH, Self::publish)
     }
 }
 
 #[derive(Default)]
-struct DrainSignal;
+struct DrainChannel;
 
-impl Step for DrainSignal {
+impl Step for DrainChannel {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(signal_queue().for_one()))
+        Ok(Wait::until(channel_queue().for_one()))
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        let item = signal_queue()
+        let item = channel_queue()
             .condition_results(context)?
             .into_iter()
             .next()
             .unwrap_or_default();
-        context.record_event("drained-signal", item)?;
+        context.record_event("drained-channel", item)?;
         Ok(StepDecision::force_complete_if_channels_empty(
             (),
-            StepMovement::to(&DrainSignal, ()),
-            [signal_queue().when_empty()],
+        StepMovement::to(&DrainChannel, ()),
+            [channel_queue().when_empty()],
         ))
     }
 }
@@ -148,6 +148,6 @@ fn internal_queue() -> Channel<String> {
     Channel::new("drain-internal-queue")
 }
 
-fn signal_queue() -> Channel<String> {
-    Channel::new("drain-signal-queue")
+fn channel_queue() -> Channel<String> {
+    Channel::new("drain-channel-queue")
 }

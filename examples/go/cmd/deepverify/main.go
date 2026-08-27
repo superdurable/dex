@@ -35,7 +35,7 @@ import (
 
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
-	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
+	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
@@ -249,7 +249,7 @@ func runPatternScenarios(
 		{"pattern/scalable-parallel", func() result { return verifyScalableParallel(ctx, client, stamp) }},
 		{"pattern/parent-child", func() result { return verifyParentChild(ctx, client, stamp) }},
 		{"pattern/drain-internal", func() result { return verifyDrainInternal(ctx, client, stamp) }},
-		{"pattern/drain-signal", func() result { return verifyDrainSignal(ctx, client, stamp) }},
+		{"pattern/drain-external", func() result { return verifyDrainingChannel(ctx, client, stamp) }},
 		{"pattern/wait-for-state-completion", func() result { return verifyWaitForStateCompletion(ctx, client, stamp) }},
 		{"pattern/timeout-success", func() result { return verifyTimeoutSuccess(ctx, client, stamp) }},
 		{"pattern/timeout-fail", func() result { return verifyTimeoutFail(ctx, client, stamp) }},
@@ -1142,25 +1142,25 @@ func verifyDrainInternal(ctx context.Context, client *dex.Client, stamp string) 
 	return pass(name, "internal channel drain + finalize completed")
 }
 
-func verifyDrainSignal(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/drain-signal"
+func verifyDrainingChannel(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/drain-external"
 	flowID := "dv-drain-sig-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.DrainSignal, flowID, "first message", hourStartOptions(),
+		ctx, registry.DrainExternal, flowID, "first message", hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
 	}
 	time.Sleep(1 * time.Second)
 	if err := client.PublishToChannel(
-		ctx, flowID, drainsignal.QueueSignalChannel, "second signal",
+		ctx, flowID, drainexternal.QueueChannel, "second message",
 	); err != nil {
-		return fail(name, "second signal", err)
+		return fail(name, "second message", err)
 	}
 	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
 		return fail(name, "", err)
 	}
-	return pass(name, "start + extra signal drained to ForceComplete")
+	return pass(name, "start + extra message drained to ForceComplete")
 }
 
 func verifyWaitForStateCompletion(

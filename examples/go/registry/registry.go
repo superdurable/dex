@@ -22,8 +22,8 @@ package registry
 
 import (
 	"github.com/superdurable/dex/examples/go/patterns/cron"
+	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
-	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
@@ -101,7 +101,7 @@ var (
 	ParentChild            *parentchild.ParentFlowV2
 	ParentChildChild       *parentchild.ChildFlow
 	DrainInternal          *draininternal.DrainInternalChannelsFlow
-	DrainSignal            *drainsignal.DrainSignalChannelsFlow
+	DrainExternal          *drainexternal.DrainingChannelFlow
 	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
 	GracefulTimeout        *timeout.FlowGracefulTimeout
 
@@ -170,7 +170,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	ParentChildChild = parentchild.NewChildFlow()
 	ParentChild = parentchild.NewParentFlowV2(getClient, ParentChildChild)
 	DrainInternal = draininternal.NewDrainInternalChannelsFlow(patternService)
-	DrainSignal = drainsignal.NewDrainSignalChannelsFlow()
+	DrainExternal = drainexternal.NewDrainingChannelFlow()
 	WaitForStateCompletion = waitforstatecompletion.NewWaitForStateCompletionFlow(patternService)
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()
 
@@ -225,7 +225,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		ParentChild,
 		ParentChildChild,
 		DrainInternal,
-		DrainSignal,
+		DrainExternal,
 		WaitForStateCompletion,
 		GracefulTimeout,
 		Step,

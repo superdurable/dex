@@ -263,9 +263,9 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
-            name: "patterns/drain-channels/signal",
-            path: "/patterns/drain-channels/signal/startorsignal",
-            query: query(&client.new_flow_id("drain-signal")),
+            name: "patterns/drain-channels/external-publishing",
+            path: "/patterns/drain-channels/external-publishing/start-or-publish",
+            query: query(&client.new_flow_id("drain-external")),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {

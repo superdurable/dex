@@ -24,7 +24,7 @@ import { setClient } from "./client-holder.js";
 import { startCronSchedule } from "./config/cron-schedule-starter.js";
 import { loadEnv } from "./config/env.js";
 import { createDrainInternalRouter } from "./patterns/drain-channels/internal/controller.js";
-import { createDrainSignalRouter } from "./patterns/drain-channels/signal/controller.js";
+import { createDrainingChannelRouter } from "./patterns/drain-channels/external-publishing/controller.js";
 import { createEntityStoreRouter } from "./patterns/entity-store/controller.js";
 import { createInterruptibleRouter } from "./patterns/interruptible/controller.js";
 import { createInterventionRouter } from "./patterns/intervention/controller.js";
@@ -113,7 +113,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/patterns/scalable-parallel", createScalableParallelRouter(client));
   app.use("/patterns/parent-child", createParentChildRouter(client));
   app.use("/patterns/drain-channels/internal", createDrainInternalRouter(client));
-  app.use("/patterns/drain-channels/signal", createDrainSignalRouter(client));
+  app.use("/patterns/drain-channels/external-publishing", createDrainingChannelRouter(client));
   app.use("/patterns/wait-for-state-completion", createWaitForStateCompletionRouter(client));
   app.use("/patterns/timeout", createTimeoutRouter(client));
   app.use("/primitives/flow", createFlowRouter(client));

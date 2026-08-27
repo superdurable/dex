@@ -20,27 +20,27 @@ import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../../config/env.js";
 import { isFlowMissingOrInactive } from "../../../service-errors.js";
-import { drainSignalChannelsFlow, queueSignalChannel } from "./drain-signal-channels-flow.js";
+import { drainingChannelFlow, queueChannel } from "./draining-channel-flow.js";
 
-export function createDrainSignalRouter(client: Client): Router {
+export function createDrainingChannelRouter(client: Client): Router {
   const router = Router();
 
-  router.get("/startorsignal", async (request, response) => {
+  router.get("/start-or-publish", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     let message: string;
     try {
       await client.publish(
         workflowId,
-        queueSignalChannel,
-        "signal from startorsignal endpoint",
+        queueChannel,
+        "message from start-or-publish endpoint",
       );
-      message = "Signaled the workflow";
+      message = "Published to the Flow";
     } catch (error) {
       if (isFlowMissingOrInactive(error)) {
         const runId = await client.startFlow(
-          drainSignalChannelsFlow,
+          drainingChannelFlow,
           workflowId,
-          "first message from start",
+          "first message from start-or-publish",
           startOptions(),
         );
         message = `Started the workflow with runId ${runId}`;

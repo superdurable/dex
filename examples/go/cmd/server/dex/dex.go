@@ -33,8 +33,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
 	"github.com/superdurable/dex/examples/go/patterns/cron"
+	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
-	drainsignal "github.com/superdurable/dex/examples/go/patterns/drain-channels/signal"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
@@ -184,7 +184,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	scalableparallel.RegisterRoutes(router, client, registry.RequestReceiver)
 	parentchild.RegisterRoutes(router, client, registry.ParentChild)
 	draininternal.RegisterRoutes(router, client, registry.DrainInternal)
-	drainsignal.RegisterRoutes(router, client, registry.DrainSignal)
+	drainexternal.RegisterRoutes(router, client, registry.DrainExternal)
 	waitforstatecompletion.RegisterRoutes(router, client, registry.WaitForStateCompletion)
 	timeout.RegisterRoutes(router, client, registry.GracefulTimeout)
 	primitiveflow.RegisterRoutes(router, client, registry.ExampleFlow)

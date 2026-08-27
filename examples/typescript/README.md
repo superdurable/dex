@@ -75,7 +75,7 @@ after E2E tests for manual HTTP exploration.
 Under [`src/patterns/`](./src/patterns):
 
 - Cron schedule
-- Drain internal / signal channels
+- Drain internal / externally published channels
 - Interruptible execution
 - Manual intervention
 - Parallel states (simple / with await)

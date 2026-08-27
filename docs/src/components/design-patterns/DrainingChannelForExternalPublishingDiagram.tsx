@@ -31,37 +31,37 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'Draining channel for external publishing: external publisher, Channel, ProcessSignal Step, and conditional completion',
+  label: 'Draining channel for external publishing: external publisher, Channel, ProcessMessage Step, and conditional completion',
   client: 'EXTERNAL PUBLISHER',
   publish: 'Client PublishToChannel',
   alternativePublish: 'or Flow RPC publish',
   channel: 'CHANNEL',
-  queue: 'queueSignalChannel',
+  queue: 'queueChannel',
   start: 'Start',
-  process: 'ProcessSignal',
+  process: 'ProcessMessage',
   processMessage: 'process one message',
   conditionalComplete: 'ForceCompleteIfChannelsEmpty',
   empty: 'empty',
   complete: 'complete',
   notEmpty: 'message queued',
-  fallback: 'ProcessSignal',
+  fallback: 'ProcessMessage',
 };
 
 const ZH: Copy = {
-  label: '为外部发布排空 Channel：外部发布者、Channel、ProcessSignal Step 和条件完成',
+  label: '为外部发布排空 Channel：外部发布者、Channel、ProcessMessage Step 和条件完成',
   client: '外部发布者',
   publish: 'Client PublishToChannel',
   alternativePublish: '或 Flow RPC publish',
   channel: 'CHANNEL',
-  queue: 'queueSignalChannel',
+  queue: 'queueChannel',
   start: '开始',
-  process: 'ProcessSignal',
+  process: 'ProcessMessage',
   processMessage: '处理一条消息',
   conditionalComplete: 'ForceCompleteIfChannelsEmpty',
   empty: '为空',
   complete: '完成',
   notEmpty: '仍有消息',
-  fallback: 'ProcessSignal',
+  fallback: 'ProcessMessage',
 };
 
 export default function DrainingChannelForExternalPublishingDiagram(): ReactNode {

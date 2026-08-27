@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package signal
+package externalpublishing
 
 import (
 	"fmt"
@@ -27,66 +27,66 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-const QueueSignalChannelName = "queueSignalChannel"
+const QueueChannelName = "queueChannel"
 
-var QueueSignalChannel = dex.DefineChannel[string](QueueSignalChannelName)
+var QueueChannel = dex.DefineChannel[string](QueueChannelName)
 
-type DrainSignalChannelsFlow struct {
+type DrainingChannelFlow struct {
 	dex.FlowDefaults
 }
 
-func NewDrainSignalChannelsFlow() *DrainSignalChannelsFlow {
-	return &DrainSignalChannelsFlow{}
+func NewDrainingChannelFlow() *DrainingChannelFlow {
+	return &DrainingChannelFlow{}
 }
 
-func (*DrainSignalChannelsFlow) GetSteps() []dex.StepDef {
+func (*DrainingChannelFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(processSignalStep{}),
+		dex.DefineStartStep(processMessageStep{}),
 	}
 }
 
-func (*DrainSignalChannelsFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*DrainingChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Channels: []dex.ChannelDef{QueueSignalChannel},
+		Channels: []dex.ChannelDef{QueueChannel},
 	}
 }
 
-type processSignalStep struct {
+type processMessageStep struct {
 	dex.StepDefaults
 }
 
-func (processSignalStep) WaitFor(
+func (processMessageStep) WaitFor(
 	_ dex.Context,
 	input string,
 ) (*dex.Wait, error) {
 	if input == "" {
-		return dex.Until(QueueSignalChannel.ForOne()), nil
+		return dex.Until(QueueChannel.ForOne()), nil
 	}
 	return dex.SkipWaitImmediately(), nil
 }
 
-func (processSignalStep) Execute(
+func (processMessageStep) Execute(
 	ctx dex.Context,
 	input string,
 ) (*dex.StepDecision, error) {
 	if input != "" {
-		fmt.Printf("DrainSignalChannelsFlow process signal value: %s\n", input)
+		fmt.Printf("DrainingChannelFlow process message: %s\n", input)
 	} else {
-		values, err := QueueSignalChannel.GetConditionResults(ctx)
+		values, err := QueueChannel.GetConditionResults(ctx)
 		if err != nil {
 			return nil, err
 		}
 		if len(values) == 0 {
-			return nil, fmt.Errorf("no signal request found")
+			return nil, fmt.Errorf("no channel message found")
 		}
-		fmt.Printf("DrainSignalChannelsFlow process signal value: %s\n", values[0])
+		fmt.Printf("DrainingChannelFlow process message: %s\n", values[0])
 	}
 	time.Sleep(20 * time.Second)
 	return dex.ForceCompleteIfChannelsEmpty(
 		nil,
-		[]dex.ChannelDef{QueueSignalChannel},
-		dex.MovementOf(processSignalStep{}, ""),
+		[]dex.ChannelDef{QueueChannel},
+		dex.MovementOf(processMessageStep{}, ""),
 	), nil
 }
 
-var _ dex.Flow = (*DrainSignalChannelsFlow)(nil)
+var _ dex.Flow = (*DrainingChannelFlow)(nil)

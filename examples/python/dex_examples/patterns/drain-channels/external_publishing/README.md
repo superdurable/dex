@@ -1,12 +1,12 @@
-# Drain Signal Channels Flow
+# Draining Channel for External Publishing
 
-Keeps a flow alive only while there are signals left to process, and closes as
-soon as the channel is drained. A new signal simply starts a new flow execution
+Keeps a Flow alive only while there are messages left to process, and closes as
+soon as the channel is drained. A new message starts a new Flow execution
 under the same flow ID. Many short-lived flows are usually preferable to one
 long-lived flow, both for cost and for versioning.
 
 `force_complete_if_channels_empty(...)` performs the empty check atomically
-with the close decision, so no signal can be lost in the race between "channel
+with the close decision, so no message can be lost in the race between "channel
 looks empty" and "flow closes".
 
 **Note:** atomicity only holds when a channel is consumed by a single step.
@@ -18,20 +18,20 @@ looks empty" and "flow closes".
 
 ## Steps
 
-`ProcessSignal`:
+`ProcessMessage`:
 
 - On the first execution the input is non-`None`, so the message from the input
   is processed instead of one from the channel.
-- Otherwise it waits for a value on `queueSignalChannel` and processes that.
-- Then it sleeps 20 seconds, leaving a window for more signals to arrive.
+- Otherwise it waits for a value on `queueChannel` and processes that.
+- Then it sleeps 20 seconds, leaving a window for more messages to arrive.
 - Finally it either loops (channel non-empty) or force-completes the flow
   (channel empty).
 
 ## Channels
 
-- `queueSignalChannel` (`str`) — receives the signals the flow processes.
+- `queueChannel` (`str`) — receives the messages the Flow processes.
 
 ## Usage
 
 Start the flow with a first message, then publish more values to
-`queueSignalChannel` with `client.publish(...)`.
+`queueChannel` with `client.publish(...)`.

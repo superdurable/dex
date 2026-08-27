@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.drainchannels.signal;
+package io.superdurable.dex.patterns.drainchannels.externalpublishing;
 
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
@@ -30,25 +30,25 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 @Component
-public class DrainSignalChannelsFlow implements Flow<String> {
-    public static final String QUEUE_SIGNAL_CHANNEL = "queueSignalChannel";
+public class DrainingChannelFlow implements Flow<String> {
+    public static final String QUEUE_CHANNEL = "queueChannel";
 
-    public final Channel<String> queueSignalChannel =
-            Channel.define(QUEUE_SIGNAL_CHANNEL, String.class);
+    public final Channel<String> queueChannel =
+            Channel.define(QUEUE_CHANNEL, String.class);
 
-    private final ProcessSignal processSignal = new ProcessSignal();
+    private final ProcessMessage processMessage = new ProcessMessage();
 
     @Override
     public StepList<String> getSteps() {
-        return StepList.startStep(processSignal);
+        return StepList.startStep(processMessage);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(queueSignalChannel);
+        return PersistenceSchema.of(queueChannel);
     }
 
-    final class ProcessSignal implements Step<String> {
+    final class ProcessMessage implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -57,7 +57,7 @@ public class DrainSignalChannelsFlow implements Flow<String> {
         @Override
         public Wait waitFor(final Context context, final String input) {
             if (input == null) {
-                return Wait.until(queueSignalChannel.forOne());
+                return Wait.until(queueChannel.forOne());
             }
             return Wait.skipImmediately();
         }
@@ -66,18 +66,18 @@ public class DrainSignalChannelsFlow implements Flow<String> {
         public StepDecision execute(final Context context, final String input) {
             if (input != null) {
                 System.out.println(
-                        "DrainSignalChannelsFlow process signal value: " + input);
+                        "DrainingChannelFlow process message: " + input);
             } else {
-                final List<String> values = queueSignalChannel.getConditionResults(context);
+                final List<String> values = queueChannel.getConditionResults(context);
                 if (values.isEmpty()) {
-                    throw new IllegalStateException("No signal request found");
+                    throw new IllegalStateException("No channel message found");
                 }
                 final String value = values.get(0);
                 if (value == null) {
-                    throw new IllegalStateException("No signal value found");
+                    throw new IllegalStateException("No channel message value found");
                 }
                 System.out.println(
-                        "DrainSignalChannelsFlow process signal value: " + value);
+                        "DrainingChannelFlow process message: " + value);
             }
 
             try {
@@ -88,8 +88,8 @@ public class DrainSignalChannelsFlow implements Flow<String> {
 
             return StepDecision.forceCompleteIfChannelsEmpty(
                     null,
-                    StepMovement.of(ProcessSignal.class, null),
-                    queueSignalChannel);
+                    StepMovement.of(ProcessMessage.class, null),
+                    queueChannel);
         }
     }
 }

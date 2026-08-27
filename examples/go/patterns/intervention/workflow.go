@@ -29,15 +29,15 @@ import (
 
 const (
 	InternalChannelCommand       = "internal_channel_command"
-	SignalChannelCommandRetry    = "signal_channel_command_retry"
-	SignalChannelCommandSkip     = "signal_channel_command_skip"
+	ChannelCommandRetry          = "channel_command_retry"
+	ChannelCommandSkip           = "channel_command_skip"
 	NumberOfRetriesAttributeName = "number_of_retries"
 )
 
 var (
 	DataChannel     = dex.DefineChannel[string](InternalChannelCommand)
-	RetrySignal     = dex.DefineChannel[dex.None](SignalChannelCommandRetry)
-	SkipSignal      = dex.DefineChannel[dex.None](SignalChannelCommandSkip)
+	RetryChannel    = dex.DefineChannel[dex.None](ChannelCommandRetry)
+	SkipChannel     = dex.DefineChannel[dex.None](ChannelCommandSkip)
 	NumberOfRetries = dex.DefineAttribute[int](NumberOfRetriesAttributeName)
 )
 
@@ -62,7 +62,7 @@ func (*ManualInterventionFlow) GetSteps() []dex.StepDef {
 func (*ManualInterventionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{NumberOfRetries},
-		Channels:   []dex.ChannelDef{DataChannel, RetrySignal, SkipSignal},
+		Channels:   []dex.ChannelDef{DataChannel, RetryChannel, SkipChannel},
 	}
 }
 
@@ -134,23 +134,23 @@ func (errorStep) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(RetrySignal.ForOne(), SkipSignal.ForOne()), nil
+	return dex.AnyOf(RetryChannel.ForOne(), SkipChannel.ForOne()), nil
 }
 
 func (errorStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
-	retryResults, err := RetrySignal.GetConditionResults(ctx)
+	retryResults, err := RetryChannel.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
 	retry := len(retryResults) > 0
-	signalName := SignalChannelCommandSkip
+	channelName := ChannelCommandSkip
 	if retry {
-		signalName = SignalChannelCommandRetry
+		channelName = ChannelCommandRetry
 	}
-	fmt.Println("signal received: " + signalName)
+	fmt.Println("channel message received: " + channelName)
 	if retry {
 		return dex.GoTo(getDataStep{}, true), nil
 	}

@@ -1,4 +1,4 @@
 # Drain channels
 
 - [Internal channel drain](./draininternal)
-- [Signal channel drain](./signal)
+- [External publishing channel drain](./external-publishing)

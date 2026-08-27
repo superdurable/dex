@@ -35,16 +35,16 @@ import java.util.List;
 @Component
 public class ManualInterventionFlow implements Flow<Void> {
     public static final String INTERNAL_CHANNEL_COMMAND = "internal_channel_command";
-    public static final String SIGNAL_CHANNEL_COMMAND_RETRY = "signal_channel_command_retry";
-    public static final String SIGNAL_CHANNEL_COMMAND_SKIP = "signal_channel_command_skip";
+    public static final String CHANNEL_COMMAND_RETRY = "channel_command_retry";
+    public static final String CHANNEL_COMMAND_SKIP = "channel_command_skip";
     public static final String NUMBER_OF_RETRIES = "number_of_retries";
 
     public final Channel<String> dataChannel =
             Channel.define(INTERNAL_CHANNEL_COMMAND, String.class);
-    public final Channel<Void> retrySignal =
-            Channel.define(SIGNAL_CHANNEL_COMMAND_RETRY, Void.class);
-    public final Channel<Void> skipSignal =
-            Channel.define(SIGNAL_CHANNEL_COMMAND_SKIP, Void.class);
+    public final Channel<Void> retryChannel =
+            Channel.define(CHANNEL_COMMAND_RETRY, Void.class);
+    public final Channel<Void> skipChannel =
+            Channel.define(CHANNEL_COMMAND_SKIP, Void.class);
     public final Attribute<Integer> numberOfRetries =
             Attribute.define(NUMBER_OF_RETRIES, Integer.class);
 
@@ -60,7 +60,7 @@ public class ManualInterventionFlow implements Flow<Void> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(dataChannel, retrySignal, skipSignal, numberOfRetries);
+        return PersistenceSchema.of(dataChannel, retryChannel, skipChannel, numberOfRetries);
     }
 
     final class Init implements Step<Void> {
@@ -122,15 +122,15 @@ public class ManualInterventionFlow implements Flow<Void> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
-            return Wait.anyOf(retrySignal.forOne(), skipSignal.forOne());
+            return Wait.anyOf(retryChannel.forOne(), skipChannel.forOne());
         }
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
             final boolean retry =
-                    !retrySignal.getConditionResults(context).isEmpty();
-            System.out.println("signal received: "
-                    + (retry ? SIGNAL_CHANNEL_COMMAND_RETRY : SIGNAL_CHANNEL_COMMAND_SKIP));
+                    !retryChannel.getConditionResults(context).isEmpty();
+            System.out.println("channel message received: "
+                    + (retry ? CHANNEL_COMMAND_RETRY : CHANNEL_COMMAND_SKIP));
             if (retry) {
                 return StepDecision.goTo(GetData.class, true);
             }

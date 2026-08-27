@@ -72,7 +72,7 @@ after E2E tests for manual HTTP exploration.
 Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 
 - Cron schedule
-- Drain internal / signal channels
+- Drain internal / externally published channels
 - Interruptible execution
 - Manual intervention
 - Parallel states (simple / with await)

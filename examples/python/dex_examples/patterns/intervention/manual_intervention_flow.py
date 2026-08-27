@@ -80,24 +80,24 @@ class Error(Step[None]):
         self,
         get_data: GetData,
         final: Final,
-        retry_signal: Channel[None],
-        skip_signal: Channel[None],
+        retry_channel: Channel[None],
+        skip_channel: Channel[None],
     ) -> None:
         self.get_data = get_data
         self.final = final
-        self.retry_signal = retry_signal
-        self.skip_signal = skip_signal
+        self.retry_channel = retry_channel
+        self.skip_channel = skip_channel
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
-        return Wait.any_of(self.retry_signal.for_one(), self.skip_signal.for_one())
+        return Wait.any_of(self.retry_channel.for_one(), self.skip_channel.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
-        retry = bool(self.retry_signal.results(context))
+        retry = bool(self.retry_channel.results(context))
         print(
-            "signal received: "
-            + (self.retry_signal.name if retry else self.skip_signal.name)
+            "channel message received: "
+            + (self.retry_channel.name if retry else self.skip_channel.name)
         )
         if retry:
             return go_to(GetData, True)
@@ -117,13 +117,13 @@ class Init(Step[None]):
 
 class ManualInterventionFlow(Flow[None]):
     INTERNAL_CHANNEL_COMMAND = "internal_channel_command"
-    SIGNAL_CHANNEL_COMMAND_RETRY = "signal_channel_command_retry"
-    SIGNAL_CHANNEL_COMMAND_SKIP = "signal_channel_command_skip"
+    CHANNEL_COMMAND_RETRY = "channel_command_retry"
+    CHANNEL_COMMAND_SKIP = "channel_command_skip"
     NUMBER_OF_RETRIES = "number_of_retries"
 
     data_channel = Channel(INTERNAL_CHANNEL_COMMAND, str)
-    retry_signal = Channel[None](SIGNAL_CHANNEL_COMMAND_RETRY, type(None))
-    skip_signal = Channel[None](SIGNAL_CHANNEL_COMMAND_SKIP, type(None))
+    retry_channel = Channel[None](CHANNEL_COMMAND_RETRY, type(None))
+    skip_channel = Channel[None](CHANNEL_COMMAND_SKIP, type(None))
     number_of_retries = Attribute(NUMBER_OF_RETRIES, int)
 
     def __init__(self) -> None:
@@ -136,8 +136,8 @@ class ManualInterventionFlow(Flow[None]):
         self.error = Error(
             self.get_data,
             self.final,
-            self.retry_signal,
-            self.skip_signal,
+            self.retry_channel,
+            self.skip_channel,
         )
         self.init = Init(self.get_data, self.number_of_retries)
 
@@ -151,7 +151,7 @@ class ManualInterventionFlow(Flow[None]):
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(
             self.data_channel,
-            self.retry_signal,
-            self.skip_signal,
+            self.retry_channel,
+            self.skip_channel,
             self.number_of_retries,
         )

@@ -336,10 +336,10 @@ Use it when you want to drain Channels and complete the Flow, so the Flow can st
 
 <SdkTabs
   examples={{
-    go: 'examples/go/patterns/drain-channels/signal/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/signal/DrainSignalChannelsFlow.java',
-    python: 'examples/python/dex_examples/patterns/drain-channels/signal/drain_signal_channels_flow.py',
-    typescript: 'examples/typescript/src/patterns/drain-channels/signal/drain-signal-channels-flow.ts',
+    go: 'examples/go/patterns/drain-channels/external-publishing/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/drainchannels/externalpublishing/DrainingChannelFlow.java',
+    python: 'examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py',
+    typescript: 'examples/typescript/src/patterns/drain-channels/external-publishing/draining-channel-flow.ts',
     rust: 'examples/rust/src/patterns/drain_channels/flow.rs',
   }}>
 <SdkSnippet lang="go">
@@ -347,8 +347,8 @@ Use it when you want to drain Channels and complete the Flow, so the Flow can st
 ```go
 return dex.ForceCompleteIfChannelsEmpty(
 	nil,
-	[]dex.ChannelDef{QueueSignalChannel},
-	dex.MovementOf(processSignalStep{}, ""),
+	[]dex.ChannelDef{QueueChannel},
+	dex.MovementOf(processMessageStep{}, ""),
 ), nil
 ```
 
@@ -358,8 +358,8 @@ return dex.ForceCompleteIfChannelsEmpty(
 ```java
 return StepDecision.forceCompleteIfChannelsEmpty(
         null,
-        StepMovement.of(ProcessSignal.class, null),
-        queueSignalChannel);
+        StepMovement.of(ProcessMessage.class, null),
+        queueChannel);
 ```
 
 </SdkSnippet>
@@ -368,8 +368,8 @@ return StepDecision.forceCompleteIfChannelsEmpty(
 ```python
 return force_complete_if_channels_empty(
     None,
-    StepMovement.of(ProcessSignal, None),
-    self.queue_signal_channel,
+    StepMovement.of(ProcessMessage, None),
+    self.queue_channel,
 )
 ```
 
@@ -379,8 +379,8 @@ return force_complete_if_channels_empty(
 ```typescript
 return forceCompleteIfChannelsEmpty(
   null,
-  StepMovement.of(ProcessSignal.class, undefined),
-  this.flow.queueSignalChannel,
+  StepMovement.of(ProcessMessage, undefined),
+  queueChannel,
 );
 ```
 
@@ -390,8 +390,8 @@ return forceCompleteIfChannelsEmpty(
 ```rust
 Ok(StepDecision::force_complete_if_channels_empty(
     (),
-    StepMovement::to(&DrainSignal, ()),
-    [signal_queue().when_empty()],
+    StepMovement::to(&DrainChannel, ()),
+    [channel_queue().when_empty()],
 ))
 ```
 
