@@ -554,7 +554,7 @@ func streamWriteInput(req *dexpb.WriteStreamRequest) (streamstore.WriteInput, er
 	if req == nil || req.GetFlowId() == "" || req.GetFlowType() == "" || req.GetStreamName() == "" {
 		return streamstore.WriteInput{}, fmt.Errorf("flow ID, Flow type, and Stream name are required")
 	}
-	if req.GetMaxEstimatedBytes() <= 0 {
+	if req.GetStreamCapacityBytes() <= 0 {
 		return streamstore.WriteInput{}, fmt.Errorf("max estimated bytes must be positive")
 	}
 	if req.GetValue() == nil {
@@ -567,7 +567,7 @@ func streamWriteInput(req *dexpb.WriteStreamRequest) (streamstore.WriteInput, er
 		FlowID:               req.GetFlowId(),
 		FlowType:             req.GetFlowType(),
 		StreamName:           req.GetStreamName(),
-		MaxEstimatedBytes:    req.GetMaxEstimatedBytes(),
+		StreamCapacityBytes:  req.GetStreamCapacityBytes(),
 		Value:                req.GetValue(),
 		PublicIdempotencyKey: req.GetIdempotencyKey(),
 		InternalIdentity: lengthPrefixedIdentity(

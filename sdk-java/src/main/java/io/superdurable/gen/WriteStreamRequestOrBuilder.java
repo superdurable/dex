@@ -47,10 +47,10 @@ public interface WriteStreamRequestOrBuilder extends
       getStreamNameBytes();
 
   /**
-   * <code>int64 max_estimated_bytes = 4;</code>
-   * @return The maxEstimatedBytes.
+   * <code>int64 stream_capacity_bytes = 4;</code>
+   * @return The streamCapacityBytes.
    */
-  long getMaxEstimatedBytes();
+  long getStreamCapacityBytes();
 
   /**
    * <code>.dex.Value value = 5;</code>

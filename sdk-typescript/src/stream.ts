@@ -19,16 +19,16 @@ export class Stream<T> {
    * Creates a Stream definition for a PersistenceSchema.
    * @param name - Non-empty logical name unique within the Flow.
    * @param codec - Codec used for every Stream message.
-   * @param maxEstimatedBytes - Positive approximate byte budget shared by this Flow type's instances.
+   * @param streamCapacityBytes - Positive approximate byte budget shared by this Flow type's instances.
    */
   public constructor(
     public readonly name: string,
     public readonly codec: Codec<T>,
-    public readonly maxEstimatedBytes: number,
+    public readonly streamCapacityBytes: number,
   ) {
     requireName(name);
-    if (!Number.isSafeInteger(maxEstimatedBytes) || maxEstimatedBytes <= 0) {
-      throw new RangeError("Stream maxEstimatedBytes must be a positive safe integer");
+    if (!Number.isSafeInteger(streamCapacityBytes) || streamCapacityBytes <= 0) {
+      throw new RangeError("Stream streamCapacityBytes must be a positive safe integer");
     }
   }
 

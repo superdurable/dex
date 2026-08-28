@@ -447,7 +447,7 @@ func TestWorkerStreamWriteUsesStepIdentity(t *testing.T) {
 	require.Equal(t, "flow-1", flowService.request.FlowId)
 	require.Equal(t, GetFinalFlowType(workerFlow), flowService.request.FlowType)
 	require.Equal(t, "thinking", flowService.request.StreamName)
-	require.Equal(t, int64(1<<20), flowService.request.MaxEstimatedBytes)
+	require.Equal(t, int64(1<<20), flowService.request.StreamCapacityBytes)
 	require.Equal(t, "run-1#waiting-1", flowService.request.IdempotencyKey)
 	require.Equal(t, "checking inventory", flowService.request.Value.GetStringValue())
 

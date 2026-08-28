@@ -2702,12 +2702,12 @@ func (x *ChannelMessage) GetValue() *Value {
 }
 
 type WriteStreamRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	FlowId            string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
-	FlowType          string                 `protobuf:"bytes,2,opt,name=flow_type,json=flowType,proto3" json:"flow_type,omitempty"`
-	StreamName        string                 `protobuf:"bytes,3,opt,name=stream_name,json=streamName,proto3" json:"stream_name,omitempty"`
-	MaxEstimatedBytes int64                  `protobuf:"varint,4,opt,name=max_estimated_bytes,json=maxEstimatedBytes,proto3" json:"max_estimated_bytes,omitempty"`
-	Value             *Value                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	FlowId              string                 `protobuf:"bytes,1,opt,name=flow_id,json=flowId,proto3" json:"flow_id,omitempty"`
+	FlowType            string                 `protobuf:"bytes,2,opt,name=flow_type,json=flowType,proto3" json:"flow_type,omitempty"`
+	StreamName          string                 `protobuf:"bytes,3,opt,name=stream_name,json=streamName,proto3" json:"stream_name,omitempty"`
+	StreamCapacityBytes int64                  `protobuf:"varint,4,opt,name=stream_capacity_bytes,json=streamCapacityBytes,proto3" json:"stream_capacity_bytes,omitempty"`
+	Value               *Value                 `protobuf:"bytes,5,opt,name=value,proto3" json:"value,omitempty"`
 	// Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`.
 	IdempotencyKey string `protobuf:"bytes,6,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
 	unknownFields  protoimpl.UnknownFields
@@ -2765,9 +2765,9 @@ func (x *WriteStreamRequest) GetStreamName() string {
 	return ""
 }
 
-func (x *WriteStreamRequest) GetMaxEstimatedBytes() int64 {
+func (x *WriteStreamRequest) GetStreamCapacityBytes() int64 {
 	if x != nil {
-		return x.MaxEstimatedBytes
+		return x.StreamCapacityBytes
 	}
 	return 0
 }
@@ -11641,13 +11641,13 @@ const file_dex_proto_rawDesc = "" +
 	"\x0eChannelMessage\x12!\n" +
 	"\fchannel_name\x18\x01 \x01(\tR\vchannelName\x12 \n" +
 	"\x05value\x18\x02 \x01(\v2\n" +
-	".dex.ValueR\x05value\"\xe6\x01\n" +
+	".dex.ValueR\x05value\"\xea\x01\n" +
 	"\x12WriteStreamRequest\x12\x17\n" +
 	"\aflow_id\x18\x01 \x01(\tR\x06flowId\x12\x1b\n" +
 	"\tflow_type\x18\x02 \x01(\tR\bflowType\x12\x1f\n" +
 	"\vstream_name\x18\x03 \x01(\tR\n" +
-	"streamName\x12.\n" +
-	"\x13max_estimated_bytes\x18\x04 \x01(\x03R\x11maxEstimatedBytes\x12 \n" +
+	"streamName\x122\n" +
+	"\x15stream_capacity_bytes\x18\x04 \x01(\x03R\x13streamCapacityBytes\x12 \n" +
 	"\x05value\x18\x05 \x01(\v2\n" +
 	".dex.ValueR\x05value\x12'\n" +
 	"\x0fidempotency_key\x18\x06 \x01(\tR\x0eidempotencyKey\"\xb9\x01\n" +

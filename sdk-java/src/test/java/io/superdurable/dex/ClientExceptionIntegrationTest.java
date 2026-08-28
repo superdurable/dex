@@ -178,7 +178,7 @@ final class ClientExceptionIntegrationTest {
 
         assertEquals("StreamFlow", flowService.writeStreamRequest.getFlowType());
         assertEquals("thinking", flowService.writeStreamRequest.getStreamName());
-        assertEquals(1_048_576, flowService.writeStreamRequest.getMaxEstimatedBytes());
+        assertEquals(1_048_576, flowService.writeStreamRequest.getStreamCapacityBytes());
         assertEquals("client-1", flowService.writeStreamRequest.getIdempotencyKey());
         assertEquals("previous", flowService.readStreamRequest.getResumeToken());
         assertEquals(2, flowService.readStreamRequest.getWaitTimeSeconds());

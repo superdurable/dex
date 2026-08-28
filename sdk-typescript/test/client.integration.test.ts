@@ -227,7 +227,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
       flowId: "flow-1",
       flowType: "TestFlow",
       streamName: "thinking",
-      maxEstimatedBytes: 1_048_576n,
+      streamCapacityBytes: 1_048_576n,
       value: Value.create({ kind: { $case: "stringValue", value: "starting" } }),
       idempotencyKey: "client-1",
     });

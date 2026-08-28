@@ -612,7 +612,7 @@ func TestRegistryValidatesPersistenceSchema(t *testing.T) {
 					Streams: []StreamDef{DefineStream[string]("stream", 0)},
 				},
 			}},
-			error: "max estimated bytes must be positive",
+			error: "capacity bytes must be positive",
 		},
 		{
 			name: "duplicate stream",

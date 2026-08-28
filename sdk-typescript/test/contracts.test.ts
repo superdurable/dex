@@ -523,7 +523,7 @@ test("Step Stream writes use the Step execution idempotency key", async () => {
     flowId: "flow-1",
     flowType: "StreamFlow",
     streamName: "thinking",
-    maxEstimatedBytes: 1_048_576n,
+    streamCapacityBytes: 1_048_576n,
     value: encodeValue(stringCodec, "checking"),
     idempotencyKey: "run-1#step-1",
   });

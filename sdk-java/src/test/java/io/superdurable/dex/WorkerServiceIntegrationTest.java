@@ -120,7 +120,7 @@ final class WorkerServiceIntegrationTest {
             assertEquals("flow-1", request.getFlowId());
             assertEquals("BridgeFlow", request.getFlowType());
             assertEquals("thinking", request.getStreamName());
-            assertEquals(1_048_576, request.getMaxEstimatedBytes());
+            assertEquals(1_048_576, request.getStreamCapacityBytes());
             assertEquals("run-1#step-1", request.getIdempotencyKey());
             assertEquals("stream", request.getValue().getStringValue());
         } finally {

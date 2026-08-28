@@ -175,7 +175,7 @@ class InvocationContext:
             flow_id=self.flow_id,
             flow_type=self._flow.name,
             stream_name=definition.name,
-            max_estimated_bytes=definition.max_estimated_bytes,
+            stream_capacity_bytes=definition.stream_capacity_bytes,
             value=self._values.encode(
                 value,
                 self._values.codec(definition.value_type),

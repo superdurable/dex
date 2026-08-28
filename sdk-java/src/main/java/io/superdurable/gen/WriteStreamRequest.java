@@ -170,15 +170,15 @@ private static final long serialVersionUID = 0L;
     }
   }
 
-  public static final int MAX_ESTIMATED_BYTES_FIELD_NUMBER = 4;
-  private long maxEstimatedBytes_ = 0L;
+  public static final int STREAM_CAPACITY_BYTES_FIELD_NUMBER = 4;
+  private long streamCapacityBytes_ = 0L;
   /**
-   * <code>int64 max_estimated_bytes = 4;</code>
-   * @return The maxEstimatedBytes.
+   * <code>int64 stream_capacity_bytes = 4;</code>
+   * @return The streamCapacityBytes.
    */
   @java.lang.Override
-  public long getMaxEstimatedBytes() {
-    return maxEstimatedBytes_;
+  public long getStreamCapacityBytes() {
+    return streamCapacityBytes_;
   }
 
   public static final int VALUE_FIELD_NUMBER = 5;
@@ -277,8 +277,8 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(streamName_)) {
       com.google.protobuf.GeneratedMessage.writeString(output, 3, streamName_);
     }
-    if (maxEstimatedBytes_ != 0L) {
-      output.writeInt64(4, maxEstimatedBytes_);
+    if (streamCapacityBytes_ != 0L) {
+      output.writeInt64(4, streamCapacityBytes_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(5, getValue());
@@ -299,9 +299,9 @@ private static final long serialVersionUID = 0L;
     if (!com.google.protobuf.GeneratedMessage.isStringEmpty(streamName_)) {
       size += com.google.protobuf.GeneratedMessage.computeStringSize(3, streamName_);
     }
-    if (maxEstimatedBytes_ != 0L) {
+    if (streamCapacityBytes_ != 0L) {
       size += com.google.protobuf.CodedOutputStream
-        .computeInt64Size(4, maxEstimatedBytes_);
+        .computeInt64Size(4, streamCapacityBytes_);
     }
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
@@ -340,8 +340,8 @@ private static final long serialVersionUID = 0L;
         .equals(other.getFlowType())) return false;
     if (!getStreamName()
         .equals(other.getStreamName())) return false;
-    if (getMaxEstimatedBytes()
-        != other.getMaxEstimatedBytes()) return false;
+    if (getStreamCapacityBytes()
+        != other.getStreamCapacityBytes()) return false;
     if (hasValue() != other.hasValue()) return false;
     if (hasValue()) {
       if (!getValue()
@@ -366,9 +366,9 @@ private static final long serialVersionUID = 0L;
     hash = (53 * hash) + getFlowType().hashCode();
     hash = (37 * hash) + STREAM_NAME_FIELD_NUMBER;
     hash = (53 * hash) + getStreamName().hashCode();
-    hash = (37 * hash) + MAX_ESTIMATED_BYTES_FIELD_NUMBER;
+    hash = (37 * hash) + STREAM_CAPACITY_BYTES_FIELD_NUMBER;
     hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-        getMaxEstimatedBytes());
+        getStreamCapacityBytes());
     if (hasValue()) {
       hash = (37 * hash) + VALUE_FIELD_NUMBER;
       hash = (53 * hash) + getValue().hashCode();
@@ -515,7 +515,7 @@ private static final long serialVersionUID = 0L;
       flowId_ = "";
       flowType_ = "";
       streamName_ = "";
-      maxEstimatedBytes_ = 0L;
+      streamCapacityBytes_ = 0L;
       value_ = null;
       if (valueBuilder_ != null) {
         valueBuilder_.dispose();
@@ -565,7 +565,7 @@ private static final long serialVersionUID = 0L;
         result.streamName_ = streamName_;
       }
       if (((from_bitField0_ & 0x00000008) != 0)) {
-        result.maxEstimatedBytes_ = maxEstimatedBytes_;
+        result.streamCapacityBytes_ = streamCapacityBytes_;
       }
       int to_bitField0_ = 0;
       if (((from_bitField0_ & 0x00000010) != 0)) {
@@ -607,8 +607,8 @@ private static final long serialVersionUID = 0L;
         bitField0_ |= 0x00000004;
         onChanged();
       }
-      if (other.getMaxEstimatedBytes() != 0L) {
-        setMaxEstimatedBytes(other.getMaxEstimatedBytes());
+      if (other.getStreamCapacityBytes() != 0L) {
+        setStreamCapacityBytes(other.getStreamCapacityBytes());
       }
       if (other.hasValue()) {
         mergeValue(other.getValue());
@@ -660,7 +660,7 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 26
             case 32: {
-              maxEstimatedBytes_ = input.readInt64();
+              streamCapacityBytes_ = input.readInt64();
               bitField0_ |= 0x00000008;
               break;
             } // case 32
@@ -909,34 +909,34 @@ private static final long serialVersionUID = 0L;
       return this;
     }
 
-    private long maxEstimatedBytes_ ;
+    private long streamCapacityBytes_ ;
     /**
-     * <code>int64 max_estimated_bytes = 4;</code>
-     * @return The maxEstimatedBytes.
+     * <code>int64 stream_capacity_bytes = 4;</code>
+     * @return The streamCapacityBytes.
      */
     @java.lang.Override
-    public long getMaxEstimatedBytes() {
-      return maxEstimatedBytes_;
+    public long getStreamCapacityBytes() {
+      return streamCapacityBytes_;
     }
     /**
-     * <code>int64 max_estimated_bytes = 4;</code>
-     * @param value The maxEstimatedBytes to set.
+     * <code>int64 stream_capacity_bytes = 4;</code>
+     * @param value The streamCapacityBytes to set.
      * @return This builder for chaining.
      */
-    public Builder setMaxEstimatedBytes(long value) {
+    public Builder setStreamCapacityBytes(long value) {
 
-      maxEstimatedBytes_ = value;
+      streamCapacityBytes_ = value;
       bitField0_ |= 0x00000008;
       onChanged();
       return this;
     }
     /**
-     * <code>int64 max_estimated_bytes = 4;</code>
+     * <code>int64 stream_capacity_bytes = 4;</code>
      * @return This builder for chaining.
      */
-    public Builder clearMaxEstimatedBytes() {
+    public Builder clearStreamCapacityBytes() {
       bitField0_ = (bitField0_ & ~0x00000008);
-      maxEstimatedBytes_ = 0L;
+      streamCapacityBytes_ = 0L;
       onChanged();
       return this;
     }
