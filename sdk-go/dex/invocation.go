@@ -138,12 +138,12 @@ func (invocation *invocationContext) writeStream(
 	}
 	idempotencyKey := invocation.runID + "#" + invocation.stepExecutionID
 	_, err = invocation.service.WriteStream(invocation, &dexpb.WriteStreamRequest{
-		FlowId:            invocation.flowID,
-		FlowType:          invocation.flow.flowType,
-		StreamName:        definition.name,
-		MaxEstimatedBytes: definition.maxEstimatedBytes,
-		Value:             encoded,
-		IdempotencyKey:    idempotencyKey,
+		FlowId:              invocation.flowID,
+		FlowType:            invocation.flow.flowType,
+		StreamName:          definition.name,
+		StreamCapacityBytes: definition.maxEstimatedBytes,
+		Value:               encoded,
+		IdempotencyKey:      idempotencyKey,
 	})
 	if err != nil {
 		return translateRPCError(err, "WriteStream", invocation.flowID, flowTargetNone)

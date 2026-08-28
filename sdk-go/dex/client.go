@@ -1014,12 +1014,12 @@ func (client *Client) WriteStream(
 		return err
 	}
 	_, err = client.service.WriteStream(ctx, &dexpb.WriteStreamRequest{
-		FlowId:            flowID,
-		FlowType:          flow.flowType,
-		StreamName:        registered.definition.name,
-		MaxEstimatedBytes: registered.definition.maxEstimatedBytes,
-		Value:             encoded,
-		IdempotencyKey:    idempotencyKey,
+		FlowId:              flowID,
+		FlowType:            flow.flowType,
+		StreamName:          registered.definition.name,
+		StreamCapacityBytes: registered.definition.maxEstimatedBytes,
+		Value:               encoded,
+		IdempotencyKey:      idempotencyKey,
 	})
 	return translateRPCError(err, "WriteStream", flowID, flowTargetNone)
 }

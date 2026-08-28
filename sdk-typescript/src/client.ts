@@ -526,7 +526,7 @@ export class Client {
         flowId: requireName(flowId),
         flowType: flow.name,
         streamName: stream.name,
-        maxEstimatedBytes: BigInt(stream.maxEstimatedBytes),
+        streamCapacityBytes: BigInt(stream.maxEstimatedBytes),
         value: encodeValue(stream.codec, value),
         idempotencyKey,
       }, callback),

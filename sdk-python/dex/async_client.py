@@ -535,7 +535,7 @@ class AsyncClient:
                 flow_id=require_name(flow_id),
                 flow_type=flow.name,
                 stream_name=stream.name,
-                max_estimated_bytes=stream.max_estimated_bytes,
+                stream_capacity_bytes=stream.max_estimated_bytes,
                 value=self._values.encode(
                     value,
                     self._values.codec(stream.value_type),

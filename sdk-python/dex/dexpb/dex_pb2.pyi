@@ -528,20 +528,20 @@ class ChannelMessage(_message.Message):
     def __init__(self, channel_name: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class WriteStreamRequest(_message.Message):
-    __slots__ = ("flow_id", "flow_type", "stream_name", "max_estimated_bytes", "value", "idempotency_key")
+    __slots__ = ("flow_id", "flow_type", "stream_name", "stream_capacity_bytes", "value", "idempotency_key")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     STREAM_NAME_FIELD_NUMBER: _ClassVar[int]
-    MAX_ESTIMATED_BYTES_FIELD_NUMBER: _ClassVar[int]
+    STREAM_CAPACITY_BYTES_FIELD_NUMBER: _ClassVar[int]
     VALUE_FIELD_NUMBER: _ClassVar[int]
     IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     flow_type: str
     stream_name: str
-    max_estimated_bytes: int
+    stream_capacity_bytes: int
     value: Value
     idempotency_key: str
-    def __init__(self, flow_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., stream_name: _Optional[str] = ..., max_estimated_bytes: _Optional[int] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., idempotency_key: _Optional[str] = ...) -> None: ...
+    def __init__(self, flow_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., stream_name: _Optional[str] = ..., stream_capacity_bytes: _Optional[int] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., idempotency_key: _Optional[str] = ...) -> None: ...
 
 class ReadStreamRequest(_message.Message):
     __slots__ = ("flow_id", "flow_type", "stream_name", "resume_token", "wait_time_seconds")

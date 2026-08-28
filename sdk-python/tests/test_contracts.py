@@ -580,7 +580,7 @@ def test_step_stream_write_uses_execution_idempotency_key() -> None:
     assert request.flow_id == "flow-1"
     assert request.flow_type == "StreamFlow"
     assert request.stream_name == "thinking"
-    assert request.max_estimated_bytes == 1_048_576
+    assert request.stream_capacity_bytes == 1_048_576
     assert request.idempotency_key == "run-1#step-1"
     assert values.decode(request.value, values.codec(str)) == "checking"
     with pytest.raises(ValueError, match="already written"):
@@ -638,7 +638,7 @@ def test_client_stream_transport_and_metadata() -> None:
         assert service.write_request is not None
         assert service.write_request.flow_type == "StreamFlow"
         assert service.write_request.stream_name == "thinking"
-        assert service.write_request.max_estimated_bytes == 1_048_576
+        assert service.write_request.stream_capacity_bytes == 1_048_576
         assert service.write_request.idempotency_key == "client-1"
         assert service.read_request is not None
         assert service.read_request.resume_token == "previous"

@@ -579,7 +579,7 @@ func TestClientStreamTransportAndMetadata(t *testing.T) {
 	require.Equal(t, "order-1", service.writeStreamRequest.FlowId)
 	require.Equal(t, "dex.clientTestFlow", service.writeStreamRequest.FlowType)
 	require.Equal(t, "thinking", service.writeStreamRequest.StreamName)
-	require.Equal(t, int64(1<<20), service.writeStreamRequest.MaxEstimatedBytes)
+	require.Equal(t, int64(1<<20), service.writeStreamRequest.StreamCapacityBytes)
 	require.Equal(t, "client-1", service.writeStreamRequest.IdempotencyKey)
 	require.ErrorContains(t, client.WriteStream(
 		ctx,

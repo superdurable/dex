@@ -390,7 +390,7 @@ export interface WriteStreamRequest {
   flowId: string;
   flowType: string;
   streamName: string;
-  maxEstimatedBytes: bigint;
+  streamCapacityBytes: bigint;
   value:
     | Value
     | undefined;
@@ -3215,7 +3215,7 @@ export const ChannelMessage: MessageFns<ChannelMessage> = {
 };
 
 function createBaseWriteStreamRequest(): WriteStreamRequest {
-  return { flowId: "", flowType: "", streamName: "", maxEstimatedBytes: 0n, value: undefined, idempotencyKey: "" };
+  return { flowId: "", flowType: "", streamName: "", streamCapacityBytes: 0n, value: undefined, idempotencyKey: "" };
 }
 
 export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
@@ -3229,11 +3229,11 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
     if (message.streamName !== "") {
       writer.uint32(26).string(message.streamName);
     }
-    if (message.maxEstimatedBytes !== 0n) {
-      if (BigInt.asIntN(64, message.maxEstimatedBytes) !== message.maxEstimatedBytes) {
-        throw new globalThis.Error("value provided for field message.maxEstimatedBytes of type int64 too large");
+    if (message.streamCapacityBytes !== 0n) {
+      if (BigInt.asIntN(64, message.streamCapacityBytes) !== message.streamCapacityBytes) {
+        throw new globalThis.Error("value provided for field message.streamCapacityBytes of type int64 too large");
       }
-      writer.uint32(32).int64(message.maxEstimatedBytes);
+      writer.uint32(32).int64(message.streamCapacityBytes);
     }
     if (message.value !== undefined) {
       Value.encode(message.value, writer.uint32(42).fork()).join();
@@ -3280,7 +3280,7 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
             break;
           }
 
-          message.maxEstimatedBytes = reader.int64() as bigint;
+          message.streamCapacityBytes = reader.int64() as bigint;
           continue;
         }
         case 5: {
@@ -3316,8 +3316,8 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
     message.flowId = object.flowId ?? "";
     message.flowType = object.flowType ?? "";
     message.streamName = object.streamName ?? "";
-    message.maxEstimatedBytes = (object.maxEstimatedBytes !== undefined && object.maxEstimatedBytes !== null)
-      ? BigInt(object.maxEstimatedBytes)
+    message.streamCapacityBytes = (object.streamCapacityBytes !== undefined && object.streamCapacityBytes !== null)
+      ? BigInt(object.streamCapacityBytes)
       : 0n;
     message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
     message.idempotencyKey = object.idempotencyKey ?? "";

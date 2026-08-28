@@ -115,7 +115,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		context.Background(),
 		[]string{
 			"api", "call", "WriteStream",
-			"--data", `{"flowId":"cli-flow","flowType":"CliFlow","streamName":"progress","maxEstimatedBytes":"1048576","value":{"stringValue":"thinking"},"idempotencyKey":"cli-key"}`,
+			"--data", `{"flowId":"cli-flow","flowType":"CliFlow","streamName":"progress","streamCapacityBytes":"1048576","value":{"stringValue":"thinking"},"idempotencyKey":"cli-key"}`,
 			"--yes", "--server", dexAddress,
 		},
 	); err != nil {

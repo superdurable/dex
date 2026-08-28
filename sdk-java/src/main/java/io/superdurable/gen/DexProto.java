@@ -963,698 +963,698 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
       "Request\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t" +
       "\022%\n\010messages\030\003 \003(\0132\023.dex.ChannelMessage\"" +
       "A\n\016ChannelMessage\022\024\n\014channel_name\030\001 \001(\t\022" +
-      "\031\n\005value\030\002 \001(\0132\n.dex.Value\"\236\001\n\022WriteStre" +
+      "\031\n\005value\030\002 \001(\0132\n.dex.Value\"\240\001\n\022WriteStre" +
       "amRequest\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tflow_type\030" +
-      "\002 \001(\t\022\023\n\013stream_name\030\003 \001(\t\022\033\n\023max_estima" +
-      "ted_bytes\030\004 \001(\003\022\031\n\005value\030\005 \001(\0132\n.dex.Val" +
-      "ue\022\027\n\017idempotency_key\030\006 \001(\t\"}\n\021ReadStrea" +
-      "mRequest\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tflow_type\030\002" +
-      " \001(\t\022\023\n\013stream_name\030\003 \001(\t\022\024\n\014resume_toke" +
-      "n\030\004 \001(\t\022\031\n\021wait_time_seconds\030\005 \001(\005\"9\n\022Re" +
-      "adStreamResponse\022#\n\007message\030\001 \001(\0132\022.dex." +
-      "StreamMessage\"\213\001\n\rStreamMessage\022\031\n\005value" +
-      "\030\001 \001(\0132\n.dex.Value\022\024\n\014resume_token\030\002 \001(\t" +
-      "\0220\n\014created_time\030\003 \001(\0132\032.google.protobuf" +
-      ".Timestamp\022\027\n\017idempotency_key\030\004 \001(\t\"d\n\017S" +
-      "topFlowRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_i" +
-      "d\030\002 \001(\t\022\016\n\006reason\030\003 \001(\t\022 \n\tstop_type\030\004 \001" +
-      "(\0162\r.dex.StopType\"W\n\024GetAttributesReques" +
-      "t\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\014\n\004ke" +
-      "ys\030\003 \003(\t\022\020\n\010all_keys\030\004 \001(\010\"4\n\025GetAttribu" +
-      "tesResponse\022\033\n\nattributes\030\001 \003(\0132\007.dex.KV" +
-      "\"t\n\024SetAttributesRequest\022\017\n\007flow_id\030\001 \001(" +
-      "\t\022\016\n\006run_id\030\002 \001(\t\022\'\n\nattributes\030\003 \003(\0132\023." +
-      "dex.AttributeWrite\022\022\n\nrequest_id\030\004 \001(\t\"." +
-      "\n\020LoadBlobsRequest\022\032\n\006values\030\001 \003(\0132\n.dex" +
-      ".Value\"\202\001\n\021LoadBlobsResponse\0222\n\006values\030\001" +
-      " \003(\0132\".dex.LoadBlobsResponse.ValuesEntry" +
-      "\0329\n\013ValuesEntry\022\013\n\003key\030\001 \001(\t\022\031\n\005value\030\002 " +
-      "\001(\0132\n.dex.Value:\0028\001\"g\n\022WaitForFlowReques" +
-      "t\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\025\n\rne" +
-      "eds_results\030\003 \001(\010\022\031\n\021wait_time_seconds\030\004" +
-      " \001(\005\"\203\001\n\024StepCompletionOutput\022\033\n\023complet" +
-      "ed_step_type\030\001 \001(\t\022#\n\033completed_step_exe" +
-      "cution_id\030\002 \001(\t\022)\n\025completed_step_output" +
-      "\030\003 \001(\0132\n.dex.Value\"\235\001\n\nFlowResult\022$\n\013flo" +
-      "w_status\030\001 \001(\0162\017.dex.FlowStatus\022*\n\007resul" +
-      "ts\030\002 \003(\0132\031.dex.StepCompletionOutput\022&\n\ne" +
-      "rror_type\030\003 \001(\0162\022.dex.FlowErrorType\022\025\n\re" +
-      "rror_message\030\004 \001(\t\"O\n\022SearchFlowsRequest" +
-      "\022\r\n\005query\030\001 \001(\t\022\021\n\tpage_size\030\002 \001(\005\022\027\n\017ne" +
-      "xt_page_token\030\003 \001(\t\"`\n\023SearchFlowsRespon" +
-      "se\0220\n\tflow_runs\030\001 \003(\0132\035.dex.SearchFlowsR" +
-      "esponseEntry\022\027\n\017next_page_token\030\002 \001(\t\"\371\001" +
-      "\n\030SearchFlowsResponseEntry\022\017\n\007flow_id\030\001 " +
-      "\001(\t\022\016\n\006run_id\030\002 \001(\t\022#\n\022indexed_attribute" +
-      "s\030\003 \003(\0132\007.dex.KV\022\021\n\tflow_type\030\004 \001(\t\022$\n\013f" +
-      "low_status\030\005 \001(\0162\017.dex.FlowStatus\022.\n\nsta" +
-      "rt_time\030\006 \001(\0132\032.google.protobuf.Timestam" +
-      "p\022.\n\nclose_time\030\007 \001(\0132\032.google.protobuf." +
-      "Timestamp\"\265\001\n\031SyncAttributeIndexRequest\022" +
-      "O\n\021attribute_indexes\030\001 \003(\01324.dex.SyncAtt" +
-      "ributeIndexRequest.AttributeIndexesEntry" +
-      "\032G\n\025AttributeIndexesEntry\022\013\n\003key\030\001 \001(\t\022\035" +
-      "\n\005value\030\002 \001(\0162\016.dex.IndexType:\0028\001\"\034\n\032Syn" +
-      "cAttributeIndexResponse\"2\n\017FlowExecution" +
-      "ID\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\"8\n\025G" +
-      "etFlowSummaryRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n" +
-      "\006run_id\030\002 \001(\t\"\214\002\n\026GetFlowSummaryResponse" +
-      "\022/\n\021flow_execution_id\030\001 \001(\0132\024.dex.FlowEx" +
-      "ecutionID\022\024\n\014first_run_id\030\002 \001(\t\022\022\n\nreque" +
-      "st_id\030\003 \001(\t\022\021\n\tflow_type\030\004 \001(\t\022$\n\013flow_s" +
-      "tatus\030\005 \001(\0162\017.dex.FlowStatus\022.\n\nstart_ti" +
-      "me\030\006 \001(\0132\032.google.protobuf.Timestamp\022.\n\n" +
-      "close_time\030\007 \001(\0132\032.google.protobuf.Times" +
-      "tamp\"\324\001\n\036InternalAsyncStepInputSnapshot\022" +
-      ".\n\016method_options\030\001 \001(\0132\026.dex.StepMethod" +
-      "Options\022;\n\020wait_for_request\030\002 \001(\0132\037.dex." +
-      "InvokeWaitForMethodRequestH\000\022:\n\017execute_" +
-      "request\030\003 \001(\0132\037.dex.InvokeExecuteMethodR" +
-      "equestH\000B\t\n\007request\"s\n\032InternalLocalActi" +
-      "vityInput\022%\n\035current_run_started_timesta" +
-      "mp\030\001 \001(\003\022.\n\016method_options\030\002 \001(\0132\026.dex.S" +
-      "tepMethodOptions\"\220\001\n\027GetHistoryEventsReq" +
-      "uest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\037\n" +
-      "\027start_internal_event_id\030\003 \001(\003\022\032\n\022estima" +
-      "te_page_size\030\004 \001(\005\022\027\n\017next_page_token\030\005 " +
-      "\001(\014\"z\n\030GetHistoryEventsResponse\022%\n\006event" +
-      "s\030\001 \003(\0132\025.dex.FlowHistoryEvent\022\027\n\017next_p" +
-      "age_token\030\002 \001(\014\022\036\n\026next_internal_event_i" +
-      "d\030\003 \001(\003\"\241\006\n\020FlowHistoryEvent\022\020\n\010event_id" +
-      "\030\001 \001(\003\022.\n\nevent_time\030\002 \001(\0132\032.google.prot" +
-      "obuf.Timestamp\022L\n\031flow_started_or_contin" +
-      "ued\030\024 \001(\0132\'.dex.FlowStartedOrContinuedHi" +
-      "storyEventH\000\0222\n\013flow_closed\030\025 \001(\0132\033.dex." +
-      "FlowClosedHistoryEventH\000\022A\n\027step_wait_fo" +
-      "r_completed\030\026 \001(\0132\036.dex.StepWaitForCompl" +
-      "etedEventH\000\022;\n\024step_wait_for_failed\030\027 \001(" +
-      "\0132\033.dex.StepWaitForFailedEventH\000\022@\n\026step" +
-      "_execute_completed\030\030 \001(\0132\036.dex.StepExecu" +
-      "teCompletedEventH\000\022:\n\023step_execute_faile" +
-      "d\030\031 \001(\0132\033.dex.StepExecuteFailedEventH\000\022B" +
-      "\n\027rpc_execution_completed\030\032 \001(\0132\037.dex.Rp" +
-      "cExecutionCompletedEventH\000\022D\n\030channel_ex" +
-      "ternal_publish\030\033 \001(\0132 .dex.ChannelExtern" +
-      "alPublishEventH\000\022<\n\025step_wait_for_pendin" +
-      "g\030\034 \001(\0132\033.dex.StepMethodPendingEventH\000\022;" +
-      "\n\024step_execute_pending\030\035 \001(\0132\033.dex.StepM" +
-      "ethodPendingEventH\000\022;\n\020time_travel_fork\030" +
-      "\036 \001(\0132\037.dex.TimeTravelForkHistoryEventH\000" +
-      "B\t\n\007payload\"5\n\032TimeTravelForkHistoryEven" +
-      "t\022\027\n\017previous_run_id\030\001 \001(\t\"\355\002\n\"FlowStart" +
-      "edOrContinuedHistoryEvent\022/\n\021flow_execut" +
-      "ion_id\030\001 \001(\0132\024.dex.FlowExecutionID\022\021\n\tfl" +
-      "ow_type\030\002 \001(\t\022$\n\013flow_config\030\003 \001(\0132\017.dex" +
-      ".FlowConfig\022/\n\014flow_timeout\030\004 \001(\0132\031.goog" +
-      "le.protobuf.Duration\0223\n\023flow_timeout_pol" +
-      "icy\030\005 \001(\0162\026.dex.FlowTimeoutPolicy\022.\n\rini" +
-      "tial_start\030\n \001(\0132\025.dex.FlowInitialStartH" +
-      "\000\0222\n\017continued_start\030\013 \001(\0132\027.dex.FlowCon" +
-      "tinuedStartH\000B\023\n\021start_or_continue\"\230\001\n\020F" +
-      "lowInitialStart\022\027\n\017start_step_type\030\001 \001(\t" +
-      "\022\036\n\nstep_input\030\002 \001(\0132\n.dex.Value\022&\n\014step" +
-      "_options\030\003 \001(\0132\020.dex.StepOptions\022#\n\022init" +
-      "ial_attributes\030\004 \003(\0132\007.dex.KV\"\212\003\n\022FlowCo" +
-      "ntinuedStart\022\027\n\017previous_run_id\030\001 \001(\t\022)\n" +
-      "\016steps_to_start\030\002 \003(\0132\021.dex.StepMovement" +
-      "\0225\n\017steps_to_resume\030\003 \003(\0132\034.dex.StepExec" +
-      "utionResumeInfo\022U\n\030pending_channel_messa" +
-      "ges\030\004 \003(\01323.dex.FlowContinuedStart.Pendi" +
-      "ngChannelMessagesEntry\022\033\n\nattributes\030\005 \003" +
-      "(\0132\007.dex.KV\0222\n\017completed_steps\030\006 \003(\0132\031.d" +
-      "ex.StepCompletionOutput\032Q\n\033PendingChanne" +
-      "lMessagesEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002 \001" +
-      "(\0132\022.dex.ChannelValues:\0028\001\"\306\001\n\026FlowClose" +
-      "dHistoryEvent\022$\n\013flow_status\030\001 \001(\0162\017.dex" +
-      ".FlowStatus\022*\n\007results\030\002 \003(\0132\031.dex.StepC" +
-      "ompletionOutput\022&\n\nerror_type\030\003 \001(\0162\022.de" +
-      "x.FlowErrorType\022\025\n\rerror_message\030\004 \001(\t\022\033" +
-      "\n\023continued_to_run_id\030\005 \001(\t\"\234\001\n\026StepMeth" +
-      "odPendingEvent\022(\n\005input\030\001 \001(\0132\031.dex.Step" +
-      "MethodEventInput\022,\n\007context\030\002 \001(\0132\033.dex." +
-      "StepMethodEventContext\022*\n\005phase\030\003 \001(\0162\033." +
-      "dex.PendingStepMethodPhase\"g\n\021StepMethod" +
-      "Failure\022\025\n\rbackend_error\030\001 \001(\t\022*\n\007detail" +
-      "s\030\002 \001(\0132\031.dex.ServiceErrorResponse\022\017\n\007at" +
-      "tempt\030\003 \001(\005\"w\n\021StepMethodOptions\022\027\n\017time" +
-      "out_seconds\030\001 \001(\005\022&\n\014retry_policy\030\002 \001(\0132" +
-      "\020.dex.RetryPolicy\022!\n\031heartbeat_timeout_s" +
-      "econds\030\003 \001(\005\"\302\001\n\024StepMethodEventInput\022\023\n" +
-      "\013unavailable\030\001 \001(\010\022\036\n\nstep_input\030\002 \001(\0132\n" +
-      ".dex.Value\0220\n\021condition_results\030\003 \001(\0132\025." +
-      "dex.ConditionResults\022\033\n\nattributes\030\004 \003(\013" +
-      "2\007.dex.KV\022&\n\025step_execution_locals\030\005 \003(\013" +
-      "2\007.dex.KV\"\350\002\n\026StepMethodEventContext\022\031\n\021" +
-      "step_execution_id\030\001 \001(\t\022\036\n\026from_step_exe" +
-      "cution_id\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022\'\n\ndu" +
-      "rability\030\004 \001(\0162\023.dex.StepDurability\022\025\n\rf" +
-      "inal_attempt\030\005 \001(\005\0220\n\014started_time\030\006 \001(\013" +
-      "2\032.google.protobuf.Timestamp\022+\n\010duration" +
-      "\030\007 \001(\0132\031.google.protobuf.Duration\022.\n\016met" +
-      "hod_options\030\010 \001(\0132\026.dex.StepMethodOption" +
-      "s\0221\n\021last_failure_info\030\t \001(\0132\026.dex.StepM" +
-      "ethodFailure\"\377\001\n\032StepWaitForCompletedOut" +
-      "put\0221\n\022wait_for_condition\030\001 \001(\0132\025.dex.Wa" +
-      "itingCondition\022.\n\021upsert_attributes\030\002 \003(" +
-      "\0132\023.dex.AttributeWrite\022/\n\022publish_to_cha" +
-      "nnel\030\003 \003(\0132\023.dex.ChannelMessage\022\036\n\rrecor" +
-      "d_events\030\004 \003(\0132\007.dex.KV\022-\n\034upsert_step_e" +
-      "xecution_locals\030\005 \003(\0132\007.dex.KV\"\366\001\n\032StepE" +
-      "xecuteCompletedOutput\022(\n\rstep_decision\030\001" +
-      " \001(\0132\021.dex.StepDecision\022.\n\021upsert_attrib" +
-      "utes\030\002 \003(\0132\023.dex.AttributeWrite\022/\n\022publi" +
-      "sh_to_channel\030\003 \003(\0132\023.dex.ChannelMessage" +
-      "\022\036\n\rrecord_events\030\004 \003(\0132\007.dex.KV\022-\n\034upse" +
-      "rt_step_execution_locals\030\005 \003(\0132\007.dex.KV\"" +
-      "A\n\026StepMethodFailedOutput\022\'\n\007failure\030\001 \001" +
-      "(\0132\026.dex.StepMethodFailure\"\244\001\n\031StepWaitF" +
-      "orCompletedEvent\022(\n\005input\030\001 \001(\0132\031.dex.St" +
-      "epMethodEventInput\022/\n\006output\030\002 \001(\0132\037.dex" +
-      ".StepWaitForCompletedOutput\022,\n\007context\030\003" +
-      " \001(\0132\033.dex.StepMethodEventContext\"\235\001\n\026St" +
-      "epWaitForFailedEvent\022(\n\005input\030\001 \001(\0132\031.de" +
-      "x.StepMethodEventInput\022+\n\006output\030\002 \001(\0132\033" +
-      ".dex.StepMethodFailedOutput\022,\n\007context\030\003" +
-      " \001(\0132\033.dex.StepMethodEventContext\"\244\001\n\031St" +
-      "epExecuteCompletedEvent\022(\n\005input\030\001 \001(\0132\031" +
-      ".dex.StepMethodEventInput\022/\n\006output\030\002 \001(" +
-      "\0132\037.dex.StepExecuteCompletedOutput\022,\n\007co" +
-      "ntext\030\003 \001(\0132\033.dex.StepMethodEventContext" +
-      "\"\235\001\n\026StepExecuteFailedEvent\022(\n\005input\030\001 \001" +
-      "(\0132\031.dex.StepMethodEventInput\022+\n\006output\030" +
-      "\002 \001(\0132\033.dex.StepMethodFailedOutput\022,\n\007co" +
-      "ntext\030\003 \001(\0132\033.dex.StepMethodEventContext" +
-      "\"\256\002\n\032RpcExecutionCompletedEvent\022\020\n\010rpc_n" +
-      "ame\030\001 \001(\t\022\031\n\005input\030\002 \001(\0132\n.dex.Value\022\032\n\006" +
-      "output\030\003 \001(\0132\n.dex.Value\022(\n\rstep_decisio" +
-      "n\030\004 \001(\0132\021.dex.StepDecision\022.\n\021upsert_att" +
-      "ributes\030\005 \003(\0132\023.dex.AttributeWrite\022\036\n\rre" +
-      "cord_events\030\006 \003(\0132\007.dex.KV\022/\n\022publish_to" +
-      "_channel\030\007 \003(\0132\023.dex.ChannelMessage\022\034\n\024i" +
-      "s_set_attribute_api\030\010 \001(\010\"D\n\033ChannelExte" +
-      "rnalPublishEvent\022%\n\010messages\030\001 \003(\0132\023.dex" +
-      ".ChannelMessage\"]\n\032WaitForHistoryEventRe" +
-      "quest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\036" +
-      "\n\026next_internal_event_id\030\003 \001(\003\"\201\001\n\033WaitF" +
-      "orHistoryEventResponse\022\027\n\017event_availabl" +
-      "e\030\001 \001(\010\022#\n\033available_internal_event_id\030\002" +
-      " \001(\003\022$\n\013flow_status\030\003 \001(\0162\017.dex.FlowStat" +
-      "us\"\251\003\n\030ActiveStepExecutionState\022\031\n\021step_" +
-      "execution_id\030\001 \001(\t\022\036\n\026from_step_executio" +
-      "n_id\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022#\n\005phase\030\004" +
-      " \001(\0162\024.dex.ActiveStepPhase\022#\n\010movement\030\005" +
-      " \001(\0132\021.dex.StepMovement\0225\n\021waiting_condi" +
-      "tion\030\006 \001(\0132\032.dex.WaitingConditionState\022C" +
-      "\n\024completed_conditions\030\007 \001(\0132%.dex.StepE" +
-      "xecutionCompletedConditions\022&\n\025step_exec" +
-      "ution_locals\030\010 \003(\0132\007.dex.KV\022\036\n\006timers\030\t " +
-      "\003(\0132\016.dex.TimerInfo\0221\n\021last_failure_info" +
-      "\030\n \001(\0132\026.dex.StepMethodFailure\"6\n\023GetFlo" +
-      "wStateRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id" +
-      "\030\002 \001(\t\"\241\003\n\024GetFlowStateResponse\022$\n\013flow_" +
-      "config\030\001 \001(\0132\017.dex.FlowConfig\022\033\n\nattribu" +
-      "tes\030\002 \003(\0132\007.dex.KV\022=\n\026active_step_execut" +
-      "ions\030\003 \003(\0132\035.dex.ActiveStepExecutionStat" +
-      "e\022\'\n\014queued_steps\030\004 \003(\0132\021.dex.StepMoveme" +
-      "nt\022W\n\030pending_channel_messages\030\005 \003(\01325.d" +
-      "ex.GetFlowStateResponse.PendingChannelMe" +
-      "ssagesEntry\0222\n\017completed_steps\030\006 \003(\0132\031.d" +
-      "ex.StepCompletionOutput\032Q\n\033PendingChanne" +
-      "lMessagesEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002 \001" +
-      "(\0132\022.dex.ChannelValues:\0028\001\"\201\002\n\020ResetFlow" +
-      "Request\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t" +
-      "\022&\n\nreset_type\030\003 \001(\0162\022.dex.FlowResetType" +
-      "\022\016\n\006reason\030\004 \001(\t\022\032\n\022history_event_time\030\005" +
-      " \001(\t\022\021\n\tstep_type\030\006 \001(\t\022\031\n\021step_executio" +
-      "n_id\030\007 \001(\t\022\033\n\023skip_writes_reapply\030\010 \001(\010\022" +
-      "-\n\013step_method\030\t \001(\0162\030.dex.FlowResetStep" +
-      "Method\"#\n\021ResetFlowResponse\022\016\n\006run_id\030\001 " +
-      "\001(\t\"\252\001\n\020InvokeRPCRequest\022\017\n\007flow_id\030\001 \001(" +
-      "\t\022\016\n\006run_id\030\002 \001(\t\022\020\n\010rpc_name\030\003 \001(\t\022\031\n\005i" +
-      "nput\030\004 \001(\0132\n.dex.Value\022\027\n\017timeout_second" +
-      "s\030\005 \001(\005\022\033\n\023lock_attribute_keys\030\006 \003(\t\022\022\n\n" +
-      "request_id\030\007 \001(\t\"/\n\021InvokeRPCResponse\022\032\n" +
-      "\006output\030\001 \001(\0132\n.dex.Value\"\250\001\n\020SkipTimerR" +
+      "\002 \001(\t\022\023\n\013stream_name\030\003 \001(\t\022\035\n\025stream_cap" +
+      "acity_bytes\030\004 \001(\003\022\031\n\005value\030\005 \001(\0132\n.dex.V" +
+      "alue\022\027\n\017idempotency_key\030\006 \001(\t\"}\n\021ReadStr" +
+      "eamRequest\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tflow_type" +
+      "\030\002 \001(\t\022\023\n\013stream_name\030\003 \001(\t\022\024\n\014resume_to" +
+      "ken\030\004 \001(\t\022\031\n\021wait_time_seconds\030\005 \001(\005\"9\n\022" +
+      "ReadStreamResponse\022#\n\007message\030\001 \001(\0132\022.de" +
+      "x.StreamMessage\"\213\001\n\rStreamMessage\022\031\n\005val" +
+      "ue\030\001 \001(\0132\n.dex.Value\022\024\n\014resume_token\030\002 \001" +
+      "(\t\0220\n\014created_time\030\003 \001(\0132\032.google.protob" +
+      "uf.Timestamp\022\027\n\017idempotency_key\030\004 \001(\t\"d\n" +
+      "\017StopFlowRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run" +
+      "_id\030\002 \001(\t\022\016\n\006reason\030\003 \001(\t\022 \n\tstop_type\030\004" +
+      " \001(\0162\r.dex.StopType\"W\n\024GetAttributesRequ" +
+      "est\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\014\n\004" +
+      "keys\030\003 \003(\t\022\020\n\010all_keys\030\004 \001(\010\"4\n\025GetAttri" +
+      "butesResponse\022\033\n\nattributes\030\001 \003(\0132\007.dex." +
+      "KV\"t\n\024SetAttributesRequest\022\017\n\007flow_id\030\001 " +
+      "\001(\t\022\016\n\006run_id\030\002 \001(\t\022\'\n\nattributes\030\003 \003(\0132" +
+      "\023.dex.AttributeWrite\022\022\n\nrequest_id\030\004 \001(\t" +
+      "\".\n\020LoadBlobsRequest\022\032\n\006values\030\001 \003(\0132\n.d" +
+      "ex.Value\"\202\001\n\021LoadBlobsResponse\0222\n\006values" +
+      "\030\001 \003(\0132\".dex.LoadBlobsResponse.ValuesEnt" +
+      "ry\0329\n\013ValuesEntry\022\013\n\003key\030\001 \001(\t\022\031\n\005value\030" +
+      "\002 \001(\0132\n.dex.Value:\0028\001\"g\n\022WaitForFlowRequ" +
+      "est\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\025\n\r" +
+      "needs_results\030\003 \001(\010\022\031\n\021wait_time_seconds" +
+      "\030\004 \001(\005\"\203\001\n\024StepCompletionOutput\022\033\n\023compl" +
+      "eted_step_type\030\001 \001(\t\022#\n\033completed_step_e" +
+      "xecution_id\030\002 \001(\t\022)\n\025completed_step_outp" +
+      "ut\030\003 \001(\0132\n.dex.Value\"\235\001\n\nFlowResult\022$\n\013f" +
+      "low_status\030\001 \001(\0162\017.dex.FlowStatus\022*\n\007res" +
+      "ults\030\002 \003(\0132\031.dex.StepCompletionOutput\022&\n" +
+      "\nerror_type\030\003 \001(\0162\022.dex.FlowErrorType\022\025\n" +
+      "\rerror_message\030\004 \001(\t\"O\n\022SearchFlowsReque" +
+      "st\022\r\n\005query\030\001 \001(\t\022\021\n\tpage_size\030\002 \001(\005\022\027\n\017" +
+      "next_page_token\030\003 \001(\t\"`\n\023SearchFlowsResp" +
+      "onse\0220\n\tflow_runs\030\001 \003(\0132\035.dex.SearchFlow" +
+      "sResponseEntry\022\027\n\017next_page_token\030\002 \001(\t\"" +
+      "\371\001\n\030SearchFlowsResponseEntry\022\017\n\007flow_id\030" +
+      "\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022#\n\022indexed_attribu" +
+      "tes\030\003 \003(\0132\007.dex.KV\022\021\n\tflow_type\030\004 \001(\t\022$\n" +
+      "\013flow_status\030\005 \001(\0162\017.dex.FlowStatus\022.\n\ns" +
+      "tart_time\030\006 \001(\0132\032.google.protobuf.Timest" +
+      "amp\022.\n\nclose_time\030\007 \001(\0132\032.google.protobu" +
+      "f.Timestamp\"\265\001\n\031SyncAttributeIndexReques" +
+      "t\022O\n\021attribute_indexes\030\001 \003(\01324.dex.SyncA" +
+      "ttributeIndexRequest.AttributeIndexesEnt" +
+      "ry\032G\n\025AttributeIndexesEntry\022\013\n\003key\030\001 \001(\t" +
+      "\022\035\n\005value\030\002 \001(\0162\016.dex.IndexType:\0028\001\"\034\n\032S" +
+      "yncAttributeIndexResponse\"2\n\017FlowExecuti" +
+      "onID\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\"8\n" +
+      "\025GetFlowSummaryRequest\022\017\n\007flow_id\030\001 \001(\t\022" +
+      "\016\n\006run_id\030\002 \001(\t\"\214\002\n\026GetFlowSummaryRespon" +
+      "se\022/\n\021flow_execution_id\030\001 \001(\0132\024.dex.Flow" +
+      "ExecutionID\022\024\n\014first_run_id\030\002 \001(\t\022\022\n\nreq" +
+      "uest_id\030\003 \001(\t\022\021\n\tflow_type\030\004 \001(\t\022$\n\013flow" +
+      "_status\030\005 \001(\0162\017.dex.FlowStatus\022.\n\nstart_" +
+      "time\030\006 \001(\0132\032.google.protobuf.Timestamp\022." +
+      "\n\nclose_time\030\007 \001(\0132\032.google.protobuf.Tim" +
+      "estamp\"\324\001\n\036InternalAsyncStepInputSnapsho" +
+      "t\022.\n\016method_options\030\001 \001(\0132\026.dex.StepMeth" +
+      "odOptions\022;\n\020wait_for_request\030\002 \001(\0132\037.de" +
+      "x.InvokeWaitForMethodRequestH\000\022:\n\017execut" +
+      "e_request\030\003 \001(\0132\037.dex.InvokeExecuteMetho" +
+      "dRequestH\000B\t\n\007request\"s\n\032InternalLocalAc" +
+      "tivityInput\022%\n\035current_run_started_times" +
+      "tamp\030\001 \001(\003\022.\n\016method_options\030\002 \001(\0132\026.dex" +
+      ".StepMethodOptions\"\220\001\n\027GetHistoryEventsR" +
       "equest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022" +
-      "\031\n\021step_execution_id\030\003 \001(\t\022\032\n\022timer_cond" +
-      "ition_id\030\004 \001(\t\022\"\n\025timer_condition_index\030" +
-      "\005 \001(\005H\000\210\001\001B\030\n\026_timer_condition_index\"`\n\027" +
-      "UpdateFlowConfigRequest\022\017\n\007flow_id\030\001 \001(\t" +
-      "\022\016\n\006run_id\030\002 \001(\t\022$\n\013flow_config\030\003 \001(\0132\017." +
-      "dex.FlowConfig\"\220\001\n\034WaitForStepCompletion" +
-      "Request\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tstep_type\030\002 " +
-      "\001(\t\022\035\n\025step_execution_number\030\003 \001(\t\022\031\n\021wa" +
-      "it_time_seconds\030\005 \001(\005\022\022\n\nrequest_id\030\006 \001(" +
-      "\t\"\037\n\035WaitForStepCompletionResponse\"\234\001\n\027W" +
-      "aitForAttributeRequest\022\017\n\007flow_id\030\001 \001(\t\022" +
-      "\016\n\006run_id\030\002 \001(\t\0221\n\tcondition\030\003 \001(\0132\036.dex" +
-      ".WaitForAttributeCondition\022\031\n\021wait_time_" +
-      "seconds\030\004 \001(\005\022\022\n\nrequest_id\030\005 \001(\t\"P\n\031Wai" +
-      "tForAttributeCondition\022+\n\005equal\030\001 \001(\0132\032." +
-      "dex.WaitForAttributeEqualH\000B\006\n\004kind\"?\n\025W" +
-      "aitForAttributeEqual\022\013\n\003key\030\001 \001(\t\022\031\n\005val" +
-      "ue\030\002 \001(\0132\n.dex.Value\">\n\033TriggerContinueA" +
-      "sNewRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002" +
-      " \001(\t\"C\n\nHealthInfo\022\021\n\tcondition\030\001 \001(\t\022\020\n" +
-      "\010hostname\030\002 \001(\t\022\020\n\010duration\030\003 \001(\005\"\352\001\n\024Se" +
-      "rviceErrorResponse\022\016\n\006detail\030\001 \001(\t\022\'\n\nsu" +
-      "b_status\030\002 \001(\0162\023.dex.ErrorSubStatus\022$\n\034o" +
-      "riginal_worker_error_detail\030\003 \001(\t\022\"\n\032ori" +
-      "ginal_worker_error_type\030\004 \001(\t\022$\n\034origina" +
-      "l_worker_error_status\030\005 \001(\005\022)\n!original_" +
-      "worker_error_stack_trace\030\006 \001(\t\"k\n\023Worker" +
-      "ErrorResponse\022\016\n\006detail\030\001 \001(\t\022\022\n\nerror_t" +
-      "ype\030\002 \001(\t\022\023\n\013stack_trace\030\003 \001(\t\022\033\n\023retry_" +
-      "after_seconds\030\004 \001(\005\"z\n\025InternalActivityE" +
-      "rror\022\025\n\rserver_detail\030\001 \001(\t\022\032\n\022worker_gr" +
-      "pc_status\030\002 \001(\005\022.\n\014worker_error\030\003 \001(\0132\030." +
-      "dex.InternalWorkerError\"N\n\023InternalWorke" +
-      "rError\022\016\n\006detail\030\001 \001(\t\022\022\n\nerror_type\030\002 \001" +
-      "(\t\022\023\n\013stack_trace\030\003 \001(\t\"m\n\021InternalFlowE" +
-      "rror\022\027\n\rserver_detail\030\001 \001(\tH\000\0224\n\016activit" +
-      "y_error\030\002 \001(\0132\032.dex.InternalActivityErro" +
-      "rH\000B\t\n\007failure\"\033\n\013ChannelInfo\022\014\n\004size\030\001 " +
-      "\001(\005\"\236\001\n\032InvokeWaitForMethodRequest\022\035\n\007co" +
-      "ntext\030\001 \001(\0132\014.dex.Context\022\021\n\tflow_type\030\002" +
-      " \001(\t\022\021\n\tstep_type\030\003 \001(\t\022\036\n\nstep_input\030\004 " +
-      "\001(\0132\n.dex.Value\022\033\n\nattributes\030\005 \003(\0132\007.de" +
-      "x.KV\"\266\002\n\033InvokeWaitForMethodResponse\022;\n\027" +
+      "\037\n\027start_internal_event_id\030\003 \001(\003\022\032\n\022esti" +
+      "mate_page_size\030\004 \001(\005\022\027\n\017next_page_token\030" +
+      "\005 \001(\014\"z\n\030GetHistoryEventsResponse\022%\n\006eve" +
+      "nts\030\001 \003(\0132\025.dex.FlowHistoryEvent\022\027\n\017next" +
+      "_page_token\030\002 \001(\014\022\036\n\026next_internal_event" +
+      "_id\030\003 \001(\003\"\241\006\n\020FlowHistoryEvent\022\020\n\010event_" +
+      "id\030\001 \001(\003\022.\n\nevent_time\030\002 \001(\0132\032.google.pr" +
+      "otobuf.Timestamp\022L\n\031flow_started_or_cont" +
+      "inued\030\024 \001(\0132\'.dex.FlowStartedOrContinued" +
+      "HistoryEventH\000\0222\n\013flow_closed\030\025 \001(\0132\033.de" +
+      "x.FlowClosedHistoryEventH\000\022A\n\027step_wait_" +
+      "for_completed\030\026 \001(\0132\036.dex.StepWaitForCom" +
+      "pletedEventH\000\022;\n\024step_wait_for_failed\030\027 " +
+      "\001(\0132\033.dex.StepWaitForFailedEventH\000\022@\n\026st" +
+      "ep_execute_completed\030\030 \001(\0132\036.dex.StepExe" +
+      "cuteCompletedEventH\000\022:\n\023step_execute_fai" +
+      "led\030\031 \001(\0132\033.dex.StepExecuteFailedEventH\000" +
+      "\022B\n\027rpc_execution_completed\030\032 \001(\0132\037.dex." +
+      "RpcExecutionCompletedEventH\000\022D\n\030channel_" +
+      "external_publish\030\033 \001(\0132 .dex.ChannelExte" +
+      "rnalPublishEventH\000\022<\n\025step_wait_for_pend" +
+      "ing\030\034 \001(\0132\033.dex.StepMethodPendingEventH\000" +
+      "\022;\n\024step_execute_pending\030\035 \001(\0132\033.dex.Ste" +
+      "pMethodPendingEventH\000\022;\n\020time_travel_for" +
+      "k\030\036 \001(\0132\037.dex.TimeTravelForkHistoryEvent" +
+      "H\000B\t\n\007payload\"5\n\032TimeTravelForkHistoryEv" +
+      "ent\022\027\n\017previous_run_id\030\001 \001(\t\"\355\002\n\"FlowSta" +
+      "rtedOrContinuedHistoryEvent\022/\n\021flow_exec" +
+      "ution_id\030\001 \001(\0132\024.dex.FlowExecutionID\022\021\n\t" +
+      "flow_type\030\002 \001(\t\022$\n\013flow_config\030\003 \001(\0132\017.d" +
+      "ex.FlowConfig\022/\n\014flow_timeout\030\004 \001(\0132\031.go" +
+      "ogle.protobuf.Duration\0223\n\023flow_timeout_p" +
+      "olicy\030\005 \001(\0162\026.dex.FlowTimeoutPolicy\022.\n\ri" +
+      "nitial_start\030\n \001(\0132\025.dex.FlowInitialStar" +
+      "tH\000\0222\n\017continued_start\030\013 \001(\0132\027.dex.FlowC" +
+      "ontinuedStartH\000B\023\n\021start_or_continue\"\230\001\n" +
+      "\020FlowInitialStart\022\027\n\017start_step_type\030\001 \001" +
+      "(\t\022\036\n\nstep_input\030\002 \001(\0132\n.dex.Value\022&\n\014st" +
+      "ep_options\030\003 \001(\0132\020.dex.StepOptions\022#\n\022in" +
+      "itial_attributes\030\004 \003(\0132\007.dex.KV\"\212\003\n\022Flow" +
+      "ContinuedStart\022\027\n\017previous_run_id\030\001 \001(\t\022" +
+      ")\n\016steps_to_start\030\002 \003(\0132\021.dex.StepMoveme" +
+      "nt\0225\n\017steps_to_resume\030\003 \003(\0132\034.dex.StepEx" +
+      "ecutionResumeInfo\022U\n\030pending_channel_mes" +
+      "sages\030\004 \003(\01323.dex.FlowContinuedStart.Pen" +
+      "dingChannelMessagesEntry\022\033\n\nattributes\030\005" +
+      " \003(\0132\007.dex.KV\0222\n\017completed_steps\030\006 \003(\0132\031" +
+      ".dex.StepCompletionOutput\032Q\n\033PendingChan" +
+      "nelMessagesEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002" +
+      " \001(\0132\022.dex.ChannelValues:\0028\001\"\306\001\n\026FlowClo" +
+      "sedHistoryEvent\022$\n\013flow_status\030\001 \001(\0162\017.d" +
+      "ex.FlowStatus\022*\n\007results\030\002 \003(\0132\031.dex.Ste" +
+      "pCompletionOutput\022&\n\nerror_type\030\003 \001(\0162\022." +
+      "dex.FlowErrorType\022\025\n\rerror_message\030\004 \001(\t" +
+      "\022\033\n\023continued_to_run_id\030\005 \001(\t\"\234\001\n\026StepMe" +
+      "thodPendingEvent\022(\n\005input\030\001 \001(\0132\031.dex.St" +
+      "epMethodEventInput\022,\n\007context\030\002 \001(\0132\033.de" +
+      "x.StepMethodEventContext\022*\n\005phase\030\003 \001(\0162" +
+      "\033.dex.PendingStepMethodPhase\"g\n\021StepMeth" +
+      "odFailure\022\025\n\rbackend_error\030\001 \001(\t\022*\n\007deta" +
+      "ils\030\002 \001(\0132\031.dex.ServiceErrorResponse\022\017\n\007" +
+      "attempt\030\003 \001(\005\"w\n\021StepMethodOptions\022\027\n\017ti" +
+      "meout_seconds\030\001 \001(\005\022&\n\014retry_policy\030\002 \001(" +
+      "\0132\020.dex.RetryPolicy\022!\n\031heartbeat_timeout" +
+      "_seconds\030\003 \001(\005\"\302\001\n\024StepMethodEventInput\022" +
+      "\023\n\013unavailable\030\001 \001(\010\022\036\n\nstep_input\030\002 \001(\013" +
+      "2\n.dex.Value\0220\n\021condition_results\030\003 \001(\0132" +
+      "\025.dex.ConditionResults\022\033\n\nattributes\030\004 \003" +
+      "(\0132\007.dex.KV\022&\n\025step_execution_locals\030\005 \003" +
+      "(\0132\007.dex.KV\"\350\002\n\026StepMethodEventContext\022\031" +
+      "\n\021step_execution_id\030\001 \001(\t\022\036\n\026from_step_e" +
+      "xecution_id\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022\'\n\n" +
+      "durability\030\004 \001(\0162\023.dex.StepDurability\022\025\n" +
+      "\rfinal_attempt\030\005 \001(\005\0220\n\014started_time\030\006 \001" +
+      "(\0132\032.google.protobuf.Timestamp\022+\n\010durati" +
+      "on\030\007 \001(\0132\031.google.protobuf.Duration\022.\n\016m" +
+      "ethod_options\030\010 \001(\0132\026.dex.StepMethodOpti" +
+      "ons\0221\n\021last_failure_info\030\t \001(\0132\026.dex.Ste" +
+      "pMethodFailure\"\377\001\n\032StepWaitForCompletedO" +
+      "utput\0221\n\022wait_for_condition\030\001 \001(\0132\025.dex." +
+      "WaitingCondition\022.\n\021upsert_attributes\030\002 " +
+      "\003(\0132\023.dex.AttributeWrite\022/\n\022publish_to_c" +
+      "hannel\030\003 \003(\0132\023.dex.ChannelMessage\022\036\n\rrec" +
+      "ord_events\030\004 \003(\0132\007.dex.KV\022-\n\034upsert_step" +
+      "_execution_locals\030\005 \003(\0132\007.dex.KV\"\366\001\n\032Ste" +
+      "pExecuteCompletedOutput\022(\n\rstep_decision" +
+      "\030\001 \001(\0132\021.dex.StepDecision\022.\n\021upsert_attr" +
+      "ibutes\030\002 \003(\0132\023.dex.AttributeWrite\022/\n\022pub" +
+      "lish_to_channel\030\003 \003(\0132\023.dex.ChannelMessa" +
+      "ge\022\036\n\rrecord_events\030\004 \003(\0132\007.dex.KV\022-\n\034up" +
+      "sert_step_execution_locals\030\005 \003(\0132\007.dex.K" +
+      "V\"A\n\026StepMethodFailedOutput\022\'\n\007failure\030\001" +
+      " \001(\0132\026.dex.StepMethodFailure\"\244\001\n\031StepWai" +
+      "tForCompletedEvent\022(\n\005input\030\001 \001(\0132\031.dex." +
+      "StepMethodEventInput\022/\n\006output\030\002 \001(\0132\037.d" +
+      "ex.StepWaitForCompletedOutput\022,\n\007context" +
+      "\030\003 \001(\0132\033.dex.StepMethodEventContext\"\235\001\n\026" +
+      "StepWaitForFailedEvent\022(\n\005input\030\001 \001(\0132\031." +
+      "dex.StepMethodEventInput\022+\n\006output\030\002 \001(\013" +
+      "2\033.dex.StepMethodFailedOutput\022,\n\007context" +
+      "\030\003 \001(\0132\033.dex.StepMethodEventContext\"\244\001\n\031" +
+      "StepExecuteCompletedEvent\022(\n\005input\030\001 \001(\013" +
+      "2\031.dex.StepMethodEventInput\022/\n\006output\030\002 " +
+      "\001(\0132\037.dex.StepExecuteCompletedOutput\022,\n\007" +
+      "context\030\003 \001(\0132\033.dex.StepMethodEventConte" +
+      "xt\"\235\001\n\026StepExecuteFailedEvent\022(\n\005input\030\001" +
+      " \001(\0132\031.dex.StepMethodEventInput\022+\n\006outpu" +
+      "t\030\002 \001(\0132\033.dex.StepMethodFailedOutput\022,\n\007" +
+      "context\030\003 \001(\0132\033.dex.StepMethodEventConte" +
+      "xt\"\256\002\n\032RpcExecutionCompletedEvent\022\020\n\010rpc" +
+      "_name\030\001 \001(\t\022\031\n\005input\030\002 \001(\0132\n.dex.Value\022\032" +
+      "\n\006output\030\003 \001(\0132\n.dex.Value\022(\n\rstep_decis" +
+      "ion\030\004 \001(\0132\021.dex.StepDecision\022.\n\021upsert_a" +
+      "ttributes\030\005 \003(\0132\023.dex.AttributeWrite\022\036\n\r" +
+      "record_events\030\006 \003(\0132\007.dex.KV\022/\n\022publish_" +
+      "to_channel\030\007 \003(\0132\023.dex.ChannelMessage\022\034\n" +
+      "\024is_set_attribute_api\030\010 \001(\010\"D\n\033ChannelEx" +
+      "ternalPublishEvent\022%\n\010messages\030\001 \003(\0132\023.d" +
+      "ex.ChannelMessage\"]\n\032WaitForHistoryEvent" +
+      "Request\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t" +
+      "\022\036\n\026next_internal_event_id\030\003 \001(\003\"\201\001\n\033Wai" +
+      "tForHistoryEventResponse\022\027\n\017event_availa" +
+      "ble\030\001 \001(\010\022#\n\033available_internal_event_id" +
+      "\030\002 \001(\003\022$\n\013flow_status\030\003 \001(\0162\017.dex.FlowSt" +
+      "atus\"\251\003\n\030ActiveStepExecutionState\022\031\n\021ste" +
+      "p_execution_id\030\001 \001(\t\022\036\n\026from_step_execut" +
+      "ion_id\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022#\n\005phase" +
+      "\030\004 \001(\0162\024.dex.ActiveStepPhase\022#\n\010movement" +
+      "\030\005 \001(\0132\021.dex.StepMovement\0225\n\021waiting_con" +
+      "dition\030\006 \001(\0132\032.dex.WaitingConditionState" +
+      "\022C\n\024completed_conditions\030\007 \001(\0132%.dex.Ste" +
+      "pExecutionCompletedConditions\022&\n\025step_ex" +
+      "ecution_locals\030\010 \003(\0132\007.dex.KV\022\036\n\006timers\030" +
+      "\t \003(\0132\016.dex.TimerInfo\0221\n\021last_failure_in" +
+      "fo\030\n \001(\0132\026.dex.StepMethodFailure\"6\n\023GetF" +
+      "lowStateRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_" +
+      "id\030\002 \001(\t\"\241\003\n\024GetFlowStateResponse\022$\n\013flo" +
+      "w_config\030\001 \001(\0132\017.dex.FlowConfig\022\033\n\nattri" +
+      "butes\030\002 \003(\0132\007.dex.KV\022=\n\026active_step_exec" +
+      "utions\030\003 \003(\0132\035.dex.ActiveStepExecutionSt" +
+      "ate\022\'\n\014queued_steps\030\004 \003(\0132\021.dex.StepMove" +
+      "ment\022W\n\030pending_channel_messages\030\005 \003(\01325" +
+      ".dex.GetFlowStateResponse.PendingChannel" +
+      "MessagesEntry\0222\n\017completed_steps\030\006 \003(\0132\031" +
+      ".dex.StepCompletionOutput\032Q\n\033PendingChan" +
+      "nelMessagesEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002" +
+      " \001(\0132\022.dex.ChannelValues:\0028\001\"\201\002\n\020ResetFl" +
+      "owRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001" +
+      "(\t\022&\n\nreset_type\030\003 \001(\0162\022.dex.FlowResetTy" +
+      "pe\022\016\n\006reason\030\004 \001(\t\022\032\n\022history_event_time" +
+      "\030\005 \001(\t\022\021\n\tstep_type\030\006 \001(\t\022\031\n\021step_execut" +
+      "ion_id\030\007 \001(\t\022\033\n\023skip_writes_reapply\030\010 \001(" +
+      "\010\022-\n\013step_method\030\t \001(\0162\030.dex.FlowResetSt" +
+      "epMethod\"#\n\021ResetFlowResponse\022\016\n\006run_id\030" +
+      "\001 \001(\t\"\252\001\n\020InvokeRPCRequest\022\017\n\007flow_id\030\001 " +
+      "\001(\t\022\016\n\006run_id\030\002 \001(\t\022\020\n\010rpc_name\030\003 \001(\t\022\031\n" +
+      "\005input\030\004 \001(\0132\n.dex.Value\022\027\n\017timeout_seco" +
+      "nds\030\005 \001(\005\022\033\n\023lock_attribute_keys\030\006 \003(\t\022\022" +
+      "\n\nrequest_id\030\007 \001(\t\"/\n\021InvokeRPCResponse\022" +
+      "\032\n\006output\030\001 \001(\0132\n.dex.Value\"\250\001\n\020SkipTime" +
+      "rRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(" +
+      "\t\022\031\n\021step_execution_id\030\003 \001(\t\022\032\n\022timer_co" +
+      "ndition_id\030\004 \001(\t\022\"\n\025timer_condition_inde" +
+      "x\030\005 \001(\005H\000\210\001\001B\030\n\026_timer_condition_index\"`" +
+      "\n\027UpdateFlowConfigRequest\022\017\n\007flow_id\030\001 \001" +
+      "(\t\022\016\n\006run_id\030\002 \001(\t\022$\n\013flow_config\030\003 \001(\0132" +
+      "\017.dex.FlowConfig\"\220\001\n\034WaitForStepCompleti" +
+      "onRequest\022\017\n\007flow_id\030\001 \001(\t\022\021\n\tstep_type\030" +
+      "\002 \001(\t\022\035\n\025step_execution_number\030\003 \001(\t\022\031\n\021" +
+      "wait_time_seconds\030\005 \001(\005\022\022\n\nrequest_id\030\006 " +
+      "\001(\t\"\037\n\035WaitForStepCompletionResponse\"\234\001\n" +
+      "\027WaitForAttributeRequest\022\017\n\007flow_id\030\001 \001(" +
+      "\t\022\016\n\006run_id\030\002 \001(\t\0221\n\tcondition\030\003 \001(\0132\036.d" +
+      "ex.WaitForAttributeCondition\022\031\n\021wait_tim" +
+      "e_seconds\030\004 \001(\005\022\022\n\nrequest_id\030\005 \001(\t\"P\n\031W" +
+      "aitForAttributeCondition\022+\n\005equal\030\001 \001(\0132" +
+      "\032.dex.WaitForAttributeEqualH\000B\006\n\004kind\"?\n" +
+      "\025WaitForAttributeEqual\022\013\n\003key\030\001 \001(\t\022\031\n\005v" +
+      "alue\030\002 \001(\0132\n.dex.Value\">\n\033TriggerContinu" +
+      "eAsNewRequest\022\017\n\007flow_id\030\001 \001(\t\022\016\n\006run_id" +
+      "\030\002 \001(\t\"C\n\nHealthInfo\022\021\n\tcondition\030\001 \001(\t\022" +
+      "\020\n\010hostname\030\002 \001(\t\022\020\n\010duration\030\003 \001(\005\"\352\001\n\024" +
+      "ServiceErrorResponse\022\016\n\006detail\030\001 \001(\t\022\'\n\n" +
+      "sub_status\030\002 \001(\0162\023.dex.ErrorSubStatus\022$\n" +
+      "\034original_worker_error_detail\030\003 \001(\t\022\"\n\032o" +
+      "riginal_worker_error_type\030\004 \001(\t\022$\n\034origi" +
+      "nal_worker_error_status\030\005 \001(\005\022)\n!origina" +
+      "l_worker_error_stack_trace\030\006 \001(\t\"k\n\023Work" +
+      "erErrorResponse\022\016\n\006detail\030\001 \001(\t\022\022\n\nerror" +
+      "_type\030\002 \001(\t\022\023\n\013stack_trace\030\003 \001(\t\022\033\n\023retr" +
+      "y_after_seconds\030\004 \001(\005\"z\n\025InternalActivit" +
+      "yError\022\025\n\rserver_detail\030\001 \001(\t\022\032\n\022worker_" +
+      "grpc_status\030\002 \001(\005\022.\n\014worker_error\030\003 \001(\0132" +
+      "\030.dex.InternalWorkerError\"N\n\023InternalWor" +
+      "kerError\022\016\n\006detail\030\001 \001(\t\022\022\n\nerror_type\030\002" +
+      " \001(\t\022\023\n\013stack_trace\030\003 \001(\t\"m\n\021InternalFlo" +
+      "wError\022\027\n\rserver_detail\030\001 \001(\tH\000\0224\n\016activ" +
+      "ity_error\030\002 \001(\0132\032.dex.InternalActivityEr" +
+      "rorH\000B\t\n\007failure\"\033\n\013ChannelInfo\022\014\n\004size\030" +
+      "\001 \001(\005\"\236\001\n\032InvokeWaitForMethodRequest\022\035\n\007" +
+      "context\030\001 \001(\0132\014.dex.Context\022\021\n\tflow_type" +
+      "\030\002 \001(\t\022\021\n\tstep_type\030\003 \001(\t\022\036\n\nstep_input\030" +
+      "\004 \001(\0132\n.dex.Value\022\033\n\nattributes\030\005 \003(\0132\007." +
+      "dex.KV\"\266\002\n\033InvokeWaitForMethodResponse\022;" +
+      "\n\027local_activity_metadata\030\001 \001(\0132\032.dex.Lo" +
+      "calActivityMetadata\022.\n\021upsert_attributes" +
+      "\030\002 \003(\0132\023.dex.AttributeWrite\0220\n\021waiting_c" +
+      "ondition\030\003 \001(\0132\025.dex.WaitingCondition\022\'\n" +
+      "\026upsert_step_exe_locals\030\004 \003(\0132\007.dex.KV\022\036" +
+      "\n\rrecord_events\030\005 \003(\0132\007.dex.KV\022/\n\022publis" +
+      "h_to_channel\030\006 \003(\0132\023.dex.ChannelMessage\"" +
+      "\362\001\n\032InvokeExecuteMethodRequest\022\035\n\007contex" +
+      "t\030\001 \001(\0132\014.dex.Context\022\021\n\tflow_type\030\002 \001(\t" +
+      "\022\021\n\tstep_type\030\003 \001(\t\022\036\n\nstep_input\030\004 \001(\0132" +
+      "\n.dex.Value\022\033\n\nattributes\030\005 \003(\0132\007.dex.KV" +
+      "\022 \n\017step_exe_locals\030\006 \003(\0132\007.dex.KV\0220\n\021co" +
+      "ndition_results\030\007 \001(\0132\025.dex.ConditionRes" +
+      "ults\"\256\002\n\033InvokeExecuteMethodResponse\022;\n\027" +
       "local_activity_metadata\030\001 \001(\0132\032.dex.Loca" +
-      "lActivityMetadata\022.\n\021upsert_attributes\030\002" +
-      " \003(\0132\023.dex.AttributeWrite\0220\n\021waiting_con" +
-      "dition\030\003 \001(\0132\025.dex.WaitingCondition\022\'\n\026u" +
-      "psert_step_exe_locals\030\004 \003(\0132\007.dex.KV\022\036\n\r" +
-      "record_events\030\005 \003(\0132\007.dex.KV\022/\n\022publish_" +
-      "to_channel\030\006 \003(\0132\023.dex.ChannelMessage\"\362\001" +
-      "\n\032InvokeExecuteMethodRequest\022\035\n\007context\030" +
-      "\001 \001(\0132\014.dex.Context\022\021\n\tflow_type\030\002 \001(\t\022\021" +
-      "\n\tstep_type\030\003 \001(\t\022\036\n\nstep_input\030\004 \001(\0132\n." +
-      "dex.Value\022\033\n\nattributes\030\005 \003(\0132\007.dex.KV\022 " +
-      "\n\017step_exe_locals\030\006 \003(\0132\007.dex.KV\0220\n\021cond" +
-      "ition_results\030\007 \001(\0132\025.dex.ConditionResul" +
-      "ts\"\256\002\n\033InvokeExecuteMethodResponse\022;\n\027lo" +
-      "cal_activity_metadata\030\001 \001(\0132\032.dex.LocalA" +
-      "ctivityMetadata\022(\n\rstep_decision\030\002 \001(\0132\021" +
-      ".dex.StepDecision\022.\n\021upsert_attributes\030\003" +
-      " \003(\0132\023.dex.AttributeWrite\022\036\n\rrecord_even" +
-      "ts\030\004 \003(\0132\007.dex.KV\022\'\n\026upsert_step_exe_loc" +
-      "als\030\005 \003(\0132\007.dex.KV\022/\n\022publish_to_channel" +
-      "\030\006 \003(\0132\023.dex.ChannelMessage\"\241\002\n\026InvokeWo" +
-      "rkerRPCRequest\022\035\n\007context\030\001 \001(\0132\014.dex.Co" +
-      "ntext\022\021\n\tflow_type\030\002 \001(\t\022\020\n\010rpc_name\030\003 \001" +
-      "(\t\022\031\n\005input\030\004 \001(\0132\n.dex.Value\022\033\n\nattribu" +
-      "tes\030\005 \003(\0132\007.dex.KV\022D\n\rchannel_infos\030\006 \003(" +
-      "\0132-.dex.InvokeWorkerRPCRequest.ChannelIn" +
-      "fosEntry\032E\n\021ChannelInfosEntry\022\013\n\003key\030\001 \001" +
-      "(\t\022\037\n\005value\030\002 \001(\0132\020.dex.ChannelInfo:\0028\001\"" +
-      "\340\001\n\027InvokeWorkerRPCResponse\022\032\n\006output\030\001 " +
-      "\001(\0132\n.dex.Value\022(\n\rstep_decision\030\002 \001(\0132\021" +
-      ".dex.StepDecision\022.\n\021upsert_attributes\030\003" +
-      " \003(\0132\023.dex.AttributeWrite\022\036\n\rrecord_even" +
-      "ts\030\004 \003(\0132\007.dex.KV\022/\n\022publish_to_channel\030" +
-      "\006 \003(\0132\023.dex.ChannelMessage\"\237\001\n\014StepDecis" +
-      "ion\022%\n\nnext_steps\030\001 \003(\0132\021.dex.StepMoveme" +
-      "nt\022*\n\016close_decision\030\002 \001(\0132\022.dex.CloseDe",
-      "cision\022\031\n\021cancel_step_types\030\003 \003(\t\022!\n\031can" +
-      "cel_sibling_step_types\030\004 \003(\t\"\210\001\n\rCloseDe" +
-      "cision\0223\n\023close_decision_type\030\001 \001(\0162\026.de" +
-      "x.CloseDecisionType\022!\n\031conditional_chann" +
-      "el_names\030\002 \003(\t\022\037\n\013close_input\030\003 \001(\0132\n.de" +
-      "x.Value\"\325\001\n\014StepMovement\022\021\n\tstep_type\030\001 " +
-      "\001(\t\022\036\n\nstep_input\030\002 \001(\0132\n.dex.Value\022&\n\014s" +
-      "tep_options\030\003 \001(\0132\020.dex.StepOptions\022,\n$f" +
-      "rom_step_execution_id_internal_only\030\004 \001(" +
-      "\t\022<\n\034recovery_error_internal_only\030\005 \001(\0132" +
-      "\026.dex.RecoveryErrorInfo\"-\n\024ConditionComb" +
-      "ination\022\025\n\rcondition_ids\030\001 \003(\t\"\236\002\n\020Waiti" +
-      "ngCondition\0229\n\026waiting_condition_type\030\001 " +
-      "\001(\0162\031.dex.WaitingConditionType\022-\n\020timer_" +
-      "conditions\030\002 \003(\0132\023.dex.TimerCondition\0221\n" +
-      "\022channel_conditions\030\003 \003(\0132\025.dex.ChannelC" +
-      "ondition\0229\n\026condition_combinations\030\004 \003(\013" +
-      "2\031.dex.ConditionCombination\0222\n\023sub_flow_" +
-      "conditions\030\005 \003(\0132\025.dex.SubFlowCondition\"" +
-      "\250\002\n\025WaitingConditionState\0229\n\026waiting_con" +
-      "dition_type\030\001 \001(\0162\031.dex.WaitingCondition" +
-      "Type\022-\n\020timer_conditions\030\002 \003(\0132\023.dex.Tim" +
-      "erCondition\0221\n\022channel_conditions\030\003 \003(\0132" +
-      "\025.dex.ChannelCondition\0229\n\026condition_comb" +
-      "inations\030\004 \003(\0132\031.dex.ConditionCombinatio" +
-      "n\0227\n\023sub_flow_conditions\030\005 \003(\0132\032.dex.Sub" +
-      "FlowConditionState\"\270\002\n\016SubFlowOptions\022-\n" +
-      "\014reuse_policy\030\001 \001(\0162\027.dex.SubFlowReusePo" +
-      "licy\022\034\n\024flow_timeout_seconds\030\002 \001(\005\022 \n\030fl" +
-      "ow_start_delay_seconds\030\003 \001(\005\022*\n\014retry_po" +
-      "licy\030\004 \001(\0132\024.dex.FlowRetryPolicy\022\'\n\nattr" +
-      "ibutes\030\005 \003(\0132\023.dex.AttributeWrite\022-\n\024flo" +
-      "w_config_override\030\006 \001(\0132\017.dex.FlowConfig" +
-      "\0223\n\023flow_timeout_policy\030\007 \001(\0162\026.dex.Flow" +
-      "TimeoutPolicy\"\336\001\n\020SubFlowCondition\022\024\n\014co" +
-      "ndition_id\030\001 \001(\t\022\025\n\rsub_flow_type\030\002 \001(\t\022" +
-      "\027\n\017start_step_type\030\003 \001(\t\022\036\n\nstep_input\030\004" +
-      " \001(\0132\n.dex.Value\022&\n\014step_options\030\005 \001(\0132\020" +
-      ".dex.StepOptions\022$\n\007options\030\006 \001(\0132\023.dex." +
-      "SubFlowOptions\022\026\n\016sub_flow_index\030\007 \001(\005\"-" +
-      "\n\025SubFlowConditionState\022\024\n\014condition_id\030" +
-      "\001 \001(\t\"g\n\016TimerCondition\022\024\n\014condition_id\030" +
-      "\001 \001(\t\022\030\n\020duration_seconds\030\002 \001(\003\022%\n\035firin" +
-      "g_unix_timestamp_seconds\030\003 \001(\003\"\204\001\n\020Chann" +
-      "elCondition\022\024\n\014condition_id\030\001 \001(\t\022\024\n\014cha" +
-      "nnel_name\030\002 \001(\t\022\025\n\010at_least\030\003 \001(\005H\000\210\001\001\022\024" +
-      "\n\007at_most\030\004 \001(\005H\001\210\001\001B\013\n\t_at_leastB\n\n\010_at" +
-      "_most\"\254\001\n\020ConditionResults\022+\n\017channel_re" +
-      "sults\030\001 \003(\0132\022.dex.ChannelResult\022\'\n\rtimer" +
-      "_results\030\002 \003(\0132\020.dex.TimerResult\022\027\n\017wait" +
-      "_for_failed\030\003 \001(\010\022)\n\020sub_flow_results\030\004 " +
-      "\003(\0132\017.dex.FlowResult\"S\n\013TimerResult\022\024\n\014c" +
-      "ondition_id\030\001 \001(\t\022.\n\020condition_status\030\002 " +
-      "\001(\0162\024.dex.ConditionStatus\"\207\001\n\rChannelRes" +
-      "ult\022\024\n\014condition_id\030\001 \001(\t\022.\n\020condition_s" +
-      "tatus\030\002 \001(\0162\024.dex.ConditionStatus\022\024\n\014cha" +
-      "nnel_name\030\003 \001(\t\022\032\n\006values\030\004 \003(\0132\n.dex.Va" +
-      "lue\"i\n\030ContinueAsNewDumpRequest\022\017\n\007flow_" +
-      "id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\020\n\010page_num\030\003 \001" +
-      "(\005\022\032\n\022page_size_in_bytes\030\004 \001(\005\"j\n\031Contin" +
-      "ueAsNewDumpResponse\022\024\n\014page_content\030\001 \001(" +
-      "\014\022\020\n\010page_num\030\002 \001(\005\022\023\n\013total_pages\030\003 \001(\005" +
-      "\022\020\n\010checksum\030\004 \001(\t\"+\n\rChannelValues\022\032\n\006v" +
-      "alues\030\001 \003(\0132\n.dex.Value\"\237\003\n StepExecutio" +
-      "nCompletedConditions\022g\n\032completed_timer_" +
-      "conditions\030\001 \003(\0132C.dex.StepExecutionComp" +
-      "letedConditions.CompletedTimerConditions" +
-      "Entry\022f\n\032completed_sub_flow_results\030\002 \003(" +
-      "\0132B.dex.StepExecutionCompletedConditions" +
-      ".CompletedSubFlowResultsEntry\032Y\n\035Complet" +
-      "edTimerConditionsEntry\022\013\n\003key\030\001 \001(\005\022\'\n\005v" +
-      "alue\030\002 \001(\0162\030.dex.InternalTimerStatus:\0028\001" +
-      "\032O\n\034CompletedSubFlowResultsEntry\022\013\n\003key\030" +
-      "\001 \001(\005\022\036\n\005value\030\002 \001(\0132\017.dex.FlowResult:\0028" +
-      "\001\"\363\001\n\027StepExecutionResumeInfo\022\031\n\021step_ex" +
-      "ecution_id\030\001 \001(\t\022\037\n\004step\030\002 \001(\0132\021.dex.Ste" +
-      "pMovement\022C\n\024completed_conditions\030\003 \001(\0132" +
-      "%.dex.StepExecutionCompletedConditions\0225" +
-      "\n\021waiting_condition\030\004 \001(\0132\032.dex.WaitingC" +
-      "onditionState\022 \n\017step_exe_locals\030\005 \003(\0132\007" +
-      ".dex.KV\"\316\004\n\030StepExecutionCounterInfo\022X\n\027" +
-      "step_type_started_count\030\001 \003(\01327.dex.Step" +
-      "ExecutionCounterInfo.StepTypeStartedCoun" +
-      "tEntry\022o\n#step_type_currently_executing_" +
-      "count\030\002 \003(\0132B.dex.StepExecutionCounterIn" +
-      "fo.StepTypeCurrentlyExecutingCountEntry\022" +
-      "\'\n\037total_currently_executing_count\030\003 \001(\005" +
-      "\022^\n\032step_active_execution_nums\030\004 \003(\0132:.d" +
-      "ex.StepExecutionCounterInfo.StepActiveEx" +
-      "ecutionNumsEntry\032;\n\031StepTypeStartedCount" +
-      "Entry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\005:\0028\001\032F\n" +
-      "$StepTypeCurrentlyExecutingCountEntry\022\013\n" +
-      "\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\005:\0028\001\032Y\n\034StepAct" +
-      "iveExecutionNumsEntry\022\013\n\003key\030\001 \001(\t\022(\n\005va" +
-      "lue\030\002 \001(\0132\031.dex.StepExecutionNumbers:\0028\001" +
-      "\"f\n\016StaleSkipTimer\022\031\n\021step_execution_id\030" +
-      "\001 \001(\t\022\032\n\022timer_condition_id\030\002 \001(\t\022\035\n\025tim" +
-      "er_condition_index\030\003 \001(\005\"\222\004\n\021ContinueAsN" +
-      "ewDump\0228\n\035steps_to_start_from_beginning\030" +
-      "\001 \003(\0132\021.dex.StepMovement\022?\n\031step_executi" +
-      "ons_to_resume\030\002 \003(\0132\034.dex.StepExecutionR" +
-      "esumeInfo\022E\n\020channel_received\030\003 \003(\0132+.de" +
-      "x.ContinueAsNewDump.ChannelReceivedEntry" +
-      "\0223\n\014counter_info\030\004 \001(\0132\035.dex.StepExecuti" +
-      "onCounterInfo\022/\n\014step_outputs\030\005 \003(\0132\031.de" +
-      "x.StepCompletionOutput\022.\n\021stale_skip_tim" +
-      "ers\030\006 \003(\0132\023.dex.StaleSkipTimer\022\033\n\nattrib" +
-      "utes\030\007 \003(\0132\007.dex.KV\022<\n\034pending_attribute" +
-      "_sync_items\030\010 \003(\0132\026.dex.AttributeSyncIte" +
-      "m\032J\n\024ChannelReceivedEntry\022\013\n\003key\030\001 \001(\t\022!" +
-      "\n\005value\030\002 \001(\0132\022.dex.ChannelValues:\0028\001\"6\n" +
-      "\022ContinueAsNewInput\022 \n\030previous_internal" +
-      "_run_id\030\001 \001(\t\"\233\003\n\030InterpreterWorkflowInp" +
-      "ut\022\021\n\tflow_type\030\001 \001(\t\022\'\n\037configured_flow" +
-      "_timeout_seconds\030\002 \001(\005\0223\n\023flow_timeout_p" +
-      "olicy\030\003 \001(\0162\026.dex.FlowTimeoutPolicy\022\027\n\017s" +
-      "tart_step_type\030\004 \001(\t\022\036\n\nstep_input\030\005 \001(\013" +
-      "2\n.dex.Value\022&\n\014step_options\030\006 \001(\0132\020.dex" +
-      ".StepOptions\022,\n\017init_attributes\030\007 \003(\0132\023." +
-      "dex.AttributeWrite\022\037\n\006config\030\010 \001(\0132\017.dex" +
-      ".FlowConfig\022&\n\036is_resume_from_continue_a" +
-      "s_new\030\t \001(\010\0226\n\025continue_as_new_input\030\n \001" +
-      "(\0132\027.dex.ContinueAsNewInput\"W\n\031Interpret" +
-      "erWorkflowOutput\022:\n\027step_completion_outp" +
-      "uts\030\001 \003(\0132\031.dex.StepCompletionOutput\"1\n\035" +
-      "BlobStoreCleanupWorkflowInput\022\020\n\010store_i" +
-      "d\030\001 \001(\t\"7\n\036BlobStoreCleanupWorkflowOutpu" +
-      "t\022\025\n\rtotal_deleted\030\001 \001(\005\"~\n InvokeWaitFo" +
-      "rMethodActivityInput\022(\n\rworker_target\030\001 " +
-      "\001(\0132\021.dex.WorkerTarget\0220\n\007request\030\002 \001(\0132" +
-      "\037.dex.InvokeWaitForMethodRequest\"W\n!Invo" +
-      "keWaitForMethodActivityOutput\0222\n\010respons" +
-      "e\030\001 \001(\0132 .dex.InvokeWaitForMethodRespons" +
-      "e\"~\n InvokeExecuteMethodActivityInput\022(\n" +
-      "\rworker_target\030\001 \001(\0132\021.dex.WorkerTarget\022" +
-      "0\n\007request\030\002 \001(\0132\037.dex.InvokeExecuteMeth" +
-      "odRequest\"7\n\021RecoveryErrorInfo\022\016\n\006detail" +
-      "\030\001 \001(\t\022\022\n\nerror_type\030\002 \001(\t\"\365\001\n InternalL" +
-      "ocalStepActivityFailure\022;\n\027local_activit" +
-      "y_metadata\030\001 \001(\0132\032.dex.LocalActivityMeta" +
-      "data\022\037\n\027first_attempt_timestamp\030\002 \001(\003\022.\n" +
-      "\016method_options\030\003 \001(\0132\026.dex.StepMethodOp" +
-      "tions\022\017\n\007attempt\030\004 \001(\005\0222\n\016activity_error" +
-      "\030\005 \001(\0132\032.dex.InternalActivityError\"W\n!In" +
-      "vokeExecuteMethodActivityOutput\0222\n\010respo" +
-      "nse\030\001 \001(\0132 .dex.InvokeExecuteMethodRespo" +
-      "nse\"W\n%DumpFlowForContinueAsNewActivityI" +
-      "nput\022.\n\007request\030\001 \001(\0132\035.dex.ContinueAsNe" +
-      "wDumpRequest\"Z\n&DumpFlowForContinueAsNew" +
-      "ActivityOutput\0220\n\010response\030\001 \001(\0132\036.dex.C" +
-      "ontinueAsNewDumpResponse\"v\n\034InvokeWorker" +
-      "RPCActivityInput\022.\n\010rpc_prep\030\001 \001(\0132\034.dex" +
-      ".PrepareRpcQueryResponse\022&\n\007request\030\002 \001(" +
-      "\0132\025.dex.InvokeRPCRequest\"c\n\035InvokeWorker" +
-      "RPCActivityOutput\022.\n\010response\030\001 \001(\0132\034.de" +
-      "x.InvokeWorkerRPCResponse\022\022\n\nrequest_id\030" +
-      "\002 \001(\t\"1\n\035CleanupBlobStoreActivityInput\022\020" +
-      "\n\010store_id\030\001 \001(\t\"7\n\036CleanupBlobStoreActi" +
-      "vityOutput\022\025\n\rtotal_deleted\030\001 \001(\005\"P\n\021Att" +
-      "ributeSyncItem\022\023\n\013config_name\030\001 \001(\t\022\013\n\003k" +
-      "ey\030\002 \001(\t\022\031\n\005value\030\003 \001(\0132\n.dex.Value\"n\n\037S" +
-      "yncAttributeBatchActivityInput\022\017\n\007flow_i" +
-      "d\030\001 \001(\t\022\023\n\013config_name\030\002 \001(\t\022%\n\005items\030\003 " +
-      "\003(\0132\026.dex.AttributeSyncItem\"\224\001\n\031StartSub" +
-      "FlowActivityInput\022(\n\tcondition\030\001 \001(\0132\025.d" +
-      "ex.SubFlowCondition\022+\n\022parent_flow_confi" +
-      "g\030\002 \001(\0132\017.dex.FlowConfig\022 \n\030parent_step_" +
-      "execution_id\030\003 \001(\t\"L\n\032StartSubFlowActivi" +
-      "tyOutput\022.\n\025immediate_flow_result\030\001 \001(\0132" +
-      "\017.dex.FlowResult\"[\n\036SubFlowCompletionSig" +
-      "nalRequest\022\023\n\013sub_flow_id\030\001 \001(\t\022$\n\013flow_" +
-      "result\030\002 \001(\0132\017.dex.FlowResult\"t\n$ReportS" +
-      "ubFlowCompletionActivityInput\022\026\n\016parent_" +
-      "flow_id\030\001 \001(\t\0224\n\007request\030\002 \001(\0132#.dex.Sub" +
-      "FlowCompletionSignalRequest\"]\n%ReportSub" +
-      "FlowCompletionActivityOutput\0224\n\006status\030\001" +
-      " \001(\0162$.dex.SubFlowCompletionDeliveryStat" +
-      "us\"\241\002\n\027ExecuteRpcSignalRequest\022\035\n\trpc_in" +
-      "put\030\001 \001(\0132\n.dex.Value\022\036\n\nrpc_output\030\002 \001(" +
-      "\0132\n.dex.Value\022.\n\021upsert_attributes\030\003 \003(\013" +
-      "2\023.dex.AttributeWrite\022(\n\rstep_decision\030\004" +
-      " \001(\0132\021.dex.StepDecision\022\036\n\rrecord_events" +
-      "\030\005 \003(\0132\007.dex.KV\022/\n\022publish_to_channel\030\006 " +
-      "\003(\0132\023.dex.ChannelMessage\022\034\n\024is_set_attri" +
-      "bute_api\030\007 \001(\010\"n\n\026SkipTimerSignalRequest" +
-      "\022\031\n\021step_execution_id\030\001 \001(\t\022\032\n\022timer_con" +
-      "dition_id\030\002 \001(\t\022\035\n\025timer_condition_index" +
-      "\030\003 \001(\005\"I\n\025StopFlowSignalRequest\022 \n\tstop_" +
-      "type\030\001 \001(\0162\r.dex.StopType\022\016\n\006reason\030\002 \001(" +
-      "\t\";\n\031GetAttributesQueryRequest\022\014\n\004keys\030\001" +
-      " \003(\t\022\020\n\010all_keys\030\002 \001(\010\"9\n\032GetAttributesQ" +
-      "ueryResponse\022\033\n\nattributes\030\001 \003(\0132\007.dex.K" +
-      "V\"5\n\026PrepareRpcQueryRequest\022\033\n\023lock_attr" +
-      "ibute_keys\030\001 \003(\t\"\261\002\n\027PrepareRpcQueryResp" +
-      "onse\022\033\n\nattributes\030\001 \003(\0132\007.dex.KV\022\016\n\006run" +
-      "_id\030\002 \001(\t\022\036\n\026flow_started_timestamp\030\003 \001(" +
-      "\003\022\021\n\tflow_type\030\004 \001(\t\022(\n\rworker_target\030\005 " +
-      "\001(\0132\021.dex.WorkerTarget\022E\n\rchannel_infos\030" +
-      "\006 \003(\0132..dex.PrepareRpcQueryResponse.Chan" +
-      "nelInfosEntry\032E\n\021ChannelInfosEntry\022\013\n\003ke" +
-      "y\030\001 \001(\t\022\037\n\005value\030\002 \001(\0132\020.dex.ChannelInfo" +
-      ":\0028\001\"r\n\tTimerInfo\022\024\n\014condition_id\030\001 \001(\t\022" +
-      "%\n\035firing_unix_timestamp_seconds\030\002 \001(\003\022(" +
-      "\n\006status\030\003 \001(\0162\030.dex.InternalTimerStatus" +
-      "\"/\n\rTimerInfoList\022\036\n\006timers\030\001 \003(\0132\016.dex." +
-      "TimerInfo\"\366\001\n!GetCurrentTimerInfosQueryR" +
-      "esponse\022v\n\"step_execution_current_timer_" +
-      "infos\030\001 \003(\0132J.dex.GetCurrentTimerInfosQu" +
-      "eryResponse.StepExecutionCurrentTimerInf" +
-      "osEntry\032Y\n#StepExecutionCurrentTimerInfo" +
-      "sEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002 \001(\0132\022.dex" +
-      ".TimerInfoList:\0028\001\"V\n)GetScheduledGreedy" +
-      "TimerTimesQueryResponse\022)\n\021pending_sched" +
-      "uled\030\001 \003(\0132\016.dex.TimerInfo\"\304\001\n\021DebugDump" +
-      "Response\022\037\n\006config\030\001 \001(\0132\017.dex.FlowConfi" +
-      "g\022(\n\010snapshot\030\002 \001(\0132\026.dex.ContinueAsNewD" +
-      "ump\022%\n\035firing_timers_unix_timestamps\030\003 \003" +
-      "(\003\022=\n\026active_step_executions\030\004 \003(\0132\035.dex" +
-      ".ActiveStepExecutionState\"A\n\025InvokeRpcUp" +
-      "dateResult\022(\n\010response\030\001 \001(\0132\026.dex.Invok" +
-      "eRPCResponse\"\'\n\024StepExecutionNumbers\022\017\n\007" +
-      "numbers\030\001 \003(\005*\313\001\n\tIndexType\022\032\n\026INDEX_TYP" +
-      "E_UNSPECIFIED\020\000\022\026\n\022INDEX_TYPE_KEYWORD\020\001\022" +
-      "\023\n\017INDEX_TYPE_TEXT\020\002\022\034\n\030INDEX_TYPE_KEYWO" +
-      "RD_ARRAY\020\003\022\022\n\016INDEX_TYPE_INT\020\004\022\025\n\021INDEX_" +
-      "TYPE_DOUBLE\020\005\022\023\n\017INDEX_TYPE_BOOL\020\006\022\027\n\023IN" +
-      "DEX_TYPE_DATETIME\020\007*\274\001\n\032WaitForMethodFai" +
-      "lurePolicy\022.\n*WAIT_FOR_METHOD_FAILURE_PO" +
-      "LICY_UNSPECIFIED\020\000\0227\n3WAIT_FOR_METHOD_FA" +
-      "ILURE_POLICY_FAIL_FLOW_ON_FAILURE\020\001\0225\n1W" +
-      "AIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON" +
-      "_FAILURE\020\002*\320\001\n\032ExecuteMethodFailurePolic" +
-      "y\022-\n)EXECUTE_METHOD_FAILURE_POLICY_UNSPE" +
-      "CIFIED\020\000\022E\nAEXECUTE_METHOD_FAILURE_POLIC" +
-      "Y_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE\020\001\022" +
-      "<\n8EXECUTE_METHOD_FAILURE_POLICY_PROCEED" +
-      "_TO_CONFIGURED_STEP\020\002*\346\001\n\rIdReusePolicy\022" +
-      "\037\n\033ID_REUSE_POLICY_UNSPECIFIED\020\000\0227\n3ID_R" +
-      "EUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_ABN" +
-      "ORMALLY\020\001\022\'\n#ID_REUSE_POLICY_ALLOW_IF_NO" +
-      "_RUNNING\020\002\022\"\n\036ID_REUSE_POLICY_DISALLOW_R" +
-      "EUSE\020\003\022.\n*ID_REUSE_POLICY_ALLOW_TERMINAT" +
-      "E_IF_RUNNING\020\004*\317\001\n\024ActiveStepSearchMode\022" +
-      "\'\n#ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED\020\000" +
-      "\022+\n\'ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_" +
-      "ALL\020\001\022;\n7ACTIVE_STEP_SEARCH_MODE_ENABLED" +
-      "_FOR_STEPS_WITH_WAIT_FOR\020\002\022$\n ACTIVE_STE" +
-      "P_SEARCH_MODE_DISABLED\020\003*f\n\016StepDurabili" +
-      "ty\022\037\n\033STEP_DURABILITY_UNSPECIFIED\020\000\022\030\n\024S" +
-      "TEP_DURABILITY_SYNC\020\001\022\031\n\025STEP_DURABILITY" +
-      "_ASYNC\020\002*\227\001\n\021FlowTimeoutPolicy\022#\n\037FLOW_T" +
-      "IMEOUT_POLICY_UNSPECIFIED\020\000\022\034\n\030FLOW_TIME" +
-      "OUT_POLICY_FAIL\020\001\022\036\n\032FLOW_TIMEOUT_POLICY" +
-      "_CANCEL\020\002\022\037\n\033FLOW_TIMEOUT_POLICY_HANDLER" +
-      "\020\003*h\n\010StopType\022\031\n\025STOP_TYPE_UNSPECIFIED\020" +
-      "\000\022\024\n\020STOP_TYPE_CANCEL\020\001\022\027\n\023STOP_TYPE_TER" +
-      "MINATE\020\002\022\022\n\016STOP_TYPE_FAIL\020\003*\200\002\n\nFlowSta" +
-      "tus\022\033\n\027FLOW_STATUS_UNSPECIFIED\020\000\022\027\n\023FLOW" +
-      "_STATUS_RUNNING\020\001\022\031\n\025FLOW_STATUS_COMPLET" +
-      "ED\020\002\022\026\n\022FLOW_STATUS_FAILED\020\003\0221\n-FLOW_STA" +
-      "TUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY\020\004\022" +
-      "\032\n\026FLOW_STATUS_TERMINATED\020\005\022\030\n\024FLOW_STAT" +
-      "US_CANCELED\020\006\022 \n\034FLOW_STATUS_CONTINUED_A" +
-      "S_NEW\020\007*\236\002\n\rFlowErrorType\022\037\n\033FLOW_ERROR_" +
-      "TYPE_UNSPECIFIED\020\000\022.\n*FLOW_ERROR_TYPE_ST" +
-      "EP_DECISION_FAILING_FLOW\020\001\022+\n\'FLOW_ERROR" +
-      "_TYPE_CLIENT_API_FAILING_FLOW\020\002\022#\n\037FLOW_" +
-      "ERROR_TYPE_WORKER_API_FAIL\020\003\022*\n&FLOW_ERR" +
-      "OR_TYPE_INVALID_USER_FLOW_CODE\020\004\022 \n\034FLOW" +
-      "_ERROR_TYPE_FLOW_TIMEOUT\020\005\022\034\n\030FLOW_ERROR" +
-      "_TYPE_INTERNAL\020\006*\223\001\n\026PendingStepMethodPh" +
-      "ase\022)\n%PENDING_STEP_METHOD_PHASE_UNSPECI" +
-      "FIED\020\000\022\'\n#PENDING_STEP_METHOD_PHASE_SCHE" +
-      "DULED\020\001\022%\n!PENDING_STEP_METHOD_PHASE_STA" +
-      "RTED\020\002*q\n\017ActiveStepPhase\022!\n\035ACTIVE_STEP" +
-      "_PHASE_UNSPECIFIED\020\000\022\034\n\030ACTIVE_STEP_PHAS" +
-      "E_ACTIVE\020\001\022\035\n\031ACTIVE_STEP_PHASE_WAITING\020" +
-      "\002*\275\001\n\rFlowResetType\022\037\n\033FLOW_RESET_TYPE_U" +
-      "NSPECIFIED\020\000\022\035\n\031FLOW_RESET_TYPE_BEGINNIN" +
-      "G\020\001\022&\n\"FLOW_RESET_TYPE_HISTORY_EVENT_TIM" +
-      "E\020\002\022\035\n\031FLOW_RESET_TYPE_STEP_TYPE\020\003\022%\n!FL" +
-      "OW_RESET_TYPE_STEP_EXECUTION_ID\020\004*\206\001\n\023Fl" +
-      "owResetStepMethod\022&\n\"FLOW_RESET_STEP_MET" +
-      "HOD_UNSPECIFIED\020\000\022#\n\037FLOW_RESET_STEP_MET" +
-      "HOD_WAIT_FOR\020\001\022\"\n\036FLOW_RESET_STEP_METHOD" +
-      "_EXECUTE\020\002*\367\001\n\016ErrorSubStatus\022 \n\034ERROR_S" +
-      "UB_STATUS_UNSPECIFIED\020\000\022\"\n\036ERROR_SUB_STA" +
-      "TUS_UNCATEGORIZED\020\001\022)\n%ERROR_SUB_STATUS_" +
-      "FLOW_ALREADY_STARTED\020\002\022$\n ERROR_SUB_STAT" +
-      "US_FLOW_NOT_EXISTS\020\003\022%\n!ERROR_SUB_STATUS" +
-      "_WORKER_API_ERROR\020\004\022\'\n#ERROR_SUB_STATUS_" +
-      "LONG_POLL_TIME_OUT\020\005*\213\002\n\021CloseDecisionTy" +
-      "pe\022#\n\037CLOSE_DECISION_TYPE_UNSPECIFIED\020\000\022" +
-      "8\n4CLOSE_DECISION_TYPE_FORCE_COMPLETE_ON" +
-      "_CHANNELS_EMPTY\020\001\022)\n%CLOSE_DECISION_TYPE" +
-      "_GRACEFUL_COMPLETE\020\002\022&\n\"CLOSE_DECISION_T" +
-      "YPE_FORCE_COMPLETE\020\003\022\"\n\036CLOSE_DECISION_T" +
-      "YPE_FORCE_FAIL\020\004\022 \n\034CLOSE_DECISION_TYPE_" +
-      "DEAD_END\020\005*\310\001\n\024WaitingConditionType\022&\n\"W" +
-      "AITING_CONDITION_TYPE_UNSPECIFIED\020\000\022(\n$W" +
-      "AITING_CONDITION_TYPE_ALL_COMPLETED\020\001\022(\n" +
-      "$WAITING_CONDITION_TYPE_ANY_COMPLETED\020\002\022" +
-      "4\n0WAITING_CONDITION_TYPE_ANY_COMBINATIO" +
-      "N_COMPLETED\020\003*\307\001\n\022SubFlowReusePolicy\022%\n!" +
-      "SUB_FLOW_REUSE_POLICY_UNSPECIFIED\020\000\022 \n\034S" +
-      "UB_FLOW_REUSE_POLICY_ATTACH\020\001\022>\n:SUB_FLO" +
-      "W_REUSE_POLICY_RESTART_IF_PREVIOUS_EXITS" +
-      "_ABNORMALLY\020\002\022(\n$SUB_FLOW_REUSE_POLICY_A" +
-      "LWAYS_RESTART\020\003*q\n\017ConditionStatus\022 \n\034CO" +
-      "NDITION_STATUS_UNSPECIFIED\020\000\022\034\n\030CONDITIO" +
-      "N_STATUS_WAITING\020\001\022\036\n\032CONDITION_STATUS_C" +
-      "OMPLETED\020\002*\243\001\n\023InternalTimerStatus\022%\n!IN" +
-      "TERNAL_TIMER_STATUS_UNSPECIFIED\020\000\022!\n\035INT" +
-      "ERNAL_TIMER_STATUS_PENDING\020\001\022\037\n\033INTERNAL" +
-      "_TIMER_STATUS_FIRED\020\002\022!\n\035INTERNAL_TIMER_" +
-      "STATUS_SKIPPED\020\003*\270\002\n\017UpdateErrorType\022!\n\035" +
-      "UPDATE_ERROR_TYPE_UNSPECIFIED\020\000\022/\n+UPDAT" +
-      "E_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED\020\001" +
-      "\022&\n\"UPDATE_ERROR_TYPE_INVALID_ARGUMENT\020\002" +
-      "\022)\n%UPDATE_ERROR_TYPE_FAILED_PRECONDITIO" +
-      "N\020\003\022\'\n#UPDATE_ERROR_TYPE_DEADLINE_EXCEED" +
-      "ED\020\004\022.\n*UPDATE_ERROR_TYPE_RPC_ACQUIRE_LO" +
-      "CK_FAILURE\020\005\022%\n!UPDATE_ERROR_TYPE_SERVER" +
-      "_INTERNAL\020\006*\315\001\n\037SubFlowCompletionDeliver" +
-      "yStatus\0223\n/SUB_FLOW_COMPLETION_DELIVERY_" +
-      "STATUS_UNSPECIFIED\020\000\0221\n-SUB_FLOW_COMPLET" +
-      "ION_DELIVERY_STATUS_DELIVERED\020\001\022B\n>SUB_F" +
-      "LOW_COMPLETION_DELIVERY_STATUS_PARENT_CL" +
-      "OSED_OR_NOT_FOUND\020\0022\325\014\n\013FlowService\022:\n\tS" +
-      "tartFlow\022\025.dex.StartFlowRequest\032\026.dex.St" +
-      "artFlowResponse\022H\n\020PublishToChannel\022\034.de" +
-      "x.PublishToChannelRequest\032\026.google.proto" +
-      "buf.Empty\022>\n\013WriteStream\022\027.dex.WriteStre" +
-      "amRequest\032\026.google.protobuf.Empty\022=\n\nRea" +
-      "dStream\022\026.dex.ReadStreamRequest\032\027.dex.Re" +
-      "adStreamResponse\0228\n\010StopFlow\022\024.dex.StopF" +
-      "lowRequest\032\026.google.protobuf.Empty\022F\n\rGe" +
-      "tAttributes\022\031.dex.GetAttributesRequest\032\032" +
-      ".dex.GetAttributesResponse\022B\n\rSetAttribu" +
-      "tes\022\031.dex.SetAttributesRequest\032\026.google." +
-      "protobuf.Empty\022:\n\tLoadBlobs\022\025.dex.LoadBl" +
-      "obsRequest\032\026.dex.LoadBlobsResponse\0227\n\013Wa" +
-      "itForFlow\022\027.dex.WaitForFlowRequest\032\017.dex" +
-      ".FlowResult\022@\n\013SearchFlows\022\027.dex.SearchF" +
-      "lowsRequest\032\030.dex.SearchFlowsResponse\022W\n" +
-      "\024SyncAttributeIndexes\022\036.dex.SyncAttribut" +
-      "eIndexRequest\032\037.dex.SyncAttributeIndexRe" +
-      "sponse\022I\n\016GetFlowSummary\022\032.dex.GetFlowSu" +
-      "mmaryRequest\032\033.dex.GetFlowSummaryRespons" +
-      "e\022O\n\020GetHistoryEvents\022\034.dex.GetHistoryEv" +
-      "entsRequest\032\035.dex.GetHistoryEventsRespon" +
-      "se\022X\n\023WaitForHistoryEvent\022\037.dex.WaitForH" +
-      "istoryEventRequest\032 .dex.WaitForHistoryE" +
-      "ventResponse\022C\n\014GetFlowState\022\030.dex.GetFl" +
-      "owStateRequest\032\031.dex.GetFlowStateRespons" +
-      "e\022:\n\tResetFlow\022\025.dex.ResetFlowRequest\032\026." +
-      "dex.ResetFlowResponse\022:\n\tInvokeRPC\022\025.dex" +
-      ".InvokeRPCRequest\032\026.dex.InvokeRPCRespons" +
-      "e\022:\n\tSkipTimer\022\025.dex.SkipTimerRequest\032\026." +
-      "google.protobuf.Empty\022H\n\020UpdateFlowConfi" +
-      "g\022\034.dex.UpdateFlowConfigRequest\032\026.google" +
-      ".protobuf.Empty\022^\n\025WaitForStepCompletion" +
-      "\022!.dex.WaitForStepCompletionRequest\032\".de" +
-      "x.WaitForStepCompletionResponse\022H\n\020WaitF" +
-      "orAttribute\022\034.dex.WaitForAttributeReques" +
-      "t\032\026.google.protobuf.Empty\022P\n\024TriggerCont" +
-      "inueAsNew\022 .dex.TriggerContinueAsNewRequ" +
-      "est\032\026.google.protobuf.Empty\0226\n\013HealthChe" +
-      "ck\022\026.google.protobuf.Empty\032\017.dex.HealthI" +
-      "nfo2\221\002\n\rWorkerService\022X\n\023InvokeWaitForMe" +
-      "thod\022\037.dex.InvokeWaitForMethodRequest\032 ." +
-      "dex.InvokeWaitForMethodResponse\022X\n\023Invok" +
-      "eExecuteMethod\022\037.dex.InvokeExecuteMethod" +
-      "Request\032 .dex.InvokeExecuteMethodRespons" +
-      "e\022L\n\017InvokeWorkerRPC\022\033.dex.InvokeWorkerR" +
-      "PCRequest\032\034.dex.InvokeWorkerRPCResponse2" +
-      "l\n\017InternalService\022Y\n\030DumpFlowForContinu" +
-      "eAsNew\022\035.dex.ContinueAsNewDumpRequest\032\036." +
-      "dex.ContinueAsNewDumpResponseB!\n\023io.supe" +
-      "rdurable.genB\010DexProtoP\001b\006proto3"
+      "lActivityMetadata\022(\n\rstep_decision\030\002 \001(\013" +
+      "2\021.dex.StepDecision\022.\n\021upsert_attributes" +
+      "\030\003 \003(\0132\023.dex.AttributeWrite\022\036\n\rrecord_ev" +
+      "ents\030\004 \003(\0132\007.dex.KV\022\'\n\026upsert_step_exe_l" +
+      "ocals\030\005 \003(\0132\007.dex.KV\022/\n\022publish_to_chann" +
+      "el\030\006 \003(\0132\023.dex.ChannelMessage\"\241\002\n\026Invoke" +
+      "WorkerRPCRequest\022\035\n\007context\030\001 \001(\0132\014.dex." +
+      "Context\022\021\n\tflow_type\030\002 \001(\t\022\020\n\010rpc_name\030\003" +
+      " \001(\t\022\031\n\005input\030\004 \001(\0132\n.dex.Value\022\033\n\nattri" +
+      "butes\030\005 \003(\0132\007.dex.KV\022D\n\rchannel_infos\030\006 " +
+      "\003(\0132-.dex.InvokeWorkerRPCRequest.Channel" +
+      "InfosEntry\032E\n\021ChannelInfosEntry\022\013\n\003key\030\001" +
+      " \001(\t\022\037\n\005value\030\002 \001(\0132\020.dex.ChannelInfo:\0028" +
+      "\001\"\340\001\n\027InvokeWorkerRPCResponse\022\032\n\006output\030" +
+      "\001 \001(\0132\n.dex.Value\022(\n\rstep_decision\030\002 \001(\013" +
+      "2\021.dex.StepDecision\022.\n\021upsert_attributes" +
+      "\030\003 \003(\0132\023.dex.AttributeWrite\022\036\n\rrecord_ev" +
+      "ents\030\004 \003(\0132\007.dex.KV\022/\n\022publish_to_channe" +
+      "l\030\006 \003(\0132\023.dex.ChannelMessage\"\237\001\n\014StepDec" +
+      "ision\022%\n\nnext_steps\030\001 \003(\0132\021.dex.StepMove" +
+      "ment\022*\n\016close_decision\030\002 \001(\0132\022.dex.Close",
+      "Decision\022\031\n\021cancel_step_types\030\003 \003(\t\022!\n\031c" +
+      "ancel_sibling_step_types\030\004 \003(\t\"\210\001\n\rClose" +
+      "Decision\0223\n\023close_decision_type\030\001 \001(\0162\026." +
+      "dex.CloseDecisionType\022!\n\031conditional_cha" +
+      "nnel_names\030\002 \003(\t\022\037\n\013close_input\030\003 \001(\0132\n." +
+      "dex.Value\"\325\001\n\014StepMovement\022\021\n\tstep_type\030" +
+      "\001 \001(\t\022\036\n\nstep_input\030\002 \001(\0132\n.dex.Value\022&\n" +
+      "\014step_options\030\003 \001(\0132\020.dex.StepOptions\022,\n" +
+      "$from_step_execution_id_internal_only\030\004 " +
+      "\001(\t\022<\n\034recovery_error_internal_only\030\005 \001(" +
+      "\0132\026.dex.RecoveryErrorInfo\"-\n\024ConditionCo" +
+      "mbination\022\025\n\rcondition_ids\030\001 \003(\t\"\236\002\n\020Wai" +
+      "tingCondition\0229\n\026waiting_condition_type\030" +
+      "\001 \001(\0162\031.dex.WaitingConditionType\022-\n\020time" +
+      "r_conditions\030\002 \003(\0132\023.dex.TimerCondition\022" +
+      "1\n\022channel_conditions\030\003 \003(\0132\025.dex.Channe" +
+      "lCondition\0229\n\026condition_combinations\030\004 \003" +
+      "(\0132\031.dex.ConditionCombination\0222\n\023sub_flo" +
+      "w_conditions\030\005 \003(\0132\025.dex.SubFlowConditio" +
+      "n\"\250\002\n\025WaitingConditionState\0229\n\026waiting_c" +
+      "ondition_type\030\001 \001(\0162\031.dex.WaitingConditi" +
+      "onType\022-\n\020timer_conditions\030\002 \003(\0132\023.dex.T" +
+      "imerCondition\0221\n\022channel_conditions\030\003 \003(" +
+      "\0132\025.dex.ChannelCondition\0229\n\026condition_co" +
+      "mbinations\030\004 \003(\0132\031.dex.ConditionCombinat" +
+      "ion\0227\n\023sub_flow_conditions\030\005 \003(\0132\032.dex.S" +
+      "ubFlowConditionState\"\270\002\n\016SubFlowOptions\022" +
+      "-\n\014reuse_policy\030\001 \001(\0162\027.dex.SubFlowReuse" +
+      "Policy\022\034\n\024flow_timeout_seconds\030\002 \001(\005\022 \n\030" +
+      "flow_start_delay_seconds\030\003 \001(\005\022*\n\014retry_" +
+      "policy\030\004 \001(\0132\024.dex.FlowRetryPolicy\022\'\n\nat" +
+      "tributes\030\005 \003(\0132\023.dex.AttributeWrite\022-\n\024f" +
+      "low_config_override\030\006 \001(\0132\017.dex.FlowConf" +
+      "ig\0223\n\023flow_timeout_policy\030\007 \001(\0162\026.dex.Fl" +
+      "owTimeoutPolicy\"\336\001\n\020SubFlowCondition\022\024\n\014" +
+      "condition_id\030\001 \001(\t\022\025\n\rsub_flow_type\030\002 \001(" +
+      "\t\022\027\n\017start_step_type\030\003 \001(\t\022\036\n\nstep_input" +
+      "\030\004 \001(\0132\n.dex.Value\022&\n\014step_options\030\005 \001(\013" +
+      "2\020.dex.StepOptions\022$\n\007options\030\006 \001(\0132\023.de" +
+      "x.SubFlowOptions\022\026\n\016sub_flow_index\030\007 \001(\005" +
+      "\"-\n\025SubFlowConditionState\022\024\n\014condition_i" +
+      "d\030\001 \001(\t\"g\n\016TimerCondition\022\024\n\014condition_i" +
+      "d\030\001 \001(\t\022\030\n\020duration_seconds\030\002 \001(\003\022%\n\035fir" +
+      "ing_unix_timestamp_seconds\030\003 \001(\003\"\204\001\n\020Cha" +
+      "nnelCondition\022\024\n\014condition_id\030\001 \001(\t\022\024\n\014c" +
+      "hannel_name\030\002 \001(\t\022\025\n\010at_least\030\003 \001(\005H\000\210\001\001" +
+      "\022\024\n\007at_most\030\004 \001(\005H\001\210\001\001B\013\n\t_at_leastB\n\n\010_" +
+      "at_most\"\254\001\n\020ConditionResults\022+\n\017channel_" +
+      "results\030\001 \003(\0132\022.dex.ChannelResult\022\'\n\rtim" +
+      "er_results\030\002 \003(\0132\020.dex.TimerResult\022\027\n\017wa" +
+      "it_for_failed\030\003 \001(\010\022)\n\020sub_flow_results\030" +
+      "\004 \003(\0132\017.dex.FlowResult\"S\n\013TimerResult\022\024\n" +
+      "\014condition_id\030\001 \001(\t\022.\n\020condition_status\030" +
+      "\002 \001(\0162\024.dex.ConditionStatus\"\207\001\n\rChannelR" +
+      "esult\022\024\n\014condition_id\030\001 \001(\t\022.\n\020condition" +
+      "_status\030\002 \001(\0162\024.dex.ConditionStatus\022\024\n\014c" +
+      "hannel_name\030\003 \001(\t\022\032\n\006values\030\004 \003(\0132\n.dex." +
+      "Value\"i\n\030ContinueAsNewDumpRequest\022\017\n\007flo" +
+      "w_id\030\001 \001(\t\022\016\n\006run_id\030\002 \001(\t\022\020\n\010page_num\030\003" +
+      " \001(\005\022\032\n\022page_size_in_bytes\030\004 \001(\005\"j\n\031Cont" +
+      "inueAsNewDumpResponse\022\024\n\014page_content\030\001 " +
+      "\001(\014\022\020\n\010page_num\030\002 \001(\005\022\023\n\013total_pages\030\003 \001" +
+      "(\005\022\020\n\010checksum\030\004 \001(\t\"+\n\rChannelValues\022\032\n" +
+      "\006values\030\001 \003(\0132\n.dex.Value\"\237\003\n StepExecut" +
+      "ionCompletedConditions\022g\n\032completed_time" +
+      "r_conditions\030\001 \003(\0132C.dex.StepExecutionCo" +
+      "mpletedConditions.CompletedTimerConditio" +
+      "nsEntry\022f\n\032completed_sub_flow_results\030\002 " +
+      "\003(\0132B.dex.StepExecutionCompletedConditio" +
+      "ns.CompletedSubFlowResultsEntry\032Y\n\035Compl" +
+      "etedTimerConditionsEntry\022\013\n\003key\030\001 \001(\005\022\'\n" +
+      "\005value\030\002 \001(\0162\030.dex.InternalTimerStatus:\002" +
+      "8\001\032O\n\034CompletedSubFlowResultsEntry\022\013\n\003ke" +
+      "y\030\001 \001(\005\022\036\n\005value\030\002 \001(\0132\017.dex.FlowResult:" +
+      "\0028\001\"\363\001\n\027StepExecutionResumeInfo\022\031\n\021step_" +
+      "execution_id\030\001 \001(\t\022\037\n\004step\030\002 \001(\0132\021.dex.S" +
+      "tepMovement\022C\n\024completed_conditions\030\003 \001(" +
+      "\0132%.dex.StepExecutionCompletedConditions" +
+      "\0225\n\021waiting_condition\030\004 \001(\0132\032.dex.Waitin" +
+      "gConditionState\022 \n\017step_exe_locals\030\005 \003(\013" +
+      "2\007.dex.KV\"\316\004\n\030StepExecutionCounterInfo\022X" +
+      "\n\027step_type_started_count\030\001 \003(\01327.dex.St" +
+      "epExecutionCounterInfo.StepTypeStartedCo" +
+      "untEntry\022o\n#step_type_currently_executin" +
+      "g_count\030\002 \003(\0132B.dex.StepExecutionCounter" +
+      "Info.StepTypeCurrentlyExecutingCountEntr" +
+      "y\022\'\n\037total_currently_executing_count\030\003 \001" +
+      "(\005\022^\n\032step_active_execution_nums\030\004 \003(\0132:" +
+      ".dex.StepExecutionCounterInfo.StepActive" +
+      "ExecutionNumsEntry\032;\n\031StepTypeStartedCou" +
+      "ntEntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\005:\0028\001\032" +
+      "F\n$StepTypeCurrentlyExecutingCountEntry\022" +
+      "\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\005:\0028\001\032Y\n\034StepA" +
+      "ctiveExecutionNumsEntry\022\013\n\003key\030\001 \001(\t\022(\n\005" +
+      "value\030\002 \001(\0132\031.dex.StepExecutionNumbers:\002" +
+      "8\001\"f\n\016StaleSkipTimer\022\031\n\021step_execution_i" +
+      "d\030\001 \001(\t\022\032\n\022timer_condition_id\030\002 \001(\t\022\035\n\025t" +
+      "imer_condition_index\030\003 \001(\005\"\222\004\n\021ContinueA" +
+      "sNewDump\0228\n\035steps_to_start_from_beginnin" +
+      "g\030\001 \003(\0132\021.dex.StepMovement\022?\n\031step_execu" +
+      "tions_to_resume\030\002 \003(\0132\034.dex.StepExecutio" +
+      "nResumeInfo\022E\n\020channel_received\030\003 \003(\0132+." +
+      "dex.ContinueAsNewDump.ChannelReceivedEnt" +
+      "ry\0223\n\014counter_info\030\004 \001(\0132\035.dex.StepExecu" +
+      "tionCounterInfo\022/\n\014step_outputs\030\005 \003(\0132\031." +
+      "dex.StepCompletionOutput\022.\n\021stale_skip_t" +
+      "imers\030\006 \003(\0132\023.dex.StaleSkipTimer\022\033\n\nattr" +
+      "ibutes\030\007 \003(\0132\007.dex.KV\022<\n\034pending_attribu" +
+      "te_sync_items\030\010 \003(\0132\026.dex.AttributeSyncI" +
+      "tem\032J\n\024ChannelReceivedEntry\022\013\n\003key\030\001 \001(\t" +
+      "\022!\n\005value\030\002 \001(\0132\022.dex.ChannelValues:\0028\001\"" +
+      "6\n\022ContinueAsNewInput\022 \n\030previous_intern" +
+      "al_run_id\030\001 \001(\t\"\233\003\n\030InterpreterWorkflowI" +
+      "nput\022\021\n\tflow_type\030\001 \001(\t\022\'\n\037configured_fl" +
+      "ow_timeout_seconds\030\002 \001(\005\0223\n\023flow_timeout" +
+      "_policy\030\003 \001(\0162\026.dex.FlowTimeoutPolicy\022\027\n" +
+      "\017start_step_type\030\004 \001(\t\022\036\n\nstep_input\030\005 \001" +
+      "(\0132\n.dex.Value\022&\n\014step_options\030\006 \001(\0132\020.d" +
+      "ex.StepOptions\022,\n\017init_attributes\030\007 \003(\0132" +
+      "\023.dex.AttributeWrite\022\037\n\006config\030\010 \001(\0132\017.d" +
+      "ex.FlowConfig\022&\n\036is_resume_from_continue" +
+      "_as_new\030\t \001(\010\0226\n\025continue_as_new_input\030\n" +
+      " \001(\0132\027.dex.ContinueAsNewInput\"W\n\031Interpr" +
+      "eterWorkflowOutput\022:\n\027step_completion_ou" +
+      "tputs\030\001 \003(\0132\031.dex.StepCompletionOutput\"1" +
+      "\n\035BlobStoreCleanupWorkflowInput\022\020\n\010store" +
+      "_id\030\001 \001(\t\"7\n\036BlobStoreCleanupWorkflowOut" +
+      "put\022\025\n\rtotal_deleted\030\001 \001(\005\"~\n InvokeWait" +
+      "ForMethodActivityInput\022(\n\rworker_target\030" +
+      "\001 \001(\0132\021.dex.WorkerTarget\0220\n\007request\030\002 \001(" +
+      "\0132\037.dex.InvokeWaitForMethodRequest\"W\n!In" +
+      "vokeWaitForMethodActivityOutput\0222\n\010respo" +
+      "nse\030\001 \001(\0132 .dex.InvokeWaitForMethodRespo" +
+      "nse\"~\n InvokeExecuteMethodActivityInput\022" +
+      "(\n\rworker_target\030\001 \001(\0132\021.dex.WorkerTarge" +
+      "t\0220\n\007request\030\002 \001(\0132\037.dex.InvokeExecuteMe" +
+      "thodRequest\"7\n\021RecoveryErrorInfo\022\016\n\006deta" +
+      "il\030\001 \001(\t\022\022\n\nerror_type\030\002 \001(\t\"\365\001\n Interna" +
+      "lLocalStepActivityFailure\022;\n\027local_activ" +
+      "ity_metadata\030\001 \001(\0132\032.dex.LocalActivityMe" +
+      "tadata\022\037\n\027first_attempt_timestamp\030\002 \001(\003\022" +
+      ".\n\016method_options\030\003 \001(\0132\026.dex.StepMethod" +
+      "Options\022\017\n\007attempt\030\004 \001(\005\0222\n\016activity_err" +
+      "or\030\005 \001(\0132\032.dex.InternalActivityError\"W\n!" +
+      "InvokeExecuteMethodActivityOutput\0222\n\010res" +
+      "ponse\030\001 \001(\0132 .dex.InvokeExecuteMethodRes" +
+      "ponse\"W\n%DumpFlowForContinueAsNewActivit" +
+      "yInput\022.\n\007request\030\001 \001(\0132\035.dex.ContinueAs" +
+      "NewDumpRequest\"Z\n&DumpFlowForContinueAsN" +
+      "ewActivityOutput\0220\n\010response\030\001 \001(\0132\036.dex" +
+      ".ContinueAsNewDumpResponse\"v\n\034InvokeWork" +
+      "erRPCActivityInput\022.\n\010rpc_prep\030\001 \001(\0132\034.d" +
+      "ex.PrepareRpcQueryResponse\022&\n\007request\030\002 " +
+      "\001(\0132\025.dex.InvokeRPCRequest\"c\n\035InvokeWork" +
+      "erRPCActivityOutput\022.\n\010response\030\001 \001(\0132\034." +
+      "dex.InvokeWorkerRPCResponse\022\022\n\nrequest_i" +
+      "d\030\002 \001(\t\"1\n\035CleanupBlobStoreActivityInput" +
+      "\022\020\n\010store_id\030\001 \001(\t\"7\n\036CleanupBlobStoreAc" +
+      "tivityOutput\022\025\n\rtotal_deleted\030\001 \001(\005\"P\n\021A" +
+      "ttributeSyncItem\022\023\n\013config_name\030\001 \001(\t\022\013\n" +
+      "\003key\030\002 \001(\t\022\031\n\005value\030\003 \001(\0132\n.dex.Value\"n\n" +
+      "\037SyncAttributeBatchActivityInput\022\017\n\007flow" +
+      "_id\030\001 \001(\t\022\023\n\013config_name\030\002 \001(\t\022%\n\005items\030" +
+      "\003 \003(\0132\026.dex.AttributeSyncItem\"\224\001\n\031StartS" +
+      "ubFlowActivityInput\022(\n\tcondition\030\001 \001(\0132\025" +
+      ".dex.SubFlowCondition\022+\n\022parent_flow_con" +
+      "fig\030\002 \001(\0132\017.dex.FlowConfig\022 \n\030parent_ste" +
+      "p_execution_id\030\003 \001(\t\"L\n\032StartSubFlowActi" +
+      "vityOutput\022.\n\025immediate_flow_result\030\001 \001(" +
+      "\0132\017.dex.FlowResult\"[\n\036SubFlowCompletionS" +
+      "ignalRequest\022\023\n\013sub_flow_id\030\001 \001(\t\022$\n\013flo" +
+      "w_result\030\002 \001(\0132\017.dex.FlowResult\"t\n$Repor" +
+      "tSubFlowCompletionActivityInput\022\026\n\016paren" +
+      "t_flow_id\030\001 \001(\t\0224\n\007request\030\002 \001(\0132#.dex.S" +
+      "ubFlowCompletionSignalRequest\"]\n%ReportS" +
+      "ubFlowCompletionActivityOutput\0224\n\006status" +
+      "\030\001 \001(\0162$.dex.SubFlowCompletionDeliverySt" +
+      "atus\"\241\002\n\027ExecuteRpcSignalRequest\022\035\n\trpc_" +
+      "input\030\001 \001(\0132\n.dex.Value\022\036\n\nrpc_output\030\002 " +
+      "\001(\0132\n.dex.Value\022.\n\021upsert_attributes\030\003 \003" +
+      "(\0132\023.dex.AttributeWrite\022(\n\rstep_decision" +
+      "\030\004 \001(\0132\021.dex.StepDecision\022\036\n\rrecord_even" +
+      "ts\030\005 \003(\0132\007.dex.KV\022/\n\022publish_to_channel\030" +
+      "\006 \003(\0132\023.dex.ChannelMessage\022\034\n\024is_set_att" +
+      "ribute_api\030\007 \001(\010\"n\n\026SkipTimerSignalReque" +
+      "st\022\031\n\021step_execution_id\030\001 \001(\t\022\032\n\022timer_c" +
+      "ondition_id\030\002 \001(\t\022\035\n\025timer_condition_ind" +
+      "ex\030\003 \001(\005\"I\n\025StopFlowSignalRequest\022 \n\tsto" +
+      "p_type\030\001 \001(\0162\r.dex.StopType\022\016\n\006reason\030\002 " +
+      "\001(\t\";\n\031GetAttributesQueryRequest\022\014\n\004keys" +
+      "\030\001 \003(\t\022\020\n\010all_keys\030\002 \001(\010\"9\n\032GetAttribute" +
+      "sQueryResponse\022\033\n\nattributes\030\001 \003(\0132\007.dex" +
+      ".KV\"5\n\026PrepareRpcQueryRequest\022\033\n\023lock_at" +
+      "tribute_keys\030\001 \003(\t\"\261\002\n\027PrepareRpcQueryRe" +
+      "sponse\022\033\n\nattributes\030\001 \003(\0132\007.dex.KV\022\016\n\006r" +
+      "un_id\030\002 \001(\t\022\036\n\026flow_started_timestamp\030\003 " +
+      "\001(\003\022\021\n\tflow_type\030\004 \001(\t\022(\n\rworker_target\030" +
+      "\005 \001(\0132\021.dex.WorkerTarget\022E\n\rchannel_info" +
+      "s\030\006 \003(\0132..dex.PrepareRpcQueryResponse.Ch" +
+      "annelInfosEntry\032E\n\021ChannelInfosEntry\022\013\n\003" +
+      "key\030\001 \001(\t\022\037\n\005value\030\002 \001(\0132\020.dex.ChannelIn" +
+      "fo:\0028\001\"r\n\tTimerInfo\022\024\n\014condition_id\030\001 \001(" +
+      "\t\022%\n\035firing_unix_timestamp_seconds\030\002 \001(\003" +
+      "\022(\n\006status\030\003 \001(\0162\030.dex.InternalTimerStat" +
+      "us\"/\n\rTimerInfoList\022\036\n\006timers\030\001 \003(\0132\016.de" +
+      "x.TimerInfo\"\366\001\n!GetCurrentTimerInfosQuer" +
+      "yResponse\022v\n\"step_execution_current_time" +
+      "r_infos\030\001 \003(\0132J.dex.GetCurrentTimerInfos" +
+      "QueryResponse.StepExecutionCurrentTimerI" +
+      "nfosEntry\032Y\n#StepExecutionCurrentTimerIn" +
+      "fosEntry\022\013\n\003key\030\001 \001(\t\022!\n\005value\030\002 \001(\0132\022.d" +
+      "ex.TimerInfoList:\0028\001\"V\n)GetScheduledGree" +
+      "dyTimerTimesQueryResponse\022)\n\021pending_sch" +
+      "eduled\030\001 \003(\0132\016.dex.TimerInfo\"\304\001\n\021DebugDu" +
+      "mpResponse\022\037\n\006config\030\001 \001(\0132\017.dex.FlowCon" +
+      "fig\022(\n\010snapshot\030\002 \001(\0132\026.dex.ContinueAsNe" +
+      "wDump\022%\n\035firing_timers_unix_timestamps\030\003" +
+      " \003(\003\022=\n\026active_step_executions\030\004 \003(\0132\035.d" +
+      "ex.ActiveStepExecutionState\"A\n\025InvokeRpc" +
+      "UpdateResult\022(\n\010response\030\001 \001(\0132\026.dex.Inv" +
+      "okeRPCResponse\"\'\n\024StepExecutionNumbers\022\017" +
+      "\n\007numbers\030\001 \003(\005*\313\001\n\tIndexType\022\032\n\026INDEX_T" +
+      "YPE_UNSPECIFIED\020\000\022\026\n\022INDEX_TYPE_KEYWORD\020" +
+      "\001\022\023\n\017INDEX_TYPE_TEXT\020\002\022\034\n\030INDEX_TYPE_KEY" +
+      "WORD_ARRAY\020\003\022\022\n\016INDEX_TYPE_INT\020\004\022\025\n\021INDE" +
+      "X_TYPE_DOUBLE\020\005\022\023\n\017INDEX_TYPE_BOOL\020\006\022\027\n\023" +
+      "INDEX_TYPE_DATETIME\020\007*\274\001\n\032WaitForMethodF" +
+      "ailurePolicy\022.\n*WAIT_FOR_METHOD_FAILURE_" +
+      "POLICY_UNSPECIFIED\020\000\0227\n3WAIT_FOR_METHOD_" +
+      "FAILURE_POLICY_FAIL_FLOW_ON_FAILURE\020\001\0225\n" +
+      "1WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_" +
+      "ON_FAILURE\020\002*\320\001\n\032ExecuteMethodFailurePol" +
+      "icy\022-\n)EXECUTE_METHOD_FAILURE_POLICY_UNS" +
+      "PECIFIED\020\000\022E\nAEXECUTE_METHOD_FAILURE_POL" +
+      "ICY_FAIL_FLOW_ON_EXECUTE_METHOD_FAILURE\020" +
+      "\001\022<\n8EXECUTE_METHOD_FAILURE_POLICY_PROCE" +
+      "ED_TO_CONFIGURED_STEP\020\002*\346\001\n\rIdReusePolic" +
+      "y\022\037\n\033ID_REUSE_POLICY_UNSPECIFIED\020\000\0227\n3ID" +
+      "_REUSE_POLICY_ALLOW_IF_PREVIOUS_EXISTS_A" +
+      "BNORMALLY\020\001\022\'\n#ID_REUSE_POLICY_ALLOW_IF_" +
+      "NO_RUNNING\020\002\022\"\n\036ID_REUSE_POLICY_DISALLOW" +
+      "_REUSE\020\003\022.\n*ID_REUSE_POLICY_ALLOW_TERMIN" +
+      "ATE_IF_RUNNING\020\004*\317\001\n\024ActiveStepSearchMod" +
+      "e\022\'\n#ACTIVE_STEP_SEARCH_MODE_UNSPECIFIED" +
+      "\020\000\022+\n\'ACTIVE_STEP_SEARCH_MODE_ENABLED_FO" +
+      "R_ALL\020\001\022;\n7ACTIVE_STEP_SEARCH_MODE_ENABL" +
+      "ED_FOR_STEPS_WITH_WAIT_FOR\020\002\022$\n ACTIVE_S" +
+      "TEP_SEARCH_MODE_DISABLED\020\003*f\n\016StepDurabi" +
+      "lity\022\037\n\033STEP_DURABILITY_UNSPECIFIED\020\000\022\030\n" +
+      "\024STEP_DURABILITY_SYNC\020\001\022\031\n\025STEP_DURABILI" +
+      "TY_ASYNC\020\002*\227\001\n\021FlowTimeoutPolicy\022#\n\037FLOW" +
+      "_TIMEOUT_POLICY_UNSPECIFIED\020\000\022\034\n\030FLOW_TI" +
+      "MEOUT_POLICY_FAIL\020\001\022\036\n\032FLOW_TIMEOUT_POLI" +
+      "CY_CANCEL\020\002\022\037\n\033FLOW_TIMEOUT_POLICY_HANDL" +
+      "ER\020\003*h\n\010StopType\022\031\n\025STOP_TYPE_UNSPECIFIE" +
+      "D\020\000\022\024\n\020STOP_TYPE_CANCEL\020\001\022\027\n\023STOP_TYPE_T" +
+      "ERMINATE\020\002\022\022\n\016STOP_TYPE_FAIL\020\003*\200\002\n\nFlowS" +
+      "tatus\022\033\n\027FLOW_STATUS_UNSPECIFIED\020\000\022\027\n\023FL" +
+      "OW_STATUS_RUNNING\020\001\022\031\n\025FLOW_STATUS_COMPL" +
+      "ETED\020\002\022\026\n\022FLOW_STATUS_FAILED\020\003\0221\n-FLOW_S" +
+      "TATUS_SERVER_SIDE_TIMEOUT_INTERNAL_ONLY\020" +
+      "\004\022\032\n\026FLOW_STATUS_TERMINATED\020\005\022\030\n\024FLOW_ST" +
+      "ATUS_CANCELED\020\006\022 \n\034FLOW_STATUS_CONTINUED" +
+      "_AS_NEW\020\007*\236\002\n\rFlowErrorType\022\037\n\033FLOW_ERRO" +
+      "R_TYPE_UNSPECIFIED\020\000\022.\n*FLOW_ERROR_TYPE_" +
+      "STEP_DECISION_FAILING_FLOW\020\001\022+\n\'FLOW_ERR" +
+      "OR_TYPE_CLIENT_API_FAILING_FLOW\020\002\022#\n\037FLO" +
+      "W_ERROR_TYPE_WORKER_API_FAIL\020\003\022*\n&FLOW_E" +
+      "RROR_TYPE_INVALID_USER_FLOW_CODE\020\004\022 \n\034FL" +
+      "OW_ERROR_TYPE_FLOW_TIMEOUT\020\005\022\034\n\030FLOW_ERR" +
+      "OR_TYPE_INTERNAL\020\006*\223\001\n\026PendingStepMethod" +
+      "Phase\022)\n%PENDING_STEP_METHOD_PHASE_UNSPE" +
+      "CIFIED\020\000\022\'\n#PENDING_STEP_METHOD_PHASE_SC" +
+      "HEDULED\020\001\022%\n!PENDING_STEP_METHOD_PHASE_S" +
+      "TARTED\020\002*q\n\017ActiveStepPhase\022!\n\035ACTIVE_ST" +
+      "EP_PHASE_UNSPECIFIED\020\000\022\034\n\030ACTIVE_STEP_PH" +
+      "ASE_ACTIVE\020\001\022\035\n\031ACTIVE_STEP_PHASE_WAITIN" +
+      "G\020\002*\275\001\n\rFlowResetType\022\037\n\033FLOW_RESET_TYPE" +
+      "_UNSPECIFIED\020\000\022\035\n\031FLOW_RESET_TYPE_BEGINN" +
+      "ING\020\001\022&\n\"FLOW_RESET_TYPE_HISTORY_EVENT_T" +
+      "IME\020\002\022\035\n\031FLOW_RESET_TYPE_STEP_TYPE\020\003\022%\n!" +
+      "FLOW_RESET_TYPE_STEP_EXECUTION_ID\020\004*\206\001\n\023" +
+      "FlowResetStepMethod\022&\n\"FLOW_RESET_STEP_M" +
+      "ETHOD_UNSPECIFIED\020\000\022#\n\037FLOW_RESET_STEP_M" +
+      "ETHOD_WAIT_FOR\020\001\022\"\n\036FLOW_RESET_STEP_METH" +
+      "OD_EXECUTE\020\002*\367\001\n\016ErrorSubStatus\022 \n\034ERROR" +
+      "_SUB_STATUS_UNSPECIFIED\020\000\022\"\n\036ERROR_SUB_S" +
+      "TATUS_UNCATEGORIZED\020\001\022)\n%ERROR_SUB_STATU" +
+      "S_FLOW_ALREADY_STARTED\020\002\022$\n ERROR_SUB_ST" +
+      "ATUS_FLOW_NOT_EXISTS\020\003\022%\n!ERROR_SUB_STAT" +
+      "US_WORKER_API_ERROR\020\004\022\'\n#ERROR_SUB_STATU" +
+      "S_LONG_POLL_TIME_OUT\020\005*\213\002\n\021CloseDecision" +
+      "Type\022#\n\037CLOSE_DECISION_TYPE_UNSPECIFIED\020" +
+      "\000\0228\n4CLOSE_DECISION_TYPE_FORCE_COMPLETE_" +
+      "ON_CHANNELS_EMPTY\020\001\022)\n%CLOSE_DECISION_TY" +
+      "PE_GRACEFUL_COMPLETE\020\002\022&\n\"CLOSE_DECISION" +
+      "_TYPE_FORCE_COMPLETE\020\003\022\"\n\036CLOSE_DECISION" +
+      "_TYPE_FORCE_FAIL\020\004\022 \n\034CLOSE_DECISION_TYP" +
+      "E_DEAD_END\020\005*\310\001\n\024WaitingConditionType\022&\n" +
+      "\"WAITING_CONDITION_TYPE_UNSPECIFIED\020\000\022(\n" +
+      "$WAITING_CONDITION_TYPE_ALL_COMPLETED\020\001\022" +
+      "(\n$WAITING_CONDITION_TYPE_ANY_COMPLETED\020" +
+      "\002\0224\n0WAITING_CONDITION_TYPE_ANY_COMBINAT" +
+      "ION_COMPLETED\020\003*\307\001\n\022SubFlowReusePolicy\022%" +
+      "\n!SUB_FLOW_REUSE_POLICY_UNSPECIFIED\020\000\022 \n" +
+      "\034SUB_FLOW_REUSE_POLICY_ATTACH\020\001\022>\n:SUB_F" +
+      "LOW_REUSE_POLICY_RESTART_IF_PREVIOUS_EXI" +
+      "TS_ABNORMALLY\020\002\022(\n$SUB_FLOW_REUSE_POLICY" +
+      "_ALWAYS_RESTART\020\003*q\n\017ConditionStatus\022 \n\034" +
+      "CONDITION_STATUS_UNSPECIFIED\020\000\022\034\n\030CONDIT" +
+      "ION_STATUS_WAITING\020\001\022\036\n\032CONDITION_STATUS" +
+      "_COMPLETED\020\002*\243\001\n\023InternalTimerStatus\022%\n!" +
+      "INTERNAL_TIMER_STATUS_UNSPECIFIED\020\000\022!\n\035I" +
+      "NTERNAL_TIMER_STATUS_PENDING\020\001\022\037\n\033INTERN" +
+      "AL_TIMER_STATUS_FIRED\020\002\022!\n\035INTERNAL_TIME" +
+      "R_STATUS_SKIPPED\020\003*\270\002\n\017UpdateErrorType\022!" +
+      "\n\035UPDATE_ERROR_TYPE_UNSPECIFIED\020\000\022/\n+UPD" +
+      "ATE_ERROR_TYPE_CONTINUE_AS_NEW_PREEMPTED" +
+      "\020\001\022&\n\"UPDATE_ERROR_TYPE_INVALID_ARGUMENT" +
+      "\020\002\022)\n%UPDATE_ERROR_TYPE_FAILED_PRECONDIT" +
+      "ION\020\003\022\'\n#UPDATE_ERROR_TYPE_DEADLINE_EXCE" +
+      "EDED\020\004\022.\n*UPDATE_ERROR_TYPE_RPC_ACQUIRE_" +
+      "LOCK_FAILURE\020\005\022%\n!UPDATE_ERROR_TYPE_SERV" +
+      "ER_INTERNAL\020\006*\315\001\n\037SubFlowCompletionDeliv" +
+      "eryStatus\0223\n/SUB_FLOW_COMPLETION_DELIVER" +
+      "Y_STATUS_UNSPECIFIED\020\000\0221\n-SUB_FLOW_COMPL" +
+      "ETION_DELIVERY_STATUS_DELIVERED\020\001\022B\n>SUB" +
+      "_FLOW_COMPLETION_DELIVERY_STATUS_PARENT_" +
+      "CLOSED_OR_NOT_FOUND\020\0022\325\014\n\013FlowService\022:\n" +
+      "\tStartFlow\022\025.dex.StartFlowRequest\032\026.dex." +
+      "StartFlowResponse\022H\n\020PublishToChannel\022\034." +
+      "dex.PublishToChannelRequest\032\026.google.pro" +
+      "tobuf.Empty\022>\n\013WriteStream\022\027.dex.WriteSt" +
+      "reamRequest\032\026.google.protobuf.Empty\022=\n\nR" +
+      "eadStream\022\026.dex.ReadStreamRequest\032\027.dex." +
+      "ReadStreamResponse\0228\n\010StopFlow\022\024.dex.Sto" +
+      "pFlowRequest\032\026.google.protobuf.Empty\022F\n\r" +
+      "GetAttributes\022\031.dex.GetAttributesRequest" +
+      "\032\032.dex.GetAttributesResponse\022B\n\rSetAttri" +
+      "butes\022\031.dex.SetAttributesRequest\032\026.googl" +
+      "e.protobuf.Empty\022:\n\tLoadBlobs\022\025.dex.Load" +
+      "BlobsRequest\032\026.dex.LoadBlobsResponse\0227\n\013" +
+      "WaitForFlow\022\027.dex.WaitForFlowRequest\032\017.d" +
+      "ex.FlowResult\022@\n\013SearchFlows\022\027.dex.Searc" +
+      "hFlowsRequest\032\030.dex.SearchFlowsResponse\022" +
+      "W\n\024SyncAttributeIndexes\022\036.dex.SyncAttrib" +
+      "uteIndexRequest\032\037.dex.SyncAttributeIndex" +
+      "Response\022I\n\016GetFlowSummary\022\032.dex.GetFlow" +
+      "SummaryRequest\032\033.dex.GetFlowSummaryRespo" +
+      "nse\022O\n\020GetHistoryEvents\022\034.dex.GetHistory" +
+      "EventsRequest\032\035.dex.GetHistoryEventsResp" +
+      "onse\022X\n\023WaitForHistoryEvent\022\037.dex.WaitFo" +
+      "rHistoryEventRequest\032 .dex.WaitForHistor" +
+      "yEventResponse\022C\n\014GetFlowState\022\030.dex.Get" +
+      "FlowStateRequest\032\031.dex.GetFlowStateRespo" +
+      "nse\022:\n\tResetFlow\022\025.dex.ResetFlowRequest\032" +
+      "\026.dex.ResetFlowResponse\022:\n\tInvokeRPC\022\025.d" +
+      "ex.InvokeRPCRequest\032\026.dex.InvokeRPCRespo" +
+      "nse\022:\n\tSkipTimer\022\025.dex.SkipTimerRequest\032" +
+      "\026.google.protobuf.Empty\022H\n\020UpdateFlowCon" +
+      "fig\022\034.dex.UpdateFlowConfigRequest\032\026.goog" +
+      "le.protobuf.Empty\022^\n\025WaitForStepCompleti" +
+      "on\022!.dex.WaitForStepCompletionRequest\032\"." +
+      "dex.WaitForStepCompletionResponse\022H\n\020Wai" +
+      "tForAttribute\022\034.dex.WaitForAttributeRequ" +
+      "est\032\026.google.protobuf.Empty\022P\n\024TriggerCo" +
+      "ntinueAsNew\022 .dex.TriggerContinueAsNewRe" +
+      "quest\032\026.google.protobuf.Empty\0226\n\013HealthC" +
+      "heck\022\026.google.protobuf.Empty\032\017.dex.Healt" +
+      "hInfo2\221\002\n\rWorkerService\022X\n\023InvokeWaitFor" +
+      "Method\022\037.dex.InvokeWaitForMethodRequest\032" +
+      " .dex.InvokeWaitForMethodResponse\022X\n\023Inv" +
+      "okeExecuteMethod\022\037.dex.InvokeExecuteMeth" +
+      "odRequest\032 .dex.InvokeExecuteMethodRespo" +
+      "nse\022L\n\017InvokeWorkerRPC\022\033.dex.InvokeWorke" +
+      "rRPCRequest\032\034.dex.InvokeWorkerRPCRespons" +
+      "e2l\n\017InternalService\022Y\n\030DumpFlowForConti" +
+      "nueAsNew\022\035.dex.ContinueAsNewDumpRequest\032" +
+      "\036.dex.ContinueAsNewDumpResponseB!\n\023io.su" +
+      "perdurable.genB\010DexProtoP\001b\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -1789,7 +1789,7 @@ public final class DexProto extends com.google.protobuf.GeneratedFile {
     internal_static_dex_WriteStreamRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessage.FieldAccessorTable(
         internal_static_dex_WriteStreamRequest_descriptor,
-        new java.lang.String[] { "FlowId", "FlowType", "StreamName", "MaxEstimatedBytes", "Value", "IdempotencyKey", });
+        new java.lang.String[] { "FlowId", "FlowType", "StreamName", "StreamCapacityBytes", "Value", "IdempotencyKey", });
     internal_static_dex_ReadStreamRequest_descriptor =
       getDescriptor().getMessageType(21);
     internal_static_dex_ReadStreamRequest_fieldAccessorTable = new

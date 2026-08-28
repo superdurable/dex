@@ -42,7 +42,7 @@ type WriteInput struct {
 	FlowID               string
 	FlowType             string
 	StreamName           string
-	MaxEstimatedBytes    int64
+	StreamCapacityBytes  int64
 	Value                *dexpb.Value
 	InternalIdentity     string
 	PublicIdempotencyKey string
@@ -143,8 +143,8 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 	if err != nil {
 		return err
 	}
-	trimTrigger := percentageOf(input.MaxEstimatedBytes, s.cfg.EffectiveTrimTriggerPercent())
-	baseTrimTarget := percentageOf(input.MaxEstimatedBytes, s.cfg.EffectiveTrimTargetPercent())
+	trimTrigger := percentageOf(input.StreamCapacityBytes, s.cfg.EffectiveTrimTriggerPercent())
+	baseTrimTarget := percentageOf(input.StreamCapacityBytes, s.cfg.EffectiveTrimTargetPercent())
 	messageTrimTarget := baseTrimTarget
 	if messageTrimTarget < chargedBytes {
 		messageTrimTarget = chargedBytes
@@ -153,7 +153,7 @@ func (s *Store) Write(ctx context.Context, input WriteInput) error {
 		input:                  input,
 		payload:                payload,
 		chargedBytes:           chargedBytes,
-		capacityBytes:          input.MaxEstimatedBytes,
+		capacityBytes:          input.StreamCapacityBytes,
 		trimTriggerBytes:       trimTrigger,
 		baseTrimTargetBytes:    baseTrimTarget,
 		messageTrimTargetBytes: messageTrimTarget,

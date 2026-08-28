@@ -327,7 +327,7 @@ message WriteStreamRequest {
   string flow_id = 1;
   string flow_type = 2;
   string stream_name = 3;
-  int64 max_estimated_bytes = 4;
+  int64 stream_capacity_bytes = 4;
   Value value = 5;
   // Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`.
   string idempotency_key = 6;
