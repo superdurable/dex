@@ -21,7 +21,7 @@ from dex import (
     StepOptions,
     Wait,
     WaitForFailurePolicy,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -43,7 +43,7 @@ class OverrideFirstStep(Step[str]):
             wait_for_retry=RetryPolicy(maximum_attempts=2),
             wait_for_failure=WaitForFailurePolicy.PROCEED,
         )
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(OverrideCompleteStep, self.output, options=options)
         )
 

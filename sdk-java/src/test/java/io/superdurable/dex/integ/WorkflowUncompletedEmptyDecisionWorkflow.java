@@ -38,7 +38,7 @@ final class WorkflowUncompletedEmptyDecisionStep implements Step<Integer> {
 
     @Override
     public StepDecision execute(final Context context, final Integer input) {
-        return StepDecision.goToMulti();
+        return StepDecision.goToMany();
     }
 
     @Override

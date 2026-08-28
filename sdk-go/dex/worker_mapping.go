@@ -101,7 +101,7 @@ func mapRegisteredDecision(
 	switch decision.kind {
 	case decisionNext:
 		if len(decision.movements) == 0 {
-			return nil, fmt.Errorf("dex: GoToMulti requires at least one movement")
+			return nil, fmt.Errorf("dex: GoToMany requires at least one movement")
 		}
 		movements, err := mapRegisteredMovements(flow, decision.movements)
 		if err != nil {

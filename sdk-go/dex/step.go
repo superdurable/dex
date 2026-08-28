@@ -111,7 +111,7 @@ type Step[IN any] interface {
 	//	       step-execution locals set in WaitFor
 	//	input  the same typed step input passed to WaitFor
 	//
-	// Return a non-nil StepDecision (GoTo, GoToMulti, DeadEnd, GracefulComplete,
+	// Return a non-nil StepDecision (GoTo, GoToMany, DeadEnd, GracefulComplete,
 	// ForceComplete, ForceFail, or a conditional close). Attribute / channel /
 	// event writes are allowed; they are accepted with the Execute response.
 	Execute(ctx Context, input IN) (*StepDecision, error)

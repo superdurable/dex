@@ -476,7 +476,7 @@ class WorkerDispatcher:
         mapped = pb.StepDecision()
         if decision.kind is DecisionKind.NEXT:
             if not decision.movements:
-                raise ValueError("go_to_multi requires a movement")
+                raise ValueError("go_to_many requires a movement")
             mapped.next_steps.extend(self._map_movements(flow, decision.movements))
         elif decision.kind is DecisionKind.GRACEFUL_COMPLETE:
             mapped.close_decision.CopyFrom(

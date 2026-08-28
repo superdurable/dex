@@ -32,7 +32,7 @@ from dex import (
     dead_end,
     force_fail,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -55,7 +55,7 @@ class CancellationStart(Step[str]):
         del context, input
         scenario = self.flow.scenario
         if scenario is CancellationScenario.HEARTBEAT_WAIT_FOR:
-            return go_to_multi(
+            return go_to_many(
                 StepMovement.of(CancellationBlockingWaitFor, None),
                 StepMovement.of(CancellationWinner, None),
             )
@@ -63,11 +63,11 @@ class CancellationStart(Step[str]):
             CancellationScenario.GLOBAL_SELECTOR,
             CancellationScenario.SIBLING_SELECTOR,
         }:
-            return go_to_multi(
+            return go_to_many(
                 StepMovement.of(CancellationFirstParent, None),
                 StepMovement.of(CancellationSecondParent, None),
             )
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(CancellationBlockingExecute, None),
             StepMovement.of(CancellationWinner, None),
         )
@@ -206,7 +206,7 @@ class CancellationFirstParent(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(CancellationSelectorWinner, None),
             StepMovement.of(CancellationSelectorWaiting, "first"),
         )

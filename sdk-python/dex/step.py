@@ -416,10 +416,10 @@ def go_to(step: type[Step[InputT]], input: InputT) -> StepDecision:
     Returns:
         A next decision containing one StepMovement.
     """
-    return go_to_multi(StepMovement.of(step, input))
+    return go_to_many(StepMovement.of(step, input))
 
 
-def go_to_multi(*movements: StepMovement[Any]) -> StepDecision:
+def go_to_many(*movements: StepMovement[Any]) -> StepDecision:
     """Create a decision that schedules several next Steps.
 
     Args:

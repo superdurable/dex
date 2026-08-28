@@ -195,16 +195,16 @@ final class StepCancellationWorkflow implements Flow<Void> {
         public StepDecision execute(final Context context, final Void input) {
             switch (scenario) {
                 case HEARTBEAT_WAIT_FOR:
-                    return StepDecision.goToMulti(
+                    return StepDecision.goToMany(
                             StepMovement.of(StepCancellationBlockingWaitForStep.class, null),
                             StepMovement.of(StepCancellationWinnerStep.class, null));
                 case GLOBAL_SELECTOR:
                 case SIBLING_SELECTOR:
-                    return StepDecision.goToMulti(
+                    return StepDecision.goToMany(
                             StepMovement.of(StepCancellationFirstParentStep.class, null),
                             StepMovement.of(StepCancellationSecondParentStep.class, null));
                 default:
-                    return StepDecision.goToMulti(
+                    return StepDecision.goToMany(
                             StepMovement.of(StepCancellationBlockingExecuteStep.class, null),
                             StepMovement.of(StepCancellationWinnerStep.class, null));
             }
@@ -368,7 +368,7 @@ final class StepCancellationWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(StepCancellationSelectorWinnerStep.class, null),
                     StepMovement.of(StepCancellationSelectorWaitingStep.class, "first"));
         }

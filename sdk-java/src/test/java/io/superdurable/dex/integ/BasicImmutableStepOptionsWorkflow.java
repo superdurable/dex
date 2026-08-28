@@ -44,7 +44,7 @@ final class BasicImmutableStepOptionsWorkflow implements Flow<Integer> {
                     .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(1).build())
                     .waitForFailure(WaitForFailurePolicy.PROCEED)
                     .build();
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(FailingWaitStep.class, 1, override));
         }
     }

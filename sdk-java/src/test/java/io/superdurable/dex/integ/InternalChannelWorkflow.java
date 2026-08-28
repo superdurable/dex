@@ -53,7 +53,7 @@ final class InternalChannelWorkflow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            return StepDecision.goToMulti(
+        return StepDecision.goToMany(
                     StepMovement.of(ConsumeStep.class, input),
                     StepMovement.of(PublishStep.class, input));
         }

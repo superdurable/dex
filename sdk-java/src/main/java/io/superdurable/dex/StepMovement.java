@@ -17,7 +17,7 @@ package io.superdurable.dex;
  * movement override the target Step's default options for that execution only.
  *
  * <pre>{@code
- * return StepDecision.goToMulti(
+ * return StepDecision.goToMany(
  *         StepMovement.of(ReserveInventory.class, order),
  *         StepMovement.of(AuthorizePayment.class, order, paymentOptions));
  * }</pre>

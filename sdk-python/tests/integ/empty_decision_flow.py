@@ -16,14 +16,14 @@ from dex import (
     StepDecision,
     StepList,
     StepOptions,
-    go_to_multi,
+    go_to_many,
 )
 
 
 class EmptyDecisionStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context, input
-        return go_to_multi()
+        return go_to_many()
 
     def get_step_options(self) -> StepOptions:
         return StepOptions(execute_retry=RetryPolicy(maximum_attempts=1))

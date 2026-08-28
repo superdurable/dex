@@ -152,7 +152,7 @@ func TestStepDecisionAndOptionsMapping(t *testing.T) {
 		mapped.NextSteps[0].StepOptions.ExecuteLockAttributeKeys,
 	)
 
-	_, err = mapStepDecision(GoToMulti())
+	_, err = mapStepDecision(GoToMany())
 	require.ErrorContains(t, err, "at least one")
 }
 

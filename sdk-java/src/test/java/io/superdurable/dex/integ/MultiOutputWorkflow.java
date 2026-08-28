@@ -48,7 +48,7 @@ final class MultiOutputWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.goToMulti(
+        return StepDecision.goToMany(
                     StepMovement.of(MultiOutputStringStep.class, null),
                     StepMovement.of(MultiOutputIntegerStep.class, null));
         }

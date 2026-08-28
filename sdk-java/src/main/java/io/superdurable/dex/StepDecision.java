@@ -86,7 +86,7 @@ public final class StepDecision {
     public static <I> StepDecision goTo(
             final Class<? extends Step<I>> stepClass,
             final I input) {
-        return goToMulti(StepMovement.of(stepClass, input));
+        return goToMany(StepMovement.of(stepClass, input));
     }
 
     /**
@@ -95,7 +95,7 @@ public final class StepDecision {
      * @param movements the movements to schedule
      * @return a multi-movement decision
      */
-    public static StepDecision goToMulti(final StepMovement<?>... movements) {
+    public static StepDecision goToMany(final StepMovement<?>... movements) {
         return new StepDecision(
                 Kind.NEXT,
                 Arrays.<StepMovement<?>>asList(movements.clone()),
