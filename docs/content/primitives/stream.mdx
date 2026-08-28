@@ -17,7 +17,7 @@ A Stream provides best-effort durability only, using an in-memory store such as 
 
 ## Define and register a Stream
 
-A Stream has a stable name, a message type, and **maxEstimatedBytes**. **maxEstimatedBytes** is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
+A Stream has a stable name, a message type, and **maxEstimatedBytes**. maxEstimatedBytes is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
 
 This example writes a progress message before its Step returns. The write becomes visible as soon as Dex accepts it; the Client does not wait for the Step to complete.
 
