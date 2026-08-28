@@ -12,7 +12,7 @@ import {
   StepList,
   StepMovement,
   Wait,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   stringCodec,
   type Context,
@@ -68,7 +68,7 @@ class OverrideFirstStep implements Step<string> {
 
   public execute(_context: Context, _input: string): StepDecision {
     this.output += "_state1_decide";
-    return goToMulti(
+    return goToMany(
       StepMovement.of(CompleteStep, this.output, {
         waitForRetry: { maximumAttempts: 2 },
         waitForFailure: "proceed",

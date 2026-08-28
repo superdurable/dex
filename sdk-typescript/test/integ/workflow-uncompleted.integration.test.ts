@@ -177,7 +177,7 @@ test("Worker method timeout fails the Flow", async () => {
   });
 });
 
-test("empty goToMulti decision fails the Flow", async () => {
+test("empty goToMany decision fails the Flow", async () => {
   const flow = new EmptyDecisionFlow();
   await withEnvironment([flow], async ({ client }) => {
     const id = flowId("empty-decision");
@@ -185,7 +185,7 @@ test("empty goToMulti decision fails the Flow", async () => {
     const failure = await waitForFailure(client, id);
     assert.equal(failure.status, "failed");
     assert.equal(failure.errorType, FlowErrorType.WORKER_API_FAILED);
-    assert.match(failure.errorMessage ?? "", /goToMulti requires a movement/);
+    assert.match(failure.errorMessage ?? "", /goToMany requires a movement/);
     assert.equal(failure.completions.length, 0);
   });
 });

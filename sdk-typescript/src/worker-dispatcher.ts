@@ -391,7 +391,7 @@ function mapDecision(flow: RegisteredFlow, decision: StepDecision | undefined): 
   }
   if (decision.kind === "next") {
     if (decision.movements.length === 0) {
-      throw new TypeError("goToMulti requires a movement");
+      throw new TypeError("goToMany requires a movement");
     }
     return withCancellationSelection(
       flow,

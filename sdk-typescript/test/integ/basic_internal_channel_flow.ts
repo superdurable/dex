@@ -17,7 +17,7 @@ import {
   Wait,
   deadEnd,
   doubleCodec,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   type Context,
   type Flow,
@@ -82,7 +82,7 @@ class ForkStep implements Step<number> {
   }
 
   public execute(_context: Context, input: number): StepDecision {
-    return goToMulti(
+    return goToMany(
       StepMovement.of(ConsumeStep, input),
       StepMovement.of(PublishStep, input),
     );

@@ -14,7 +14,7 @@ import {
   Wait,
   doubleCodec,
   goTo,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   type Context,
   type Flow,
@@ -57,7 +57,7 @@ class ImmutableStartStep implements Step<number> {
   }
 
   public execute(_context: Context, _input: number): StepDecision {
-    return goToMulti(
+    return goToMany(
       StepMovement.of(ImmutableFailingWaitStep, 1, {
         waitForRetry: { maximumAttempts: 1 },
         waitForFailure: "proceed",

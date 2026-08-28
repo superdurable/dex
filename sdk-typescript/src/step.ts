@@ -300,14 +300,14 @@ export type StepDecision = (
  * @returns A next decision containing one movement.
  */
 export const goTo = <Input>(step: StepClass<Input>, input: Input): StepDecision =>
-  goToMulti(StepMovement.of(step, input));
+  goToMany(StepMovement.of(step, input));
 
 /**
  * Creates a decision scheduling several next Steps.
  * @param movements - Typed movements applied in argument order.
  * @returns A next decision containing every movement.
  */
-export const goToMulti = (...movements: readonly StepMovement<unknown>[]): StepDecision => ({
+export const goToMany = (...movements: readonly StepMovement<unknown>[]): StepDecision => ({
   kind: "next",
   movements,
 });
