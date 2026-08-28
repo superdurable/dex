@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dex_examples_rust::create_example_registry;
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
-use dex_examples_rust::primitives::stream::flow::{StreamFlow, progress};
+use dex_examples_rust::primitives::stream::flow::{PROGRESS, StreamFlow};
 use dex_examples_rust::products::engagement::{
     ENGAGEMENT_ACCEPT, ENGAGEMENT_DESCRIBE, EngagementFlow, EngagementRequest, EngagementStatus,
 };
@@ -190,7 +190,7 @@ fn stream_resumes_after_step_and_client_writes() {
 
     let step_message = environment
         .client
-        .read_stream_with_timeout(&flow_id, &progress(), "", Duration::from_secs(20))
+        .read_stream_with_timeout(&flow_id, &PROGRESS, "", Duration::from_secs(20))
         .expect("read Rust Step Stream message");
     assert_eq!(step_message.value, "Rendering preview for invoice");
     assert!(!step_message.resume_token.is_empty());
@@ -199,7 +199,7 @@ fn stream_resumes_after_step_and_client_writes() {
         .client
         .write_stream(
             &flow_id,
-            &progress(),
+            &PROGRESS,
             "browser/complete",
             "Preview displayed".to_string(),
         )
@@ -208,7 +208,7 @@ fn stream_resumes_after_step_and_client_writes() {
         .client
         .read_stream_with_timeout(
             &flow_id,
-            &progress(),
+            &PROGRESS,
             &step_message.resume_token,
             Duration::from_secs(20),
         )
