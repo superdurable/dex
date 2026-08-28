@@ -1017,7 +1017,7 @@ func (client *Client) WriteStream(
 		FlowId:            flowID,
 		FlowType:          flow.flowType,
 		StreamName:        registered.definition.name,
-		MaxEstimatedBytes: registered.definition.maxEstimatedBytes,
+		MaxEstimatedBytes: registered.definition.streamCapacityBytes,
 		Value:             encoded,
 		IdempotencyKey:    idempotencyKey,
 	})

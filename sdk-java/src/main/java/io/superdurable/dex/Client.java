@@ -604,7 +604,7 @@ public final class Client implements AutoCloseable {
                 .setFlowId(Attribute.requireName(flowId))
                 .setFlowType(flow.getName())
                 .setStreamName(stream.getStreamName())
-                .setMaxEstimatedBytes(stream.getMaxEstimatedBytes())
+                .setMaxEstimatedBytes(stream.getStreamCapacityBytes())
                 .setValue(values.encode(value))
                 .setIdempotencyKey(key)
                 .build()));

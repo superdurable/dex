@@ -22,21 +22,21 @@ package io.superdurable.dex;
 public final class Stream<T> extends PersistenceDefinition {
     private final String name;
     private final Class<T> valueType;
-    private final long maxEstimatedBytes;
+    private final long streamCapacityBytes;
 
     private Stream(
             final String name,
             final Class<T> valueType,
-            final long maxEstimatedBytes) {
+            final long streamCapacityBytes) {
         this.name = Attribute.requireName(name);
         if (valueType == null) {
             throw new IllegalArgumentException("Stream value type is required");
         }
-        if (maxEstimatedBytes <= 0) {
-            throw new IllegalArgumentException("Stream maxEstimatedBytes must be positive");
+        if (streamCapacityBytes <= 0) {
+            throw new IllegalArgumentException("Stream streamCapacityBytes must be positive");
         }
         this.valueType = valueType;
-        this.maxEstimatedBytes = maxEstimatedBytes;
+        this.streamCapacityBytes = streamCapacityBytes;
     }
 
     /**
@@ -44,15 +44,15 @@ public final class Stream<T> extends PersistenceDefinition {
      *
      * @param name the nonblank logical name unique within its Flow
      * @param valueType the concrete message class used for decoding
-     * @param maxEstimatedBytes the positive approximate shared byte budget
+     * @param streamCapacityBytes the positive approximate shared byte budget
      * @param <T> the message type
      * @return an immutable Stream definition
      */
     public static <T> Stream<T> define(
             final String name,
             final Class<T> valueType,
-            final long maxEstimatedBytes) {
-        return new Stream<T>(name, valueType, maxEstimatedBytes);
+            final long streamCapacityBytes) {
+        return new Stream<T>(name, valueType, streamCapacityBytes);
     }
 
     /**
@@ -79,8 +79,8 @@ public final class Stream<T> extends PersistenceDefinition {
      *
      * @return the positive budget in bytes
      */
-    public long getMaxEstimatedBytes() {
-        return maxEstimatedBytes;
+    public long getStreamCapacityBytes() {
+        return streamCapacityBytes;
     }
 
     @Override

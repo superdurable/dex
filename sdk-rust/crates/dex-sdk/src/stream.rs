@@ -15,7 +15,7 @@ use crate::{Context, HandlerResult, Value};
 #[derive(Debug)]
 struct StreamDefinition {
     name: String,
-    max_estimated_bytes: i64,
+    stream_capacity_bytes: i64,
 }
 
 /// Defines a typed best-effort resumable message Stream owned by one Flow type.
@@ -33,18 +33,18 @@ impl<T> Stream<T> {
     ///
     /// # Panics
     ///
-    /// Panics when `name` is empty or `max_estimated_bytes` is not positive.
-    pub fn new(name: impl Into<String>, max_estimated_bytes: i64) -> Self {
+    /// Panics when `name` is empty or `stream_capacity_bytes` is not positive.
+    pub fn new(name: impl Into<String>, stream_capacity_bytes: i64) -> Self {
         let name = name.into();
         assert!(!name.is_empty(), "Stream name must not be empty");
         assert!(
-            max_estimated_bytes > 0,
-            "Stream max_estimated_bytes must be positive"
+            stream_capacity_bytes > 0,
+            "Stream stream_capacity_bytes must be positive"
         );
         Self {
             definition: Arc::new(StreamDefinition {
                 name,
-                max_estimated_bytes,
+                stream_capacity_bytes,
             }),
             marker: PhantomData,
         }
@@ -56,8 +56,8 @@ impl<T> Stream<T> {
     }
 
     /// Returns the approximate shared byte budget.
-    pub fn max_estimated_bytes(&self) -> i64 {
-        self.definition.max_estimated_bytes
+    pub fn stream_capacity_bytes(&self) -> i64 {
+        self.definition.stream_capacity_bytes
     }
 
     /// Appends one message immediately from the current Step execution.

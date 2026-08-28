@@ -358,7 +358,7 @@ impl Client {
             flow_id: flow_id.to_string(),
             flow_type,
             stream_name: stream.name().to_string(),
-            max_estimated_bytes: stream.max_estimated_bytes(),
+            max_estimated_bytes: stream.stream_capacity_bytes(),
             value: Some(value_mapper::encode(&value)?),
             idempotency_key: idempotency_key.to_string(),
         };

@@ -93,7 +93,7 @@ export class InvocationContext implements Context {
         flowId: this.flowId,
         flowType: this.flow.name,
         streamName: stream.name,
-        maxEstimatedBytes: BigInt(stream.maxEstimatedBytes),
+        maxEstimatedBytes: BigInt(stream.streamCapacityBytes),
         value: encodeValue(stream.codec, value),
         idempotencyKey: `${this.runId}#${this.stepExecutionId}`,
       });

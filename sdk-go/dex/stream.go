@@ -16,7 +16,7 @@ import (
 // Stream defines one typed, best-effort resumable message stream.
 //
 // Register the Stream in exactly one Flow's PersistenceSchema. All Flow instances sharing that
-// Flow type and Stream name share maxEstimatedBytes. Stream writes are immediately visible and do
+// Flow type and Stream name share streamCapacityBytes. Stream writes are immediately visible and do
 // not roll back when a Step later fails.
 //
 //	var Thinking = dex.DefineStream[string]("thinking", 10<<20)
@@ -32,17 +32,17 @@ type Stream[T any] struct {
 }
 
 type streamDefinition struct {
-	name              string
-	maxEstimatedBytes int64
+	name                string
+	streamCapacityBytes int64
 }
 
 // DefineStream creates a typed Stream with a stable name and shared approximate byte budget.
 //
-// maxEstimatedBytes must be positive. Validation occurs when NewRegistry registers the Stream.
-func DefineStream[T any](name string, maxEstimatedBytes int64) Stream[T] {
+// streamCapacityBytes must be positive. Validation occurs when NewRegistry registers the Stream.
+func DefineStream[T any](name string, streamCapacityBytes int64) Stream[T] {
 	return Stream[T]{definition: &streamDefinition{
-		name:              name,
-		maxEstimatedBytes: maxEstimatedBytes,
+		name:                name,
+		streamCapacityBytes: streamCapacityBytes,
 	}}
 }
 
@@ -87,12 +87,12 @@ func (s Stream[T]) StreamName() string {
 	return s.definition.name
 }
 
-// MaxEstimatedBytes returns the approximate shared byte budget.
-func (s Stream[T]) MaxEstimatedBytes() int64 {
+// StreamCapacityBytes returns the approximate shared byte budget.
+func (s Stream[T]) StreamCapacityBytes() int64 {
 	if s.definition == nil {
 		return 0
 	}
-	return s.definition.maxEstimatedBytes
+	return s.definition.streamCapacityBytes
 }
 
 func (s Stream[T]) streamDefinition() *streamDefinition {
@@ -110,8 +110,8 @@ func validateStreamDefinition(definition *streamDefinition) error {
 	if definition.name == "" {
 		return fmt.Errorf("stream name must not be empty")
 	}
-	if definition.maxEstimatedBytes <= 0 {
-		return fmt.Errorf("stream %q max estimated bytes must be positive", definition.name)
+	if definition.streamCapacityBytes <= 0 {
+		return fmt.Errorf("stream %q capacity bytes must be positive", definition.name)
 	}
 	return nil
 }
