@@ -474,7 +474,7 @@ impl Context {
                     format!("Stream does not belong to Flow: {}", stream.name()),
                 )
             })?;
-        if definition.max_estimated_bytes != Some(stream.max_estimated_bytes()) {
+        if definition.stream_capacity_bytes != Some(stream.stream_capacity_bytes()) {
             return Err(HandlerError::new(
                 "dex_sdk::HandlerError",
                 format!(
@@ -496,7 +496,7 @@ impl Context {
             flow_id: self.flow_id().to_string(),
             flow_type: self.flow.name.to_string(),
             stream_name: stream.name().to_string(),
-            stream_capacity_bytes: stream.max_estimated_bytes(),
+            stream_capacity_bytes: stream.stream_capacity_bytes(),
             value: Some(value_mapper::encode_handler(&value)?),
             idempotency_key: format!("{}#{}", self.run_id(), self.step_execution_id()),
         };

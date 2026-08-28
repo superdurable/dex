@@ -141,7 +141,7 @@ func (invocation *invocationContext) writeStream(
 		FlowId:              invocation.flowID,
 		FlowType:            invocation.flow.flowType,
 		StreamName:          definition.name,
-		StreamCapacityBytes: definition.maxEstimatedBytes,
+		StreamCapacityBytes: definition.streamCapacityBytes,
 		Value:               encoded,
 		IdempotencyKey:      idempotencyKey,
 	})

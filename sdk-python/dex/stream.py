@@ -27,12 +27,12 @@ class Stream(Generic[ValueT]):
     Attributes:
         name: Logical name unique within the Flow persistence schema.
         value_type: Python type encoded for every message.
-        max_estimated_bytes: Positive approximate budget shared by all Flow instances.
+        stream_capacity_bytes: Positive approximate budget shared by all Flow instances.
     """
 
     name: str
     value_type: type[ValueT]
-    max_estimated_bytes: int
+    stream_capacity_bytes: int
 
     def __post_init__(self) -> None:
         """Validate the Stream definition after dataclass construction.
@@ -42,10 +42,10 @@ class Stream(Generic[ValueT]):
             TypeError: If the byte budget is not an integer.
         """
         require_name(self.name)
-        if not isinstance(self.max_estimated_bytes, int):
-            raise TypeError("Stream max_estimated_bytes must be an integer")
-        if self.max_estimated_bytes <= 0:
-            raise ValueError("Stream max_estimated_bytes must be positive")
+        if not isinstance(self.stream_capacity_bytes, int):
+            raise TypeError("Stream stream_capacity_bytes must be an integer")
+        if self.stream_capacity_bytes <= 0:
+            raise ValueError("Stream stream_capacity_bytes must be positive")
 
     def write(self, context: Context, value: ValueT) -> Any:
         """Append one message immediately from the current Step execution.

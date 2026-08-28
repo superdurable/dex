@@ -34,7 +34,7 @@ pub(crate) struct PersistenceDefinition {
     pub(crate) index: Option<AttributeIndex>,
     pub(crate) sync_to_attribute_store: bool,
     pub(crate) stream_identity: Option<usize>,
-    pub(crate) max_estimated_bytes: Option<i64>,
+    pub(crate) stream_capacity_bytes: Option<i64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -112,7 +112,7 @@ impl PersistenceSchema {
             None,
             false,
             Some(stream.identity()),
-            Some(stream.max_estimated_bytes()),
+            Some(stream.stream_capacity_bytes()),
         );
         self
     }
@@ -128,7 +128,7 @@ impl PersistenceSchema {
         index: Option<AttributeIndex>,
         sync_to_attribute_store: bool,
         stream_identity: Option<usize>,
-        max_estimated_bytes: Option<i64>,
+        stream_capacity_bytes: Option<i64>,
     ) {
         self.definitions.push(PersistenceDefinition {
             name: name.to_string(),
@@ -136,7 +136,7 @@ impl PersistenceSchema {
             index,
             sync_to_attribute_store,
             stream_identity,
-            max_estimated_bytes,
+            stream_capacity_bytes,
         });
     }
 }
@@ -167,6 +167,6 @@ mod tests {
             schema.definitions[0].stream_identity,
             Some(stream.identity())
         );
-        assert_eq!(schema.definitions[0].max_estimated_bytes, Some(1_048_576));
+        assert_eq!(schema.definitions[0].stream_capacity_bytes, Some(1_048_576));
     }
 }

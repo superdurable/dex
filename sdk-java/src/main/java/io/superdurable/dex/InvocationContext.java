@@ -182,7 +182,7 @@ final class InvocationContext implements Context {
                 .setFlowId(getFlowId())
                 .setFlowType(flow.getName())
                 .setStreamName(stream.getStreamName())
-                .setStreamCapacityBytes(stream.getMaxEstimatedBytes())
+                .setStreamCapacityBytes(stream.getStreamCapacityBytes())
                 .setValue(values.encode(value))
                 .setIdempotencyKey(getRunId() + "#" + getStepExecutionId())
                 .build());
