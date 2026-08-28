@@ -256,6 +256,7 @@ version = "0.0.0"
 dependencies = [
  "axum",
  "dex-sdk",
+ "fastrand",
  "reqwest",
  "serde",
  "serde_json",

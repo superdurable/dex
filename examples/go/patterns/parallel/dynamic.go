@@ -60,12 +60,8 @@ type dynamicWorkStep struct {
 func (dynamicWorkStep) GetStepType() string { return "DoWorkStep" }
 
 func (dynamicWorkStep) Execute(_ dex.Context, item string) (*dex.StepDecision, error) {
-	randomWorkDelay()
+	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
 	return dex.GracefulComplete(item), nil
-}
-
-func randomWorkDelay() {
-	time.Sleep(time.Duration(rand.Intn(500)) * time.Millisecond)
 }
 
 var _ dex.Flow = (*DynamicParallelStepsFlow)(nil)

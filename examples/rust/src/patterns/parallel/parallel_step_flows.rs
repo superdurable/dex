@@ -16,11 +16,7 @@ use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList,
     StepMovement, Wait,
 };
-use std::{
-    sync::LazyLock,
-    thread,
-    time::{Duration, SystemTime},
-};
+use std::{sync::LazyLock, thread, time::Duration};
 
 #[derive(Default)]
 pub struct StaticParallelStepsFlow {
@@ -105,7 +101,7 @@ impl Step for DynamicWork {
         "DoWorkStep"
     }
     fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
-        random_delay();
+        thread::sleep(Duration::from_millis(fastrand::u64(50..500)));
         Ok(StepDecision::graceful_complete(input))
     }
 }
@@ -148,7 +144,7 @@ impl Step for AwaitWork {
         "DoWorkStep"
     }
     fn execute(&self, context: &mut Context, _: usize) -> HandlerResult<StepDecision> {
-        random_delay();
+        thread::sleep(Duration::from_millis(fastrand::u64(50..500)));
         COMPLETE.publish(context, ())?;
         Ok(StepDecision::dead_end())
     }
@@ -201,15 +197,7 @@ impl Step for FirstWinWork {
         "DoWorkStep"
     }
     fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
-        random_delay();
+        thread::sleep(Duration::from_millis(fastrand::u64(50..500)));
         Ok(StepDecision::graceful_complete(input).cancel_sibling_step(&FirstWinWork))
     }
-}
-
-fn random_delay() {
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .expect("system clock must follow Unix epoch")
-        .subsec_nanos();
-    thread::sleep(Duration::from_millis(50 + u64::from(nanos % 450)));
 }

@@ -8,7 +8,7 @@ Start a runtime-sized set of executions of the same Step type.
 
 ![DynamicParallelStepsFlow](/img/design-patterns/parallel-dynamic-steps-flow.png)
 
-**InitStep** builds one **DoWorkStep** movement per input item. Dex schedules those movements concurrently. Each worker sleeps for a random short duration to make the concurrent completion order visible. Use this shape when the work items are homogeneous and their count is only known when the Flow starts.
+**InitStep** builds one **DoWorkStep** movement per input item. Dex schedules those movements concurrently. Each worker sleeps for a random short duration to make the concurrent completion order visible. Use this pattern when the degree of parallelism is known only at runtime.
 
 ## Core implementation
 
@@ -33,6 +33,7 @@ class DoWorkStep(Step[int]):
         await asyncio.sleep(random.uniform(0.05, 0.5))
         return graceful_complete(input)
 
+
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
@@ -45,6 +46,12 @@ class InitStep(Step[int]):
 <SdkSnippet lang="go">
 
 ```go
+type dynamicInitStep struct {
+	dex.StepDefaultsNoWaitFor[[]string]
+}
+
+func (dynamicInitStep) GetStepType() string { return "InitStep" }
+
 func (dynamicInitStep) Execute(_ dex.Context, items []string) (*dex.StepDecision, error) {
 	movements := make([]dex.StepMovement, 0, len(items))
 	for _, item := range items {
@@ -53,8 +60,14 @@ func (dynamicInitStep) Execute(_ dex.Context, items []string) (*dex.StepDecision
 	return dex.GoToMulti(movements...), nil
 }
 
+type dynamicWorkStep struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (dynamicWorkStep) GetStepType() string { return "DoWorkStep" }
+
 func (dynamicWorkStep) Execute(_ dex.Context, item string) (*dex.StepDecision, error) {
-	randomWorkDelay()
+	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
 	return dex.GracefulComplete(item), nil
 }
 ```
@@ -63,17 +76,34 @@ func (dynamicWorkStep) Execute(_ dex.Context, item string) (*dex.StepDecision, e
 <SdkSnippet lang="java">
 
 ```java
-public StepDecision execute(final Context context, final Integer count) {
-    final StepMovement<?>[] movements = new StepMovement<?>[count];
-    for (int index = 0; index < count; index++) {
-        movements[index] = StepMovement.of(DoWorkStep.class, index);
+final class InitStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
     }
-    return StepDecision.goToMulti(movements);
+
+    @Override
+    public StepDecision execute(final Context context, final Integer count) {
+        final StepMovement<?>[] movements = new StepMovement<?>[count];
+        for (int index = 0; index < count; index++) {
+            movements[index] = StepMovement.of(DoWorkStep.class, index);
+        }
+        return StepDecision.goToMulti(movements);
+    }
 }
 
-public StepDecision execute(final Context context, final Integer input) {
-    randomDelay();
-    return StepDecision.gracefulComplete(input);
+final class DoWorkStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(
+                ThreadLocalRandom.current().nextInt(50, 500)));
+        return StepDecision.gracefulComplete(input);
+    }
 }
 ```
 
@@ -81,13 +111,31 @@ public StepDecision execute(final Context context, final Integer input) {
 <SdkSnippet lang="typescript">
 
 ```typescript
-public execute(_context: Context, count: number): StepDecision {
-  return goToMulti(...movements(count, DynamicDoWorkStep));
+class DynamicInitStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+  public getStepType(): string {
+    return "InitStep";
+  }
+  public execute(_context: Context, count: number): StepDecision {
+    return goToMulti(
+      ...Array.from({ length: count }, (_, index) =>
+        StepMovement.of(DynamicDoWorkStep, index),
+      ),
+    );
+  }
 }
 
-public async execute(_context: Context, input: number): Promise<StepDecision> {
-  await randomDelay();
-  return gracefulComplete(input);
+class DynamicDoWorkStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+  public getStepType(): string {
+    return "DoWorkStep";
+  }
+  public async execute(_context: Context, input: number): Promise<StepDecision> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
+    });
+    return gracefulComplete(input);
+  }
 }
 ```
 
@@ -95,15 +143,31 @@ public async execute(_context: Context, input: number): Promise<StepDecision> {
 <SdkSnippet lang="rust">
 
 ```rust
-fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
-    Ok(StepDecision::go_to_many(
-        (0..count).map(|index| StepMovement::to(&DynamicWork, index)),
-    ))
+#[derive(Default)]
+struct DynamicInit;
+impl Step for DynamicInit {
+    type Input = usize;
+    fn step_type(&self) -> &'static str {
+        "InitStep"
+    }
+    fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to_many(
+            (0..count).map(|index| StepMovement::to(&DynamicWork, index)),
+        ))
+    }
 }
 
-fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
-    random_delay();
-    Ok(StepDecision::graceful_complete(input))
+#[derive(Default)]
+struct DynamicWork;
+impl Step for DynamicWork {
+    type Input = usize;
+    fn step_type(&self) -> &'static str {
+        "DoWorkStep"
+    }
+    fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
+        thread::sleep(Duration::from_millis(fastrand::u64(50..500)));
+        Ok(StepDecision::graceful_complete(input))
+    }
 }
 ```
 

@@ -23,6 +23,18 @@ title: 静态并行 Step
 <SdkSnippet lang="python">
 
 ```python
+class WorkAStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        del context
+        return graceful_complete(f"A:{input}")
+
+
+class WorkBStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        del context
+        return graceful_complete(f"B:{input}")
+
+
 class InitStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         del context
@@ -36,8 +48,34 @@ class InitStep(Step[str]):
 <SdkSnippet lang="go">
 
 ```go
+type staticInitStep struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (staticInitStep) GetStepType() string { return "InitStep" }
+
 func (staticInitStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
 	return dex.GoToMulti(dex.MovementOf(workAStep{}, input), dex.MovementOf(workBStep{}, input)), nil
+}
+
+type workAStep struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (workAStep) GetStepType() string { return "WorkAStep" }
+
+func (workAStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(fmt.Sprintf("A:%s", input)), nil
+}
+
+type workBStep struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (workBStep) GetStepType() string { return "WorkBStep" }
+
+func (workBStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(fmt.Sprintf("B:%s", input)), nil
 }
 ```
 
@@ -45,10 +83,42 @@ func (staticInitStep) Execute(_ dex.Context, input string) (*dex.StepDecision, e
 <SdkSnippet lang="java">
 
 ```java
-public StepDecision execute(final Context context, final String input) {
-    return StepDecision.goToMulti(
-            StepMovement.of(WorkAStep.class, input),
-            StepMovement.of(WorkBStep.class, input));
+final class InitStep implements Step<String> {
+    @Override
+    public Class<String> getInputType() {
+        return String.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String input) {
+        return StepDecision.goToMulti(
+                StepMovement.of(WorkAStep.class, input),
+                StepMovement.of(WorkBStep.class, input));
+    }
+}
+
+final class WorkAStep implements Step<String> {
+    @Override
+    public Class<String> getInputType() {
+        return String.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String input) {
+        return StepDecision.gracefulComplete("A:" + input);
+    }
+}
+
+final class WorkBStep implements Step<String> {
+    @Override
+    public Class<String> getInputType() {
+        return String.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String input) {
+        return StepDecision.gracefulComplete("B:" + input);
+    }
 }
 ```
 
@@ -56,11 +126,37 @@ public StepDecision execute(final Context context, final String input) {
 <SdkSnippet lang="typescript">
 
 ```typescript
-public execute(_context: Context, input: string): StepDecision {
-  return goToMulti(
-    StepMovement.of(WorkAStep, input),
-    StepMovement.of(WorkBStep, input),
-  );
+class WorkAStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+  public getStepType(): string {
+    return "WorkAStep";
+  }
+  public execute(_context: Context, input: string): StepDecision {
+    return gracefulComplete(`A:${input}`);
+  }
+}
+
+class WorkBStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+  public getStepType(): string {
+    return "WorkBStep";
+  }
+  public execute(_context: Context, input: string): StepDecision {
+    return gracefulComplete(`B:${input}`);
+  }
+}
+
+class StaticInitStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+  public getStepType(): string {
+    return "InitStep";
+  }
+  public execute(_context: Context, input: string): StepDecision {
+    return goToMulti(
+      StepMovement.of(WorkAStep, input),
+      StepMovement.of(WorkBStep, input),
+    );
+  }
 }
 ```
 
@@ -68,11 +164,43 @@ public execute(_context: Context, input: string): StepDecision {
 <SdkSnippet lang="rust">
 
 ```rust
-fn execute(&self, _: &mut Context, input: String) -> HandlerResult<StepDecision> {
-    Ok(StepDecision::go_to_many([
-        StepMovement::to(&WorkA, input.clone()),
-        StepMovement::to(&WorkB, input),
-    ]))
+#[derive(Default)]
+struct StaticInit;
+impl Step for StaticInit {
+    type Input = String;
+    fn step_type(&self) -> &'static str {
+        "InitStep"
+    }
+    fn execute(&self, _: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to_many([
+            StepMovement::to(&WorkA, input.clone()),
+            StepMovement::to(&WorkB, input),
+        ]))
+    }
+}
+
+#[derive(Default)]
+struct WorkA;
+impl Step for WorkA {
+    type Input = String;
+    fn step_type(&self) -> &'static str {
+        "WorkAStep"
+    }
+    fn execute(&self, _: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(format!("A:{input}")))
+    }
+}
+
+#[derive(Default)]
+struct WorkB;
+impl Step for WorkB {
+    type Input = String;
+    fn step_type(&self) -> &'static str {
+        "WorkBStep"
+    }
+    fn execute(&self, _: &mut Context, input: String) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(format!("B:{input}")))
+    }
 }
 ```
 

@@ -20,7 +20,12 @@
 
 package parallel
 
-import "github.com/superdurable/dex/sdk-go/dex"
+import (
+	"math/rand"
+	"time"
+
+	"github.com/superdurable/dex/sdk-go/dex"
+)
 
 type FirstWinParallelStepsFlow struct{ dex.FlowDefaults }
 
@@ -51,7 +56,7 @@ type firstWinWorkStep struct{ dex.StepDefaultsNoWaitFor[int] }
 func (firstWinWorkStep) GetStepType() string { return "DoWorkStep" }
 
 func (firstWinWorkStep) Execute(_ dex.Context, index int) (*dex.StepDecision, error) {
-	randomWorkDelay()
+	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
 	return dex.GracefulComplete(index).CancelSiblingSteps(firstWinWorkStep{}), nil
 }
 

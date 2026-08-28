@@ -26,6 +26,8 @@ import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Wait;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -71,7 +73,8 @@ public class AwaitParallelStepsFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer input) {
-            randomDelay();
+            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(
+                    ThreadLocalRandom.current().nextInt(50, 500)));
             completeCh.publish(context, null);
             return StepDecision.deadEnd();
         }
@@ -94,12 +97,4 @@ public class AwaitParallelStepsFlow implements Flow<Integer> {
         }
     }
 
-    private static void randomDelay() {
-        try {
-            Thread.sleep(ThreadLocalRandom.current().nextInt(50, 500));
-        } catch (final InterruptedException error) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException(error);
-        }
-    }
 }

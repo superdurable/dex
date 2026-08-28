@@ -30,14 +30,38 @@ class DoWorkStep(Step[int]):
         del context
         await asyncio.sleep(random.uniform(0.05, 0.5))
         return graceful_complete(input).with_canceling_sibling_steps(DoWorkStep)
+
+
+class InitStep(Step[int]):
+    def execute(self, context: Context, input: int) -> StepDecision:
+        del context
+        return go_to_multi(
+            *(StepMovement.of(DoWorkStep, index) for index in range(input))
+        )
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
+type firstWinInitStep struct{ dex.StepDefaultsNoWaitFor[int] }
+
+func (firstWinInitStep) GetStepType() string { return "InitStep" }
+
+func (firstWinInitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, error) {
+	movements := make([]dex.StepMovement, 0, count)
+	for index := 0; index < count; index++ {
+		movements = append(movements, dex.MovementOf(firstWinWorkStep{}, index))
+	}
+	return dex.GoToMulti(movements...), nil
+}
+
+type firstWinWorkStep struct{ dex.StepDefaultsNoWaitFor[int] }
+
+func (firstWinWorkStep) GetStepType() string { return "DoWorkStep" }
+
 func (firstWinWorkStep) Execute(_ dex.Context, index int) (*dex.StepDecision, error) {
-	randomWorkDelay()
+	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
 	return dex.GracefulComplete(index).CancelSiblingSteps(firstWinWorkStep{}), nil
 }
 ```
@@ -46,10 +70,35 @@ func (firstWinWorkStep) Execute(_ dex.Context, index int) (*dex.StepDecision, er
 <SdkSnippet lang="java">
 
 ```java
-public StepDecision execute(final Context context, final Integer input) {
-    randomDelay();
-    return StepDecision.gracefulComplete(input)
-            .withCancelingSiblingSteps(DoWorkStep.class);
+final class InitStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer count) {
+        final StepMovement<?>[] movements = new StepMovement<?>[count];
+        for (int index = 0; index < count; index++) {
+            movements[index] = StepMovement.of(DoWorkStep.class, index);
+        }
+        return StepDecision.goToMulti(movements);
+    }
+}
+
+final class DoWorkStep implements Step<Integer> {
+    @Override
+    public Class<Integer> getInputType() {
+        return Integer.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Integer input) {
+        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(
+                ThreadLocalRandom.current().nextInt(50, 500)));
+        return StepDecision.gracefulComplete(input)
+                .withCancelingSiblingSteps(DoWorkStep.class);
+    }
 }
 ```
 
@@ -57,9 +106,31 @@ public StepDecision execute(final Context context, final Integer input) {
 <SdkSnippet lang="typescript">
 
 ```typescript
-public async execute(_context: Context, input: number): Promise<StepDecision> {
-  await randomDelay();
-  return withCancelingSiblingSteps(gracefulComplete(input), FirstWinDoWorkStep);
+class FirstWinInitStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+  public getStepType(): string {
+    return "InitStep";
+  }
+  public execute(_context: Context, count: number): StepDecision {
+    return goToMulti(
+      ...Array.from({ length: count }, (_, index) =>
+        StepMovement.of(FirstWinDoWorkStep, index),
+      ),
+    );
+  }
+}
+
+class FirstWinDoWorkStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+  public getStepType(): string {
+    return "DoWorkStep";
+  }
+  public async execute(_context: Context, input: number): Promise<StepDecision> {
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
+    });
+    return withCancelingSiblingSteps(gracefulComplete(input), FirstWinDoWorkStep);
+  }
 }
 ```
 
@@ -67,9 +138,31 @@ public async execute(_context: Context, input: number): Promise<StepDecision> {
 <SdkSnippet lang="rust">
 
 ```rust
-fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
-    random_delay();
-    Ok(StepDecision::graceful_complete(input).cancel_sibling_step(&FirstWinWork))
+#[derive(Default)]
+struct FirstWinInit;
+impl Step for FirstWinInit {
+    type Input = usize;
+    fn step_type(&self) -> &'static str {
+        "InitStep"
+    }
+    fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::go_to_many(
+            (0..count).map(|index| StepMovement::to(&FirstWinWork, index)),
+        ))
+    }
+}
+
+#[derive(Default)]
+struct FirstWinWork;
+impl Step for FirstWinWork {
+    type Input = usize;
+    fn step_type(&self) -> &'static str {
+        "DoWorkStep"
+    }
+    fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
+        thread::sleep(Duration::from_millis(fastrand::u64(50..500)));
+        Ok(StepDecision::graceful_complete(input).cancel_sibling_step(&FirstWinWork))
+    }
 }
 ```
 

@@ -20,7 +20,12 @@
 
 package parallel
 
-import "github.com/superdurable/dex/sdk-go/dex"
+import (
+	"math/rand"
+	"time"
+
+	"github.com/superdurable/dex/sdk-go/dex"
+)
 
 var CompleteCh = dex.DefineChannel[dex.None]("parallel-complete")
 
@@ -59,7 +64,7 @@ type awaitWorkStep struct{ dex.StepDefaultsNoWaitFor[int] }
 func (awaitWorkStep) GetStepType() string { return "DoWorkStep" }
 
 func (awaitWorkStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
-	randomWorkDelay()
+	time.Sleep(time.Duration(50+rand.Intn(450)) * time.Millisecond)
 	if err := CompleteCh.Publish(ctx, nil); err != nil {
 		return nil, err
 	}

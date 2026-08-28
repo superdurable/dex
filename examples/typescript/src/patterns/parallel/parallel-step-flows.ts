@@ -87,7 +87,9 @@ class DynamicDoWorkStep implements Step<number> {
     return "DoWorkStep";
   }
   public async execute(_context: Context, input: number): Promise<StepDecision> {
-    await randomDelay();
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
+    });
     return gracefulComplete(input);
   }
 }
@@ -98,7 +100,11 @@ class DynamicInitStep implements Step<number> {
     return "InitStep";
   }
   public execute(_context: Context, count: number): StepDecision {
-    return goToMulti(...movements(count, DynamicDoWorkStep));
+    return goToMulti(
+      ...Array.from({ length: count }, (_, index) =>
+        StepMovement.of(DynamicDoWorkStep, index),
+      ),
+    );
   }
 }
 
@@ -124,7 +130,9 @@ class AwaitDoWorkStep implements Step<number> {
     return "DoWorkStep";
   }
   public async execute(context: Context, _input: number): Promise<StepDecision> {
-    await randomDelay();
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
+    });
     completeCh.publish(context, undefined);
     return deadEnd();
   }
@@ -151,7 +159,9 @@ class AwaitInitStep implements Step<number> {
   public execute(_context: Context, count: number): StepDecision {
     return goToMulti(
       StepMovement.of(AwaitStep, count),
-      ...movements(count, AwaitDoWorkStep),
+      ...Array.from({ length: count }, (_, index) =>
+        StepMovement.of(AwaitDoWorkStep, index),
+      ),
     );
   }
 }
@@ -177,7 +187,9 @@ class FirstWinDoWorkStep implements Step<number> {
     return "DoWorkStep";
   }
   public async execute(_context: Context, input: number): Promise<StepDecision> {
-    await randomDelay();
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 50 + Math.floor(Math.random() * 450));
+    });
     return withCancelingSiblingSteps(gracefulComplete(input), FirstWinDoWorkStep);
   }
 }
@@ -188,7 +200,11 @@ class FirstWinInitStep implements Step<number> {
     return "InitStep";
   }
   public execute(_context: Context, count: number): StepDecision {
-    return goToMulti(...movements(count, FirstWinDoWorkStep));
+    return goToMulti(
+      ...Array.from({ length: count }, (_, index) =>
+        StepMovement.of(FirstWinDoWorkStep, index),
+      ),
+    );
   }
 }
 
@@ -204,16 +220,6 @@ export class FirstWinParallelStepsFlow implements Flow<number> {
   public getPersistenceSchema(): PersistenceSchema {
     return {};
   }
-}
-
-function movements(count: number, step: new () => Step<number>) {
-  return Array.from({ length: count }, (_, index) => StepMovement.of(step, index));
-}
-
-async function randomDelay(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, Math.floor(Math.random() * 500));
-  });
 }
 
 export const staticParallelStepsFlow = new StaticParallelStepsFlow();
