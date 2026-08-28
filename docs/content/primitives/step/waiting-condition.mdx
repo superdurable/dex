@@ -138,9 +138,7 @@ const channelWaitStep = new ChannelWait();
   <SdkSnippet lang="rust">
 
 ```rust
-fn approval() -> Channel<String> {
-    Channel::new("Approval")
-}
+static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 
 #[derive(Default)]
 struct ChannelWait;
@@ -150,7 +148,7 @@ impl Step for ChannelWait {
 
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            approval().for_one(),
+            APPROVAL.for_one(),
             Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
         ]))
     }
@@ -161,7 +159,7 @@ impl Step for ChannelWait {
                 "approval timed out".to_owned(),
             ));
         }
-        let approvals = approval().condition_results(context)?;
+        let approvals = APPROVAL.condition_results(context)?;
         Ok(StepDecision::graceful_complete(approvals[0].clone()))
     }
 }
@@ -424,7 +422,7 @@ public execute(context: Context, _input: number): StepDecision {
 ```rust
 fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
     context.set_step_execution_local("note", format!("approval:{input}"))?;
-    Ok(Wait::until(approval().for_one()))
+    Ok(Wait::until(APPROVAL.for_one()))
 }
 
 fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {

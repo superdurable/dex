@@ -543,9 +543,8 @@ public readonly displayName = new Attribute("display_name", stringCodec)
 <SdkSnippet lang="rust">
 
 ```rust
-fn display_name() -> Attribute<String> {
-    Attribute::new("display_name").sync_to_attribute_store()
-}
+static DISPLAY_NAME: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("display_name").sync_to_attribute_store());
 ```
 
 </SdkSnippet>

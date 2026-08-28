@@ -241,9 +241,7 @@ class StepSecond implements Step<number> {
   <SdkSnippet lang="rust">
 
 ```rust
-fn approval() -> Channel<String> {
-    Channel::new("Approval")
-}
+static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 
 #[derive(Default)]
 struct ExampleStep;
@@ -252,7 +250,7 @@ impl Step for ExampleStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(approval().for_one()))
+        Ok(Wait::until(APPROVAL.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
