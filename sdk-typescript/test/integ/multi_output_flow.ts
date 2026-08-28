@@ -11,7 +11,7 @@
 import {
   StepList,
   StepMovement,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   voidCodec,
   type Context,
@@ -57,7 +57,7 @@ class MultiOutputStartStep implements Step<void> {
   }
 
   public execute(_context: Context, _input: void): StepDecision {
-    return goToMulti(
+    return goToMany(
       StepMovement.of(MultiOutputStringStep, undefined),
       StepMovement.of(MultiOutputNumberStep, undefined),
     );

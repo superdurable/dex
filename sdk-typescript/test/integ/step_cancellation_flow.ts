@@ -18,7 +18,7 @@ import {
   deadEnd,
   forceFail,
   goTo,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   stringCodec,
   voidCodec,
@@ -62,18 +62,18 @@ class CancellationStart implements Step<string> {
 
   public execute(_context: Context, _input: string): StepDecision {
     if (this.flow.scenario === "heartbeat-wait-for") {
-      return goToMulti(
+      return goToMany(
         StepMovement.of(CancellationBlockingWaitFor, undefined),
         StepMovement.of(CancellationWinner, undefined),
       );
     }
     if (this.flow.scenario === "global-selector" || this.flow.scenario === "sibling-selector") {
-      return goToMulti(
+      return goToMany(
         StepMovement.of(CancellationFirstParent, undefined),
         StepMovement.of(CancellationSecondParent, undefined),
       );
     }
-    return goToMulti(
+    return goToMany(
       StepMovement.of(CancellationBlockingExecute, undefined),
       StepMovement.of(CancellationWinner, undefined),
     );
@@ -238,7 +238,7 @@ class CancellationFirstParent implements Step<void> {
   }
 
   public execute(_context: Context, _input: void): StepDecision {
-    return goToMulti(
+    return goToMany(
       StepMovement.of(CancellationSelectorWinner, undefined),
       StepMovement.of(CancellationSelectorWaiting, "first"),
     );

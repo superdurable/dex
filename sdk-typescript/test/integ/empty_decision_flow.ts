@@ -11,7 +11,7 @@
 import {
   StepList,
   doubleCodec,
-  goToMulti,
+  goToMany,
   type Context,
   type Flow,
   type Step,
@@ -27,7 +27,7 @@ class EmptyDecisionStep implements Step<number> {
   }
 
   public execute(_context: Context, _input: number): StepDecision {
-    return goToMulti();
+    return goToMany();
   }
 
   public getStepOptions(): StepOptions {
