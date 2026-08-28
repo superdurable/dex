@@ -195,6 +195,12 @@ final class FlowSmokeCatalog {
                                 "workflowId", environment.newFlowId("primitive-channel"),
                                 "inputNum", "1")),
                 FlowSmokeEntry.get(
+                        "primitives/stream",
+                        "/primitives/stream/start",
+                        Map.of(
+                                "workflowId", environment.newFlowId("primitive-stream"),
+                                "input", "smoke")),
+                FlowSmokeEntry.get(
                         "primitives/timer",
                         "/primitives/timer/start",
                         Map.of(

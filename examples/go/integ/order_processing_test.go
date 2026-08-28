@@ -51,7 +51,6 @@ func TestOrderProcessingHappyPath(t *testing.T) {
 		ctx,
 		flowID,
 		dex.StepExecutionID{StepType: orderprocessing.ChargeStepType},
-		dex.WaitOptions{Timeout: 30 * time.Second},
 	))
 	var approved string
 	require.NoError(t, integClient.InvokeRPC(
@@ -91,7 +90,6 @@ func TestOrderProcessingReminderThenShip(t *testing.T) {
 		ctx,
 		flowID,
 		dex.StepExecutionID{StepType: orderprocessing.ChargeStepType},
-		dex.WaitOptions{Timeout: 30 * time.Second},
 	))
 	require.Eventually(t, func() bool {
 		return integClient.SkipTimer(
@@ -105,7 +103,6 @@ func TestOrderProcessingReminderThenShip(t *testing.T) {
 		ctx,
 		flowID,
 		dex.StepExecutionID{StepType: orderprocessing.ShipStepType},
-		dex.WaitOptions{Timeout: 30 * time.Second},
 	))
 	var approved string
 	require.NoError(t, integClient.InvokeRPC(
@@ -146,7 +143,6 @@ func TestOrderProcessingShipFailureRefunds(t *testing.T) {
 		ctx,
 		flowID,
 		dex.StepExecutionID{StepType: orderprocessing.ChargeStepType},
-		dex.WaitOptions{Timeout: 30 * time.Second},
 	))
 	var approved string
 	require.NoError(t, integClient.InvokeRPC(

@@ -378,6 +378,15 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
+      name: "primitives/stream",
+      trigger: () =>
+        triggerGet(context, "/primitives/stream/start", {
+          workflowId: newFlowId("primitive-stream"),
+          input: "smoke",
+        }),
+      flags: defaultFlags(),
+    },
+    {
       name: "primitives/timer",
       trigger: () =>
         triggerGet(context, "/primitives/timer/start", {

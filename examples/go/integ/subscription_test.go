@@ -59,7 +59,6 @@ func TestSubscriptionStartRPCAndChannels(t *testing.T) {
 		flowID,
 		subscription.BillingPeriodNumber,
 		0,
-		dex.WaitOptions{Timeout: 20 * time.Second},
 	))
 
 	var current subscription.Subscription

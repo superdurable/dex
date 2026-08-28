@@ -42,6 +42,37 @@ async def test_channel_approve_completes(
     ) == "approved"
 
 
+async def test_stream_resumes_after_step_and_client_writes(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("stream")
+    await client.start_flow(app.stream, flow_id, "invoice", start_options())
+
+    step_message = await client.read_stream(
+        flow_id,
+        app.stream.progress,
+        timeout=WAIT_TIMEOUT,
+    )
+    assert step_message.value == "Rendering preview for invoice"
+
+    await client.write_stream(
+        flow_id,
+        app.stream.progress,
+        "browser/complete",
+        "Preview displayed",
+    )
+    client_message = await client.read_stream(
+        flow_id,
+        app.stream.progress,
+        step_message.resume_token,
+        WAIT_TIMEOUT,
+    )
+    assert client_message.value == "Preview displayed"
+    assert client_message.idempotency_key == "browser/complete"
+
+
 async def test_resourcecontrol_enqueue(
     app: ExampleApp,
     client: AsyncClient,
@@ -88,5 +119,11 @@ async def test_ai_agent_email_without_openai(
         flow_id,
         "Draft a short intro email",
     )
+    thinking = await client.read_stream(
+        flow_id,
+        app.email_agent.thinking,
+        timeout=WAIT_TIMEOUT,
+    )
+    assert "Analyzing" in thinking.value
     details = await client.invoke_rpc(app.email_agent.describe, flow_id)
     assert details.current_request

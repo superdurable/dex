@@ -50,6 +50,7 @@ import (
 	"github.com/superdurable/dex/examples/go/primitives/step"
 	"github.com/superdurable/dex/examples/go/primitives/step-decision"
 	"github.com/superdurable/dex/examples/go/primitives/step-execution-local"
+	"github.com/superdurable/dex/examples/go/primitives/stream"
 	"github.com/superdurable/dex/examples/go/primitives/subflow"
 	"github.com/superdurable/dex/examples/go/primitives/timer"
 	"github.com/superdurable/dex/examples/go/primitives/wait-types"
@@ -118,6 +119,7 @@ var (
 	WaitTypes            *waittypes.WaitTypesFlow
 	Attribute            *attribute.AttributeFlow
 	Channel              *channel.ChannelFlow
+	Stream               *stream.StreamFlow
 	Timer                *timer.TimerFlow
 	Rpc                  *rpc.RpcFlow
 	SubFlowChild         *subflow.SubFlowChildFlow
@@ -187,6 +189,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	WaitTypes = waittypes.NewWaitTypesFlow()
 	Attribute = attribute.NewAttributeFlow()
 	Channel = channel.NewChannelFlow()
+	Stream = stream.NewStreamFlow()
 	Timer = timer.NewTimerFlow()
 	Rpc = rpc.NewRpcFlow()
 	SubFlowChild = subflow.NewSubFlowChildFlow()
@@ -241,6 +244,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		WaitTypes,
 		Attribute,
 		Channel,
+		Stream,
 		Timer,
 		Rpc,
 		SubFlowChild,

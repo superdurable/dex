@@ -233,7 +233,7 @@ checksum = "2d83cb7e7a873830708d6b02a78cd36a592c6fa14bf267b68725103b85c0d77f"
 
 [[package]]
 name = "dex-blob-cache"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "crc32c",
  "sha2",
@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "dex-blob-cache-jni"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "dex-blob-cache",
  "jni",
@@ -251,7 +251,7 @@ dependencies = [
 
 [[package]]
 name = "dex-blob-cache-node"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "dex-blob-cache",
  "napi",
@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "dex-blob-cache-python"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "dex-blob-cache",
  "pyo3",
@@ -269,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "dex-protocol"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "prost",
  "prost-types",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "dex-sdk"
-version = "0.1.0"
+version = "0.2.2"
 dependencies = [
  "dex-blob-cache",
  "dex-protocol",

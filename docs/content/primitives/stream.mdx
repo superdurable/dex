@@ -1,0 +1,243 @@
+---
+title: Stream
+slug: /primitives/stream
+---
+
+# Stream
+
+**Stream** is a real-time, resumable message delivery channel with best-effort storage. A Step or Client writes messages immediately. A Client reads them in order with a resume token.
+
+Use a Stream for nice-to-have data that improves the user experience but is not business-critical:
+
+- LLM reasoning summaries, generated-text chunks, and agent progress
+- progress bars, diagnostic events, and live previews
+- transient status shown while a Step is still running
+
+A Stream provides best-effort durability only, using an in-memory store such as Redis. Messages can be lost when trimming runs after the capacity threshold is reached or when the storage backend restarts. Use other primitives such as [Channel](/primitives/channel) and [Attribute](/primitives/attribute) for guaranteed durability.
+
+## Define and register a Stream
+
+A Stream has a stable name, a message type, and **maxEstimatedBytes**. maxEstimatedBytes is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
+
+This example writes a progress message before its Step returns. The write becomes visible as soon as Dex accepts it; the Client does not wait for the Step to complete.
+
+<SdkTabs examples={{
+python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
+go: 'examples/go/primitives/stream/workflow.go',
+java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamFlow.java',
+typescript: 'examples/typescript/src/primitives/stream/stream-flow.ts',
+rust: 'examples/rust/src/primitives/stream/flow.rs',
+}}>
+<SdkSnippet lang="python">
+
+```python
+class RenderPreview(Step[str]):
+    def __init__(self, progress: Stream[str]) -> None:
+        self.progress = progress
+
+    async def execute(self, context: Context, input: str) -> StepDecision:
+        await self.progress.write(context, f"Rendering preview for {input}")
+        return graceful_complete(f"Rendered {input}")
+
+
+class StreamFlow(Flow[str]):
+    progress = Stream("Progress", str, 10 * 1024 * 1024)
+
+    def __init__(self) -> None:
+        self.render_preview = RenderPreview(self.progress)
+
+    def get_steps(self) -> StepList[str]:
+        return StepList.start_step(self.render_preview)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(self.progress)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var Progress = dex.DefineStream[string]("Progress", 10<<20)
+
+type StreamFlow struct {
+	dex.FlowDefaults
+}
+
+func (*StreamFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep[string](renderPreview{})}
+}
+
+func (*StreamFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Streams: []dex.StreamDef{Progress}}
+}
+
+type renderPreview struct {
+	dex.StepDefaultsNoWaitFor[string]
+}
+
+func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if err := Progress.Write(ctx, "Rendering preview for "+input); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete("Rendered " + input), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public final class StreamFlow implements Flow<String> {
+    public final Stream<String> progress =
+            Stream.define("Progress", String.class, 10L * 1024L * 1024L);
+    private final RenderPreview renderPreview = new RenderPreview();
+
+    @Override
+    public StepList<String> getSteps() {
+        return StepList.startStep(renderPreview);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(progress);
+    }
+
+    final class RenderPreview implements Step<String> {
+        @Override
+        public Class<String> getInputType() {
+            return String.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final String input) {
+            progress.write(context, "Rendering preview for " + input);
+            return StepDecision.gracefulComplete("Rendered " + input);
+        }
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export const progress = new Stream("Progress", stringCodec, 10 * 1024 * 1024);
+
+class RenderPreview implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepType(): string {
+    return "RenderPreview";
+  }
+
+  public async execute(context: Context, input: string): Promise<StepDecision> {
+    await progress.write(context, `Rendering preview for ${input}`);
+    return gracefulComplete(`Rendered ${input}`);
+  }
+}
+
+const renderPreview = new RenderPreview();
+
+export class StreamFlow implements Flow<string> {
+  public getFlowType(): string {
+    return "StreamFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(renderPreview);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { streams: [progress] };
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+pub fn progress() -> Stream<String> {
+    static PROGRESS: OnceLock<Stream<String>> = OnceLock::new();
+    PROGRESS
+        .get_or_init(|| Stream::new("Progress", 10 * 1024 * 1024))
+        .clone()
+}
+
+#[derive(Default)]
+pub struct StreamFlow {
+    render_preview: RenderPreview,
+}
+
+impl Flow for StreamFlow {
+    type StartInput = String;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.render_preview)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new().stream(&progress())
+    }
+}
+
+#[derive(Default)]
+struct RenderPreview;
+
+impl Step for RenderPreview {
+    type Input = String;
+
+    fn execute(
+        &self,
+        context: &mut Context,
+        input: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        progress().write(context, format!("Rendering preview for {input}"))?;
+        Ok(StepDecision::graceful_complete(format!(
+            "Rendered {input}"
+        )))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Semantics
+
+### Write semantics
+
+A direct Step write has these semantics:
+
+- Dex sends it immediately during **Execute**. It is not buffered until the Step completes.
+- A later Step failure does not roll the message back.
+- One Step execution can write once to each Stream. Dex derives the idempotency key from the run ID and Step execution ID, so a retry does not append the same message again.
+
+A Client can write even when the Flow instance does not exist or is no longer active. Supply a non-empty idempotency key for every logical message. RPC handlers cannot write through the Step Context, but they can send Stream messages through an injected Client dependency.
+
+While an idempotency key remains retained, repeating it is a successful first-write-wins no-op. Once trimming removes the message and its idempotency record, the same key may append again.
+
+### Resumable reads
+
+**ReadStream** returns one message with its value, resume token, creation time, and producer idempotency key.
+
+- An empty token starts at the current retained head.
+- A token older than the retained head also starts at that head.
+- Pass the returned token unchanged to read the next message.
+- When no next message exists, the call long-polls until a message arrives or the wait expires.
+
+Resume is best effort. A slow reader can miss messages trimmed before its next read.
+
+### Approximate capacity
+
+**maxEstimatedBytes** is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
+
+The Dex server calculates the estimated size from each message's serialized value, identity bytes, and configured per-message overhead.
+
+When usage reaches the trim trigger threshold, one background trimmer removes the oldest messages across all instances until usage reaches the trim target threshold. In rare cases, if trimming is too slow and usage reaches the capacity limit (**maxEstimatedBytes**), the write request is rejected.
+
+The server also limits the size of each Stream message. The default is 100 KiB.
+
+### Best-effort storage
+
+The Stream Store can use Redis for multi-server deployments or memory for a single local server. Memory contents disappear when that process restarts. Redis survives an application restart, but trimming, Redis loss, disabled storage, or capacity pressure can still remove or reject messages.

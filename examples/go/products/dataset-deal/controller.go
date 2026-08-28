@@ -223,11 +223,12 @@ func (controller *controller) startDealExecution(request *gin.Context) {
 		controller.respondError(request, err)
 		return
 	}
+	waitContext, cancelWait := context.WithTimeout(requestContext, 30*time.Second)
+	defer cancelWait()
 	if err := controller.client.WaitForStepCompletion(
-		requestContext,
+		waitContext,
 		flowID,
 		sdk.StepExecutionID{StepType: initializeStepType},
-		sdk.WaitOptions{Timeout: 30 * time.Second},
 	); err != nil {
 		controller.respondError(request, err)
 		return

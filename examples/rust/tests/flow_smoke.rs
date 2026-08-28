@@ -371,6 +371,15 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
+            name: "primitives/stream",
+            path: "/primitives/stream/start",
+            query: query_with(
+                &client.new_flow_id("primitive-stream"),
+                &[("input", "smoke")],
+            ),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
             name: "primitives/timer",
             path: "/primitives/timer/start",
             query: query_with(&client.new_flow_id("primitive-timer"), &[("seconds", "1")]),

@@ -59,6 +59,7 @@ import (
 	primitiverpc "github.com/superdurable/dex/examples/go/primitives/rpc"
 	primitivestep "github.com/superdurable/dex/examples/go/primitives/step"
 	primitivestepdecision "github.com/superdurable/dex/examples/go/primitives/step-decision"
+	primitivestream "github.com/superdurable/dex/examples/go/primitives/stream"
 	primitivesubflow "github.com/superdurable/dex/examples/go/primitives/subflow"
 	primitivetimer "github.com/superdurable/dex/examples/go/primitives/timer"
 	primitivewaittypes "github.com/superdurable/dex/examples/go/primitives/wait-types"
@@ -198,6 +199,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	primitivewaittypes.RegisterRoutes(router, client, registry.WaitTypes)
 	primitiveattribute.RegisterRoutes(router, client, registry.Attribute)
 	primitivechannel.RegisterRoutes(router, client, registry.Channel)
+	primitivestream.RegisterRoutes(router, client, registry.Stream)
 	primitivetimer.RegisterRoutes(router, client, registry.Timer)
 	primitiverpc.RegisterRoutes(router, client, registry.Rpc)
 	primitivesubflow.RegisterRoutes(router, client, registry.SubFlowParent)

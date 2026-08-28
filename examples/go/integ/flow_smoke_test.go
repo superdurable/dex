@@ -498,6 +498,16 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
+			name: "primitives/stream",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{
+					"workflowId": {smokeWorkflowID(t, "primitive-stream")},
+					"input":      {"smoke"},
+				}
+				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/stream/start", query, nil)
+			},
+		},
+		{
 			name: "primitives/timer",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{

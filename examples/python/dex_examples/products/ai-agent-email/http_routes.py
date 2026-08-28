@@ -66,6 +66,21 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         )
         return jsonify(asdict(details))
 
+    @blueprint.get("/thinking")
+    async def thinking() -> Response:
+        message = await app_state.client.read_stream(
+            required_query("workflowId"),
+            app_state.email_agent.thinking,
+            optional_query("resumeToken", ""),
+            timedelta(seconds=20),
+        )
+        return jsonify(
+            value=message.value,
+            resume_token=message.resume_token,
+            created_time=message.created_time.isoformat(),
+            idempotency_key=message.idempotency_key,
+        )
+
     @blueprint.get("/save_draft")
     async def save_draft() -> str:
         await app_state.client.invoke_rpc(

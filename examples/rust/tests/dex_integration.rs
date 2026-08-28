@@ -19,6 +19,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use dex_examples_rust::create_example_registry;
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
+use dex_examples_rust::primitives::stream::flow::{StreamFlow, progress};
 use dex_examples_rust::products::engagement::{
     ENGAGEMENT_ACCEPT, ENGAGEMENT_DESCRIBE, EngagementFlow, EngagementRequest, EngagementStatus,
 };
@@ -174,6 +175,46 @@ fn money_transfer_completes_with_released_sdk() {
             .status,
         FlowStatus::Completed
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn stream_resumes_after_step_and_client_writes() {
+    let environment = DexEnvironment::start();
+    let flow = StreamFlow::default();
+    let flow_id = unique_flow_id("stream");
+    environment
+        .client
+        .start_flow(&flow, &flow_id, "invoice".to_string())
+        .expect("start Rust Stream Flow");
+
+    let step_message = environment
+        .client
+        .read_stream_with_timeout(&flow_id, &progress(), "", Duration::from_secs(20))
+        .expect("read Rust Step Stream message");
+    assert_eq!(step_message.value, "Rendering preview for invoice");
+    assert!(!step_message.resume_token.is_empty());
+
+    environment
+        .client
+        .write_stream(
+            &flow_id,
+            &progress(),
+            "browser/complete",
+            "Preview displayed".to_string(),
+        )
+        .expect("write Rust Client Stream message");
+    let client_message = environment
+        .client
+        .read_stream_with_timeout(
+            &flow_id,
+            &progress(),
+            &step_message.resume_token,
+            Duration::from_secs(20),
+        )
+        .expect("resume Rust Stream");
+    assert_eq!(client_message.value, "Preview displayed");
+    assert_eq!(client_message.idempotency_key, "browser/complete");
 }
 
 #[test]

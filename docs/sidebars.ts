@@ -35,6 +35,7 @@ const sidebars: SidebarsConfig = {
         'primitives/attribute',
         'primitives/rpc',
         'primitives/channel',
+        'primitives/stream',
         'primitives/timer',
         'primitives/subflow',
         {

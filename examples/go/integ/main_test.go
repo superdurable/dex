@@ -183,7 +183,7 @@ func waitForFlow(t *testing.T, flowID string) dex.FlowResult {
 	result, err := integClient.WaitForFlow(
 		integrationContext(t),
 		flowID,
-		dex.WaitForFlowOptions{NeedsResults: true, Timeout: 45 * time.Second},
+		dex.WaitForFlowOptions{NeedsResults: true},
 	)
 	require.NoError(t, err)
 	return result

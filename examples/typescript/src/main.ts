@@ -48,6 +48,7 @@ import { createRpcRouter } from "./primitives/rpc/controller.js";
 import { createFlowRouter } from "./primitives/flow/controller.js";
 import { createStepRouter } from "./primitives/step/controller.js";
 import { createStepDecisionRouter } from "./primitives/step-decision/controller.js";
+import { createStreamRouter } from "./primitives/stream/controller.js";
 import { createSubflowRouter } from "./primitives/subflow/controller.js";
 import { createTimerRouter } from "./primitives/timer/controller.js";
 import { createWaitTypesRouter } from "./primitives/wait-types/controller.js";
@@ -126,6 +127,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/primitives/step/wait-types", createWaitTypesRouter(client));
   app.use("/primitives/attribute", createAttributeRouter(client));
   app.use("/primitives/channel", createChannelRouter(client));
+  app.use("/primitives/stream", createStreamRouter(client));
   app.use("/primitives/timer", createTimerRouter(client));
   app.use("/primitives/rpc", createRpcRouter(client));
   app.use("/primitives/subflow", createSubflowRouter(client));

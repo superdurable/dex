@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from pydantic import BaseModel
@@ -42,12 +43,22 @@ class AgentReply(BaseModel):
     response: AgentResponse
 
 
-def request_email_fields(request: str, previous_response_id: str | None) -> AgentReply:
+async def request_email_fields(
+    request: str,
+    previous_response_id: str | None,
+    write_progress: Callable[[str], Awaitable[None]],
+) -> AgentReply:
     if not os.environ.get(OPENAI_KEY_VARIABLE):
         print(f"{OPENAI_KEY_VARIABLE} is unset; drafting the email locally")
+        await write_progress("Analyzing the request. ")
+        await write_progress("Preparing a local email draft. ")
         return AgentReply(response_id=None, response=_local_draft(request))
     try:
-        response = _create_response(request, previous_response_id)
+        response = await _create_response(
+            request,
+            previous_response_id,
+            write_progress,
+        )
     except Exception as error:
         print(f"the OpenAI request failed ({error}); drafting the email locally")
         return AgentReply(response_id=None, response=_local_draft(request))
@@ -78,21 +89,44 @@ def _local_draft(request: str) -> AgentResponse:
     )
 
 
-def _create_response(request: str, previous_response_id: str | None) -> Any:
+async def _create_response(
+    request: str,
+    previous_response_id: str | None,
+    write_progress: Callable[[str], Awaitable[None]],
+) -> Any:
     # Imported here so the rest of the examples run without the agent extras.
     from agents import AgentOutputSchema  # type: ignore[import-untyped]
     from agents.models.openai_responses import (  # type: ignore[import-untyped]
         Converter,
     )
-    from openai import OpenAI
+    from openai import AsyncOpenAI
 
-    return OpenAI().responses.create(
-        model="gpt-4o",
+    stream = await AsyncOpenAI().responses.create(
+        model="gpt-5-mini",
         instructions=_instructions(int(time.time())),
         input=request,
         text=Converter.get_response_format(AgentOutputSchema(AgentResponse)),
         previous_response_id=previous_response_id,
+        reasoning={"effort": "medium", "summary": "auto"},
+        stream=True,
     )
+    completed_response: Any | None = None
+    has_reasoning_summary = False
+    announced_output = False
+    async for event in stream:
+        if event.type == "response.reasoning_summary_text.delta":
+            has_reasoning_summary = True
+            await write_progress(event.delta)
+        elif event.type == "response.output_text.delta" and not has_reasoning_summary:
+            if not announced_output:
+                announced_output = True
+                await write_progress("Composing the structured email draft. ")
+        elif event.type == "response.completed":
+            completed_response = event.response
+    if completed_response is None:
+        raise RuntimeError("OpenAI response stream ended before completion")
+    await write_progress("Draft ready.")
+    return completed_response
 
 
 def _instructions(current_timestamp: int) -> str:

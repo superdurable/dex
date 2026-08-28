@@ -69,6 +69,7 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         .merge(primitives::wait_types::controller::mount(client.clone()))
         .merge(primitives::attribute::controller::mount(client.clone()))
         .merge(primitives::channel::controller::mount(client.clone()))
+        .merge(primitives::stream::controller::mount(client.clone()))
         .merge(primitives::timer::controller::mount(client.clone()))
         .merge(primitives::rpc::controller::mount(client.clone()))
         .merge(primitives::subflow::controller::mount(client.clone()))
