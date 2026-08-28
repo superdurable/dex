@@ -13,15 +13,9 @@ Use a Stream for information that improves the live experience but is not part o
 - progress bars, diagnostic events, and live previews
 - transient status shown while a Step is still running
 
-Do not use a Stream for commands, payments, approvals, or state needed to recover a Flow. Use [Channel](/primitives/channel), [Attribute](/primitives/attribute), or an external durable store for those.
+For token-by-token output from one long LLM call, inject a Client into the Step and write each chunk with a stable sequence of idempotency keys. The [AI agent email example](/use-cases/ai-agent-email) uses this pattern inside an async Step.
 
-| Property | Stream | Channel |
-|---|---|---|
-| Delivery goal | Best effort and low latency | Durable workflow communication |
-| Reader | Client | Step wait or Client publish |
-| Retention | Approximate shared byte budget | Flow history and persistence |
-| Resume | Opaque token | Consumed by a Step condition |
-| Affects Flow decisions | No | Yes |
+Do not use a Stream for commands, payments, approvals, or state needed to recover a Flow. Use [Channel](/primitives/channel), [Attribute](/primitives/attribute), or an external durable store for those.
 
 ## Define and register a Stream
 
@@ -211,24 +205,21 @@ impl Step for RenderPreview {
 </SdkSnippet>
 </SdkTabs>
 
-## Step write semantics
+## Semantics
+
+### Write semantics
 
 A direct Step write has these semantics:
 
 - Dex sends it immediately during **Execute**. It is not buffered until the Step completes.
 - A later Step failure does not roll the message back.
 - One Step execution can write once to each Stream. Dex derives the idempotency key from the run ID and Step execution ID, so a retry does not append the same message again.
-- RPC handlers cannot write through the Step Context.
 
-For token-by-token output from one long LLM call, write through a Client with a stable sequence of idempotency keys. The [AI agent email example](/use-cases/ai-agent-email) uses that pattern inside an async Step.
+A Client can write even when the Flow instance does not exist or is no longer active. Supply a non-empty idempotency key for every logical message. RPC handlers cannot write through the Step Context, but they can send Stream messages through an injected Client dependency.
 
-## Client writes and idempotency
+While an idempotency key remains retained, repeating it is a successful first-write-wins no-op. Once trimming removes the message and its idempotency record, the same key may append again.
 
-A Client can write even when the Flow instance does not exist or is no longer active. Supply a non-empty idempotency key for every logical message. The key must not contain **#**, which Dex reserves for Step-generated keys.
-
-While a key remains retained, repeating it is a successful first-write-wins no-op. Once trimming removes the message and its idempotency record, the same key may append again. Idempotency therefore has the same best-effort retention window as the message.
-
-## Resumable reads
+### Resumable reads
 
 **ReadStream** returns one message with its value, resume token, creation time, and producer idempotency key.
 
@@ -236,11 +227,10 @@ While a key remains retained, repeating it is a successful first-write-wins no-o
 - A token older than the retained head also starts at that head.
 - Pass the returned token unchanged to read the next message.
 - When no next message exists, the call long-polls until a message arrives or the wait expires.
-- In Go, cancel or bound the read with **context.Context**. Other SDKs also accept an explicit server wait duration.
 
 Resume is best effort. A slow reader can miss messages trimmed before its next read.
 
-## Approximate capacity
+### Approximate capacity
 
 **maxEstimatedBytes** is not a per-Flow limit and it is not an exact Redis memory measurement. It is an approximate retained-byte budget shared by every Flow ID with the same Flow type and Stream name.
 
@@ -248,12 +238,6 @@ Dex charges the serialized value, identity bytes, and configured per-message ove
 
 The server also limits each serialized Stream value separately. The default is 100 KiB.
 
-## Best-effort storage
+### Best-effort storage
 
 The Stream Store can use Redis for multi-server deployments or memory for a single local server. Memory contents disappear when that process restarts. Redis survives an application restart, but trimming, Redis loss, disabled storage, or capacity pressure can still remove or reject messages.
-
-Design the UI so missing chunks are acceptable. Durable business state belongs in Flow primitives or an external system of record.
-
-## Runnable example
-
-The example exposes start, client-write, and resumable-read HTTP routes under **/primitives/stream** in every SDK example server. See the [examples playground](https://github.com/superdurable/dex/tree/main/examples) and the source links in the tabs above.
