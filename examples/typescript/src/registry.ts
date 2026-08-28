@@ -21,7 +21,7 @@ import { drainInternalChannelFlow } from "./patterns/drain-channels/internal/dra
 import { drainingExternalChannelFlow } from "./patterns/drain-channels/external-publishing/draining-channel-flow.js";
 import { userProfileFlow } from "./patterns/entity-store/user-profile-flow.js";
 import { interruptibleFlow } from "./patterns/interruptible/interruptible-execution-flow.js";
-import { manualInterventionFlow } from "./patterns/intervention/manual-intervention-flow.js";
+import { manualRecoveryFlow } from "./patterns/intervention/manual-recovery-flow.js";
 import { parallelStatesWithAwaitFlow } from "./patterns/parallel/parallel-states-with-await-flow.js";
 import { simpleParallelStatesFlow } from "./patterns/parallel/simple-parallel-states-flow.js";
 import { parentFlowV2 } from "./patterns/parent-child/parent-flow-v2.js";
@@ -81,7 +81,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
   interruptibleFlow,
-  manualInterventionFlow,
+  manualRecoveryFlow,
   simpleParallelStatesFlow,
   parallelStatesWithAwaitFlow,
   parentFlowV2,
@@ -135,7 +135,7 @@ export {
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
   interruptibleFlow,
-  manualInterventionFlow,
+  manualRecoveryFlow,
   simpleParallelStatesFlow,
   parallelStatesWithAwaitFlow,
   parentFlowV2,

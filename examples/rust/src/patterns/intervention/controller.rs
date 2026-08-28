@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::intervention::flow::ManualInterventionFlow;
+use crate::patterns::intervention::flow::ManualRecoveryFlow;
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
 };
@@ -33,7 +33,7 @@ struct StartQuery {
 
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
-        .route("/patterns/intervention/start", get(start))
+        .route("/patterns/manual-recovery/start", get(start))
         .with_state(client)
 }
 
@@ -42,13 +42,13 @@ async fn start(
     Query(query): Query<StartQuery>,
 ) -> impl IntoResponse {
     let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("intervention")
+        new_flow_id("manual-recovery")
     } else {
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = ManualInterventionFlow::default();
-        let input = "intervention-task".to_string();
+        let flow = ManualRecoveryFlow::default();
+        let input = false;
         client
             .start_flow(&flow, &flow_id, input)
             .map(|run_id| StartResponse { flow_id, run_id })

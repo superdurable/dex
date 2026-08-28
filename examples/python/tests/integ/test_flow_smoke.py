@@ -162,10 +162,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             flags=FlowSmokeFlags(no_start_step=True),
         ),
         FlowSmokeEntry(
-            "patterns/intervention",
+            "patterns/manual-recovery",
             lambda c: trigger_get(
-                "/patterns/intervention/start",
-                {"workflowId": new_id("intervention")},
+                "/patterns/manual-recovery/start",
+                {"workflowId": new_id("manual-recovery")},
             ),
         ),
         FlowSmokeEntry(

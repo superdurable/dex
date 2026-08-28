@@ -22,156 +22,91 @@ package intervention
 
 import (
 	"fmt"
+	"time"
 
-	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 const (
-	InternalChannelCommand       = "internal_channel_command"
-	ChannelCommandRetry          = "channel_command_retry"
-	ChannelCommandSkip           = "channel_command_skip"
-	NumberOfRetriesAttributeName = "number_of_retries"
+	RetryChannelName = "manual-recovery-retry"
+	SkipChannelName  = "manual-recovery-skip"
 )
 
 var (
-	DataChannel     = dex.DefineChannel[string](InternalChannelCommand)
-	RetryChannel    = dex.DefineChannel[dex.None](ChannelCommandRetry)
-	SkipChannel     = dex.DefineChannel[dex.None](ChannelCommandSkip)
-	NumberOfRetries = dex.DefineAttribute[int](NumberOfRetriesAttributeName)
+	RetryChannel = dex.DefineChannel[dex.None](RetryChannelName)
+	SkipChannel  = dex.DefineChannel[dex.None](SkipChannelName)
 )
 
-type ManualInterventionFlow struct {
+type ManualRecoveryFlow struct {
 	dex.FlowDefaults
-	service patternsservice.ServiceDependency
 }
 
-func NewManualInterventionFlow(service patternsservice.ServiceDependency) *ManualInterventionFlow {
-	return &ManualInterventionFlow{service: service}
+func NewManualRecoveryFlow() *ManualRecoveryFlow {
+	return &ManualRecoveryFlow{}
 }
 
-func (*ManualInterventionFlow) GetSteps() []dex.StepDef {
+func (*ManualRecoveryFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(initStep{}),
-		dex.DefineStep(getDataStep{}),
-		dex.DefineStep(errorStep{}),
-		dex.DefineStep(finalStep{}),
+		dex.DefineStartStep(doWorkStep{}),
+		dex.DefineStep(manualStep{}),
 	}
 }
 
-func (*ManualInterventionFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*ManualRecoveryFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{NumberOfRetries},
-		Channels:   []dex.ChannelDef{DataChannel, RetryChannel, SkipChannel},
+		Channels: []dex.ChannelDef{RetryChannel, SkipChannel},
 	}
 }
 
-type initStep struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
+type doWorkStep struct {
+	dex.StepDefaultsNoWaitFor[bool]
 }
 
-func (initStep) Execute(
-	ctx dex.Context,
-	_ dex.None,
+func (doWorkStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2,
+			MaximumInterval:    4 * time.Second,
+			MaximumAttempts:    4,
+		},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(manualStep{}, nil),
+	}
+}
+
+func (doWorkStep) Execute(
+	_ dex.Context,
+	shouldFail bool,
 ) (*dex.StepDecision, error) {
-	if err := NumberOfRetries.Set(ctx, 0); err != nil {
-		return nil, err
+	if shouldFail {
+		return nil, fmt.Errorf("work failed")
 	}
-	return dex.GoTo(getDataStep{}, false), nil
+	return dex.GracefulComplete("work completed"), nil
 }
 
-type getDataStep struct {
+type manualStep struct {
 	dex.StepDefaults
 }
 
-func (getDataStep) WaitFor(
-	ctx dex.Context,
-	isRetry bool,
-) (*dex.Wait, error) {
-	fmt.Println("Waiting for incoming data")
-	return dex.Until(DataChannel.ForOne()), nil
-}
-
-func (getDataStep) Execute(
-	ctx dex.Context,
-	isRetry bool,
-) (*dex.StepDecision, error) {
-	if isRetry {
-		retries, err := NumberOfRetries.Get(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := NumberOfRetries.Set(ctx, retries+1); err != nil {
-			return nil, err
-		}
-	}
-	if err := pretendAPICall(ctx); err != nil {
-		return dex.GoTo(errorStep{}, nil), nil
-	}
-	return dex.GoTo(finalStep{}, nil), nil
-}
-
-func pretendAPICall(ctx dex.Context) error {
-	results, err := DataChannel.GetConditionResults(ctx)
-	if err != nil {
-		return err
-	}
-	if len(results) > 0 {
-		data := results[0]
-		fmt.Println("Received data result: " + data)
-		if data == "failed" {
-			return fmt.Errorf("non-retryable exception")
-		}
-	}
-	return nil
-}
-
-type errorStep struct {
-	dex.StepDefaults
-}
-
-func (errorStep) WaitFor(
-	ctx dex.Context,
-	_ dex.None,
+func (manualStep) WaitFor(
+	_ dex.Context,
+	_ bool,
 ) (*dex.Wait, error) {
 	return dex.AnyOf(RetryChannel.ForOne(), SkipChannel.ForOne()), nil
 }
 
-func (errorStep) Execute(
+func (manualStep) Execute(
 	ctx dex.Context,
-	_ dex.None,
+	_ bool,
 ) (*dex.StepDecision, error) {
 	retryResults, err := RetryChannel.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
-	retry := len(retryResults) > 0
-	channelName := ChannelCommandSkip
-	if retry {
-		channelName = ChannelCommandRetry
+	if len(retryResults) > 0 {
+		return dex.GoTo(doWorkStep{}, false), nil
 	}
-	fmt.Println("channel message received: " + channelName)
-	if retry {
-		return dex.GoTo(getDataStep{}, true), nil
-	}
-	return dex.GoTo(finalStep{}, nil), nil
+	return dex.ForceFail("manual recovery skipped"), nil
 }
 
-type finalStep struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
-}
-
-func (finalStep) Execute(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.StepDecision, error) {
-	retries, err := NumberOfRetries.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return dex.GracefulComplete(
-		fmt.Sprintf("Workflow Completed. Number of retries: %d", retries),
-	), nil
-}
-
-var _ dex.Flow = (*ManualInterventionFlow)(nil)
+var _ dex.Flow = (*ManualRecoveryFlow)(nil)

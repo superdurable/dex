@@ -365,10 +365,10 @@ test("design-pattern entity store profile lifecycle", async () => {
   );
 });
 
-test("design-pattern intervention start", async () => {
+test("design-pattern manual recovery start", async () => {
   requireOk(
-    await get("/patterns/intervention/start", { workflowId: id("intervention") }),
-    "intervention",
+    await get("/patterns/manual-recovery/start", { workflowId: id("manual-recovery") }),
+    "manual recovery",
   );
 });
 
