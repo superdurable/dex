@@ -49,7 +49,7 @@ public class StaticParallelStepsFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(WorkAStep.class, input),
                     StepMovement.of(WorkBStep.class, input));
         }

@@ -20,10 +20,10 @@ type Copy = {
 };
 
 const EN: Copy = {
-  label: 'StepDecision movements: GoTo, GoToMulti, and loop',
+  label: 'StepDecision movements: GoTo, GoToMany, and loop',
   goto: {title: 'GoTo', parallel: ''},
   loop: {title: 'Loop', parallel: ''},
-  parallel: {title: 'GoToMulti', parallel: 'both active'},
+  parallel: {title: 'GoToMany', parallel: 'both active'},
   completeFlow: 'Complete Flow',
   stepA: 'StepA',
   stepB: 'StepB',
@@ -31,10 +31,10 @@ const EN: Copy = {
 };
 
 const ZH: Copy = {
-  label: 'StepDecision movement：GoTo、GoToMulti 与循环',
+  label: 'StepDecision movement：GoTo、GoToMany 与循环',
   goto: {title: 'GoTo', parallel: ''},
   loop: {title: '循环', parallel: ''},
-  parallel: {title: 'GoToMulti', parallel: '同时 active'},
+  parallel: {title: 'GoToMany', parallel: '同时 active'},
   completeFlow: 'Complete Flow',
   stepA: 'StepA',
   stepB: 'StepB',
@@ -68,7 +68,7 @@ export default function StepDecisionMovementsDiagram(): ReactNode {
           <CompactCard kicker="NEXT" title={copy.completeFlow} />
         </MovementPanel>
         <MovementPanel title={copy.parallel.title}>
-          <StepCard name="ExampleStep" executeOnly execute={`GoToMulti(${copy.stepA}, ${copy.stepB})`} />
+          <StepCard name="ExampleStep" executeOnly execute={`GoToMany(${copy.stepA}, ${copy.stepB})`} />
           <div className="flow-graph-split flow-graph-split-compact">
             <div className="flow-graph-split-stem" aria-hidden="true" />
             <div className="flow-graph-split-bar" aria-hidden="true" />

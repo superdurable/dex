@@ -21,7 +21,7 @@ import {
   Wait,
   deadEnd,
   goTo,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   jsonCodec,
   stringCodec,
@@ -54,13 +54,13 @@ class RouteStep implements Step<string> {
       return gracefulComplete("done");
     }
     if (mode === "dead-end") {
-      return goToMulti(
+      return goToMany(
         StepMovement.of(BranchWorkerStep, "left"),
         StepMovement.of(BranchWorkerStep, "right"),
       );
     }
     const quote: Quote = { carrier: "winner", price: 9 };
-    return goToMulti(
+    return goToMany(
       StepMovement.of(CarrierAStep, { carrier: "A", price: 10 }),
       StepMovement.of(CarrierBStep, { carrier: "B", price: 12 }),
       StepMovement.of(WinnerStep, quote),

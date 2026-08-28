@@ -23,7 +23,7 @@ from dex import (
     StepDecision,
     StepList,
     StepMovement,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -40,7 +40,7 @@ class DoWorkStep(Step[int]):
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
-        return go_to_multi(
+        return go_to_many(
             *(StepMovement.of(DoWorkStep, index) for index in range(input))
         )
 

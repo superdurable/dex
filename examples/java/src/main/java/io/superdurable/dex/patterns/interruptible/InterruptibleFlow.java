@@ -66,7 +66,7 @@ public class InterruptibleFlow implements Flow<Void> {
         @Override
         public StepDecision execute(final Context context, final Void unused) {
             final WorkJobParametersInput input = new WorkJobParametersInput(15, 1);
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(WorkAStep.class, input),
                     StepMovement.of(WorkBStep.class, input));
         }

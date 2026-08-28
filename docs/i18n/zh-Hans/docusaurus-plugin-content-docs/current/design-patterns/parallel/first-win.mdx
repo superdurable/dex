@@ -35,7 +35,7 @@ class DoWorkStep(Step[int]):
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
-        return go_to_multi(
+        return go_to_many(
             *(StepMovement.of(DoWorkStep, index) for index in range(input))
         )
 ```
@@ -53,7 +53,7 @@ func (firstWinInitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, er
 	for index := 0; index < count; index++ {
 		movements = append(movements, dex.MovementOf(firstWinWorkStep{}, index))
 	}
-	return dex.GoToMulti(movements...), nil
+	return dex.GoToMany(movements...), nil
 }
 
 type firstWinWorkStep struct{ dex.StepDefaultsNoWaitFor[int] }
@@ -82,7 +82,7 @@ final class InitStep implements Step<Integer> {
         for (int index = 0; index < count; index++) {
             movements[index] = StepMovement.of(DoWorkStep.class, index);
         }
-        return StepDecision.goToMulti(movements);
+        return StepDecision.goToMany(movements);
     }
 }
 
@@ -116,7 +116,7 @@ class FirstWinInitStep implements Step<number> {
     return "InitStep";
   }
   public execute(_context: Context, count: number): StepDecision {
-    return goToMulti(
+    return goToMany(
       ...Array.from({ length: count }, (_, index) =>
         StepMovement.of(FirstWinDoWorkStep, index),
       ),

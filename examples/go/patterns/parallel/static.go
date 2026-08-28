@@ -45,7 +45,7 @@ type staticInitStep struct {
 func (staticInitStep) GetStepType() string { return "InitStep" }
 
 func (staticInitStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
-	return dex.GoToMulti(dex.MovementOf(workAStep{}, input), dex.MovementOf(workBStep{}, input)), nil
+	return dex.GoToMany(dex.MovementOf(workAStep{}, input), dex.MovementOf(workBStep{}, input)), nil
 }
 
 type workAStep struct {

@@ -206,7 +206,7 @@ func (initializeStep) Execute(
 	if err := Notes.Set(ctx, input.Notes); err != nil {
 		return nil, err
 	}
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(processTimeoutStep{}, nil),
 		dex.MovementOf(reminderStep{}, nil),
 		dex.MovementOf(notifyExternalSystemStep{}, StatusInitiated),

@@ -147,7 +147,7 @@ public class EngagementFlow implements Flow<EngagementInput> {
             engagementStatus.set(context, Status.INITIATED);
             lastUpdateTimestamp.set(context, System.currentTimeMillis());
             notes.set(context, input.notes);
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(ProcessTimeout.class, null),
                     StepMovement.of(Reminder.class, null),
                     StepMovement.of(NotifyExternalSystem.class, Status.INITIATED));

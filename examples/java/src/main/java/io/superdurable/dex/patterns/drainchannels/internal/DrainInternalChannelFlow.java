@@ -74,7 +74,7 @@ public class DrainInternalChannelFlow implements Flow<String> {
         @Override
         public StepDecision execute(final Context context, final String input) {
             mainStepExecutionCounter.set(context, 0);
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(SideStep.class, null),
                     StepMovement.of(MainStep.class, input));
         }

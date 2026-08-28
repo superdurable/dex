@@ -22,7 +22,7 @@ import {
   booleanCodec,
   forceComplete,
   forceFail,
-  goToMulti,
+  goToMany,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -40,7 +40,7 @@ class Init implements Step<boolean> {
   }
 
   public execute(_context: Context, workflowSuccessful: boolean): StepDecision {
-    return goToMulti(
+    return goToMany(
       StepMovement.of(Timeout, undefined),
       StepMovement.of(Task, workflowSuccessful),
     );

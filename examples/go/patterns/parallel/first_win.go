@@ -48,7 +48,7 @@ func (firstWinInitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, er
 	for index := 0; index < count; index++ {
 		movements = append(movements, dex.MovementOf(firstWinWorkStep{}, index))
 	}
-	return dex.GoToMulti(movements...), nil
+	return dex.GoToMany(movements...), nil
 }
 
 type firstWinWorkStep struct{ dex.StepDefaultsNoWaitFor[int] }

@@ -23,7 +23,7 @@ import {
   Wait,
   forceComplete,
   goTo,
-  goToMulti,
+  goToMany,
   rpc,
   stringCodec,
   voidCodec,
@@ -58,7 +58,7 @@ class Init implements Step<void> {
 
   public execute(context: Context, _input: void): StepDecision {
     this.flow.status.set(context, "INITIATED");
-    return goToMulti(
+    return goToMany(
       StepMovement.of(ProcessTimeout, undefined),
       StepMovement.of(Reminder, undefined),
     );

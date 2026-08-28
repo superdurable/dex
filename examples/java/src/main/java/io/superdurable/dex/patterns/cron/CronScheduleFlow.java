@@ -162,7 +162,7 @@ public class CronScheduleFlow implements Flow<CronScheduleFlow.Input> {
             if (runInput.isFinal) {
                 return StepDecision.goTo(Run.class, runInput);
             }
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(Run.class, runInput),
                     StepMovement.of(
                             WaitForSchedule.class,

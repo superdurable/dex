@@ -23,7 +23,7 @@ import {
   Wait,
   doubleCodec,
   goTo,
-  goToMulti,
+  goToMany,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -62,7 +62,7 @@ class Init implements Step<number> {
     for (let index = 0; index < CONCURRENCY_PER_PARENT_WORKFLOW; index += 1) {
       movements.push(StepMovement.of(LoopForNextTask, undefined));
     }
-    return goToMulti(...movements);
+    return goToMany(...movements);
   }
 }
 

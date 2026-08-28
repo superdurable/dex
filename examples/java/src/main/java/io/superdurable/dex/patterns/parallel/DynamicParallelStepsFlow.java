@@ -53,7 +53,7 @@ public class DynamicParallelStepsFlow implements Flow<Integer> {
             for (int index = 0; index < count; index++) {
                 movements[index] = StepMovement.of(DoWorkStep.class, index);
             }
-            return StepDecision.goToMulti(movements);
+            return StepDecision.goToMany(movements);
         }
     }
 

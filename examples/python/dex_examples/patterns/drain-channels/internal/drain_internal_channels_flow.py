@@ -26,7 +26,7 @@ from dex import (
     StepMovement,
     Wait,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -127,7 +127,7 @@ class Init(Step[str]):
 
     def execute(self, context: Context, input: str) -> StepDecision:
         self.execution_counter.set(context, 0)
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(SideStep, None),
             StepMovement.of(MainStep, input),
         )

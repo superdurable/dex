@@ -59,7 +59,7 @@ public class AwaitParallelStepsFlow implements Flow<Integer> {
             for (int index = 0; index < count; index++) {
                 movements[index + 1] = StepMovement.of(DoWorkStep.class, index);
             }
-            return StepDecision.goToMulti(movements);
+            return StepDecision.goToMany(movements);
         }
     }
 

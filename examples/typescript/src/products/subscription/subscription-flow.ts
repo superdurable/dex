@@ -25,7 +25,7 @@ import {
   doubleCodec,
   forceComplete,
   goTo,
-  goToMulti,
+  goToMany,
   jsonCodec,
   rpc,
   voidCodec,
@@ -101,7 +101,7 @@ class Initialize implements Step<Customer> {
 
   public execute(context: Context, customer: Customer): StepDecision {
     this.flow.customerDetails.set(context, customer);
-    return goToMulti(
+    return goToMany(
       StepMovement.of(Trial, undefined),
       StepMovement.of(Cancel, undefined),
       StepMovement.of(UpdateChargeAmount, undefined),

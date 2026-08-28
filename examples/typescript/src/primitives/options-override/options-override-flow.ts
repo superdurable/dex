@@ -18,7 +18,7 @@ import {
   StepList,
   StepMovement,
   Wait,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   stringCodec,
   type Context,
@@ -44,7 +44,7 @@ class OverrideFirstStep implements Step<string> {
       waitForFailure: "proceed",
     };
     const payload = `${input}_state1`;
-    return goToMulti(StepMovement.of(OverrideSecondStep, payload, override));
+    return goToMany(StepMovement.of(OverrideSecondStep, payload, override));
   }
 }
 

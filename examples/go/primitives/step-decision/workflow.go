@@ -62,13 +62,13 @@ func (routeStep) Execute(_ dex.Context, input StepDecisionInput) (*dex.StepDecis
 	case "graceful":
 		return dex.GracefulComplete("done"), nil
 	case "dead-end":
-		return dex.GoToMulti(
+		return dex.GoToMany(
 			dex.MovementOf(branchWorkerStep{}, "left"),
 			dex.MovementOf(branchWorkerStep{}, "right"),
 		), nil
 	default:
 		quote := Quote{Carrier: "winner", Price: 9}
-		return dex.GoToMulti(
+		return dex.GoToMany(
 			dex.MovementOf(carrierAStep{}, Quote{Carrier: "A", Price: 10}),
 			dex.MovementOf(carrierBStep{}, Quote{Carrier: "B", Price: 12}),
 			dex.MovementOf(winnerStep{}, quote),

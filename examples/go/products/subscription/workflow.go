@@ -232,7 +232,7 @@ func (updateChargeAmountStep) Execute(
 }
 
 func initializeSubscription() *dex.StepDecision {
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(trialStep{}, nil),
 		dex.MovementOf(cancelStep{}, nil),
 		dex.MovementOf(updateChargeAmountStep{}, nil),

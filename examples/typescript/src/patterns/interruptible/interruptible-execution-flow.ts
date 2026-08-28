@@ -21,7 +21,7 @@ import {
   Timer,
   Wait,
   goTo,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   rpc,
   stringCodec,
@@ -45,7 +45,7 @@ class Init implements Step<void> {
 
   public execute(_context: Context, _input: void): StepDecision {
     const input: WorkJobParametersInput = { jobUpperBound: 15, progress: 1 };
-    return goToMulti(
+    return goToMany(
       StepMovement.of(WorkAStep, input),
       StepMovement.of(WorkBStep, input),
     );

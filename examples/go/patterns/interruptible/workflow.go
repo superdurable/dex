@@ -77,7 +77,7 @@ func (initStep) Execute(
 	_ dex.None,
 ) (*dex.StepDecision, error) {
 	input := WorkJobParametersInput{JobUpperBound: 15, Progress: 1}
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(workAStep{}, input),
 		dex.MovementOf(workBStep{}, input),
 	), nil

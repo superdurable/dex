@@ -89,7 +89,7 @@ func (initStep) Execute(
 	for index := 0; index < ConcurrencyPerParentWorkflow; index++ {
 		movements[index] = dex.MovementOf(loopForNextTaskStep{}, nil)
 	}
-	return dex.GoToMulti(movements...), nil
+	return dex.GoToMany(movements...), nil
 }
 
 type loopForNextTaskStep struct {

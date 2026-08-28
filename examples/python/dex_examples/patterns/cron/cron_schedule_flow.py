@@ -32,7 +32,7 @@ from dex import (
     dead_end,
     force_fail,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -114,7 +114,7 @@ class _WaitForSchedule(Step[_ScheduleState]):
         )
         if run_input.is_final:
             return go_to(_Run, run_input)
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(_Run, run_input),
             StepMovement.of(
                 _WaitForSchedule,

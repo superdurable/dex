@@ -76,7 +76,7 @@ public class OrchestrationFlow implements Flow<String> {
         public StepDecision execute(final Context context, final String input) {
             service.callAPI1(input);
             data.set(context, input);
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(CallAPI2.class, null),
                     StepMovement.of(CallAPI3.class, null));
         }

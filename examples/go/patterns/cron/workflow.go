@@ -144,7 +144,7 @@ func (waitForCronSchedule) Execute(
 		return dex.GoTo(runCronSchedule{}, run), nil
 	}
 	state.RemainingRuns--
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(runCronSchedule{}, run),
 		dex.MovementOf(waitForCronSchedule{}, state),
 	), nil

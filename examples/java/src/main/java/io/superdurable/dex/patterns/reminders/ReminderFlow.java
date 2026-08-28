@@ -83,7 +83,7 @@ public class ReminderFlow implements Flow<Void> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             status.set(context, Status.INITIATED.name());
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(ProcessTimeout.class, null),
                     StepMovement.of(Reminder.class, null));
         }
