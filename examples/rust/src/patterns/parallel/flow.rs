@@ -28,6 +28,8 @@
  * limitations under the License.
  */
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
     StepList, StepMovement, Wait,
@@ -98,11 +100,11 @@ pub struct ParallelStatesWithAwaitFlow {
 
 impl ParallelStatesWithAwaitFlow {
     fn release_one(&self, context: &mut Context) -> HandlerResult<()> {
-        release_one().publish(context, ())
+        RELEASE_ONE.publish(context, ())
     }
 
     fn release_two(&self, context: &mut Context) -> HandlerResult<()> {
-        release_two().publish(context, ())
+        RELEASE_TWO.publish(context, ())
     }
 }
 
@@ -117,8 +119,8 @@ impl Flow for ParallelStatesWithAwaitFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .channel(&release_one())
-            .channel(&release_two())
+            .channel(&RELEASE_ONE)
+            .channel(&RELEASE_TWO)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -149,7 +151,7 @@ impl Step for AwaitBranchOne {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(release_one().for_one()))
+        Ok(Wait::until(RELEASE_ONE.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
@@ -164,7 +166,7 @@ impl Step for AwaitBranchTwo {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(release_two().for_one()))
+        Ok(Wait::until(RELEASE_TWO.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
@@ -172,10 +174,6 @@ impl Step for AwaitBranchTwo {
     }
 }
 
-fn release_one() -> Channel<()> {
-    Channel::new("parallel-release-one")
-}
+static RELEASE_ONE: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("parallel-release-one"));
 
-fn release_two() -> Channel<()> {
-    Channel::new("parallel-release-two")
-}
+static RELEASE_TWO: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("parallel-release-two"));

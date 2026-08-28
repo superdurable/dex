@@ -10,10 +10,16 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, ChannelMap, ConditionCombination, Context, Flow, HandlerError, HandlerResult,
     PersistenceSchema, Step, StepDecision, StepList, Timer, Wait,
 };
+
+static SECOND: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("signal-2"));
+static THIRD: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("signal-3"));
+static FIRST: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("signal-1"));
 
 pub(crate) struct SignalWorkflow {
     pub(crate) first: Channel<i32>,
@@ -26,9 +32,9 @@ pub(crate) struct SignalWorkflow {
 
 impl SignalWorkflow {
     pub(crate) fn new() -> Self {
-        let first = Channel::new("signal-1");
-        let second = Channel::new("signal-2");
-        let third = Channel::new("signal-3");
+        let first = FIRST.clone();
+        let second = SECOND.clone();
+        let third = THIRD.clone();
         let signal_map = ChannelMap::new("signal-map");
         Self {
             start: FirstStep {
@@ -91,8 +97,8 @@ impl Step for FirstStep {
         Ok(StepDecision::go_to(
             &CombinationStep {
                 first: self.first.clone(),
-                second: Channel::new("signal-2"),
-                third: Channel::new("signal-3"),
+                second: SECOND.clone(),
+                third: THIRD.clone(),
                 signal_map: ChannelMap::new("signal-map"),
             },
             input + value,

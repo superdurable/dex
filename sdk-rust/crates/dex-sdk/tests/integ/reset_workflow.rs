@@ -8,11 +8,22 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Channel, Context, Flow, HandlerResult,
     PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepMovement,
     StepOptions, Wait,
 };
+
+static EXECUTION_COUNT: LazyLock<Attribute<i32>> =
+    LazyLock::new(|| Attribute::new("reset-execution-count"));
+static CHANNEL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("rpc-channel"));
+static DATA: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("rpc-lock-data"));
+static KEYWORD: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()));
+static COUNTER: LazyLock<Attribute<i32>> =
+    LazyLock::new(|| Attribute::new("CustomIntField").indexed(AttributeIndex::int()));
 
 pub(crate) struct ResetWorkflow {
     channel: Channel<()>,
@@ -32,12 +43,12 @@ impl ResetWorkflow {
     pub(crate) const WITHOUT_LOCKING: Rpc<(), ()> = Rpc::new("without_locking");
 
     pub(crate) fn new() -> Self {
-        let channel = Channel::new("rpc-channel");
-        let data = Attribute::new("rpc-lock-data");
-        let keyword = Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword());
-        let counter = Attribute::new("CustomIntField").indexed(AttributeIndex::int());
+        let channel = CHANNEL.clone();
+        let data = DATA.clone();
+        let keyword = KEYWORD.clone();
+        let counter = COUNTER.clone();
         let items = AttributeMap::new("rpc-lock-items");
-        let execution_count = Attribute::new("reset-execution-count");
+        let execution_count = EXECUTION_COUNT.clone();
         Self {
             first: LockWaitStep {
                 channel: channel.clone(),
@@ -126,7 +137,7 @@ impl Step for LockWaitStep {
     fn execute(&self, _context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
         Ok(StepDecision::go_to(
             &LockCompleteStep {
-                execution_count: Attribute::new("reset-execution-count"),
+                execution_count: EXECUTION_COUNT.clone(),
             },
             (),
         ))

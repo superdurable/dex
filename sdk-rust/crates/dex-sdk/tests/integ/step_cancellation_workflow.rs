@@ -13,10 +13,15 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Step, StepDecision,
     StepList, StepMovement, StepOptions, Timer, Wait, WaitForFailurePolicy,
 };
+
+static LATE_WRITE: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("rust-cancellation-late-write"));
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CancellationScenario {
@@ -129,7 +134,7 @@ pub(crate) struct StepCancellationWorkflow {
 
 impl StepCancellationWorkflow {
     pub(crate) fn new(state: Arc<CancellationState>) -> Self {
-        let late_write = Attribute::new("rust-cancellation-late-write");
+        let late_write = LATE_WRITE.clone();
         Self {
             start: CancellationStart(Arc::clone(&state)),
             blocking_execute: CancellationBlockingExecute {
@@ -192,7 +197,7 @@ impl Step for CancellationStart {
                 StepMovement::to(
                     &CancellationBlockingExecute {
                         state: Arc::clone(&state),
-                        late_write: Attribute::new("rust-cancellation-late-write"),
+                        late_write: LATE_WRITE.clone(),
                     },
                     (),
                 ),
@@ -317,7 +322,7 @@ impl Step for CancellationWinner {
         }
         Ok(decision.cancel_step(&CancellationBlockingExecute {
             state: Arc::clone(&self.0),
-            late_write: Attribute::new("rust-cancellation-late-write"),
+            late_write: LATE_WRITE.clone(),
         }))
     }
 }

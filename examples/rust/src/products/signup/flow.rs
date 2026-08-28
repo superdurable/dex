@@ -30,6 +30,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
     StepList, Timer, Wait,
@@ -45,7 +47,7 @@ pub struct UserSignupFlow {
 
 impl UserSignupFlow {
     fn verify(&self, context: &mut Context) -> HandlerResult<()> {
-        verified().publish(context, ())
+        VERIFIED.publish(context, ())
     }
 }
 
@@ -57,7 +59,7 @@ impl Flow for UserSignupFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&verified())
+        PersistenceSchema::new().channel(&VERIFIED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -85,13 +87,13 @@ impl Step for AwaitVerification {
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            verified().for_one(),
+            VERIFIED.for_one(),
             Timer::by_duration(Duration::from_secs(86_400)),
         ]))
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        if !verified().condition_results(context)?.is_empty() {
+        if !VERIFIED.condition_results(context)?.is_empty() {
             return Ok(StepDecision::graceful_complete(input.0));
         }
         context.record_event("verification-reminder", input.0.clone())?;
@@ -102,6 +104,4 @@ impl Step for AwaitVerification {
     }
 }
 
-fn verified() -> Channel<()> {
-    Channel::new("signup-verified")
-}
+static VERIFIED: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("signup-verified"));

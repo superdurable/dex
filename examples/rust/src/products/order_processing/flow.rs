@@ -14,6 +14,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, Channel, Context, Flow, HandlerResult, PersistenceSchema,
     RetryPolicy, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepOptions, Timer, Wait,
@@ -56,12 +58,12 @@ impl OrderProcessingFlow {
     }
 
     fn approve(&self, context: &mut Context, _note: String) -> HandlerResult<RpcResult<String>> {
-        seller_ok().publish(context, "approved".to_string())?;
+        SELLER_OK.publish(context, "approved".to_string())?;
         Ok(RpcResult::new("ok".to_string()))
     }
 
     fn describe(&self, context: &mut Context) -> HandlerResult<RpcResult<String>> {
-        Ok(RpcResult::new(order_status().get_required(context)?))
+        Ok(RpcResult::new(ORDER_STATUS.get_required(context)?))
     }
 }
 
@@ -86,8 +88,8 @@ impl Flow for OrderProcessingFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&order_status())
-            .channel(&seller_ok())
+            .attribute(&ORDER_STATUS)
+            .channel(&SELLER_OK)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -121,7 +123,7 @@ impl Step for Charge {
         self.service
             .charge_user(&input.email, &input.customer_id, input.amount);
         context.record_event("charge", input.order_id.clone())?;
-        order_status().set(context, "charged".to_string())?;
+        ORDER_STATUS.set(context, "charged".to_string())?;
         Ok(StepDecision::go_to(&Ship::default(), input))
     }
 }
@@ -150,7 +152,7 @@ impl Step for Ship {
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            seller_ok().for_one(),
+            SELLER_OK.for_one(),
             Timer::by_duration(Duration::from_secs(24 * 60 * 60)),
         ]))
     }
@@ -168,7 +170,7 @@ impl Step for Ship {
         self.service
             .ship_item(&input.order_id, input.test_fail_at_shipping)?;
         context.record_event("ship", input.order_id.clone())?;
-        order_status().set(context, "shipped".to_string())?;
+        ORDER_STATUS.set(context, "shipped".to_string())?;
         Ok(StepDecision::graceful_complete(format!(
             "shipped:{}",
             input.order_id
@@ -200,7 +202,7 @@ impl Step for Refund {
         self.service
             .update_external_system(&format!("refund {}", input.order_id));
         context.record_event("refund", input.order_id.clone())?;
-        order_status().set(context, "refunded".to_string())?;
+        ORDER_STATUS.set(context, "refunded".to_string())?;
         Ok(StepDecision::graceful_complete(format!(
             "refunded:{}",
             input.order_id
@@ -208,10 +210,7 @@ impl Step for Refund {
     }
 }
 
-fn order_status() -> Attribute<String> {
-    Attribute::new("order-status").indexed(AttributeIndex::keyword())
-}
+static ORDER_STATUS: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("order-status").indexed(AttributeIndex::keyword()));
 
-fn seller_ok() -> Channel<String> {
-    Channel::new("seller-ok")
-}
+static SELLER_OK: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("seller-ok"));

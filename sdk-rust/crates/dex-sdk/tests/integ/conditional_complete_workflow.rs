@@ -8,10 +8,16 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step,
     StepDecision, StepList, StepMovement, Wait,
 };
+
+static SIGNAL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("test-signal-channel"));
+static INTERNAL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("test-internal-channel"));
+static COUNTER: LazyLock<Attribute<i32>> = LazyLock::new(|| Attribute::new("counter"));
 
 pub(crate) struct ConditionalCompleteWorkflow {
     pub(crate) signal: Channel<()>,
@@ -24,9 +30,9 @@ impl ConditionalCompleteWorkflow {
     pub(crate) const PUBLISH_TO_INTERNAL: Rpc<i32, ()> = Rpc::new("publish_to_internal_channel");
 
     pub(crate) fn new() -> Self {
-        let signal = Channel::new("test-signal-channel");
-        let internal = Channel::new("test-internal-channel");
-        let counter = Attribute::new("counter");
+        let signal = SIGNAL.clone();
+        let internal = INTERNAL.clone();
+        let counter = COUNTER.clone();
         Self {
             start: ConditionalCompleteStep {
                 signal: signal.clone(),

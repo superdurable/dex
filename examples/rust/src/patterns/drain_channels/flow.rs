@@ -28,6 +28,8 @@
  * limitations under the License.
  */
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult, Step,
     StepDecision, StepList, StepMovement, Wait,
@@ -53,7 +55,7 @@ impl Flow for DrainInternalChannelFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&side_step_data())
+        PersistenceSchema::new().channel(&SIDE_STEP_DATA)
     }
 }
 
@@ -79,7 +81,7 @@ impl Step for MainStep {
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         for value in input {
-            side_step_data().publish(context, SideStepData::Message(value))?;
+            SIDE_STEP_DATA.publish(context, SideStepData::Message(value))?;
         }
         Ok(StepDecision::go_to(&Finalize, ()))
     }
@@ -92,11 +94,11 @@ impl Step for SideStep {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(side_step_data().for_one()))
+        Ok(Wait::until(SIDE_STEP_DATA.for_one()))
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        let command = side_step_data()
+        let command = SIDE_STEP_DATA
             .condition_results(context)?
             .into_iter()
             .next()
@@ -125,7 +127,7 @@ impl Step for Finalize {
     type Input = ();
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        side_step_data().publish(context, SideStepData::Final)?;
+        SIDE_STEP_DATA.publish(context, SideStepData::Final)?;
         Ok(StepDecision::graceful_complete(()))
     }
 }
@@ -143,7 +145,7 @@ impl DrainingExternalChannelFlow {
         context: &mut Context,
         input: String,
     ) -> HandlerResult<RpcResult<String>> {
-        external_queue().publish(context, input.clone())?;
+        EXTERNAL_QUEUE.publish(context, input.clone())?;
         Ok(RpcResult::new(input))
     }
 }
@@ -156,7 +158,7 @@ impl Flow for DrainingExternalChannelFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&external_queue())
+        PersistenceSchema::new().channel(&EXTERNAL_QUEUE)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -172,14 +174,14 @@ impl Step for DrainChannel {
 
     fn wait_for(&self, _context: &mut Context, input: String) -> HandlerResult<Wait> {
         if input.is_empty() {
-            return Ok(Wait::until(external_queue().for_one()));
+            return Ok(Wait::until(EXTERNAL_QUEUE.for_one()));
         }
         Ok(Wait::skip_immediately())
     }
 
     fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
         let item = if input.is_empty() {
-            external_queue()
+            EXTERNAL_QUEUE
                 .condition_results(context)?
                 .into_iter()
                 .next()
@@ -191,15 +193,13 @@ impl Step for DrainChannel {
         Ok(StepDecision::force_complete_if_channels_empty(
             String::new(),
             StepMovement::to(&DrainChannel, String::new()),
-            [external_queue().when_empty()],
+            [EXTERNAL_QUEUE.when_empty()],
         ))
     }
 }
 
-fn side_step_data() -> Channel<SideStepData> {
-    Channel::new("SideStepData")
-}
+static SIDE_STEP_DATA: LazyLock<Channel<SideStepData>> =
+    LazyLock::new(|| Channel::new("SideStepData"));
 
-pub(crate) fn external_queue() -> Channel<String> {
-    Channel::new("drain-channel-queue")
-}
+pub(crate) static EXTERNAL_QUEUE: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("drain-channel-queue"));

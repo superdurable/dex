@@ -8,10 +8,19 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Channel, Context, Flow, HandlerError, HandlerResult,
     PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, Wait,
 };
+
+static DATA: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("rpc-data"));
+static KEYWORD: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()));
+static INTEGER: LazyLock<Attribute<i32>> =
+    LazyLock::new(|| Attribute::new("CustomIntField").indexed(AttributeIndex::int()));
+static INTERNAL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("rpc-internal"));
 
 pub(crate) struct RpcWorkflow {
     internal: Channel<()>,
@@ -39,16 +48,16 @@ impl RpcWorkflow {
     pub(crate) const GET_KEYWORD: Rpc<(), Option<String>> = Rpc::new("get_keyword");
 
     pub(crate) fn new() -> Self {
-        let internal = Channel::new("rpc-internal");
+        let internal = INTERNAL.clone();
         Self {
             first: FirstStep {
                 internal: internal.clone(),
             },
             output: OutputStep,
             internal,
-            data: Attribute::new("rpc-data"),
-            keyword: Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()),
-            integer: Attribute::new("CustomIntField").indexed(AttributeIndex::int()),
+            data: DATA.clone(),
+            keyword: KEYWORD.clone(),
+            integer: INTEGER.clone(),
             map: AttributeMap::new("rpc-map"),
         }
     }

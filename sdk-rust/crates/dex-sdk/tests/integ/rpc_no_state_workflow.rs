@@ -8,12 +8,16 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc, RpcList,
     RpcResult,
 };
 
 use crate::rpc_workflow::RpcWorkflow;
+
+static COUNTER: LazyLock<Attribute<i32>> = LazyLock::new(|| Attribute::new("counter"));
 
 pub(crate) struct RpcNoStateWorkflow {
     counter: Attribute<i32>,
@@ -28,7 +32,7 @@ impl RpcNoStateWorkflow {
 
     pub(crate) fn new() -> Self {
         Self {
-            counter: Attribute::new("counter"),
+            counter: COUNTER.clone(),
         }
     }
 

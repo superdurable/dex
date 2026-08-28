@@ -30,6 +30,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc,
     RpcList, RpcResult, Step, StepDecision, StepList, StepMovement, Timer, Wait,
@@ -62,11 +64,11 @@ pub struct EngagementFlow {
 
 impl EngagementFlow {
     fn describe(&self, context: &mut Context) -> HandlerResult<RpcResult<EngagementStatus>> {
-        Ok(RpcResult::new(status().get(context)?.unwrap_or_default()))
+        Ok(RpcResult::new(STATUS.get(context)?.unwrap_or_default()))
     }
 
     fn accept(&self, context: &mut Context, notes: String) -> HandlerResult<()> {
-        decision().publish(
+        DECISION.publish(
             context,
             EngagementStatus {
                 status: "accepted".into(),
@@ -76,7 +78,7 @@ impl EngagementFlow {
     }
 
     fn decline(&self, context: &mut Context, notes: String) -> HandlerResult<()> {
-        decision().publish(
+        DECISION.publish(
             context,
             EngagementStatus {
                 status: "declined".into(),
@@ -86,7 +88,7 @@ impl EngagementFlow {
     }
 
     fn opt_out(&self, context: &mut Context) -> HandlerResult<()> {
-        decision().publish(
+        DECISION.publish(
             context,
             EngagementStatus {
                 status: "opted-out".into(),
@@ -107,8 +109,8 @@ impl Flow for EngagementFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&status())
-            .channel(&decision())
+            .attribute(&STATUS)
+            .channel(&DECISION)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -127,7 +129,7 @@ impl Step for Start {
     type Input = EngagementRequest;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        status().set(
+        STATUS.set(
             context,
             EngagementStatus {
                 status: "pending".into(),
@@ -152,13 +154,13 @@ impl Step for WaitForDecision {
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            decision().for_one(),
+            DECISION.for_one(),
             Timer::by_duration(Duration::from_secs(86_400)),
         ]))
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        let resolved = decision()
+        let resolved = DECISION
             .condition_results(context)?
             .into_iter()
             .next()
@@ -166,7 +168,7 @@ impl Step for WaitForDecision {
                 status: "reminder-due".into(),
                 notes: String::new(),
             });
-        status().set(context, resolved.clone())?;
+        STATUS.set(context, resolved.clone())?;
         Ok(StepDecision::go_to(&NotifyExternalSystem, resolved.status))
     }
 }
@@ -183,10 +185,8 @@ impl Step for NotifyExternalSystem {
     }
 }
 
-fn status() -> Attribute<EngagementStatus> {
-    Attribute::new("engagement-status").indexed(AttributeIndex::keyword())
-}
+static STATUS: LazyLock<Attribute<EngagementStatus>> =
+    LazyLock::new(|| Attribute::new("engagement-status").indexed(AttributeIndex::keyword()));
 
-fn decision() -> Channel<EngagementStatus> {
-    Channel::new("engagement-decision")
-}
+static DECISION: LazyLock<Channel<EngagementStatus>> =
+    LazyLock::new(|| Channel::new("engagement-decision"));

@@ -25,7 +25,7 @@ use dex_sdk::{
 use serde::Deserialize;
 use std::time::Duration;
 
-use crate::primitives::flow::flow::{ExampleFlow, status};
+use crate::primitives::flow::flow::{ExampleFlow, STATUS};
 use crate::server::helpers::{SharedClient, StartResponse, map_sdk_error, ok_json, run_blocking};
 
 #[derive(Deserialize)]
@@ -61,7 +61,7 @@ pub fn example_start_flow_options() -> StartFlowOptions {
                 .maximum_interval(Duration::from_secs(10 * 60))
                 .maximum_attempts(3),
         )
-        .initial_attribute(&status(), "queued".to_owned())
+        .initial_attribute(&STATUS, "queued".to_owned())
         .config_override(FlowConfig::new().step_durability(StepDurability::Sync))
         .ignore_already_started(true)
         .request_id("start-order-123")

@@ -10,12 +10,34 @@
 
 use std::time::SystemTime;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Channel, Context, Flow, HandlerResult,
     PersistenceSchema, Step, StepDecision, StepList, Wait,
 };
 
 use crate::persistence_workflow::PersistenceModel;
+
+static DATA: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("data"));
+static MODEL: LazyLock<Attribute<PersistenceModel>> =
+    LazyLock::new(|| Attribute::new("data-model"));
+static KEYWORD: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()));
+static FULL_TEXT: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("CustomTextField").indexed(AttributeIndex::full_text()));
+static DECIMAL: LazyLock<Attribute<f64>> =
+    LazyLock::new(|| Attribute::new("CustomDoubleField").indexed(AttributeIndex::double()));
+static INTEGER: LazyLock<Attribute<i32>> =
+    LazyLock::new(|| Attribute::new("CustomIntField").indexed(AttributeIndex::int()));
+static BOOLEAN: LazyLock<Attribute<bool>> =
+    LazyLock::new(|| Attribute::new("CustomBoolField").indexed(AttributeIndex::bool()));
+static KEYWORDS: LazyLock<Attribute<Vec<String>>> = LazyLock::new(|| {
+    Attribute::new("CustomKeywordArrayField").indexed(AttributeIndex::keyword_array())
+});
+static DATETIME: LazyLock<Attribute<SystemTime>> =
+    LazyLock::new(|| Attribute::new("CustomDatetimeField").indexed(AttributeIndex::date_time()));
+static PROCEED: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("proceed"));
 
 pub(crate) struct PersistenceSetAttributesWorkflow {
     pub(crate) data: Attribute<String>,
@@ -35,20 +57,19 @@ pub(crate) struct PersistenceSetAttributesWorkflow {
 impl PersistenceSetAttributesWorkflow {
     pub(crate) fn new() -> Self {
         Self {
-            data: Attribute::new("data"),
+            data: DATA.clone(),
             data_map: AttributeMap::new("data-map"),
-            model: Attribute::new("data-model"),
-            keyword: Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()),
-            full_text: Attribute::new("CustomTextField").indexed(AttributeIndex::full_text()),
-            decimal: Attribute::new("CustomDoubleField").indexed(AttributeIndex::double()),
-            integer: Attribute::new("CustomIntField").indexed(AttributeIndex::int()),
-            boolean: Attribute::new("CustomBoolField").indexed(AttributeIndex::bool()),
-            keywords: Attribute::new("CustomKeywordArrayField")
-                .indexed(AttributeIndex::keyword_array()),
-            datetime: Attribute::new("CustomDatetimeField").indexed(AttributeIndex::date_time()),
-            proceed: Channel::new("proceed"),
+            model: MODEL.clone(),
+            keyword: KEYWORD.clone(),
+            full_text: FULL_TEXT.clone(),
+            decimal: DECIMAL.clone(),
+            integer: INTEGER.clone(),
+            boolean: BOOLEAN.clone(),
+            keywords: KEYWORDS.clone(),
+            datetime: DATETIME.clone(),
+            proceed: PROCEED.clone(),
             start: SetAttributesStep {
-                proceed: Channel::new("proceed"),
+                proceed: PROCEED.clone(),
             },
         }
     }

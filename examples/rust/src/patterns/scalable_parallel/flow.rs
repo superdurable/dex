@@ -28,6 +28,8 @@
  * limitations under the License.
  */
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
     Step, StepDecision, StepList, Wait,
@@ -71,8 +73,8 @@ impl ParentFlow {
         context: &mut Context,
         tasks: Vec<String>,
     ) -> HandlerResult<RpcResult<usize>> {
-        let capacity = capacity().get(context)?.unwrap_or(100);
-        let available = capacity.saturating_sub(parent_queue().size(context)?);
+        let capacity = CAPACITY.get(context)?.unwrap_or(100);
+        let available = capacity.saturating_sub(PARENT_QUEUE.size(context)?);
         if tasks.len() > available {
             return Err(dex_sdk::HandlerError::new(
                 "ScalableParallel",
@@ -80,7 +82,7 @@ impl ParentFlow {
             ));
         }
         for task in tasks {
-            parent_queue().publish(context, task)?;
+            PARENT_QUEUE.publish(context, task)?;
         }
         Ok(RpcResult::new(available))
     }
@@ -95,8 +97,8 @@ impl Flow for ParentFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&capacity())
-            .channel(&parent_queue())
+            .attribute(&CAPACITY)
+            .channel(&PARENT_QUEUE)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -111,12 +113,12 @@ impl Step for DrainParentQueue {
     type Input = usize;
 
     fn wait_for(&self, context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
-        capacity().set(context, input.max(1))?;
-        Ok(Wait::until(parent_queue().for_one()))
+        CAPACITY.set(context, input.max(1))?;
+        Ok(Wait::until(PARENT_QUEUE.for_one()))
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        let task = parent_queue()
+        let task = PARENT_QUEUE
             .condition_results(context)?
             .into_iter()
             .next()
@@ -136,9 +138,9 @@ pub struct RequestReceiverFlow {
 impl RequestReceiverFlow {
     fn submit(&self, context: &mut Context, tasks: Vec<String>) -> HandlerResult<RpcResult<usize>> {
         for task in tasks {
-            request_buffer().publish(context, task)?;
+            REQUEST_BUFFER.publish(context, task)?;
         }
-        Ok(RpcResult::new(request_buffer().size(context)?))
+        Ok(RpcResult::new(REQUEST_BUFFER.size(context)?))
     }
 }
 
@@ -150,7 +152,7 @@ impl Flow for RequestReceiverFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&request_buffer())
+        PersistenceSchema::new().channel(&REQUEST_BUFFER)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -165,11 +167,11 @@ impl Step for ForwardRequests {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(request_buffer().for_one()))
+        Ok(Wait::until(REQUEST_BUFFER.for_one()))
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        let request = request_buffer()
+        let request = REQUEST_BUFFER
             .condition_results(context)?
             .into_iter()
             .next()
@@ -179,14 +181,11 @@ impl Step for ForwardRequests {
     }
 }
 
-fn capacity() -> Attribute<usize> {
-    Attribute::new("scalable-parent-capacity")
-}
+static CAPACITY: LazyLock<Attribute<usize>> =
+    LazyLock::new(|| Attribute::new("scalable-parent-capacity"));
 
-fn parent_queue() -> Channel<String> {
-    Channel::new("scalable-parent-queue")
-}
+static PARENT_QUEUE: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("scalable-parent-queue"));
 
-fn request_buffer() -> Channel<String> {
-    Channel::new("scalable-request-buffer")
-}
+static REQUEST_BUFFER: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("scalable-request-buffer"));

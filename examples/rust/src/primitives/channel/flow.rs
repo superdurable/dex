@@ -14,6 +14,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
     StepList, Timer, Wait,
@@ -21,9 +23,7 @@ use dex_sdk::{
 
 pub const CHANNEL_APPROVE: Rpc<(), ()> = Rpc::new("ChannelApprove");
 
-fn approval() -> Channel<String> {
-    Channel::new("Approval")
-}
+static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 
 #[derive(Default)]
 pub struct ChannelFlow {
@@ -32,7 +32,7 @@ pub struct ChannelFlow {
 
 impl ChannelFlow {
     fn approve(&self, context: &mut Context) -> HandlerResult<()> {
-        approval().publish(context, "approved".to_string())
+        APPROVAL.publish(context, "approved".to_string())
     }
 }
 
@@ -44,7 +44,7 @@ impl Flow for ChannelFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&approval())
+        PersistenceSchema::new().channel(&APPROVAL)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -60,7 +60,7 @@ impl Step for ChannelWait {
 
     fn wait_for(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            approval().for_one(),
+            APPROVAL.for_one(),
             Timer::by_duration(Duration::from_secs(input.max(0) as u64)),
         ]))
     }
@@ -71,7 +71,7 @@ impl Step for ChannelWait {
                 "approval timed out".to_owned(),
             ));
         }
-        let approvals = approval().condition_results(context)?;
+        let approvals = APPROVAL.condition_results(context)?;
         Ok(StepDecision::graceful_complete(approvals[0].clone()))
     }
 }

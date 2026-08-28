@@ -12,12 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Context, Flow, FlowConfig, HandlerResult,
     PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepOptions, Wait,
 };
 
 const UPDATE_STATUS: Rpc<String, String> = Rpc::new("UpdateStatus");
+
+static STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
+    Attribute::new("primitive-attribute-status")
+        .indexed(AttributeIndex::keyword().with_key("OrderStatus"))
+});
+static EMAIL: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("primitive-attribute-email").sync_to_attribute_store());
 
 pub fn attribute_store_config() -> FlowConfig {
     FlowConfig::new().attribute_store_names(vec!["profiles".to_owned()])
@@ -32,9 +41,8 @@ pub struct AttributeFlow {
 
 impl Default for AttributeFlow {
     fn default() -> Self {
-        let status = Attribute::new("primitive-attribute-status")
-            .indexed(AttributeIndex::keyword().with_key("OrderStatus"));
-        let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
+        let status = STATUS.clone();
+        let email = EMAIL.clone();
         let progress = AttributeMap::new("primitive-attribute-progress")
             .indexed(AttributeIndex::keyword().with_key("OrderProgress"));
         Self {

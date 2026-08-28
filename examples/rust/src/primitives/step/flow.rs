@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Wait,
 };
 
-fn approval() -> Channel<String> {
-    Channel::new("Approval")
-}
+static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 
 #[derive(Default)]
 pub struct StepFlow {
@@ -34,7 +34,7 @@ impl Flow for StepFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&approval())
+        PersistenceSchema::new().channel(&APPROVAL)
     }
 }
 
@@ -45,7 +45,7 @@ impl Step for ExampleStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(approval().for_one()))
+        Ok(Wait::until(APPROVAL.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {

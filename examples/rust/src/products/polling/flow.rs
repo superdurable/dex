@@ -30,6 +30,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
     StepList, StepMovement, Timer, Wait,
@@ -48,8 +50,8 @@ pub struct PollingFlow {
 impl PollingFlow {
     fn complete_task(&self, context: &mut Context, task: String) -> HandlerResult<()> {
         match task.as_str() {
-            "a" => task_a().publish(context, ()),
-            "b" => task_b().publish(context, ()),
+            "a" => TASK_A.publish(context, ()),
+            "b" => TASK_B.publish(context, ()),
             _ => Err(dex_sdk::HandlerError::new("Polling", "task must be a or b")),
         }
     }
@@ -66,9 +68,7 @@ impl Flow for PollingFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new()
-            .channel(&task_a())
-            .channel(&task_b())
+        PersistenceSchema::new().channel(&TASK_A).channel(&TASK_B)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -102,7 +102,7 @@ impl Step for WaitForTaskA {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(task_a().for_one()))
+        Ok(Wait::until(TASK_A.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
@@ -117,7 +117,7 @@ impl Step for WaitForTaskB {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(task_b().for_one()))
+        Ok(Wait::until(TASK_B.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
@@ -145,10 +145,6 @@ impl Step for PollTaskC {
     }
 }
 
-fn task_a() -> Channel<()> {
-    Channel::new("polling-task-a-completed")
-}
+static TASK_A: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("polling-task-a-completed"));
 
-fn task_b() -> Channel<()> {
-    Channel::new("polling-task-b-completed")
-}
+static TASK_B: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("polling-task-b-completed"));

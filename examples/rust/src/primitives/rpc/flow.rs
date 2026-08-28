@@ -14,6 +14,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
     Step, StepDecision, StepList, StepMovement, Wait,
@@ -21,13 +23,9 @@ use dex_sdk::{
 
 pub const RPC_TRIGGER: Rpc<String, String> = Rpc::new("RpcTrigger");
 
-fn example_ch() -> Channel<()> {
-    Channel::new("rpc-internal")
-}
+static EXAMPLE_CH: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("rpc-internal"));
 
-fn data() -> Attribute<String> {
-    Attribute::new("rpc-data")
-}
+static DATA: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("rpc-data"));
 
 #[derive(Default)]
 pub struct RpcFlow {
@@ -38,8 +36,8 @@ pub struct RpcFlow {
 
 impl RpcFlow {
     fn trigger(&self, context: &mut Context, input: String) -> HandlerResult<RpcResult<String>> {
-        data().set(context, input.clone())?;
-        example_ch().publish(context, ())?;
+        DATA.set(context, input.clone())?;
+        EXAMPLE_CH.publish(context, ())?;
         Ok(RpcResult::new(input.clone()).then(StepMovement::to(&self.example_step, input)))
     }
 }
@@ -55,8 +53,8 @@ impl Flow for RpcFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&data())
-            .channel(&example_ch())
+            .attribute(&DATA)
+            .channel(&EXAMPLE_CH)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -71,7 +69,7 @@ impl Step for RpcWait {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(example_ch().for_one()))
+        Ok(Wait::until(EXAMPLE_CH.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {

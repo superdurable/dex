@@ -14,6 +14,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Context, Flow, FlowConfig, HandlerError, HandlerResult, PersistenceSchema, Rpc,
     RpcList, RpcResult, StartFlowOptions, StepList,
@@ -56,46 +58,46 @@ impl UserProfileFlow {
         StartFlowOptions::new()
             .timeout(Duration::from_secs(3_600))
             .config_override(Self::flow_config())
-            .initial_attribute(&display_name(), profile.display_name.clone())
-            .initial_attribute(&email(), profile.email.clone())
-            .initial_attribute(&marketing_opt_in(), profile.marketing_opt_in)
-            .initial_attribute(&credits(), profile.credits)
-            .initial_attribute(&weight(), profile.weight)
-            .initial_attribute(&last_logged_in_time(), profile.last_logged_in_time.clone())
-            .initial_attribute(&metadata(), profile.metadata.clone())
+            .initial_attribute(&DISPLAY_NAME, profile.display_name.clone())
+            .initial_attribute(&EMAIL, profile.email.clone())
+            .initial_attribute(&MARKETING_OPT_IN, profile.marketing_opt_in)
+            .initial_attribute(&CREDITS, profile.credits)
+            .initial_attribute(&WEIGHT, profile.weight)
+            .initial_attribute(&LAST_LOGGED_IN_TIME, profile.last_logged_in_time.clone())
+            .initial_attribute(&METADATA, profile.metadata.clone())
     }
 
     fn read(&self, context: &mut Context) -> HandlerResult<RpcResult<UserProfile>> {
         Ok(RpcResult::new(UserProfile {
-            display_name: display_name().get_required(context)?,
-            email: email().get_required(context)?,
-            marketing_opt_in: marketing_opt_in().get_required(context)?,
-            credits: credits().get_required(context)?,
-            weight: weight().get_required(context)?,
-            last_logged_in_time: last_logged_in_time().get_required(context)?,
-            metadata: metadata().get_required(context)?,
+            display_name: DISPLAY_NAME.get_required(context)?,
+            email: EMAIL.get_required(context)?,
+            marketing_opt_in: MARKETING_OPT_IN.get_required(context)?,
+            credits: CREDITS.get_required(context)?,
+            weight: WEIGHT.get_required(context)?,
+            last_logged_in_time: LAST_LOGGED_IN_TIME.get_required(context)?,
+            metadata: METADATA.get_required(context)?,
         }))
     }
 
     fn update(&self, context: &mut Context, replacement: UserProfile) -> HandlerResult<()> {
         validate_profile(&replacement)?;
-        display_name().set(context, replacement.display_name)?;
-        email().set(context, replacement.email)?;
-        marketing_opt_in().set(context, replacement.marketing_opt_in)?;
-        credits().set(context, replacement.credits)?;
-        weight().set(context, replacement.weight)?;
-        last_logged_in_time().set(context, replacement.last_logged_in_time)?;
-        metadata().set(context, replacement.metadata)
+        DISPLAY_NAME.set(context, replacement.display_name)?;
+        EMAIL.set(context, replacement.email)?;
+        MARKETING_OPT_IN.set(context, replacement.marketing_opt_in)?;
+        CREDITS.set(context, replacement.credits)?;
+        WEIGHT.set(context, replacement.weight)?;
+        LAST_LOGGED_IN_TIME.set(context, replacement.last_logged_in_time)?;
+        METADATA.set(context, replacement.metadata)
     }
 
     fn clear(&self, context: &mut Context) -> HandlerResult<()> {
-        display_name().delete(context)?;
-        email().delete(context)?;
-        marketing_opt_in().delete(context)?;
-        credits().delete(context)?;
-        weight().delete(context)?;
-        last_logged_in_time().delete(context)?;
-        metadata().delete(context)
+        DISPLAY_NAME.delete(context)?;
+        EMAIL.delete(context)?;
+        MARKETING_OPT_IN.delete(context)?;
+        CREDITS.delete(context)?;
+        WEIGHT.delete(context)?;
+        LAST_LOGGED_IN_TIME.delete(context)?;
+        METADATA.delete(context)
     }
 }
 
@@ -108,13 +110,13 @@ impl Flow for UserProfileFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&display_name())
-            .attribute(&email())
-            .attribute(&marketing_opt_in())
-            .attribute(&credits())
-            .attribute(&weight())
-            .attribute(&last_logged_in_time())
-            .attribute(&metadata())
+            .attribute(&DISPLAY_NAME)
+            .attribute(&EMAIL)
+            .attribute(&MARKETING_OPT_IN)
+            .attribute(&CREDITS)
+            .attribute(&WEIGHT)
+            .attribute(&LAST_LOGGED_IN_TIME)
+            .attribute(&METADATA)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -147,30 +149,23 @@ fn validate_profile(profile: &UserProfile) -> HandlerResult<()> {
     Ok(())
 }
 
-fn display_name() -> Attribute<String> {
-    Attribute::new("display_name").sync_to_attribute_store()
-}
+static DISPLAY_NAME: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("display_name").sync_to_attribute_store());
 
-fn email() -> Attribute<String> {
-    Attribute::new("email").sync_to_attribute_store()
-}
+static EMAIL: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("email").sync_to_attribute_store());
 
-fn marketing_opt_in() -> Attribute<bool> {
-    Attribute::new("marketing_opt_in").sync_to_attribute_store()
-}
+static MARKETING_OPT_IN: LazyLock<Attribute<bool>> =
+    LazyLock::new(|| Attribute::new("marketing_opt_in").sync_to_attribute_store());
 
-fn credits() -> Attribute<i64> {
-    Attribute::new("credits").sync_to_attribute_store()
-}
+static CREDITS: LazyLock<Attribute<i64>> =
+    LazyLock::new(|| Attribute::new("credits").sync_to_attribute_store());
 
-fn weight() -> Attribute<f64> {
-    Attribute::new("weight").sync_to_attribute_store()
-}
+static WEIGHT: LazyLock<Attribute<f64>> =
+    LazyLock::new(|| Attribute::new("weight").sync_to_attribute_store());
 
-fn last_logged_in_time() -> Attribute<String> {
-    Attribute::new("last_logged_in_time").sync_to_attribute_store()
-}
+static LAST_LOGGED_IN_TIME: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("last_logged_in_time").sync_to_attribute_store());
 
-fn metadata() -> Attribute<UserProfileMetadata> {
-    Attribute::new("metadata").sync_to_attribute_store()
-}
+static METADATA: LazyLock<Attribute<UserProfileMetadata>> =
+    LazyLock::new(|| Attribute::new("metadata").sync_to_attribute_store());

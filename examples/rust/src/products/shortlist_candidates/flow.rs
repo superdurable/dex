@@ -30,6 +30,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
     Step, StepDecision, StepList, Timer, Wait,
@@ -57,7 +59,7 @@ pub struct EmployerOptInFlow {
 
 impl EmployerOptInFlow {
     fn opt_out(&self, context: &mut Context) -> HandlerResult<()> {
-        opt_out().publish(context, ())
+        OPT_OUT.publish(context, ())
     }
 
     fn is_opted_in(&self, _context: &mut Context) -> HandlerResult<RpcResult<bool>> {
@@ -74,8 +76,8 @@ impl Flow for EmployerOptInFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&employer())
-            .channel(&opt_out())
+            .attribute(&EMPLOYER)
+            .channel(&OPT_OUT)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -92,7 +94,7 @@ impl Step for OptIn {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        employer().set(context, input)?;
+        EMPLOYER.set(context, input)?;
         Ok(StepDecision::go_to(&AwaitOptOut, ()))
     }
 }
@@ -104,7 +106,7 @@ impl Step for AwaitOptOut {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(opt_out().for_one()))
+        Ok(Wait::until(OPT_OUT.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
@@ -125,11 +127,11 @@ pub struct ShortlistFlow {
 
 impl ShortlistFlow {
     fn revoke(&self, context: &mut Context) -> HandlerResult<()> {
-        revoked().publish(context, ())
+        REVOKED.publish(context, ())
     }
 
     fn email_sent_timestamp(&self, context: &mut Context) -> HandlerResult<RpcResult<i64>> {
-        Ok(RpcResult::new(email_sent().get(context)?.unwrap_or(0)))
+        Ok(RpcResult::new(EMAIL_SENT.get(context)?.unwrap_or(0)))
     }
 }
 
@@ -142,8 +144,8 @@ impl Flow for ShortlistFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&email_sent())
-            .channel(&revoked())
+            .attribute(&EMAIL_SENT)
+            .channel(&REVOKED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -161,18 +163,18 @@ impl Step for ScheduleContact {
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            revoked().for_one(),
+            REVOKED.for_one(),
             Timer::by_duration(Duration::from_secs(86_400)),
         ]))
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        if revoked().condition_results(context)?.is_empty() {
+        if REVOKED.condition_results(context)?.is_empty() {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|duration| duration.as_millis() as i64)
                 .unwrap_or(0);
-            email_sent().set(context, timestamp)?;
+            EMAIL_SENT.set(context, timestamp)?;
             context.record_event("candidate-contact", input.candidate_id)?;
             Ok(StepDecision::graceful_complete("contacted".to_string()))
         } else {
@@ -181,18 +183,11 @@ impl Step for ScheduleContact {
     }
 }
 
-fn employer() -> Attribute<String> {
-    Attribute::new("employer-opt-in")
-}
+static EMPLOYER: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("employer-opt-in"));
 
-fn opt_out() -> Channel<()> {
-    Channel::new("employer-opt-out")
-}
+static OPT_OUT: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("employer-opt-out"));
 
-fn email_sent() -> Attribute<i64> {
-    Attribute::new("SHORTLIST_EmailSentTimestamp")
-}
+static EMAIL_SENT: LazyLock<Attribute<i64>> =
+    LazyLock::new(|| Attribute::new("SHORTLIST_EmailSentTimestamp"));
 
-fn revoked() -> Channel<()> {
-    Channel::new("shortlist-revoked")
-}
+static REVOKED: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("shortlist-revoked"));

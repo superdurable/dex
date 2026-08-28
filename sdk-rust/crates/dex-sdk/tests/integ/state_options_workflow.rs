@@ -8,10 +8,16 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Step, StepDecision,
     StepList, StepOptions, Wait,
 };
+
+static WAIT_VALUE: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("DA_WAIT_UNTIL"));
+static EXECUTE_VALUE: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("DA_EXECUTE"));
+static BOTH_VALUE: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("DA_BOTH"));
 
 pub(crate) struct StateOptionsWorkflow {
     pub(crate) wait_value: Attribute<String>,
@@ -24,9 +30,9 @@ pub(crate) struct StateOptionsWorkflow {
 
 impl StateOptionsWorkflow {
     pub(crate) fn new() -> Self {
-        let wait_value = Attribute::new("DA_WAIT_UNTIL");
-        let execute_value = Attribute::new("DA_EXECUTE");
-        let both_value = Attribute::new("DA_BOTH");
+        let wait_value = WAIT_VALUE.clone();
+        let execute_value = EXECUTE_VALUE.clone();
+        let both_value = BOTH_VALUE.clone();
         Self {
             first: OptionsFirstStep {
                 wait_value: wait_value.clone(),

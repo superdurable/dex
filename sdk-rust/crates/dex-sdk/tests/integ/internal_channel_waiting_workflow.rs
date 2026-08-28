@@ -8,9 +8,13 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Wait,
 };
+
+static CHANNEL: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("waiting-channel"));
 
 pub(crate) struct InternalChannelWaitingWorkflow {
     pub(crate) channel: Channel<i32>,
@@ -19,7 +23,7 @@ pub(crate) struct InternalChannelWaitingWorkflow {
 
 impl InternalChannelWaitingWorkflow {
     pub(crate) fn new() -> Self {
-        let channel = Channel::new("waiting-channel");
+        let channel = CHANNEL.clone();
         Self {
             start: WaitingStep {
                 channel: channel.clone(),

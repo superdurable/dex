@@ -8,10 +8,17 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, ChannelMap, ConditionCombination, Context, Flow, HandlerError, HandlerResult,
     PersistenceSchema, Step, StepDecision, StepList, StepMovement, Wait,
 };
+
+static FIRST_CHANNEL: LazyLock<Channel<i32>> =
+    LazyLock::new(|| Channel::new("test-inter-state-channel-1"));
+static SECOND_CHANNEL: LazyLock<Channel<i32>> =
+    LazyLock::new(|| Channel::new("test-inter-state-channel-2"));
 
 pub(crate) struct InternalChannelWorkflow {
     first_channel: Channel<i32>,
@@ -24,8 +31,8 @@ pub(crate) struct InternalChannelWorkflow {
 
 impl InternalChannelWorkflow {
     pub(crate) fn new() -> Self {
-        let first_channel = Channel::new("test-inter-state-channel-1");
-        let second_channel = Channel::new("test-inter-state-channel-2");
+        let first_channel = FIRST_CHANNEL.clone();
+        let second_channel = SECOND_CHANNEL.clone();
         let channel_map = ChannelMap::new("test-inter-state-channel-map");
         Self {
             start: ForkStep,
@@ -71,15 +78,15 @@ impl Step for ForkStep {
         Ok(StepDecision::go_to_many([
             StepMovement::to(
                 &ConsumeStep {
-                    first_channel: Channel::new("test-inter-state-channel-1"),
-                    second_channel: Channel::new("test-inter-state-channel-2"),
+                    first_channel: FIRST_CHANNEL.clone(),
+                    second_channel: SECOND_CHANNEL.clone(),
                     channel_map: ChannelMap::new("test-inter-state-channel-map"),
                 },
                 input,
             ),
             StepMovement::to(
                 &PublishStep {
-                    first_channel: Channel::new("test-inter-state-channel-1"),
+                    first_channel: FIRST_CHANNEL.clone(),
                     channel_map: ChannelMap::new("test-inter-state-channel-map"),
                 },
                 input,

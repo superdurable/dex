@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Channel, Context, Flow, FlowTimeoutHandler, HandlerResult, PersistenceSchema, Rpc,
     RpcList, RpcResult, Step, StepDecision, StepList, Wait,
@@ -19,13 +21,9 @@ use dex_sdk::{
 
 pub const DESCRIBE: Rpc<(), String> = Rpc::new("Describe");
 
-pub(crate) fn status() -> Attribute<String> {
-    Attribute::new("status")
-}
+pub(crate) static STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("status"));
 
-fn notify() -> Channel<()> {
-    Channel::new("notify")
-}
+static NOTIFY: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("notify"));
 
 #[derive(Default)]
 pub struct ExampleFlow {
@@ -35,12 +33,12 @@ pub struct ExampleFlow {
 
 impl ExampleFlow {
     fn describe(&self, context: &mut Context, _input: ()) -> HandlerResult<RpcResult<String>> {
-        let value = status().get(context)?.unwrap_or_default();
+        let value = STATUS.get(context)?.unwrap_or_default();
         Ok(RpcResult::new(value))
     }
 
     fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
-        status().set(context, "timed out".to_string())?;
+        STATUS.set(context, "timed out".to_string())?;
         Ok(StepDecision::force_fail("processing deadline reached"))
     }
 }
@@ -53,9 +51,7 @@ impl Flow for ExampleFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new()
-            .attribute(&status())
-            .channel(&notify())
+        PersistenceSchema::new().attribute(&STATUS).channel(&NOTIFY)
     }
 
     fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
@@ -74,7 +70,7 @@ impl Step for ExampleStep {
     type Input = i32;
 
     fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        status().set(context, "running".to_string())?;
+        STATUS.set(context, "running".to_string())?;
         Ok(Wait::skip_immediately())
     }
 
@@ -90,7 +86,7 @@ impl Step for FinishStep {
     type Input = i32;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        status().set(context, "done".to_string())?;
+        STATUS.set(context, "done".to_string())?;
         Ok(StepDecision::graceful_complete(input + 1))
     }
 }

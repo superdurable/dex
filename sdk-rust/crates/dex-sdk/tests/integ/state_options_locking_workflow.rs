@@ -8,10 +8,18 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Step,
     StepDecision, StepList, StepMovement, StepOptions, Wait,
 };
+
+static WAIT_FOR_COUNT: LazyLock<Attribute<i32>> =
+    LazyLock::new(|| Attribute::new("step-lock-wait-for-count"));
+static EXECUTE_COUNT: LazyLock<Attribute<i32>> =
+    LazyLock::new(|| Attribute::new("step-lock-execute-count"));
+static COMPLETED: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("step-lock-completed"));
 
 pub(crate) struct StateOptionsLockingWorkflow {
     pub(crate) wait_for_count: Attribute<i32>,
@@ -24,9 +32,9 @@ pub(crate) struct StateOptionsLockingWorkflow {
 
 impl StateOptionsLockingWorkflow {
     pub(crate) fn new() -> Self {
-        let wait_for_count = Attribute::new("step-lock-wait-for-count");
-        let execute_count = Attribute::new("step-lock-execute-count");
-        let completed = Channel::new("step-lock-completed");
+        let wait_for_count = WAIT_FOR_COUNT.clone();
+        let execute_count = EXECUTE_COUNT.clone();
+        let completed = COMPLETED.clone();
         Self {
             start: StartStep,
             locked: LockedStep {
@@ -73,9 +81,9 @@ impl Step for StartStep {
             .map(|index| {
                 StepMovement::to(
                     &LockedStep {
-                        wait_for_count: Attribute::new("step-lock-wait-for-count"),
-                        execute_count: Attribute::new("step-lock-execute-count"),
-                        completed: Channel::new("step-lock-completed"),
+                        wait_for_count: WAIT_FOR_COUNT.clone(),
+                        execute_count: EXECUTE_COUNT.clone(),
+                        completed: COMPLETED.clone(),
                     },
                     index,
                 )
@@ -83,9 +91,9 @@ impl Step for StartStep {
             .collect::<Vec<_>>();
         movements.push(StepMovement::to(
             &CompleteStep {
-                wait_for_count: Attribute::new("step-lock-wait-for-count"),
-                execute_count: Attribute::new("step-lock-execute-count"),
-                completed: Channel::new("step-lock-completed"),
+                wait_for_count: WAIT_FOR_COUNT.clone(),
+                execute_count: EXECUTE_COUNT.clone(),
+                completed: COMPLETED.clone(),
             },
             parallelism,
         ));

@@ -8,10 +8,15 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc, RpcList,
     RpcResult, Step, StepDecision, StepList, StepMovement,
 };
+
+static IDLE_SIGNAL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("idle-signal"));
+static IDLE_INTERNAL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("idle-internal"));
 
 pub(crate) struct NoStartStateDeadEndWorkflow {
     pub(crate) idle_signal: Channel<()>,
@@ -27,8 +32,8 @@ impl NoStartStateDeadEndWorkflow {
 
     pub(crate) fn new() -> Self {
         Self {
-            idle_signal: Channel::new("idle-signal"),
-            idle_internal: Channel::new("idle-internal"),
+            idle_signal: IDLE_SIGNAL.clone(),
+            idle_internal: IDLE_INTERNAL.clone(),
             start: DeadEndStep,
             complete: CompleteStep,
         }

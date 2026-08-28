@@ -10,10 +10,23 @@
 
 use std::time::{Duration, SystemTime};
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Context, Flow, HandlerError, HandlerResult,
     PersistenceSchema, Step, StepDecision, StepList, Wait,
 };
+
+static INITIAL: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("data-obj-0"));
+static DATA: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("data-obj-1"));
+static MODEL: LazyLock<Attribute<PersistenceModel>> =
+    LazyLock::new(|| Attribute::new("data-obj-2"));
+static KEYWORD: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()));
+static INTEGER: LazyLock<Attribute<i32>> =
+    LazyLock::new(|| Attribute::new("CustomIntField").indexed(AttributeIndex::int()));
+static DATETIME: LazyLock<Attribute<SystemTime>> =
+    LazyLock::new(|| Attribute::new("CustomDatetimeField").indexed(AttributeIndex::date_time()));
 
 #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct PersistenceModel {
@@ -33,14 +46,14 @@ pub(crate) struct PersistenceWorkflow {
 
 impl PersistenceWorkflow {
     pub(crate) fn new() -> Self {
-        let data = Attribute::new("data-obj-1");
-        let model = Attribute::new("data-obj-2");
+        let data = DATA.clone();
+        let model = MODEL.clone();
         let data_map = AttributeMap::new("data-map");
-        let keyword = Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword());
-        let integer = Attribute::new("CustomIntField").indexed(AttributeIndex::int());
-        let datetime = Attribute::new("CustomDatetimeField").indexed(AttributeIndex::date_time());
+        let keyword = KEYWORD.clone();
+        let integer = INTEGER.clone();
+        let datetime = DATETIME.clone();
         Self {
-            initial: Attribute::new("data-obj-0"),
+            initial: INITIAL.clone(),
             start: PersistenceStep {
                 data: data.clone(),
                 model: model.clone(),
