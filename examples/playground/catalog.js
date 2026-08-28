@@ -315,11 +315,13 @@ window.PLAYGROUND_CATALOG = [
   {
     group: "patterns",
     id: "parallel",
-    title: "Parallel",
+    title: "Parallel Steps",
     flowIdPrefix: "parallel",
     endpoints: [
-      endpoint("GET", "/patterns/parallel/start/simple", "Start simple", [flowId()]),
-      endpoint("GET", "/patterns/parallel/start/withAwait", "Start with await", [flowId()]),
+      endpoint("GET", "/patterns/parallel/start/static", "Start static", [flowId()]),
+      endpoint("GET", "/patterns/parallel/start/dynamic", "Start dynamic", [flowId()]),
+      endpoint("GET", "/patterns/parallel/start/await", "Start await", [flowId()]),
+      endpoint("GET", "/patterns/parallel/start/first-win", "Start first win", [flowId()]),
     ],
   },
   {

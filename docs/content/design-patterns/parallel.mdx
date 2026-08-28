@@ -4,54 +4,18 @@ title: Parallel Steps
 
 # Parallel Steps
 
-Run Steps concurrently and optionally await results.
+Choose one of four ways to start and coordinate concurrent Step executions.
 
 ## Problem and approach
 
-Here we demonstrate how to take advantage of the parallel running Steps feature in Dex.
+Each pattern starts independent Step executions with **GoToMulti**. Use the coordination choice that matches when the Flow is allowed to continue.
 
-1. **Simple Parallel Step Flow**: This pattern demonstrates how to run multiple Steps in parallel.
-2. **Await All Parallel Steps Flow**: This pattern demonstrates how to run multiple Steps in parallel, plus how to wait for all parallel Steps to complete before proceeding to the next Step.
-
-This is a basic design pattern for parallel execution in a single Flow. For higher scalability needs. you can check out scalable parallel design pattern or parentchild
-
-## Code examples
-
-Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix /patterns/name/... where applicable). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
-
-<SdkTabs>
-<SdkSnippet lang="python">
-
-```python
-# See examples/python/dex_examples/patterns/parallel/
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-// See examples/go/patterns/parallel/
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-// See examples/java/src/main/java/io/superdurable/dex/patterns/parallel/
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-// @superdurable/dex ^0.2.3+ (async waitFor/execute/RPC OK).
-// See examples/typescript/src/patterns/parallel/
-```
-
-</SdkSnippet>
-</SdkTabs>
+- [Static parallel Steps](/design-patterns/parallel/static) — Fan out to a fixed set of distinct Step types.
+- [Dynamic parallel Steps](/design-patterns/parallel/dynamic) — Fan out to a runtime-sized set of executions of one Step type.
+- [Await parallel Steps](/design-patterns/parallel/await) — Wait until every dynamic execution has published completion.
+- [First-win parallel Steps](/design-patterns/parallel/first-win) — Let the first completed execution cancel its siblings.
 
 ## Related
 
-- [Primitives](/primitives)
+- [Scalable parallel](/design-patterns/scalable-parallel)
 - [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)

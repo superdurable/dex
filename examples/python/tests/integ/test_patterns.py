@@ -25,7 +25,6 @@ from dex_examples.patterns.entity_store.user_profile import (
     UserProfileMetadata,
 )
 from dex_examples.patterns.entity_store.user_profile_flow import STORE_NAME
-from dex_examples.patterns.parallel.job_seeker import JobSeeker
 from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )
@@ -139,23 +138,21 @@ async def test_manual_recovery_retry_completes(
     assert output == "work completed"
 
 
-async def test_parallel_simple_and_with_await(
+async def test_parallel_step_variants(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    simple_id = new_flow_id("parallel-simple")
-    await client.start_flow(
-        app.simple_parallel,
-        simple_id,
-        JobSeeker("123", "jobseeker@example.com", "0987654321"),
-        start_options(),
+    cases = (
+        ("static", app.static_parallel, "work"),
+        ("dynamic", app.dynamic_parallel, 3),
+        ("await", app.await_parallel, 3),
+        ("first-win", app.first_win_parallel, 3),
     )
-    await client.wait_for_flow(simple_id, WAIT_TIMEOUT)
-
-    await_id = new_flow_id("parallel-await")
-    await client.start_flow(app.parallel_with_await, await_id, 5, start_options())
-    await client.wait_for_flow(await_id, WAIT_TIMEOUT)
+    for name, flow, input_value in cases:
+        flow_id = new_flow_id(f"parallel-{name}")
+        await client.start_flow(flow, flow_id, input_value, start_options())
+        await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
 async def test_pattern_polling_simple_and_backoff(

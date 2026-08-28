@@ -16,41 +16,45 @@
 
 import { Router } from "express";
 
-import type { Client } from "@superdurable/dex";
+import type { Client, Flow } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { parallelStatesWithAwaitFlow } from "./parallel-states-with-await-flow.js";
-import { simpleParallelStatesFlow } from "./simple-parallel-states-flow.js";
+import {
+  awaitParallelStepsFlow,
+  dynamicParallelStepsFlow,
+  firstWinParallelStepsFlow,
+  staticParallelStepsFlow,
+} from "./parallel-step-flows.js";
 
 export function createParallelRouter(client: Client): Router {
   const router = Router();
 
-  router.get("/start/simple", async (request, response) => {
-    const workflowId = String(request.query.workflowId ?? "");
-    const runId = await client.startFlow(
-      simpleParallelStatesFlow,
-      workflowId,
-      {
-        id: "123",
-        email: "jobseeker@indeed.com",
-        phoneNumber: "0987654321",
-      },
-      startOptions(),
-    );
-    response.send(runId);
+  router.get("/start/static", async (request, response) => {
+    response.send(await start(client, staticParallelStepsFlow, request, "work"));
   });
-
-  router.get("/start/withAwait", async (request, response) => {
-    const workflowId = String(request.query.workflowId ?? "");
-    const countOfJobSeekers = Number(request.query.countOfJobSeekers ?? 50);
-    const runId = await client.startFlow(
-      parallelStatesWithAwaitFlow,
-      workflowId,
-      countOfJobSeekers,
-      startOptions(),
-    );
-    response.send(runId);
+  router.get("/start/dynamic", async (request, response) => {
+    response.send(await start(client, dynamicParallelStepsFlow, request, 3));
+  });
+  router.get("/start/await", async (request, response) => {
+    response.send(await start(client, awaitParallelStepsFlow, request, 3));
+  });
+  router.get("/start/first-win", async (request, response) => {
+    response.send(await start(client, firstWinParallelStepsFlow, request, 3));
   });
 
   return router;
+}
+
+async function start<T>(
+  client: Client,
+  flow: Flow<T>,
+  request: { query: Record<string, unknown> },
+  input: T,
+): Promise<string> {
+  return client.startFlow(
+    flow,
+    String(request.query.workflowId ?? ""),
+    input,
+    startOptions(),
+  );
 }

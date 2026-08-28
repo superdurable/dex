@@ -36,8 +36,10 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(drain_channels::DrainingExternalChannelFlow::default())?
         .register(interruptible::InterruptibleFlow::default())?
         .register(intervention::ManualRecoveryFlow::default())?
-        .register(parallel::SimpleParallelStatesFlow::default())?
-        .register(parallel::ParallelStatesWithAwaitFlow::default())?
+        .register(parallel::StaticParallelStepsFlow::default())?
+        .register(parallel::DynamicParallelStepsFlow::default())?
+        .register(parallel::AwaitParallelStepsFlow::default())?
+        .register(parallel::FirstWinParallelStepsFlow::default())?
         .register(parent_child::ParentFlowV2::default())?
         .register(polling::SimplePollingFlow::default())?
         .register(polling::BackoffPollingFlow::default())?

@@ -26,14 +26,14 @@ import io.superdurable.dex.StepMovement;
 import org.springframework.stereotype.Component;
 
 @Component
-public class SimpleParallelStatesFlow implements Flow<JobSeeker> {
-    private final Init init = new Init();
-    private final SendTextMessage sendTextMessage = new SendTextMessage();
-    private final SendEmail sendEmail = new SendEmail();
+public class StaticParallelStepsFlow implements Flow<String> {
+    private final InitStep init = new InitStep();
+    private final WorkAStep workA = new WorkAStep();
+    private final WorkBStep workB = new WorkBStep();
 
     @Override
-    public StepList<JobSeeker> getSteps() {
-        return StepList.startStep(init).otherSteps(sendTextMessage, sendEmail);
+    public StepList<String> getSteps() {
+        return StepList.startStep(init).otherSteps(workA, workB);
     }
 
     @Override
@@ -41,21 +41,21 @@ public class SimpleParallelStatesFlow implements Flow<JobSeeker> {
         return PersistenceSchema.of();
     }
 
-    final class Init implements Step<JobSeeker> {
+    final class InitStep implements Step<String> {
         @Override
-        public Class<JobSeeker> getInputType() {
-            return JobSeeker.class;
+        public Class<String> getInputType() {
+            return String.class;
         }
 
         @Override
-        public StepDecision execute(final Context context, final JobSeeker input) {
+        public StepDecision execute(final Context context, final String input) {
             return StepDecision.goToMulti(
-                    StepMovement.of(SendTextMessage.class, input.phoneNumber),
-                    StepMovement.of(SendEmail.class, input.email));
+                    StepMovement.of(WorkAStep.class, input),
+                    StepMovement.of(WorkBStep.class, input));
         }
     }
 
-    final class SendTextMessage implements Step<String> {
+    final class WorkAStep implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -63,14 +63,11 @@ public class SimpleParallelStatesFlow implements Flow<JobSeeker> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            final String message = "[FAKE] Sending text message to: " + input;
-            System.out.println(message);
-            context.recordEvent("text-message", message, String.class);
-            return StepDecision.gracefulComplete();
+            return StepDecision.gracefulComplete("A:" + input);
         }
     }
 
-    final class SendEmail implements Step<String> {
+    final class WorkBStep implements Step<String> {
         @Override
         public Class<String> getInputType() {
             return String.class;
@@ -78,10 +75,7 @@ public class SimpleParallelStatesFlow implements Flow<JobSeeker> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            final String message = "[FAKE] Sending email to: " + input;
-            System.out.println(message);
-            context.recordEvent("email-notification", message, String.class);
-            return StepDecision.gracefulComplete();
+            return StepDecision.gracefulComplete("B:" + input);
         }
     }
 }

@@ -180,7 +180,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	entitystore.RegisterRoutes(router, client, registry.UserProfile)
 	intervention.RegisterRoutes(router, client, registry.ManualRecovery)
 	resettabletimer.RegisterRoutes(router, client, registry.ResettableTimer)
-	parallel.RegisterRoutes(router, client, registry.SimpleParallel, registry.ParallelWithAwait)
+	parallel.RegisterRoutes(router, client, registry.StaticParallel, registry.DynamicParallel, registry.AwaitParallel, registry.FirstWinParallel)
 	recovery.RegisterRoutes(router, client, registry.FailureRecovery)
 	scalableparallel.RegisterRoutes(router, client, registry.RequestReceiver)
 	parentchild.RegisterRoutes(router, client, registry.ParentChild)

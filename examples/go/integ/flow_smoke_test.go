@@ -284,31 +284,33 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "patterns/parallel/simple",
+			name: "patterns/parallel/static",
 			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-simple")}}
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-static")}}
 				return triggerFlowSmokeHTTP(
 					t,
 					http.MethodGet,
-					"/patterns/parallel/start/simple",
+					"/patterns/parallel/start/static",
 					query,
 					nil,
 				)
 			},
 		},
 		{
-			name: "patterns/parallel/with-await",
+			name: "patterns/parallel/dynamic",
 			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-await")}}
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-dynamic")}}
 				return triggerFlowSmokeHTTP(
 					t,
 					http.MethodGet,
-					"/patterns/parallel/start/withAwait",
+					"/patterns/parallel/start/dynamic",
 					query,
 					nil,
 				)
 			},
 		},
+		parallelSmokeEntry("await"),
+		parallelSmokeEntry("first-win"),
 		{
 			name: "patterns/recovery",
 			trigger: func(t *testing.T) (string, string) {
@@ -543,6 +545,22 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				}
 				return triggerFlowSmokeHTTP(t, http.MethodGet, "/primitives/client-apis/start", query, nil)
 			},
+		},
+	}
+}
+
+func parallelSmokeEntry(kind string) flowSmokeEntry {
+	return flowSmokeEntry{
+		name: "patterns/parallel/" + kind,
+		trigger: func(t *testing.T) (string, string) {
+			query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-"+kind)}}
+			return triggerFlowSmokeHTTP(
+				t,
+				http.MethodGet,
+				"/patterns/parallel/start/"+kind,
+				query,
+				nil,
+			)
 		},
 	}
 }

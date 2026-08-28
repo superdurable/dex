@@ -20,7 +20,10 @@ use dex_examples_rust::patterns::{
     entity_store::UserProfileFlow,
     interruptible::InterruptibleFlow,
     intervention::ManualRecoveryFlow,
-    parallel::{ParallelStatesWithAwaitFlow, SimpleParallelStatesFlow},
+    parallel::{
+        AwaitParallelStepsFlow, DynamicParallelStepsFlow, FirstWinParallelStepsFlow,
+        StaticParallelStepsFlow,
+    },
     parent_child::ParentFlowV2,
     polling::{BackoffPollingFlow, SimplePollingFlow},
     recovery::FailureRecoveryFlow,
@@ -64,8 +67,10 @@ fn catalog_matches_every_cross_language_example() {
         DrainingExternalChannelFlow::default().flow_type(),
         InterruptibleFlow::default().flow_type(),
         ManualRecoveryFlow::default().flow_type(),
-        SimpleParallelStatesFlow::default().flow_type(),
-        ParallelStatesWithAwaitFlow::default().flow_type(),
+        StaticParallelStepsFlow::default().flow_type(),
+        DynamicParallelStepsFlow::default().flow_type(),
+        AwaitParallelStepsFlow::default().flow_type(),
+        FirstWinParallelStepsFlow::default().flow_type(),
         ParentFlowV2::default().flow_type(),
         SimplePollingFlow::default().flow_type(),
         BackoffPollingFlow::default().flow_type(),
@@ -82,16 +87,16 @@ fn catalog_matches_every_cross_language_example() {
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
     assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
-    assert_eq!(product_flows.len() + pattern_flows.len(), 29);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 31);
     assert_eq!(
         product_flows
             .into_iter()
             .chain(pattern_flows)
             .collect::<HashSet<_>>()
             .len(),
-        29
+        31
     );
-    create_example_registry().expect("all 29 example Flow definitions must register together");
+    create_example_registry().expect("all 31 example Flow definitions must register together");
 }
 
 #[test]

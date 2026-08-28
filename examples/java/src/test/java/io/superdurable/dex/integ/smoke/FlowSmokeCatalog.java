@@ -88,13 +88,21 @@ final class FlowSmokeCatalog {
                         "/patterns/resettable-timer/start",
                         Map.of("workflowId", environment.newFlowId("resettable-timer"))),
                 FlowSmokeEntry.get(
-                        "patterns/parallel/simple",
-                        "/patterns/parallel/start/simple",
-                        Map.of("workflowId", environment.newFlowId("parallel-simple"))),
+                        "patterns/parallel/static",
+                        "/patterns/parallel/start/static",
+                        Map.of("workflowId", environment.newFlowId("parallel-static"))),
                 FlowSmokeEntry.get(
-                        "patterns/parallel/with-await",
-                        "/patterns/parallel/start/withAwait",
+                        "patterns/parallel/dynamic",
+                        "/patterns/parallel/start/dynamic",
+                        Map.of("workflowId", environment.newFlowId("parallel-dynamic"))),
+                FlowSmokeEntry.get(
+                        "patterns/parallel/await",
+                        "/patterns/parallel/start/await",
                         Map.of("workflowId", environment.newFlowId("parallel-await"))),
+                FlowSmokeEntry.get(
+                        "patterns/parallel/first-win",
+                        "/patterns/parallel/start/first-win",
+                        Map.of("workflowId", environment.newFlowId("parallel-first-win"))),
                 FlowSmokeEntry.get(
                         "patterns/recovery",
                         "/patterns/recovery/start",

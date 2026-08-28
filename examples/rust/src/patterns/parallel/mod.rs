@@ -13,5 +13,5 @@
 // limitations under the License.
 
 pub mod controller;
-pub mod flow;
-pub use flow::*;
+pub mod parallel_step_flows;
+pub use parallel_step_flows::*;

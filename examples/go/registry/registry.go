@@ -93,8 +93,10 @@ var (
 	UserProfile            *entitystore.UserProfileFlow
 	ManualRecovery         *intervention.ManualRecoveryFlow
 	ResettableTimer        *resettabletimer.ResettableTimerFlow
-	SimpleParallel         *parallel.SimpleParallelStatesFlow
-	ParallelWithAwait      *parallel.ParallelStatesWithAwaitFlow
+	StaticParallel         *parallel.StaticParallelStepsFlow
+	DynamicParallel        *parallel.DynamicParallelStepsFlow
+	AwaitParallel          *parallel.AwaitParallelStepsFlow
+	FirstWinParallel       *parallel.FirstWinParallelStepsFlow
 	FailureRecovery        *recovery.FailureRecoveryFlow
 	RequestReceiver        *scalableparallel.RequestReceiverFlow
 	ScalableParent         *scalableparallel.ParentFlow
@@ -161,8 +163,10 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualRecovery = intervention.NewManualRecoveryFlow()
 	ResettableTimer = resettabletimer.NewResettableTimerFlow()
-	SimpleParallel = parallel.NewSimpleParallelStatesFlow(patternService)
-	ParallelWithAwait = parallel.NewParallelStatesWithAwaitFlow(patternService)
+	StaticParallel = parallel.NewStaticParallelStepsFlow()
+	DynamicParallel = parallel.NewDynamicParallelStepsFlow()
+	AwaitParallel = parallel.NewAwaitParallelStepsFlow()
+	FirstWinParallel = parallel.NewFirstWinParallelStepsFlow()
 	FailureRecovery = recovery.NewFailureRecoveryFlow()
 	ScalableChild = scalableparallel.NewChildFlow(getClient, func() *scalableparallel.ParentFlow {
 		return ScalableParent
@@ -219,8 +223,10 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		UserProfile,
 		ManualRecovery,
 		ResettableTimer,
-		SimpleParallel,
-		ParallelWithAwait,
+		StaticParallel,
+		DynamicParallel,
+		AwaitParallel,
+		FirstWinParallel,
 		FailureRecovery,
 		RequestReceiver,
 		ScalableParent,
