@@ -63,7 +63,7 @@ remain split so their orchestration boundaries are visible.
 | Drain internal Channel | [`DrainInternalChannelFlow`](src/patterns/drain_channels.rs) | Internal publication, one-at-a-time drain, sentinel completion |
 | Draining External Channel Publishing | [`DrainingExternalChannelFlow`](src/patterns/drain_channels/flow.rs) | RPC publication, one-at-a-time drain, conditional completion |
 | Interruptible execution | [`InterruptibleFlow`](src/patterns/interruptible/flow.rs) | Graceful interrupt handling |
-| Manual intervention | [`ManualInterventionFlow`](src/patterns/intervention.rs) | Exhausted retry recovery and approval Channel |
+| Manual recovery | [`ManualRecoveryFlow`](src/patterns/intervention/flow.rs) | Exhausted retry recovery and manual Channel decision |
 | Simple parallel states | [`SimpleParallelStatesFlow`](src/patterns/parallel.rs) | Parallel Step movements and graceful completion |
 | Parallel states with await | [`ParallelStatesWithAwaitFlow`](src/patterns/parallel.rs) | Independent Channel-gated branches |
 | Parent-child | [`ParentFlowV2`](src/patterns/parent_child.rs) | Child ID persistence and completion callback Channel |

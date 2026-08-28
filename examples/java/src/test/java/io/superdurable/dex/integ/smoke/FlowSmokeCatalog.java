@@ -80,9 +80,9 @@ final class FlowSmokeCatalog {
                 FlowSmokeEntry.get("patterns/reminders", "/patterns/reminders/start", Map.of()),
                 entityStore(environment),
                 FlowSmokeEntry.get(
-                        "patterns/intervention",
-                        "/patterns/intervention/start",
-                        Map.of("workflowId", environment.newFlowId("intervention"))),
+                        "patterns/manual-recovery",
+                        "/patterns/manual-recovery/start",
+                        Map.of("workflowId", environment.newFlowId("manual-recovery"))),
                 FlowSmokeEntry.get(
                         "patterns/resettable-timer",
                         "/patterns/resettable-timer/start",

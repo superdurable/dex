@@ -209,9 +209,9 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NO_START_STEP,
         },
         FlowSmokeEntry {
-            name: "patterns/intervention",
-            path: "/patterns/intervention/start",
-            query: query(&client.new_flow_id("intervention")),
+            name: "patterns/manual-recovery",
+            path: "/patterns/manual-recovery/start",
+            query: query(&client.new_flow_id("manual-recovery")),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {

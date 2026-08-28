@@ -3,7 +3,7 @@ Content-Type: application/json
 
 {
   "workflowId": "<workflowId>",
-  "signalChannelName": "signal_channel_command_retry"
+  "signalChannelName": "manual-recovery-retry"
 }
 
 ######
@@ -12,7 +12,7 @@ Content-Type: application/json
 
 {
   "workflowId": "<workflowId>",
-  "signalChannelName": "signal_channel_command_skip"
+  "signalChannelName": "manual-recovery-skip"
 }
 
 ###

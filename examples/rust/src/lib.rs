@@ -38,7 +38,7 @@ pub const PATTERN_FLOW_TYPES: [&str; 19] = [
     "DrainInternalChannelFlow",
     "DrainingExternalChannelFlow",
     "InterruptibleFlow",
-    "ManualInterventionFlow",
+    "ManualRecoveryFlow",
     "SimpleParallelStatesFlow",
     "ParallelStatesWithAwaitFlow",
     "ParentFlowV2",

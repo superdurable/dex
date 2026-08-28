@@ -21,15 +21,19 @@ from dex_examples.config import start_options
 from dex_examples.shared.query import required_query
 
 
-def create_intervention_blueprint(app_state: ExampleApp) -> Blueprint:
-    blueprint = Blueprint("pattern_intervention", __name__, url_prefix="/patterns/intervention")
+def create_manual_recovery_blueprint(app_state: ExampleApp) -> Blueprint:
+    blueprint = Blueprint(
+        "pattern_manual_recovery",
+        __name__,
+        url_prefix="/patterns/manual-recovery",
+    )
 
     @blueprint.get("/start")
-    async def start_intervention() -> str:
+    async def start_manual_recovery() -> str:
         return await app_state.client.start_flow(
-            app_state.manual_intervention,
+            app_state.manual_recovery,
             required_query("workflowId"),
-            None,
+            False,
             start_options(),
         )
 

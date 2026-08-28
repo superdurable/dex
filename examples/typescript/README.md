@@ -77,7 +77,7 @@ Under [`src/patterns/`](./src/patterns):
 - Cron schedule
 - Drain internal / externally published channels
 - Interruptible execution
-- Manual intervention
+- Manual recovery
 - Parallel states (simple / with await)
 - Parent–child
 - Polling (simple / backoff)

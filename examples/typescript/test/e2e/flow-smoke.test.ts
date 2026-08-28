@@ -193,10 +193,10 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: noStartStepFlags(),
     },
     {
-      name: "patterns/intervention",
+      name: "patterns/manual-recovery",
       trigger: () =>
-        triggerGet(context, "/patterns/intervention/start", {
-          workflowId: newFlowId("intervention"),
+        triggerGet(context, "/patterns/manual-recovery/start", {
+          workflowId: newFlowId("manual-recovery"),
         }),
       flags: defaultFlags(),
     },

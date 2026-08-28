@@ -1,5 +1,5 @@
-# Manual Intervention Workflow Pattern
+# Manual Recovery Flow
 
 ## Endpoints
 
-- `GET /patterns/intervention/start?workflowId={workflowId}`
+- `GET /patterns/manual-recovery/start?workflowId={workflowId}`

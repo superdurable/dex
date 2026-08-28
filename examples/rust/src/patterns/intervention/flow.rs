@@ -29,75 +29,84 @@
  */
 
 use dex_sdk::{
-    Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, RetryPolicy, Rpc,
-    RpcList, Step, StepDecision, StepList, StepOptions, Wait,
+    Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, RetryPolicy, Step,
+    StepDecision, StepList, StepOptions, Wait,
 };
 
-pub const INTERVENTION_APPROVE: Rpc<(), ()> = Rpc::new("InterventionApprove");
+use std::time::Duration;
 
 #[derive(Default)]
-pub struct ManualInterventionFlow {
-    risky_operation: RiskyOperation,
-    await_approval: AwaitApproval,
+pub struct ManualRecoveryFlow {
+    do_work_step: DoWorkStep,
+    manual_step: ManualStep,
 }
 
-impl ManualInterventionFlow {
-    fn approve(&self, context: &mut Context) -> HandlerResult<()> {
-        approval().publish(context, ())
-    }
-}
-
-impl Flow for ManualInterventionFlow {
-    type StartInput = String;
+impl Flow for ManualRecoveryFlow {
+    type StartInput = bool;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.risky_operation).and(&self.await_approval)
+        StepList::start(&self.do_work_step).and(&self.manual_step)
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&approval())
-    }
-
-    fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure_without_input(INTERVENTION_APPROVE, Self::approve)
+        PersistenceSchema::new().channel(&retry()).channel(&skip())
     }
 }
 
 #[derive(Default)]
-struct RiskyOperation;
+struct DoWorkStep;
 
-impl Step for RiskyOperation {
-    type Input = String;
+impl Step for DoWorkStep {
+    type Input = bool;
 
-    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        Err(HandlerError::new(
-            "Intervention",
-            format!("manual review required for {input}"),
-        ))
+    fn execute(
+        &self,
+        _context: &mut Context,
+        should_fail: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        if should_fail {
+            return Err(HandlerError::new("DoWorkStep", "work failed"));
+        }
+        Ok(StepDecision::graceful_complete(String::from(
+            "work completed",
+        )))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
-            .execute_retry(RetryPolicy::new().maximum_attempts(2))
-            .on_execute_failure_proceed_to(&AwaitApproval)
+            .execute_retry(
+                RetryPolicy::new()
+                    .initial_interval(Duration::from_secs(1))
+                    .backoff_coefficient(2.0)
+                    .maximum_interval(Duration::from_secs(4))
+                    .maximum_attempts(4),
+            )
+            .on_execute_failure_proceed_to(&ManualStep)
     }
 }
 
 #[derive(Default)]
-struct AwaitApproval;
+struct ManualStep;
 
-impl Step for AwaitApproval {
-    type Input = String;
+impl Step for ManualStep {
+    type Input = bool;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::until(approval().for_one()))
+        Ok(Wait::any_of([retry().for_one(), skip().for_one()]))
     }
 
-    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::graceful_complete(input))
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        if !retry().condition_results(context)?.is_empty() {
+            return Ok(StepDecision::go_to(&DoWorkStep, false));
+        }
+        Ok(StepDecision::force_fail("manual recovery skipped"))
     }
 }
 
-fn approval() -> Channel<()> {
-    Channel::new("manual-intervention-approval")
+fn retry() -> Channel<()> {
+    Channel::new("manual-recovery-retry")
+}
+
+fn skip() -> Channel<()> {
+    Channel::new("manual-recovery-skip")
 }

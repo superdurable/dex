@@ -35,7 +35,7 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(drain_channels::DrainInternalChannelFlow::default())?
         .register(drain_channels::DrainingExternalChannelFlow::default())?
         .register(interruptible::InterruptibleFlow::default())?
-        .register(intervention::ManualInterventionFlow::default())?
+        .register(intervention::ManualRecoveryFlow::default())?
         .register(parallel::SimpleParallelStatesFlow::default())?
         .register(parallel::ParallelStatesWithAwaitFlow::default())?
         .register(parent_child::ParentFlowV2::default())?

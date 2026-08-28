@@ -25,24 +25,24 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/patterns/intervention")
-public class InterventionController {
+@RequestMapping("/patterns/manual-recovery")
+public class ManualRecoveryController {
     private final Client client;
-    private final ManualInterventionFlow manualInterventionFlow;
+    private final ManualRecoveryFlow manualRecoveryFlow;
 
-    public InterventionController(
+    public ManualRecoveryController(
             final Client client,
-            final ManualInterventionFlow manualInterventionFlow) {
+            final ManualRecoveryFlow manualRecoveryFlow) {
         this.client = client;
-        this.manualInterventionFlow = manualInterventionFlow;
+        this.manualRecoveryFlow = manualRecoveryFlow;
     }
 
     @GetMapping("/start")
-    ResponseEntity<String> startIntervention(@RequestParam final String workflowId) {
+    ResponseEntity<String> startManualRecovery(@RequestParam final String workflowId) {
         final String runId = client.startFlow(
-                manualInterventionFlow,
+                manualRecoveryFlow,
                 workflowId,
-                null,
+                false,
                 ExampleFlows.startOptions());
         return ResponseEntity.ok(runId);
     }

@@ -305,11 +305,11 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
-    id: "intervention",
-    title: "Manual intervention",
-    flowIdPrefix: "intervention",
+    id: "manual-recovery",
+    title: "Manual Recovery",
+    flowIdPrefix: "manual-recovery",
     endpoints: [
-      endpoint("GET", "/patterns/intervention/start", "Start", [flowId()]),
+      endpoint("GET", "/patterns/manual-recovery/start", "Start", [flowId()]),
     ],
   },
   {
