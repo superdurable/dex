@@ -1,0 +1,15 @@
+---
+title: Await Parallel Steps
+---
+
+# Await Parallel Steps
+
+Wait for every dynamically started Step before finishing the Flow.
+
+![AwaitParallelStepsFlow](/img/design-patterns/parallel-await-steps-flow.png)
+
+**InitStep** starts **DoWorkStep** executions and **AwaitStep** together. Each worker publishes one message to **CompleteCh**. **AwaitStep** uses **WaitFor** for the required number of messages, then completes only after every branch has finished.
+
+## Related
+
+- [Parallel Steps](/design-patterns/parallel)

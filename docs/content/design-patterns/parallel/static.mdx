@@ -1,0 +1,15 @@
+---
+title: Static Parallel Steps
+---
+
+# Static Parallel Steps
+
+Start a fixed set of distinct Step types concurrently.
+
+![StaticParallelStepsFlow](/img/design-patterns/parallel-static-steps-flow.png)
+
+**InitStep** returns one movement for **WorkAStep** and one for **WorkBStep**. Both are scheduled at the same time and complete independently. Use this shape when each branch has a known responsibility and input type.
+
+## Related
+
+- [Parallel Steps](/design-patterns/parallel)

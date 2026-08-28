@@ -1,0 +1,9 @@
+---
+title: 首个获胜的并行 Step
+---
+
+# 首个获胜的并行 Step
+
+![FirstWinParallelStepsFlow](/img/design-patterns/parallel-first-win-steps-flow.png)
+
+**InitStep** 启动多个 **DoWorkStep** execution。最先返回 decision 的 execution 选择取消其 sibling，保留第一个结果并停止不会影响结果的工作。

@@ -1,0 +1,9 @@
+---
+title: 动态并行 Step
+---
+
+# 动态并行 Step
+
+![DynamicParallelStepsFlow](/img/design-patterns/parallel-dynamic-steps-flow.png)
+
+**InitStep** 为每个输入项创建一个 **DoWorkStep** movement。Dex 并发调度这些 execution，适用于运行时才确定数量的同类工作项。

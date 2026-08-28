@@ -1,0 +1,15 @@
+---
+title: First-Win Parallel Steps
+---
+
+# First-Win Parallel Steps
+
+Use the first completed concurrent Step and cancel the remaining siblings.
+
+![FirstWinParallelStepsFlow](/img/design-patterns/parallel-first-win-steps-flow.png)
+
+**InitStep** starts multiple **DoWorkStep** executions. The first execution to return a decision selects its sibling **DoWorkStep** executions for cancellation. The Flow keeps the first result and stops work that can no longer affect the outcome.
+
+## Related
+
+- [Parallel Steps](/design-patterns/parallel)

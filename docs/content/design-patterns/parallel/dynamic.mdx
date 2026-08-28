@@ -1,0 +1,15 @@
+---
+title: Dynamic Parallel Steps
+---
+
+# Dynamic Parallel Steps
+
+Start a runtime-sized set of executions of the same Step type.
+
+![DynamicParallelStepsFlow](/img/design-patterns/parallel-dynamic-steps-flow.png)
+
+**InitStep** builds one **DoWorkStep** movement per input item. Dex schedules those movements concurrently. Use it when the work items are homogeneous and their count is only known when the Flow starts.
+
+## Related
+
+- [Parallel Steps](/design-patterns/parallel)

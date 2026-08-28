@@ -1,0 +1,9 @@
+---
+title: 静态并行 Step
+---
+
+# 静态并行 Step
+
+![StaticParallelStepsFlow](/img/design-patterns/parallel-static-steps-flow.png)
+
+**InitStep** 同时为 **WorkAStep** 和 **WorkBStep** 返回 movement。两个 Step 独立完成，适用于分支职责和输入类型都已知的场景。

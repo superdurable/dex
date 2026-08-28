@@ -1,0 +1,9 @@
+---
+title: 等待并行 Step
+---
+
+# 等待并行 Step
+
+![AwaitParallelStepsFlow](/img/design-patterns/parallel-await-steps-flow.png)
+
+**InitStep** 同时启动 **DoWorkStep** 和 **AwaitStep**。每个 worker 向 **CompleteCh** 发布一条消息；**AwaitStep** 等待所需数量的消息后才完成 Flow。
