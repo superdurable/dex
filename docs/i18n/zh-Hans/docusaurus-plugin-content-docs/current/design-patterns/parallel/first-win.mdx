@@ -94,8 +94,12 @@ final class DoWorkStep implements Step<Integer> {
 
     @Override
     public StepDecision execute(final Context context, final Integer input) {
-        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(
-                ThreadLocalRandom.current().nextInt(50, 500)));
+        try {
+            Thread.sleep(ThreadLocalRandom.current().nextInt(50, 500));
+        } catch (final InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(error);
+        }
         return StepDecision.gracefulComplete(input)
                 .withCancelingSiblingSteps(DoWorkStep.class);
     }
