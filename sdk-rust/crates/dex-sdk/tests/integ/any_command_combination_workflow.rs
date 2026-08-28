@@ -20,18 +20,12 @@ static SECOND: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("test-sign
 static THIRD: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("test-signal-3"));
 
 pub(crate) struct AnyCommandCombinationWorkflow {
-    first: Channel<i32>,
-    second: Channel<i32>,
-    third: Channel<i32>,
     start: AnyCommandCombinationStep,
 }
 
 impl AnyCommandCombinationWorkflow {
     pub(crate) fn new() -> Self {
         Self {
-            first: FIRST.clone(),
-            second: SECOND.clone(),
-            third: THIRD.clone(),
             start: AnyCommandCombinationStep,
         }
     }
@@ -46,9 +40,9 @@ impl Flow for AnyCommandCombinationWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .channel(&self.first)
-            .channel(&self.second)
-            .channel(&self.third)
+            .channel(&FIRST)
+            .channel(&SECOND)
+            .channel(&THIRD)
     }
 }
 

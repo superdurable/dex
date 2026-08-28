@@ -15,16 +15,13 @@ use dex_sdk::{
     StepDecision, StepList, StepMovement, StepOptions, Wait,
 };
 
-static WAIT_FOR_COUNT: LazyLock<Attribute<i32>> =
+pub(crate) static WAIT_FOR_COUNT: LazyLock<Attribute<i32>> =
     LazyLock::new(|| Attribute::new("step-lock-wait-for-count"));
-static EXECUTE_COUNT: LazyLock<Attribute<i32>> =
+pub(crate) static EXECUTE_COUNT: LazyLock<Attribute<i32>> =
     LazyLock::new(|| Attribute::new("step-lock-execute-count"));
 static COMPLETED: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("step-lock-completed"));
 
 pub(crate) struct StateOptionsLockingWorkflow {
-    pub(crate) wait_for_count: Attribute<i32>,
-    pub(crate) execute_count: Attribute<i32>,
-    completed: Channel<()>,
     start: StartStep,
     locked: LockedStep,
     complete: CompleteStep,
@@ -32,24 +29,10 @@ pub(crate) struct StateOptionsLockingWorkflow {
 
 impl StateOptionsLockingWorkflow {
     pub(crate) fn new() -> Self {
-        let wait_for_count = WAIT_FOR_COUNT.clone();
-        let execute_count = EXECUTE_COUNT.clone();
-        let completed = COMPLETED.clone();
         Self {
             start: StartStep,
-            locked: LockedStep {
-                wait_for_count: wait_for_count.clone(),
-                execute_count: execute_count.clone(),
-                completed: completed.clone(),
-            },
-            complete: CompleteStep {
-                wait_for_count: wait_for_count.clone(),
-                execute_count: execute_count.clone(),
-                completed: completed.clone(),
-            },
-            wait_for_count,
-            execute_count,
-            completed,
+            locked: LockedStep,
+            complete: CompleteStep,
         }
     }
 }
@@ -65,9 +48,9 @@ impl Flow for StateOptionsLockingWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.wait_for_count)
-            .attribute(&self.execute_count)
-            .channel(&self.completed)
+            .attribute(&WAIT_FOR_COUNT)
+            .attribute(&EXECUTE_COUNT)
+            .channel(&COMPLETED)
     }
 }
 
@@ -78,73 +61,49 @@ impl Step for StartStep {
 
     fn execute(&self, _context: &mut Context, parallelism: i32) -> HandlerResult<StepDecision> {
         let mut movements = (0..parallelism)
-            .map(|index| {
-                StepMovement::to(
-                    &LockedStep {
-                        wait_for_count: WAIT_FOR_COUNT.clone(),
-                        execute_count: EXECUTE_COUNT.clone(),
-                        completed: COMPLETED.clone(),
-                    },
-                    index,
-                )
-            })
+            .map(|index| StepMovement::to(&LockedStep, index))
             .collect::<Vec<_>>();
-        movements.push(StepMovement::to(
-            &CompleteStep {
-                wait_for_count: WAIT_FOR_COUNT.clone(),
-                execute_count: EXECUTE_COUNT.clone(),
-                completed: COMPLETED.clone(),
-            },
-            parallelism,
-        ));
+        movements.push(StepMovement::to(&CompleteStep, parallelism));
         Ok(StepDecision::go_to_many(movements))
     }
 }
 
-struct LockedStep {
-    wait_for_count: Attribute<i32>,
-    execute_count: Attribute<i32>,
-    completed: Channel<()>,
-}
+struct LockedStep;
 
 impl Step for LockedStep {
     type Input = i32;
 
     fn wait_for(&self, context: &mut Context, _input: i32) -> HandlerResult<Wait> {
-        let next = self.wait_for_count.get(context)?.unwrap_or_default() + 1;
-        self.wait_for_count.set(context, next)?;
+        let next = WAIT_FOR_COUNT.get(context)?.unwrap_or_default() + 1;
+        WAIT_FOR_COUNT.set(context, next)?;
         Ok(Wait::skip_immediately())
     }
 
     fn execute(&self, context: &mut Context, _input: i32) -> HandlerResult<StepDecision> {
-        let next = self.execute_count.get(context)?.unwrap_or_default() + 1;
-        self.execute_count.set(context, next)?;
-        self.completed.publish(context, ())?;
+        let next = EXECUTE_COUNT.get(context)?.unwrap_or_default() + 1;
+        EXECUTE_COUNT.set(context, next)?;
+        COMPLETED.publish(context, ())?;
         Ok(StepDecision::dead_end())
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
-            .wait_for_lock(self.wait_for_count.lock())
-            .execute_lock(self.execute_count.lock())
+            .wait_for_lock(WAIT_FOR_COUNT.lock())
+            .execute_lock(EXECUTE_COUNT.lock())
     }
 }
 
-struct CompleteStep {
-    wait_for_count: Attribute<i32>,
-    execute_count: Attribute<i32>,
-    completed: Channel<()>,
-}
+struct CompleteStep;
 
 impl Step for CompleteStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, parallelism: i32) -> HandlerResult<Wait> {
-        Ok(Wait::until(self.completed.for_n(parallelism as usize)))
+        Ok(Wait::until(COMPLETED.for_n(parallelism as usize)))
     }
 
     fn execute(&self, context: &mut Context, parallelism: i32) -> HandlerResult<StepDecision> {
-        if self.completed.condition_results(context)?.len() != parallelism as usize {
+        if COMPLETED.condition_results(context)?.len() != parallelism as usize {
             return Err(HandlerError::new(
                 "StateOptionsLockingFailure",
                 "not all locked Steps completed",
@@ -152,8 +111,8 @@ impl Step for CompleteStep {
         }
         Ok(StepDecision::graceful_complete(format!(
             "{}:{}",
-            self.wait_for_count.get_required(context)?,
-            self.execute_count.get_required(context)?
+            WAIT_FOR_COUNT.get_required(context)?,
+            EXECUTE_COUNT.get_required(context)?
         )))
     }
 }

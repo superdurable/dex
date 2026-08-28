@@ -15,12 +15,11 @@ use dex_sdk::{
     RpcResult, Step, StepDecision, StepList, StepMovement,
 };
 
-static IDLE_SIGNAL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("idle-signal"));
+pub(crate) static IDLE_SIGNAL: LazyLock<Channel<()>> =
+    LazyLock::new(|| Channel::new("idle-signal"));
 static IDLE_INTERNAL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("idle-internal"));
 
 pub(crate) struct NoStartStateDeadEndWorkflow {
-    pub(crate) idle_signal: Channel<()>,
-    idle_internal: Channel<()>,
     start: DeadEndStep,
     complete: CompleteStep,
 }
@@ -32,20 +31,18 @@ impl NoStartStateDeadEndWorkflow {
 
     pub(crate) fn new() -> Self {
         Self {
-            idle_signal: IDLE_SIGNAL.clone(),
-            idle_internal: IDLE_INTERNAL.clone(),
             start: DeadEndStep,
             complete: CompleteStep,
         }
     }
 
     fn signal_size(&self, context: &mut Context) -> HandlerResult<RpcResult<usize>> {
-        Ok(RpcResult::new(self.idle_signal.size(context)?))
+        Ok(RpcResult::new(IDLE_SIGNAL.size(context)?))
     }
 
     fn publish_internal(&self, context: &mut Context) -> HandlerResult<RpcResult<usize>> {
-        self.idle_internal.publish(context, ())?;
-        Ok(RpcResult::new(self.idle_internal.size(context)?))
+        IDLE_INTERNAL.publish(context, ())?;
+        Ok(RpcResult::new(IDLE_INTERNAL.size(context)?))
     }
 
     fn invoke(&self, context: &mut Context, _input: String) -> HandlerResult<RpcResult<i64>> {
@@ -68,8 +65,8 @@ impl Flow for NoStartStateDeadEndWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .channel(&self.idle_signal)
-            .channel(&self.idle_internal)
+            .channel(&IDLE_SIGNAL)
+            .channel(&IDLE_INTERNAL)
     }
 
     fn rpcs(&self) -> RpcList<Self> {

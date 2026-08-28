@@ -33,25 +33,18 @@ pub fn attribute_store_config() -> FlowConfig {
 }
 
 pub struct AttributeFlow {
-    status: Attribute<String>,
-    email: Attribute<String>,
     progress: AttributeMap<String>,
     start: AttributeStep,
 }
 
 impl Default for AttributeFlow {
     fn default() -> Self {
-        let status = STATUS.clone();
-        let email = EMAIL.clone();
         let progress = AttributeMap::new("primitive-attribute-progress")
             .indexed(AttributeIndex::keyword().with_key("OrderProgress"));
         Self {
             start: AttributeStep {
-                status: status.clone(),
                 progress: progress.clone(),
             },
-            status,
-            email,
             progress,
         }
     }
@@ -66,15 +59,15 @@ impl Flow for AttributeFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.status)
-            .attribute(&self.email)
+            .attribute(&STATUS)
+            .attribute(&EMAIL)
             .attribute_map(&self.progress)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new().function(
             UPDATE_STATUS
-                .lock(self.status.lock())
+                .lock(STATUS.lock())
                 .lock(self.progress.lock("payment")),
             Self::update_status,
         )
@@ -87,14 +80,13 @@ impl AttributeFlow {
         context: &mut Context,
         input: String,
     ) -> HandlerResult<RpcResult<String>> {
-        self.status.set(context, input.clone())?;
+        STATUS.set(context, input.clone())?;
         self.progress.set(context, "payment", input.clone())?;
         Ok(RpcResult::new(input))
     }
 }
 
 struct AttributeStep {
-    status: Attribute<String>,
     progress: AttributeMap<String>,
 }
 
@@ -103,21 +95,21 @@ impl Step for AttributeStep {
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
-            .wait_for_lock(self.status.lock())
+            .wait_for_lock(STATUS.lock())
             .wait_for_lock(self.progress.lock("payment"))
-            .execute_lock(self.status.lock())
+            .execute_lock(STATUS.lock())
             .execute_lock(self.progress.lock("payment"))
     }
 
     fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        self.status.set(context, "processing".to_owned())?;
+        STATUS.set(context, "processing".to_owned())?;
         self.progress
             .set(context, "payment", "authorized".to_owned())?;
         Ok(Wait::skip_immediately())
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        self.status.set(context, "completed".to_owned())?;
+        STATUS.set(context, "completed".to_owned())?;
         Ok(StepDecision::graceful_complete(input))
     }
 }

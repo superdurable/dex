@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use dex_sdk::{Client, Registry, SdkResult};
 
-use crate::conditional_complete_workflow::ConditionalCompleteWorkflow;
+use crate::conditional_complete_workflow::{ConditionalCompleteWorkflow, SIGNAL};
 use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
@@ -28,7 +28,7 @@ fn test_signal_channel() {
         .expect("start conditional signal Flow");
     environment
         .client
-        .publish_many(&flow_id, &workflow.signal, [(), (), ()])
+        .publish_many(&flow_id, &SIGNAL, [(), (), ()])
         .expect("publish signal messages");
     assert_eq!(
         3,
@@ -73,7 +73,7 @@ fn test_internal_channel() {
 fn compile_conditional_complete(client: &Client) -> SdkResult<()> {
     let workflow = ConditionalCompleteWorkflow::new();
     client.start_flow(&workflow, "conditional-signal", true)?;
-    client.publish_many("conditional-signal", &workflow.signal, [(), (), ()])?;
+    client.publish_many("conditional-signal", &SIGNAL, [(), (), ()])?;
     let _: i32 = client
         .wait_for_flow("conditional-signal")?
         .single_output()?;

@@ -17,14 +17,11 @@ use dex_sdk::{
     PersistenceSchema, Step, StepDecision, StepList, Timer, Wait,
 };
 
-static SECOND: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("signal-2"));
-static THIRD: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("signal-3"));
-static FIRST: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("signal-1"));
+pub(crate) static SECOND: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("signal-2"));
+pub(crate) static THIRD: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("signal-3"));
+pub(crate) static FIRST: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("signal-1"));
 
 pub(crate) struct SignalWorkflow {
-    pub(crate) first: Channel<i32>,
-    pub(crate) second: Channel<i32>,
-    pub(crate) third: Channel<()>,
     pub(crate) signal_map: ChannelMap<i32>,
     start: FirstStep,
     pub(crate) combination: CombinationStep,
@@ -32,24 +29,12 @@ pub(crate) struct SignalWorkflow {
 
 impl SignalWorkflow {
     pub(crate) fn new() -> Self {
-        let first = FIRST.clone();
-        let second = SECOND.clone();
-        let third = THIRD.clone();
         let signal_map = ChannelMap::new("signal-map");
         Self {
-            start: FirstStep {
-                first: first.clone(),
-                second: second.clone(),
-            },
+            start: FirstStep,
             combination: CombinationStep {
-                first: first.clone(),
-                second: second.clone(),
-                third: third.clone(),
                 signal_map: signal_map.clone(),
             },
-            first,
-            second,
-            third,
             signal_map,
         }
     }
@@ -64,41 +49,35 @@ impl Flow for SignalWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .channel(&self.first)
-            .channel(&self.second)
-            .channel(&self.third)
+            .channel(&FIRST)
+            .channel(&SECOND)
+            .channel(&THIRD)
             .channel_map(&self.signal_map)
     }
 }
 
-struct FirstStep {
-    first: Channel<i32>,
-    second: Channel<i32>,
-}
+struct FirstStep;
 
 impl Step for FirstStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: i32) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            self.first.for_one().with_id("test-signal-id-1"),
-            self.second.for_one().with_id("test-signal-id-2"),
+            FIRST.for_one().with_id("test-signal-id-1"),
+            SECOND.for_one().with_id("test-signal-id-2"),
         ]))
     }
 
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
-        if !self.second.condition_results(context)?.is_empty() {
+        if !SECOND.condition_results(context)?.is_empty() {
             return Err(HandlerError::new(
                 "SignalFailure",
                 "second signal should still be waiting",
             ));
         }
-        let value = self.first.condition_results(context)?[0];
+        let value = FIRST.condition_results(context)?[0];
         Ok(StepDecision::go_to(
             &CombinationStep {
-                first: self.first.clone(),
-                second: SECOND.clone(),
-                third: THIRD.clone(),
                 signal_map: ChannelMap::new("signal-map"),
             },
             input + value,
@@ -107,9 +86,6 @@ impl Step for FirstStep {
 }
 
 pub(crate) struct CombinationStep {
-    first: Channel<i32>,
-    second: Channel<i32>,
-    third: Channel<()>,
     signal_map: ChannelMap<i32>,
 }
 
@@ -118,21 +94,21 @@ impl Step for CombinationStep {
 
     fn wait_for(&self, _context: &mut Context, _input: i32) -> HandlerResult<Wait> {
         Ok(Wait::any_combination_of([ConditionCombination::all_of([
-            self.first.for_one().with_id("signal-1"),
-            self.third.for_one().with_id("signal-3"),
+            FIRST.for_one().with_id("signal-1"),
+            THIRD.for_one().with_id("signal-3"),
             self.signal_map.for_one("one").with_id("signal-map"),
             Timer::by_duration(Duration::from_secs(365 * 24 * 60 * 60)).with_id("test-timer-id"),
         ])]))
     }
 
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
-        if !self.second.condition_results(context)?.is_empty() {
+        if !SECOND.condition_results(context)?.is_empty() {
             return Err(HandlerError::new(
                 "SignalFailure",
                 "second signal should still be waiting",
             ));
         }
-        if self.third.condition_results(context)?.len() != 1 {
+        if THIRD.condition_results(context)?.len() != 1 {
             return Err(HandlerError::new(
                 "SignalFailure",
                 "null signal was not received",
@@ -148,7 +124,7 @@ impl Step for CombinationStep {
             return Err(HandlerError::new("SignalFailure", "timer was not fired"));
         }
         Ok(StepDecision::graceful_complete(
-            input + self.first.condition_results(context)?[0],
+            input + FIRST.condition_results(context)?[0],
         ))
     }
 }

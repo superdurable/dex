@@ -14,22 +14,16 @@ use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Wait,
 };
 
-static CHANNEL: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("waiting-channel"));
+pub(crate) static CHANNEL: LazyLock<Channel<i32>> =
+    LazyLock::new(|| Channel::new("waiting-channel"));
 
 pub(crate) struct InternalChannelWaitingWorkflow {
-    pub(crate) channel: Channel<i32>,
     start: WaitingStep,
 }
 
 impl InternalChannelWaitingWorkflow {
     pub(crate) fn new() -> Self {
-        let channel = CHANNEL.clone();
-        Self {
-            start: WaitingStep {
-                channel: channel.clone(),
-            },
-            channel,
-        }
+        Self { start: WaitingStep }
     }
 }
 
@@ -41,24 +35,21 @@ impl Flow for InternalChannelWaitingWorkflow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&self.channel)
+        PersistenceSchema::new().channel(&CHANNEL)
     }
 }
 
-struct WaitingStep {
-    channel: Channel<i32>,
-}
+struct WaitingStep;
 
 impl Step for WaitingStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: i32) -> HandlerResult<Wait> {
-        Ok(Wait::until(self.channel.for_n(2)))
+        Ok(Wait::until(CHANNEL.for_n(2)))
     }
 
     fn execute(&self, context: &mut Context, input: i32) -> HandlerResult<StepDecision> {
-        let output = self
-            .channel
+        let output = CHANNEL
             .condition_results(context)?
             .into_iter()
             .fold(input, i32::saturating_add);

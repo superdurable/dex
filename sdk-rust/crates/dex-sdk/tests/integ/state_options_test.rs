@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use dex_sdk::{Client, Registry, SdkResult};
 
-use crate::state_options_locking_workflow::StateOptionsLockingWorkflow;
+use crate::state_options_locking_workflow::{
+    EXECUTE_COUNT, StateOptionsLockingWorkflow, WAIT_FOR_COUNT,
+};
 use crate::state_options_workflow::StateOptionsWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id};
 
@@ -61,14 +63,14 @@ fn test_wait_for_and_execute_locks_serialize_parallel_steps() {
         Some(parallelism),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.wait_for_count)
+            .get_attribute(&flow_id, &WAIT_FOR_COUNT)
             .expect("read waitFor count")
     );
     assert_eq!(
         Some(parallelism),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.execute_count)
+            .get_attribute(&flow_id, &EXECUTE_COUNT)
             .expect("read execute count")
     );
 }

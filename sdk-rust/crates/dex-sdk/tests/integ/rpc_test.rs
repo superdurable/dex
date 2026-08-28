@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use dex_sdk::{Client, GrpcCode, Registry, SdkError, SdkResult, StopFlowOptions};
 
-use crate::no_start_state_dead_end_workflow::NoStartStateDeadEndWorkflow;
+use crate::no_start_state_dead_end_workflow::{IDLE_SIGNAL, NoStartStateDeadEndWorkflow};
 use crate::rpc_no_state_workflow::RpcNoStateWorkflow;
 use crate::rpc_workflow::RpcWorkflow;
 use crate::support::{DexDevTestEnvironment, flow_id};
@@ -236,7 +236,7 @@ fn test_signal_channel_size_info() {
     );
     environment
         .client
-        .publish_many(&flow_id, &workflow.idle_signal, [(), (), ()])
+        .publish_many(&flow_id, &IDLE_SIGNAL, [(), (), ()])
         .expect("publish external messages");
     assert_eq!(
         3,

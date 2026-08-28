@@ -20,7 +20,6 @@ static KEYWORD: LazyLock<Attribute<String>> = LazyLock::new(|| {
 });
 
 pub(crate) struct SearchFlowsWorkflow {
-    keyword: Attribute<String>,
     start: IndexStep,
 }
 
@@ -28,13 +27,7 @@ impl SearchFlowsWorkflow {
     pub(crate) const KEYWORD_KEY: &str = "CustomKeywordField";
 
     pub(crate) fn new() -> Self {
-        let keyword = KEYWORD.clone();
-        Self {
-            start: IndexStep {
-                keyword: keyword.clone(),
-            },
-            keyword,
-        }
+        Self { start: IndexStep }
     }
 }
 
@@ -46,19 +39,17 @@ impl Flow for SearchFlowsWorkflow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().attribute(&self.keyword)
+        PersistenceSchema::new().attribute(&KEYWORD)
     }
 }
 
-struct IndexStep {
-    keyword: Attribute<String>,
-}
+struct IndexStep;
 
 impl Step for IndexStep {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
-        self.keyword.set(context, input.clone())?;
+        KEYWORD.set(context, input.clone())?;
         Ok(StepDecision::graceful_complete(input))
     }
 }
