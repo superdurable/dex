@@ -17,7 +17,7 @@ Stream 只提供 best-effort durability，底层使用 Redis 等内存存储。�
 
 ## 定义并注册 Stream
 
-Stream 包含稳定名称、消息类型和 **maxEstimatedBytes**。同一个 definition 必须只注册到一个 Flow persistence schema。
+Stream 包含稳定名称、消息类型和 **maxEstimatedBytes**。**maxEstimatedBytes** 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
 
 下面的 Step 在返回之前写入一条 progress message。Dex 接受写入后，Client 立刻就能读取；不需要等待 Step 完成。
 
