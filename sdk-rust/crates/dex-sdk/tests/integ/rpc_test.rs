@@ -15,7 +15,7 @@ use dex_sdk::{Client, GrpcCode, Registry, SdkError, SdkResult, StopFlowOptions};
 
 use crate::no_start_state_dead_end_workflow::{IDLE_SIGNAL, NoStartStateDeadEndWorkflow};
 use crate::rpc_no_state_workflow::RpcNoStateWorkflow;
-use crate::rpc_workflow::RpcWorkflow;
+use crate::rpc_workflow::{DATA, INTEGER, KEYWORD, RpcWorkflow};
 use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
@@ -319,7 +319,7 @@ pub(crate) fn verify_optional_rpc_attributes(environment: &DexDevTestEnvironment
 
 pub(crate) fn assert_rpc_completion(
     environment: &DexDevTestEnvironment,
-    workflow: &RpcWorkflow,
+    _workflow: &RpcWorkflow,
     flow_id: &str,
     expected_value: &str,
 ) {
@@ -335,21 +335,21 @@ pub(crate) fn assert_rpc_completion(
         Some(expected_value.to_string()),
         environment
             .client
-            .get_attribute(flow_id, &workflow.data)
+            .get_attribute(flow_id, &DATA)
             .expect("get data Attribute")
     );
     assert_eq!(
         Some(expected_value.to_string()),
         environment
             .client
-            .get_attribute(flow_id, &workflow.keyword)
+            .get_attribute(flow_id, &KEYWORD)
             .expect("get keyword Attribute")
     );
     assert_eq!(
         Some(RpcWorkflow::RPC_OUTPUT as i32),
         environment
             .client
-            .get_attribute(flow_id, &workflow.integer)
+            .get_attribute(flow_id, &INTEGER)
             .expect("get integer Attribute")
     );
 }

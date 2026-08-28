@@ -12,8 +12,10 @@ use std::time::{Duration, SystemTime};
 
 use dex_sdk::{Attribute, Client, Registry, SdkError, SdkResult, StartFlowOptions};
 
-use crate::persistence_set_attributes_workflow::PersistenceSetAttributesWorkflow;
-use crate::persistence_workflow::{PersistenceModel, PersistenceWorkflow};
+use crate::persistence_set_attributes_workflow::{
+    self as set_attributes, PersistenceSetAttributesWorkflow,
+};
+use crate::persistence_workflow::{self as persistence, PersistenceModel, PersistenceWorkflow};
 use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
@@ -25,12 +27,12 @@ fn test_persistence_reads() {
     assert!(matches!(
         environment
             .client
-            .get_attribute(&flow_id("missing"), &workflow.data),
+            .get_attribute(&flow_id("missing"), &persistence::DATA),
         Err(SdkError::FlowNotFound { .. })
     ));
     let flow_id = flow_id("persistence");
     let options = StartFlowOptions::new()
-        .initial_attribute(&workflow.initial, "initial".to_string())
+        .initial_attribute(&persistence::INITIAL, "initial".to_string())
         .initial_attribute_map(&workflow.data_map, "one", "initial".to_string());
     environment
         .client
@@ -48,14 +50,14 @@ fn test_persistence_reads() {
         Some("input".to_string()),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.data)
+            .get_attribute(&flow_id, &persistence::DATA)
             .expect("get data Attribute")
     );
     assert_eq!(
         Some("initial".to_string()),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.initial)
+            .get_attribute(&flow_id, &persistence::INITIAL)
             .expect("get initial Attribute")
     );
     assert_eq!(
@@ -69,34 +71,34 @@ fn test_persistence_reads() {
         Some("input".to_string()),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.keyword)
+            .get_attribute(&flow_id, &persistence::KEYWORD)
             .expect("get keyword Attribute")
     );
     assert_eq!(
         Some(1),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.integer)
+            .get_attribute(&flow_id, &persistence::INTEGER)
             .expect("get integer Attribute")
     );
     assert_eq!(
         Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_681_766_269)),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.datetime)
+            .get_attribute(&flow_id, &persistence::DATETIME)
             .expect("get datetime Attribute")
     );
     assert_eq!(
         Some(PersistenceModel { value: 0 }),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.model)
+            .get_attribute(&flow_id, &persistence::MODEL)
             .expect("get model Attribute")
     );
     assert!(matches!(
         environment
             .client
-            .set_attribute(&flow_id, &workflow.data, "closed".to_string()),
+            .set_attribute(&flow_id, &persistence::DATA, "closed".to_string()),
         Err(SdkError::FlowNotActive { .. })
     ));
 }
@@ -117,35 +119,35 @@ fn test_set_indexed_attributes() {
         .expect("start set-indexed-attributes Flow");
     environment
         .client
-        .set_attribute(&flow_id, &workflow.keyword, "keyword-1".to_string())
+        .set_attribute(&flow_id, &set_attributes::KEYWORD, "keyword-1".to_string())
         .expect("set keyword Attribute");
     environment
         .client
-        .set_attribute(&flow_id, &workflow.full_text, "text-1".to_string())
+        .set_attribute(&flow_id, &set_attributes::FULL_TEXT, "text-1".to_string())
         .expect("set full-text Attribute");
     environment
         .client
-        .set_attribute(&flow_id, &workflow.decimal, 1.0)
+        .set_attribute(&flow_id, &set_attributes::DECIMAL, 1.0)
         .expect("set double Attribute");
     environment
         .client
-        .set_attribute(&flow_id, &workflow.integer, 1)
+        .set_attribute(&flow_id, &set_attributes::INTEGER, 1)
         .expect("set integer Attribute");
     environment
         .client
-        .set_attribute(&flow_id, &workflow.boolean, true)
+        .set_attribute(&flow_id, &set_attributes::BOOLEAN, true)
         .expect("set boolean Attribute");
     environment
         .client
-        .set_attribute(&flow_id, &workflow.keywords, keywords.clone())
+        .set_attribute(&flow_id, &set_attributes::KEYWORDS, keywords.clone())
         .expect("set keyword-array Attribute");
     environment
         .client
-        .set_attribute(&flow_id, &workflow.datetime, datetime)
+        .set_attribute(&flow_id, &set_attributes::DATETIME, datetime)
         .expect("set datetime Attribute");
     environment
         .client
-        .publish(&flow_id, &workflow.proceed, ())
+        .publish(&flow_id, &set_attributes::PROCEED, ())
         .expect("publish proceed message");
     assert_eq!(
         "test-result",
@@ -159,49 +161,49 @@ fn test_set_indexed_attributes() {
         Some("keyword-1".to_string()),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.keyword)
+            .get_attribute(&flow_id, &set_attributes::KEYWORD)
             .expect("get keyword Attribute")
     );
     assert_eq!(
         Some("text-1".to_string()),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.full_text)
+            .get_attribute(&flow_id, &set_attributes::FULL_TEXT)
             .expect("get full-text Attribute")
     );
     assert_eq!(
         Some(1.0),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.decimal)
+            .get_attribute(&flow_id, &set_attributes::DECIMAL)
             .expect("get double Attribute")
     );
     assert_eq!(
         Some(1),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.integer)
+            .get_attribute(&flow_id, &set_attributes::INTEGER)
             .expect("get integer Attribute")
     );
     assert_eq!(
         Some(true),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.boolean)
+            .get_attribute(&flow_id, &set_attributes::BOOLEAN)
             .expect("get boolean Attribute")
     );
     assert_eq!(
         Some(keywords),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.keywords)
+            .get_attribute(&flow_id, &set_attributes::KEYWORDS)
             .expect("get keyword-array Attribute")
     );
     assert_eq!(
         Some(datetime),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.datetime)
+            .get_attribute(&flow_id, &set_attributes::DATETIME)
             .expect("get datetime Attribute")
     );
 }
@@ -221,7 +223,7 @@ fn test_set_data_attributes() {
     assert!(matches!(
         environment.client.wait_for_attribute_equal(
             &flow_id,
-            &workflow.data,
+            &set_attributes::DATA,
             "never".to_string(),
             Duration::from_secs(1),
         ),
@@ -231,14 +233,14 @@ fn test_set_data_attributes() {
         let waiting = scope.spawn(|| {
             environment.client.wait_for_attribute_equal(
                 &flow_id,
-                &workflow.data,
+                &set_attributes::DATA,
                 "query-start".to_string(),
                 Duration::from_secs(30),
             )
         });
         environment
             .client
-            .set_attribute(&flow_id, &workflow.data, "query-start".to_string())
+            .set_attribute(&flow_id, &set_attributes::DATA, "query-start".to_string())
             .expect("set data Attribute");
         waiting
             .join()
@@ -272,7 +274,7 @@ fn test_set_data_attributes() {
     assert!(matches!(
         environment.client.wait_for_attribute_equal(
             &flow_id,
-            &workflow.model,
+            &set_attributes::MODEL,
             PersistenceModel { value: 8 },
             Duration::from_secs(30),
         ),
@@ -307,11 +309,15 @@ fn test_set_data_attributes() {
         .expect("set AttributeMap entry");
     environment
         .client
-        .set_attribute(&flow_id, &workflow.model, PersistenceModel { value: 7 })
+        .set_attribute(
+            &flow_id,
+            &set_attributes::MODEL,
+            PersistenceModel { value: 7 },
+        )
         .expect("set model Attribute");
     environment
         .client
-        .publish(&flow_id, &workflow.proceed, ())
+        .publish(&flow_id, &set_attributes::PROCEED, ())
         .expect("publish proceed message");
     assert_eq!(
         "test-result",
@@ -325,7 +331,7 @@ fn test_set_data_attributes() {
         Some("query-start".to_string()),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.data)
+            .get_attribute(&flow_id, &set_attributes::DATA)
             .expect("get data Attribute")
     );
     assert_eq!(
@@ -339,7 +345,7 @@ fn test_set_data_attributes() {
         Some(PersistenceModel { value: 7 }),
         environment
             .client
-            .get_attribute(&flow_id, &workflow.model)
+            .get_attribute(&flow_id, &set_attributes::MODEL)
             .expect("get model Attribute")
     );
 }
@@ -348,14 +354,14 @@ fn test_set_data_attributes() {
 fn compile_persistence_reads(client: &Client) -> SdkResult<()> {
     let workflow = PersistenceWorkflow::new();
     let options = StartFlowOptions::new()
-        .initial_attribute(&workflow.initial, "initial".to_string())
+        .initial_attribute(&persistence::INITIAL, "initial".to_string())
         .initial_attribute_map(&workflow.data_map, "one", "initial".to_string());
     client.start_flow_with_options(&workflow, "persistence", "input".to_string(), options)?;
-    let _: Option<String> = client.get_attribute("persistence", &workflow.data)?;
+    let _: Option<String> = client.get_attribute("persistence", &persistence::DATA)?;
     let _: Option<String> =
         client.get_attribute_map_instance("persistence", &workflow.data_map, "one")?;
-    let _: Option<i32> = client.get_attribute("persistence", &workflow.integer)?;
-    let _: Option<SystemTime> = client.get_attribute("persistence", &workflow.datetime)?;
+    let _: Option<i32> = client.get_attribute("persistence", &persistence::INTEGER)?;
+    let _: Option<SystemTime> = client.get_attribute("persistence", &persistence::DATETIME)?;
     Ok(())
 }
 
@@ -363,25 +369,29 @@ fn compile_persistence_reads(client: &Client) -> SdkResult<()> {
 fn compile_persistence_writes(client: &Client) -> SdkResult<()> {
     let workflow = PersistenceSetAttributesWorkflow::new();
     client.start_flow(&workflow, "set-attributes", "input".to_string())?;
-    client.set_attribute("set-attributes", &workflow.data, "value".to_string())?;
+    client.set_attribute("set-attributes", &set_attributes::DATA, "value".to_string())?;
     client.set_attribute_map_instance(
         "set-attributes",
         &workflow.data_map,
         "one",
         "value".to_string(),
     )?;
-    client.set_attribute("set-attributes", &workflow.keyword, "keyword".to_string())?;
-    client.set_attribute("set-attributes", &workflow.decimal, 1.5)?;
-    client.set_attribute("set-attributes", &workflow.integer, 1)?;
-    client.set_attribute("set-attributes", &workflow.boolean, true)?;
     client.set_attribute(
         "set-attributes",
-        &workflow.keywords,
+        &set_attributes::KEYWORD,
+        "keyword".to_string(),
+    )?;
+    client.set_attribute("set-attributes", &set_attributes::DECIMAL, 1.5)?;
+    client.set_attribute("set-attributes", &set_attributes::INTEGER, 1)?;
+    client.set_attribute("set-attributes", &set_attributes::BOOLEAN, true)?;
+    client.set_attribute(
+        "set-attributes",
+        &set_attributes::KEYWORDS,
         vec!["one".to_string(), "two".to_string()],
     )?;
     client.wait_for_attribute_equal(
         "set-attributes",
-        &workflow.data,
+        &set_attributes::DATA,
         "value".to_string(),
         Duration::from_secs(30),
     )?;

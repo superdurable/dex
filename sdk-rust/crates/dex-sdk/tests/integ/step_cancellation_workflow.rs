@@ -20,7 +20,7 @@ use dex_sdk::{
     StepList, StepMovement, StepOptions, Timer, Wait, WaitForFailurePolicy,
 };
 
-static LATE_WRITE: LazyLock<Attribute<String>> =
+pub(crate) static LATE_WRITE: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new("rust-cancellation-late-write"));
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -119,7 +119,6 @@ impl CancellationState {
 }
 
 pub(crate) struct StepCancellationWorkflow {
-    pub(crate) late_write: Attribute<String>,
     start: CancellationStart,
     blocking_execute: CancellationBlockingExecute,
     blocking_wait_for: CancellationBlockingWaitFor,
@@ -134,12 +133,10 @@ pub(crate) struct StepCancellationWorkflow {
 
 impl StepCancellationWorkflow {
     pub(crate) fn new(state: Arc<CancellationState>) -> Self {
-        let late_write = LATE_WRITE.clone();
         Self {
             start: CancellationStart(Arc::clone(&state)),
             blocking_execute: CancellationBlockingExecute {
                 state: Arc::clone(&state),
-                late_write: late_write.clone(),
             },
             blocking_wait_for: CancellationBlockingWaitFor(Arc::clone(&state)),
             winner: CancellationWinner(Arc::clone(&state)),
@@ -149,7 +146,6 @@ impl StepCancellationWorkflow {
             second_parent: CancellationSecondParent(Arc::clone(&state)),
             selector_winner: CancellationSelectorWinner(Arc::clone(&state)),
             selector_waiting: CancellationSelectorWaiting(Arc::clone(&state)),
-            late_write,
         }
     }
 }
@@ -171,7 +167,7 @@ impl Flow for StepCancellationWorkflow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().attribute(&self.late_write)
+        PersistenceSchema::new().attribute(&LATE_WRITE)
     }
 }
 
@@ -197,7 +193,6 @@ impl Step for CancellationStart {
                 StepMovement::to(
                     &CancellationBlockingExecute {
                         state: Arc::clone(&state),
-                        late_write: LATE_WRITE.clone(),
                     },
                     (),
                 ),
@@ -210,7 +205,6 @@ impl Step for CancellationStart {
 
 pub(crate) struct CancellationBlockingExecute {
     pub(crate) state: Arc<CancellationState>,
-    pub(crate) late_write: Attribute<String>,
 }
 
 impl Step for CancellationBlockingExecute {
@@ -231,7 +225,7 @@ impl Step for CancellationBlockingExecute {
                 .store(context.is_cancelled(), Ordering::SeqCst);
             self.state.cancellation_observed.set();
         }
-        self.late_write.set(context, "late".to_string())?;
+        LATE_WRITE.set(context, "late".to_string())?;
         self.state.late_handler_returned.set();
         Ok(StepDecision::go_to(
             &CancellationRecovery(Arc::clone(&self.state)),
@@ -322,7 +316,6 @@ impl Step for CancellationWinner {
         }
         Ok(decision.cancel_step(&CancellationBlockingExecute {
             state: Arc::clone(&self.0),
-            late_write: LATE_WRITE.clone(),
         }))
     }
 }

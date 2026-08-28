@@ -16,22 +16,18 @@ use dex_sdk::{
     StepOptions, Wait,
 };
 
-static EXECUTION_COUNT: LazyLock<Attribute<i32>> =
+pub(crate) static EXECUTION_COUNT: LazyLock<Attribute<i32>> =
     LazyLock::new(|| Attribute::new("reset-execution-count"));
-static CHANNEL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("rpc-channel"));
-static DATA: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("rpc-lock-data"));
-static KEYWORD: LazyLock<Attribute<String>> =
+pub(crate) static CHANNEL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("rpc-channel"));
+pub(crate) static DATA: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("rpc-lock-data"));
+pub(crate) static KEYWORD: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()));
-static COUNTER: LazyLock<Attribute<i32>> =
+pub(crate) static COUNTER: LazyLock<Attribute<i32>> =
     LazyLock::new(|| Attribute::new("CustomIntField").indexed(AttributeIndex::int()));
 
 pub(crate) struct ResetWorkflow {
-    channel: Channel<()>,
-    pub(crate) data: Attribute<String>,
-    pub(crate) keyword: Attribute<String>,
-    pub(crate) counter: Attribute<i32>,
     pub(crate) items: AttributeMap<String>,
-    pub(crate) execution_count: Attribute<i32>,
     pub(crate) first: LockWaitStep,
     second: LockCompleteStep,
 }
@@ -43,31 +39,17 @@ impl ResetWorkflow {
     pub(crate) const WITHOUT_LOCKING: Rpc<(), ()> = Rpc::new("without_locking");
 
     pub(crate) fn new() -> Self {
-        let channel = CHANNEL.clone();
-        let data = DATA.clone();
-        let keyword = KEYWORD.clone();
-        let counter = COUNTER.clone();
         let items = AttributeMap::new("rpc-lock-items");
-        let execution_count = EXECUTION_COUNT.clone();
         Self {
-            first: LockWaitStep {
-                channel: channel.clone(),
-            },
-            second: LockCompleteStep {
-                execution_count: execution_count.clone(),
-            },
-            channel,
-            data,
-            keyword,
-            counter,
+            first: LockWaitStep,
+            second: LockCompleteStep,
             items,
-            execution_count,
         }
     }
 
     fn with_locking(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> {
         self.write_attributes(context)?;
-        self.channel.publish(context, ())?;
+        CHANNEL.publish(context, ())?;
         Ok(RpcResult::new(()).then(StepMovement::to(&self.second, ())))
     }
 
@@ -77,15 +59,14 @@ impl ResetWorkflow {
 
     fn without_locking(&self, context: &mut Context) -> HandlerResult<RpcResult<()>> {
         self.write_attributes(context)?;
-        self.channel.publish(context, ())?;
+        CHANNEL.publish(context, ())?;
         Ok(RpcResult::new(()).then(StepMovement::to(&self.second, ())))
     }
 
     fn write_attributes(&self, context: &mut Context) -> HandlerResult<()> {
-        self.data.set(context, Self::EXPECTED_VALUE.to_string())?;
-        self.keyword
-            .set(context, Self::EXPECTED_VALUE.to_string())?;
-        self.counter.set(context, 100)
+        DATA.set(context, Self::EXPECTED_VALUE.to_string())?;
+        KEYWORD.set(context, Self::EXPECTED_VALUE.to_string())?;
+        COUNTER.set(context, 100)
     }
 }
 
@@ -98,21 +79,21 @@ impl Flow for ResetWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.data)
-            .attribute(&self.keyword)
-            .attribute(&self.counter)
+            .attribute(&DATA)
+            .attribute(&KEYWORD)
+            .attribute(&COUNTER)
             .attribute_map(&self.items)
-            .attribute(&self.execution_count)
-            .channel(&self.channel)
+            .attribute(&EXECUTION_COUNT)
+            .channel(&CHANNEL)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .function_without_input(
                 Self::WITH_LOCKING
-                    .lock(self.data.lock())
-                    .lock(self.keyword.lock())
-                    .lock(self.counter.lock()),
+                    .lock(DATA.lock())
+                    .lock(KEYWORD.lock())
+                    .lock(COUNTER.lock()),
                 Self::with_locking,
             )
             .procedure_without_input(
@@ -123,41 +104,32 @@ impl Flow for ResetWorkflow {
     }
 }
 
-pub(crate) struct LockWaitStep {
-    channel: Channel<()>,
-}
+pub(crate) struct LockWaitStep;
 
 impl Step for LockWaitStep {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, (): ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(self.channel.for_one()))
+        Ok(Wait::until(CHANNEL.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::go_to(
-            &LockCompleteStep {
-                execution_count: EXECUTION_COUNT.clone(),
-            },
-            (),
-        ))
+        Ok(StepDecision::go_to(&LockCompleteStep, ()))
     }
 }
 
-struct LockCompleteStep {
-    execution_count: Attribute<i32>,
-}
+struct LockCompleteStep;
 
 impl Step for LockCompleteStep {
     type Input = ();
 
     fn execute(&self, context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
-        let next = self.execution_count.get(context)?.unwrap_or_default() + 1;
-        self.execution_count.set(context, next)?;
+        let next = EXECUTION_COUNT.get(context)?.unwrap_or_default() + 1;
+        EXECUTION_COUNT.set(context, next)?;
         Ok(StepDecision::graceful_complete(next))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_lock(self.execution_count.lock())
+        StepOptions::new().execute_lock(EXECUTION_COUNT.lock())
     }
 }
