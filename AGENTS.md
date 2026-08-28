@@ -66,6 +66,12 @@ Before creating a feature branch, fetch and branch from `origin/main`. See
 (`script/branch_off_main_policy.py`; Codex requires `features.codex_hooks =
 true` in `~/.codex/config.toml`).
 
+### Agent Rule Synchronization
+
+Keep the Cursor (`.cursor/rules/`), Codex (`AGENTS.md`), and Claude
+(`CLAUDE.md`) coding-agent rules synchronized. Any addition or modification to
+one requires equivalent updates to all three in the same commit.
+
 ### Regenerate the Entire Repository After Proto Changes
 
 Whenever any `.proto` file changes, run `make generated-code` from the repository
@@ -105,6 +111,14 @@ Do not replace legacy headers. Editing a `legacy-only` file upgrades it to
 The project has **not launched**. Remove dead config fields immediately. Break
 APIs freely. Ask before adding any compat shim. Do not leave docs/comments that
 explain former behavior.
+
+### Rust Workflow Schema Definitions
+
+In Rust examples and SDK tests under `sdk-rust/crates/dex-sdk/tests/integ/`,
+define every Attribute, Channel, and Stream as a module-level `static
+LazyLock<T>`. Do not use a function to construct or return one of these
+definitions. Reuse the static directly, or clone its initialized value only
+when an owned field is required.
 
 ### Fluent SDK Call Sites
 

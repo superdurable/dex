@@ -20,6 +20,12 @@ wrapper often injects `Co-authored-by: Cursor <cursoragent@cursor.com>`; strip
 it before pushing. After every commit run `git log -1 --format=%B`. Do not use
 `--no-verify`. See `.cursor/rules/git-commit.mdc`.
 
+## Agent Rule Synchronization
+
+Keep the Cursor (`.cursor/rules/`), Codex (`AGENTS.md`), and Claude
+(`CLAUDE.md`) coding-agent rules synchronized. Any addition or modification to
+one requires equivalent updates to all three in the same commit.
+
 ## Compatibility
 
 - The project has not launched. Remove dead config fields immediately.

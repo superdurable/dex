@@ -15,6 +15,12 @@ wrapper often injects `Co-authored-by: Cursor <cursoragent@cursor.com>`; strip
 it before pushing. After every commit run `git log -1 --format=%B`. Do not use
 `--no-verify`. See `.cursor/rules/git-commit.mdc`.
 
+## Agent Rule Synchronization
+
+Keep the Cursor (`.cursor/rules/`), Codex (`AGENTS.md`), and Claude
+(`CLAUDE.md`) coding-agent rules synchronized. Any addition or modification to
+one requires equivalent updates to all three in the same commit.
+
 ## Compatibility
 
 - The project has not launched. Remove dead config fields immediately.
@@ -105,6 +111,14 @@ it before pushing. After every commit run `git log -1 --format=%B`. Do not use
   missing, add it. Or run `make copyright` from the repo root.
 - Use `make copyright` to add or upgrade headers and `make copyright-check` to
   verify classifications and normalized body hashes.
+
+# Rust Workflow Schema Definitions
+
+In Rust examples and SDK tests under `sdk-rust/crates/dex-sdk/tests/integ/`,
+define every Attribute, Channel, and Stream as a module-level `static
+LazyLock<T>`. Do not use a function to construct or return one of these
+definitions. Reuse the static directly, or clone its initialized value only
+when an owned field is required.
 
 # Server Go Conventions (`server/**/*.go`)
 
