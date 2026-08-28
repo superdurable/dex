@@ -330,7 +330,7 @@ Ok(StepDecision::go_to(&RecordQuoteStep, quote)
 
 ## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
 
-**ForceCompleteIfChannelsEmpty** 原子检查 Channel 是否为空。若为空，它完成 Flow。否则，它转到其他 Step。
+**ForceCompleteIfChannelsEmpty** 原子检查所有指定的 Channel 是否为空。Channel 中有排队消息时，该 Channel 视为非空。消息从 Channel 消费并提交给 Step 后，在该 Step 完成 **Execute** 处理之前，该 Channel 也视为非空。若所有指定的 Channel 都为空，它完成 Flow；否则，它转到其他 Step。
 
 当你想 drain Channel 并完成 Flow，让 Flow 保持短小，使用它。完整例子见[排空外部 Channel](/design-patterns/draining-channel-for-external-publishing)。
 

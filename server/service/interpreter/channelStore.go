@@ -19,11 +19,15 @@ import (
 
 // ChannelStore holds FIFO messages by channel.
 type ChannelStore struct {
-	channelMessages map[string][]*dexpb.Value
+	channelMessages           map[string][]*dexpb.Value
+	inFlightConsumptionCounts condition.ChannelAvailability
 }
 
 func NewChannelStore() *ChannelStore {
-	return &ChannelStore{channelMessages: map[string][]*dexpb.Value{}}
+	return &ChannelStore{
+		channelMessages:           map[string][]*dexpb.Value{},
+		inFlightConsumptionCounts: condition.ChannelAvailability{},
+	}
 }
 
 // RebuildChannelStore restores a snapshot.
@@ -34,7 +38,10 @@ func RebuildChannelStore(refill map[string]*dexpb.ChannelValues) *ChannelStore {
 			chMsgs[name] = channelValues.GetValues()
 		}
 	}
-	return &ChannelStore{channelMessages: chMsgs}
+	return &ChannelStore{
+		channelMessages:           chMsgs,
+		inFlightConsumptionCounts: condition.ChannelAvailability{},
+	}
 }
 
 // ProcessPublishing appends messages.
@@ -53,9 +60,10 @@ func (i *ChannelStore) Availability() condition.ChannelAvailability {
 	return availability
 }
 
-// HasData reports whether a channel has messages.
-func (i *ChannelStore) HasData(channelName string) bool {
-	return len(i.channelMessages[channelName]) > 0
+// HasPendingData reports queued messages or committed messages still executing.
+func (i *ChannelStore) HasPendingData(channelName string) bool {
+	return len(i.channelMessages[channelName]) > 0 ||
+		i.inFlightConsumptionCounts[channelName] > 0
 }
 
 // GetInfos returns channel sizes.
@@ -92,6 +100,7 @@ func (i *ChannelStore) CommitMatch(plan *condition.MatchPlan) map[int][]*dexpb.V
 		if consumption.Count > 0 {
 			consumed[consumption.ChannelConditionIndex] = values[:consumption.Count:consumption.Count]
 			values = values[consumption.Count:]
+			i.inFlightConsumptionCounts[consumption.ChannelName] += consumption.Count
 		} else {
 			consumed[consumption.ChannelConditionIndex] = nil
 		}
@@ -102,6 +111,30 @@ func (i *ChannelStore) CommitMatch(plan *condition.MatchPlan) map[int][]*dexpb.V
 		}
 	}
 	return consumed
+}
+
+// CompleteMatch releases messages after their consuming Execute returns.
+func (i *ChannelStore) CompleteMatch(plan *condition.MatchPlan) {
+	for _, consumption := range plan.Consumes {
+		if consumption.Count == 0 {
+			continue
+		}
+		inFlightCount := i.inFlightConsumptionCounts[consumption.ChannelName]
+		if inFlightCount < consumption.Count {
+			panic(fmt.Sprintf(
+				"channel %q has %d in-flight messages but completion releases %d",
+				consumption.ChannelName,
+				inFlightCount,
+				consumption.Count,
+			))
+		}
+		remainingCount := inFlightCount - consumption.Count
+		if remainingCount == 0 {
+			delete(i.inFlightConsumptionCounts, consumption.ChannelName)
+		} else {
+			i.inFlightConsumptionCounts[consumption.ChannelName] = remainingCount
+		}
+	}
 }
 
 func (i *ChannelStore) receive(channelName string, data *dexpb.Value) {

@@ -330,7 +330,7 @@ Ok(StepDecision::go_to(&RecordQuoteStep, quote)
 
 ## ForceCompleteIfChannelsEmpty {#forcecompleteifchannelsempty}
 
-**ForceCompleteIfChannelsEmpty** atomically checks if Channels are empty. If they are, it completes the Flow. Otherwise, it goes to other Steps.
+**ForceCompleteIfChannelsEmpty** atomically checks whether all named Channels are empty. A Channel with queued messages is non-empty. After a message is consumed and committed to a Step, that Channel remains non-empty until the Step finishes processing **Execute**. If every named Channel is empty, it completes the Flow. Otherwise, it goes to other Steps.
 
 Use it when you want to drain Channels and complete the Flow, so the Flow can stay short. See [Drain External Channel](/design-patterns/draining-channel-for-external-publishing) for the full example.
 

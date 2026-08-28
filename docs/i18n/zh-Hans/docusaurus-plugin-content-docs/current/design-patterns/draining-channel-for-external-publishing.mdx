@@ -11,7 +11,7 @@ sidebar_label: Drain External Channel
 
 当一条 Flow 要处理 Worker 外部发来的消息，并且消息可能突发到来时，使用这个模式。Client 可以通过 **PublishToChannel** 直接追加消息，或者使用 RPC。关键要求是在 Channel 为空时完成 Flow，从而尽可能让 Flow 保持短生命周期。有新消息到来时，Flow 会重新启动。
 
-这个 decision 会在记录下一步动作时原子地检查 Channel。Channel 为空时完成 Flow；仍有消息时，Dex 会走 fallback movement 回到 **ProcessMessage**。前一次 execution 完成后，下一个请求会使用相同的 Flow ID 启动新的 Flow execution，并将消息作为启动输入。
+这个 decision 会在记录下一步动作时原子地检查 Channel。Channel 为空时完成 Flow；Channel 中还有排队消息，或有消息已从该 Channel 消费并提交给尚未完成 **Execute** 处理的 Step 时，Dex 会走 fallback movement 回到 **ProcessMessage**。前一次 execution 完成后，下一个请求会使用相同的 Flow ID 启动新的 Flow execution，并将消息作为启动输入。
 
 被 **ForceCompleteIfChannelsEmpty** 检查的 Channel 只能由一个 Step 消费。
 
