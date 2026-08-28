@@ -23,7 +23,7 @@ import {
   Wait,
   deadEnd,
   goTo,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   rpc,
   stringCodec,
@@ -93,7 +93,7 @@ class CallAPI1 implements Step<string> {
   public execute(context: Context, input: string): StepDecision {
     this.flow.service.callAPI1(input);
     this.flow.data.set(context, input);
-    return goToMulti(
+    return goToMany(
       StepMovement.of(CallAPI2, undefined),
       StepMovement.of(CallAPI3, undefined),
     );

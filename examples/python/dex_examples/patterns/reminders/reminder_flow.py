@@ -31,7 +31,7 @@ from dex import (
     Wait,
     force_complete,
     go_to,
-    go_to_multi,
+    go_to_many,
     rpc,
 )
 
@@ -119,7 +119,7 @@ class Init(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del input
         self.status.set(context, Status.INITIATED.value)
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(ProcessTimeout, None),
             StepMovement.of(Reminder, None),
         )

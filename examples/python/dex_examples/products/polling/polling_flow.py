@@ -28,7 +28,7 @@ from dex import (
     Wait,
     dead_end,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -101,7 +101,7 @@ class Initialize(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         self.current_polls.set(context, 0)
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(Poll, input),
             StepMovement.of(WaitForTasks, None),
         )

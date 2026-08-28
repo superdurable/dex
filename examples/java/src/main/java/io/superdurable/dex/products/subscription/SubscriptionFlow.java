@@ -87,7 +87,7 @@ public class SubscriptionFlow implements Flow<Customer> {
         @Override
         public StepDecision execute(final Context context, final Customer customer) {
             customerDetails.set(context, customer);
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(Trial.class, null),
                     StepMovement.of(Cancel.class, null),
                     StepMovement.of(UpdateChargeAmount.class, null));

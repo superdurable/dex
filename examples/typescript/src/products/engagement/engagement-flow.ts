@@ -24,7 +24,7 @@ import {
   Wait,
   deadEnd,
   goTo,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   int64Codec,
   optionalCodec,
@@ -170,7 +170,7 @@ class Initialize implements Step<EngagementInput> {
     this.flow.engagementStatus.set(context, Status.INITIATED);
     this.flow.lastUpdateTimestamp.set(context, BigInt(Date.now()));
     this.flow.notes.set(context, input.notes);
-    return goToMulti(
+    return goToMany(
       StepMovement.of(ProcessTimeout, undefined),
       StepMovement.of(Reminder, undefined),
       StepMovement.of(NotifyExternalSystem, Status.INITIATED),

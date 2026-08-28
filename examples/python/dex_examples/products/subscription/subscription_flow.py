@@ -27,7 +27,7 @@ from dex import (
     Wait,
     force_complete,
     go_to,
-    go_to_multi,
+    go_to_many,
     rpc,
 )
 
@@ -159,7 +159,7 @@ class Initialize(Step[Customer]):
 
     def execute(self, context: Context, input: Customer) -> StepDecision:
         self.customer_details.set(context, input)
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(Trial, None),
             StepMovement.of(Cancel, None),
             StepMovement.of(UpdateChargeAmount, None),

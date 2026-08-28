@@ -60,7 +60,7 @@ class _WaitForSchedule(Step[_ScheduleState]):
         )
         if run_input.is_final:
             return go_to(_Run, run_input)
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(_Run, run_input),
             StepMovement.of(
                 _WaitForSchedule,
@@ -107,7 +107,7 @@ func (waitForCronSchedule) Execute(
 		return dex.GoTo(runCronSchedule{}, run), nil
 	}
 	state.RemainingRuns--
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(runCronSchedule{}, run),
 		dex.MovementOf(waitForCronSchedule{}, state),
 	), nil
@@ -136,7 +136,7 @@ final class WaitForSchedule implements Step<ScheduleState> {
         if (runInput.isFinal) {
             return StepDecision.goTo(Run.class, runInput);
         }
-        return StepDecision.goToMulti(
+        return StepDecision.goToMany(
                 StepMovement.of(Run.class, runInput),
                 StepMovement.of(
                         WaitForSchedule.class,
@@ -177,7 +177,7 @@ class WaitForSchedule implements Step<ScheduleState> {
     if (input.isFinal) {
       return goTo(Run, input);
     }
-    return goToMulti(
+    return goToMany(
       StepMovement.of(Run, input),
       StepMovement.of(WaitForSchedule, {
         interval: state.interval,

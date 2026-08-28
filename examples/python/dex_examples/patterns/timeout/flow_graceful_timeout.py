@@ -28,7 +28,7 @@ from dex import (
     Wait,
     force_complete,
     force_fail,
-    go_to_multi,
+    go_to_many,
 )
 
 TIMEOUT_DURATION = timedelta(minutes=1)
@@ -64,7 +64,7 @@ class Init(Step[bool]):
 
     def execute(self, context: Context, input: bool) -> StepDecision:
         del context
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(Timeout, None),
             StepMovement.of(Task, input),
         )

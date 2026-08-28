@@ -10,7 +10,7 @@ This page covers the advanced **StepDecision** features. See the [basic page](/p
 
 ## Multiple next Steps {#gotomulti}
 
-**GoTo** starts one next Step. **GoToMulti** starts multiple next Steps. Use it to fan out work that can run in parallel. Each Step movement has its own input and can also have its own Step options.
+**GoTo** starts one next Step. **GoToMany** starts multiple next Steps. Use it to fan out work that can run in parallel. Each Step movement has its own input and can also have its own Step options.
 
 <SdkTabs
   examples={{
@@ -23,7 +23,7 @@ This page covers the advanced **StepDecision** features. See the [basic page](/p
 <SdkSnippet lang="go">
 
 ```go
-return dex.GoToMulti(
+return dex.GoToMany(
 	dex.MovementOf(carrierAStep{}, Quote{Carrier: "A", Price: 10}),
 	dex.MovementOf(carrierBStep{}, Quote{Carrier: "B", Price: 12}),
 	dex.MovementOf(winnerStep{}, quote),
@@ -34,7 +34,7 @@ return dex.GoToMulti(
   <SdkSnippet lang="java">
 
 ```java
-return StepDecision.goToMulti(
+return StepDecision.goToMany(
         StepMovement.of(CarrierAStep.class, quoteA),
         StepMovement.of(CarrierBStep.class, quoteB),
         StepMovement.of(WinnerStep.class, winnerQuote));
@@ -44,7 +44,7 @@ return StepDecision.goToMulti(
   <SdkSnippet lang="python">
 
 ```python
-return go_to_multi(
+return go_to_many(
     StepMovement.of(CarrierAStep, Quote(carrier="A", price=10)),
     StepMovement.of(CarrierBStep, Quote(carrier="B", price=12)),
     StepMovement.of(WinnerStep, quote),
@@ -55,7 +55,7 @@ return go_to_multi(
   <SdkSnippet lang="typescript">
 
 ```typescript
-return goToMulti(
+return goToMany(
   StepMovement.of(CarrierAStep, { carrier: "A", price: 10 }),
   StepMovement.of(CarrierBStep, { carrier: "B", price: 12 }),
   StepMovement.of(WinnerStep, quote),
@@ -106,7 +106,7 @@ Use **GracefulComplete** when you want the remaining active Steps and branches t
 case "graceful":
 	return dex.GracefulComplete("done"), nil
 case "dead-end":
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(branchWorkerStep{}, "left"),
 		dex.MovementOf(branchWorkerStep{}, "right"),
 	), nil
@@ -124,7 +124,7 @@ case "graceful" -> {
     return StepDecision.gracefulComplete("done");
 }
 case "dead-end" -> {
-    return StepDecision.goToMulti(
+    return StepDecision.goToMany(
             StepMovement.of(BranchWorkerStep.class, "left"),
             StepMovement.of(BranchWorkerStep.class, "right"));
 }
@@ -139,7 +139,7 @@ return StepDecision.deadEnd();
 if mode == "graceful":
     return graceful_complete("done")
 if mode == "dead-end":
-    return go_to_multi(
+    return go_to_many(
         StepMovement.of(BranchWorkerStep, "left"),
         StepMovement.of(BranchWorkerStep, "right"),
     )
@@ -155,7 +155,7 @@ if (mode === "graceful") {
   return gracefulComplete("done");
 }
 if (mode === "dead-end") {
-  return goToMulti(
+  return goToMany(
     StepMovement.of(BranchWorkerStep, "left"),
     StepMovement.of(BranchWorkerStep, "right"),
   );

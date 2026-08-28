@@ -73,7 +73,7 @@ public class ParentFlowV2 implements Flow<Integer> {
             for (int i = 0; i < CONCURRENCY_PER_PARENT_WORKFLOW; i++) {
                 movements.add(StepMovement.of(LoopForNextTask.class, null));
             }
-            return StepDecision.goToMulti(movements.toArray(new StepMovement<?>[0]));
+            return StepDecision.goToMany(movements.toArray(new StepMovement<?>[0]));
         }
     }
 

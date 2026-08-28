@@ -77,7 +77,7 @@ func (initStep) Execute(
 	if err := MainStepExecutionCounterAttribute.Set(ctx, 0); err != nil {
 		return nil, err
 	}
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(sideStep{}, nil),
 		dex.MovementOf(mainStep{}, input),
 	), nil

@@ -104,7 +104,7 @@ func (initStep) Execute(
 	if err := StatusAttribute.Set(ctx, string(StatusInitiated)); err != nil {
 		return nil, err
 	}
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(processTimeoutStep{}, nil),
 		dex.MovementOf(reminderStep{}, nil),
 	), nil

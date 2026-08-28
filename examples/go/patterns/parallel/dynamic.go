@@ -50,7 +50,7 @@ func (dynamicInitStep) Execute(_ dex.Context, items []string) (*dex.StepDecision
 	for _, item := range items {
 		movements = append(movements, dex.MovementOf(dynamicWorkStep{}, item))
 	}
-	return dex.GoToMulti(movements...), nil
+	return dex.GoToMany(movements...), nil
 }
 
 type dynamicWorkStep struct {

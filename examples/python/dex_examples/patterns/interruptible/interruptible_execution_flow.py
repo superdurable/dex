@@ -28,7 +28,7 @@ from dex import (
     Timer,
     Wait,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
     rpc,
 )
@@ -116,7 +116,7 @@ class Init(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
         parameters = WorkJobParametersInput(15, 1)
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(WorkAStep, parameters),
             StepMovement.of(WorkBStep, parameters),
         )

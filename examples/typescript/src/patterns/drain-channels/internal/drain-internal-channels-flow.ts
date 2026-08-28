@@ -22,7 +22,7 @@ import {
   Wait,
   doubleCodec,
   goTo,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   jsonCodec,
   stringCodec,
@@ -64,7 +64,7 @@ class Init implements Step<string> {
 
   public execute(context: Context, input: string): StepDecision {
     this.flow.mainStepExecutionCounter.set(context, 0);
-    return goToMulti(
+    return goToMany(
       StepMovement.of(SideStep, undefined),
       StepMovement.of(MainStep, input),
     );

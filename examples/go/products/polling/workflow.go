@@ -73,7 +73,7 @@ func (initializeStep) Execute(
 	if err := CurrentPolls.Set(ctx, 0); err != nil {
 		return nil, err
 	}
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(pollStep{}, maximumPolls),
 		dex.MovementOf(waitForTasksStep{}, nil),
 	), nil

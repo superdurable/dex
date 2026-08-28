@@ -38,7 +38,7 @@ class WorkBStep(Step[str]):
 class InitStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         del context
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(WorkAStep, input),
             StepMovement.of(WorkBStep, input),
         )
@@ -55,7 +55,7 @@ type staticInitStep struct {
 func (staticInitStep) GetStepType() string { return "InitStep" }
 
 func (staticInitStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
-	return dex.GoToMulti(dex.MovementOf(workAStep{}, input), dex.MovementOf(workBStep{}, input)), nil
+	return dex.GoToMany(dex.MovementOf(workAStep{}, input), dex.MovementOf(workBStep{}, input)), nil
 }
 
 type workAStep struct {
@@ -91,7 +91,7 @@ final class InitStep implements Step<String> {
 
     @Override
     public StepDecision execute(final Context context, final String input) {
-        return StepDecision.goToMulti(
+        return StepDecision.goToMany(
                 StepMovement.of(WorkAStep.class, input),
                 StepMovement.of(WorkBStep.class, input));
     }
@@ -152,7 +152,7 @@ class StaticInitStep implements Step<string> {
     return "InitStep";
   }
   public execute(_context: Context, input: string): StepDecision {
-    return goToMulti(
+    return goToMany(
       StepMovement.of(WorkAStep, input),
       StepMovement.of(WorkBStep, input),
     );

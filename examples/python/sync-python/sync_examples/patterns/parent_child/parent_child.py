@@ -40,7 +40,7 @@ from dex import (
     Timer,
     Wait,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -158,7 +158,7 @@ class Init(Step[int]):
         for index in range(input):
             self.task_queue.publish(context, index)
 
-        return go_to_multi(
+        return go_to_many(
             *(
                 StepMovement.of(LoopForNextTask, None)
                 for _ in range(CONCURRENCY_PER_PARENT_WORKFLOW)

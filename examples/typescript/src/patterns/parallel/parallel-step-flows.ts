@@ -21,7 +21,7 @@ import {
   Wait,
   deadEnd,
   doubleCodec,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   stringCodec,
   voidCodec,
@@ -59,7 +59,7 @@ class StaticInitStep implements Step<string> {
     return "InitStep";
   }
   public execute(_context: Context, input: string): StepDecision {
-    return goToMulti(
+    return goToMany(
       StepMovement.of(WorkAStep, input),
       StepMovement.of(WorkBStep, input),
     );
@@ -100,7 +100,7 @@ class DynamicInitStep implements Step<number> {
     return "InitStep";
   }
   public execute(_context: Context, count: number): StepDecision {
-    return goToMulti(
+    return goToMany(
       ...Array.from({ length: count }, (_, index) =>
         StepMovement.of(DynamicDoWorkStep, index),
       ),
@@ -157,7 +157,7 @@ class AwaitInitStep implements Step<number> {
     return "InitStep";
   }
   public execute(_context: Context, count: number): StepDecision {
-    return goToMulti(
+    return goToMany(
       StepMovement.of(AwaitStep, count),
       ...Array.from({ length: count }, (_, index) =>
         StepMovement.of(AwaitDoWorkStep, index),
@@ -200,7 +200,7 @@ class FirstWinInitStep implements Step<number> {
     return "InitStep";
   }
   public execute(_context: Context, count: number): StepDecision {
-    return goToMulti(
+    return goToMany(
       ...Array.from({ length: count }, (_, index) =>
         StepMovement.of(FirstWinDoWorkStep, index),
       ),

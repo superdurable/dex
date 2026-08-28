@@ -79,12 +79,12 @@ public final class StepDecisionFlow implements Flow<String> {
                 case "graceful":
                     return StepDecision.gracefulComplete("done");
                 case "dead-end":
-                    return StepDecision.goToMulti(
+                    return StepDecision.goToMany(
                             StepMovement.of(BranchWorkerStep.class, "left"),
                             StepMovement.of(BranchWorkerStep.class, "right"));
                 default:
                     final Quote quote = new Quote("winner", 9);
-                    return StepDecision.goToMulti(
+                    return StepDecision.goToMany(
                             StepMovement.of(CarrierAStep.class, new Quote("A", 10)),
                             StepMovement.of(CarrierBStep.class, new Quote("B", 12)),
                             StepMovement.of(WinnerStep.class, quote));

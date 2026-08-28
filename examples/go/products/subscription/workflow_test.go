@@ -44,7 +44,7 @@ var testCustomer = Customer{
 func TestInitializeSubscription(t *testing.T) {
 	decision := initializeSubscription()
 
-	require.Equal(t, dex.GoToMulti(
+	require.Equal(t, dex.GoToMany(
 		dex.MovementOf(trialStep{}, nil),
 		dex.MovementOf(cancelStep{}, nil),
 		dex.MovementOf(updateChargeAmountStep{}, nil),

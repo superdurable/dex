@@ -32,7 +32,7 @@ from dex import (
     Wait,
     dead_end,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
     rpc,
 )
@@ -124,7 +124,7 @@ class Initialize(Step[EngagementInput]):
         self.flow.engagement_status.set(context, Status.INITIATED)
         self.flow.last_update_timestamp.set(context, current_time_millis())
         self.flow.notes.set(context, input.notes or "")
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(ProcessTimeout, None),
             StepMovement.of(Reminder, None),
             StepMovement.of(NotifyExternalSystem, Status.INITIATED),

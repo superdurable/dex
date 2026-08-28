@@ -54,7 +54,7 @@ func (initStep) Execute(
 	ctx dex.Context,
 	workflowSuccessful bool,
 ) (*dex.StepDecision, error) {
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(timeoutStep{}, nil),
 		dex.MovementOf(taskStep{}, workflowSuccessful),
 	), nil

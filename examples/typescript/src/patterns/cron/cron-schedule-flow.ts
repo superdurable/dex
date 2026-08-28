@@ -23,7 +23,7 @@ import {
   deadEnd,
   forceFail,
   goTo,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   jsonCodec,
   stringCodec,
@@ -124,7 +124,7 @@ class WaitForSchedule implements Step<ScheduleState> {
     if (input.isFinal) {
       return goTo(Run, input);
     }
-    return goToMulti(
+    return goToMany(
       StepMovement.of(Run, input),
       StepMovement.of(WaitForSchedule, {
         interval: state.interval,

@@ -2105,7 +2105,7 @@ func MovementOf[IN any](
 	options ...StepMoveOption,
 ) StepMovement
 
-func GoToMulti(movements ...StepMovement) *StepDecision
+func GoToMany(movements ...StepMovement) *StepDecision
 func GracefulComplete(output any) *StepDecision
 func ForceComplete(output any) *StepDecision
 func ForceFail(reason string) *StepDecision
@@ -2133,7 +2133,7 @@ func (decision *StepDecision) CancelSiblingSteps(
 
 Rules enforced by construction or Phase 3 validation:
 
-- `GoTo` constructs one movement and `GoToMulti` requires at least one valid
+- `GoTo` constructs one movement and `GoToMany` requires at least one valid
   movement.
 - graceful complete, force complete, force fail, and dead end cannot have next
   steps;
@@ -2875,7 +2875,7 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
    embeds `StepDefaults` and the latter embeds `StepDefaultsNoWaitFor[IN]`.
 3. `None` preserves typed Step, RPC, and Channel declarations without accepting
    arbitrary payloads.
-4. `DefineStep`, `DefineStartStep`, `GoTo`, `MovementOf`, and `GoToMulti`
+4. `DefineStep`, `DefineStartStep`, `GoTo`, `MovementOf`, and `GoToMany`
    preserve target step input types.
 5. A Flow method matching `RPC[IN, OUT]` preserves typed worker handlers, while
    `Client.InvokeRPC` accepts `any` and a caller-provided output pointer.
@@ -2889,7 +2889,7 @@ Add SDK external-package tests (`package dex_test`) for these scenarios:
 9. Static and map channel result methods return `[]T` without exposing raw
    condition-result types.
 10. The `Context.HasTimerFired` and `HasTimerFiredByIndex` signatures compile.
-11. Execute can return `GoTo`, `GoToMulti`, all close decisions, and conditional
+11. Execute can return `GoTo`, `GoToMany`, all close decisions, and conditional
     force-complete fallback using channel definitions directly.
 12. Step-execution local Set accepts `any`, Get accepts a caller-provided
     pointer, and `RecordEvent(name, any)` compiles.

@@ -341,7 +341,7 @@ final StepOptions options = StepOptions.newBuilder()
         .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
         .waitForFailure(WaitForFailurePolicy.PROCEED)
         .build();
-return StepDecision.goToMulti(StepMovement.of(OverrideSecondStep.class, output, options));
+return StepDecision.goToMany(StepMovement.of(OverrideSecondStep.class, output, options));
 ```
 
 </SdkSnippet>
@@ -352,7 +352,7 @@ options = StepOptions(
     wait_for_retry=RetryPolicy(maximum_attempts=2),
     wait_for_failure=WaitForFailurePolicy.PROCEED,
 )
-return go_to_multi(StepMovement.of(OverrideSecondStep, output, options))
+return go_to_many(StepMovement.of(OverrideSecondStep, output, options))
 ```
 
 </SdkSnippet>
@@ -363,7 +363,7 @@ const override: StepOptions = {
   waitForRetry: { maximumAttempts: 2 },
   waitForFailure: "proceed",
 };
-return goToMulti(StepMovement.of(OverrideSecondStep, payload, override));
+return goToMany(StepMovement.of(OverrideSecondStep, payload, override));
 ```
 
 </SdkSnippet>

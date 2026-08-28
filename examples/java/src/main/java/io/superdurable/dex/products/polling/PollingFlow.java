@@ -76,7 +76,7 @@ public class PollingFlow implements Flow<Integer> {
         @Override
         public StepDecision execute(final Context context, final Integer maximumPolls) {
             currentPolls.set(context, 0);
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(Poll.class, maximumPolls),
                     StepMovement.of(WaitForTasks.class, null));
         }

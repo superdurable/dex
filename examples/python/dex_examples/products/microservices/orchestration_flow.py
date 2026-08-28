@@ -29,7 +29,7 @@ from dex import (
     Wait,
     dead_end,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
     rpc,
 )
@@ -105,7 +105,7 @@ class CallAPI1(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
         self.service.call_api1(input)
         self.data.set(context, input)
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(CallAPI2, None),
             StepMovement.of(CallAPI3, None),
         )

@@ -56,7 +56,7 @@ func (awaitInitStep) Execute(_ dex.Context, count int) (*dex.StepDecision, error
 	for index := 0; index < count; index++ {
 		movements = append(movements, dex.MovementOf(awaitWorkStep{}, index))
 	}
-	return dex.GoToMulti(movements...), nil
+	return dex.GoToMany(movements...), nil
 }
 
 type awaitWorkStep struct{ dex.StepDefaultsNoWaitFor[int] }

@@ -28,7 +28,7 @@ from dex import (
     Wait,
     dead_end,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -48,12 +48,12 @@ class RouteStep(Step[str]):
         if mode == "graceful":
             return graceful_complete("done")
         if mode == "dead-end":
-            return go_to_multi(
+            return go_to_many(
                 StepMovement.of(BranchWorkerStep, "left"),
                 StepMovement.of(BranchWorkerStep, "right"),
             )
         quote = Quote(carrier="winner", price=9)
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(CarrierAStep, Quote(carrier="A", price=10)),
             StepMovement.of(CarrierBStep, Quote(carrier="B", price=12)),
             StepMovement.of(WinnerStep, quote),

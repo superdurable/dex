@@ -84,7 +84,7 @@ func (step callAPI1Step) Execute(
 	if err := Data.Set(ctx, input); err != nil {
 		return nil, err
 	}
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(callAPI2Step{}, nil),
 		dex.MovementOf(callAPI3Step{}, nil),
 	), nil

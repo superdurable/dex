@@ -27,7 +27,7 @@ from dex import (
     StepMovement,
     Wait,
     dead_end,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -65,7 +65,7 @@ class InitStep(Step[int]):
         movements.extend(
             StepMovement.of(DoWorkStep, index) for index in range(input)
         )
-        return go_to_multi(*movements)
+        return go_to_many(*movements)
 
 
 class AwaitParallelStepsFlow(Flow[int]):

@@ -25,7 +25,7 @@ from dex import (
     StepOptions,
     Wait,
     WaitForFailurePolicy,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -41,7 +41,7 @@ class OverrideFirstStep(Step[str]):
             wait_for_failure=WaitForFailurePolicy.PROCEED,
         )
         payload = f"{input}_state1"
-        return go_to_multi(StepMovement.of(OverrideSecondStep, payload, options=override))
+        return go_to_many(StepMovement.of(OverrideSecondStep, payload, options=override))
 
 
 class OverrideSecondStep(Step[str]):

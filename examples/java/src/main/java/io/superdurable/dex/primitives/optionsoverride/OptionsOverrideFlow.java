@@ -57,7 +57,7 @@ public final class OptionsOverrideFlow implements Flow<String> {
                     .waitForFailure(WaitForFailurePolicy.PROCEED)
                     .build();
             final String payload = input + "_state1";
-            return StepDecision.goToMulti(
+            return StepDecision.goToMany(
                     StepMovement.of(OverrideSecondStep.class, payload, override));
         }
     }

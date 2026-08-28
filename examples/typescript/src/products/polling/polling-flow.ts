@@ -24,7 +24,7 @@ import {
   deadEnd,
   doubleCodec,
   goTo,
-  goToMulti,
+  goToMany,
   gracefulComplete,
   voidCodec,
   type Context,
@@ -85,7 +85,7 @@ class Initialize implements Step<number> {
 
   public execute(context: Context, maximumPolls: number): StepDecision {
     this.flow.currentPolls.set(context, 0);
-    return goToMulti(
+    return goToMany(
       StepMovement.of(Poll, maximumPolls),
       StepMovement.of(WaitForTasks, undefined),
     );
