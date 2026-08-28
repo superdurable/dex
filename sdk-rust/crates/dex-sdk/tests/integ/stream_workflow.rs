@@ -8,22 +8,24 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Stream,
 };
 
+pub(crate) static PROGRESS: LazyLock<Stream<String>> =
+    LazyLock::new(|| Stream::new("stream-test-progress", 1 << 20));
+
 #[derive(Clone)]
 pub(crate) struct StreamTestWorkflow {
-    pub(crate) progress: Stream<String>,
     start: StreamTestStep,
 }
 
 impl StreamTestWorkflow {
     pub(crate) fn new() -> Self {
-        let progress = Stream::new("stream-test-progress", 1 << 20);
         Self {
-            progress: progress.clone(),
-            start: StreamTestStep { progress },
+            start: StreamTestStep,
         }
     }
 }
@@ -36,20 +38,18 @@ impl Flow for StreamTestWorkflow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().stream(&self.progress)
+        PersistenceSchema::new().stream(&PROGRESS)
     }
 }
 
 #[derive(Clone)]
-struct StreamTestStep {
-    progress: Stream<String>,
-}
+struct StreamTestStep;
 
 impl Step for StreamTestStep {
     type Input = ();
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        self.progress.write(context, "step-progress".to_string())?;
+        PROGRESS.write(context, "step-progress".to_string())?;
         Ok(StepDecision::graceful_complete(()))
     }
 }

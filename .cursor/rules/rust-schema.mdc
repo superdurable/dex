@@ -1,0 +1,10 @@
+---
+description: Rust workflow schema definition rules
+alwaysApply: true
+---
+
+# Rust Workflow Schema Definitions
+
+In Rust examples and SDK tests under `sdk-rust/crates/dex-sdk/tests/integ/`, define every Attribute, Channel, and Stream as a module-level `static LazyLock<T>`. Do not use a function to construct or return one of these definitions. Reuse the static directly, or clone its initialized value only when an owned field is required.
+
+Codex and Claude mirrors: `AGENTS.md` and `CLAUDE.md`.

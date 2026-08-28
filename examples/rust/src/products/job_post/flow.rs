@@ -28,6 +28,8 @@
  * limitations under the License.
  */
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList,
     RpcResult, Step, StepDecision, StepList,
@@ -53,7 +55,7 @@ pub struct JobPostFlow {
 
 impl JobPostFlow {
     fn read(&self, context: &mut Context) -> HandlerResult<RpcResult<JobPost>> {
-        Ok(RpcResult::new(post().get_required(context)?))
+        Ok(RpcResult::new(POST.get_required(context)?))
     }
 
     fn update(
@@ -61,17 +63,17 @@ impl JobPostFlow {
         context: &mut Context,
         replacement: JobPost,
     ) -> HandlerResult<RpcResult<JobPost>> {
-        post().set(context, replacement.clone())?;
-        title().set(context, replacement.title.clone())?;
-        description().set(context, replacement.description.clone())?;
+        POST.set(context, replacement.clone())?;
+        TITLE.set(context, replacement.title.clone())?;
+        DESCRIPTION.set(context, replacement.description.clone())?;
         Ok(RpcResult::new(replacement))
     }
 
     fn delete(&self, context: &mut Context, notes: String) -> HandlerResult<()> {
-        let mut current = post().get_required(context)?;
+        let mut current = POST.get_required(context)?;
         current.deleted = true;
         current.notes = notes;
-        post().set(context, current)
+        POST.set(context, current)
     }
 }
 
@@ -84,9 +86,9 @@ impl Flow for JobPostFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&post())
-            .attribute(&title())
-            .attribute(&description())
+            .attribute(&POST)
+            .attribute(&TITLE)
+            .attribute(&DESCRIPTION)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -104,21 +106,17 @@ impl Step for Create {
     type Input = JobPost;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        post().set(context, input.clone())?;
-        title().set(context, input.title)?;
-        description().set(context, input.description)?;
+        POST.set(context, input.clone())?;
+        TITLE.set(context, input.title)?;
+        DESCRIPTION.set(context, input.description)?;
         Ok(StepDecision::dead_end())
     }
 }
 
-fn post() -> Attribute<JobPost> {
-    Attribute::new("job-post")
-}
+static POST: LazyLock<Attribute<JobPost>> = LazyLock::new(|| Attribute::new("job-post"));
 
-fn title() -> Attribute<String> {
-    Attribute::new("job-post-title").indexed(AttributeIndex::full_text())
-}
+static TITLE: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("job-post-title").indexed(AttributeIndex::full_text()));
 
-fn description() -> Attribute<String> {
-    Attribute::new("job-post-description").indexed(AttributeIndex::full_text())
-}
+static DESCRIPTION: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("job-post-description").indexed(AttributeIndex::full_text()));

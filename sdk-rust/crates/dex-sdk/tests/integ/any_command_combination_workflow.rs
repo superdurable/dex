@@ -8,24 +8,24 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, RetryPolicy, Step,
     StepDecision, StepList, StepOptions, Wait,
 };
 
+static FIRST: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("test-signal-1"));
+static SECOND: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("test-signal-2"));
+static THIRD: LazyLock<Channel<i32>> = LazyLock::new(|| Channel::new("test-signal-3"));
+
 pub(crate) struct AnyCommandCombinationWorkflow {
-    first: Channel<i32>,
-    second: Channel<i32>,
-    third: Channel<i32>,
     start: AnyCommandCombinationStep,
 }
 
 impl AnyCommandCombinationWorkflow {
     pub(crate) fn new() -> Self {
         Self {
-            first: Channel::new("test-signal-1"),
-            second: Channel::new("test-signal-2"),
-            third: Channel::new("test-signal-3"),
             start: AnyCommandCombinationStep,
         }
     }
@@ -40,9 +40,9 @@ impl Flow for AnyCommandCombinationWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .channel(&self.first)
-            .channel(&self.second)
-            .channel(&self.third)
+            .channel(&FIRST)
+            .channel(&SECOND)
+            .channel(&THIRD)
     }
 }
 

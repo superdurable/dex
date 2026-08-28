@@ -28,6 +28,8 @@
  * limitations under the License.
  */
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step,
     StepDecision, StepList, Wait,
@@ -43,7 +45,7 @@ pub struct ParentFlowV2 {
 
 impl ParentFlowV2 {
     fn child_completed(&self, context: &mut Context, output: String) -> HandlerResult<()> {
-        child_output().publish(context, output)
+        CHILD_OUTPUT.publish(context, output)
     }
 }
 
@@ -56,8 +58,8 @@ impl Flow for ParentFlowV2 {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&child_id())
-            .channel(&child_output())
+            .attribute(&CHILD_ID)
+            .channel(&CHILD_OUTPUT)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -72,7 +74,7 @@ impl Step for RecordChild {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        child_id().set(context, input)?;
+        CHILD_ID.set(context, input)?;
         Ok(StepDecision::go_to(&AwaitChild, ()))
     }
 }
@@ -84,11 +86,11 @@ impl Step for AwaitChild {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(child_output().for_one()))
+        Ok(Wait::until(CHILD_OUTPUT.for_one()))
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        let output = child_output()
+        let output = CHILD_OUTPUT
             .condition_results(context)?
             .into_iter()
             .next()
@@ -97,10 +99,8 @@ impl Step for AwaitChild {
     }
 }
 
-fn child_id() -> Attribute<String> {
-    Attribute::new("parent-v2-child-id")
-}
+static CHILD_ID: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("parent-v2-child-id"));
 
-fn child_output() -> Channel<String> {
-    Channel::new("parent-v2-child-output")
-}
+static CHILD_OUTPUT: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("parent-v2-child-output"));

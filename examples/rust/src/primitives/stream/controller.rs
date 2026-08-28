@@ -22,7 +22,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::primitives::stream::flow::{StreamFlow, progress};
+use crate::primitives::stream::flow::{PROGRESS, StreamFlow};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, ok_json, ok_text, run_blocking,
 };
@@ -95,7 +95,7 @@ async fn write(
     match run_blocking(move || {
         client.write_stream(
             &query.workflow_id,
-            &progress(),
+            &PROGRESS,
             &query.idempotency_key,
             query.message,
         )
@@ -113,7 +113,7 @@ async fn read(
         client
             .read_stream_with_timeout(
                 &query.workflow_id,
-                &progress(),
+                &PROGRESS,
                 &query.resume_token,
                 Duration::from_secs(20),
             )

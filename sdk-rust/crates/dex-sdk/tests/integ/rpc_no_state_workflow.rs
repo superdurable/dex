@@ -8,6 +8,8 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Rpc, RpcList,
     RpcResult,
@@ -15,9 +17,9 @@ use dex_sdk::{
 
 use crate::rpc_workflow::RpcWorkflow;
 
-pub(crate) struct RpcNoStateWorkflow {
-    counter: Attribute<i32>,
-}
+static COUNTER: LazyLock<Attribute<i32>> = LazyLock::new(|| Attribute::new("counter"));
+
+pub(crate) struct RpcNoStateWorkflow {}
 
 impl RpcNoStateWorkflow {
     pub(crate) const RPC_OUTPUT: i64 = 100;
@@ -27,19 +29,17 @@ impl RpcNoStateWorkflow {
     pub(crate) const INVOKE: Rpc<String, i64> = Rpc::new("invoke");
 
     pub(crate) fn new() -> Self {
-        Self {
-            counter: Attribute::new("counter"),
-        }
+        Self {}
     }
 
     fn increase_counter(&self, context: &mut Context) -> HandlerResult<RpcResult<i32>> {
-        let next = self.counter.get(context)?.unwrap_or_default() + 1;
-        self.counter.set(context, next)?;
+        let next = COUNTER.get(context)?.unwrap_or_default() + 1;
+        COUNTER.set(context, next)?;
         Ok(RpcResult::new(next))
     }
 
     fn get_counter(&self, context: &mut Context) -> HandlerResult<RpcResult<Option<i32>>> {
-        Ok(RpcResult::new(self.counter.get(context)?))
+        Ok(RpcResult::new(COUNTER.get(context)?))
     }
 
     fn fail(&self, _context: &mut Context, input: String) -> HandlerResult<RpcResult<i64>> {
@@ -61,13 +61,13 @@ impl Flow for RpcNoStateWorkflow {
     type StartInput = ();
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().attribute(&self.counter)
+        PersistenceSchema::new().attribute(&COUNTER)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .function_without_input(
-                Self::INCREASE_COUNTER.lock(self.counter.lock()),
+                Self::INCREASE_COUNTER.lock(COUNTER.lock()),
                 Self::increase_counter,
             )
             .function_without_input(Self::GET_COUNTER, Self::get_counter)

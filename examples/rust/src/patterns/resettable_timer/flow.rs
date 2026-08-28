@@ -30,6 +30,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
     StepList, Timer, Wait,
@@ -44,7 +46,7 @@ pub struct ResettableTimerFlow {
 
 impl ResettableTimerFlow {
     fn reset(&self, context: &mut Context) -> HandlerResult<()> {
-        resets().publish(context, ())
+        RESETS.publish(context, ())
     }
 }
 
@@ -56,7 +58,7 @@ impl Flow for ResettableTimerFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&resets())
+        PersistenceSchema::new().channel(&RESETS)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -72,13 +74,13 @@ impl Step for WaitForInactivity {
 
     fn wait_for(&self, _context: &mut Context, seconds: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            resets().for_one(),
+            RESETS.for_one(),
             Timer::by_duration(Duration::from_secs(seconds.max(1))).with_id("inactivity"),
         ]))
     }
 
     fn execute(&self, context: &mut Context, seconds: Self::Input) -> HandlerResult<StepDecision> {
-        if resets().condition_results(context)?.is_empty() {
+        if RESETS.condition_results(context)?.is_empty() {
             Ok(StepDecision::graceful_complete("timer-fired".to_string()))
         } else {
             Ok(StepDecision::go_to(&WaitForInactivity, seconds))
@@ -86,6 +88,4 @@ impl Step for WaitForInactivity {
     }
 }
 
-fn resets() -> Channel<()> {
-    Channel::new("resettable-timer-resets")
-}
+static RESETS: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("resettable-timer-resets"));

@@ -8,16 +8,21 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Channel, Context, Flow, HandlerError, HandlerResult,
     PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, Wait,
 };
 
+pub(crate) static DATA: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("rpc-data"));
+pub(crate) static KEYWORD: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()));
+pub(crate) static INTEGER: LazyLock<Attribute<i32>> =
+    LazyLock::new(|| Attribute::new("CustomIntField").indexed(AttributeIndex::int()));
+pub(crate) static INTERNAL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("rpc-internal"));
+
 pub(crate) struct RpcWorkflow {
-    internal: Channel<()>,
-    pub(crate) data: Attribute<String>,
-    pub(crate) keyword: Attribute<String>,
-    pub(crate) integer: Attribute<i32>,
     map: AttributeMap<String>,
     first: FirstStep,
     output: OutputStep,
@@ -39,58 +44,51 @@ impl RpcWorkflow {
     pub(crate) const GET_KEYWORD: Rpc<(), Option<String>> = Rpc::new("get_keyword");
 
     pub(crate) fn new() -> Self {
-        let internal = Channel::new("rpc-internal");
         Self {
-            first: FirstStep {
-                internal: internal.clone(),
-            },
+            first: FirstStep,
             output: OutputStep,
-            internal,
-            data: Attribute::new("rpc-data"),
-            keyword: Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()),
-            integer: Attribute::new("CustomIntField").indexed(AttributeIndex::int()),
             map: AttributeMap::new("rpc-map"),
         }
     }
 
     fn publish_without_attribute_access(&self, context: &mut Context) -> HandlerResult<()> {
         Self::require_context(context)?;
-        self.internal.publish(context, ())
+        INTERNAL.publish(context, ())
     }
 
     fn function_one(&self, context: &mut Context, input: String) -> HandlerResult<RpcResult<i64>> {
         Self::require_context(context)?;
-        self.data.delete(context)?;
-        self.data.set(context, input.clone())?;
-        self.keyword.set(context, input)?;
-        self.integer.set(context, Self::RPC_OUTPUT as i32)?;
-        self.internal.publish(context, ())?;
+        DATA.delete(context)?;
+        DATA.set(context, input.clone())?;
+        KEYWORD.set(context, input)?;
+        INTEGER.set(context, Self::RPC_OUTPUT as i32)?;
+        INTERNAL.publish(context, ())?;
         Ok(RpcResult::new(Self::RPC_OUTPUT))
     }
 
     fn function_zero(&self, context: &mut Context) -> HandlerResult<RpcResult<i64>> {
         Self::require_context(context)?;
-        self.data.set(context, Self::HARDCODED_VALUE.into())?;
-        self.keyword.set(context, Self::HARDCODED_VALUE.into())?;
-        self.integer.set(context, Self::RPC_OUTPUT as i32)?;
-        self.internal.publish(context, ())?;
+        DATA.set(context, Self::HARDCODED_VALUE.into())?;
+        KEYWORD.set(context, Self::HARDCODED_VALUE.into())?;
+        INTEGER.set(context, Self::RPC_OUTPUT as i32)?;
+        INTERNAL.publish(context, ())?;
         Ok(RpcResult::new(Self::RPC_OUTPUT))
     }
 
     fn procedure_one(&self, context: &mut Context, input: String) -> HandlerResult<()> {
         Self::require_context(context)?;
-        self.data.set(context, input.clone())?;
-        self.keyword.set(context, input)?;
-        self.integer.set(context, Self::RPC_OUTPUT as i32)?;
-        self.internal.publish(context, ())
+        DATA.set(context, input.clone())?;
+        KEYWORD.set(context, input)?;
+        INTEGER.set(context, Self::RPC_OUTPUT as i32)?;
+        INTERNAL.publish(context, ())
     }
 
     fn procedure_zero(&self, context: &mut Context) -> HandlerResult<()> {
         Self::require_context(context)?;
-        self.data.set(context, Self::HARDCODED_VALUE.into())?;
-        self.keyword.set(context, Self::HARDCODED_VALUE.into())?;
-        self.integer.set(context, Self::RPC_OUTPUT as i32)?;
-        self.internal.publish(context, ())
+        DATA.set(context, Self::HARDCODED_VALUE.into())?;
+        KEYWORD.set(context, Self::HARDCODED_VALUE.into())?;
+        INTEGER.set(context, Self::RPC_OUTPUT as i32)?;
+        INTERNAL.publish(context, ())
     }
 
     fn read_only(&self, context: &mut Context, _input: String) -> HandlerResult<RpcResult<i64>> {
@@ -99,19 +97,19 @@ impl RpcWorkflow {
     }
 
     fn set_data(&self, context: &mut Context, input: Option<String>) -> HandlerResult<()> {
-        Self::set_optional(context, &self.data, input)
+        Self::set_optional(context, &DATA, input)
     }
 
     fn get_data(&self, context: &mut Context) -> HandlerResult<RpcResult<Option<String>>> {
-        Ok(RpcResult::new(self.data.get(context)?))
+        Ok(RpcResult::new(DATA.get(context)?))
     }
 
     fn set_keyword(&self, context: &mut Context, input: Option<String>) -> HandlerResult<()> {
-        Self::set_optional(context, &self.keyword, input)
+        Self::set_optional(context, &KEYWORD, input)
     }
 
     fn get_keyword(&self, context: &mut Context) -> HandlerResult<RpcResult<Option<String>>> {
-        Ok(RpcResult::new(self.keyword.get(context)?))
+        Ok(RpcResult::new(KEYWORD.get(context)?))
     }
 
     fn set_optional(
@@ -142,11 +140,11 @@ impl Flow for RpcWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.data)
-            .attribute(&self.keyword)
-            .attribute(&self.integer)
+            .attribute(&DATA)
+            .attribute(&KEYWORD)
+            .attribute(&INTEGER)
             .attribute_map(&self.map)
-            .channel(&self.internal)
+            .channel(&INTERNAL)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -167,15 +165,13 @@ impl Flow for RpcWorkflow {
     }
 }
 
-struct FirstStep {
-    internal: Channel<()>,
-}
+struct FirstStep;
 
 impl Step for FirstStep {
     type Input = i32;
 
     fn wait_for(&self, _context: &mut Context, _input: i32) -> HandlerResult<Wait> {
-        Ok(Wait::until(self.internal.for_one()))
+        Ok(Wait::until(INTERNAL.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: i32) -> HandlerResult<StepDecision> {

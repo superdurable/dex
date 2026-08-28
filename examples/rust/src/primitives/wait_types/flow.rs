@@ -14,6 +14,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, ConditionCombination, Context, Flow, HandlerError, HandlerResult, PersistenceSchema,
     Rpc, RpcList, Step, StepDecision, StepList, Timer, Wait,
@@ -23,13 +25,9 @@ use serde::{Deserialize, Serialize};
 pub const WAIT_TYPES_SIGNAL_A: Rpc<(), ()> = Rpc::new("WaitTypesSignalA");
 pub const WAIT_TYPES_SIGNAL_B: Rpc<(), ()> = Rpc::new("WaitTypesSignalB");
 
-fn signal_a_channel() -> Channel<String> {
-    Channel::new("SignalA")
-}
+static SIGNAL_A_CHANNEL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("SignalA"));
 
-fn signal_b_channel() -> Channel<String> {
-    Channel::new("SignalB")
-}
+static SIGNAL_B_CHANNEL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("SignalB"));
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct WaitTypesInput {
@@ -44,11 +42,11 @@ pub struct WaitTypesFlow {
 
 impl WaitTypesFlow {
     fn signal_a(&self, context: &mut Context) -> HandlerResult<()> {
-        signal_a_channel().publish(context, "signal-a".to_string())
+        SIGNAL_A_CHANNEL.publish(context, "signal-a".to_string())
     }
 
     fn signal_b(&self, context: &mut Context) -> HandlerResult<()> {
-        signal_b_channel().publish(context, "signal-b".to_string())
+        SIGNAL_B_CHANNEL.publish(context, "signal-b".to_string())
     }
 }
 
@@ -61,8 +59,8 @@ impl Flow for WaitTypesFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .channel(&signal_a_channel())
-            .channel(&signal_b_channel())
+            .channel(&SIGNAL_A_CHANNEL)
+            .channel(&SIGNAL_B_CHANNEL)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -82,19 +80,19 @@ impl Step for WaitTypesStep {
         let timeout = Duration::from_secs(input.timeout_seconds.max(0) as u64);
         match input.mode.as_str() {
             "any" => Ok(Wait::any_of([
-                signal_a_channel().for_one().with_id("signal"),
+                SIGNAL_A_CHANNEL.for_one().with_id("signal"),
                 Timer::by_duration(timeout).with_id("timeout"),
             ])),
             "all" => Ok(Wait::all_of([
-                signal_a_channel().for_one().with_id("signal-a"),
-                signal_b_channel().for_one().with_id("signal-b"),
+                SIGNAL_A_CHANNEL.for_one().with_id("signal-a"),
+                SIGNAL_B_CHANNEL.for_one().with_id("signal-b"),
             ])),
             "combo" => Ok(Wait::any_combination_of([
                 ConditionCombination::all_of([
-                    signal_a_channel().for_one().with_id("signal-a"),
+                    SIGNAL_A_CHANNEL.for_one().with_id("signal-a"),
                     Timer::by_duration(timeout).with_id("timeout"),
                 ]),
-                ConditionCombination::all_of([signal_b_channel().for_one().with_id("signal-b")]),
+                ConditionCombination::all_of([SIGNAL_B_CHANNEL.for_one().with_id("signal-b")]),
             ])),
             _ => Err(HandlerError::new(
                 "WaitTypes",

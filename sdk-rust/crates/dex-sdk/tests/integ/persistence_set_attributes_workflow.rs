@@ -10,6 +10,8 @@
 
 use std::time::SystemTime;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Channel, Context, Flow, HandlerResult,
     PersistenceSchema, Step, StepDecision, StepList, Wait,
@@ -17,39 +19,36 @@ use dex_sdk::{
 
 use crate::persistence_workflow::PersistenceModel;
 
+pub(crate) static DATA: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("data"));
+pub(crate) static MODEL: LazyLock<Attribute<PersistenceModel>> =
+    LazyLock::new(|| Attribute::new("data-model"));
+pub(crate) static KEYWORD: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()));
+pub(crate) static FULL_TEXT: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("CustomTextField").indexed(AttributeIndex::full_text()));
+pub(crate) static DECIMAL: LazyLock<Attribute<f64>> =
+    LazyLock::new(|| Attribute::new("CustomDoubleField").indexed(AttributeIndex::double()));
+pub(crate) static INTEGER: LazyLock<Attribute<i32>> =
+    LazyLock::new(|| Attribute::new("CustomIntField").indexed(AttributeIndex::int()));
+pub(crate) static BOOLEAN: LazyLock<Attribute<bool>> =
+    LazyLock::new(|| Attribute::new("CustomBoolField").indexed(AttributeIndex::bool()));
+pub(crate) static KEYWORDS: LazyLock<Attribute<Vec<String>>> = LazyLock::new(|| {
+    Attribute::new("CustomKeywordArrayField").indexed(AttributeIndex::keyword_array())
+});
+pub(crate) static DATETIME: LazyLock<Attribute<SystemTime>> =
+    LazyLock::new(|| Attribute::new("CustomDatetimeField").indexed(AttributeIndex::date_time()));
+pub(crate) static PROCEED: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("proceed"));
+
 pub(crate) struct PersistenceSetAttributesWorkflow {
-    pub(crate) data: Attribute<String>,
     pub(crate) data_map: AttributeMap<String>,
-    pub(crate) model: Attribute<PersistenceModel>,
-    pub(crate) keyword: Attribute<String>,
-    pub(crate) full_text: Attribute<String>,
-    pub(crate) decimal: Attribute<f64>,
-    pub(crate) integer: Attribute<i32>,
-    pub(crate) boolean: Attribute<bool>,
-    pub(crate) keywords: Attribute<Vec<String>>,
-    pub(crate) datetime: Attribute<SystemTime>,
-    pub(crate) proceed: Channel<()>,
     start: SetAttributesStep,
 }
 
 impl PersistenceSetAttributesWorkflow {
     pub(crate) fn new() -> Self {
         Self {
-            data: Attribute::new("data"),
             data_map: AttributeMap::new("data-map"),
-            model: Attribute::new("data-model"),
-            keyword: Attribute::new("CustomKeywordField").indexed(AttributeIndex::keyword()),
-            full_text: Attribute::new("CustomTextField").indexed(AttributeIndex::full_text()),
-            decimal: Attribute::new("CustomDoubleField").indexed(AttributeIndex::double()),
-            integer: Attribute::new("CustomIntField").indexed(AttributeIndex::int()),
-            boolean: Attribute::new("CustomBoolField").indexed(AttributeIndex::bool()),
-            keywords: Attribute::new("CustomKeywordArrayField")
-                .indexed(AttributeIndex::keyword_array()),
-            datetime: Attribute::new("CustomDatetimeField").indexed(AttributeIndex::date_time()),
-            proceed: Channel::new("proceed"),
-            start: SetAttributesStep {
-                proceed: Channel::new("proceed"),
-            },
+            start: SetAttributesStep,
         }
     }
 }
@@ -63,29 +62,27 @@ impl Flow for PersistenceSetAttributesWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.data)
+            .attribute(&DATA)
             .attribute_map(&self.data_map)
-            .attribute(&self.model)
-            .attribute(&self.keyword)
-            .attribute(&self.full_text)
-            .attribute(&self.decimal)
-            .attribute(&self.integer)
-            .attribute(&self.boolean)
-            .attribute(&self.keywords)
-            .attribute(&self.datetime)
-            .channel(&self.proceed)
+            .attribute(&MODEL)
+            .attribute(&KEYWORD)
+            .attribute(&FULL_TEXT)
+            .attribute(&DECIMAL)
+            .attribute(&INTEGER)
+            .attribute(&BOOLEAN)
+            .attribute(&KEYWORDS)
+            .attribute(&DATETIME)
+            .channel(&PROCEED)
     }
 }
 
-struct SetAttributesStep {
-    proceed: Channel<()>,
-}
+struct SetAttributesStep;
 
 impl Step for SetAttributesStep {
     type Input = String;
 
     fn wait_for(&self, _context: &mut Context, _input: String) -> HandlerResult<Wait> {
-        Ok(Wait::until(self.proceed.for_one()))
+        Ok(Wait::until(PROCEED.for_one()))
     }
 
     fn execute(&self, _context: &mut Context, _input: String) -> HandlerResult<StepDecision> {

@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime};
 
 use dex_sdk::Registry;
 
-use crate::stream_workflow::StreamTestWorkflow;
+use crate::stream_workflow::{PROGRESS, StreamTestWorkflow};
 use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
@@ -34,7 +34,7 @@ fn test_stream_round_trip() {
         .client
         .write_stream(
             &flow_id,
-            &workflow.progress,
+            &PROGRESS,
             "client-write",
             "client-progress".to_string(),
         )
@@ -43,7 +43,7 @@ fn test_stream_round_trip() {
         .client
         .write_stream(
             &flow_id,
-            &workflow.progress,
+            &PROGRESS,
             "client-write",
             "duplicate-ignored".to_string(),
         )
@@ -51,7 +51,7 @@ fn test_stream_round_trip() {
 
     let step = environment
         .client
-        .read_stream_with_timeout(&flow_id, &workflow.progress, "", Duration::from_secs(30))
+        .read_stream_with_timeout(&flow_id, &PROGRESS, "", Duration::from_secs(30))
         .expect("read Step Stream message");
     assert_eq!("step-progress", step.value);
     assert!(!step.resume_token.is_empty());
@@ -62,7 +62,7 @@ fn test_stream_round_trip() {
         .client
         .read_stream_with_timeout(
             &flow_id,
-            &workflow.progress,
+            &PROGRESS,
             &step.resume_token,
             Duration::from_secs(30),
         )

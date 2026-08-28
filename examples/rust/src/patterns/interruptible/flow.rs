@@ -14,6 +14,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
     StepList, StepMovement, Timer, Wait,
@@ -37,7 +39,7 @@ pub struct InterruptibleFlow {
 
 impl InterruptibleFlow {
     fn interrupt(&self, context: &mut Context) -> HandlerResult<()> {
-        interrupt_signal().set(context, "cancel".to_string())
+        INTERRUPT_SIGNAL.set(context, "cancel".to_string())
     }
 }
 
@@ -51,7 +53,7 @@ impl Flow for InterruptibleFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().attribute(&interrupt_signal())
+        PersistenceSchema::new().attribute(&INTERRUPT_SIGNAL)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -88,7 +90,7 @@ impl Step for WorkAStep {
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        if interrupt_signal().get(context)?.as_deref() == Some("cancel") {
+        if INTERRUPT_SIGNAL.get(context)?.as_deref() == Some("cancel") {
             println!("A: Interrupted!");
             return Ok(StepDecision::graceful_complete(()));
         }
@@ -123,7 +125,7 @@ impl Step for WorkBStep {
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        if interrupt_signal().get(context)?.as_deref() == Some("cancel") {
+        if INTERRUPT_SIGNAL.get(context)?.as_deref() == Some("cancel") {
             println!("B: Interrupted!");
             return Ok(StepDecision::graceful_complete(()));
         }
@@ -147,6 +149,5 @@ impl Step for WorkBStep {
     }
 }
 
-fn interrupt_signal() -> Attribute<String> {
-    Attribute::new("interruptSignal")
-}
+static INTERRUPT_SIGNAL: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("interruptSignal"));

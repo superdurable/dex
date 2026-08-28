@@ -28,6 +28,8 @@
  * limitations under the License.
  */
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision,
     StepExecutionId, StepList, StepMovement,
@@ -60,7 +62,7 @@ impl Flow for WaitForStateCompletionFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().attribute(&record())
+        PersistenceSchema::new().attribute(&RECORD)
     }
 }
 
@@ -71,7 +73,7 @@ impl Step for PersistData {
     type Input = PersistRequest;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        record().set(context, input.clone())?;
+        RECORD.set(context, input.clone())?;
         context.record_event("client-visible-persisted", input.record_id)?;
         Ok(StepDecision::go_to_many([StepMovement::to(
             &BackgroundWork,
@@ -92,6 +94,5 @@ impl Step for BackgroundWork {
     }
 }
 
-fn record() -> Attribute<PersistRequest> {
-    Attribute::new("wait-for-state-record")
-}
+static RECORD: LazyLock<Attribute<PersistRequest>> =
+    LazyLock::new(|| Attribute::new("wait-for-state-record"));

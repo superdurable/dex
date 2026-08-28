@@ -8,15 +8,19 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step,
     StepDecision, StepList, StepMovement, Wait,
 };
 
+pub(crate) static SIGNAL: LazyLock<Channel<()>> =
+    LazyLock::new(|| Channel::new("test-signal-channel"));
+static INTERNAL: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("test-internal-channel"));
+static COUNTER: LazyLock<Attribute<i32>> = LazyLock::new(|| Attribute::new("counter"));
+
 pub(crate) struct ConditionalCompleteWorkflow {
-    pub(crate) signal: Channel<()>,
-    internal: Channel<()>,
-    counter: Attribute<i32>,
     start: ConditionalCompleteStep,
 }
 
@@ -24,24 +28,14 @@ impl ConditionalCompleteWorkflow {
     pub(crate) const PUBLISH_TO_INTERNAL: Rpc<i32, ()> = Rpc::new("publish_to_internal_channel");
 
     pub(crate) fn new() -> Self {
-        let signal = Channel::new("test-signal-channel");
-        let internal = Channel::new("test-internal-channel");
-        let counter = Attribute::new("counter");
         Self {
-            start: ConditionalCompleteStep {
-                signal: signal.clone(),
-                internal: internal.clone(),
-                counter: counter.clone(),
-            },
-            signal,
-            internal,
-            counter,
+            start: ConditionalCompleteStep,
         }
     }
 
     fn publish_to_internal_channel(&self, context: &mut Context, count: i32) -> HandlerResult<()> {
         for _ in 0..count {
-            self.internal.publish(context, ())?;
+            INTERNAL.publish(context, ())?;
         }
         Ok(())
     }
@@ -56,9 +50,9 @@ impl Flow for ConditionalCompleteWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.counter)
-            .channel(&self.signal)
-            .channel(&self.internal)
+            .attribute(&COUNTER)
+            .channel(&SIGNAL)
+            .channel(&INTERNAL)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -66,31 +60,23 @@ impl Flow for ConditionalCompleteWorkflow {
     }
 }
 
-struct ConditionalCompleteStep {
-    signal: Channel<()>,
-    internal: Channel<()>,
-    counter: Attribute<i32>,
-}
+struct ConditionalCompleteStep;
 
 impl Step for ConditionalCompleteStep {
     type Input = bool;
 
     fn wait_for(&self, _context: &mut Context, use_signal: bool) -> HandlerResult<Wait> {
         Ok(Wait::until(if use_signal {
-            self.signal.for_one()
+            SIGNAL.for_one()
         } else {
-            self.internal.for_one()
+            INTERNAL.for_one()
         }))
     }
 
     fn execute(&self, context: &mut Context, use_signal: bool) -> HandlerResult<StepDecision> {
-        let next = self.counter.get(context)?.unwrap_or_default() + 1;
-        self.counter.set(context, next)?;
-        let selected = if use_signal {
-            &self.signal
-        } else {
-            &self.internal
-        };
+        let next = COUNTER.get(context)?.unwrap_or_default() + 1;
+        COUNTER.set(context, next)?;
+        let selected = if use_signal { &*SIGNAL } else { &*INTERNAL };
         Ok(StepDecision::force_complete_if_channels_empty(
             next,
             StepMovement::to(self, use_signal),

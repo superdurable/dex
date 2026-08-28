@@ -8,15 +8,18 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, Step, StepDecision,
     StepList, StepOptions, Wait,
 };
 
+static WAIT_VALUE: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("DA_WAIT_UNTIL"));
+static EXECUTE_VALUE: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("DA_EXECUTE"));
+static BOTH_VALUE: LazyLock<Attribute<String>> = LazyLock::new(|| Attribute::new("DA_BOTH"));
+
 pub(crate) struct StateOptionsWorkflow {
-    pub(crate) wait_value: Attribute<String>,
-    pub(crate) execute_value: Attribute<String>,
-    pub(crate) both_value: Attribute<String>,
     first: OptionsFirstStep,
     second: OptionsSecondStep,
     third: OptionsThirdStep,
@@ -24,26 +27,10 @@ pub(crate) struct StateOptionsWorkflow {
 
 impl StateOptionsWorkflow {
     pub(crate) fn new() -> Self {
-        let wait_value = Attribute::new("DA_WAIT_UNTIL");
-        let execute_value = Attribute::new("DA_EXECUTE");
-        let both_value = Attribute::new("DA_BOTH");
         Self {
-            first: OptionsFirstStep {
-                wait_value: wait_value.clone(),
-                execute_value: execute_value.clone(),
-                both_value: both_value.clone(),
-            },
-            second: OptionsSecondStep {
-                wait_value: wait_value.clone(),
-                execute_value: execute_value.clone(),
-                both_value: both_value.clone(),
-            },
-            third: OptionsThirdStep {
-                both_value: both_value.clone(),
-            },
-            wait_value,
-            execute_value,
-            both_value,
+            first: OptionsFirstStep,
+            second: OptionsSecondStep,
+            third: OptionsThirdStep,
         }
     }
 }
@@ -59,92 +46,70 @@ impl Flow for StateOptionsWorkflow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.wait_value)
-            .attribute(&self.execute_value)
-            .attribute(&self.both_value)
+            .attribute(&WAIT_VALUE)
+            .attribute(&EXECUTE_VALUE)
+            .attribute(&BOTH_VALUE)
     }
 }
 
-struct OptionsFirstStep {
-    wait_value: Attribute<String>,
-    execute_value: Attribute<String>,
-    both_value: Attribute<String>,
-}
+struct OptionsFirstStep;
 
 impl Step for OptionsFirstStep {
     type Input = ();
 
     fn execute(&self, context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
-        self.execute_value.set(context, "execute".into())?;
-        self.wait_value.set(context, "wait_until".into())?;
-        self.both_value.set(context, "both".into())?;
-        Ok(StepDecision::go_to(
-            &OptionsSecondStep {
-                wait_value: self.wait_value.clone(),
-                execute_value: self.execute_value.clone(),
-                both_value: self.both_value.clone(),
-            },
-            (),
-        ))
+        EXECUTE_VALUE.set(context, "execute".into())?;
+        WAIT_VALUE.set(context, "wait_until".into())?;
+        BOTH_VALUE.set(context, "both".into())?;
+        Ok(StepDecision::go_to(&OptionsSecondStep, ()))
     }
 }
 
-struct OptionsSecondStep {
-    wait_value: Attribute<String>,
-    execute_value: Attribute<String>,
-    both_value: Attribute<String>,
-}
+struct OptionsSecondStep;
 
 impl Step for OptionsSecondStep {
     type Input = ();
 
     fn wait_for(&self, context: &mut Context, (): ()) -> HandlerResult<Wait> {
-        require_attribute(context, &self.wait_value, "wait_until")?;
-        require_attribute(context, &self.execute_value, "execute")?;
-        require_attribute(context, &self.both_value, "both")?;
+        require_attribute(context, &WAIT_VALUE, "wait_until")?;
+        require_attribute(context, &EXECUTE_VALUE, "execute")?;
+        require_attribute(context, &BOTH_VALUE, "both")?;
         Ok(Wait::skip_immediately())
     }
 
     fn execute(&self, context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
-        require_attribute(context, &self.execute_value, "execute")?;
-        require_attribute(context, &self.wait_value, "wait_until")?;
-        require_attribute(context, &self.both_value, "both")?;
-        Ok(StepDecision::go_to(
-            &OptionsThirdStep {
-                both_value: self.both_value.clone(),
-            },
-            (),
-        ))
+        require_attribute(context, &EXECUTE_VALUE, "execute")?;
+        require_attribute(context, &WAIT_VALUE, "wait_until")?;
+        require_attribute(context, &BOTH_VALUE, "both")?;
+        Ok(StepDecision::go_to(&OptionsThirdStep, ()))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
-            .wait_for_lock(self.wait_value.lock())
-            .execute_lock(self.execute_value.lock())
+            .wait_for_lock(WAIT_VALUE.lock())
+            .execute_lock(EXECUTE_VALUE.lock())
     }
 }
 
-struct OptionsThirdStep {
-    both_value: Attribute<String>,
-}
+struct OptionsThirdStep;
 
 impl Step for OptionsThirdStep {
     type Input = ();
 
     fn wait_for(&self, context: &mut Context, (): ()) -> HandlerResult<Wait> {
-        require_attribute(context, &self.both_value, "both")?;
+        require_attribute(context, &BOTH_VALUE, "both")?;
         Ok(Wait::skip_immediately())
     }
 
     fn execute(&self, context: &mut Context, (): ()) -> HandlerResult<StepDecision> {
-        require_attribute(context, &self.both_value, "both")?;
+        require_attribute(context, &BOTH_VALUE, "both")?;
         Ok(StepDecision::graceful_complete("success".to_string()))
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
-            .wait_for_lock(self.both_value.lock())
-            .execute_lock(self.both_value.lock())
+            .wait_for_lock(BOTH_VALUE.lock())
+            .execute_lock(BOTH_VALUE.lock())
     }
 }
 

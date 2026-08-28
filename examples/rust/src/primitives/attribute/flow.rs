@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, AttributeMap, Context, Flow, FlowConfig, HandlerResult,
     PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision, StepList, StepOptions, Wait,
@@ -19,31 +21,30 @@ use dex_sdk::{
 
 const UPDATE_STATUS: Rpc<String, String> = Rpc::new("UpdateStatus");
 
+static STATUS: LazyLock<Attribute<String>> = LazyLock::new(|| {
+    Attribute::new("primitive-attribute-status")
+        .indexed(AttributeIndex::keyword().with_key("OrderStatus"))
+});
+static EMAIL: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("primitive-attribute-email").sync_to_attribute_store());
+
 pub fn attribute_store_config() -> FlowConfig {
     FlowConfig::new().attribute_store_names(vec!["profiles".to_owned()])
 }
 
 pub struct AttributeFlow {
-    status: Attribute<String>,
-    email: Attribute<String>,
     progress: AttributeMap<String>,
     start: AttributeStep,
 }
 
 impl Default for AttributeFlow {
     fn default() -> Self {
-        let status = Attribute::new("primitive-attribute-status")
-            .indexed(AttributeIndex::keyword().with_key("OrderStatus"));
-        let email = Attribute::new("primitive-attribute-email").sync_to_attribute_store();
         let progress = AttributeMap::new("primitive-attribute-progress")
             .indexed(AttributeIndex::keyword().with_key("OrderProgress"));
         Self {
             start: AttributeStep {
-                status: status.clone(),
                 progress: progress.clone(),
             },
-            status,
-            email,
             progress,
         }
     }
@@ -58,15 +59,15 @@ impl Flow for AttributeFlow {
 
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
-            .attribute(&self.status)
-            .attribute(&self.email)
+            .attribute(&STATUS)
+            .attribute(&EMAIL)
             .attribute_map(&self.progress)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new().function(
             UPDATE_STATUS
-                .lock(self.status.lock())
+                .lock(STATUS.lock())
                 .lock(self.progress.lock("payment")),
             Self::update_status,
         )
@@ -79,14 +80,13 @@ impl AttributeFlow {
         context: &mut Context,
         input: String,
     ) -> HandlerResult<RpcResult<String>> {
-        self.status.set(context, input.clone())?;
+        STATUS.set(context, input.clone())?;
         self.progress.set(context, "payment", input.clone())?;
         Ok(RpcResult::new(input))
     }
 }
 
 struct AttributeStep {
-    status: Attribute<String>,
     progress: AttributeMap<String>,
 }
 
@@ -95,21 +95,21 @@ impl Step for AttributeStep {
 
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
-            .wait_for_lock(self.status.lock())
+            .wait_for_lock(STATUS.lock())
             .wait_for_lock(self.progress.lock("payment"))
-            .execute_lock(self.status.lock())
+            .execute_lock(STATUS.lock())
             .execute_lock(self.progress.lock("payment"))
     }
 
     fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        self.status.set(context, "processing".to_owned())?;
+        STATUS.set(context, "processing".to_owned())?;
         self.progress
             .set(context, "payment", "authorized".to_owned())?;
         Ok(Wait::skip_immediately())
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        self.status.set(context, "completed".to_owned())?;
+        STATUS.set(context, "completed".to_owned())?;
         Ok(StepDecision::graceful_complete(input))
     }
 }

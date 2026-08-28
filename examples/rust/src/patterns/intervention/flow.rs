@@ -28,6 +28,8 @@
  * limitations under the License.
  */
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerError, HandlerResult, PersistenceSchema, RetryPolicy, Step,
     StepDecision, StepList, StepOptions, Wait,
@@ -49,7 +51,7 @@ impl Flow for ManualRecoveryFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&retry()).channel(&skip())
+        PersistenceSchema::new().channel(&RETRY).channel(&SKIP)
     }
 }
 
@@ -92,21 +94,17 @@ impl Step for ManualStep {
     type Input = bool;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([retry().for_one(), skip().for_one()]))
+        Ok(Wait::any_of([RETRY.for_one(), SKIP.for_one()]))
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        if !retry().condition_results(context)?.is_empty() {
+        if !RETRY.condition_results(context)?.is_empty() {
             return Ok(StepDecision::go_to(&DoWorkStep, false));
         }
         Ok(StepDecision::force_fail("manual recovery skipped"))
     }
 }
 
-fn retry() -> Channel<()> {
-    Channel::new("manual-recovery-retry")
-}
+static RETRY: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("manual-recovery-retry"));
 
-fn skip() -> Channel<()> {
-    Channel::new("manual-recovery-skip")
-}
+static SKIP: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("manual-recovery-skip"));

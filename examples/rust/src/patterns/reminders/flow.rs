@@ -30,6 +30,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
     StepList, StepMovement, Timer, Wait,
@@ -47,11 +49,11 @@ pub struct ReminderFlow {
 
 impl ReminderFlow {
     fn accept(&self, context: &mut Context) -> HandlerResult<()> {
-        resolution().publish(context, "accepted".to_string())
+        RESOLUTION.publish(context, "accepted".to_string())
     }
 
     fn opt_out(&self, context: &mut Context) -> HandlerResult<()> {
-        resolution().publish(context, "opted-out".to_string())
+        RESOLUTION.publish(context, "opted-out".to_string())
     }
 }
 
@@ -65,7 +67,7 @@ impl Flow for ReminderFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&resolution())
+        PersistenceSchema::new().channel(&RESOLUTION)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -97,13 +99,13 @@ impl Step for Remind {
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            resolution().for_one(),
+            RESOLUTION.for_one(),
             Timer::by_duration(Duration::from_secs(3_600)),
         ]))
     }
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        let resolutions = resolution().condition_results(context)?;
+        let resolutions = RESOLUTION.condition_results(context)?;
         if let Some(resolved) = resolutions.into_iter().next() {
             return Ok(StepDecision::force_complete(resolved));
         }
@@ -129,6 +131,5 @@ impl Step for Timeout {
     }
 }
 
-fn resolution() -> Channel<String> {
-    Channel::new("reminder-resolution")
-}
+static RESOLUTION: LazyLock<Channel<String>> =
+    LazyLock::new(|| Channel::new("reminder-resolution"));

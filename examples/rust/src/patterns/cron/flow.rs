@@ -14,6 +14,8 @@
 
 use std::time::Duration;
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList,
     StepMovement, Timer, Wait,
@@ -78,9 +80,7 @@ impl Flow for CronScheduleFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new()
-            .channel(&trigger())
-            .channel(&skip())
+        PersistenceSchema::new().channel(&TRIGGER).channel(&SKIP)
     }
 }
 
@@ -115,13 +115,13 @@ impl Step for WaitForSchedule {
     fn wait_for(&self, _context: &mut Context, state: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
             Timer::by_duration(state.interval.duration()),
-            trigger().for_one(),
-            skip().for_one(),
+            TRIGGER.for_one(),
+            SKIP.for_one(),
         ]))
     }
 
     fn execute(&self, context: &mut Context, state: Self::Input) -> HandlerResult<StepDecision> {
-        if !skip().condition_results(context)?.is_empty() {
+        if !SKIP.condition_results(context)?.is_empty() {
             return Ok(next_schedule(state));
         }
         let run_input = RunInput {
@@ -173,10 +173,6 @@ fn next_schedule(state: ScheduleState) -> StepDecision {
     )
 }
 
-pub fn trigger() -> Channel<()> {
-    Channel::new("cron-schedule-trigger")
-}
+pub static TRIGGER: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("cron-schedule-trigger"));
 
-pub fn skip() -> Channel<()> {
-    Channel::new("cron-schedule-skip")
-}
+pub static SKIP: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("cron-schedule-skip"));

@@ -12,18 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use dex_sdk::{
     Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Stream,
 };
 
-pub fn progress() -> Stream<String> {
-    static PROGRESS: OnceLock<Stream<String>> = OnceLock::new();
-    PROGRESS
-        .get_or_init(|| Stream::new("Progress", 10 * 1024 * 1024))
-        .clone()
-}
+pub static PROGRESS: LazyLock<Stream<String>> =
+    LazyLock::new(|| Stream::new("Progress", 10 * 1024 * 1024));
 
 #[derive(Default)]
 pub struct StreamFlow {
@@ -38,7 +34,7 @@ impl Flow for StreamFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().stream(&progress())
+        PersistenceSchema::new().stream(&PROGRESS)
     }
 }
 
@@ -49,7 +45,7 @@ impl Step for RenderPreview {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        progress().write(context, format!("Rendering preview for {input}"))?;
+        PROGRESS.write(context, format!("Rendering preview for {input}"))?;
         Ok(StepDecision::graceful_complete(format!("Rendered {input}")))
     }
 }

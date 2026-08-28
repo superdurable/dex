@@ -15,7 +15,7 @@ use dex_sdk::{
     TimeTravelStepMethod,
 };
 
-use crate::reset_workflow::ResetWorkflow;
+use crate::reset_workflow::{COUNTER, DATA, EXECUTION_COUNT, KEYWORD, ResetWorkflow};
 use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
@@ -129,28 +129,28 @@ fn assert_completed_with_attributes(
         Some(ResetWorkflow::EXPECTED_VALUE.to_string()),
         environment
             .client
-            .get_attribute(flow_id, &workflow.data)
+            .get_attribute(flow_id, &DATA)
             .expect("get reset data Attribute")
     );
     assert_eq!(
         Some(ResetWorkflow::EXPECTED_VALUE.to_string()),
         environment
             .client
-            .get_attribute(flow_id, &workflow.keyword)
+            .get_attribute(flow_id, &KEYWORD)
             .expect("get reset keyword Attribute")
     );
     assert_eq!(
         Some(100),
         environment
             .client
-            .get_attribute(flow_id, &workflow.counter)
+            .get_attribute(flow_id, &COUNTER)
             .expect("get reset counter Attribute")
     );
     assert_eq!(
         Some(2),
         environment
             .client
-            .get_attribute(flow_id, &workflow.execution_count)
+            .get_attribute(flow_id, &EXECUTION_COUNT)
             .expect("get reset execution-count Attribute")
     );
     let item = environment
@@ -180,28 +180,28 @@ fn assert_reset_times_out_without_attributes(
         None,
         environment
             .client
-            .get_attribute(flow_id, &workflow.data)
+            .get_attribute(flow_id, &DATA)
             .expect("get cleared reset data Attribute")
     );
     assert_eq!(
         None,
         environment
             .client
-            .get_attribute(flow_id, &workflow.keyword)
+            .get_attribute(flow_id, &KEYWORD)
             .expect("get cleared reset keyword Attribute")
     );
     assert_eq!(
         None,
         environment
             .client
-            .get_attribute(flow_id, &workflow.counter)
+            .get_attribute(flow_id, &COUNTER)
             .expect("get cleared reset counter Attribute")
     );
     assert_eq!(
         None,
         environment
             .client
-            .get_attribute(flow_id, &workflow.execution_count)
+            .get_attribute(flow_id, &EXECUTION_COUNT)
             .expect("get cleared reset execution-count Attribute")
     );
     assert_eq!(

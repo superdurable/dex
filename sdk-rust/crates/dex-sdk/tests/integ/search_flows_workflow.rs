@@ -8,13 +8,18 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision,
     StepList,
 };
 
+static KEYWORD: LazyLock<Attribute<String>> = LazyLock::new(|| {
+    Attribute::new(SearchFlowsWorkflow::KEYWORD_KEY).indexed(AttributeIndex::keyword())
+});
+
 pub(crate) struct SearchFlowsWorkflow {
-    keyword: Attribute<String>,
     start: IndexStep,
 }
 
@@ -22,13 +27,7 @@ impl SearchFlowsWorkflow {
     pub(crate) const KEYWORD_KEY: &str = "CustomKeywordField";
 
     pub(crate) fn new() -> Self {
-        let keyword = Attribute::new(Self::KEYWORD_KEY).indexed(AttributeIndex::keyword());
-        Self {
-            start: IndexStep {
-                keyword: keyword.clone(),
-            },
-            keyword,
-        }
+        Self { start: IndexStep }
     }
 }
 
@@ -40,19 +39,17 @@ impl Flow for SearchFlowsWorkflow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().attribute(&self.keyword)
+        PersistenceSchema::new().attribute(&KEYWORD)
     }
 }
 
-struct IndexStep {
-    keyword: Attribute<String>,
-}
+struct IndexStep;
 
 impl Step for IndexStep {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: String) -> HandlerResult<StepDecision> {
-        self.keyword.set(context, input.clone())?;
+        KEYWORD.set(context, input.clone())?;
         Ok(StepDecision::graceful_complete(input))
     }
 }

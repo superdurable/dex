@@ -176,7 +176,7 @@ await client.publish("order-123", approval, "approved");
 <SdkSnippet lang="rust">
 
 ```rust
-client.publish("order-123", &approval(), "approved".to_owned())?;
+client.publish("order-123", &APPROVAL, "approved".to_owned())?;
 ```
 
 </SdkSnippet>

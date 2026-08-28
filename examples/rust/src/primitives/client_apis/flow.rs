@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::LazyLock;
+
 use dex_sdk::{
     Attribute, AttributeIndex, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision,
     StepList,
@@ -19,9 +21,8 @@ use dex_sdk::{
 
 const KEYWORD_KEY: &str = "CustomKeywordField";
 
-fn keyword() -> Attribute<String> {
-    Attribute::new(KEYWORD_KEY).indexed(AttributeIndex::keyword())
-}
+static KEYWORD: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new(KEYWORD_KEY).indexed(AttributeIndex::keyword()));
 
 #[derive(Default)]
 pub struct ClientApisFlow {
@@ -36,7 +37,7 @@ impl Flow for ClientApisFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().attribute(&keyword())
+        PersistenceSchema::new().attribute(&KEYWORD)
     }
 }
 
@@ -47,7 +48,7 @@ impl Step for ClientApisStep {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        keyword().set(context, input.clone())?;
+        KEYWORD.set(context, input.clone())?;
         Ok(StepDecision::graceful_complete(input))
     }
 }

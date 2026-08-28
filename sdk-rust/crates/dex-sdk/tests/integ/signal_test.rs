@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use dex_sdk::{Client, GrpcCode, Registry, SdkError, SdkResult, StepExecutionId, TimerId};
 
-use crate::signal_workflow::SignalWorkflow;
+use crate::signal_workflow::{FIRST, SignalWorkflow, THIRD};
 use crate::support::{DexDevTestEnvironment, flow_id};
 
 #[test]
@@ -27,11 +27,11 @@ fn test_basic_signal_workflow() {
         .expect("start signal Flow");
     environment
         .client
-        .publish_many(&flow_id, &workflow.first, [2, 3, 5])
+        .publish_many(&flow_id, &FIRST, [2, 3, 5])
         .expect("publish first signals");
     environment
         .client
-        .publish(&flow_id, &workflow.third, ())
+        .publish(&flow_id, &THIRD, ())
         .expect("publish null signal");
     environment
         .client
@@ -55,7 +55,7 @@ fn test_basic_signal_workflow() {
     );
     match environment
         .client
-        .publish(&flow_id, &workflow.first, 8)
+        .publish(&flow_id, &FIRST, 8)
         .expect_err("publishing to a closed Flow must fail")
     {
         SdkError::FlowNotActive { service } => {
@@ -69,8 +69,8 @@ fn test_basic_signal_workflow() {
 fn compile_signals_and_timer_skip(client: &Client) -> SdkResult<()> {
     let workflow = SignalWorkflow::new();
     client.start_flow(&workflow, "signal", 1)?;
-    client.publish_many("signal", &workflow.first, [2, 3, 5])?;
-    client.publish("signal", &workflow.third, ())?;
+    client.publish_many("signal", &FIRST, [2, 3, 5])?;
+    client.publish("signal", &THIRD, ())?;
     client.publish_map("signal", &workflow.signal_map, "one", [4])?;
     client.skip_timer(
         "signal",

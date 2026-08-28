@@ -16,7 +16,7 @@ use dex_sdk::{Registry, StepExecutionId};
 
 use crate::step_cancellation_workflow::{
     CancellationBlockingExecute, CancellationBlockingWaitFor, CancellationScenario,
-    CancellationState, StepCancellationWorkflow,
+    CancellationState, LATE_WRITE, StepCancellationWorkflow,
 };
 use crate::support::{DexDevTestEnvironment, flow_id};
 
@@ -31,7 +31,6 @@ fn test_step_cancellation() {
 fn run_scenario(scenario: CancellationScenario) {
     let state = CancellationState::new(scenario);
     let workflow = StepCancellationWorkflow::new(Arc::clone(&state));
-    let late_write = workflow.late_write.clone();
     let environment = DexDevTestEnvironment::start(Registry::new().register(workflow));
     let client_workflow = StepCancellationWorkflow::new(Arc::clone(&state));
     let flow_id = flow_id(&format!("rust-cancellation-{}", scenario.name()));
@@ -61,7 +60,6 @@ fn run_scenario(scenario: CancellationScenario) {
                     &flow_id,
                     StepExecutionId::of(&CancellationBlockingExecute {
                         state: Arc::clone(&state),
-                        late_write: late_write.clone(),
                     }),
                     Duration::from_secs(30),
                 )
@@ -106,7 +104,7 @@ fn run_scenario(scenario: CancellationScenario) {
         None,
         environment
             .client
-            .get_attribute::<String>(&flow_id, &late_write)
+            .get_attribute::<String>(&flow_id, &LATE_WRITE)
             .expect("read late Attribute")
     );
 }
