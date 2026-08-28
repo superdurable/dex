@@ -46,12 +46,10 @@ from dex_examples.patterns.interruptible.interruptible_execution_flow import (
 from dex_examples.patterns.intervention.manual_recovery_flow import (
     ManualRecoveryFlow,
 )
-from dex_examples.patterns.parallel.parallel_states_with_await_flow import (
-    ParallelStatesWithAwaitFlow,
-)
-from dex_examples.patterns.parallel.simple_parallel_states_flow import (
-    SimpleParallelStatesFlow,
-)
+from dex_examples.patterns.parallel.await_parallel_steps_flow import AwaitParallelStepsFlow
+from dex_examples.patterns.parallel.dynamic_parallel_steps_flow import DynamicParallelStepsFlow
+from dex_examples.patterns.parallel.first_win_parallel_steps_flow import FirstWinParallelStepsFlow
+from dex_examples.patterns.parallel.static_parallel_steps_flow import StaticParallelStepsFlow
 from dex_examples.patterns.parent_child.parent_flow_v2 import ParentFlowV2
 from dex_examples.patterns.polling.backoff_polling_flow import BackoffPollingFlow
 from dex_examples.patterns.polling.simple_polling_flow import SimplePollingFlow
@@ -139,8 +137,10 @@ class ExampleApp:
         self.drain_external = DrainingExternalChannelFlow()
         self.interruptible = InterruptibleFlow()
         self.manual_recovery = ManualRecoveryFlow()
-        self.simple_parallel = SimpleParallelStatesFlow()
-        self.parallel_with_await = ParallelStatesWithAwaitFlow()
+        self.static_parallel = StaticParallelStepsFlow()
+        self.dynamic_parallel = DynamicParallelStepsFlow()
+        self.await_parallel = AwaitParallelStepsFlow()
+        self.first_win_parallel = FirstWinParallelStepsFlow()
         self.simple_polling = SimplePollingFlow()
         self.backoff_polling = BackoffPollingFlow(pattern_service)
         self.failure_recovery = FailureRecoveryFlow()
@@ -196,8 +196,10 @@ class ExampleApp:
             self.drain_external,
             self.interruptible,
             self.manual_recovery,
-            self.simple_parallel,
-            self.parallel_with_await,
+            self.static_parallel,
+            self.dynamic_parallel,
+            self.await_parallel,
+            self.first_win_parallel,
             self.simple_polling,
             self.backoff_polling,
             self.failure_recovery,

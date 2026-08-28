@@ -221,15 +221,27 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
-            name: "patterns/parallel/simple",
-            path: "/patterns/parallel/start/simple",
-            query: query(&client.new_flow_id("parallel-simple")),
+            name: "patterns/parallel/static",
+            path: "/patterns/parallel/start/static",
+            query: query(&client.new_flow_id("parallel-static")),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
-            name: "patterns/parallel/with-await",
-            path: "/patterns/parallel/start/withAwait",
+            name: "patterns/parallel/dynamic",
+            path: "/patterns/parallel/start/dynamic",
+            query: query(&client.new_flow_id("parallel-dynamic")),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
+            name: "patterns/parallel/await",
+            path: "/patterns/parallel/start/await",
             query: query(&client.new_flow_id("parallel-await")),
+            flags: FlowSmokeFlags::NONE,
+        },
+        FlowSmokeEntry {
+            name: "patterns/parallel/first-win",
+            path: "/patterns/parallel/start/first-win",
+            query: query(&client.new_flow_id("parallel-first-win")),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {

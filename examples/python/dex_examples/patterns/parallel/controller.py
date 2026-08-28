@@ -14,33 +14,44 @@
 
 from __future__ import annotations
 
+from dex import Flow
 from quart import Blueprint
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.patterns.parallel.job_seeker import JobSeeker
-from dex_examples.shared.query import required_int_query, required_query
+from dex_examples.shared.query import required_query
 
 
 def create_parallel_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("pattern_parallel", __name__, url_prefix="/patterns/parallel")
 
-    @blueprint.get("/start/simple")
-    async def start_simple_parallel() -> str:
+    @blueprint.get("/start/static")
+    async def start_static_parallel() -> str:
         return await app_state.client.start_flow(
-            app_state.simple_parallel,
+            app_state.static_parallel,
             required_query("workflowId"),
-            JobSeeker("123", "jobseeker@indeed.com", "0987654321"),
+            "work",
             start_options(),
         )
 
-    @blueprint.get("/start/withAwait")
-    async def start_parallel_with_await() -> str:
+    async def start_count_flow(flow: Flow[int]) -> str:
         return await app_state.client.start_flow(
-            app_state.parallel_with_await,
+            flow,
             required_query("workflowId"),
-            50,
+            10,
             start_options(),
         )
+
+    @blueprint.get("/start/dynamic")
+    async def start_dynamic_parallel() -> str:
+        return await start_count_flow(app_state.dynamic_parallel)
+
+    @blueprint.get("/start/await")
+    async def start_await_parallel() -> str:
+        return await start_count_flow(app_state.await_parallel)
+
+    @blueprint.get("/start/first-win")
+    async def start_first_win_parallel() -> str:
+        return await start_count_flow(app_state.first_win_parallel)
 
     return blueprint

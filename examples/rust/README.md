@@ -64,8 +64,10 @@ remain split so their orchestration boundaries are visible.
 | Draining External Channel Publishing | [`DrainingExternalChannelFlow`](src/patterns/drain_channels/flow.rs) | RPC publication, one-at-a-time drain, conditional completion |
 | Interruptible execution | [`InterruptibleFlow`](src/patterns/interruptible/flow.rs) | Graceful interrupt handling |
 | Manual recovery | [`ManualRecoveryFlow`](src/patterns/intervention/flow.rs) | Exhausted retry recovery and manual Channel decision |
-| Simple parallel states | [`SimpleParallelStatesFlow`](src/patterns/parallel.rs) | Parallel Step movements and graceful completion |
-| Parallel states with await | [`ParallelStatesWithAwaitFlow`](src/patterns/parallel.rs) | Independent Channel-gated branches |
+| Static parallel Steps | [`StaticParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | A fixed set of concurrent Step types |
+| Dynamic parallel Steps | [`DynamicParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | A runtime-sized set of one Step type |
+| Await parallel Steps | [`AwaitParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | Wait for every worker's Channel message |
+| First-win parallel Steps | [`FirstWinParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | Keep the first result and cancel siblings |
 | Parent-child | [`ParentFlowV2`](src/patterns/parent_child.rs) | Child ID persistence and completion callback Channel |
 | Simple polling | [`SimplePollingFlow`](src/patterns/polling.rs) | Durable timer loop |
 | Backoff polling | [`BackoffPollingFlow`](src/patterns/polling.rs) | Execute retry with exponential backoff |
@@ -92,7 +94,7 @@ make test
 ./run-integration-tests.sh
 ```
 
-The catalog integration test constructs every Flow, checks the exact 10 + 19
+The catalog integration test constructs every Flow, checks the exact 10 + 21
 mapping, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 

@@ -176,17 +176,31 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
-            "patterns/parallel/simple",
+            "patterns/parallel/static",
             lambda c: trigger_get(
-                "/patterns/parallel/start/simple",
-                {"workflowId": new_id("parallel-simple")},
+                "/patterns/parallel/start/static",
+                {"workflowId": new_id("parallel-static")},
             ),
         ),
         FlowSmokeEntry(
-            "patterns/parallel/with-await",
+            "patterns/parallel/dynamic",
             lambda c: trigger_get(
-                "/patterns/parallel/start/withAwait",
+                "/patterns/parallel/start/dynamic",
+                {"workflowId": new_id("parallel-dynamic")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/parallel/await",
+            lambda c: trigger_get(
+                "/patterns/parallel/start/await",
                 {"workflowId": new_id("parallel-await")},
+            ),
+        ),
+        FlowSmokeEntry(
+            "patterns/parallel/first-win",
+            lambda c: trigger_get(
+                "/patterns/parallel/start/first-win",
+                {"workflowId": new_id("parallel-first-win")},
             ),
         ),
         FlowSmokeEntry(

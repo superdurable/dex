@@ -8,7 +8,102 @@ Wait for every dynamically started Step before finishing the Flow.
 
 ![AwaitParallelStepsFlow](/img/design-patterns/parallel-await-steps-flow.png)
 
-**InitStep** starts **DoWorkStep** executions and **AwaitStep** together. Each worker publishes one message to **CompleteCh**. **AwaitStep** uses **WaitFor** for the required number of messages, then completes only after every branch has finished.
+**InitStep** starts **DoWorkStep** executions and **AwaitStep** together. Each worker sleeps for a random short duration, then publishes one message to **CompleteCh**. **AwaitStep** uses **WaitFor** for the required number of messages, then completes only after every branch has finished. Channel messages are durable, so completions published before **AwaitStep** begins waiting still count.
+
+## Core implementation
+
+The coordinator starts alongside the workers. It waits for exactly one completion message per worker.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel/await_parallel_steps_flow.py',
+    go: 'examples/go/patterns/parallel/await_parallel.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallel/AwaitParallelStepsFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel/parallel-step-flows.ts',
+    rust: 'examples/rust/src/patterns/parallel/parallel_step_flows.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class DoWorkStep(Step[int]):
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: int
+    ) -> StepDecision:
+        del input
+        await asyncio.sleep(random.uniform(0.05, 0.5))
+        self.complete_ch.publish(context, None)
+        return dead_end()
+
+class AwaitStep(Step[int]):
+    def wait_for(self, context: Context, input: int) -> Wait:
+        del context
+        return Wait.until(self.complete_ch.for_n(input))
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (awaitWorkStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error) {
+	randomWorkDelay()
+	if err := CompleteCh.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return dex.DeadEnd(), nil
+}
+
+func (awaitStep) WaitFor(_ dex.Context, count int) (*dex.Wait, error) {
+	return dex.Until(CompleteCh.ForN(count)), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    randomDelay();
+    completeCh.publish(context, null);
+    return StepDecision.deadEnd();
+}
+
+public Wait waitFor(final Context context, final Integer count) {
+    return Wait.until(completeCh.forN(count));
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public async execute(context: Context, _input: number): Promise<StepDecision> {
+  await randomDelay();
+  completeCh.publish(context, undefined);
+  return deadEnd();
+}
+
+public waitFor(_context: Context, count: number): Wait {
+  return Wait.until(completeCh.forN(count));
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, context: &mut Context, _: usize) -> HandlerResult<StepDecision> {
+    random_delay();
+    COMPLETE.publish(context, ())?;
+    Ok(StepDecision::dead_end())
+}
+
+fn wait_for(&self, _: &mut Context, count: usize) -> HandlerResult<Wait> {
+    Ok(Wait::until(COMPLETE.for_n(count)))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## Related
 

@@ -6,4 +6,76 @@ title: 首个获胜的并行 Step
 
 ![FirstWinParallelStepsFlow](/img/design-patterns/parallel-first-win-steps-flow.png)
 
-**InitStep** 启动多个 **DoWorkStep** execution。最先返回 decision 的 execution 选择取消其 sibling，保留第一个结果并停止不会影响结果的工作。
+**InitStep** 启动多个 **DoWorkStep** execution。每个 worker 随机等待一小段时间，从而形成真正的竞速。最先返回 decision 的 execution 会取消同类的 sibling execution。Flow 保留第一个结果，并停止已经无法影响结果的工作。
+
+## 核心实现
+
+取消选择器只匹配同一 Step 类型的 sibling execution，不会影响无关分支。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel/first_win_parallel_steps_flow.py',
+    go: 'examples/go/patterns/parallel/first_win.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallel/FirstWinParallelStepsFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel/parallel-step-flows.ts',
+    rust: 'examples/rust/src/patterns/parallel/parallel_step_flows.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class DoWorkStep(Step[int]):
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: int
+    ) -> StepDecision:
+        del context
+        await asyncio.sleep(random.uniform(0.05, 0.5))
+        return graceful_complete(input).with_canceling_sibling_steps(DoWorkStep)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (firstWinWorkStep) Execute(_ dex.Context, index int) (*dex.StepDecision, error) {
+	randomWorkDelay()
+	return dex.GracefulComplete(index).CancelSiblingSteps(firstWinWorkStep{}), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    randomDelay();
+    return StepDecision.gracefulComplete(input)
+            .withCancelingSiblingSteps(DoWorkStep.class);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public async execute(_context: Context, input: number): Promise<StepDecision> {
+  await randomDelay();
+  return withCancelingSiblingSteps(gracefulComplete(input), FirstWinDoWorkStep);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
+    random_delay();
+    Ok(StepDecision::graceful_complete(input).cancel_sibling_step(&FirstWinWork))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 相关内容
+
+- [并行 Step](/design-patterns/parallel)

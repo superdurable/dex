@@ -384,17 +384,28 @@ test("design-pattern resettable timer start reset", async () => {
   );
 });
 
-test("design-pattern parallel simple and withAwait", async () => {
+test("design-pattern parallel step variants", async () => {
   requireOk(
-    await get("/patterns/parallel/start/simple", { workflowId: id("par-simple") }),
-    "parallel simple",
+    await get("/patterns/parallel/start/static", { workflowId: id("par-static") }),
+    "parallel static",
   );
   requireOk(
-    await get("/patterns/parallel/start/withAwait", {
+    await get("/patterns/parallel/start/dynamic", {
+      workflowId: id("par-dynamic"),
+    }),
+    "parallel dynamic",
+  );
+  requireOk(
+    await get("/patterns/parallel/start/await", {
       workflowId: id("par-await"),
-      countOfJobSeekers: 2,
     }),
     "parallel await",
+  );
+  requireOk(
+    await get("/patterns/parallel/start/first-win", {
+      workflowId: id("par-first-win"),
+    }),
+    "parallel first win",
   );
 });
 

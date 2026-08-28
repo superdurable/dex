@@ -10,6 +10,77 @@ Start a fixed set of distinct Step types concurrently.
 
 **InitStep** returns one movement for **WorkAStep** and one for **WorkBStep**. Both are scheduled at the same time and complete independently. Use this shape when each branch has a known responsibility and input type.
 
+## Core implementation
+
+The starting Step returns both movements in one decision.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel/static_parallel_steps_flow.py',
+    go: 'examples/go/patterns/parallel/static.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallel/StaticParallelStepsFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel/parallel-step-flows.ts',
+    rust: 'examples/rust/src/patterns/parallel/parallel_step_flows.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class InitStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        del context
+        return go_to_multi(
+            StepMovement.of(WorkAStep, input),
+            StepMovement.of(WorkBStep, input),
+        )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (staticInitStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+	return dex.GoToMulti(dex.MovementOf(workAStep{}, input), dex.MovementOf(workBStep{}, input)), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final String input) {
+    return StepDecision.goToMulti(
+            StepMovement.of(WorkAStep.class, input),
+            StepMovement.of(WorkBStep.class, input));
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public execute(_context: Context, input: string): StepDecision {
+  return goToMulti(
+    StepMovement.of(WorkAStep, input),
+    StepMovement.of(WorkBStep, input),
+  );
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, _: &mut Context, input: String) -> HandlerResult<StepDecision> {
+    Ok(StepDecision::go_to_many([
+        StepMovement::to(&WorkA, input.clone()),
+        StepMovement::to(&WorkB, input),
+    ]))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
 ## Related
 
 - [Parallel Steps](/design-patterns/parallel)

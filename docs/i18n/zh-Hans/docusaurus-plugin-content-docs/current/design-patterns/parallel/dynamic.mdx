@@ -6,4 +6,108 @@ title: 动态并行 Step
 
 ![DynamicParallelStepsFlow](/img/design-patterns/parallel-dynamic-steps-flow.png)
 
-**InitStep** 为每个输入项创建一个 **DoWorkStep** movement。Dex 并发调度这些 execution，适用于运行时才确定数量的同类工作项。
+**InitStep** 为每个输入项创建一个 **DoWorkStep** movement。Dex 并发调度这些 execution。每个 worker 会随机等待一小段时间，让并发完成顺序更直观。这个模式适用于运行时才确定数量的同类工作项。
+
+## 核心实现
+
+起始 Step 在运行时创建 movement 列表。worker 的随机延迟用来模拟耗时不同的工作。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel/dynamic_parallel_steps_flow.py',
+    go: 'examples/go/patterns/parallel/dynamic.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallel/DynamicParallelStepsFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel/parallel-step-flows.ts',
+    rust: 'examples/rust/src/patterns/parallel/parallel_step_flows.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class DoWorkStep(Step[int]):
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: int
+    ) -> StepDecision:
+        del context
+        await asyncio.sleep(random.uniform(0.05, 0.5))
+        return graceful_complete(input)
+
+class InitStep(Step[int]):
+    def execute(self, context: Context, input: int) -> StepDecision:
+        del context
+        return go_to_multi(
+            *(StepMovement.of(DoWorkStep, index) for index in range(input))
+        )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (dynamicInitStep) Execute(_ dex.Context, items []string) (*dex.StepDecision, error) {
+	movements := make([]dex.StepMovement, 0, len(items))
+	for _, item := range items {
+		movements = append(movements, dex.MovementOf(dynamicWorkStep{}, item))
+	}
+	return dex.GoToMulti(movements...), nil
+}
+
+func (dynamicWorkStep) Execute(_ dex.Context, item string) (*dex.StepDecision, error) {
+	randomWorkDelay()
+	return dex.GracefulComplete(item), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer count) {
+    final StepMovement<?>[] movements = new StepMovement<?>[count];
+    for (int index = 0; index < count; index++) {
+        movements[index] = StepMovement.of(DoWorkStep.class, index);
+    }
+    return StepDecision.goToMulti(movements);
+}
+
+public StepDecision execute(final Context context, final Integer input) {
+    randomDelay();
+    return StepDecision.gracefulComplete(input);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public execute(_context: Context, count: number): StepDecision {
+  return goToMulti(...movements(count, DynamicDoWorkStep));
+}
+
+public async execute(_context: Context, input: number): Promise<StepDecision> {
+  await randomDelay();
+  return gracefulComplete(input);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, _: &mut Context, count: usize) -> HandlerResult<StepDecision> {
+    Ok(StepDecision::go_to_many(
+        (0..count).map(|index| StepMovement::to(&DynamicWork, index)),
+    ))
+}
+
+fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
+    random_delay();
+    Ok(StepDecision::graceful_complete(input))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 相关内容
+
+- [并行 Step](/design-patterns/parallel)

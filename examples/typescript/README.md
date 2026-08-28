@@ -78,7 +78,7 @@ Under [`src/patterns/`](./src/patterns):
 - Drain internal / externally published channels
 - Interruptible execution
 - Manual recovery
-- Parallel states (simple / with await)
+- Parallel Steps (static / dynamic / await / first win)
 - Parent–child
 - Polling (simple / backoff)
 - Failure recovery (saga)

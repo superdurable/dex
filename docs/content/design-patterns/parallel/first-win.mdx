@@ -8,7 +8,75 @@ Use the first completed concurrent Step and cancel the remaining siblings.
 
 ![FirstWinParallelStepsFlow](/img/design-patterns/parallel-first-win-steps-flow.png)
 
-**InitStep** starts multiple **DoWorkStep** executions. The first execution to return a decision selects its sibling **DoWorkStep** executions for cancellation. The Flow keeps the first result and stops work that can no longer affect the outcome.
+**InitStep** starts multiple **DoWorkStep** executions. Each worker sleeps for a random short duration, creating a real race. The first execution to return a decision selects its sibling **DoWorkStep** executions for cancellation. The Flow keeps the first result and stops work that can no longer affect the outcome.
+
+## Core implementation
+
+The cancellation selector targets sibling executions of the same Step type, not unrelated branches.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel/first_win_parallel_steps_flow.py',
+    go: 'examples/go/patterns/parallel/first_win.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallel/FirstWinParallelStepsFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel/parallel-step-flows.ts',
+    rust: 'examples/rust/src/patterns/parallel/parallel_step_flows.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class DoWorkStep(Step[int]):
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: int
+    ) -> StepDecision:
+        del context
+        await asyncio.sleep(random.uniform(0.05, 0.5))
+        return graceful_complete(input).with_canceling_sibling_steps(DoWorkStep)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (firstWinWorkStep) Execute(_ dex.Context, index int) (*dex.StepDecision, error) {
+	randomWorkDelay()
+	return dex.GracefulComplete(index).CancelSiblingSteps(firstWinWorkStep{}), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public StepDecision execute(final Context context, final Integer input) {
+    randomDelay();
+    return StepDecision.gracefulComplete(input)
+            .withCancelingSiblingSteps(DoWorkStep.class);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+public async execute(_context: Context, input: number): Promise<StepDecision> {
+  await randomDelay();
+  return withCancelingSiblingSteps(gracefulComplete(input), FirstWinDoWorkStep);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn execute(&self, _: &mut Context, input: usize) -> HandlerResult<StepDecision> {
+    random_delay();
+    Ok(StepDecision::graceful_complete(input).cancel_sibling_step(&FirstWinWork))
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## Related
 

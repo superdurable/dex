@@ -39,7 +39,6 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
-	"github.com/superdurable/dex/examples/go/patterns/parallel"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/scalable-parallel"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
@@ -243,8 +242,10 @@ func runPatternScenarios(
 		{"pattern/entity-store", func() result { return verifyEntityStore(ctx, client, stamp) }},
 		{"pattern/manual-recovery-retry", func() result { return verifyManualRecoveryRetry(ctx, client, stamp) }},
 		{"pattern/manual-recovery-skip", func() result { return verifyManualRecoverySkip(ctx, client, stamp) }},
-		{"pattern/parallel-simple", func() result { return verifyParallelSimple(ctx, client, stamp) }},
+		{"pattern/parallel-static", func() result { return verifyParallelStatic(ctx, client, stamp) }},
+		{"pattern/parallel-dynamic", func() result { return verifyParallelDynamic(ctx, client, stamp) }},
 		{"pattern/parallel-await", func() result { return verifyParallelAwait(ctx, client, stamp) }},
+		{"pattern/parallel-first-win", func() result { return verifyParallelFirstWin(ctx, client, stamp) }},
 		{"pattern/recovery", func() result { return verifyRecovery(ctx, client, stamp) }},
 		{"pattern/scalable-parallel", func() result { return verifyScalableParallel(ctx, client, stamp) }},
 		{"pattern/parent-child", func() result { return verifyParentChild(ctx, client, stamp) }},
@@ -968,13 +969,26 @@ func verifyManualRecoverySkip(ctx context.Context, client *dex.Client, stamp str
 	return pass(name, wait.ErrorMessage)
 }
 
-func verifyParallelSimple(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/parallel-simple"
-	flowID := "dv-par-simple-" + stamp
+func verifyParallelStatic(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/parallel-static"
+	flowID := "dv-par-static-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.SimpleParallel, flowID,
-		parallel.JobSeeker{ID: "123", Email: "a@b.com", PhoneNumber: "1"},
-		hourStartOptions(),
+		ctx, registry.StaticParallel, flowID, "work", hourStartOptions(),
+	)
+	if err != nil {
+		return fail(name, "", err)
+	}
+	if _, err := waitCompleted(ctx, client, flowID, 45*time.Second); err != nil {
+		return fail(name, "", err)
+	}
+	return pass(name, "completed")
+}
+
+func verifyParallelDynamic(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/parallel-dynamic"
+	flowID := "dv-par-dynamic-" + stamp
+	_, err := client.StartFlow(
+		ctx, registry.DynamicParallel, flowID, []string{"one", "two", "three"}, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -989,7 +1003,7 @@ func verifyParallelAwait(ctx context.Context, client *dex.Client, stamp string) 
 	name := "pattern/parallel-await"
 	flowID := "dv-par-await-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.ParallelWithAwait, flowID, 3, hourStartOptions(),
+		ctx, registry.AwaitParallel, flowID, 3, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)
@@ -997,7 +1011,22 @@ func verifyParallelAwait(ctx context.Context, client *dex.Client, stamp string) 
 	if _, err := waitCompleted(ctx, client, flowID, 60*time.Second); err != nil {
 		return fail(name, "", err)
 	}
-	return pass(name, "completed withAwait count=3")
+	return pass(name, "completed count=3")
+}
+
+func verifyParallelFirstWin(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/parallel-first-win"
+	flowID := "dv-par-first-win-" + stamp
+	_, err := client.StartFlow(
+		ctx, registry.FirstWinParallel, flowID, 3, hourStartOptions(),
+	)
+	if err != nil {
+		return fail(name, "", err)
+	}
+	if _, err := waitCompleted(ctx, client, flowID, 45*time.Second); err != nil {
+		return fail(name, "", err)
+	}
+	return pass(name, "completed")
 }
 
 func verifyRecovery(ctx context.Context, client *dex.Client, stamp string) result {

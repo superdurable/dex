@@ -141,7 +141,7 @@ Under [`patterns/`](./patterns):
 - [Drain internal / externally published channels](./patterns/drain-channels)
 - [Interruptible execution](./patterns/interruptible)
 - [Manual recovery](./patterns/intervention)
-- [Parallel states](./patterns/parallel)
+- [Parallel Steps: static, dynamic, await, and first win](./patterns/parallel)
 - [Parent–child](./patterns/parent-child)
 - [Polling (simple / backoff)](./patterns/polling)
 - [Failure recovery](./patterns/recovery)

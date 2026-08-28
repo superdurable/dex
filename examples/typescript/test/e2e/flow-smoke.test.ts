@@ -209,19 +209,34 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
-      name: "patterns/parallel/simple",
+      name: "patterns/parallel/static",
       trigger: () =>
-        triggerGet(context, "/patterns/parallel/start/simple", {
-          workflowId: newFlowId("parallel-simple"),
+        triggerGet(context, "/patterns/parallel/start/static", {
+          workflowId: newFlowId("parallel-static"),
         }),
       flags: defaultFlags(),
     },
     {
-      name: "patterns/parallel/with-await",
+      name: "patterns/parallel/dynamic",
       trigger: () =>
-        triggerGet(context, "/patterns/parallel/start/withAwait", {
+        triggerGet(context, "/patterns/parallel/start/dynamic", {
+          workflowId: newFlowId("parallel-dynamic"),
+        }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "patterns/parallel/await",
+      trigger: () =>
+        triggerGet(context, "/patterns/parallel/start/await", {
           workflowId: newFlowId("parallel-await"),
-          countOfJobSeekers: 1,
+        }),
+      flags: defaultFlags(),
+    },
+    {
+      name: "patterns/parallel/first-win",
+      trigger: () =>
+        triggerGet(context, "/patterns/parallel/start/first-win", {
+          workflowId: newFlowId("parallel-first-win"),
         }),
       flags: defaultFlags(),
     },

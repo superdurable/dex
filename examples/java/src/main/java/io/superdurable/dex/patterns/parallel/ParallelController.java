@@ -17,6 +17,7 @@
 package io.superdurable.dex.patterns.parallel;
 
 import io.superdurable.dex.Client;
+import io.superdurable.dex.Flow;
 import io.superdurable.dex.shared.ExampleFlows;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,37 +29,47 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/patterns/parallel")
 public class ParallelController {
     private final Client client;
-    private final SimpleParallelStatesFlow simpleParallelStatesFlow;
-    private final ParallelStatesWithAwaitFlow parallelStatesWithAwaitFlow;
+    private final StaticParallelStepsFlow staticFlow;
+    private final DynamicParallelStepsFlow dynamicFlow;
+    private final AwaitParallelStepsFlow awaitFlow;
+    private final FirstWinParallelStepsFlow firstWinFlow;
 
     public ParallelController(
             final Client client,
-            final SimpleParallelStatesFlow simpleParallelStatesFlow,
-            final ParallelStatesWithAwaitFlow parallelStatesWithAwaitFlow) {
+            final StaticParallelStepsFlow staticFlow,
+            final DynamicParallelStepsFlow dynamicFlow,
+            final AwaitParallelStepsFlow awaitFlow,
+            final FirstWinParallelStepsFlow firstWinFlow) {
         this.client = client;
-        this.simpleParallelStatesFlow = simpleParallelStatesFlow;
-        this.parallelStatesWithAwaitFlow = parallelStatesWithAwaitFlow;
+        this.staticFlow = staticFlow;
+        this.dynamicFlow = dynamicFlow;
+        this.awaitFlow = awaitFlow;
+        this.firstWinFlow = firstWinFlow;
     }
 
-    @GetMapping("/start/simple")
-    ResponseEntity<String> startParallelSimple(@RequestParam final String workflowId) {
-        final JobSeeker jobSeeker =
-                new JobSeeker("123", "jobseeker@indeed.com", "0987654321");
-        final String runId = client.startFlow(
-                simpleParallelStatesFlow,
-                workflowId,
-                jobSeeker,
-                ExampleFlows.startOptions());
-        return ResponseEntity.ok(runId);
+    @GetMapping("/start/static")
+    ResponseEntity<String> startStatic(@RequestParam final String workflowId) {
+        return start(staticFlow, workflowId, "work");
     }
 
-    @GetMapping("/start/withAwait")
-    ResponseEntity<String> startParallelWithAwait(@RequestParam final String workflowId) {
-        final String runId = client.startFlow(
-                parallelStatesWithAwaitFlow,
-                workflowId,
-                50,
-                ExampleFlows.startOptions());
+    @GetMapping("/start/dynamic")
+    ResponseEntity<String> startDynamic(@RequestParam final String workflowId) {
+        return start(dynamicFlow, workflowId, 3);
+    }
+
+    @GetMapping("/start/await")
+    ResponseEntity<String> startAwait(@RequestParam final String workflowId) {
+        return start(awaitFlow, workflowId, 3);
+    }
+
+    @GetMapping("/start/first-win")
+    ResponseEntity<String> startFirstWin(@RequestParam final String workflowId) {
+        return start(firstWinFlow, workflowId, 3);
+    }
+
+    private <T> ResponseEntity<String> start(
+            final Flow<T> flow, final String workflowId, final T input) {
+        final String runId = client.startFlow(flow, workflowId, input, ExampleFlows.startOptions());
         return ResponseEntity.ok(runId);
     }
 }

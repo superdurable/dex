@@ -22,8 +22,12 @@ import { drainingExternalChannelFlow } from "./patterns/drain-channels/external-
 import { userProfileFlow } from "./patterns/entity-store/user-profile-flow.js";
 import { interruptibleFlow } from "./patterns/interruptible/interruptible-execution-flow.js";
 import { manualRecoveryFlow } from "./patterns/intervention/manual-recovery-flow.js";
-import { parallelStatesWithAwaitFlow } from "./patterns/parallel/parallel-states-with-await-flow.js";
-import { simpleParallelStatesFlow } from "./patterns/parallel/simple-parallel-states-flow.js";
+import {
+  awaitParallelStepsFlow,
+  dynamicParallelStepsFlow,
+  firstWinParallelStepsFlow,
+  staticParallelStepsFlow,
+} from "./patterns/parallel/parallel-step-flows.js";
 import { parentFlowV2 } from "./patterns/parent-child/parent-flow-v2.js";
 import { backoffPollingFlow } from "./patterns/polling/backoff-polling-flow.js";
 import { simplePollingFlow } from "./patterns/polling/simple-polling-flow.js";
@@ -78,13 +82,15 @@ export const allExampleFlows: readonly Flow<any>[] = [
   jobPostFlow,
   employerOptInFlow,
   shortlistFlow,
-	cronScheduleFlow,
+  cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
   interruptibleFlow,
   manualRecoveryFlow,
-  simpleParallelStatesFlow,
-  parallelStatesWithAwaitFlow,
+  staticParallelStepsFlow,
+  dynamicParallelStepsFlow,
+  awaitParallelStepsFlow,
+  firstWinParallelStepsFlow,
   parentFlowV2,
   simplePollingFlow,
   backoffPollingFlow,
@@ -133,13 +139,15 @@ export {
   jobPostFlow,
   employerOptInFlow,
   shortlistFlow,
-	cronScheduleFlow,
+  cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
   interruptibleFlow,
   manualRecoveryFlow,
-  simpleParallelStatesFlow,
-  parallelStatesWithAwaitFlow,
+  staticParallelStepsFlow,
+  dynamicParallelStepsFlow,
+  awaitParallelStepsFlow,
+  firstWinParallelStepsFlow,
   parentFlowV2,
   simplePollingFlow,
   backoffPollingFlow,

@@ -29,59 +29,57 @@ import (
 )
 
 type controller struct {
-	client    *sdk.Client
-	simple    *SimpleParallelStatesFlow
-	withAwait *ParallelStatesWithAwaitFlow
+	client   *sdk.Client
+	static   *StaticParallelStepsFlow
+	dynamic  *DynamicParallelStepsFlow
+	await    *AwaitParallelStepsFlow
+	firstWin *FirstWinParallelStepsFlow
 }
 
 func RegisterRoutes(
 	router gin.IRouter,
 	client *sdk.Client,
-	simple *SimpleParallelStatesFlow,
-	withAwait *ParallelStatesWithAwaitFlow,
+	static *StaticParallelStepsFlow,
+	dynamic *DynamicParallelStepsFlow,
+	await *AwaitParallelStepsFlow,
+	firstWin *FirstWinParallelStepsFlow,
 ) {
-	controller := &controller{client: client, simple: simple, withAwait: withAwait}
+	controller := &controller{client: client, static: static, dynamic: dynamic, await: await, firstWin: firstWin}
 	group := router.Group("/patterns/parallel")
-	group.GET("/start/simple", controller.startSimple)
-	group.GET("/start/withAwait", controller.startWithAwait)
+	group.GET("/start/static", controller.startStatic)
+	group.GET("/start/dynamic", controller.startDynamic)
+	group.GET("/start/await", controller.startAwait)
+	group.GET("/start/first-win", controller.startFirstWin)
 }
 
-func patternStartOptions() sdk.StartFlowOptions {
+func (controller *controller) startStatic(request *gin.Context) {
+	controller.start(request, controller.static, "work")
+}
+
+func (controller *controller) startDynamic(request *gin.Context) {
+	controller.start(request, controller.dynamic, []string{"one", "two", "three"})
+}
+
+func (controller *controller) startAwait(request *gin.Context) {
+	controller.start(request, controller.await, 3)
+}
+
+func (controller *controller) startFirstWin(request *gin.Context) {
+	controller.start(request, controller.firstWin, 3)
+}
+
+func (controller *controller) start(request *gin.Context, flow sdk.Flow, input any) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
 	timeout := time.Hour
-	return sdk.StartFlowOptions{Timeout: &timeout}
-}
-
-func (controller *controller) startSimple(request *gin.Context) {
-	flowID, found := httputil.RequiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	jobSeeker := JobSeeker{
-		ID:          "123",
-		Email:       "jobseeker@indeed.com",
-		PhoneNumber: "0987654321",
-	}
 	runID, err := controller.client.StartFlow(
 		request.Request.Context(),
-		controller.simple,
+		flow,
 		flowID,
-		jobSeeker,
-		patternStartOptions(),
-	)
-	httputil.RespondString(request, runID, err)
-}
-
-func (controller *controller) startWithAwait(request *gin.Context) {
-	flowID, found := httputil.RequiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	runID, err := controller.client.StartFlow(
-		request.Request.Context(),
-		controller.withAwait,
-		flowID,
-		50,
-		patternStartOptions(),
+		input,
+		sdk.StartFlowOptions{Timeout: &timeout},
 	)
 	httputil.RespondString(request, runID, err)
 }

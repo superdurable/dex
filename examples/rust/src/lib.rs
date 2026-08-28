@@ -33,14 +33,16 @@ pub const PRODUCT_FLOW_TYPES: [&str; 10] = [
     "ShortlistFlow",
 ];
 
-pub const PATTERN_FLOW_TYPES: [&str; 19] = [
+pub const PATTERN_FLOW_TYPES: [&str; 21] = [
     "CronScheduleFlow",
     "DrainInternalChannelFlow",
     "DrainingExternalChannelFlow",
     "InterruptibleFlow",
     "ManualRecoveryFlow",
-    "SimpleParallelStatesFlow",
-    "ParallelStatesWithAwaitFlow",
+    "StaticParallelStepsFlow",
+    "DynamicParallelStepsFlow",
+    "AwaitParallelStepsFlow",
+    "FirstWinParallelStepsFlow",
     "ParentFlowV2",
     "SimplePollingFlow",
     "BackoffPollingFlow",
