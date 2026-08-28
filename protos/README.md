@@ -27,7 +27,7 @@ change the target for subsequent WorkerService calls while the flow is running.
 ## Resumable Streams
 
 `WriteStream` appends one best-effort message to the Stream instance identified
-by `flow_id` and `stream_name`. Every write carries `max_estimated_bytes` and a
+by `flow_id` and `stream_name`. Every write carries `stream_capacity_bytes` and a
 single `idempotency_key`. Client keys cannot contain `#`; Step SDKs compose the
 key as `<runID>#<stepExecutionID>`. The server scopes the key to the Flow and
 uses it for first-write-wins idempotency.

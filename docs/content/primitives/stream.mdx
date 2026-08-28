@@ -17,7 +17,7 @@ A Stream provides best-effort durability only, using an in-memory store such as 
 
 ## Define and register a Stream
 
-A Stream has a stable name, a message type, and **maxEstimatedBytes**. maxEstimatedBytes is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
+A Stream has a stable name, a message type, and **streamCapacityBytes**. streamCapacityBytes is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
 
 This example writes a progress message before its Step returns. The write becomes visible as soon as Dex accepts it; the Client does not wait for the Step to complete.
 
@@ -226,11 +226,11 @@ Resume is best effort. A slow reader can miss messages trimmed before its next r
 
 ### Approximate capacity
 
-**maxEstimatedBytes** is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
+**streamCapacityBytes** is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
 
 The Dex server calculates the estimated size from each message's serialized value, identity bytes, and configured per-message overhead.
 
-When usage reaches the trim trigger threshold, one background trimmer removes the oldest messages across all instances until usage reaches the trim target threshold. In rare cases, if trimming is too slow and usage reaches the capacity limit (**maxEstimatedBytes**), the write request is rejected.
+When usage reaches the trim trigger threshold, one background trimmer removes the oldest messages across all instances until usage reaches the trim target threshold. In rare cases, if trimming is too slow and usage reaches the capacity limit (**streamCapacityBytes**), the write request is rejected.
 
 The server also limits the size of each Stream message. The default is 100 KiB.
 

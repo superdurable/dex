@@ -17,7 +17,7 @@ Stream 只提供 best-effort durability，底层使用 Redis 等内存存储。�
 
 ## 定义并注册 Stream
 
-Stream 包含稳定名称、消息类型和 **maxEstimatedBytes**。maxEstimatedBytes 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
+Stream 包含稳定名称、消息类型和 **streamCapacityBytes**。streamCapacityBytes 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
 
 下面的 Step 在返回之前写入一条 progress message。Dex 接受写入后，Client 立刻就能读取；不需要等待 Step 完成。
 
@@ -169,11 +169,11 @@ Step 直接写入 Stream 时：
 
 ### 近似容量
 
-**maxEstimatedBytes** 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
+**streamCapacityBytes** 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
 
 Dex server 根据每条消息的 serialized value、identity bytes 和可配置的 per-message overhead 计算估算大小。
 
-当 usage 达到 trim trigger threshold 时，全局只有一个 background trimmer 会删除所有 instance 中最旧的消息，直到 usage 降至 trim target threshold。极少数情况下，如果 trimming 太慢，usage 达到 capacity limit（**maxEstimatedBytes**），write request 会被拒绝。
+当 usage 达到 trim trigger threshold 时，全局只有一个 background trimmer 会删除所有 instance 中最旧的消息，直到 usage 降至 trim target threshold。极少数情况下，如果 trimming 太慢，usage 达到 capacity limit（**streamCapacityBytes**），write request 会被拒绝。
 
 Server 还会限制单条 Stream message 的大小，默认上限为 100 KiB。
 

@@ -781,7 +781,7 @@ Execute never receive or synthesize channel sizes.
 ### Streams
 
 `DefineStream[T]` creates an immutable definition with a name and positive
-`maxEstimatedBytes`. The Registry requires exact definition identity, unique
+`streamCapacityBytes`. The Registry requires exact definition identity, unique
 persistence names within a Flow, and ownership by exactly one Flow. This lets
 different Flow types use the same Stream name with separate capacity scopes.
 
