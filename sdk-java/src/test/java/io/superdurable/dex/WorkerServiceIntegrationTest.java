@@ -920,7 +920,7 @@ final class WorkerServiceIntegrationTest {
                 throw largeFailure();
             }
             if ("invalid".equals(input)) {
-                return StepDecision.goToMulti();
+                return StepDecision.goToMany();
             }
             if ("cancel".equals(input)) {
                 final StepDecision base = StepDecision.gracefulComplete(input);
@@ -968,7 +968,7 @@ final class WorkerServiceIntegrationTest {
         }
 
         private StepDecision heartbeatDecision(final Duration timeout) {
-            return StepDecision.goToMulti(StepMovement.of(
+            return StepDecision.goToMany(StepMovement.of(
                     BridgeOtherStep.class,
                     "next",
                     StepOptions.newBuilder().heartbeatTimeout(timeout).build()));

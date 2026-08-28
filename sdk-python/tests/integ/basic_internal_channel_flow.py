@@ -21,7 +21,7 @@ from dex import (
     StepMovement,
     Wait,
     dead_end,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -62,7 +62,7 @@ class ForkStep(Step[int]):
 
     def execute(self, context: Context, input: int) -> StepDecision:
         del context
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(ConsumeStep, input),
             StepMovement.of(PublishStep, input),
         )

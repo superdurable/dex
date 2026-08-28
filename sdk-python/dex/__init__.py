@@ -85,7 +85,7 @@ from dex.step import (
     force_complete_if_channels_empty,
     force_fail,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 from dex.step_execution import StepExecutionId, TimerId
@@ -181,7 +181,7 @@ __all__ = [
     "force_fail",
     "graceful_complete",
     "go_to",
-    "go_to_multi",
+    "go_to_many",
     "open_blob_cache",
     "rpc",
 ]

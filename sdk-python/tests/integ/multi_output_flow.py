@@ -15,7 +15,7 @@ from dex import (
     StepDecision,
     StepList,
     StepMovement,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -43,7 +43,7 @@ class MultiOutputStartStep(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(MultiOutputStringStep, None),
             StepMovement.of(MultiOutputIntStep, None),
         )

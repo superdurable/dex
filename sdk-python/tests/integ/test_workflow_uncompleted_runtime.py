@@ -220,7 +220,7 @@ def test_empty_decision_fails_flow() -> None:
         assert failure.status is FlowStatus.FAILED
         assert failure.error_type is FlowErrorType.WORKER_API_FAILED
         assert failure.error_message is not None
-        assert "go_to_multi requires a movement" in failure.error_message
+        assert "go_to_many requires a movement" in failure.error_message
         assert len(failure.completions) == 0
 
 

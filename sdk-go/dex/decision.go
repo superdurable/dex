@@ -24,10 +24,10 @@ func GoTo[IN any](
 	input IN,
 	options ...StepMoveOption,
 ) *StepDecision {
-	return GoToMulti(MovementOf(step, input, options...))
+	return GoToMany(MovementOf(step, input, options...))
 }
 
-// MovementOf creates a typed Step movement for GoToMulti, RPCResult, or conditional completion.
+// MovementOf creates a typed Step movement for GoToMany, RPCResult, or conditional completion.
 func MovementOf[IN any](
 	step Step[IN],
 	input IN,
@@ -43,8 +43,8 @@ func MovementOf[IN any](
 	return movement
 }
 
-// GoToMulti moves to all targets, enabling concurrent active Steps.
-func GoToMulti(movements ...StepMovement) *StepDecision {
+// GoToMany moves to all targets, enabling concurrent active Steps.
+func GoToMany(movements ...StepMovement) *StepDecision {
 	return &StepDecision{
 		kind:      decisionNext,
 		movements: movements,

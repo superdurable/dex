@@ -50,7 +50,7 @@ func (interStepStartStep) Execute(
 	dex.Context,
 	struct{},
 ) (*dex.StepDecision, error) {
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(interStepWaitStep{}, struct{}{}),
 		dex.MovementOf(interStepPublishStep{}, 2),
 	), nil

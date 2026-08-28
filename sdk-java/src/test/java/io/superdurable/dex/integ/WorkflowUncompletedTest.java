@@ -265,7 +265,7 @@ public final class WorkflowUncompletedTest {
             assertEquals(FlowStatus.FAILED, failure.getStatus());
             assertEquals(FlowErrorType.WORKER_API_FAILED, failure.getErrorType());
             assertTrue(
-                    failure.getErrorMessage().contains("goToMulti requires a movement"),
+                    failure.getErrorMessage().contains("goToMany requires a movement"),
                     failure.getErrorMessage());
             assertEquals(0, failure.getCompletions().size());
         }

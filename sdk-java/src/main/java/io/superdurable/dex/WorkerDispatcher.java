@@ -308,7 +308,7 @@ final class WorkerDispatcher {
             case NEXT:
                 if (decision.getMovements().isEmpty()) {
                     throw new InvalidStepResultException(
-                            source + " goToMulti requires a movement");
+                            source + " goToMany requires a movement");
                 }
                 mapped.addAllNextSteps(mapMovements(flow, decision.getMovements()));
                 break;

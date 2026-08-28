@@ -76,7 +76,7 @@ type multiOutputStartStep struct {
 }
 
 func (multiOutputStartStep) Execute(dex.Context, struct{}) (*dex.StepDecision, error) {
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(multiOutputStringStep{}, struct{}{}),
 		dex.MovementOf(multiOutputIntStep{}, struct{}{}),
 	), nil

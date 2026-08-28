@@ -112,17 +112,17 @@ func (cancellationStartStep) Execute(
 ) (*dex.StepDecision, error) {
 	switch scenario {
 	case cancelHeartbeatWaitFor:
-		return dex.GoToMulti(
+		return dex.GoToMany(
 			dex.MovementOf(cancellationBlockingWaitForStep{}, scenario),
 			dex.MovementOf(cancellationWinnerStep{}, scenario),
 		), nil
 	case cancelGlobalSelector, cancelSiblingSelector:
-		return dex.GoToMulti(
+		return dex.GoToMany(
 			dex.MovementOf(cancellationFirstParentStep{}, scenario),
 			dex.MovementOf(cancellationSecondParentStep{}, scenario),
 		), nil
 	default:
-		return dex.GoToMulti(
+		return dex.GoToMany(
 			dex.MovementOf(
 				cancellationBlockingExecuteStep{},
 				scenario,
@@ -311,7 +311,7 @@ func (cancellationFirstParentStep) Execute(
 	_ dex.Context,
 	scenario cancellationScenario,
 ) (*dex.StepDecision, error) {
-	return dex.GoToMulti(
+	return dex.GoToMany(
 		dex.MovementOf(cancellationSelectorWinnerStep{}, scenario),
 		dex.MovementOf(cancellationSelectorWaitingStep{}, "first"),
 	), nil

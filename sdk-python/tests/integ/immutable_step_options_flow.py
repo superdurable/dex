@@ -22,7 +22,7 @@ from dex import (
     Wait,
     WaitForFailurePolicy,
     go_to,
-    go_to_multi,
+    go_to_many,
     graceful_complete,
 )
 
@@ -37,7 +37,7 @@ class ImmutableOptionsStartStep(Step[int]):
             wait_for_retry=RetryPolicy(maximum_attempts=1),
             wait_for_failure=WaitForFailurePolicy.PROCEED,
         )
-        return go_to_multi(
+        return go_to_many(
             StepMovement.of(ImmutableOptionsFailingWaitStep, 1, options=override)
         )
 

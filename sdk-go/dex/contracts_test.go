@@ -114,7 +114,7 @@ func (executeOnlyStep) Execute(
 ) (*dex.StepDecision, error) {
 	first := dex.MovementOf(waitForCommand, input)
 	second := dex.MovementOf(executeOnly, input)
-	return dex.GoToMulti(first, second), nil
+	return dex.GoToMany(first, second), nil
 }
 
 var executeOnly = executeOnlyStep{}
