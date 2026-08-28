@@ -5,17 +5,15 @@ slug: /primitives/stream
 
 # Stream
 
-**Stream** 是面向低延迟 UI 更新的 typed、best-effort、可续读消息流。Step 或 Client 写入后，Client 可以按顺序读取，并把不透明的 resume token 传给下一次读取。
+**Stream** 是一种实时、可续读的消息传递通道，提供 best-effort storage。Step 或 Client 会立即写入消息，Client 使用 resume token 按顺序继续读取。
 
-Stream 适合改善实时体验、但不影响工作流正确性的信息：
+Stream 适合传递能够改善用户体验的 nice-to-have 数据，而不是关键业务数据：
 
 - LLM reasoning summary、生成文本 chunk 和 agent progress
 - 进度条、诊断事件与实时预览
 - Step 仍在运行时展示的临时状态
 
-如果一次很长的 LLM call 需要逐 token 输出，可以向 Step 注入 Client，并为每个 chunk 使用稳定、有序的 idempotency key。[AI agent email example](/use-cases/ai-agent-email) 在 async Step 中使用了这种方式。
-
-不要用 Stream 传递命令、付款、审批，或 Flow 恢复时必须存在的状态。这些数据应使用 [Channel](/primitives/channel)、[Attribute](/primitives/attribute) 或外部 durable store。
+Stream 只提供 best-effort durability，底层使用 Redis 等内存存储。达到 capacity threshold 后触发 trim，或 storage backend 重启时，消息都可能丢失。需要 guaranteed durability 时，应使用 [Channel](/primitives/channel) 和 [Attribute](/primitives/attribute) 等其他 primitive。
 
 ## 定义并注册 Stream
 
@@ -175,11 +173,13 @@ Step 直接写入 Stream 时：
 
 ### 近似容量
 
-**maxEstimatedBytes** 既不是每个 Flow 的 limit，也不是精确的 Redis memory measurement。它由相同 Flow type 和 Stream name 下的所有 Flow ID 共享。
+**maxEstimatedBytes** 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
 
-Dex 会估算 serialized value、identity bytes 和可配置的 per-message overhead。使用估算值可以避免昂贵的精确 memory accounting。达到 trim trigger 后，全局只有一个 background trimmer 会按 FIFO 删除最旧消息，直到降至 trim target。如果已经满载，写入可能在 trim 完成前失败；调用方应根据低延迟场景选择丢弃或重试。
+Dex server 根据每条消息的 serialized value、identity bytes 和可配置的 per-message overhead 计算估算大小。
 
-Server 还会单独限制每条 serialized Stream value，默认上限为 100 KiB。
+当 usage 达到 trim trigger threshold 时，全局只有一个 background trimmer 会删除所有 instance 中最旧的消息，直到 usage 降至 trim target threshold。极少数情况下，如果 trimming 太慢，usage 达到 capacity limit（**maxEstimatedBytes**），write request 会被拒绝。
+
+Server 还会限制单条 Stream message 的大小，默认上限为 100 KiB。
 
 ### Best-effort storage
 

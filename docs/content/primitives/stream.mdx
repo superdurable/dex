@@ -5,17 +5,15 @@ slug: /primitives/stream
 
 # Stream
 
-**Stream** is a typed, best-effort, resumable message feed for low-latency UI updates. A Step or Client writes messages immediately. A Client reads them in order and carries an opaque resume token from one read to the next.
+**Stream** is a real-time, resumable message delivery channel with best-effort storage. A Step or Client writes messages immediately. A Client reads them in order with a resume token.
 
-Use a Stream for information that improves the live experience but is not part of workflow correctness:
+Use a Stream for nice-to-have data that improves the user experience but is not business-critical:
 
 - LLM reasoning summaries, generated-text chunks, and agent progress
 - progress bars, diagnostic events, and live previews
 - transient status shown while a Step is still running
 
-For token-by-token output from one long LLM call, inject a Client into the Step and write each chunk with a stable sequence of idempotency keys. The [AI agent email example](/use-cases/ai-agent-email) uses this pattern inside an async Step.
-
-Do not use a Stream for commands, payments, approvals, or state needed to recover a Flow. Use [Channel](/primitives/channel), [Attribute](/primitives/attribute), or an external durable store for those.
+A Stream provides best-effort durability only, using an in-memory store such as Redis. Messages can be lost when trimming runs after the capacity threshold is reached or when the storage backend restarts. Use other primitives such as [Channel](/primitives/channel) and [Attribute](/primitives/attribute) for guaranteed durability.
 
 ## Define and register a Stream
 
@@ -232,11 +230,13 @@ Resume is best effort. A slow reader can miss messages trimmed before its next r
 
 ### Approximate capacity
 
-**maxEstimatedBytes** is not a per-Flow limit and it is not an exact Redis memory measurement. It is an approximate retained-byte budget shared by every Flow ID with the same Flow type and Stream name.
+**maxEstimatedBytes** is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
 
-Dex charges the serialized value, identity bytes, and configured per-message overhead. This estimate deliberately avoids expensive exact memory accounting. When usage crosses the trim trigger, one background trimmer removes the oldest messages across all instances until usage reaches the trim target. A write at full capacity can fail while trimming catches up; callers should drop or retry non-critical updates according to their latency needs.
+The Dex server calculates the estimated size from each message's serialized value, identity bytes, and configured per-message overhead.
 
-The server also limits each serialized Stream value separately. The default is 100 KiB.
+When usage reaches the trim trigger threshold, one background trimmer removes the oldest messages across all instances until usage reaches the trim target threshold. In rare cases, if trimming is too slow and usage reaches the capacity limit (**maxEstimatedBytes**), the write request is rejected.
+
+The server also limits the size of each Stream message. The default is 100 KiB.
 
 ### Best-effort storage
 
