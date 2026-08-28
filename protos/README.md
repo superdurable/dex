@@ -53,9 +53,11 @@ completion waits for other active steps; force completion and force failure end
 the flow immediately; dead end ends only the current step thread.
 
 `FORCE_COMPLETE_ON_CHANNELS_EMPTY` atomically completes when every named channel
-is empty. It requires unique, non-empty `conditional_channel_names` and at least
-one `next_steps` fallback. Other close types cannot include channel names or
-next steps. `FORCE_FAIL` accepts only a string `close_input`, and `DEAD_END`
+has neither queued messages nor messages committed to a Step that has not
+finished processing `Execute`. Otherwise, it schedules the `next_steps`
+fallback. It requires unique, non-empty `conditional_channel_names` and at
+least one `next_steps` fallback. Other close types cannot include channel names
+or next steps. `FORCE_FAIL` accepts only a string `close_input`, and `DEAD_END`
 accepts no input.
 
 ## Step execution cancellation

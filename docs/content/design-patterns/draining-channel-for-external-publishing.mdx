@@ -10,7 +10,7 @@ Process externally published Channel messages, then close the short-lived Flow w
 
 Use this pattern when a Flow handles messages from outside the Worker with potential bursts. A Client can append directly through **PublishToChannel** or potentially use an RPC. The key requirement is to complete the Flow when the Channel is empty, so the Flow stays as short as possible. The Flow restarts when new messages arrive.
 
-The decision atomically checks the Channel while it records the next action. An empty Channel completes the Flow. A queued message takes the fallback movement back to **ProcessMessage**. After completion, the next request starts a new Flow execution with the same Flow ID and passes the message as the start input.
+The decision atomically checks the Channel while it records the next action. An empty Channel completes the Flow. A Channel with queued messages, or one with messages committed to a Step that has not finished processing **Execute**, takes the fallback movement back to **ProcessMessage**. After completion, the next request starts a new Flow execution with the same Flow ID and passes the message as the start input.
 
 Only one Step may consume a Channel checked by **ForceCompleteIfChannelsEmpty**.
 

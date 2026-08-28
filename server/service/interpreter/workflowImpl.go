@@ -765,7 +765,7 @@ func checkClosingWorkflow(
 
 		conditionMet := true
 		for _, channelName := range closeDecision.GetConditionalChannelNames() {
-			if channelStore.HasData(channelName) {
+			if channelStore.HasPendingData(channelName) {
 				conditionMet = false
 			}
 		}
@@ -1081,6 +1081,7 @@ func (i *Interpreter) processStepExecution(
 	}
 
 	consumed := channelStore.CommitMatch(matchPlan)
+	defer channelStore.CompleteMatch(matchPlan)
 	conditionResults := condition.BuildConditionResults(
 		waitingCondition,
 		completedTimerConditions,
