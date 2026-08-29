@@ -24,10 +24,11 @@ use common::{
     FlowSmokeEntry, FlowSmokeFlags, FlowSmokeHttpClient, assert_flow_smoke_no_unexpected_failures,
     assert_flow_smoke_start_step, query, query_with,
 };
-use dex_examples_rust::create_example_registry;
 use dex_examples_rust::server::build_router;
+use dex_examples_rust::{create_example_registry, create_worker_registry};
 use dex_sdk::{
     BlobCache, BlobCacheConfig, Client, ClientOptions, SdkResult, Worker, WorkerOptions,
+    WorkerTarget,
 };
 use tempfile::TempDir;
 
@@ -43,7 +44,6 @@ struct FlowSmokeEnvironment {
 
 impl FlowSmokeEnvironment {
     fn start() -> Self {
-        let registry = create_example_registry().expect("register Rust examples");
         let server_address =
             std::env::var("DEX_SERVER_ADDRESS").unwrap_or_else(|_| "127.0.0.1:8801".to_string());
         let worker_port = available_worker_port();
@@ -56,13 +56,25 @@ impl FlowSmokeEnvironment {
             )
             .expect("open Rust flow smoke cache"),
         );
+        let worker_target = WorkerTarget::new(worker_address.clone());
+        let client = Arc::new(
+            Client::try_new(
+                create_example_registry().expect("register Rust client examples"),
+                Arc::clone(&cache),
+                ClientOptions::new()
+                    .server_address(&server_address)
+                    .worker_target(worker_target.clone()),
+            )
+            .expect("create Rust flow smoke Client"),
+        );
         let worker = Arc::new(
             Worker::try_new(
-                registry.clone(),
+                create_worker_registry(Arc::clone(&client)).expect("register Rust Worker examples"),
                 Arc::clone(&cache),
                 WorkerOptions::new()
                     .server_address(&server_address)
-                    .bind_address(&worker_address),
+                    .bind_address(&worker_address)
+                    .worker_target(worker_target),
             )
             .expect("create Rust flow smoke Worker"),
         );
@@ -72,16 +84,6 @@ impl FlowSmokeEnvironment {
             .spawn(move || thread_worker.start())
             .expect("start Rust flow smoke Worker thread");
         await_worker(worker_port, &worker_thread);
-        let client = Arc::new(
-            Client::try_new(
-                registry,
-                Arc::clone(&cache),
-                ClientOptions::new()
-                    .server_address(server_address)
-                    .worker_target(worker.worker_target().clone()),
-            )
-            .expect("create Rust flow smoke Client"),
-        );
         client.health_check().expect("Dex health check");
 
         let http_port = available_worker_port();
@@ -250,24 +252,17 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             query: query_with(&client.new_flow_id("recovery"), &[("itemName", "widget")]),
             flags: FlowSmokeFlags::STEP_START_MAY_FAIL,
         },
-        FlowSmokeEntry {
-            name: "patterns/scalable-parallel",
-            path: "/patterns/scalable-parallel/start",
-            query: query_with(
-                &client.new_flow_id("scalable-parallel"),
-                &[("numOfChildWfs", "1")],
-            ),
-            flags: FlowSmokeFlags::NONE,
-        },
-        FlowSmokeEntry {
-            name: "patterns/parent-child",
-            path: "/patterns/parent-child/start",
-            query: query_with(
-                &client.new_flow_id("parent-child"),
-                &[("numOfChildWfs", "1")],
-            ),
-            flags: FlowSmokeFlags::NONE,
-        },
+        parallel_subflows_entry(client, "basic", "/patterns/parallel-subflows/start/basic"),
+        parallel_subflows_entry(
+            client,
+            "long-lived-parent",
+            "/patterns/parallel-subflows/start/long-lived-parent",
+        ),
+        parallel_subflows_entry(
+            client,
+            "short-lived-parent",
+            "/patterns/parallel-subflows/start/short-lived-parent",
+        ),
         FlowSmokeEntry {
             name: "patterns/drain-channels/internal",
             path: "/patterns/drain-channels/internal/start",
@@ -422,6 +417,25 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
     ]
+}
+
+fn parallel_subflows_entry(
+    client: &mut FlowSmokeHttpClient,
+    kind: &'static str,
+    path: &'static str,
+) -> FlowSmokeEntry {
+    let name = match kind {
+        "basic" => "patterns/parallel-subflows/basic",
+        "long-lived-parent" => "patterns/parallel-subflows/long-lived-parent",
+        "short-lived-parent" => "patterns/parallel-subflows/short-lived-parent",
+        _ => panic!("unknown Parallel SubFlows kind: {kind}"),
+    };
+    FlowSmokeEntry {
+        name,
+        path,
+        query: query(&client.new_flow_id(&format!("parallel-subflows-{kind}"))),
+        flags: FlowSmokeFlags::NONE,
+    }
 }
 
 #[test]

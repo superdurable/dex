@@ -76,12 +76,11 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 - Interruptible execution
 - Manual recovery
 - Parallel Steps (static / dynamic / await / first win)
-- Parent–child
+- Parallel SubFlows (basic / long-lived parent / short-lived parent / partitioning / back pressure)
 - Polling (simple / backoff)
 - Failure recovery (saga)
 - Reminders
 - Resettable timer
-- Scalable parallel
 - [Entity Store user profiles](./src/main/java/io/superdurable/dex/patterns/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for state completion

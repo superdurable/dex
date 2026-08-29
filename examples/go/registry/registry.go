@@ -28,12 +28,11 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
-	"github.com/superdurable/dex/examples/go/patterns/parent-child"
+	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
 	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/reminders"
 	"github.com/superdurable/dex/examples/go/patterns/resettable-timer"
-	"github.com/superdurable/dex/examples/go/patterns/scalable-parallel"
 	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
 	"github.com/superdurable/dex/examples/go/patterns/timeout"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
@@ -98,12 +97,12 @@ var (
 	DynamicParallel        *parallel.DynamicParallelStepsFlow
 	AwaitParallel          *parallel.AwaitParallelStepsFlow
 	FirstWinParallel       *parallel.FirstWinParallelStepsFlow
+	ParallelSubFlowChild   *parallelsubflows.ExampleSubFlow
+	BasicSubFlows          *parallelsubflows.BasicParentFlow
+	LongLiveSubFlows       *parallelsubflows.AdvancedLongLiveParentFlow
+	ShortLiveSubFlows      *parallelsubflows.AdvancedShortLiveParentFlow
+	SubmitSubFlowRequest   *parallelsubflows.SubmitRequestFlow
 	FailureRecovery        *recovery.FailureRecoveryFlow
-	RequestReceiver        *scalableparallel.RequestReceiverFlow
-	ScalableParent         *scalableparallel.ParentFlow
-	ScalableChild          *scalableparallel.ChildFlow
-	ParentChild            *parentchild.ParentFlowV2
-	ParentChildChild       *parentchild.ChildFlow
 	DrainInternal          *draininternal.DrainInternalChannelFlow
 	DrainExternal          *drainexternal.DrainingExternalChannelFlow
 	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
@@ -169,14 +168,12 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	DynamicParallel = parallel.NewDynamicParallelStepsFlow()
 	AwaitParallel = parallel.NewAwaitParallelStepsFlow()
 	FirstWinParallel = parallel.NewFirstWinParallelStepsFlow()
+	ParallelSubFlowChild = parallelsubflows.NewExampleSubFlow()
+	BasicSubFlows = parallelsubflows.NewBasicParentFlow(getClient, ParallelSubFlowChild)
+	LongLiveSubFlows = parallelsubflows.NewAdvancedLongLiveParentFlow(ParallelSubFlowChild)
+	ShortLiveSubFlows = parallelsubflows.NewAdvancedShortLiveParentFlow(ParallelSubFlowChild)
+	SubmitSubFlowRequest = parallelsubflows.NewSubmitRequestFlow(getClient, ShortLiveSubFlows)
 	FailureRecovery = recovery.NewFailureRecoveryFlow()
-	ScalableChild = scalableparallel.NewChildFlow(getClient, func() *scalableparallel.ParentFlow {
-		return ScalableParent
-	})
-	ScalableParent = scalableparallel.NewParentFlow(getClient, ScalableChild)
-	RequestReceiver = scalableparallel.NewRequestReceiverFlow(getClient, ScalableParent)
-	ParentChildChild = parentchild.NewChildFlow()
-	ParentChild = parentchild.NewParentFlowV2(getClient, ParentChildChild)
 	DrainInternal = draininternal.NewDrainInternalChannelFlow(patternService)
 	DrainExternal = drainexternal.NewDrainingExternalChannelFlow()
 	WaitForStateCompletion = waitforstatecompletion.NewWaitForStateCompletionFlow(patternService)
@@ -230,12 +227,12 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		DynamicParallel,
 		AwaitParallel,
 		FirstWinParallel,
+		ParallelSubFlowChild,
+		BasicSubFlows,
+		LongLiveSubFlows,
+		ShortLiveSubFlows,
+		SubmitSubFlowRequest,
 		FailureRecovery,
-		RequestReceiver,
-		ScalableParent,
-		ScalableChild,
-		ParentChild,
-		ParentChildChild,
 		DrainInternal,
 		DrainExternal,
 		WaitForStateCompletion,

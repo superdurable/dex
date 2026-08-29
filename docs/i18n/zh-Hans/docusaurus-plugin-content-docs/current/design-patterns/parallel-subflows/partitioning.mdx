@@ -1,0 +1,96 @@
+---
+title: 高级：多父 Flow 分区
+sidebar_label: "Advanced: Multiple Parents with Partitioning"
+---
+
+# 高级：多父 Flow 分区
+
+将请求路由到多个父 Flow ID，让 active SubFlow 总数突破单个父 Flow 的并发限制。
+
+![多父 Flow 分区](/img/design-patterns/parallel-subflows-partitioning.png)
+
+使用稳定分区键，例如 request ID 的哈希值对父 Flow 数量取模。同一个键始终进入同一个父 Flow。每个父 Flow 独立执行 Channel buffer 和 SubFlow 并发限制，因此增加父 Flow 数量即可横向提升容量。
+
+改变分区数量或顺序会重新映射 key。扩缩容期间需要稳定 affinity 时，应使用带版本的 parent set 或 consistent hashing。
+
+## 核心实现
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
+    go: 'examples/go/patterns/parallel-subflows/flows.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/SubmitRequestFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
+    rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+def partition(request: str, partitions: int) -> int:
+    hash_value = 2_166_136_261
+    for byte in request.encode():
+        hash_value ^= byte
+        hash_value = hash_value * 16_777_619 & 0xFFFFFFFF
+    return hash_value % partitions
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func partition(request string, partitions int) int {
+	hash := fnv.New32a()
+	_, _ = hash.Write([]byte(request))
+	return int(hash.Sum32()) % partitions
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+private static int partition(final String request, final int partitions) {
+    int hash = 0x811c9dc5;
+    for (final byte value : request.getBytes(StandardCharsets.UTF_8)) {
+        hash ^= Byte.toUnsignedInt(value);
+        hash *= 0x01000193;
+    }
+    return Integer.remainderUnsigned(hash, partitions);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+function partition(request: string, partitions: number): number {
+  let hash = 2_166_136_261;
+  for (const byte of new TextEncoder().encode(request)) {
+    hash ^= byte;
+    hash = Math.imul(hash, 16_777_619) >>> 0;
+  }
+  return hash % partitions;
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn partition(request: &str, partitions: usize) -> usize {
+    let mut hash = 2_166_136_261_u32;
+    for byte in request.bytes() {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(16_777_619);
+    }
+    hash as usize % partitions
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 相关内容
+
+- [短生命周期父 Flow](/design-patterns/parallel-subflows/short-lived-parent)
+- [高可用背压](/design-patterns/parallel-subflows/back-pressure)

@@ -18,18 +18,36 @@ pub mod entity_store;
 pub mod interruptible;
 pub mod intervention;
 pub mod parallel;
-pub mod parent_child;
+pub mod parallel_subflows;
 pub mod polling;
 pub mod recovery;
 pub mod reminders;
 pub mod resettable_timer;
-pub mod scalable_parallel;
 pub mod timeout;
 pub mod wait_for_state_completion;
 
-use dex_sdk::{Registry, SdkResult};
+use std::sync::Arc;
+
+use dex_sdk::{Client, Registry, SdkResult};
 
 pub fn register(registry: Registry) -> SdkResult<Registry> {
+    register_with_client(registry, None)
+}
+
+pub fn register_worker(registry: Registry, client: Arc<Client>) -> SdkResult<Registry> {
+    register_with_client(registry, Some(client))
+}
+
+fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkResult<Registry> {
+    let basic_parent = client
+        .as_ref()
+        .map_or_else(parallel_subflows::BasicParentFlow::default, |value| {
+            parallel_subflows::BasicParentFlow::new(Arc::clone(value))
+        });
+    let submit_request = client
+        .map_or_else(parallel_subflows::SubmitRequestFlow::default, |value| {
+            parallel_subflows::SubmitRequestFlow::new(value)
+        });
     registry
         .register(cron::CronScheduleFlow::default())?
         .register(drain_channels::DrainInternalChannelFlow::default())?
@@ -40,16 +58,17 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(parallel::DynamicParallelStepsFlow::default())?
         .register(parallel::AwaitParallelStepsFlow::default())?
         .register(parallel::FirstWinParallelStepsFlow::default())?
-        .register(parent_child::ParentFlowV2::default())?
+        .register(parallel_subflows::ExampleSubFlow::default())?
+        .register(basic_parent)?
+        .register(parallel_subflows::AdvancedLongLiveParentFlow::default())?
+        .register(parallel_subflows::AdvancedShortLiveParentFlow::default())?
+        .register(submit_request)?
         .register(polling::PollingWithTimerFlow::default())?
         .register(polling::BackoffPollingFlow::default())?
         .register(polling::IterationFlow::default())?
         .register(recovery::FailureRecoveryFlow::default())?
         .register(reminders::ReminderFlow::default())?
         .register(resettable_timer::ResettableTimerFlow::default())?
-        .register(scalable_parallel::ChildFlow::default())?
-        .register(scalable_parallel::ParentFlow::default())?
-        .register(scalable_parallel::RequestReceiverFlow::default())?
         .register(entity_store::UserProfileFlow)?
         .register(timeout::FlowGracefulTimeout::default())?
         .register(wait_for_state_completion::WaitForStateCompletionFlow::default())

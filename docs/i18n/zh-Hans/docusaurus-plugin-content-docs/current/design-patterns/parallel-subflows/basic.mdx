@@ -1,0 +1,254 @@
+---
+title: 基础 SubFlow Fan-out
+sidebar_label: Basic SubFlow Fan-out
+---
+
+# 基础 SubFlow Fan-out
+
+为每个输入启动一个 SubFlow，等待一半完成，然后停止尚未完成的 SubFlow。
+
+![基础 SubFlow fan-out](/img/design-patterns/parallel-subflows-basic.png)
+
+**SubFlowsStep.WaitFor** 启动所有 **ExampleSubFlow**，并用 **anyCombinationOf** 表达“任意一半完成”。Dex 调用 **Execute** 时，仍可按索引访问每个 SubFlow 的结果。成功的 winner 是 terminal status；未完成的 loser 是 **RUNNING**。Step 只对 loser 读取 **SubFlowID** 并发出 cancel。
+
+## 核心实现
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
+    go: 'examples/go/patterns/parallel-subflows/flows.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/BasicParentFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
+    rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class SubFlowsStep(Step[list[str]]):
+    def __init__(
+        self,
+        client_provider: Callable[[], AsyncClient],
+        example_subflow: ExampleSubFlow,
+    ) -> None:
+        self.client_provider = client_provider
+        self.example_subflow = example_subflow
+
+    def wait_for(self, context: Context, requests: list[str]) -> Wait:
+        del context
+        conditions = [
+            SubFlow.run(
+                self.example_subflow,
+                request,
+                SubFlowOptions(condition_id=f"subflow-{index}"),
+            )
+            for index, request in enumerate(requests)
+        ]
+        winner_count = (len(conditions) + 1) // 2
+        return Wait.any_combination_of(
+            *(
+                ConditionCombination.of(*selected)
+                for selected in combinations(conditions, winner_count)
+            )
+        )
+
+    async def execute(  # type: ignore[override]
+        self, context: Context, requests: list[str]
+    ) -> StepDecision:
+        for index in range(len(requests)):
+            result = SubFlow.get_condition_results(context, index)
+            if result.status is FlowStatus.RUNNING:
+                await self.client_provider().stop_flow(
+                    SubFlow.get_flow_id(context, index)
+                )
+        return graceful_complete()
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type subFlowsStep struct {
+	dex.StepDefaults
+	getClient   func() *dex.Client
+	exampleFlow *ExampleSubFlow
+}
+
+func (subFlowsStep) GetStepType() string { return "SubFlowsStep" }
+
+func (step subFlowsStep) WaitFor(_ dex.Context, requests []string) (*dex.Wait, error) {
+	conditions := make([]dex.Condition, 0, len(requests))
+	for index, request := range requests {
+		conditions = append(conditions, dex.SubFlow(step.exampleFlow, request, dex.SubFlowOptions{
+			ConditionID: fmt.Sprintf("subflow-%d", index),
+		}))
+	}
+	winners := (len(conditions) + 1) / 2
+	return dex.AnyComboOf(conditionCombinations(conditions, winners)...), nil
+}
+
+func (step subFlowsStep) Execute(ctx dex.Context, requests []string) (*dex.StepDecision, error) {
+	client := step.getClient()
+	if client == nil {
+		return nil, fmt.Errorf("dex client is not available")
+	}
+	for index := range requests {
+		result, err := dex.SubFlowResult(ctx, index)
+		if err != nil {
+			return nil, err
+		}
+		if result.Status != dex.FlowRunning {
+			continue
+		}
+		flowID, err := dex.SubFlowID(ctx, index)
+		if err != nil {
+			return nil, err
+		}
+		if err := client.StopFlow(context.Background(), flowID, dex.StopOptions{
+			Type: dex.CancelFlow, Reason: "enough SubFlows completed",
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return dex.GracefulComplete(nil), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+static final class SubFlowsStep implements Step<String[]> {
+    private final ObjectProvider<Client> clientProvider;
+    private final ExampleSubFlow exampleSubFlow;
+
+    SubFlowsStep(
+            final ObjectProvider<Client> clientProvider,
+            final ExampleSubFlow exampleSubFlow) {
+        this.clientProvider = clientProvider;
+        this.exampleSubFlow = exampleSubFlow;
+    }
+
+    @Override
+    public Class<String[]> getInputType() {
+        return String[].class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final String[] requests) {
+        final Condition[] conditions = new Condition[requests.length];
+        for (int index = 0; index < requests.length; index++) {
+            conditions[index] = SubFlow.run(
+                    ExampleSubFlow.class,
+                    requests[index],
+                    SubFlowOptions.newBuilder()
+                            .conditionId("subflow-" + index)
+                            .build());
+        }
+        return Wait.anyCombinationOf(combinations(conditions, (conditions.length + 1) / 2));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String[] requests) {
+        for (int index = 0; index < requests.length; index++) {
+            final FlowResult result = SubFlow.getConditionResults(context, index);
+            if (result.getStatus() == FlowStatus.RUNNING) {
+                clientProvider.getObject().stopFlow(SubFlow.getFlowId(context, index));
+            }
+        }
+        return StepDecision.gracefulComplete(null);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class SubFlowsStep implements Step<readonly string[]> {
+  public readonly inputCodec = stringArrayCodec;
+
+  public constructor(private readonly exampleSubFlow: ExampleSubFlow) {}
+
+  public getStepType(): string {
+    return "SubFlowsStep";
+  }
+
+  public waitFor(_context: Context, requests: readonly string[]): Wait {
+    const conditions = requests.map((request, index) =>
+      SubFlow.run(this.exampleSubFlow, request, { conditionId: `subflow-${index}` }),
+    );
+    return Wait.anyCombinationOf(
+      ...combinations(conditions, Math.ceil(conditions.length / 2)).map((selected) =>
+        ConditionCombination.of(...selected),
+      ),
+    );
+  }
+
+  public async execute(context: Context, requests: readonly string[]): Promise<StepDecision> {
+    for (let index = 0; index < requests.length; index++) {
+      if (SubFlow.getConditionResults(context, index).status === "running") {
+        await getClient().stopFlow(SubFlow.getFlowId(context, index));
+      }
+    }
+    return gracefulComplete();
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct SubFlowsStep;
+
+impl Step for SubFlowsStep {
+    type Input = Vec<String>;
+
+    fn wait_for(&self, _context: &mut Context, requests: Self::Input) -> HandlerResult<Wait> {
+        let child = ExampleSubFlow::default();
+        let mut conditions = Vec::with_capacity(requests.len());
+        for (index, request) in requests.into_iter().enumerate() {
+            conditions.push(
+                SubFlow::run_with_options(
+                    &child,
+                    request,
+                    SubFlowOptions::new().condition_id(format!("subflow-{index}")),
+                )
+                .map_err(HandlerError::from_error)?,
+            );
+        }
+        let winner_count = conditions.len().div_ceil(2);
+        Ok(Wait::any_combination_of(condition_combinations(
+            &conditions,
+            winner_count,
+        )))
+    }
+
+    fn execute(&self, context: &mut Context, requests: Self::Input) -> HandlerResult<StepDecision> {
+        let client = client_holder::get().ok_or_else(|| {
+            HandlerError::new("ParallelSubFlows", "Dex client is not initialized")
+        })?;
+        for index in 0..requests.len() {
+            if SubFlow::condition_result_at(context, index)?.status() == FlowStatus::Running {
+                let flow_id = SubFlow::flow_id_at(context, index)?;
+                client
+                    .stop_flow(
+                        &flow_id,
+                        StopFlowOptions::cancel().reason("enough SubFlows completed"),
+                    )
+                    .map_err(HandlerError::from_error)?;
+            }
+        }
+        Ok(StepDecision::graceful_complete(()))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 相关内容
+
+- [并行 SubFlow](/design-patterns/parallel-subflows)
+- [SubFlow](/primitives/subflow)

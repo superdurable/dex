@@ -50,7 +50,13 @@ from dex_examples.patterns.parallel.await_parallel_steps_flow import AwaitParall
 from dex_examples.patterns.parallel.dynamic_parallel_steps_flow import DynamicParallelStepsFlow
 from dex_examples.patterns.parallel.first_win_parallel_steps_flow import FirstWinParallelStepsFlow
 from dex_examples.patterns.parallel.static_parallel_steps_flow import StaticParallelStepsFlow
-from dex_examples.patterns.parent_child.parent_flow_v2 import ParentFlowV2
+from dex_examples.patterns.parallel_subflows.flows import (
+    AdvancedLongLiveParentFlow,
+    AdvancedShortLiveParentFlow,
+    BasicParentFlow,
+    ExampleSubFlow as ParallelExampleSubFlow,
+    SubmitRequestFlow,
+)
 from dex_examples.patterns.polling.backoff_polling_flow import BackoffPollingFlow
 from dex_examples.patterns.polling.simple_polling_flow import PollingWithTimerFlow
 from dex_examples.patterns.polling.iteration_flow import IterationFlow
@@ -61,11 +67,6 @@ from dex_examples.patterns.resettable_timer.resettable_timer_flow import (
 )
 from dex_examples.patterns.resource_control.controller_flow import ControllerFlow
 from dex_examples.patterns.resource_control.processing_flow import ProcessingFlow
-from dex_examples.patterns.scalable_parallel.child_flow import ChildFlow
-from dex_examples.patterns.scalable_parallel.parent_flow import ParentFlow
-from dex_examples.patterns.scalable_parallel.request_receiver_flow import (
-    RequestReceiverFlow,
-)
 from dex_examples.patterns.shared.service_dependency import ServiceDependency
 from dex_examples.patterns.timeout.flow_graceful_timeout import FlowGracefulTimeout
 from dex_examples.patterns.wait_for_state_completion.wait_for_state_completion_flow import (
@@ -142,6 +143,19 @@ class ExampleApp:
         self.dynamic_parallel = DynamicParallelStepsFlow()
         self.await_parallel = AwaitParallelStepsFlow()
         self.first_win_parallel = FirstWinParallelStepsFlow()
+        self.parallel_subflow_child = ParallelExampleSubFlow()
+        self.basic_subflows = BasicParentFlow(
+            client_provider, self.parallel_subflow_child
+        )
+        self.long_live_subflows = AdvancedLongLiveParentFlow(
+            self.parallel_subflow_child
+        )
+        self.short_live_subflows = AdvancedShortLiveParentFlow(
+            self.parallel_subflow_child
+        )
+        self.submit_subflow_request = SubmitRequestFlow(
+            client_provider, self.short_live_subflows
+        )
         self.polling_with_timer = PollingWithTimerFlow()
         self.backoff_polling = BackoffPollingFlow(pattern_service)
         self.iteration = IterationFlow()
@@ -151,12 +165,6 @@ class ExampleApp:
         self.user_profile = UserProfileFlow()
         self.timeout = FlowGracefulTimeout()
         self.wait_for_state_completion = WaitForStateCompletionFlow(pattern_service)
-
-        self.parent_flow: ParentFlow
-        self.child_flow = ChildFlow(client_provider, lambda: self.parent_flow)
-        self.parent_flow = ParentFlow(client_provider, self.child_flow)
-        self.request_receiver = RequestReceiverFlow(client_provider, self.parent_flow)
-        self.parent_flow_v2 = ParentFlowV2(client_provider, self.child_flow)
 
         self.example_flow = ExampleFlow()
         self.step = StepFlow()
@@ -202,6 +210,11 @@ class ExampleApp:
             self.dynamic_parallel,
             self.await_parallel,
             self.first_win_parallel,
+            self.parallel_subflow_child,
+            self.basic_subflows,
+            self.long_live_subflows,
+            self.short_live_subflows,
+            self.submit_subflow_request,
             self.polling_with_timer,
             self.backoff_polling,
             self.iteration,
@@ -211,10 +224,6 @@ class ExampleApp:
             self.user_profile,
             self.timeout,
             self.wait_for_state_completion,
-            self.child_flow,
-            self.parent_flow,
-            self.request_receiver,
-            self.parent_flow_v2,
             self.example_flow,
             self.step,
             self.step_retry,

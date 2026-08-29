@@ -25,6 +25,7 @@ from dex_examples.patterns.entity_store.user_profile import (
     UserProfileMetadata,
 )
 from dex_examples.patterns.entity_store.user_profile_flow import STORE_NAME
+from dex_examples.patterns.parallel_subflows.flows import ParentInput
 from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )
@@ -211,47 +212,48 @@ async def test_resettable_timer(
     await client.invoke_rpc(app.resettable_timer.send_reset_message, flow_id)
 
 
-async def test_scalable_parallel(
+async def test_basic_parallel_subflows(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = new_flow_id("scalable-parallel")
+    flow_id = new_flow_id("parallel-subflows-basic")
+    await client.start_flow(app.basic_subflows, flow_id, ["one", "two"], start_options())
+    result = await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
+    assert result.status == FlowStatus.COMPLETED
+
+
+async def test_long_lived_parallel_subflows_stop(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("parallel-subflows-long-lived")
     await client.start_flow(
-        app.request_receiver,
+        app.long_live_subflows,
         flow_id,
-        2,
-        StartFlowOptions(
-            timeout=timedelta(hours=1),
-            id_reuse_policy=IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED,
-        ),
+        ParentInput(["one", "two"], 2),
+        start_options(),
     )
-    await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
+    await client.invoke_rpc(app.long_live_subflows.stop, flow_id, None)
+    result = await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
+    assert result.status == FlowStatus.COMPLETED
 
 
-async def test_parent_child(
+async def test_short_lived_parallel_subflows(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = new_flow_id("parent-child")
-    # ParentFlowV2 keeps CONCURRENCY_PER_PARENT_WORKFLOW loops waiting on the
-    # task queue, so it does not complete. Verify start + first child instead.
-    run_id = await client.start_flow(
-        app.parent_flow_v2,
+    flow_id = new_flow_id("parallel-subflows-short-lived")
+    await client.start_flow(
+        app.short_live_subflows,
         flow_id,
-        2,
-        StartFlowOptions(
-            timeout=timedelta(hours=1),
-            id_reuse_policy=IdReusePolicy.ALLOW_IF_PREVIOUS_FAILED,
-        ),
+        ParentInput(["one", "two", "three"], 2),
+        start_options(),
     )
-    assert run_id
-    await wait_until(
-        "parent-child started a child flow",
-        lambda: flow_status_or_none(client, "child-wf-0"),
-        WAIT_TIMEOUT,
-    )
+    result = await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
+    assert result.status == FlowStatus.COMPLETED
 
 
 async def test_entity_store_profile_lifecycle(

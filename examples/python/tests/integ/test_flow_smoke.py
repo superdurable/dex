@@ -65,6 +65,15 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
         flow_id, run_id, _ = await client.get(path, query)
         return flow_id, run_id
 
+    def parallel_subflows_entry(kind: str) -> FlowSmokeEntry:
+        return FlowSmokeEntry(
+            f"patterns/parallel-subflows/{kind}",
+            lambda c: trigger_get(
+                f"/patterns/parallel-subflows/start/{kind}",
+                {"workflowId": new_id(f"parallel-subflows-{kind}")},
+            ),
+        )
+
     return [
         FlowSmokeEntry("products/engagement", lambda c: trigger_get("/products/engagement/start", {})),
         FlowSmokeEntry(
@@ -215,26 +224,9 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
             flags=FlowSmokeFlags(step_start_may_fail=True),
         ),
-        FlowSmokeEntry(
-            "patterns/scalable-parallel",
-            lambda c: trigger_get(
-                "/patterns/scalable-parallel/start",
-                {
-                    "workflowId": new_id("scalable-parallel"),
-                    "numOfChildWfs": "1",
-                },
-            ),
-        ),
-        FlowSmokeEntry(
-            "patterns/parent-child",
-            lambda c: trigger_get(
-                "/patterns/parent-child/start",
-                {
-                    "workflowId": new_id("parent-child"),
-                    "numOfChildWfs": "1",
-                },
-            ),
-        ),
+        parallel_subflows_entry("basic"),
+        parallel_subflows_entry("long-lived-parent"),
+        parallel_subflows_entry("short-lived-parent"),
         FlowSmokeEntry(
             "patterns/drain-channels/internal",
             lambda c: trigger_get(

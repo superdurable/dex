@@ -1,0 +1,174 @@
+---
+title: 高级：长生命周期父 Flow
+sidebar_label: "Advanced: Long-lived Parent"
+---
+
+# 高级：长生命周期父 Flow
+
+保持有界的父 Step pool，同时让 Flow 持续接收新请求。
+
+![长生命周期父 Flow](/img/design-patterns/parallel-subflows-long-lived-parent.png)
+
+**InitStep** 将初始请求发布到 **RequestChannel**，把 **Stopped** 设为 false，并启动 N 个 **HandleRequestStep**。每个 worker 取得一条 FIFO 消息后跳转到 **HandleSubFlowStep**。后者启动并等待 **ExampleSubFlow**；完成后检查 **Stopped**，决定回到 **HandleRequestStep** 还是 graceful complete。
+
+**SendRequest** 在发布前检查 Channel size。达到 buffer threshold 时返回 false，让调用方实施背压。**Stop** RPC 只负责把 **Stopped** 设为 true。
+
+## 核心实现
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
+    go: 'examples/go/patterns/parallel-subflows/flows.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/AdvancedLongLiveParentFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
+    rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class LongLiveHandleSubFlowStep(Step[str]):
+    def __init__(
+        self,
+        example_subflow: ExampleSubFlow,
+        stopped: Attribute[bool],
+    ) -> None:
+        self.example_subflow = example_subflow
+        self.stopped = stopped
+
+    def get_step_type(self) -> str:
+        return "HandleSubFlowStep"
+
+    def wait_for(self, context: Context, request: str) -> Wait:
+        del context
+        return Wait.until(SubFlow.run(self.example_subflow, request))
+
+    def execute(self, context: Context, request: str) -> StepDecision:
+        del request
+        if self.stopped.get(context):
+            return graceful_complete()
+        return go_to(LongLiveHandleRequestStep, None)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type longLiveHandleSubFlowStep struct {
+	dex.StepDefaults
+	exampleFlow *ExampleSubFlow
+}
+
+func (longLiveHandleSubFlowStep) GetStepType() string { return "HandleSubFlowStep" }
+
+func (step longLiveHandleSubFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+	return dex.Until(dex.SubFlow(step.exampleFlow, request)), nil
+}
+
+func (longLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+	stopped, err := Stopped.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if stopped {
+		return dex.GracefulComplete(nil), nil
+	}
+	return dex.GoTo(longLiveHandleRequestStep{}, nil), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class HandleSubFlowStep implements Step<String> {
+    private final ExampleSubFlow exampleSubFlow;
+
+    HandleSubFlowStep(final ExampleSubFlow exampleSubFlow) {
+        this.exampleSubFlow = exampleSubFlow;
+    }
+
+    @Override
+    public Class<String> getInputType() {
+        return String.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final String request) {
+        return Wait.until(SubFlow.run(ExampleSubFlow.class, request));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String request) {
+        if (Boolean.TRUE.equals(stopped.get(context))) {
+            return StepDecision.gracefulComplete(null);
+        }
+        return StepDecision.goTo(HandleRequestStep.class, null);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class LongLiveHandleSubFlowStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public constructor(
+    private readonly flow: AdvancedLongLiveParentFlow,
+    private readonly exampleSubFlow: ExampleSubFlow,
+  ) {}
+
+  public getStepType(): string {
+    return "HandleSubFlowStep";
+  }
+
+  public waitFor(_context: Context, request: string): Wait {
+    return Wait.until(SubFlow.run(this.exampleSubFlow, request));
+  }
+
+  public execute(context: Context, _request: string): StepDecision {
+    return this.flow.stopped.get(context) === true
+      ? gracefulComplete()
+      : goTo(LongLiveHandleRequestStep, undefined);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct LongLiveHandleSubFlowStep;
+
+impl Step for LongLiveHandleSubFlowStep {
+    type Input = String;
+
+    fn step_type(&self) -> &'static str {
+        "HandleSubFlowStep"
+    }
+
+    fn wait_for(&self, _context: &mut Context, request: String) -> HandlerResult<Wait> {
+        let child = ExampleSubFlow::default();
+        Ok(Wait::until(
+            SubFlow::run(&child, request).map_err(HandlerError::from_error)?,
+        ))
+    }
+
+    fn execute(&self, context: &mut Context, _request: String) -> HandlerResult<StepDecision> {
+        if STOPPED.get(context)?.unwrap_or(false) {
+            return Ok(StepDecision::graceful_complete(()));
+        }
+        Ok(StepDecision::go_to(&LongLiveHandleRequestStep, ()))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 相关内容
+
+- [高可用背压](/design-patterns/parallel-subflows/back-pressure)
+- [Channel](/primitives/channel)

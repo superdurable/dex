@@ -68,15 +68,15 @@ remain split so their orchestration boundaries are visible.
 | Dynamic parallel Steps | [`DynamicParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | A runtime-sized set of one Step type |
 | Await parallel Steps | [`AwaitParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | Wait for every worker's Channel message |
 | First-win parallel Steps | [`FirstWinParallelStepsFlow`](src/patterns/parallel/parallel_step_flows.rs) | Keep the first result and cancel siblings |
-| Parent-child | [`ParentFlowV2`](src/patterns/parent_child.rs) | Child ID persistence and completion callback Channel |
+| Basic SubFlow fan-out | [`BasicParentFlow`](src/patterns/parallel_subflows/flow.rs) | Wait for half of the SubFlows and cancel the remaining IDs |
+| Long-lived SubFlow parent | [`AdvancedLongLiveParentFlow`](src/patterns/parallel_subflows/flow.rs) | Bounded workers, request Channel, stop Attribute, and SubFlow loop |
+| Short-lived SubFlow parent | [`AdvancedShortLiveParentFlow`](src/patterns/parallel_subflows/flow.rs) | Locked active count and atomic completion when the Channel is empty |
+| Partitioning and back pressure | [`SubmitRequestFlow`](src/patterns/parallel_subflows/flow.rs) | Stable parent partitioning and durable retries after admission rejection |
 | Simple polling | [`SimplePollingFlow`](src/patterns/polling.rs) | Durable timer loop |
 | Backoff polling | [`BackoffPollingFlow`](src/patterns/polling.rs) | Execute retry with exponential backoff |
 | Failure recovery | [`FailureRecoveryFlow`](src/patterns/recovery.rs) | Retry exhaustion and compensation Step |
 | Reminders | [`ReminderFlow`](src/patterns/reminders.rs) | Reminder loop, accept/opt-out Channels, global timeout |
 | Resettable timer | [`ResettableTimerFlow`](src/patterns/resettable_timer.rs) | Reset Channel racing an identified timer |
-| Scalable parallel: child | [`ChildFlow`](src/patterns/scalable_parallel.rs) | Independently scalable task processor |
-| Scalable parallel: parent | [`ParentFlow`](src/patterns/scalable_parallel.rs) | Bounded durable queue and task dispatch |
-| Scalable parallel: request receiver | [`RequestReceiverFlow`](src/patterns/scalable_parallel.rs) | Durable ingress buffer and forwarding loop |
 | Entity Store | [`UserProfileFlow`](src/patterns/entity_store.rs) | Attribute Store projection and profile RPCs |
 | Timeout handling | [`FlowGracefulTimeout`](src/patterns/timeout.rs) | Task-versus-timeout race and forced completion/failure |
 | Wait for state completion | [`WaitForStateCompletionFlow`](src/patterns/wait_for_state_completion.rs) | `Client::wait_for_step_completion` target followed by background work |
@@ -94,7 +94,7 @@ make test
 ./run-integration-tests.sh
 ```
 
-The catalog integration test constructs every Flow, checks the exact 10 + 21
+The catalog integration test constructs every Flow, checks the exact 10 + 22
 mapping, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 
