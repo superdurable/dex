@@ -12,8 +12,9 @@ Reusable Flow shapes from the Dex examples. Each pattern page explains the probl
 Full samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix /patterns/name/... where applicable). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
 
 - [Cron schedule](/design-patterns/cron) — Run cron-like fixed-interval work in one Flow.
-- [Drain Internal Channel](/design-patterns/drain-internal-channels) — Gracefully finish producer/consumer Flows without losing in-flight Channel messages.
-- [Drain External Channel](/design-patterns/draining-channel-for-external-publishing) — Process externally published messages, then complete when the Channel is empty.
+- Drain Channels
+  - [Drain Internal Channels](/design-patterns/drain-internal-channels) — Gracefully finish producer/consumer Flows without losing in-flight Channel messages.
+  - [Drain External Channels](/design-patterns/draining-channel-for-external-publishing) — Process externally published messages, then complete when the Channel is empty.
 - [Interruptible execution](/design-patterns/interruptible) — Stop or redirect long work gracefully based on durable control signals.
 - [Manual Recovery](/design-patterns/manual-recovery) — After retries are exhausted, let a person retry the work or fail the Flow.
 - [Parallel Steps](/design-patterns/parallel) — Choose static, dynamic, await-all, or first-win concurrent Step coordination.

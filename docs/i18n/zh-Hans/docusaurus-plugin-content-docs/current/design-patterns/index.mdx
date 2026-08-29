@@ -12,8 +12,9 @@ slug: /design-patterns
 完整示例位于 examples/go、examples/java、examples/python、examples/typescript 和 examples/rust。可在 examples playground 中试用 HTTP 示例；见 **examples/README.md**。
 
 - [Cron schedule](/design-patterns/cron) — 在一条 Flow 中按固定间隔运行工作。
-- [Drain internal channels](/design-patterns/drain-internal-channels) — 让 producer/consumer Flow 不丢失在途 Channel 消息地完成。
-- [排空外部 Channel](/design-patterns/draining-channel-for-external-publishing) — 处理外部发布的消息，并在 Channel 为空时完成。
+- Drain Channels
+  - [Drain Internal Channels](/design-patterns/drain-internal-channels) — 让 producer/consumer Flow 不丢失在途 Channel 消息地完成。
+  - [Drain External Channels](/design-patterns/draining-channel-for-external-publishing) — 处理外部发布的消息，并在 Channel 为空时完成。
 - [可中断执行](/design-patterns/interruptible) — 根据 durable 控制消息，优雅地停止或转向长时间工作。
 - [人工恢复](/design-patterns/manual-recovery) — 重试耗尽后，让人工决定重试工作或使 Flow 失败。
 - [Parallel Steps](/design-patterns/parallel) — 选择静态、动态、等待全部完成或首个获胜的并发 Step 协调方式。
