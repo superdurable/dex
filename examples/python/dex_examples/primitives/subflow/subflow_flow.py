@@ -34,7 +34,6 @@ from dex import (
 
 class SubFlowChildStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context
         return graceful_complete(input + 1)
 
 
@@ -55,11 +54,9 @@ class SubFlowParentStep(Step[int]):
         )
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        del context
         return Wait.until(SubFlow.run(self.target, input, self.options))
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        del input
         result = SubFlow.get_condition_results(context)
         output = result.single_output(int)
         return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")

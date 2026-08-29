@@ -38,7 +38,6 @@ TIMER_DURATION = timedelta(minutes=5)
 
 class TimerExpired(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
         print("Timer fired; this is where we would send an email")
         return graceful_complete()
 
@@ -53,14 +52,12 @@ class ResettableTimerStep(Step[None]):
         self.reset_timer_channel = reset_timer_channel
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.any_of(
             Timer.by_duration(TIMER_DURATION),
             self.reset_timer_channel.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         if context.has_timer_fired():
             return go_to(TimerExpired, None)
         return go_to(ResettableTimerStep, None)

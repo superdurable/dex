@@ -51,7 +51,6 @@ class WaitForTasks(Step[None]):
         self.task_c_completed = task_c_completed
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.all_of(
             self.task_a_completed.for_one(),
             self.task_b_completed.for_one(),
@@ -59,7 +58,6 @@ class WaitForTasks(Step[None]):
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
         return graceful_complete("all tasks completed")
 
 
@@ -75,7 +73,6 @@ class Poll(Step[int]):
         self.task_c_completed = task_c_completed
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        del context, input
         return Wait.until(Timer.by_duration(timedelta(seconds=1)))
 
     def execute(self, context: Context, input: int) -> StepDecision:

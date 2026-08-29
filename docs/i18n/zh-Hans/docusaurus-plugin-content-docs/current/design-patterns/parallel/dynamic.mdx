@@ -28,14 +28,12 @@ class DoWorkStep(Step[int]):
     async def execute(  # type: ignore[override]
         self, context: Context, input: int
     ) -> StepDecision:
-        del context
         await asyncio.sleep(random.uniform(0.05, 0.5))
         return graceful_complete(input)
 
 
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context
         return go_to_many(
             *(StepMovement.of(DoWorkStep, index) for index in range(input))
         )

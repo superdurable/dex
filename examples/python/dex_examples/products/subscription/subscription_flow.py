@@ -51,7 +51,6 @@ class ChargeCurrentBill(Step[None]):
         self.billing_period_number = billing_period_number
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del input
         customer = self.customer_details.get(context)
         period_number = self.billing_period_number.get(context)
         if subscription_billing.is_subscription_over(customer, period_number):
@@ -63,7 +62,6 @@ class ChargeCurrentBill(Step[None]):
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         customer = self.customer_details.get(context)
         if context.get_step_execution_local(SUBSCRIPTION_OVER_KEY, bool):
             subscription_billing.send_subscription_over_email(customer, self.service)
@@ -86,7 +84,6 @@ class Trial(Step[None]):
         self.charge_current_bill = charge_current_bill
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del input
         customer = self.customer_details.get(context)
         subscription_billing.send_welcome_email(customer, self.service)
         return Wait.until(
@@ -94,7 +91,6 @@ class Trial(Step[None]):
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         self.billing_period_number.set(context, 0)
         return go_to(ChargeCurrentBill, None)
 
@@ -111,11 +107,9 @@ class Cancel(Step[None]):
         self.cancel_subscription = cancel_subscription
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(self.cancel_subscription.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         customer = self.customer_details.get(context)
         subscription_billing.send_canceled_email(customer, self.service)
         return force_complete("subscription canceled")
@@ -131,11 +125,9 @@ class UpdateChargeAmount(Step[None]):
         self.update_charge_amount = update_charge_amount
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(self.update_charge_amount.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         amounts = self.update_charge_amount.results(context)
         amount = subscription_billing.require_single_charge_amount(amounts)
         customer = self.customer_details.get(context)

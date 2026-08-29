@@ -35,11 +35,9 @@ POLLING_INTERVAL = timedelta(seconds=10)
 class PollingStep(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(Timer.by_duration(POLLING_INTERVAL))
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
         if self._is_system_ready():
             return graceful_complete()
         return go_to(PollingStep, None)

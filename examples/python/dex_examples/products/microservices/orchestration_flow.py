@@ -43,7 +43,6 @@ class CallAPI4(Step[None]):
         self.data = data
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         value = self.data.get(context)
         self.service.call_api4(value)
         return graceful_complete(value)
@@ -63,14 +62,12 @@ class CallAPI3(Step[None]):
         self.call_api4 = call_api4
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.any_of(
             Timer.by_duration(timedelta(hours=24)),
             self.ready.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         value = self.data.get(context)
         self.service.call_api3(value)
         if context.has_timer_fired():
@@ -84,7 +81,6 @@ class CallAPI2(Step[None]):
         self.data = data
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         self.service.call_api2(self.data.get(context))
         return dead_end()
 

@@ -67,14 +67,12 @@ class Reminder(Step[None]):
         self.flow = flow
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.any_of(
             Timer.by_duration(timedelta(seconds=5)),
             self.flow.opt_out_reminder.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         status = self.flow.engagement_status.get(context)
         if status is not Status.INITIATED:
             return dead_end()
@@ -94,14 +92,12 @@ class ProcessTimeout(Step[None]):
         self.flow = flow
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.any_of(
             Timer.by_duration(timedelta(days=60)),
             self.flow.complete_process.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         description = self.flow.describe_engagement(context)
         result = "timeout"
         if description.current_status == Status.ACCEPTED:

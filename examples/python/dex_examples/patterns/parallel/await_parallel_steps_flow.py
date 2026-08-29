@@ -39,7 +39,6 @@ class DoWorkStep(Step[int]):
     async def execute(  # type: ignore[override]
         self, context: Context, input: int
     ) -> StepDecision:
-        del input
         await asyncio.sleep(random.uniform(0.05, 0.5))
         self.complete_ch.publish(context, None)
         return dead_end()
@@ -50,17 +49,14 @@ class AwaitStep(Step[int]):
         self.complete_ch = complete_ch
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        del context
         return Wait.until(self.complete_ch.for_n(input))
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context
         return graceful_complete(input)
 
 
 class InitStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context
         movements: list[StepMovement[Any]] = [StepMovement.of(AwaitStep, input)]
         movements.extend(
             StepMovement.of(DoWorkStep, index) for index in range(input)

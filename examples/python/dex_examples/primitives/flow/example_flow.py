@@ -46,11 +46,9 @@ class ExampleStep(Step[int]):
 
     def wait_for(self, context: Context, input: int) -> Wait:
         status.set(context, "running")
-        del input
         return Wait.skip_immediately()
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context
         return go_to(FinishStep, input + 1)
 
 

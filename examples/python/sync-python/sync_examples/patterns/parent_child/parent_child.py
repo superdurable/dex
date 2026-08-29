@@ -54,11 +54,9 @@ class WaitForChildInput:
 
 class ChildProcessing(Step[str]):
     def wait_for(self, context: Context, input: str) -> Wait:
-        del context, input
         return Wait.until(Timer.by_duration(timedelta(seconds=random.randint(1, 3))))
 
     def execute(self, context: Context, input: str) -> StepDecision:
-        del context, input
         return graceful_complete()
 
 
@@ -81,11 +79,9 @@ class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):
         self.client_provider = client_provider
 
     def wait_for(self, context: Context, input: WaitForChildInput) -> Wait:
-        del context
         return Wait.until(Timer.by_duration(timedelta(seconds=input.timer_seconds)))
 
     def execute(self, context: Context, input: WaitForChildInput) -> StepDecision:
-        del context
         try:
             self.client_provider().wait_for_flow(
                 input.child_wf_id,
@@ -140,11 +136,9 @@ class LoopForNextTask(Step[None]):
         self.task_queue = task_queue
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(self.task_queue.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         request = self.task_queue.results(context)[0]
         return go_to(StartChildWorkflow, request)
 

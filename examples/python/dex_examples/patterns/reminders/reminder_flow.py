@@ -58,14 +58,12 @@ class ProcessTimeout(Step[None]):
         self.complete_process = complete_process
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.any_of(
             Timer.by_duration(PROCESS_TIMEOUT),
             self.complete_process.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         accepted = self.status.get(context) == Status.ACCEPTED.value
         self.service.update_external_system(
             "notify for status: " + ("ACCEPTED" if accepted else "TIMEOUT")
@@ -85,14 +83,12 @@ class Reminder(Step[None]):
         self.opt_out_reminder = opt_out_reminder
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.any_of(
             Timer.by_duration(REMINDER_INTERVAL),
             self.opt_out_reminder.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         if self.status.get(context) == Status.ACCEPTED.value:
             print("Reminder state timer expired, but status already ACCEPTED")
             return force_complete("done")
@@ -117,7 +113,6 @@ class Init(Step[None]):
         self.status = status
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         self.status.set(context, Status.INITIATED.value)
         return go_to_many(
             StepMovement.of(ProcessTimeout, None),

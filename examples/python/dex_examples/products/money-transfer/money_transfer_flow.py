@@ -42,7 +42,6 @@ class Compensate(Step[TransferRequest]):
         return StepOptions(execute_retry=COMPENSATE_RETRY)
 
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
-        del context
         self.service.undo_credit(input.to_account, input.amount)
         self.service.undo_create_credit_memo(
             input.to_account,
@@ -81,7 +80,6 @@ class Credit(Step[TransferRequest]):
         return self.options
 
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
-        del context
         self.service.credit(input.to_account, input.amount)
         return graceful_complete(
             f"transfer is done from {input.from_account} "
@@ -104,7 +102,6 @@ class CreateCreditMemo(Step[TransferRequest]):
         return self.options
 
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
-        del context
         self.service.create_credit_memo(input.to_account, input.amount, input.notes)
         return go_to(Credit, input)
 
@@ -124,7 +121,6 @@ class Debit(Step[TransferRequest]):
         return self.options
 
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
-        del context
         self.service.debit(input.from_account, input.amount)
         return go_to(CreateCreditMemo, input)
 
@@ -144,7 +140,6 @@ class CreateDebitMemo(Step[TransferRequest]):
         return self.options
 
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
-        del context
         self.service.create_debit_memo(input.from_account, input.amount, input.notes)
         return go_to(Debit, input)
 
@@ -159,7 +154,6 @@ class CheckBalance(Step[TransferRequest]):
         self.create_debit_memo = create_debit_memo
 
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
-        del context
         if not self.service.check_balance(input.from_account, input.amount):
             return force_fail("insufficient funds")
         return go_to(CreateDebitMemo, input)

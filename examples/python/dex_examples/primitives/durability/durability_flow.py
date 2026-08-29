@@ -36,7 +36,6 @@ class RouteDurabilityStep(Step[str]):
         self.flow = flow
 
     def execute(self, context: Context, mode: str) -> StepDecision:
-        del context
         if mode == "async":
             return go_to(AsyncWorkStep, mode)
         return go_to(SyncWorkStep, mode)
@@ -50,7 +49,6 @@ class SyncWorkStep(Step[str]):
         return StepOptions(execute_durability=StepDurability.SYNC)
 
     def execute(self, context: Context, mode: str) -> StepDecision:
-        del context
         return go_to(FinishDurabilityStep, f"sync:{mode}")
 
 
@@ -62,17 +60,14 @@ class AsyncWorkStep(Step[str]):
         return StepOptions(execute_durability=StepDurability.ASYNC)
 
     def execute(self, context: Context, mode: str) -> StepDecision:
-        del context
         return go_to(FinishDurabilityStep, f"async:{mode}")
 
 
 class FinishDurabilityStep(Step[str]):
     def wait_for(self, context: Context, label: str) -> Wait:
-        del context, label
         return Wait.until(Timer.by_duration(timedelta(seconds=1)))
 
     def execute(self, context: Context, label: str) -> StepDecision:
-        del context
         return graceful_complete(label)
 
 

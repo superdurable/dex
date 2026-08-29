@@ -55,7 +55,6 @@ class ExternalUpdate(Step[None]):
         return EXTERNAL_UPDATE_OPTIONS
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
         self.service.update_external_system("this is an update to external service")
         return dead_end()
 

@@ -59,11 +59,9 @@ class LongLiveHandleRequestStep(Step[None]):
         return "HandleRequestStep"
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(self.request_channel.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         return go_to(LongLiveHandleSubFlowStep, self.request_channel.results(context)[0])
 
 
@@ -80,11 +78,9 @@ class LongLiveHandleSubFlowStep(Step[str]):
         return "HandleSubFlowStep"
 
     def wait_for(self, context: Context, request: str) -> Wait:
-        del context
         return Wait.until(SubFlow.run(self.example_subflow, request))
 
     def execute(self, context: Context, request: str) -> StepDecision:
-        del request
         if self.stopped.get(context):
             return graceful_complete()
         return go_to(LongLiveHandleRequestStep, None)

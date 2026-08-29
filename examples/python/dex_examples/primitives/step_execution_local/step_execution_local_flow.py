@@ -37,7 +37,6 @@ class NoteWaitStep(Step[int]):
         return Wait.until(approval.for_one())
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        del input
         note = context.get_step_execution_local("note", str)
         return graceful_complete(note or "")
 

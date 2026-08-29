@@ -42,11 +42,9 @@ class MainStep(Step[str]):
 
 class SideStep(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(self.side_step_data.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         document = self.side_step_data.results(context)[0]
         self.mongo_collection.upsert(document)
         if document.final_command:
@@ -55,7 +53,6 @@ class SideStep(Step[None]):
 
 class Finalize(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         self.side_step_data.publish(
             context, MongoDocument("documentId-1", "FINALIZED", True)
         )

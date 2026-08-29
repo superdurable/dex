@@ -47,14 +47,12 @@ class Verify(Step[None]):
         self.verify_channel = verify_channel
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.any_of(
             Timer.by_duration(timedelta(seconds=24)),
             self.verify_channel.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         signup_form = self.form.get(context)
         if self.verify_channel.results(context):
             self.service.send_email(signup_form.email, "welcome", "welcome to Indeed!")

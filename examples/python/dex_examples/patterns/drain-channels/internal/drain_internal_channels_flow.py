@@ -41,7 +41,6 @@ class Finalize(Step[None]):
         self.side_step_data = side_step_data
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         self.side_step_data.publish(
             context,
             MongoDocument("documentId-1", "FINALIZED", True),
@@ -94,11 +93,9 @@ class SideStep(Step[None]):
         self.side_step_data = side_step_data
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(self.side_step_data.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         documents = self.side_step_data.results(context)
         if not documents:
             raise RuntimeError("No document was sent")

@@ -45,7 +45,6 @@ class WorkAStep(Step[WorkJobParametersInput]):
         self.interrupt_signal = interrupt_signal
 
     def wait_for(self, context: Context, input: WorkJobParametersInput) -> Wait:
-        del context, input
         return Wait.until(Timer.by_duration(timedelta(seconds=2)))
 
     def execute(
@@ -76,7 +75,6 @@ class WorkBStep(Step[WorkJobParametersInput]):
         self.interrupt_signal = interrupt_signal
 
     def wait_for(self, context: Context, input: WorkJobParametersInput) -> Wait:
-        del context, input
         return Wait.until(Timer.by_duration(timedelta(seconds=3)))
 
     def execute(
@@ -114,7 +112,6 @@ class Init(Step[None]):
         self.interrupt_signal = interrupt_signal
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
         parameters = WorkJobParametersInput(15, 1)
         return go_to_many(
             StepMovement.of(WorkAStep, parameters),

@@ -17,7 +17,6 @@ from dex import Context, Flow, PersistenceSchema, Step, StepDecision, StepList, 
 
 class IterationStep(Step[str]):
     def execute(self, context: Context, page_token: str) -> StepDecision:
-        del context
         next_page_token = "page-2" if not page_token else "page-3" if page_token == "page-2" else ""
         print(f"Migrating page {page_token}")
         return graceful_complete() if not next_page_token else go_to(IterationStep, next_page_token)

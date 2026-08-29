@@ -44,7 +44,6 @@ class RouteStep(Step[str]):
         self.flow = flow
 
     def execute(self, context: Context, mode: str) -> StepDecision:
-        del context
         if mode == "graceful":
             return graceful_complete("done")
         if mode == "dead-end":
@@ -62,27 +61,22 @@ class RouteStep(Step[str]):
 
 class BranchWorkerStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
-        del context, input
         return dead_end()
 
 
 class CarrierAStep(Step[Quote]):
     def wait_for(self, context: Context, quote: Quote) -> Wait:
-        del context, quote
         return Wait.until(Timer.by_duration(timedelta(seconds=2)))
 
     def execute(self, context: Context, quote: Quote) -> StepDecision:
-        del context, quote
         return dead_end()
 
 
 class CarrierBStep(Step[Quote]):
     def wait_for(self, context: Context, quote: Quote) -> Wait:
-        del context, quote
         return Wait.until(Timer.by_duration(timedelta(seconds=2)))
 
     def execute(self, context: Context, quote: Quote) -> StepDecision:
-        del context, quote
         return dead_end()
 
 
@@ -91,7 +85,6 @@ class WinnerStep(Step[Quote]):
         self.flow = flow
 
     def execute(self, context: Context, quote: Quote) -> StepDecision:
-        del context
         return go_to(RecordQuoteStep, quote).with_canceling_steps(
             CarrierAStep,
             self.flow.carrier_b,
@@ -100,7 +93,6 @@ class WinnerStep(Step[Quote]):
 
 class RecordQuoteStep(Step[Quote]):
     def execute(self, context: Context, quote: Quote) -> StepDecision:
-        del context
         return graceful_complete(quote)
 
 

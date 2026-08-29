@@ -82,7 +82,6 @@ class _Start(Step[CronScheduleInput]):
     def execute(
         self, context: Context, input: CronScheduleInput
     ) -> StepDecision:
-        del context
         if input.run_count <= 0 or input.interval.value <= 0:
             return force_fail("interval value and run count must be positive")
         return go_to(_WaitForSchedule, _ScheduleState(input.interval, input.run_count))
@@ -98,7 +97,6 @@ class _WaitForSchedule(Step[_ScheduleState]):
         self.skip = skip
 
     def wait_for(self, context: Context, state: _ScheduleState) -> Wait:
-        del context
         return Wait.any_of(
             Timer.by_duration(state.interval.duration()),
             self.trigger.for_one(),

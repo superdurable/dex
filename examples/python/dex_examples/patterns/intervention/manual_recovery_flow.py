@@ -47,7 +47,6 @@ class DoWorkStep(Step[bool]):
         ).on_execute_failure_proceed_to(ManualStep)
 
     def execute(self, context: Context, should_fail: bool) -> StepDecision:
-        del context
         if should_fail:
             raise RuntimeError("work failed")
         return graceful_complete("work completed")
@@ -63,14 +62,12 @@ class ManualStep(Step[bool]):
         self.skip_channel = skip_channel
 
     def wait_for(self, context: Context, input: bool) -> Wait:
-        del context, input
         return Wait.any_of(
             self.retry_channel.for_one(),
             self.skip_channel.for_one(),
         )
 
     def execute(self, context: Context, input: bool) -> StepDecision:
-        del input
         if self.retry_channel.results(context):
             return go_to(DoWorkStep, False)
         return force_fail("manual recovery skipped")

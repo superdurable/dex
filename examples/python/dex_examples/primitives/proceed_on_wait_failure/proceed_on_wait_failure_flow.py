@@ -33,7 +33,6 @@ from dex import (
 
 class FinishStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
-        del context
         return graceful_complete(input)
 
 
@@ -48,7 +47,6 @@ class FailingWaitStep(Step[str]):
         )
 
     def wait_for(self, context: Context, input: str) -> Wait:
-        del context, input
         raise RuntimeError("planned WaitFor failure")
 
     def execute(self, context: Context, input: str) -> StepDecision:
