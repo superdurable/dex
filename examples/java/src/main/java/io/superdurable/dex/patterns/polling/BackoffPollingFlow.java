@@ -77,7 +77,7 @@ public class BackoffPollingFlow implements Flow<Void> {
                 return StepDecision.gracefulComplete(
                         service.attemptExternalApiCall("Poll for BackoffPollingFlow"));
             } catch (final RuntimeException error) {
-                throw RetryAfterException.after(Duration.ofSeconds(30), error);
+                throw RetryAfterException.after(Duration.ofSeconds(1), error);
             }
         }
     }

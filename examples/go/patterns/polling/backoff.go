@@ -72,7 +72,7 @@ func (step pollingStep) Execute(
 ) (*dex.StepDecision, error) {
 	result, err := step.service.AttemptExternalAPICall("Poll for BackoffPollingFlow")
 	if err != nil {
-		return nil, dex.RetryAfter(30*time.Second, err)
+		return nil, dex.RetryAfter(time.Second, err)
 	}
 	return dex.GracefulComplete(result), nil
 }

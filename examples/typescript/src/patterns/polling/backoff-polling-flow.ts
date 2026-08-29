@@ -57,7 +57,7 @@ class PollingStep implements Step<void> {
     try {
       return gracefulComplete(this.service.attemptExternalApiCall("Poll for BackoffPollingFlow"));
     } catch (error) {
-      throw retryAfter(30, error instanceof Error ? error : new Error(String(error)));
+      throw retryAfter(1, error instanceof Error ? error : new Error(String(error)));
     }
   }
 }
