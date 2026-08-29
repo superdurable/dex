@@ -545,13 +545,10 @@ fn enqueue_request(client: &Client, parent_id: &str, request: String) -> Handler
                 concurrency: DEFAULT_CONCURRENCY,
             };
             let options = StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning);
-            match client.start_flow_with_options(&parent, parent_id, input, options) {
-                Ok(_) => Ok(true),
-                Err(SdkError::FlowAlreadyStarted { .. }) => client
-                    .invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request)
-                    .map_err(HandlerError::from_error),
-                Err(error) => Err(HandlerError::from_error(error)),
-            }
+            client
+                .start_flow_with_options(&parent, parent_id, input, options)
+                .map_err(HandlerError::from_error)?;
+            Ok(true)
         }
         Err(error) => Err(HandlerError::from_error(error)),
     }

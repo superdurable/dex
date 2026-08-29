@@ -18,7 +18,6 @@ import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
-import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
 import io.superdurable.dex.exceptions.FlowNotActiveException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -75,20 +74,16 @@ public final class SubmitRequestFlow implements Flow<SubmitRequestInput> {
             try {
                 return client.invokeRPC(stub::sendRequest, request);
             } catch (final FlowNotActiveException inactive) {
-                try {
-                    client.startFlow(
-                            parentFlow,
-                            parentId,
-                            new ParentInput(
-                                    new String[] {request},
-                                    AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
-                            StartFlowOptions.newBuilder()
-                                    .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
-                                    .build());
-                    return true;
-                } catch (final FlowAlreadyStartedException alreadyStarted) {
-                    return client.invokeRPC(stub::sendRequest, request);
-                }
+                client.startFlow(
+                        parentFlow,
+                        parentId,
+                        new ParentInput(
+                                new String[] {request},
+                                AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
+                        StartFlowOptions.newBuilder()
+                                .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
+                                .build());
+                return true;
             }
         }
 

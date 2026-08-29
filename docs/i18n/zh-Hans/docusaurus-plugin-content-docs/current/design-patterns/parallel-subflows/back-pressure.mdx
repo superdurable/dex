@@ -8,7 +8,7 @@ title: "高级：高可用背压"
 
 ![高可用背压](/img/design-patterns/parallel-subflows-back-pressure.png)
 
-客户端启动 **SubmitRequestFlow**，而不是在内存中重试 RPC。**SubmitStep** 对请求分区，调用目标父 Flow 的 **SendRequest** RPC，并且仅在父 Flow 接受请求后完成。false 响应会让 Step 失败，普通 Step 重试策略随后执行 durable backoff 并再次尝试。即使提交进程或 Worker 重启，Dex 也会保留重试状态。
+客户端启动 **SubmitRequestFlow**，而不是在内存中重试 RPC。**SubmitStep** 对请求分区，调用目标父 Flow 的 **SendRequest** RPC，并且仅在父 Flow 接受请求后完成。false 响应会让 Step 失败，普通 Step 重试策略随后执行 durable backoff 并再次尝试。父 Flow 的启动竞争也由同一套重试处理：**FlowAlreadyStarted** 会让 **SubmitStep** 失败，下一次执行再在已活跃的父 Flow 上调用 RPC。即使提交进程或 Worker 重启，Dex 也会保留重试状态。
 
 这会分离接入和处理：父 Flow 保持有界，提交请求则保持 durable，并可独立重试。
 
@@ -58,16 +58,13 @@ async def enqueue_request(
     try:
         return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
     except FlowNotActiveError:
-        try:
-            await client.start_flow(
-                parent_flow,
-                parent_id,
-                ParentInput([request], DEFAULT_CONCURRENCY),
-                StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
-            )
-            return True
-        except FlowAlreadyStartedError:
-            return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
+        await client.start_flow(
+            parent_flow,
+            parent_id,
+            ParentInput([request], DEFAULT_CONCURRENCY),
+            StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
+        )
+        return True
 
 
 class SubmitRequestFlow(Flow[SubmitRequestInput]):
@@ -129,10 +126,8 @@ func enqueueRequest(
 	_, err = client.StartFlow(ctx, parentFlow, parentID, ParentInput{
 		Requests: []string{request}, Concurrency: DefaultConcurrency,
 	}, dex.StartFlowOptions{IDReusePolicy: dex.IDReuseAllowIfNotRunning})
-	if err == nil { return true, nil }
-	var alreadyStarted *dex.FlowAlreadyStartedError
-	if !errors.As(err, &alreadyStarted) { return false, err }
-	return invokeRequest(ctx, client, parentFlow, parentID, request)
+	if err != nil { return false, err }
+	return true, nil
 }
 
 type SubmitRequestFlow struct {
@@ -204,20 +199,16 @@ public final class SubmitRequestFlow implements Flow<SubmitRequestInput> {
         try {
             return client.invokeRPC(stub::sendRequest, request);
         } catch (final FlowNotActiveException inactive) {
-            try {
-                client.startFlow(
-                        parentFlow,
-                        parentId,
-                        new ParentInput(
-                                new String[] {request},
-                                AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
-                        StartFlowOptions.newBuilder()
-                                .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
-                                .build());
-                return true;
-            } catch (final FlowAlreadyStartedException alreadyStarted) {
-                return client.invokeRPC(stub::sendRequest, request);
-            }
+            client.startFlow(
+                    parentFlow,
+                    parentId,
+                    new ParentInput(
+                            new String[] {request},
+                            AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
+                    StartFlowOptions.newBuilder()
+                            .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
+                            .build());
+            return true;
         }
     }
     }
@@ -258,18 +249,13 @@ async function enqueueRequest(
   } catch (error) {
     if (!isFlowMissingOrInactive(error)) throw error;
   }
-  try {
-    await client.startFlow(
-      parentFlow,
-      parentId,
-      { requests: [request], concurrency: DEFAULT_CONCURRENCY },
-      { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
-    );
-    return true;
-  } catch (error) {
-    if (!isFlowAlreadyStarted(error)) throw error;
-    return client.invokeRPC(parentFlow.sendRequest, parentId, request);
-  }
+  await client.startFlow(
+    parentFlow,
+    parentId,
+    { requests: [request], concurrency: DEFAULT_CONCURRENCY },
+    { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
+  );
+  return true;
 }
 
 export class SubmitRequestFlow implements Flow<SubmitRequestInput> {
@@ -348,13 +334,10 @@ fn enqueue_request(client: &Client, parent_id: &str, request: String) -> Handler
                 concurrency: DEFAULT_CONCURRENCY,
             };
             let options = StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning);
-            match client.start_flow_with_options(&parent, parent_id, input, options) {
-                Ok(_) => Ok(true),
-                Err(SdkError::FlowAlreadyStarted { .. }) => client
-                    .invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request)
-                    .map_err(HandlerError::from_error),
-                Err(error) => Err(HandlerError::from_error(error)),
-            }
+            client
+                .start_flow_with_options(&parent, parent_id, input, options)
+                .map_err(HandlerError::from_error)?;
+            Ok(true)
         }
         Err(error) => Err(HandlerError::from_error(error)),
     }

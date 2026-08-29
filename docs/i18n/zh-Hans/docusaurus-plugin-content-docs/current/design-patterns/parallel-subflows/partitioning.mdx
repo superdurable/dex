@@ -14,7 +14,7 @@ title: "高级：多父 Flow 分区"
 
 ## 核心实现
 
-提交方先调用目标父 Flow 的 RPC。如果父 Flow 不存在或已不活跃，就以该请求作为初始输入启动父 Flow。并发提交方可能抢先完成启动；遇到这种竞争时重试 RPC。初始请求不会丢失，因为父 Flow 的 **InitStep** 会把它发布到 **RequestChannel**。
+提交方先调用目标父 Flow 的 RPC。如果父 Flow 不存在或已不活跃，就以该请求作为初始输入启动父 Flow。如果另一个提交方抢先完成启动，本次启动会失败，并由 **SubmitStep** 重试。下一次执行会在已活跃的父 Flow 上调用 RPC。初始请求不会丢失，因为父 Flow 的 **InitStep** 会把它发布到 **RequestChannel**。
 
 <SdkTabs
   examples={{
@@ -31,16 +31,13 @@ async def enqueue_request(client, parent_flow, parent_id: str, request: str) -> 
     try:
         return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
     except FlowNotActiveError:
-        try:
-            await client.start_flow(
-                parent_flow,
-                parent_id,
-                ParentInput([request], DEFAULT_CONCURRENCY),
-                StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
-            )
-            return True
-        except FlowAlreadyStartedError:
-            return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
+        await client.start_flow(
+            parent_flow,
+            parent_id,
+            ParentInput([request], DEFAULT_CONCURRENCY),
+            StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
+        )
+        return True
 
 
 def partition(request: str, partitions: int) -> int:
@@ -63,10 +60,8 @@ func enqueueRequest(ctx context.Context, client *dex.Client, parentFlow *Advance
 	_, err = client.StartFlow(ctx, parentFlow, parentID, ParentInput{
 		Requests: []string{request}, Concurrency: DefaultConcurrency,
 	}, dex.StartFlowOptions{IDReusePolicy: dex.IDReuseAllowIfNotRunning})
-	if err == nil { return true, nil }
-	var alreadyStarted *dex.FlowAlreadyStartedError
-	if !errors.As(err, &alreadyStarted) { return false, err }
-	return invokeRequest(ctx, client, parentFlow, parentID, request)
+	if err != nil { return false, err }
+	return true, nil
 }
 
 func partition(request string, partitions int) int {
@@ -87,16 +82,12 @@ private boolean enqueueRequest(final String parentId, final String request) {
     try {
         return client.invokeRPC(stub::sendRequest, request);
     } catch (final FlowNotActiveException inactive) {
-        try {
-            client.startFlow(
-                    parentFlow,
-                    parentId,
-                    new ParentInput(new String[] {request}, AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
-                    StartFlowOptions.newBuilder().idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING).build());
-            return true;
-        } catch (final FlowAlreadyStartedException alreadyStarted) {
-            return client.invokeRPC(stub::sendRequest, request);
-        }
+        client.startFlow(
+                parentFlow,
+                parentId,
+                new ParentInput(new String[] {request}, AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
+                StartFlowOptions.newBuilder().idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING).build());
+        return true;
     }
 }
 
@@ -120,18 +111,13 @@ async function enqueueRequest(client: Client, parentFlow: AdvancedShortLiveParen
   } catch (error) {
     if (!isFlowMissingOrInactive(error)) throw error;
   }
-  try {
-    await client.startFlow(
-      parentFlow,
-      parentId,
-      { requests: [request], concurrency: DEFAULT_CONCURRENCY },
-      { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
-    );
-    return true;
-  } catch (error) {
-    if (!isFlowAlreadyStarted(error)) throw error;
-    return client.invokeRPC(parentFlow.sendRequest, parentId, request);
-  }
+  await client.startFlow(
+    parentFlow,
+    parentId,
+    { requests: [request], concurrency: DEFAULT_CONCURRENCY },
+    { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
+  );
+  return true;
 }
 
 function partition(request: string, partitions: number): number {
@@ -155,11 +141,8 @@ fn enqueue_request(client: &Client, parent_id: &str, request: String) -> Handler
             let parent = AdvancedShortLiveParentFlow::default();
             let input = ParentInput { requests: vec![request.clone()], concurrency: DEFAULT_CONCURRENCY };
             let options = StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning);
-            match client.start_flow_with_options(&parent, parent_id, input, options) {
-                Ok(_) => Ok(true),
-                Err(SdkError::FlowAlreadyStarted { .. }) => client.invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request).map_err(HandlerError::from_error),
-                Err(error) => Err(HandlerError::from_error(error)),
-            }
+            client.start_flow_with_options(&parent, parent_id, input, options).map_err(HandlerError::from_error)?;
+            Ok(true)
         }
         Err(error) => Err(HandlerError::from_error(error)),
     }

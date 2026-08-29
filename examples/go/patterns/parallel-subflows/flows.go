@@ -509,14 +509,10 @@ func enqueueRequest(
 	_, err = client.StartFlow(ctx, parentFlow, parentID, ParentInput{
 		Requests: []string{request}, Concurrency: DefaultConcurrency,
 	}, dex.StartFlowOptions{IDReusePolicy: dex.IDReuseAllowIfNotRunning})
-	if err == nil {
-		return true, nil
-	}
-	var alreadyStarted *dex.FlowAlreadyStartedError
-	if !errors.As(err, &alreadyStarted) {
+	if err != nil {
 		return false, err
 	}
-	return invokeRequest(ctx, client, parentFlow, parentID, request)
+	return true, nil
 }
 
 func invokeRequest(

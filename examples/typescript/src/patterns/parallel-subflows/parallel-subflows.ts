@@ -44,7 +44,7 @@ import {
 } from "@superdurable/dex";
 
 import { getClient } from "../../client-holder.js";
-import { isFlowAlreadyStarted, isFlowMissingOrInactive } from "../../service-errors.js";
+import { isFlowMissingOrInactive } from "../../service-errors.js";
 
 const DEFAULT_CONCURRENCY = 10;
 const MAX_BUFFERED_REQUESTS = 100;
@@ -462,18 +462,13 @@ async function enqueueRequest(
   } catch (error) {
     if (!isFlowMissingOrInactive(error)) throw error;
   }
-  try {
-    await client.startFlow(
-      parentFlow,
-      parentId,
-      { requests: [request], concurrency: DEFAULT_CONCURRENCY },
-      { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
-    );
-    return true;
-  } catch (error) {
-    if (!isFlowAlreadyStarted(error)) throw error;
-    return client.invokeRPC(parentFlow.sendRequest, parentId, request);
-  }
+  await client.startFlow(
+    parentFlow,
+    parentId,
+    { requests: [request], concurrency: DEFAULT_CONCURRENCY },
+    { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
+  );
+  return true;
 }
 
 function partition(request: string, partitions: number): number {

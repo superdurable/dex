@@ -24,7 +24,6 @@ from dex import (
     Channel,
     Context,
     Flow,
-    FlowAlreadyStartedError,
     FlowNotActiveError,
     FlowStatus,
     IdReusePolicy,
@@ -418,16 +417,13 @@ async def enqueue_request(
     try:
         return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
     except FlowNotActiveError:
-        try:
-            await client.start_flow(
-                parent_flow,
-                parent_id,
-                ParentInput([request], DEFAULT_CONCURRENCY),
-                StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
-            )
-            return True
-        except FlowAlreadyStartedError:
-            return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
+        await client.start_flow(
+            parent_flow,
+            parent_id,
+            ParentInput([request], DEFAULT_CONCURRENCY),
+            StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
+        )
+        return True
 
 
 def partition(request: str, partitions: int) -> int:
