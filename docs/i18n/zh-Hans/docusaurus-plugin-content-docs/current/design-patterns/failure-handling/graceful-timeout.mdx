@@ -8,52 +8,78 @@ title: Graceful Timeout
 
 **FlowGracefulTimeout** 启动 **LongWaitStep**。**StartFlowOptions** 中的正超时会使用 Flow 的 timeout handler。持久化截止时间到达后，Dex 调用一次 **handleTimeout**，并使用普通 Execute 语义应用其决策。
 
-当 Flow 需要在截止时间记录结果、补偿、转入另一个 Step，或选择明确的结束结果时，使用此模式。
-
 ## 核心实现
 
-实现 Flow 的 timeout hook，并使用正超时启动 Flow。以下示例显式选择 handler policy；当 Flow 实现 hook 时，它也是默认策略。
+完整的 Flow 定义通过 start Step 注册 **LongWaitStep**，并通过实现 Flow 的 timeout-handler 方法注册 timeout hook。使用正超时启动 Flow；以下示例显式选择 **HANDLER**，而当 Flow 提供 hook 时它也是默认策略。
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
-    go: 'examples/go/patterns/timeout/workflow.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/timeout/FlowGracefulTimeout.java',
-    typescript: 'examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts',
-    rust: 'examples/rust/src/patterns/timeout/flow.rs',
-  }}>
+<SdkTabs examples={{
+  python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
+  go: 'examples/go/patterns/timeout/workflow.go',
+  java: 'examples/java/src/main/java/io/superdurable/dex/patterns/timeout/FlowGracefulTimeout.java',
+  typescript: 'examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts',
+  rust: 'examples/rust/src/patterns/timeout/flow.rs',
+}}>
 <SdkSnippet lang="python">
 
 ```python
+class LongWaitStep(Step[bool]):
+    def wait_for(self, context: Context, successful: bool) -> Wait:
+        del context
+        return Wait.skip_immediately() if successful else Wait.until(Timer.by_duration(timedelta(seconds=65)))
+
+    def execute(self, context: Context, successful: bool) -> StepDecision:
+        del context, successful
+        return force_complete("Workflow completed successfully")
+
 class FlowGracefulTimeout(Flow[bool]):
+    def __init__(self) -> None:
+        self.long_wait_step = LongWaitStep()
+
     def get_steps(self) -> StepList[bool]:
         return StepList.start_step(self.long_wait_step)
 
     def handle_timeout(self, context: Context) -> StepDecision:
         del context
         return force_fail("Workflow did not finish the task in time")
+```
 
-await client.start_flow(
-    flow, flow_id, should_complete,
-    StartFlowOptions(
-        timeout=timedelta(minutes=1),
-        timeout_policy=FlowTimeoutPolicy.HANDLER,
-    ),
-)
+```python
+await client.start_flow(flow, flow_id, successful, StartFlowOptions(
+    timeout=timedelta(minutes=1),
+    timeout_policy=FlowTimeoutPolicy.HANDLER,
+))
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
+type FlowGracefulTimeout struct{ dex.FlowDefaults }
+
+func (*FlowGracefulTimeout) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(longWaitStep{})}
+}
+
+type longWaitStep struct{ dex.StepDefaults }
+
+func (longWaitStep) WaitFor(_ dex.Context, successful bool) (*dex.Wait, error) {
+	if successful { return dex.SkipWaitImmediately(), nil }
+	return dex.Until(dex.Timer(65 * time.Second)), nil
+}
+
+func (longWaitStep) Execute(_ dex.Context, _ bool) (*dex.StepDecision, error) {
+	return dex.ForceComplete("Workflow completed successfully"), nil
+}
+
 func (*FlowGracefulTimeout) HandleTimeout(_ dex.Context) (*dex.StepDecision, error) {
 	return dex.ForceFail("Workflow did not finish the task in time"), nil
 }
+```
 
+```go
 timeout := time.Minute
-_, err := client.StartFlow(ctx, flow, flowID, shouldComplete, dex.StartFlowOptions{
-	Timeout:       &timeout,
-	TimeoutPolicy: dex.TimeoutHandler,
+_, err := client.StartFlow(ctx, flow, flowID, successful, dex.StartFlowOptions{
+	Timeout: &timeout, TimeoutPolicy: dex.TimeoutHandler,
 })
 ```
 
@@ -61,33 +87,64 @@ _, err := client.StartFlow(ctx, flow, flowID, shouldComplete, dex.StartFlowOptio
 <SdkSnippet lang="java">
 
 ```java
-@Override
-public StepDecision handleTimeout(final Context context) {
-    return StepDecision.forceFail("Workflow did not finish the task in time");
-}
+final class FlowGracefulTimeout implements Flow<Boolean> {
+    private final LongWaitStep longWaitStep = new LongWaitStep();
 
-client.startFlow(
-        flowGracefulTimeout,
-        workflowId,
-        successfulWorkflow,
-        StartFlowOptions.newBuilder()
-                .timeout(Duration.ofMinutes(1))
-                .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
-                .build());
+    @Override public StepList<Boolean> getSteps() {
+        return StepList.startStep(longWaitStep);
+    }
+
+    final class LongWaitStep implements Step<Boolean> {
+        @Override public Class<Boolean> getInputType() { return Boolean.class; }
+        @Override public Wait waitFor(final Context context, final Boolean successful) {
+            return Boolean.TRUE.equals(successful)
+                    ? Wait.skipImmediately()
+                    : Wait.until(Timer.byDuration(Duration.ofSeconds(65)));
+        }
+        @Override public StepDecision execute(final Context context, final Boolean successful) {
+            return StepDecision.forceComplete("Workflow completed successfully");
+        }
+    }
+
+    @Override public StepDecision handleTimeout(final Context context) {
+        return StepDecision.forceFail("Workflow did not finish the task in time");
+    }
+}
+```
+
+```java
+client.startFlow(flowGracefulTimeout, workflowId, successfulWorkflow,
+        StartFlowOptions.newBuilder().timeout(Duration.ofMinutes(1))
+                .timeoutPolicy(FlowTimeoutPolicy.HANDLER).build());
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="typescript">
 
 ```typescript
-public handleTimeout(_context: Context): StepDecision {
-  return forceFail("Workflow did not finish the task in time");
+class LongWaitStep implements Step<boolean> {
+  public readonly inputCodec = booleanCodec;
+  public waitFor(_context: Context, successful: boolean): Wait {
+    return successful ? Wait.skipImmediately() : Wait.until(Timer.byDuration(65_000));
+  }
+  public execute(_context: Context, _successful: boolean): StepDecision {
+    return forceComplete("Workflow completed successfully");
+  }
 }
 
-await client.startFlow(flowGracefulTimeout, workflowId, successfulWorkflow, {
-  ...startOptions(),
-  timeoutMs: 60_000,
-  timeoutPolicy: FlowTimeoutPolicy.HANDLER,
+class FlowGracefulTimeout implements Flow<boolean> {
+  private readonly longWaitStep = new LongWaitStep();
+  public getFlowType(): string { return "FlowGracefulTimeout"; }
+  public getSteps() { return StepList.startStep(this.longWaitStep); }
+  public handleTimeout(_context: Context): StepDecision {
+    return forceFail("Workflow did not finish the task in time");
+  }
+}
+```
+
+```typescript
+await client.startFlow(flowGracefulTimeout, workflowId, successful, {
+  timeoutMs: 60_000, timeoutPolicy: FlowTimeoutPolicy.HANDLER,
 });
 ```
 
@@ -95,20 +152,36 @@ await client.startFlow(flowGracefulTimeout, workflowId, successfulWorkflow, {
 <SdkSnippet lang="rust">
 
 ```rust
+#[derive(Default)]
+pub struct FlowGracefulTimeout { long_wait_step: LongWaitStep }
+
+impl Flow for FlowGracefulTimeout {
+    type StartInput = bool;
+    fn steps(&self) -> StepList<'_, Self::StartInput> { StepList::start(&self.long_wait_step) }
+    fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> { Some(Self::handle_timeout) }
+}
+
+impl Step for LongWaitStep {
+    type Input = bool;
+    fn wait_for(&self, _context: &mut Context, successful: bool) -> HandlerResult<Wait> {
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(if successful { 1 } else { 65 }))))
+    }
+    fn execute(&self, _context: &mut Context, _successful: bool) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::force_complete("task-completed".to_string()))
+    }
+}
+
 impl FlowGracefulTimeout {
     fn handle_timeout(&self, _context: &mut Context) -> HandlerResult<StepDecision> {
         Ok(StepDecision::force_fail("task exceeded graceful timeout"))
     }
 }
+```
 
-client.start_flow_with_options(
-    &flow,
-    &flow_id,
-    input,
-    StartFlowOptions::new()
-        .timeout(Duration::from_secs(60))
-        .timeout_policy(FlowTimeoutPolicy::Handler),
-)?;
+```rust
+client.start_flow_with_options(&flow, &flow_id, successful,
+    StartFlowOptions::new().timeout(Duration::from_secs(60))
+        .timeout_policy(FlowTimeoutPolicy::Handler))?;
 ```
 
 </SdkSnippet>
@@ -117,4 +190,4 @@ client.start_flow_with_options(
 ## 相关内容
 
 - [Failure Handling](/design-patterns/failure-handling)
-- [Flow](/primitives/flow)
+- [Flow options](/primitives/flow/flow-options)
