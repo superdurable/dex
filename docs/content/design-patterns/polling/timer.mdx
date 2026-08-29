@@ -4,9 +4,9 @@ title: Polling with Timer
 
 # Polling with Timer
 
-![PollingWithTimerFlow](/img/design-patterns/polling-with-timer-flow.png)
-
 **PollingWithTimerFlow** makes the wait explicit. **PollingStep** waits for a Timer, checks the external condition, then either completes or moves to itself for another interval. It uses more code than retry-based polling, but the not-ready outcome is a normal Step decision rather than a failed attempt.
+
+![PollingWithTimerFlow](/img/design-patterns/polling-with-timer-flow.png)
 
 ## Core implementation
 

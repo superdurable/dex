@@ -5,9 +5,9 @@ sidebar_label: Reminder
 
 # Reminder
 
-![ReminderFlow](/img/design-patterns/reminder-flow.png)
-
 **ReminderFlow** 会按 interval 发送提醒，直到接收者 opt-out。**ReminderStep** 等待 interval Timer 或 **OptOut** Channel。Timer 先触发时，Step 发送提醒并跳回自身；**OptOut** 先到达时，Step 完成 Flow。
+
+![ReminderFlow](/img/design-patterns/reminder-flow.png)
 
 ## 核心 Step
 

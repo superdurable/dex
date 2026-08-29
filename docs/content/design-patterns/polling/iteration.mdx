@@ -4,9 +4,9 @@ title: Iteration
 
 # Iteration
 
-![IterationFlow](/img/design-patterns/iteration-flow.png)
-
 **IterationFlow** migrates a large collection one page at a time. **IterationStep** reads and processes the page, then passes the next page token as the input of its next execution. When there is no token, the Flow completes. This is structurally similar to timer polling, but the loop carries pagination state.
+
+![IterationFlow](/img/design-patterns/iteration-flow.png)
 
 ## Core implementation
 
