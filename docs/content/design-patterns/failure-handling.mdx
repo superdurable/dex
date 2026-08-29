@@ -9,8 +9,8 @@ Failure handling is the core of a durable execution platform. By default, Dex re
 When retries alone do not meet the requirement, choose one of these patterns. They add an explicit recovery path for compensation, operator intervention, an overall Flow deadline, or an exhausted **WaitFor** failure.
 
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) — Retry failed work, then move to a recovery Step.
-- [Manual Recovery](/design-patterns/failure-handling/manual-recovery) — Escalate an exhausted failure to a person.
-- [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout) — Race long work with a timeout handler.
+- [Manual Recovery](/design-patterns/failure-handling/manual-recovery) — Escalate an exhausted failure to a human to make a decision or intervene.
+- [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout) — Leverage Dex's built-in graceful timeout feature to handle the overall Flow timeout.
 - [WaitFor Failure Recovery](/design-patterns/failure-handling/wait-for-failure-recovery) — Continue from an exhausted **WaitFor** failure and recover in a Step.
 
 ## Related
