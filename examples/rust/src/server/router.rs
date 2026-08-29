@@ -43,7 +43,7 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         .merge(patterns::reminders::controller::mount(client.clone()))
         .merge(patterns::entity_store::controller::mount(client.clone()))
         .merge(patterns::intervention::controller::mount(client.clone()))
-        .merge(patterns::resettable_timer::controller::mount(
+        .merge(patterns::inactiveness_tracker::controller::mount(
             client.clone(),
         ))
         .merge(patterns::parallel::controller::mount(client.clone()))

@@ -49,7 +49,16 @@ const sidebars: SidebarsConfig = {
       label: 'Design Patterns',
       link: {type: 'doc', id: 'design-patterns/index'},
       items: [
-        'design-patterns/cron',
+        {
+          type: 'category',
+          label: 'Durable Timer',
+          link: {type: 'doc', id: 'design-patterns/durable-timer/index'},
+          items: [
+            'design-patterns/durable-timer/cron',
+            'design-patterns/durable-timer/reminder',
+            'design-patterns/durable-timer/inactiveness-tracker-timer',
+          ],
+        },
         {
           type: 'category',
           label: 'Drain Channels',
@@ -104,8 +113,6 @@ const sidebars: SidebarsConfig = {
             'design-patterns/polling/iteration',
           ],
         },
-        'design-patterns/reminders',
-        'design-patterns/resettable-timer',
         'design-patterns/entity-store',
         {
           type: 'category',

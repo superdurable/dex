@@ -304,7 +304,7 @@ test("design-pattern interruptible start cancel", async () => {
   );
 });
 
-test("design-pattern reminder start accept optout", async () => {
+test("design-pattern reminder start and optout", async () => {
   const started = await get("/patterns/reminders/start");
   requireOk(started, "reminder start");
   const match = /started workflowId:\s*(.+)$/i.exec(started.text.trim());
@@ -315,10 +315,6 @@ test("design-pattern reminder start accept optout", async () => {
   requireOk(opted, "reminder start 2");
   const optMatch = /started workflowId:\s*(.+)$/i.exec(opted.text.trim());
   assert.ok(optMatch, opted.text);
-  requireOk(
-    await get("/patterns/reminders/accept", { workflowId }),
-    "reminder accept",
-  );
   requireOk(
     await get("/patterns/reminders/optout", {
       workflowId: optMatch[1]!.trim(),
@@ -372,15 +368,15 @@ test("design-pattern manual recovery start", async () => {
   );
 });
 
-test("design-pattern resettable timer start reset", async () => {
+test("design-pattern inactiveness tracker timer start activity", async () => {
   const workflowId = id("timer");
   requireOk(
-    await get("/patterns/resettable-timer/start", { workflowId }),
+    await get("/patterns/inactiveness-tracker-timer/start", { workflowId }),
     "timer start",
   );
   requireOk(
-    await get("/patterns/resettable-timer/reset", { workflowId }),
-    "timer reset",
+    await get("/patterns/inactiveness-tracker-timer/activity", { workflowId }),
+    "record activity",
   );
 });
 

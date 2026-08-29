@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package resettabletimer
+package inactivenesstrackertimer
 
 import (
 	"fmt"
@@ -27,81 +27,79 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-const ResetTimerChannelName = "RESET_TIMER_CHANNEL"
+const ActiveChannelName = "Active"
 
 var (
-	TimerDuration     = 5 * time.Minute
-	ResetTimerChannel = dex.DefineChannel[string](ResetTimerChannelName)
+	TrackerDuration = 5 * time.Minute
+	ActiveChannel   = dex.DefineChannel[dex.None](ActiveChannelName)
 )
 
-type ResettableTimerFlow struct {
+type InactivenessTrackerFlow struct {
 	dex.FlowDefaults
 }
 
-func NewResettableTimerFlow() *ResettableTimerFlow {
-	return &ResettableTimerFlow{}
+func NewInactivenessTrackerFlow() *InactivenessTrackerFlow {
+	return &InactivenessTrackerFlow{}
 }
 
-func (*ResettableTimerFlow) GetSteps() []dex.StepDef {
+func (*InactivenessTrackerFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(resettableTimerStep{}),
-		dex.DefineStep(timerExpiredStep{}),
+		dex.DefineStartStep(trackerStep{}),
+		dex.DefineStep(processInactivenessStep{}),
 	}
 }
 
-func (*ResettableTimerFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{
-		Channels: []dex.ChannelDef{ResetTimerChannel},
-	}
+func (*InactivenessTrackerFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{ActiveChannel}}
 }
 
-func (*ResettableTimerFlow) SendResetMessage(
+func (*InactivenessTrackerFlow) RecordActivity(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[dex.None], error) {
-	if err := ResetTimerChannel.Publish(ctx, "reset"); err != nil {
+	if err := ActiveChannel.Publish(ctx, nil); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-type resettableTimerStep struct {
+type trackerStep struct {
 	dex.StepDefaults
 }
 
-func (resettableTimerStep) WaitFor(
+func (trackerStep) WaitFor(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.Wait, error) {
 	return dex.AnyOf(
-		dex.Timer(TimerDuration),
-		ResetTimerChannel.ForOne(),
+		dex.Timer(TrackerDuration),
+		ActiveChannel.ForOne(),
 	), nil
 }
 
-func (resettableTimerStep) Execute(
+func (trackerStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
 	if ctx.HasTimerFired() {
-		return dex.GoTo(timerExpiredStep{}, nil), nil
+		return dex.GoTo(processInactivenessStep{}, nil), nil
 	}
-	return dex.GoTo(resettableTimerStep{}, nil), nil
+	return dex.GoTo(trackerStep{}, nil), nil
 }
 
-type timerExpiredStep struct {
+type processInactivenessStep struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 }
 
-func (timerExpiredStep) Execute(
+func (processInactivenessStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
-	fmt.Println("Timer fired; this is where we would send an email")
+	fmt.Println("No activity arrived before the timer fired")
 	return dex.GracefulComplete(nil), nil
 }
 
 var (
-	_ dex.Flow                    = (*ResettableTimerFlow)(nil)
-	_ dex.RPC[dex.None, dex.None] = (*ResettableTimerFlow)(nil).SendResetMessage
+	_ dex.Flow                    = (*InactivenessTrackerFlow)(nil)
+	_ dex.RPC[dex.None, dex.None] = (*InactivenessTrackerFlow)(nil).RecordActivity
 )

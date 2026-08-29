@@ -63,8 +63,8 @@ from dex_examples.patterns.polling.simple_polling_flow import PollingWithTimerFl
 from dex_examples.patterns.polling.iteration_flow import IterationFlow
 from dex_examples.patterns.recovery.failure_recovery_flow import FailureRecoveryFlow
 from dex_examples.patterns.reminders.reminder_flow import ReminderFlow
-from dex_examples.patterns.resettable_timer.resettable_timer_flow import (
-    ResettableTimerFlow,
+from dex_examples.patterns.inactiveness_tracker_timer.inactiveness_tracker_flow import (
+    InactivenessTrackerFlow,
 )
 from dex_examples.patterns.resource_control.controller_flow import ControllerFlow
 from dex_examples.patterns.resource_control.processing_flow import ProcessingFlow
@@ -163,7 +163,7 @@ class ExampleApp:
         self.iteration = IterationFlow()
         self.failure_recovery = FailureRecoveryFlow()
         self.reminder = ReminderFlow(pattern_service)
-        self.resettable_timer = ResettableTimerFlow()
+        self.inactiveness_tracker = InactivenessTrackerFlow()
         self.user_profile = UserProfileFlow()
         self.timeout = FlowGracefulTimeout()
         self.wait_for_step_completion = WaitForStepCompletionFlow(pattern_service)
@@ -223,7 +223,7 @@ class ExampleApp:
             self.iteration,
             self.failure_recovery,
             self.reminder,
-            self.resettable_timer,
+            self.inactiveness_tracker,
             self.user_profile,
             self.timeout,
             self.wait_for_step_completion,

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""A timer whose expiry triggers an action; a reset message restarts it."""
+"""Track activity and act when its durable timer expires."""
 
 from __future__ import annotations
 
@@ -33,56 +33,56 @@ from dex import (
     rpc,
 )
 
-TIMER_DURATION = timedelta(minutes=5)
+TRACKER_DURATION = timedelta(minutes=5)
 
 
-class TimerExpired(Step[None]):
+class ProcessInactivenessStep(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
-        print("Timer fired; this is where we would send an email")
+        print("No activity arrived before the timer fired")
         return graceful_complete()
 
 
-class ResettableTimerStep(Step[None]):
+class TrackerStep(Step[None]):
     def __init__(
         self,
-        timer_expired: TimerExpired,
-        reset_timer_channel: Channel[str],
+        process_inactiveness: ProcessInactivenessStep,
+        active_channel: Channel[None],
     ) -> None:
-        self.timer_expired = timer_expired
-        self.reset_timer_channel = reset_timer_channel
+        self.process_inactiveness = process_inactiveness
+        self.active_channel = active_channel
 
     def wait_for(self, context: Context, input: None) -> Wait:
         return Wait.any_of(
-            Timer.by_duration(TIMER_DURATION),
-            self.reset_timer_channel.for_one(),
+            Timer.by_duration(TRACKER_DURATION),
+            self.active_channel.for_one(),
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
         if context.has_timer_fired():
-            return go_to(TimerExpired, None)
-        return go_to(ResettableTimerStep, None)
+            return go_to(ProcessInactivenessStep, None)
+        return go_to(TrackerStep, None)
 
 
-class ResettableTimerFlow(Flow[None]):
-    RESET_TIMER_CHANNEL = "RESET_TIMER_CHANNEL"
+class InactivenessTrackerFlow(Flow[None]):
+    ACTIVE_CHANNEL = "Active"
 
-    reset_timer_channel = Channel(RESET_TIMER_CHANNEL, str)
+    active_channel = Channel(ACTIVE_CHANNEL, type(None))
 
     def __init__(self) -> None:
-        self.timer_expired = TimerExpired()
-        self.resettable_timer = ResettableTimerStep(
-            self.timer_expired,
-            self.reset_timer_channel,
+        self.process_inactiveness = ProcessInactivenessStep()
+        self.tracker_step = TrackerStep(
+            self.process_inactiveness,
+            self.active_channel,
         )
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.resettable_timer).other_steps(
-            self.timer_expired
+        return StepList.start_step(self.tracker_step).other_steps(
+            self.process_inactiveness
         )
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.reset_timer_channel)
+        return PersistenceSchema.of(self.active_channel)
 
     @rpc
-    def send_reset_message(self, context: Context) -> None:
-        self.reset_timer_channel.publish(context, "reset")
+    def record_activity(self, context: Context) -> None:
+        self.active_channel.publish(context, None)

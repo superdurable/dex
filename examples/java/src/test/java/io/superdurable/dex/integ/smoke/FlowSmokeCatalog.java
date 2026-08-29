@@ -84,9 +84,9 @@ final class FlowSmokeCatalog {
                         "/patterns/manual-recovery/start",
                         Map.of("workflowId", environment.newFlowId("manual-recovery"))),
                 FlowSmokeEntry.get(
-                        "patterns/resettable-timer",
-                        "/patterns/resettable-timer/start",
-                        Map.of("workflowId", environment.newFlowId("resettable-timer"))),
+                        "patterns/inactiveness-tracker-timer",
+                        "/patterns/inactiveness-tracker-timer/start",
+                        Map.of("workflowId", environment.newFlowId("inactiveness-tracker-timer"))),
                 FlowSmokeEntry.get(
                         "patterns/parallel/static",
                         "/patterns/parallel/start/static",

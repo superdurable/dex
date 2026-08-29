@@ -37,19 +37,11 @@ def create_reminders_blueprint(app_state: ExampleApp) -> Blueprint:
         )
         return f"started workflowId: {flow_id}"
 
-    @blueprint.get("/accept")
-    async def accept_reminder() -> str:
-        await app_state.client.invoke_rpc(
-            app_state.reminder.accept,
-            required_query("workflowId"),
-        )
-        return "accepted"
-
     @blueprint.get("/optout")
     async def opt_out_reminder() -> str:
         await app_state.client.publish(
             required_query("workflowId"),
-            app_state.reminder.opt_out_reminder,
+            app_state.reminder.opt_out,
             None,
         )
         return "done"

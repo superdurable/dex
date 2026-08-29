@@ -217,9 +217,9 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
-            name: "patterns/resettable-timer",
-            path: "/patterns/resettable-timer/start",
-            query: query(&client.new_flow_id("resettable-timer")),
+            name: "patterns/inactiveness-tracker-timer",
+            path: "/patterns/inactiveness-tracker-timer/start",
+            query: query(&client.new_flow_id("inactiveness-tracker-timer")),
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {

@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package resettabletimer
+package inactivenesstrackertimer
 
 import (
 	"time"
@@ -30,14 +30,14 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *ResettableTimerFlow
+	flow   *InactivenessTrackerFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *ResettableTimerFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *InactivenessTrackerFlow) {
 	controller := &controller{client: client, flow: flow}
-	group := router.Group("/patterns/resettable-timer")
+	group := router.Group("/patterns/inactiveness-tracker-timer")
 	group.GET("/start", controller.start)
-	group.GET("/reset", controller.reset)
+	group.GET("/activity", controller.recordActivity)
 }
 
 func patternStartOptions() sdk.StartFlowOptions {
@@ -60,7 +60,7 @@ func (controller *controller) start(request *gin.Context) {
 	httputil.RespondString(request, runID, err)
 }
 
-func (controller *controller) reset(request *gin.Context) {
+func (controller *controller) recordActivity(request *gin.Context) {
 	flowID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
 		return
@@ -69,10 +69,10 @@ func (controller *controller) reset(request *gin.Context) {
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
-		controller.flow.SendResetMessage,
+		controller.flow.RecordActivity,
 		nil,
 		&none,
 		sdk.InvokeOptions{},
 	)
-	httputil.RespondString(request, "reset", err)
+	httputil.RespondString(request, "activity recorded", err)
 }

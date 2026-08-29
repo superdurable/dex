@@ -36,6 +36,7 @@ import (
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
@@ -43,7 +44,6 @@ import (
 	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/reminders"
-	"github.com/superdurable/dex/examples/go/patterns/resettable-timer"
 	"github.com/superdurable/dex/examples/go/patterns/timeout"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
 	primitiveattribute "github.com/superdurable/dex/examples/go/primitives/attribute"
@@ -178,7 +178,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	reminders.RegisterRoutes(router, client, registry.Reminder)
 	entitystore.RegisterRoutes(router, client, registry.UserProfile)
 	intervention.RegisterRoutes(router, client, registry.ManualRecovery)
-	resettabletimer.RegisterRoutes(router, client, registry.ResettableTimer)
+	inactivenesstrackertimer.RegisterRoutes(router, client, registry.InactivenessTracker)
 	parallel.RegisterRoutes(router, client, registry.StaticParallel, registry.DynamicParallel, registry.AwaitParallel, registry.FirstWinParallel)
 	parallelsubflows.RegisterRoutes(router, client, registry.BasicSubFlows, registry.WaitForHalfSubFlows, registry.LongLiveSubFlows, registry.ShortLiveSubFlows, registry.SubmitSubFlowRequest)
 	recovery.RegisterRoutes(router, client, registry.FailureRecovery)

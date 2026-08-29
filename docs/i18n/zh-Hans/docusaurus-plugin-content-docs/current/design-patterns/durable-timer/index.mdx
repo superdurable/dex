@@ -1,0 +1,13 @@
+---
+title: Durable Timer
+sidebar_label: 概览
+slug: /design-patterns/durable-timer
+---
+
+# Durable Timer
+
+Durable Timer 会在 worker 重启或 Flow retry 后保留调度状态。它适合定期执行、发送提醒，或在活动停止一段时间后触发动作。
+
+- [Cron schedule](/zh-Hans/design-patterns/durable-timer/cron) — 在一个 Flow 中按固定 interval 执行工作。
+- [Reminder](/zh-Hans/design-patterns/durable-timer/reminder) — 定期发送提醒，直到接收者 opt-out。
+- [Inactiveness Tracker Timer](/zh-Hans/design-patterns/durable-timer/inactiveness-tracker-timer) — 每次收到新活动时重新开始 inactivity window。

@@ -42,16 +42,9 @@ public class RemindersController {
         return ResponseEntity.ok(String.format("started workflowId: %s", wfId));
     }
 
-    @GetMapping("/accept")
-    public ResponseEntity<String> accept(@RequestParam final String workflowId) {
-        final ReminderFlow stub = client.newRpcStub(ReminderFlow.class, workflowId);
-        client.invokeRPC(stub::accept);
-        return ResponseEntity.ok("accepted");
-    }
-
     @GetMapping("/optout")
     public ResponseEntity<String> optout(@RequestParam final String workflowId) {
-        client.publish(workflowId, reminderFlow.optOutReminder, (Void) null);
+        client.publish(workflowId, reminderFlow.optOut, (Void) null);
         return ResponseEntity.ok("done");
     }
 }

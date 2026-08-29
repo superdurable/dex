@@ -25,6 +25,7 @@ import (
 	drainexternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/external-publishing"
 	draininternal "github.com/superdurable/dex/examples/go/patterns/drain-channels/internal-drain"
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
+	inactivenesstrackertimer "github.com/superdurable/dex/examples/go/patterns/inactiveness-tracker-timer"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
@@ -32,7 +33,6 @@ import (
 	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/reminders"
-	"github.com/superdurable/dex/examples/go/patterns/resettable-timer"
 	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
 	"github.com/superdurable/dex/examples/go/patterns/timeout"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
@@ -92,7 +92,7 @@ var (
 	Reminder              *reminders.ReminderFlow
 	UserProfile           *entitystore.UserProfileFlow
 	ManualRecovery        *intervention.ManualRecoveryFlow
-	ResettableTimer       *resettabletimer.ResettableTimerFlow
+	InactivenessTracker   *inactivenesstrackertimer.InactivenessTrackerFlow
 	StaticParallel        *parallel.StaticParallelStepsFlow
 	DynamicParallel       *parallel.DynamicParallelStepsFlow
 	AwaitParallel         *parallel.AwaitParallelStepsFlow
@@ -164,7 +164,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	Reminder = reminders.NewReminderFlow(patternService)
 	UserProfile = entitystore.NewUserProfileFlow()
 	ManualRecovery = intervention.NewManualRecoveryFlow()
-	ResettableTimer = resettabletimer.NewResettableTimerFlow()
+	InactivenessTracker = inactivenesstrackertimer.NewInactivenessTrackerFlow()
 	StaticParallel = parallel.NewStaticParallelStepsFlow()
 	DynamicParallel = parallel.NewDynamicParallelStepsFlow()
 	AwaitParallel = parallel.NewAwaitParallelStepsFlow()
@@ -224,7 +224,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		Reminder,
 		UserProfile,
 		ManualRecovery,
-		ResettableTimer,
+		InactivenessTracker,
 		StaticParallel,
 		DynamicParallel,
 		AwaitParallel,

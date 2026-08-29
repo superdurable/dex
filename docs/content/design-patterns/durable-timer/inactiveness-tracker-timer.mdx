@@ -1,0 +1,135 @@
+---
+title: Inactiveness Tracker Timer
+---
+
+# Inactiveness Tracker Timer
+
+![InactivenessTrackerFlow](/img/design-patterns/inactiveness-tracker-timer-flow.png)
+
+Use this pattern when an action should happen only after a period without activity. **InactivenessTrackerFlow** starts with **TrackerStep**. It waits for either the Timer or the **Active** Channel. Activity arrives first, so **TrackerStep** moves to itself and starts a fresh Timer. If the Timer fires first, the Flow moves to **ProcessInactivenessStep**.
+
+## Core Step
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/inactiveness-tracker-timer/inactiveness_tracker_flow.py', go: 'examples/go/patterns/inactiveness-tracker-timer/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/inactivenesstracker/InactivenessTrackerFlow.java', typescript: 'examples/typescript/src/patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.ts', rust: 'examples/rust/src/patterns/inactiveness_tracker/flow.rs'}}>
+
+<SdkSnippet lang="python">
+
+```python
+class TrackerStep(Step[None]):
+    def __init__(self, process_inactiveness: ProcessInactivenessStep, active_channel: Channel[None]) -> None:
+        self.process_inactiveness = process_inactiveness
+        self.active_channel = active_channel
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        del context, input
+        return Wait.any_of(Timer.by_duration(TRACKER_DURATION), self.active_channel.for_one())
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del input
+        if context.has_timer_fired():
+            return go_to(ProcessInactivenessStep, None)
+        return go_to(TrackerStep, None)
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="go">
+
+```go
+type trackerStep struct {
+	dex.StepDefaults
+}
+
+func (trackerStep) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
+	return dex.AnyOf(dex.Timer(TrackerDuration), ActiveChannel.ForOne()), nil
+}
+
+func (trackerStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	if ctx.HasTimerFired() {
+		return dex.GoTo(processInactivenessStep{}, nil), nil
+	}
+	return dex.GoTo(trackerStep{}, nil), nil
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="java">
+
+```java
+final class TrackerStep implements Step<Void> {
+    @Override
+    public Class<Void> getInputType() {
+        return Void.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Void input) {
+        return Wait.anyOf(Timer.byDuration(TRACKER_DURATION), activeChannel.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Void input) {
+        if (context.hasTimerFired()) {
+            return StepDecision.goTo(ProcessInactivenessStep.class, null);
+        }
+        return StepDecision.goTo(TrackerStep.class, null);
+    }
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="typescript">
+
+```typescript
+class TrackerStep implements Step<void> {
+  public getStepType(): string {
+    return "TrackerStep";
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.anyOf(Timer.byDuration(TRACKER_DURATION_MS), activeChannel.forOne());
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    if (context.hasTimerFired()) {
+      return goTo(ProcessInactivenessStep, undefined);
+    }
+    return goTo(TrackerStep, undefined);
+  }
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct TrackerStep;
+
+impl Step for TrackerStep {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([Timer::by_duration(Duration::from_secs(300)), ACTIVE_CHANNEL.for_one()]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        if context.has_any_timer_fired() {
+            return Ok(StepDecision::go_to(&ProcessInactivenessStep, ()));
+        }
+        Ok(StepDecision::go_to(&TrackerStep, ()))
+    }
+}
+```
+
+</SdkSnippet>
+
+</SdkTabs>
+
+## Related
+
+- [Timer](/primitives/timer)
+- [Channel](/primitives/channel)

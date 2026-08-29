@@ -18,6 +18,7 @@ use dex_examples_rust::patterns::{
     cron::CronScheduleFlow,
     drain_channels::{DrainInternalChannelFlow, DrainingExternalChannelFlow},
     entity_store::UserProfileFlow,
+    inactiveness_tracker::InactivenessTrackerFlow,
     interruptible::InterruptibleFlow,
     intervention::ManualRecoveryFlow,
     parallel::{
@@ -31,7 +32,6 @@ use dex_examples_rust::patterns::{
     polling::{BackoffPollingFlow, IterationFlow, PollingWithTimerFlow},
     recovery::FailureRecoveryFlow,
     reminders::ReminderFlow,
-    resettable_timer::ResettableTimerFlow,
     timeout::FlowGracefulTimeout,
     wait_for_step_completion::WaitForStepCompletionFlow,
 };
@@ -83,7 +83,7 @@ fn catalog_matches_every_cross_language_example() {
         IterationFlow::default().flow_type(),
         FailureRecoveryFlow::default().flow_type(),
         ReminderFlow::default().flow_type(),
-        ResettableTimerFlow::default().flow_type(),
+        InactivenessTrackerFlow::default().flow_type(),
         UserProfileFlow.flow_type(),
         FlowGracefulTimeout::default().flow_type(),
         WaitForStepCompletionFlow::default().flow_type(),

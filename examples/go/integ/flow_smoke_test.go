@@ -284,13 +284,13 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "patterns/resettable-timer",
+			name: "patterns/inactiveness-tracker-timer",
 			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{"workflowId": {smokeWorkflowID(t, "resettable-timer")}}
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "inactiveness-tracker-timer")}}
 				return triggerFlowSmokeHTTP(
 					t,
 					http.MethodGet,
-					"/patterns/resettable-timer/start",
+					"/patterns/inactiveness-tracker-timer/start",
 					query,
 					nil,
 				)

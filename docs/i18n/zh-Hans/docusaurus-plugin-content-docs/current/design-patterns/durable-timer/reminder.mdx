@@ -1,0 +1,144 @@
+---
+title: Reminder
+sidebar_label: Reminder
+---
+
+# Reminder
+
+![ReminderFlow](/img/design-patterns/reminder-flow.png)
+
+**ReminderFlow** 会按 interval 发送提醒，直到接收者 opt-out。**ReminderStep** 等待 interval Timer 或 **OptOut** Channel。Timer 先触发时，Step 发送提醒并跳回自身；**OptOut** 先到达时，Step 完成 Flow。
+
+## 核心 Step
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/reminders/reminder_flow.py', go: 'examples/go/patterns/reminders/workflow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/reminders/ReminderFlow.java', typescript: 'examples/typescript/src/patterns/reminders/reminder-flow.ts', rust: 'examples/rust/src/patterns/reminders/flow.rs'}}>
+
+<SdkSnippet lang="python">
+
+```python
+class ReminderStep(Step[None]):
+    def __init__(self, service: ServiceDependency, opt_out: Channel[None]) -> None:
+        self.service = service
+        self.opt_out = opt_out
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        del context, input
+        return Wait.any_of(Timer.by_duration(REMINDER_INTERVAL), self.opt_out.for_one())
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del input
+        if not context.has_timer_fired():
+            return graceful_complete()
+        self.service.send_email("Reminder: please respond", "Hello, ...")
+        return go_to(ReminderStep, None)
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="go">
+
+```go
+type reminderStep struct {
+	dex.StepDefaults
+	service patternsservice.ServiceDependency
+}
+
+func (reminderStep) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
+	return dex.AnyOf(dex.Timer(5*time.Second), OptOut.ForOne()), nil
+}
+
+func (step reminderStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	if !ctx.HasTimerFired() {
+		return dex.GracefulComplete(nil), nil
+	}
+	step.service.SendEmail("Reminder: please respond", "Hello, ...")
+	return dex.GoTo(reminderStep{}, nil), nil
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="java">
+
+```java
+final class ReminderStep implements Step<Void> {
+    @Override
+    public Class<Void> getInputType() {
+        return Void.class;
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final Void input) {
+        return Wait.anyOf(Timer.byDuration(Duration.ofSeconds(5)), optOut.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Void input) {
+        if (!context.hasTimerFired()) {
+            return StepDecision.gracefulComplete();
+        }
+        service.sendEmail("Reminder: please respond", "Hello, ...");
+        return StepDecision.goTo(ReminderStep.class, null);
+    }
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="typescript">
+
+```typescript
+class ReminderStep implements Step<void> {
+  public constructor(private readonly service: ServiceDependency) {}
+
+  public getStepType(): string {
+    return "ReminderStep";
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.anyOf(Timer.byDuration(REMINDER_WAIT_MS), optOut.forOne());
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    if (!context.hasTimerFired()) {
+      return gracefulComplete();
+    }
+    this.service.sendEmail("Reminder: please respond", "Hello, ...");
+    return goTo(ReminderStep, undefined);
+  }
+}
+```
+
+</SdkSnippet>
+
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct ReminderStep;
+
+impl Step for ReminderStep {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([Timer::by_duration(Duration::from_secs(5)), OPT_OUT.for_one()]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        if !context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete("opted-out".to_string()));
+        }
+        context.record_event("reminder", "sent".to_string())?;
+        Ok(StepDecision::go_to(&ReminderStep, ()))
+    }
+}
+```
+
+</SdkSnippet>
+
+</SdkTabs>
+
+## 相关内容
+
+- [Timer](/primitives/timer)
+- [Channel](/primitives/channel)

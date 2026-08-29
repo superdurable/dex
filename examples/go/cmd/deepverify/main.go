@@ -40,6 +40,7 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
+	"github.com/superdurable/dex/examples/go/patterns/reminders"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
@@ -116,14 +117,14 @@ func main() {
 			})
 		}
 	}
-	if want("resettabletimer/start+reset") || want("pattern/resettabletimer-fire") {
-		id, startErr := startResettableTimerPath(ctx, client, stamp)
+	if want("inactivenesstracker/start+activity") || want("pattern/inactivenesstracker-fire") {
+		id, startErr := startInactivenessTrackerPath(ctx, client, stamp)
 		if startErr != nil {
-			record(result{name: "resettabletimer/start+reset", ok: false, err: startErr})
+			record(result{name: "inactivenesstracker/start+activity", ok: false, err: startErr})
 		} else {
 			resetID = id
 			record(result{
-				name:    "resettabletimer/start+reset",
+				name:    "inactivenesstracker/start+activity",
 				ok:      true,
 				details: "flowID=" + resetID + " (waiting ~5m after reset)",
 			})
@@ -136,8 +137,8 @@ func main() {
 	if shortlistID != "" && want("product/shortlist-email") {
 		record(waitShortlistEmail(ctx, client, shortlistID))
 	}
-	if resetID != "" && want("pattern/resettabletimer-fire") {
-		record(waitResettableTimer(ctx, client, resetID))
+	if resetID != "" && want("pattern/inactivenesstracker-fire") {
+		record(waitInactivenessTracker(ctx, client, resetID))
 	}
 
 	failCount := 0
@@ -728,14 +729,14 @@ func waitShortlistEmail(ctx context.Context, client *dex.Client, flowID string) 
 	return pass(name, fmt.Sprintf("email sent ts=%d after 5m timer", emailTS))
 }
 
-func startResettableTimerPath(
+func startInactivenessTrackerPath(
 	ctx context.Context,
 	client *dex.Client,
 	stamp string,
 ) (string, error) {
-	flowID := "dv-reset-" + stamp
+	flowID := "dv-inactiveness-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.ResettableTimer, flowID, nil, hourStartOptions(),
+		ctx, registry.InactivenessTracker, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return "", err
@@ -743,15 +744,15 @@ func startResettableTimerPath(
 	time.Sleep(2 * time.Second)
 	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.ResettableTimer.SendResetMessage, nil, &none, dex.InvokeOptions{},
+		ctx, flowID, registry.InactivenessTracker.RecordActivity, nil, &none, dex.InvokeOptions{},
 	); err != nil {
 		return "", err
 	}
 	return flowID, nil
 }
 
-func waitResettableTimer(ctx context.Context, client *dex.Client, flowID string) result {
-	name := "pattern/resettabletimer-fire"
+func waitInactivenessTracker(ctx context.Context, client *dex.Client, flowID string) result {
+	name := "pattern/inactivenesstracker-fire"
 	wait, err := waitCompleted(ctx, client, flowID, 6*time.Minute)
 	if err != nil {
 		return fail(name, "", err)
@@ -836,16 +837,13 @@ func verifyReminder(ctx context.Context, client *dex.Client, stamp string) resul
 		return fail(name, "", err)
 	}
 	time.Sleep(6 * time.Second) // allow at least one reminder timer tick
-	var none dex.None
-	if err := client.InvokeRPC(
-		ctx, flowID, registry.Reminder.Accept, nil, &none, dex.InvokeOptions{},
-	); err != nil {
-		return fail(name, "accept", err)
+	if err := client.PublishToChannel(ctx, flowID, reminders.OptOut, nil); err != nil {
+		return fail(name, "opt out", err)
 	}
 	if _, err := waitCompleted(ctx, client, flowID, 45*time.Second); err != nil {
 		return fail(name, "", err)
 	}
-	return pass(name, "reminder tick + Accept completed")
+	return pass(name, "reminder tick + opt-out completed")
 }
 
 func verifyEntityStore(ctx context.Context, client *dex.Client, stamp string) result {

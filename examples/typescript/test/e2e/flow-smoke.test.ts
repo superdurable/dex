@@ -201,10 +201,10 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
-      name: "patterns/resettable-timer",
+      name: "patterns/inactiveness-tracker-timer",
       trigger: () =>
-        triggerGet(context, "/patterns/resettable-timer/start", {
-          workflowId: newFlowId("resettable-timer"),
+        triggerGet(context, "/patterns/inactiveness-tracker-timer/start", {
+          workflowId: newFlowId("inactiveness-tracker-timer"),
         }),
       flags: defaultFlags(),
     },

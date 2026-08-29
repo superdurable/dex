@@ -12,124 +12,51 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/*
- * Copyright (c) 2022-2026 Super Durable, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+use std::sync::LazyLock;
 use std::time::Duration;
 
-use std::sync::LazyLock;
-
 use dex_sdk::{
-    Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
-    StepList, StepMovement, Timer, Wait,
+    Channel, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Timer,
+    Wait,
 };
 
-pub const REMINDER_ACCEPT: Rpc<(), ()> = Rpc::new("ReminderAccept");
-pub const REMINDER_OPT_OUT: Rpc<(), ()> = Rpc::new("ReminderOptOut");
+pub static OPT_OUT: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("OptOut"));
 
 #[derive(Default)]
 pub struct ReminderFlow {
-    start: Start,
-    remind: Remind,
-    timeout: Timeout,
-}
-
-impl ReminderFlow {
-    fn accept(&self, context: &mut Context) -> HandlerResult<()> {
-        RESOLUTION.publish(context, "accepted".to_string())
-    }
-
-    fn opt_out(&self, context: &mut Context) -> HandlerResult<()> {
-        RESOLUTION.publish(context, "opted-out".to_string())
-    }
+    reminder_step: ReminderStep,
 }
 
 impl Flow for ReminderFlow {
-    type StartInput = String;
+    type StartInput = ();
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.start)
-            .and(&self.remind)
-            .and(&self.timeout)
+        StepList::start(&self.reminder_step)
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&RESOLUTION)
-    }
-
-    fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new()
-            .procedure_without_input(REMINDER_ACCEPT, Self::accept)
-            .procedure_without_input(REMINDER_OPT_OUT, Self::opt_out)
+        PersistenceSchema::new().channel(&OPT_OUT)
     }
 }
 
 #[derive(Default)]
-struct Start;
+struct ReminderStep;
 
-impl Step for Start {
-    type Input = String;
-
-    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::go_to_many([
-            StepMovement::to(&Remind, (input, 0)),
-            StepMovement::to(&Timeout, ()),
-        ]))
-    }
-}
-
-#[derive(Default)]
-struct Remind;
-
-impl Step for Remind {
-    type Input = (String, u32);
-
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([
-            RESOLUTION.for_one(),
-            Timer::by_duration(Duration::from_secs(3_600)),
-        ]))
-    }
-
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        let resolutions = RESOLUTION.condition_results(context)?;
-        if let Some(resolved) = resolutions.into_iter().next() {
-            return Ok(StepDecision::force_complete(resolved));
-        }
-        context.record_event("reminder", input.0.clone())?;
-        Ok(StepDecision::go_to(&Remind, (input.0, input.1 + 1)))
-    }
-}
-
-#[derive(Default)]
-struct Timeout;
-
-impl Step for Timeout {
+impl Step for ReminderStep {
     type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(
-            604_800,
-        ))))
+        Ok(Wait::any_of([
+            Timer::by_duration(Duration::from_secs(5)),
+            OPT_OUT.for_one(),
+        ]))
     }
 
-    fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::force_complete("timed-out".to_string()))
+    fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+        if !context.has_any_timer_fired() {
+            return Ok(StepDecision::graceful_complete("opted-out".to_string()));
+        }
+        context.record_event("reminder", "sent".to_string())?;
+        Ok(StepDecision::go_to(&ReminderStep, ()))
     }
 }
-
-static RESOLUTION: LazyLock<Channel<String>> =
-    LazyLock::new(|| Channel::new("reminder-resolution"));
