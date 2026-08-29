@@ -30,7 +30,8 @@ import {
 } from "./patterns/parallel/parallel-step-flows.js";
 import { parentFlowV2 } from "./patterns/parent-child/parent-flow-v2.js";
 import { backoffPollingFlow } from "./patterns/polling/backoff-polling-flow.js";
-import { simplePollingFlow } from "./patterns/polling/simple-polling-flow.js";
+import { pollingWithTimerFlow } from "./patterns/polling/simple-polling-flow.js";
+import { iterationFlow } from "./patterns/polling/iteration-flow.js";
 import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.js";
 import { reminderFlow } from "./patterns/reminders/reminder-flow.js";
 import { resettableTimerFlow } from "./patterns/resettable-timer/resettable-timer-flow.js";
@@ -92,8 +93,9 @@ export const allExampleFlows: readonly Flow<any>[] = [
   awaitParallelStepsFlow,
   firstWinParallelStepsFlow,
   parentFlowV2,
-  simplePollingFlow,
+  pollingWithTimerFlow,
   backoffPollingFlow,
+  iterationFlow,
   failureRecoveryFlow,
   reminderFlow,
   resettableTimerFlow,
@@ -149,8 +151,9 @@ export {
   awaitParallelStepsFlow,
   firstWinParallelStepsFlow,
   parentFlowV2,
-  simplePollingFlow,
+  pollingWithTimerFlow,
   backoffPollingFlow,
+  iterationFlow,
   failureRecoveryFlow,
   reminderFlow,
   resettableTimerFlow,

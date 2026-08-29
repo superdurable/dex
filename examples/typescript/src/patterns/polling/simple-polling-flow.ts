@@ -27,11 +27,11 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-class SimplePolling implements Step<void> {
-  public constructor(private readonly flow: SimplePollingFlow) {}
+class PollingStep implements Step<void> {
+  public constructor(private readonly flow: PollingWithTimerFlow) {}
 
   public getStepType(): string {
-    return "SimplePolling";
+    return "PollingStep";
   }
 
   public waitFor(_context: Context, _input: void): Wait {
@@ -40,46 +40,25 @@ class SimplePolling implements Step<void> {
 
   public execute(_context: Context, _input: void): StepDecision {
     if (this.isSystemReady()) {
-      return goTo(SimplePollingComplete, undefined);
+      return gracefulComplete();
     }
-    return goTo(SimplePolling, undefined);
+    return goTo(PollingStep, undefined);
   }
-
   private isSystemReady(): boolean {
     console.log("Executing external system check for readiness...");
     return true;
   }
 }
 
-class SimplePollingComplete implements Step<void> {
-  public getStepType(): string {
-    return "SimplePollingComplete";
-  }
-
-  public execute(_context: Context, _input: void): StepDecision {
-    console.log("Executing final state to complete the workflow...");
-    return gracefulComplete();
-  }
-}
-
-export class SimplePollingFlow implements Flow<void> {
-  private readonly simplePolling = new SimplePolling(this);
-  private readonly simplePollingComplete = new SimplePollingComplete();
-
-  public get simplePollingStep(): Step<void> {
-    return this.simplePolling;
-  }
-
-  public get simplePollingCompleteStep(): Step<void> {
-    return this.simplePollingComplete;
-  }
+export class PollingWithTimerFlow implements Flow<void> {
+  private readonly pollingStep = new PollingStep(this);
 
   public getFlowType(): string {
-    return "SimplePollingFlow";
+    return "PollingWithTimerFlow";
   }
 
   public getSteps() {
-    return StepList.startStep(this.simplePolling).otherSteps(this.simplePollingComplete);
+    return StepList.startStep(this.pollingStep);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
@@ -87,4 +66,4 @@ export class SimplePollingFlow implements Flow<void> {
   }
 }
 
-export const simplePollingFlow = new SimplePollingFlow();
+export const pollingWithTimerFlow = new PollingWithTimerFlow();

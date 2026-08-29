@@ -18,6 +18,7 @@ import {
   StepList,
   goTo,
   gracefulComplete,
+  retryAfter,
   stringCodec,
   type Context,
   type Flow,
@@ -32,15 +33,13 @@ import {
   type ServiceDependency,
 } from "../shared/service-dependency.js";
 
-class ReadExternalDep implements Step<void> {
+class PollingStep implements Step<void> {
   public constructor(
     private readonly flow: BackoffPollingFlow,
     private readonly service: ServiceDependency,
   ) {}
 
-  public getStepType(): string {
-    return "ReadExternalDep";
-  }
+  public getStepType(): string { return "PollingStep"; }
 
   public getStepOptions(): StepOptions {
     return {
@@ -55,34 +54,19 @@ class ReadExternalDep implements Step<void> {
   }
 
   public execute(_context: Context, _input: void): StepDecision {
-    const result = this.service.attemptExternalApiCall("Read for BackoffPollingFlow");
-    return goTo(PollingComplete, result);
-  }
-}
-
-class PollingComplete implements Step<string> {
-  public readonly inputCodec = stringCodec;
-
-  public getStepType(): string {
-    return "PollingComplete";
-  }
-
-  public execute(_context: Context, externalDataInput: string): StepDecision {
-    console.log(`Executing final state to complete the workflow: (${externalDataInput})`);
-    return gracefulComplete(externalDataInput);
+    try {
+      return gracefulComplete(this.service.attemptExternalApiCall("Poll for BackoffPollingFlow"));
+    } catch (error) {
+      throw retryAfter(1, error instanceof Error ? error : new Error(String(error)));
+    }
   }
 }
 
 export class BackoffPollingFlow implements Flow<void> {
-  private readonly readExternalDep: ReadExternalDep;
-  private readonly pollingComplete = new PollingComplete();
+  private readonly pollingStep: PollingStep;
 
   public constructor(service: ServiceDependency = serviceDependency) {
-    this.readExternalDep = new ReadExternalDep(this, service);
-  }
-
-  public get pollingCompleteStep(): Step<string> {
-    return this.pollingComplete;
+    this.pollingStep = new PollingStep(this, service);
   }
 
   public getFlowType(): string {
@@ -90,7 +74,7 @@ export class BackoffPollingFlow implements Flow<void> {
   }
 
   public getSteps() {
-    return StepList.startStep(this.readExternalDep).otherSteps(this.pollingComplete);
+    return StepList.startStep(this.pollingStep);
   }
 
   public getPersistenceSchema(): PersistenceSchema {

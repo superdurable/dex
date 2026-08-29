@@ -41,8 +41,9 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(parallel::AwaitParallelStepsFlow::default())?
         .register(parallel::FirstWinParallelStepsFlow::default())?
         .register(parent_child::ParentFlowV2::default())?
-        .register(polling::SimplePollingFlow::default())?
+        .register(polling::PollingWithTimerFlow::default())?
         .register(polling::BackoffPollingFlow::default())?
+        .register(polling::IterationFlow::default())?
         .register(recovery::FailureRecoveryFlow::default())?
         .register(reminders::ReminderFlow::default())?
         .register(resettable_timer::ResettableTimerFlow::default())?

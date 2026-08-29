@@ -1,54 +1,22 @@
 ---
-title: Polling
+title: Polling and Iteration
 ---
 
-# Polling
+# Polling and Iteration
 
-Wait on external readiness with simple timers or backoff Step retries.
+Use these patterns when a Flow must revisit external state or process a paginated collection over time.
 
 ## Problem and approach
 
-Here we demonstrate two basic and common design patterns for building Flows with Dex:
+Choose the control flow that matches the work:
 
-1. **Simple Polling Flow**: This Flow periodically checks if a system is ready using a Timer condition, and proceeds to the next Step once the system is ready.
+1. [Backoff Polling](/design-patterns/polling/backoff) retries an expected not-ready error with an exponential backoff.
 
-2. **Backoff Polling Flow**: This Flow is an alternative approach to the Simple Polling Flow; it is using a retry mechanism (with exponential backoff) that proceeds to the next Step once a successful response is received from the (external) system/API.
+2. [Polling with Timer](/design-patterns/polling/timer) waits on an explicit Timer before each readiness check.
 
-## Code examples
+3. [Iteration](/design-patterns/polling/iteration) processes one page at a time and passes the next page token to the next Step input.
 
-Full runnable samples live under examples/go, examples/java, examples/python, examples/typescript, and examples/rust (HTTP prefix /patterns/name/... where applicable). Try them from the examples playground (**examples/playground**); see **examples/README.md**.
-
-<SdkTabs>
-<SdkSnippet lang="python">
-
-```python
-# See examples/python/dex_examples/patterns/polling/
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="go">
-
-```go
-// See examples/go/patterns/polling/
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="java">
-
-```java
-// See examples/java/src/main/java/io/superdurable/dex/patterns/polling/
-```
-
-</SdkSnippet>
-  <SdkSnippet lang="typescript">
-
-```typescript
-// @superdurable/dex ^0.2.3+ (async waitFor/execute/RPC OK).
-// See examples/typescript/src/patterns/polling/
-```
-
-</SdkSnippet>
-</SdkTabs>
+All three are durable loops: a completed Step either finishes the Flow or schedules its next execution.
 
 ## Related
 

@@ -1,0 +1,163 @@
+---
+title: Backoff Polling
+---
+
+# Backoff Polling
+
+![BackoffPollingFlow](/img/design-patterns/backoff-polling-flow.png)
+
+**BackoffPollingFlow** runs **PollingStep** against an external service. When the condition is not met, the Step returns an expected error. Its **ExecuteRetry** policy retries that same execution with exponential backoff; a successful response completes the Flow.
+
+Use **RetryAfter** to request the exact delay for the next retry while preserving the error. Because the expected not-ready result is a failed Step attempt, operation monitors and runbooks must classify it as expected and must not page on-call for it.
+
+## Core implementation
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/polling/backoff_polling_flow.py', go: 'examples/go/patterns/polling/backoff.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/polling/BackoffPollingFlow.java', typescript: 'examples/typescript/src/patterns/polling/backoff-polling-flow.ts', rust: 'examples/rust/src/patterns/polling/flow.rs'}}>
+<SdkSnippet lang="go">
+
+```go
+type pollingStep struct {
+	dex.DefaultStepType
+	dex.NoWaitFor[dex.None]
+	service patternsservice.ServiceDependency
+}
+
+func (pollingStep) GetStepType() string { return "PollingStep" }
+
+func (pollingStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{
+			InitialInterval:    3 * time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumAttempts:    5,
+		},
+	}
+}
+
+func (step pollingStep) Execute(
+	ctx dex.Context,
+	input dex.None,
+) (*dex.StepDecision, error) {
+	result, err := step.service.AttemptExternalAPICall("Poll for BackoffPollingFlow")
+	if err != nil {
+		return nil, dex.RetryAfter(time.Second, err)
+	}
+	return dex.GracefulComplete(result), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="python">
+
+```python
+class PollingStep(Step[None]):
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                initial_interval=timedelta(seconds=3),
+                backoff_coefficient=2.0,
+                maximum_attempts=5,
+            )
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del context, input
+        try:
+            result = self.service.attempt_external_api_call(
+                "Poll for BackoffPollingFlow"
+            )
+        except RuntimeError as error:
+            raise retry_after(1, error) from error
+        return graceful_complete(result)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class PollingStep implements Step<Void> {
+    @Override
+    public Class<Void> getInputType() {
+        return Void.class;
+    }
+
+    @Override
+    public String getStepType() {
+        return "PollingStep";
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder()
+                        .initialInterval(Duration.ofSeconds(3))
+                        .backoffCoefficient(2.0)
+                        .maximumAttempts(5)
+                        .build())
+                .build();
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Void input) {
+        return StepDecision.gracefulComplete(
+                service.attemptExternalApiCall("Poll for BackoffPollingFlow"));
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class PollingStep implements Step<void> {
+  public getStepType(): string {
+    return "PollingStep";
+  }
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: {
+        initialIntervalMs: 3_000,
+        backoffCoefficient: 2,
+        maximumAttempts: 5,
+      },
+    };
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return gracefulComplete(
+      this.service.attemptExternalApiCall("Poll for BackoffPollingFlow"),
+    );
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for BackoffPoll {
+    type Input = u32;
+    fn step_type(&self) -> &'static str {
+        "PollingStep"
+    }
+
+    fn execute(
+        &self,
+        context: &mut Context,
+        ready_after_attempt: u32,
+    ) -> HandlerResult<StepDecision> {
+        if context.attempt() < ready_after_attempt.max(1) {
+            return Err(HandlerError::retry_after(
+                1,
+                "Polling",
+                "external system is not ready",
+            ));
+        }
+        Ok(StepDecision::graceful_complete("ready".to_owned()))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>

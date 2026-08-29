@@ -235,7 +235,7 @@ func runPatternScenarios(
 		run  func() result
 	}
 	cases := []caseFn{
-		{"pattern/simple-polling", func() result { return verifySimplePolling(ctx, client, stamp) }},
+		{"pattern/timer-polling", func() result { return verifyTimerPolling(ctx, client, stamp) }},
 		{"pattern/backoff-polling", func() result { return verifyBackoffPolling(ctx, client, stamp) }},
 		{"pattern/interruptible", func() result { return verifyInterruptible(ctx, client, stamp) }},
 		{"pattern/reminder", func() result { return verifyReminder(ctx, client, stamp) }},
@@ -760,11 +760,11 @@ func waitResettableTimer(ctx context.Context, client *dex.Client, flowID string)
 	return pass(name, "completed after reset + 5m timer fire")
 }
 
-func verifySimplePolling(ctx context.Context, client *dex.Client, stamp string) result {
+func verifyTimerPolling(ctx context.Context, client *dex.Client, stamp string) result {
 	name := "pattern/simple-polling"
 	flowID := "dv-simple-poll-" + stamp
 	_, err := client.StartFlow(
-		ctx, registry.SimplePolling, flowID, nil, hourStartOptions(),
+		ctx, registry.PollingWithTimer, flowID, nil, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "", err)

@@ -86,8 +86,9 @@ var (
 	Shortlist       *shortlistcandidates.ShortlistFlow
 
 	CronSchedule           *cron.CronScheduleFlow
-	SimplePolling          *patternspolling.SimplePollingFlow
+	PollingWithTimer       *patternspolling.PollingWithTimerFlow
 	BackoffPolling         *patternspolling.BackoffPollingFlow
+	Iteration              *patternspolling.IterationFlow
 	Interruptible          *interruptible.InterruptibleFlow
 	Reminder               *reminders.ReminderFlow
 	UserProfile            *entitystore.UserProfileFlow
@@ -156,8 +157,9 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	)
 
 	CronSchedule = cron.NewCronScheduleFlow()
-	SimplePolling = patternspolling.NewSimplePollingFlow()
+	PollingWithTimer = patternspolling.NewPollingWithTimerFlow()
 	BackoffPolling = patternspolling.NewBackoffPollingFlow(patternService)
+	Iteration = patternspolling.NewIterationFlow()
 	Interruptible = interruptible.NewInterruptibleFlow()
 	Reminder = reminders.NewReminderFlow(patternService)
 	UserProfile = entitystore.NewUserProfileFlow()
@@ -216,8 +218,9 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		EmployerOptIn,
 		Shortlist,
 		CronSchedule,
-		SimplePolling,
+		PollingWithTimer,
 		BackoffPolling,
+		Iteration,
 		Interruptible,
 		Reminder,
 		UserProfile,

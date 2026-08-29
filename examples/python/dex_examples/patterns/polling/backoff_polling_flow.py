@@ -25,27 +25,18 @@ from dex import (
     StepDecision,
     StepList,
     StepOptions,
-    go_to,
     graceful_complete,
+    retry_after,
 )
 
 from dex_examples.patterns.shared.service_dependency import ServiceDependency
 
 
-class PollingComplete(Step[str]):
-    def execute(self, context: Context, input: str) -> StepDecision:
-        del context
-        print(f"Executing final state to complete the workflow: ({input})")
-        return graceful_complete(input)
-
-
-class ReadExternalDep(Step[None]):
+class PollingStep(Step[None]):
     def __init__(
         self,
-        polling_complete: PollingComplete,
         service: ServiceDependency,
     ) -> None:
-        self.polling_complete = polling_complete
         self.service = service
 
     def get_step_options(self) -> StepOptions:
@@ -61,19 +52,21 @@ class ReadExternalDep(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        result = self.service.attempt_external_api_call("Read for BackoffPollingFlow")
-        return go_to(PollingComplete, result)
+        try:
+            result = self.service.attempt_external_api_call(
+                "Poll for BackoffPollingFlow"
+            )
+        except RuntimeError as error:
+            raise retry_after(1, error) from error
+        return graceful_complete(result)
 
 
 class BackoffPollingFlow(Flow[None]):
     def __init__(self, service: ServiceDependency) -> None:
-        self.polling_complete = PollingComplete()
-        self.read_external_dep = ReadExternalDep(self.polling_complete, service)
+        self.polling_step = PollingStep(service)
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.read_external_dep).other_steps(
-            self.polling_complete
-        )
+        return StepList.start_step(self.polling_step)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of()

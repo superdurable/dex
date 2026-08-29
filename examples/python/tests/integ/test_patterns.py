@@ -155,18 +155,22 @@ async def test_parallel_step_variants(
         await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
-async def test_pattern_polling_simple_and_backoff(
+async def test_pattern_polling_timer_backoff_and_iteration(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    simple_id = new_flow_id("pattern-poll-simple")
-    await client.start_flow(app.simple_polling, simple_id, None, start_options())
-    await client.wait_for_flow(simple_id, WAIT_TIMEOUT)
+    timer_id = new_flow_id("pattern-poll-timer")
+    await client.start_flow(app.polling_with_timer, timer_id, None, start_options())
+    await client.wait_for_flow(timer_id, WAIT_TIMEOUT)
 
     backoff_id = new_flow_id("pattern-poll-backoff")
     await client.start_flow(app.backoff_polling, backoff_id, None, start_options())
     await client.wait_for_flow(backoff_id, WAIT_TIMEOUT)
+
+    iteration_id = new_flow_id("pattern-iteration")
+    await client.start_flow(app.iteration, iteration_id, "", start_options())
+    await client.wait_for_flow(iteration_id, WAIT_TIMEOUT)
 
 
 async def test_failure_recovery(

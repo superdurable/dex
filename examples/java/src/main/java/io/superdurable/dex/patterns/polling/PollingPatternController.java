@@ -28,26 +28,34 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/patterns/polling")
 public class PollingPatternController {
     private final Client client;
-    private final SimplePollingFlow simplePollingFlow;
+    private final PollingWithTimerFlow pollingWithTimerFlow;
     private final BackoffPollingFlow backoffPollingFlow;
+    private final IterationFlow iterationFlow;
 
     public PollingPatternController(
             final Client client,
-            final SimplePollingFlow simplePollingFlow,
-            final BackoffPollingFlow backoffPollingFlow) {
+            final PollingWithTimerFlow pollingWithTimerFlow,
+            final BackoffPollingFlow backoffPollingFlow,
+            final IterationFlow iterationFlow) {
         this.client = client;
-        this.simplePollingFlow = simplePollingFlow;
+        this.pollingWithTimerFlow = pollingWithTimerFlow;
         this.backoffPollingFlow = backoffPollingFlow;
+        this.iterationFlow = iterationFlow;
     }
 
-    @GetMapping("/start/simple")
-    ResponseEntity<String> startSimple(@RequestParam final String workflowId) {
+    @GetMapping("/start/timer")
+    ResponseEntity<String> startTimer(@RequestParam final String workflowId) {
         final String runId = client.startFlow(
-                simplePollingFlow,
+                pollingWithTimerFlow,
                 workflowId,
                 null,
                 ExampleFlows.startOptions());
         return ResponseEntity.ok(runId);
+    }
+
+    @GetMapping("/start/iteration")
+    ResponseEntity<String> startIteration(@RequestParam final String workflowId) {
+        return ResponseEntity.ok(client.startFlow(iterationFlow, workflowId, "", ExampleFlows.startOptions()));
     }
 
     @GetMapping("/start/backoff")

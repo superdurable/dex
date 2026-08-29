@@ -22,55 +22,44 @@ package polling
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-type PollingWithTimerFlow struct {
-	dex.FlowDefaults
+type IterationFlow struct{ dex.FlowDefaults }
+
+func NewIterationFlow() *IterationFlow { return &IterationFlow{} }
+
+func (*IterationFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(iterationStep{})}
 }
 
-func NewPollingWithTimerFlow() *PollingWithTimerFlow {
-	return &PollingWithTimerFlow{}
+func (*IterationFlow) GetPersistenceSchema() dex.PersistenceSchema { return dex.PersistenceSchema{} }
+
+type iterationStep struct {
+	dex.StepDefaultsNoWaitFor[string]
 }
 
-func (*PollingWithTimerFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{
-		dex.DefineStartStep(pollingWithTimerStep{}),
-	}
-}
+func (iterationStep) GetStepType() string { return "IterationStep" }
 
-func (*PollingWithTimerFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{}
-}
-
-type pollingWithTimerStep struct {
-	dex.StepDefaults
-}
-
-func (pollingWithTimerStep) GetStepType() string { return "PollingStep" }
-
-func (pollingWithTimerStep) WaitFor(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.Wait, error) {
-	return dex.Until(dex.Timer(10 * time.Second)), nil
-}
-
-func (pollingWithTimerStep) Execute(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.StepDecision, error) {
-	if isSystemReady() {
+func (iterationStep) Execute(ctx dex.Context, pageToken string) (*dex.StepDecision, error) {
+	documents, nextPageToken := readPage(pageToken)
+	fmt.Printf("Migrating %d documents from page %q\n", len(documents), pageToken)
+	if nextPageToken == "" {
 		return dex.GracefulComplete(nil), nil
 	}
-	return dex.GoTo(pollingWithTimerStep{}, nil), nil
+	return dex.GoTo(iterationStep{}, nextPageToken), nil
 }
 
-func isSystemReady() bool {
-	fmt.Println("Executing external system check for readiness...")
-	return true
+func readPage(pageToken string) ([]string, string) {
+	switch pageToken {
+	case "":
+		return []string{"document-1", "document-2"}, "page-2"
+	case "page-2":
+		return []string{"document-3"}, "page-3"
+	default:
+		return []string{"document-4"}, ""
+	}
 }
 
-var _ dex.Flow = (*PollingWithTimerFlow)(nil)
+var _ dex.Flow = (*IterationFlow)(nil)

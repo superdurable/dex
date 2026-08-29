@@ -21,7 +21,6 @@
 package polling
 
 import (
-	"fmt"
 	"time"
 
 	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
@@ -39,8 +38,7 @@ func NewBackoffPollingFlow(service patternsservice.ServiceDependency) *BackoffPo
 
 func (flow *BackoffPollingFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(readExternalDepStep{service: flow.service}),
-		dex.DefineStep(pollingCompleteStep{}),
+		dex.DefineStartStep(pollingStep{service: flow.service}),
 	}
 }
 
@@ -48,13 +46,15 @@ func (*BackoffPollingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type readExternalDepStep struct {
+type pollingStep struct {
 	dex.DefaultStepType
 	dex.NoWaitFor[dex.None]
 	service patternsservice.ServiceDependency
 }
 
-func (readExternalDepStep) GetStepOptions() *dex.StepOptions {
+func (pollingStep) GetStepType() string { return "PollingStep" }
+
+func (pollingStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval:    3 * time.Second,
@@ -66,30 +66,15 @@ func (readExternalDepStep) GetStepOptions() *dex.StepOptions {
 	}
 }
 
-func (step readExternalDepStep) Execute(
+func (step pollingStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
-	result, err := step.service.AttemptExternalAPICall("Read for BackoffPollingFlow")
+	result, err := step.service.AttemptExternalAPICall("Poll for BackoffPollingFlow")
 	if err != nil {
-		return nil, err
+		return nil, dex.RetryAfter(time.Second, err)
 	}
-	return dex.GoTo(pollingCompleteStep{}, result), nil
-}
-
-type pollingCompleteStep struct {
-	dex.StepDefaultsNoWaitFor[string]
-}
-
-func (pollingCompleteStep) Execute(
-	ctx dex.Context,
-	externalDataInput string,
-) (*dex.StepDecision, error) {
-	fmt.Printf(
-		"Executing final state to complete the workflow: (%s)\n",
-		externalDataInput,
-	)
-	return dex.GracefulComplete(externalDataInput), nil
+	return dex.GracefulComplete(result), nil
 }
 
 var _ dex.Flow = (*BackoffPollingFlow)(nil)

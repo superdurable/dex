@@ -25,7 +25,7 @@ use dex_examples_rust::patterns::{
         StaticParallelStepsFlow,
     },
     parent_child::ParentFlowV2,
-    polling::{BackoffPollingFlow, SimplePollingFlow},
+    polling::{BackoffPollingFlow, IterationFlow, PollingWithTimerFlow},
     recovery::FailureRecoveryFlow,
     reminders::ReminderFlow,
     resettable_timer::ResettableTimerFlow,
@@ -72,8 +72,9 @@ fn catalog_matches_every_cross_language_example() {
         AwaitParallelStepsFlow::default().flow_type(),
         FirstWinParallelStepsFlow::default().flow_type(),
         ParentFlowV2::default().flow_type(),
-        SimplePollingFlow::default().flow_type(),
+        PollingWithTimerFlow::default().flow_type(),
         BackoffPollingFlow::default().flow_type(),
+        IterationFlow::default().flow_type(),
         FailureRecoveryFlow::default().flow_type(),
         ReminderFlow::default().flow_type(),
         ResettableTimerFlow::default().flow_type(),
@@ -87,14 +88,14 @@ fn catalog_matches_every_cross_language_example() {
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
     assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
-    assert_eq!(product_flows.len() + pattern_flows.len(), 31);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 32);
     assert_eq!(
         product_flows
             .into_iter()
             .chain(pattern_flows)
             .collect::<HashSet<_>>()
             .len(),
-        31
+        32
     );
     create_example_registry().expect("all 31 example Flow definitions must register together");
 }

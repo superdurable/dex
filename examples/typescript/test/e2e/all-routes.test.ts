@@ -283,7 +283,7 @@ test("design-pattern timeout start", async () => {
 
 test("design-pattern polling simple and backoff", async () => {
   requireOk(
-    await get("/patterns/polling/start/simple", { workflowId: id("dp-simple") }),
+    await get("/patterns/polling/start/timer", { workflowId: id("dp-timer") }),
     "dp simple polling",
   );
   requireOk(

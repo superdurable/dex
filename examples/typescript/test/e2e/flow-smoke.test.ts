@@ -146,9 +146,9 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
-      name: "patterns/polling/simple",
+      name: "patterns/polling/timer",
       trigger: () =>
-        triggerGet(context, "/patterns/polling/start/simple", {
+        triggerGet(context, "/patterns/polling/start/timer", {
           workflowId: newFlowId("pattern-polling-simple"),
         }),
       flags: defaultFlags(),

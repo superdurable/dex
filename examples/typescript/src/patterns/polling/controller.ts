@@ -20,19 +20,25 @@ import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
 import { backoffPollingFlow } from "./backoff-polling-flow.js";
-import { simplePollingFlow } from "./simple-polling-flow.js";
+import { pollingWithTimerFlow } from "./simple-polling-flow.js";
+import { iterationFlow } from "./iteration-flow.js";
 
 export function createPatternPollingRouter(client: Client): Router {
   const router = Router();
 
-  router.get("/start/simple", async (request, response) => {
+  router.get("/start/timer", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const runId = await client.startFlow(
-      simplePollingFlow,
+      pollingWithTimerFlow,
       workflowId,
       undefined,
       startOptions(),
     );
+    response.send(runId);
+  });
+
+  router.get("/start/iteration", async (request, response) => {
+    const runId = await client.startFlow(iterationFlow, String(request.query.workflowId ?? ""), "", startOptions());
     response.send(runId);
   });
 

@@ -174,7 +174,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 		registry.EmployerOptIn,
 		registry.Shortlist,
 	)
-	patternspolling.RegisterRoutes(router, client, registry.SimplePolling, registry.BackoffPolling)
+	patternspolling.RegisterRoutes(router, client, registry.PollingWithTimer, registry.BackoffPolling, registry.Iteration)
 	interruptible.RegisterRoutes(router, client, registry.Interruptible)
 	reminders.RegisterRoutes(router, client, registry.Reminder)
 	entitystore.RegisterRoutes(router, client, registry.UserProfile)
