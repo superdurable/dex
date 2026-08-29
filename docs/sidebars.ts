@@ -51,25 +51,6 @@ const sidebars: SidebarsConfig = {
       items: [
         {
           type: 'category',
-          label: 'Durable Timer',
-          link: {type: 'doc', id: 'design-patterns/durable-timer/index'},
-          items: [
-            'design-patterns/durable-timer/cron',
-            'design-patterns/durable-timer/reminder',
-            'design-patterns/durable-timer/inactiveness-tracker-timer',
-          ],
-        },
-        {
-          type: 'category',
-          label: 'Drain Channels',
-          items: [
-            'design-patterns/drain-internal-channels',
-            'design-patterns/draining-channel-for-external-publishing',
-          ],
-        },
-        'design-patterns/interruptible',
-        {
-          type: 'category',
           label: 'Failure Handling',
           link: {type: 'doc', id: 'design-patterns/failure-handling'},
           items: [
@@ -79,6 +60,27 @@ const sidebars: SidebarsConfig = {
             'design-patterns/failure-handling/wait-for-failure-recovery',
           ],
         },
+        {
+          type: 'category',
+          label: 'Polling and Iteration',
+          link: {type: 'doc', id: 'design-patterns/polling'},
+          items: [
+            'design-patterns/polling/backoff',
+            'design-patterns/polling/timer',
+            'design-patterns/polling/iteration',
+          ],
+        },
+        {
+          type: 'category',
+          label: 'Durable Timer',
+          link: {type: 'doc', id: 'design-patterns/durable-timer/index'},
+          items: [
+            'design-patterns/durable-timer/cron',
+            'design-patterns/durable-timer/reminder',
+            'design-patterns/durable-timer/inactiveness-tracker-timer',
+          ],
+        },
+        'design-patterns/interruptible',
         {
           type: 'category',
           label: 'Parallel Steps',
@@ -105,17 +107,6 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'category',
-          label: 'Polling and Iteration',
-          link: {type: 'doc', id: 'design-patterns/polling'},
-          items: [
-            'design-patterns/polling/backoff',
-            'design-patterns/polling/timer',
-            'design-patterns/polling/iteration',
-          ],
-        },
-        'design-patterns/entity-store',
-        {
-          type: 'category',
           label: 'Responsive Update',
           link: {type: 'doc', id: 'design-patterns/responsive-update'},
           items: [
@@ -124,6 +115,15 @@ const sidebars: SidebarsConfig = {
             'design-patterns/responsive-update/stream',
           ],
         },
+        {
+          type: 'category',
+          label: 'Drain Channels',
+          items: [
+            'design-patterns/drain-internal-channels',
+            'design-patterns/draining-channel-for-external-publishing',
+          ],
+        },
+        'design-patterns/entity-store',
       ],
     },
     {
