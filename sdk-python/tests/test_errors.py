@@ -18,8 +18,10 @@ from dex import (
     FlowNotActiveError,
     FlowNotFoundError,
     LongPollTimeoutError,
+    RetryAfterError,
     RpcLockConflictError,
     WorkerInvocationError,
+    retry_after,
 )
 from dex._grpc_errors import translate_rpc_error
 from dex.dexpb import dex_pb2 as pb
@@ -90,6 +92,16 @@ def test_other_known_sub_statuses_have_explicit_errors() -> None:
     )
     assert isinstance(timeout, LongPollTimeoutError)
     assert timeout.flow_id == "flow-id"
+
+
+def test_retry_after_is_available_from_the_sdk_package() -> None:
+    cause = RuntimeError("try again")
+
+    result = retry_after(1, cause)
+
+    assert isinstance(result, RetryAfterError)
+    assert result.after_seconds == 1
+    assert result.cause is cause
 
 
 def test_missing_and_malformed_details_use_generic_fallback() -> None:

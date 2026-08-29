@@ -8,6 +8,7 @@
 # Legacy Materials remain under their original licenses.
 # See LICENSE and LEGACY_NOTICES.md.
 
+from dex._grpc_errors import RetryAfterError, retry_after
 from dex.async_client import AsyncClient
 from dex.async_worker import AsyncWorker
 from dex.attribute import (
@@ -140,6 +141,7 @@ __all__ = [
     "LongPollTimeoutError",
     "PersistenceSchema",
     "RPCResult",
+    "RetryAfterError",
     "RpcLockConflictError",
     "Registry",
     "TimeTravelOptions",
@@ -184,4 +186,5 @@ __all__ = [
     "go_to_many",
     "open_blob_cache",
     "rpc",
+    "retry_after",
 ]
