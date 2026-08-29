@@ -37,7 +37,18 @@ _STACK_TRACE_TRUNCATION_MARKER = b"\n... stack trace truncated by Dex Python SDK
 
 @dataclass(frozen=True)
 class RetryAfterError(Exception):
-    """Requests a delay before the next retry while preserving the current failure."""
+    """Requests a delay before Dex retries a failed worker method.
+
+    Raise an instance with :func:`retry_after` from a Step method when the
+    failure is retryable but the next attempt should happen at a known time.
+    Dex reports the original cause as the worker failure and uses the requested
+    delay instead of the retry policy's calculated interval.
+
+    Attributes:
+        after_seconds (int): Positive delay in seconds before the next retry.
+        cause (BaseException): Original failure reported to Dex and re-raised
+            as the retry cause.
+    """
 
     after_seconds: int
     cause: BaseException
@@ -47,6 +58,23 @@ class RetryAfterError(Exception):
 
 
 def retry_after(after_seconds: int, cause: BaseException) -> RetryAfterError:
+    """Creates an error that sets the delay before Dex retries a worker method.
+
+    Raise the returned error from a Step method after an external dependency
+    reports that it is not ready. For example::
+
+        raise retry_after(5, RuntimeError("service is not ready"))
+
+    Args:
+        after_seconds (int): Positive delay in seconds before the next retry.
+        cause (BaseException): Failure that Dex records as the worker error.
+
+    Returns:
+        RetryAfterError: Error to raise from the worker method.
+
+    Raises:
+        ValueError: If **after_seconds** is not positive or **cause** is None.
+    """
     if cause is None:
         raise ValueError("cause is required")
     if after_seconds <= 0:
