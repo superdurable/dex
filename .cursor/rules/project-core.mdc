@@ -112,6 +112,11 @@ one requires equivalent updates to all three in the same commit.
   Prefer capturing a small id/string or building a new tiny value over cloning.
   Copy only when an algorithm must mutate a distinct shared value in place.
 
+## Python Examples
+
+Do not use `del` in Python examples merely to mark parameters or local values
+as unused. Keep required callback parameters unused instead.
+
 ## License Headers
 
 - Every new or edited `.go` / `.java` / `.py` file (and hand-written OpenAPI

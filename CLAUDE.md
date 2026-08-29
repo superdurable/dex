@@ -120,6 +120,11 @@ LazyLock<T>`. Do not use a function to construct or return one of these
 definitions. Reuse the static directly, or clone its initialized value only
 when an owned field is required.
 
+# Python Examples
+
+Do not use `del` in Python examples merely to mark parameters or local values
+as unused. Keep required callback parameters unused instead.
+
 # Server Go Conventions (`server/**/*.go`)
 
 ## File Ordering

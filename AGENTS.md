@@ -120,6 +120,11 @@ LazyLock<T>`. Do not use a function to construct or return one of these
 definitions. Reuse the static directly, or clone its initialized value only
 when an owned field is required.
 
+### Python Examples
+
+Do not use `del` in Python examples merely to mark parameters or local values
+as unused. Keep required callback parameters unused instead.
+
 ### Fluent SDK Call Sites
 
 Design SDK APIs so application code reads like a natural phrase in its host
