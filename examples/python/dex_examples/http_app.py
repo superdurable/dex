@@ -51,8 +51,8 @@ from dex_examples.patterns.resource_control.controller import (
     create_resource_control_blueprint,
 )
 from dex_examples.patterns.timeout.controller import create_timeout_blueprint
-from dex_examples.patterns.wait_for_state_completion.controller import (
-    create_wait_for_state_completion_blueprint,
+from dex_examples.patterns.wait_for_step_completion.controller import (
+    create_wait_for_step_completion_blueprint,
 )
 from dex_examples.primitives.attribute.controller import create_attribute_blueprint
 from dex_examples.primitives.channel.controller import create_channel_blueprint
@@ -126,7 +126,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_recovery_blueprint(app_state))
     quart_app.register_blueprint(create_drain_internal_blueprint(app_state))
     quart_app.register_blueprint(create_draining_channel_blueprint(app_state))
-    quart_app.register_blueprint(create_wait_for_state_completion_blueprint(app_state))
+    quart_app.register_blueprint(create_wait_for_step_completion_blueprint(app_state))
     quart_app.register_blueprint(create_timeout_blueprint(app_state))
     quart_app.register_blueprint(create_resource_control_blueprint(app_state))
 

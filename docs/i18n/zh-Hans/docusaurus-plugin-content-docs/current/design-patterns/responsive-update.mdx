@@ -1,0 +1,22 @@
+---
+title: 响应式更新
+---
+
+# 响应式更新
+
+交互式调用方不应只能在等待整个 Flow 结束和轮询状态之间二选一。响应式更新会在调用方真正需要的边界返回，同时由 Flow 继续负责 durable 工作。
+
+有意识地选择这个边界：
+
+- [等待 Step 完成](/design-patterns/responsive-update/step-completion) 会在一个指定 Step 完成后返回。当该 Step 已使结果可供客户端安全读取或使用时采用它。
+- [等待 Attribute 相等](/design-patterns/responsive-update/attribute-equal) 会在一个 Attribute 到达业务值后返回。当就绪状态由 durable 状态而非单个 Step 表示时采用它。
+- [等待并流式接收更新](/design-patterns/responsive-update/stream) 会长轮询下一条增量更新，并从 token 继续读取。它适用于进度或持续变化的 feed。
+
+前两种等待观察 durable 状态。它们适合定义客户端可见的边界，而不是代替应用超时或最终 Flow 结果。Stream 承载有序的增量消息；客户端保存最新的 resume token，并在下一次读取时带上它。
+
+## 相关内容
+
+- [Client](/primitives/client)
+- [Step](/primitives/step)
+- [Attribute](/primitives/attribute)
+- [Stream](/primitives/stream)

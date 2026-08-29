@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import timedelta
 
 from quart import Blueprint, Response, jsonify
 
@@ -36,11 +37,18 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/start")
     async def start() -> Response:
         flow_id = new_flow_id("engagement")
+        input = EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes")
         run_id = await app_state.client.start_flow(
             app_state.engagement,
             flow_id,
-            EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes"),
+            input,
             start_options(),
+        )
+        await app_state.client.wait_for_attribute_equal(
+            flow_id,
+            app_state.engagement.employer_id,
+            input.employer_id,
+            timedelta(seconds=15),
         )
         return started_flow(flow_id, run_id)
 

@@ -83,7 +83,7 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 - Resettable timer
 - [Entity Store user profiles](./src/main/java/io/superdurable/dex/patterns/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling
-- Wait for state completion
+- Wait for Step completion
 
 ## Primitives
 

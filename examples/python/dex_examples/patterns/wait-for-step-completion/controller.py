@@ -23,25 +23,25 @@ from quart import Blueprint
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.patterns.wait_for_state_completion.job_seeker_data import JobSeekerData
+from dex_examples.patterns.wait_for_step_completion.job_seeker_data import JobSeekerData
 from dex_examples.shared.query import required_query
 
 PERSIST_DATA_STEP = StepExecutionId("PersistData")
 PERSIST_DATA_TIMEOUT = timedelta(minutes=5)
 
 
-def create_wait_for_state_completion_blueprint(app_state: ExampleApp) -> Blueprint:
+def create_wait_for_step_completion_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint(
-        "pattern_wait_for_state_completion",
+        "pattern_wait_for_step_completion",
         __name__,
-        url_prefix="/patterns/wait-for-state-completion",
+        url_prefix="/patterns/wait-for-step-completion",
     )
 
     @blueprint.get("/start")
-    async def start_wait_for_state_completion() -> str:
+    async def start_wait_for_step_completion() -> str:
         flow_id = required_query("workflowId")
         await app_state.client.start_flow(
-            app_state.wait_for_state_completion,
+            app_state.wait_for_step_completion,
             flow_id,
             JobSeekerData(1),
             start_options(),
@@ -52,7 +52,7 @@ def create_wait_for_state_completion_blueprint(app_state: ExampleApp) -> Bluepri
             PERSIST_DATA_TIMEOUT,
         )
         persisted = await app_state.client.invoke_rpc(
-            app_state.wait_for_state_completion.get_job_seeker_data,
+            app_state.wait_for_step_completion.get_job_seeker_data,
             flow_id,
         )
         payload = json.dumps(asdict(persisted), sort_keys=True)

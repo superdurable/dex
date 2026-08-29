@@ -40,7 +40,7 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
-	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
+	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
@@ -251,7 +251,7 @@ func runPatternScenarios(
 		{"pattern/parallel-subflows-short-lived", func() result { return verifyParallelSubFlowsShortLived(ctx, client, stamp) }},
 		{"pattern/drain-internal", func() result { return verifyDrainInternal(ctx, client, stamp) }},
 		{"pattern/drain-external", func() result { return verifyDrainingChannel(ctx, client, stamp) }},
-		{"pattern/wait-for-state-completion", func() result { return verifyWaitForStateCompletion(ctx, client, stamp) }},
+		{"pattern/wait-for-step-completion", func() result { return verifyWaitForStepCompletion(ctx, client, stamp) }},
 		{"pattern/timeout-success", func() result { return verifyTimeoutSuccess(ctx, client, stamp) }},
 		{"pattern/timeout-fail", func() result { return verifyTimeoutFail(ctx, client, stamp) }},
 		{"pattern/cron-schedule", func() result { return verifyCronSchedule(ctx, client) }},
@@ -1134,16 +1134,16 @@ func verifyDrainingChannel(ctx context.Context, client *dex.Client, stamp string
 	return pass(name, "start + extra message drained to ForceComplete")
 }
 
-func verifyWaitForStateCompletion(
+func verifyWaitForStepCompletion(
 	ctx context.Context,
 	client *dex.Client,
 	stamp string,
 ) result {
-	name := "pattern/wait-for-state-completion"
+	name := "pattern/wait-for-step-completion"
 	flowID := "dv-waitstate-" + stamp
-	input := waitforstatecompletion.JobSeekerData{ID: 42, Name: "deep", Email: "a@b.c"}
+	input := waitforstepcompletion.JobSeekerData{ID: 42, Name: "deep", Email: "a@b.c"}
 	_, err := client.StartFlow(
-		ctx, registry.WaitForStateCompletion, flowID, input, hourStartOptions(),
+		ctx, registry.WaitForStepCompletion, flowID, input, hourStartOptions(),
 	)
 	if err != nil {
 		return fail(name, "start", err)
@@ -1154,9 +1154,9 @@ func verifyWaitForStateCompletion(
 	); err != nil {
 		return fail(name, "WaitForStepCompletion PersistData", err)
 	}
-	var persisted waitforstatecompletion.JobSeekerData
+	var persisted waitforstepcompletion.JobSeekerData
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.WaitForStateCompletion.GetJobSeekerData,
+		ctx, flowID, registry.WaitForStepCompletion.GetJobSeekerData,
 		nil, &persisted, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "GetJobSeekerData", err)

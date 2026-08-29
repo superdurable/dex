@@ -45,7 +45,7 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/reminders"
 	"github.com/superdurable/dex/examples/go/patterns/resettable-timer"
 	"github.com/superdurable/dex/examples/go/patterns/timeout"
-	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
+	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
 	primitiveattribute "github.com/superdurable/dex/examples/go/primitives/attribute"
 	primitivechannel "github.com/superdurable/dex/examples/go/primitives/channel"
 	primitiveclientapis "github.com/superdurable/dex/examples/go/primitives/client-apis"
@@ -184,7 +184,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	recovery.RegisterRoutes(router, client, registry.FailureRecovery)
 	draininternal.RegisterRoutes(router, client, registry.DrainInternal)
 	drainexternal.RegisterRoutes(router, client, registry.DrainExternal)
-	waitforstatecompletion.RegisterRoutes(router, client, registry.WaitForStateCompletion)
+	waitforstepcompletion.RegisterRoutes(router, client, registry.WaitForStepCompletion)
 	timeout.RegisterRoutes(router, client, registry.GracefulTimeout)
 	primitiveflow.RegisterRoutes(router, client, registry.ExampleFlow)
 	primitivestep.RegisterRoutes(router, client, registry.Step, registry.StepRetry)

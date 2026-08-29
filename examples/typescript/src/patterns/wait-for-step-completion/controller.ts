@@ -19,15 +19,15 @@ import { Router } from "express";
 import { StepExecutionId, type Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { waitForStateCompletionFlow } from "./wait-for-state-completion-flow.js";
+import { waitForStepCompletionFlow } from "./wait-for-step-completion-flow.js";
 
-export function createWaitForStateCompletionRouter(client: Client): Router {
+export function createWaitForStepCompletionRouter(client: Client): Router {
   const router = Router();
 
   router.get("/start", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     await client.startFlow(
-      waitForStateCompletionFlow,
+      waitForStepCompletionFlow,
       workflowId,
       { id: 1, name: "Test Job Seeker", resume: "Test Resume", email: "testjobseeker@indeed.com" },
       startOptions(),
@@ -38,7 +38,7 @@ export function createWaitForStateCompletionRouter(client: Client): Router {
       15_000,
     );
     const persistedData = await client.invokeRPC(
-      waitForStateCompletionFlow.getJobSeekerData,
+      waitForStepCompletionFlow.getJobSeekerData,
       workflowId,
     );
     response.send(

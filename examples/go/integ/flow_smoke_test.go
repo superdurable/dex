@@ -367,13 +367,13 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "patterns/wait-for-state-completion",
+			name: "patterns/wait-for-step-completion",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "wait-for-state")}}
 				return triggerFlowSmokeHTTP(
 					t,
 					http.MethodGet,
-					"/patterns/wait-for-state-completion/start",
+					"/patterns/wait-for-step-completion/start",
 					query,
 					nil,
 				)

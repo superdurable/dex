@@ -19,10 +19,9 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
+use std::time::Duration;
 
-use crate::patterns::wait_for_state_completion::flow::{
-    PersistRequest, WaitForStateCompletionFlow,
-};
+use crate::patterns::wait_for_step_completion::flow::{PersistRequest, WaitForStepCompletionFlow};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
 };
@@ -35,7 +34,7 @@ struct StartQuery {
 
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
-        .route("/patterns/wait-for-state-completion/start", get(start))
+        .route("/patterns/wait-for-step-completion/start", get(start))
         .with_state(client)
 }
 
@@ -49,14 +48,18 @@ async fn start(
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = WaitForStateCompletionFlow::default();
+        let flow = WaitForStepCompletionFlow::default();
         let input = PersistRequest {
             record_id: "1".into(),
             payload: "Test Resume".into(),
         };
-        client
-            .start_flow(&flow, &flow_id, input)
-            .map(|run_id| StartResponse { flow_id, run_id })
+        let run_id = client.start_flow(&flow, &flow_id, input)?;
+        client.wait_for_step_completion(
+            &flow_id,
+            WaitForStepCompletionFlow::persisted_step(),
+            Duration::from_secs(300),
+        )?;
+        Ok(StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),

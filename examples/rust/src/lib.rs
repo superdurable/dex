@@ -58,7 +58,7 @@ pub const PATTERN_FLOW_TYPES: [&str; 23] = [
     "ResettableTimerFlow",
     "UserProfileFlow",
     "FlowGracefulTimeout",
-    "WaitForStateCompletionFlow",
+    "WaitForStepCompletionFlow",
 ];
 
 pub fn create_example_registry() -> SdkResult<Registry> {

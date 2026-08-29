@@ -33,6 +33,12 @@ export function createEngagementRouter(client: Client): Router {
       notes: "test-notes",
     };
     const runId = await client.startFlow(engagementFlow, flowId, input, startOptions());
+    await client.waitForAttributeEqual(
+      flowId,
+      engagementFlow.employerId,
+      input.employerId,
+      15_000,
+    );
     response.json({ flowID: flowId, runID: runId });
   });
 

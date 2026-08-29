@@ -107,7 +107,16 @@ const sidebars: SidebarsConfig = {
         'design-patterns/reminders',
         'design-patterns/resettable-timer',
         'design-patterns/entity-store',
-        'design-patterns/wait-for-step-completion',
+        {
+          type: 'category',
+          label: 'Responsive Update',
+          link: {type: 'doc', id: 'design-patterns/responsive-update'},
+          items: [
+            'design-patterns/responsive-update/step-completion',
+            'design-patterns/responsive-update/attribute-equal',
+            'design-patterns/responsive-update/stream',
+          ],
+        },
       ],
     },
     {

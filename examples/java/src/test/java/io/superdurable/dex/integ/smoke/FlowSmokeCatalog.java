@@ -124,8 +124,8 @@ final class FlowSmokeCatalog {
                         "/patterns/drain-channels/external-publishing/start-or-publish",
                         Map.of("workflowId", environment.newFlowId("drain-external"))),
                 FlowSmokeEntry.get(
-                        "patterns/wait-for-state-completion",
-                        "/patterns/wait-for-state-completion/start",
+                        "patterns/wait-for-step-completion",
+                        "/patterns/wait-for-step-completion/start",
                         Map.of("workflowId", environment.newFlowId("wait-for-state"))),
                 FlowSmokeEntry.get(
                         "patterns/timeout",

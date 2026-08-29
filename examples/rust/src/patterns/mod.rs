@@ -24,7 +24,7 @@ pub mod recovery;
 pub mod reminders;
 pub mod resettable_timer;
 pub mod timeout;
-pub mod wait_for_state_completion;
+pub mod wait_for_step_completion;
 
 use std::sync::Arc;
 
@@ -72,5 +72,5 @@ fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkR
         .register(resettable_timer::ResettableTimerFlow::default())?
         .register(entity_store::UserProfileFlow)?
         .register(timeout::FlowGracefulTimeout::default())?
-        .register(wait_for_state_completion::WaitForStateCompletionFlow::default())
+        .register(wait_for_step_completion::WaitForStepCompletionFlow::default())
 }

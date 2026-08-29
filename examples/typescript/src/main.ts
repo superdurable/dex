@@ -35,7 +35,7 @@ import { createRecoveryRouter } from "./patterns/recovery/controller.js";
 import { createRemindersRouter } from "./patterns/reminders/controller.js";
 import { createResettableTimerRouter } from "./patterns/resettable-timer/controller.js";
 import { createTimeoutRouter } from "./patterns/timeout/controller.js";
-import { createWaitForStateCompletionRouter } from "./patterns/wait-for-state-completion/controller.js";
+import { createWaitForStepCompletionRouter } from "./patterns/wait-for-step-completion/controller.js";
 import { createAttributeRouter } from "./primitives/attribute/controller.js";
 import { createChannelRouter } from "./primitives/channel/controller.js";
 import { createClientApisRouter } from "./primitives/client-apis/controller.js";
@@ -113,7 +113,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/patterns/recovery", createRecoveryRouter(client));
   app.use("/patterns/drain-channels/internal", createDrainInternalRouter(client));
   app.use("/patterns/drain-channels/external-publishing", createDrainingChannelRouter(client));
-  app.use("/patterns/wait-for-state-completion", createWaitForStateCompletionRouter(client));
+  app.use("/patterns/wait-for-step-completion", createWaitForStepCompletionRouter(client));
   app.use("/patterns/timeout", createTimeoutRouter(client));
   app.use("/primitives/flow", createFlowRouter(client));
   app.use("/primitives/step", createStepRouter(client));

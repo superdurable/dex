@@ -243,9 +243,9 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
-            "patterns/wait-for-state-completion",
+            "patterns/wait-for-step-completion",
             lambda c: trigger_get(
-                "/patterns/wait-for-state-completion/start",
+                "/patterns/wait-for-step-completion/start",
                 {"workflowId": new_id("wait-for-state")},
             ),
         ),

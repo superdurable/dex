@@ -149,7 +149,7 @@ Under [`patterns/`](./patterns):
 - [Resettable timer](./patterns/resettable-timer)
 - [Entity Store user profiles](./patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - [Timeout handling](./patterns/timeout)
-- [Wait for state completion](./patterns/wait-for-state-completion)
+- [Wait for Step completion](./patterns/wait-for-step-completion)
 
 ## Primitives
 

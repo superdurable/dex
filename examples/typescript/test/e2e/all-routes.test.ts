@@ -262,12 +262,12 @@ test("product shortlist opt_in is_opted_in shortlist revoke opt_out email", asyn
   );
 });
 
-test("design-pattern waitforstatecompletion start", async () => {
+test("design-pattern waitforstepcompletion start", async () => {
   requireOk(
-    await get("/patterns/wait-for-state-completion/start", {
+    await get("/patterns/wait-for-step-completion/start", {
       workflowId: id("wait-state"),
     }),
-    "waitforstatecompletion",
+    "waitforstepcompletion",
   );
 });
 
