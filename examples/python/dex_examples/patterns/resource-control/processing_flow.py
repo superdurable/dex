@@ -64,7 +64,6 @@ class Complete(Step[None]):
     async def execute(  # type: ignore[override]
         self, context: Context, input: None
     ) -> StepDecision:
-        del input
         parent_flow_id = self.parent_flow_id.get(context)
         if parent_flow_id:
             try:
@@ -93,11 +92,9 @@ class GpuProcessingComplete(Step[None]):
         self.status = status
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(Timer.by_duration(POLL_INTERVAL))
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         print(
             "check gpu processing in "
             f"{self.instance_id.get(context)} by calling the instance API"
@@ -120,7 +117,6 @@ class GpuProcessingStart(Step[None]):
         self.status = status
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         print(
             f"start processing of request {self.request.get(context)} in "
             f"{self.instance_id.get(context)} by calling the instance API"
@@ -141,11 +137,9 @@ class ValidationComplete(Step[None]):
         self.status = status
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(Timer.by_duration(POLL_INTERVAL))
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         print(
             "completed validation in "
             f"{self.instance_id.get(context)} by calling the instance API"

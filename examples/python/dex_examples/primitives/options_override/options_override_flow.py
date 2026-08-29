@@ -35,7 +35,6 @@ class OverrideFirstStep(Step[str]):
         self.second = second
 
     def execute(self, context: Context, input: str) -> StepDecision:
-        del context
         override = StepOptions(
             wait_for_retry=RetryPolicy(maximum_attempts=2),
             wait_for_failure=WaitForFailurePolicy.PROCEED,
@@ -46,7 +45,6 @@ class OverrideFirstStep(Step[str]):
 
 class OverrideSecondStep(Step[str]):
     def wait_for(self, context: Context, input: str) -> Wait:
-        del context, input
         raise RuntimeError("state 2 wait failure")
 
     def execute(self, context: Context, input: str) -> StepDecision:

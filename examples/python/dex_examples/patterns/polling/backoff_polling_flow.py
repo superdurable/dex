@@ -51,7 +51,6 @@ class PollingStep(Step[None]):
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
         try:
             result = self.service.attempt_external_api_call(
                 "Poll for BackoffPollingFlow"

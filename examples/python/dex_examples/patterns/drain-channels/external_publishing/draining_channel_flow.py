@@ -39,7 +39,6 @@ class ProcessMessage(Step[str]):
         self.queue_channel = queue_channel
 
     def wait_for(self, context: Context, input: str) -> Wait:
-        del context
         if input is None:
             return Wait.until(self.queue_channel.for_one())
         return Wait.skip_immediately()

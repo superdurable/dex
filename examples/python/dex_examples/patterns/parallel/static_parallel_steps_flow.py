@@ -27,19 +27,16 @@ from dex import (
 
 class WorkAStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
-        del context
         return graceful_complete(f"A:{input}")
 
 
 class WorkBStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
-        del context
         return graceful_complete(f"B:{input}")
 
 
 class InitStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
-        del context
         return go_to_many(
             StepMovement.of(WorkAStep, input),
             StepMovement.of(WorkBStep, input),

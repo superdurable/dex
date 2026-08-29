@@ -43,7 +43,6 @@ class _WaitForSchedule(Step[_ScheduleState]):
         self.skip = skip
 
     def wait_for(self, context: Context, state: _ScheduleState) -> Wait:
-        del context
         return Wait.any_of(
             Timer.by_duration(state.interval.duration()),
             self.trigger.for_one(),

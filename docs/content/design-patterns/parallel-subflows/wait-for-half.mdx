@@ -20,7 +20,6 @@ The important detail is that the parent does not complete immediately after reac
 ```python
 class WaitForHalfInitStep(Step[list[str]]):
     def execute(self, context: Context, requests: list[str]) -> StepDecision:
-        del context
         if not requests:
             return graceful_complete()
         return go_to_many(
@@ -43,11 +42,9 @@ class SubFlowStep(Step[str]):
         self.all_done_ch = all_done_ch
 
     def wait_for(self, context: Context, request: str) -> Wait:
-        del context
         return Wait.any_of(SubFlow.run(self.example_subflow, request), self.all_done_ch.for_one())
 
     async def execute(self, context: Context, request: str) -> StepDecision:
-        del request
         if SubFlow.get_condition_results(context).status is not FlowStatus.RUNNING:
             self.subflow_completed_ch.publish(context, True)
             return graceful_complete()
@@ -63,7 +60,6 @@ class WaitSubFlowsStep(Step[int]):
         self.all_done_ch = all_done_ch
 
     def wait_for(self, context: Context, total: int) -> Wait:
-        del context
         return Wait.until(self.subflow_completed_ch.for_n((total + 1) // 2))
 
     def execute(self, context: Context, total: int) -> StepDecision:

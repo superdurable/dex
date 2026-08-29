@@ -42,7 +42,6 @@ class OptOut(Step[None]):
         self.opted_in = opted_in
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         self.opted_in.set(context, False)
         return force_complete()
 
@@ -86,7 +85,6 @@ class EmployerOptInFlow(Flow[EmployerOptInInput]):
 
     @rpc
     def opt_out(self, context: Context) -> RPCResult[None]:
-        del context
         return RPCResult(
             None,
             next_steps=(StepMovement.of(OptOut, None),),

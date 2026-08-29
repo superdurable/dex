@@ -24,11 +24,9 @@ title: Graceful Timeout
 ```python
 class LongWaitStep(Step[bool]):
     def wait_for(self, context: Context, successful: bool) -> Wait:
-        del context
         return Wait.skip_immediately() if successful else Wait.until(Timer.by_duration(timedelta(seconds=65)))
 
     def execute(self, context: Context, successful: bool) -> StepDecision:
-        del context, successful
         return force_complete("Workflow completed successfully")
 
 class FlowGracefulTimeout(Flow[bool]):
@@ -39,7 +37,6 @@ class FlowGracefulTimeout(Flow[bool]):
         return StepList.start_step(self.long_wait_step)
 
     def handle_timeout(self, context: Context) -> StepDecision:
-        del context
         return force_fail("Workflow did not finish the task in time")
 ```
 

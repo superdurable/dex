@@ -34,13 +34,11 @@ SLOW_TASK_DURATION = timedelta(seconds=65)
 
 class LongWaitStep(Step[bool]):
     def wait_for(self, context: Context, input: bool) -> Wait:
-        del context
         if input:
             return Wait.skip_immediately()
         return Wait.until(Timer.by_duration(SLOW_TASK_DURATION))
 
     def execute(self, context: Context, input: bool) -> StepDecision:
-        del context, input
         return force_complete("Workflow completed successfully")
 
 
@@ -55,5 +53,4 @@ class FlowGracefulTimeout(Flow[bool]):
         return PersistenceSchema.of()
 
     def handle_timeout(self, context: Context) -> StepDecision:
-        del context
         return force_fail("Workflow did not finish the task in time")

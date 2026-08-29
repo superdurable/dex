@@ -42,23 +42,19 @@ class RpcWaitStep(Step[int]):
         self.second = second
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        del context, input
         return Wait.until(self.internal.for_one())
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context, input
         return go_to(RpcCompleteStep, 0)
 
 
 class RpcCompleteStep(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context
         return graceful_complete(input + 1)
 
 
 class ExampleStep(Step[str]):
     def execute(self, context: Context, input: str) -> StepDecision:
-        del context
         return graceful_complete(input)
 
 

@@ -37,7 +37,6 @@ class ChannelWaitStep(Step[int]):
         self.approval = approval
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        del context
         return Wait.any_of(
             self.approval.for_one(),
             Timer.by_duration(timedelta(seconds=input)),

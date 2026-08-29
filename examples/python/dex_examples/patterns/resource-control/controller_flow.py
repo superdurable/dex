@@ -62,7 +62,6 @@ MAX_BUFFERED_REQUESTS = 20
 
 class MoveToAnotherInstance(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
         print("move all the started child flows to another instance")
         return graceful_complete("moved to another instance")
 
@@ -89,7 +88,6 @@ class LoopForNextRequest(Step[None]):
         self.shutdown_requested = shutdown_requested
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del input
         waiting = self.current_wait_child_wfs.get(context) or []
         conditions = [self.child_complete.for_one(child_id) for child_id in waiting]
         if len(waiting) < CONCURRENCY_PER_CONTROLLER_FLOW:
@@ -99,7 +97,6 @@ class LoopForNextRequest(Step[None]):
     async def execute(  # type: ignore[override]
         self, context: Context, input: None
     ) -> StepDecision:
-        del input
         waiting = list(self.current_wait_child_wfs.get(context) or [])
 
         requests = self.request_queue.results(context)

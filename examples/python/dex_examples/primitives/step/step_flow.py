@@ -34,7 +34,6 @@ approval = Channel("Approval", str)
 
 class StepSecond(Step[int]):
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context
         return graceful_complete(input + 1)
 
 
@@ -43,11 +42,9 @@ class ExampleStep(Step[int]):
         self.second = second
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        del context, input
         return Wait.until(approval.for_one())
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context
         return go_to(StepSecond, input + 1)
 
 

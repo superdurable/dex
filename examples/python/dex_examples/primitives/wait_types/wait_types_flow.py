@@ -44,7 +44,6 @@ class WaitTypesInput:
 
 class WaitTypesStep(Step[WaitTypesInput]):
     def wait_for(self, context: Context, input: WaitTypesInput) -> Wait:
-        del context
         timeout = timedelta(seconds=input.timeout_seconds)
         if input.mode == "any":
             return Wait.any_of(
@@ -69,7 +68,6 @@ class WaitTypesStep(Step[WaitTypesInput]):
         raise ValueError(f"unknown wait mode {input.mode!r}")
 
     def execute(self, context: Context, input: WaitTypesInput) -> StepDecision:
-        del context
         return graceful_complete(input.mode)
 
 

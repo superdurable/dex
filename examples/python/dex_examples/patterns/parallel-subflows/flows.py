@@ -62,7 +62,6 @@ class SubmitRequestInput:
 
 class DoWorkStep(Step[str]):
     async def execute(self, context: Context, request: str) -> StepDecision:
-        del context
         await asyncio.sleep((50 + len(request) % 10 * 50) / 1000)
         return graceful_complete(request)
 
@@ -80,13 +79,11 @@ class SubFlowsStep(Step[list[str]]):
         self.example_subflow = example_subflow
 
     def wait_for(self, context: Context, requests: list[str]) -> Wait:
-        del context
         return Wait.all_of(
             *(SubFlow.run(self.example_subflow, request) for request in requests)
         )
 
     def execute(self, context: Context, requests: list[str]) -> StepDecision:
-        del context, requests
         return graceful_complete()
 
 
@@ -100,7 +97,6 @@ class BasicParentFlow(Flow[list[str]]):
 
 class WaitForHalfInitStep(Step[list[str]]):
     def execute(self, context: Context, requests: list[str]) -> StepDecision:
-        del context
         if not requests:
             return graceful_complete()
         return go_to_many(
@@ -123,7 +119,6 @@ class SubFlowStep(Step[str]):
         self.all_done_ch = all_done_ch
 
     def wait_for(self, context: Context, request: str) -> Wait:
-        del context
         return Wait.any_of(
             SubFlow.run(self.example_subflow, request), self.all_done_ch.for_one()
         )
@@ -131,7 +126,6 @@ class SubFlowStep(Step[str]):
     async def execute(  # type: ignore[override]
         self, context: Context, request: str
     ) -> StepDecision:
-        del request
         result = SubFlow.get_condition_results(context)
         if result.status is not FlowStatus.RUNNING:
             self.subflow_completed_ch.publish(context, True)
@@ -148,7 +142,6 @@ class WaitSubFlowsStep(Step[int]):
         self.all_done_ch = all_done_ch
 
     def wait_for(self, context: Context, total: int) -> Wait:
-        del context
         return Wait.until(self.subflow_completed_ch.for_n((total + 1) // 2))
 
     def execute(self, context: Context, total: int) -> StepDecision:
@@ -213,11 +206,9 @@ class LongLiveHandleRequestStep(Step[None]):
         return "HandleRequestStep"
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(self.request_channel.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         return go_to(LongLiveHandleSubFlowStep, self.request_channel.results(context)[0])
 
 
@@ -234,11 +225,9 @@ class LongLiveHandleSubFlowStep(Step[str]):
         return "HandleSubFlowStep"
 
     def wait_for(self, context: Context, request: str) -> Wait:
-        del context
         return Wait.until(SubFlow.run(self.example_subflow, request))
 
     def execute(self, context: Context, request: str) -> StepDecision:
-        del request
         if self.stopped.get(context):
             return graceful_complete()
         return go_to(LongLiveHandleRequestStep, None)
@@ -311,11 +300,9 @@ class ShortLiveHandleRequestStep(Step[None]):
         return StepOptions(execute_lock_attributes=(self.curr_subflow_num.lock(),))
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(self.request_channel.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         request = self.request_channel.results(context)[0]
         self.curr_subflow_num.set(context, (self.curr_subflow_num.get(context) or 0) + 1)
         return go_to(ShortLiveHandleSubFlowStep, request)
@@ -339,11 +326,9 @@ class ShortLiveHandleSubFlowStep(Step[str]):
         return StepOptions(execute_lock_attributes=(self.curr_subflow_num.lock(),))
 
     def wait_for(self, context: Context, request: str) -> Wait:
-        del context
         return Wait.until(SubFlow.run(self.example_subflow, request))
 
     def execute(self, context: Context, request: str) -> StepDecision:
-        del request
         current = (self.curr_subflow_num.get(context) or 0) - 1
         self.curr_subflow_num.set(context, current)
         if current == 0:
@@ -396,7 +381,6 @@ class SubmitStep(Step[SubmitRequestInput]):
     async def execute(  # type: ignore[override]
         self, context: Context, input: SubmitRequestInput
     ) -> StepDecision:
-        del context
         if not input.parent_ids:
             raise ValueError("at least one parent Flow ID is required")
         parent_id = input.parent_ids[partition(input.request, len(input.parent_ids))]

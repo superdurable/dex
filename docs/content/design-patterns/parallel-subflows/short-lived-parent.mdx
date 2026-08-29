@@ -67,11 +67,9 @@ class ShortLiveHandleRequestStep(Step[None]):
         return StepOptions(execute_lock_attributes=(self.curr_subflow_num.lock(),))
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.until(self.request_channel.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         request = self.request_channel.results(context)[0]
         self.curr_subflow_num.set(context, (self.curr_subflow_num.get(context) or 0) + 1)
         return go_to(ShortLiveHandleSubFlowStep, request)
@@ -95,11 +93,9 @@ class ShortLiveHandleSubFlowStep(Step[str]):
         return StepOptions(execute_lock_attributes=(self.curr_subflow_num.lock(),))
 
     def wait_for(self, context: Context, request: str) -> Wait:
-        del context
         return Wait.until(SubFlow.run(self.example_subflow, request))
 
     def execute(self, context: Context, request: str) -> StepDecision:
-        del request
         current = (self.curr_subflow_num.get(context) or 0) - 1
         self.curr_subflow_num.set(context, current)
         if current == 0:

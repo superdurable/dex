@@ -38,23 +38,19 @@ from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
 
 class DatabaseConnection:
     def reduce_quantity(self, item_name: str, quantity: int) -> None:
-        del item_name
         print(f"Reducing quantity: {quantity}")
         if quantity > random.randrange(10):
             raise RuntimeError("not enough items available")
 
     def increase_quantity(self, item_name: str, quantity: int) -> None:
-        del item_name
         print(f"Increasing quantity: {quantity}")
 
     def get_item_price(self, item_name: str) -> float:
-        del item_name
         return 3.14
 
 
 class PaymentProcessor:
     def process_payment(self, price: float) -> None:
-        del price
         raise RuntimeError("Payment could not be processed")
 
     def void_payment(self, price: float) -> None:
@@ -70,7 +66,6 @@ class UpdateQuantityRecovery(Step[FailureRecoveryWorkflowInput]):
         context: Context,
         input: FailureRecoveryWorkflowInput,
     ) -> StepDecision:
-        del context
         self.database.increase_quantity(input.item_name, input.requested_quantity)
         return force_fail("Failed to process transaction")
 
@@ -89,7 +84,6 @@ class VoidPaymentRecovery(Step[int]):
         self.workflow_input = workflow_input
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        del input
         workflow = self.workflow_input.get(context)
         item_value = self.database.get_item_price(workflow.item_name)
         self.payment_processor.void_payment(workflow.requested_quantity * item_value)
@@ -115,7 +109,6 @@ class ChargeForItems(Step[int]):
         ).on_execute_failure_proceed_to(VoidPaymentRecovery)
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        del input
         workflow = self.workflow_input.get(context)
         item_value = self.database.get_item_price(workflow.item_name)
         self.payment_processor.process_payment(workflow.requested_quantity * item_value)

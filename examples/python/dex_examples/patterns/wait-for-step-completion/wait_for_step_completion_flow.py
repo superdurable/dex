@@ -42,7 +42,6 @@ class UpdateExternalSystem(Step[JobSeekerData]):
         self.external_service = external_service
 
     def execute(self, context: Context, input: JobSeekerData) -> StepDecision:
-        del context
         self.external_service.update_external_system(
             json.dumps(asdict(input), sort_keys=True)
         )

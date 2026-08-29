@@ -175,5 +175,4 @@ def handle_dex_exception(error: DexServiceError) -> tuple[str, int]:
 
 
 def handle_unexpected_exception(error: Exception) -> tuple[str, int]:
-    del error
     return traceback.format_exc(), 500

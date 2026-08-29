@@ -33,7 +33,6 @@ class WorkAStep(Step[WorkJobParametersInput]):
         self.interrupt_signal = interrupt_signal
 
     def wait_for(self, context: Context, input: WorkJobParametersInput) -> Wait:
-        del context, input
         return Wait.until(Timer.by_duration(timedelta(seconds=2)))
 
     def execute(

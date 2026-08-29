@@ -99,7 +99,6 @@ class Sending(Step[None]):
         return SENDING_OPTIONS
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         recipient = self.flow.email_recipient.get(context) or ""
         subject = self.flow.email_subject.get(context) or ""
         body = self.flow.email_body.get(context) or ""
@@ -129,7 +128,6 @@ class Schedule(Step[None]):
         self.sending = sending
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del input
         self.flow.status.set(context, STATUS_WAITING)
         send_time = self.flow.scheduled_time_seconds.get(context)
         return Wait.any_of(
@@ -139,7 +137,6 @@ class Schedule(Step[None]):
         )
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         requests = user_input.results(context)
         if not requests:
             return go_to(Sending, None)
@@ -162,7 +159,6 @@ class Agent(Step[None]):
         return AGENT_OPTIONS
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del input
         self.flow.status.set(context, STATUS_WAITING)
         return Wait.until(user_input.for_one())
 
@@ -171,7 +167,6 @@ class Agent(Step[None]):
         context: Context,
         input: None,
     ) -> StepDecision:
-        del input
         requests = user_input.results(context)
         if not requests:
             raise RuntimeError("no user request found")
@@ -237,7 +232,6 @@ class Init(Step[None]):
         self.flow = flow
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        del input
         self.flow.status.set(context, STATUS_INITIALIZED)
         print(f"flow started, id: {context.flow_id}")
 

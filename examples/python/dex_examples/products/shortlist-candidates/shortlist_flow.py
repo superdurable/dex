@@ -62,7 +62,6 @@ class SendEmail(Step[None]):
         self.revoke_shortlist = revoke_shortlist
 
     def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
         return Wait.any_of(
             Timer.by_duration(timedelta(minutes=5)),
             self.revoke_shortlist.for_one(),
@@ -71,7 +70,6 @@ class SendEmail(Step[None]):
     async def execute(  # type: ignore[override]
         self, context: Context, input: None
     ) -> StepDecision:
-        del input
         employer = self.employer_id.get(context)
         candidate = self.candidate_id.get(context)
 

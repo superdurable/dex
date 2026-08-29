@@ -224,11 +224,9 @@ public StepDecision execute(final Context context, final Boolean workflowSuccess
 
 ```python
 def execute(self, context: Context, input: None) -> StepDecision:
-    del context, input
     return force_fail("Workflow did not finish the task in time")
 
 def execute(self, context: Context, input: bool) -> StepDecision:
-    del context, input
     return force_complete("Workflow completed successfully")
 ```
 

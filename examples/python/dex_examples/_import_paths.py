@@ -67,7 +67,6 @@ class ExampleModuleFinder(importlib.abc.MetaPathFinder):
         path: object | None = None,
         target: object | None = None,
     ) -> importlib.machinery.ModuleSpec | None:
-        del path, target
         resolved = _resolve_module(fullname)
         if resolved is None:
             return None

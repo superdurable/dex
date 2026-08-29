@@ -32,11 +32,9 @@ from dex import (
 
 class TimerStep(Step[int]):
     def wait_for(self, context: Context, input: int) -> Wait:
-        del context
         return Wait.until(Timer.by_duration(timedelta(seconds=input)))
 
     def execute(self, context: Context, input: int) -> StepDecision:
-        del context, input
         return graceful_complete("timer-fired")
 
 

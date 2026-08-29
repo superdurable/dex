@@ -31,7 +31,6 @@ class ChannelWaitStep(Step[int]):
         self.approval = approval
 
     def wait_for(self, context: Context, input: int) -> Wait:
-        del context
         return Wait.any_of(
             self.approval.for_one(),
             Timer.by_duration(timedelta(seconds=input)),
@@ -181,7 +180,6 @@ impl Step for ChannelWait {
 
 ```python
 def execute(self, context: Context, input: int) -> StepDecision:
-    del input
     result = SubFlow.get_condition_results(context)
     output = result.single_output(int)
     return graceful_complete(f"{SubFlow.get_flow_id(context)}|{output}")
@@ -355,7 +353,6 @@ def wait_for(self, context: Context, input: int) -> Wait:
     return Wait.until(approval.for_one())
 
 def execute(self, context: Context, input: int) -> StepDecision:
-    del input
     note = context.get_step_execution_local("note", str)
     return graceful_complete(note or "")
 ```

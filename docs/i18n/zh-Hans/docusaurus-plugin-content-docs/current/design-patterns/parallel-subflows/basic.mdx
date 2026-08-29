@@ -21,13 +21,11 @@ class SubFlowsStep(Step[list[str]]):
         self.example_subflow = example_subflow
 
     def wait_for(self, context: Context, requests: list[str]) -> Wait:
-        del context
         return Wait.all_of(
             *(SubFlow.run(self.example_subflow, request) for request in requests)
         )
 
     def execute(self, context: Context, requests: list[str]) -> StepDecision:
-        del context, requests
         return graceful_complete()
 
 

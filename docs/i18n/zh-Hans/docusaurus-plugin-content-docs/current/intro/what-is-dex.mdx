@@ -90,7 +90,6 @@ class ShipStep(Step[OrderRequest]):
         )
 
     def wait_for(self, context: Context, input: OrderRequest) -> Wait:
-        del context, input
         return Wait.any_of(
             seller_ok.for_one(),
             Timer.by_duration(timedelta(hours=24)),
