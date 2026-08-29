@@ -1,0 +1,30 @@
+---
+title: Polling with Timer
+---
+
+# Polling with Timer
+
+![PollingWithTimerFlow](/img/design-patterns/polling-with-timer-flow.png)
+
+**PollingWithTimerFlow** makes the wait explicit. **PollingStep** waits for a Timer, checks the external condition, then either completes or moves to itself for another interval. It uses more code than retry-based polling, but the not-ready outcome is a normal Step decision rather than a failed attempt.
+
+## Core implementation
+
+<SdkTabs examples={{go: 'examples/go/patterns/polling/simple.go'}}>
+<SdkSnippet lang="go">
+
+```go
+type pollingWithTimerStep struct { dex.StepDefaults }
+
+func (pollingWithTimerStep) GetStepType() string { return "PollingStep" }
+func (pollingWithTimerStep) WaitFor(ctx dex.Context, input dex.None) (*dex.Wait, error) {
+	return dex.Until(dex.Timer(10 * time.Second)), nil
+}
+func (pollingWithTimerStep) Execute(ctx dex.Context, input dex.None) (*dex.StepDecision, error) {
+	if isSystemReady() { return dex.GracefulComplete(nil), nil }
+	return dex.GoTo(pollingWithTimerStep{}, nil), nil
+}
+```
+
+</SdkSnippet>
+</SdkTabs>

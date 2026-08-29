@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::polling::flow::{BackoffPollingFlow, SimplePollingFlow};
+use crate::patterns::polling::flow::{BackoffPollingFlow, IterationFlow, PollingWithTimerFlow};
 use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
 
 #[derive(Deserialize)]
@@ -31,23 +31,42 @@ struct StartQuery {
 
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
-        .route("/patterns/polling/start/simple", get(start_simple))
+        .route("/patterns/polling/start/timer", get(start_timer))
         .route("/patterns/polling/start/backoff", get(start_backoff))
+        .route("/patterns/polling/start/iteration", get(start_iteration))
         .with_state(client)
 }
 
-async fn start_simple(
+async fn start_timer(
     State(client): State<SharedClient>,
     Query(query): Query<StartQuery>,
 ) -> impl IntoResponse {
     let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("dp-simple")
+        new_flow_id("dp-timer")
     } else {
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = SimplePollingFlow::default();
+        let flow = PollingWithTimerFlow::default();
         client.start_flow(&flow, &flow_id, 0_u32)
+    }) {
+        Ok(run_id) => ok_text(run_id),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn start_iteration(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("dp-iteration")
+    } else {
+        query.workflow_id
+    };
+    match run_blocking(move || {
+        let flow = IterationFlow::default();
+        client.start_flow(&flow, &flow_id, String::new())
     }) {
         Ok(run_id) => ok_text(run_id),
         Err(error) => map_sdk_error(error).into_response(),

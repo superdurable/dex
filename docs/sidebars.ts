@@ -68,7 +68,16 @@ const sidebars: SidebarsConfig = {
           ],
         },
         'design-patterns/parent-child',
-        'design-patterns/polling',
+        {
+          type: 'category',
+          label: 'Polling and Iteration',
+          link: {type: 'doc', id: 'design-patterns/polling'},
+          items: [
+            'design-patterns/polling/backoff',
+            'design-patterns/polling/timer',
+            'design-patterns/polling/iteration',
+          ],
+        },
         'design-patterns/recovery',
         'design-patterns/reminders',
         'design-patterns/resettable-timer',

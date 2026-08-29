@@ -66,8 +66,8 @@ final class FlowSmokeCatalog {
                 shortlistOptIn(environment),
                 shortlist(environment),
                 FlowSmokeEntry.get(
-                        "patterns/polling/simple",
-                        "/patterns/polling/start/simple",
+                        "patterns/polling/timer",
+                        "/patterns/polling/start/timer",
                         Map.of("workflowId", environment.newFlowId("pattern-polling-simple"))),
                 FlowSmokeEntry.get(
                         "patterns/polling/backoff",

@@ -1,0 +1,12 @@
+---
+title: Polling 和 Iteration
+sidebar_label: Polling and Iteration
+---
+
+# Polling 和 Iteration
+
+当 Flow 需要反复检查外部状态，或逐页处理一个大集合时，可以使用这些模式。
+
+1. [Backoff Polling](/design-patterns/polling/backoff) 用预期错误触发带退避的 retry。
+2. [Polling with Timer](/design-patterns/polling/timer) 在每次检查前显式等待 Timer。
+3. [Iteration](/design-patterns/polling/iteration) 将下一页 token 传给下一次 Step execution。

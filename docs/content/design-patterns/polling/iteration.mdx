@@ -1,0 +1,28 @@
+---
+title: Iteration
+---
+
+# Iteration
+
+![IterationFlow](/img/design-patterns/iteration-flow.png)
+
+**IterationFlow** migrates a large collection one page at a time. **IterationStep** reads and processes the page, then passes the next page token as the input of its next execution. When there is no token, the Flow completes. This is structurally similar to timer polling, but the loop carries pagination state.
+
+## Core implementation
+
+<SdkTabs examples={{go: 'examples/go/patterns/polling/iteration.go'}}>
+<SdkSnippet lang="go">
+
+```go
+type iterationStep struct { dex.StepDefaultsNoWaitFor[string] }
+func (iterationStep) GetStepType() string { return "IterationStep" }
+func (iterationStep) Execute(ctx dex.Context, pageToken string) (*dex.StepDecision, error) {
+	documents, nextPageToken := readPage(pageToken)
+	process(documents)
+	if nextPageToken == "" { return dex.GracefulComplete(nil), nil }
+	return dex.GoTo(iterationStep{}, nextPageToken), nil
+}
+```
+
+</SdkSnippet>
+</SdkTabs>

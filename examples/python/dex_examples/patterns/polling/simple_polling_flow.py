@@ -32,16 +32,7 @@ from dex import (
 POLLING_INTERVAL = timedelta(seconds=10)
 
 
-class SimplePollingComplete(Step[None]):
-    def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
-        print("Executing final state to complete the workflow...")
-        return graceful_complete()
-
-
-class SimplePolling(Step[None]):
-    def __init__(self, simple_polling_complete: SimplePollingComplete) -> None:
-        self.simple_polling_complete = simple_polling_complete
+class PollingStep(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         del context, input
@@ -50,8 +41,8 @@ class SimplePolling(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
         if self._is_system_ready():
-            return go_to(SimplePollingComplete, None)
-        return go_to(SimplePolling, None)
+            return graceful_complete()
+        return go_to(PollingStep, None)
 
     @staticmethod
     def _is_system_ready() -> bool:
@@ -59,15 +50,12 @@ class SimplePolling(Step[None]):
         return True
 
 
-class SimplePollingFlow(Flow[None]):
+class PollingWithTimerFlow(Flow[None]):
     def __init__(self) -> None:
-        self.simple_polling_complete = SimplePollingComplete()
-        self.simple_polling = SimplePolling(self.simple_polling_complete)
+        self.polling_step = PollingStep()
 
     def get_steps(self) -> StepList[None]:
-        return StepList.start_step(self.simple_polling).other_steps(
-            self.simple_polling_complete
-        )
+        return StepList.start_step(self.polling_step)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of()

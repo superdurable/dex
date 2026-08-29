@@ -29,13 +29,12 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 @Component
-public class SimplePollingFlow implements Flow<Void> {
-    private final SimplePolling simplePolling = new SimplePolling();
-    private final SimplePollingComplete simplePollingComplete = new SimplePollingComplete();
+public class PollingWithTimerFlow implements Flow<Void> {
+    private final PollingStep pollingStep = new PollingStep();
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.startStep(simplePolling).otherSteps(simplePollingComplete);
+        return StepList.startStep(pollingStep);
     }
 
     @Override
@@ -43,11 +42,14 @@ public class SimplePollingFlow implements Flow<Void> {
         return PersistenceSchema.of();
     }
 
-    final class SimplePolling implements Step<Void> {
+    final class PollingStep implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
         }
+
+        @Override
+        public String getStepType() { return "PollingStep"; }
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
@@ -57,9 +59,9 @@ public class SimplePollingFlow implements Flow<Void> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             if (isSystemReady()) {
-                return StepDecision.goTo(SimplePollingComplete.class, null);
+                return StepDecision.gracefulComplete();
             }
-            return StepDecision.goTo(SimplePolling.class, null);
+            return StepDecision.goTo(PollingStep.class, null);
         }
 
         private boolean isSystemReady() {
@@ -68,16 +70,4 @@ public class SimplePollingFlow implements Flow<Void> {
         }
     }
 
-    final class SimplePollingComplete implements Step<Void> {
-        @Override
-        public Class<Void> getInputType() {
-            return Void.class;
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Void input) {
-            System.out.println("Executing final state to complete the workflow...");
-            return StepDecision.gracefulComplete();
-        }
-    }
 }

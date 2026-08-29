@@ -36,11 +36,11 @@ use dex_sdk::{
 };
 
 #[derive(Default)]
-pub struct SimplePollingFlow {
-    poll: SimplePoll,
+pub struct PollingWithTimerFlow {
+    poll: PollingStep,
 }
 
-impl Flow for SimplePollingFlow {
+impl Flow for PollingWithTimerFlow {
     type StartInput = u32;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
@@ -49,9 +49,9 @@ impl Flow for SimplePollingFlow {
 }
 
 #[derive(Default)]
-struct SimplePoll;
+struct PollingStep;
 
-impl Step for SimplePoll {
+impl Step for PollingStep {
     type Input = u32;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
@@ -66,7 +66,7 @@ impl Step for SimplePoll {
         if remaining <= 1 {
             Ok(StepDecision::graceful_complete("ready".to_string()))
         } else {
-            Ok(StepDecision::go_to(&SimplePoll, remaining - 1))
+            Ok(StepDecision::go_to(&PollingStep, remaining - 1))
         }
     }
 }
@@ -109,5 +109,42 @@ impl Step for BackoffPoll {
                 .maximum_interval(Duration::from_secs(30))
                 .maximum_attempts(8),
         )
+    }
+}
+
+#[derive(Default)]
+pub struct IterationFlow {
+    iteration: IterationStep,
+}
+
+impl Flow for IterationFlow {
+    type StartInput = String;
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.iteration)
+    }
+}
+
+#[derive(Default)]
+struct IterationStep;
+
+impl Step for IterationStep {
+    type Input = String;
+    fn step_type(&self) -> &'static str {
+        "IterationStep"
+    }
+    fn execute(&self, _: &mut Context, page_token: String) -> HandlerResult<StepDecision> {
+        let next_page_token = match page_token.as_str() {
+            "" => "page-2",
+            "page-2" => "page-3",
+            _ => "",
+        };
+        if next_page_token.is_empty() {
+            Ok(StepDecision::graceful_complete(()))
+        } else {
+            Ok(StepDecision::go_to(
+                &IterationStep,
+                next_page_token.to_owned(),
+            ))
+        }
     }
 }

@@ -29,21 +29,24 @@ import (
 )
 
 type controller struct {
-	client  *sdk.Client
-	simple  *SimplePollingFlow
-	backoff *BackoffPollingFlow
+	client    *sdk.Client
+	timer     *PollingWithTimerFlow
+	backoff   *BackoffPollingFlow
+	iteration *IterationFlow
 }
 
 func RegisterRoutes(
 	router gin.IRouter,
 	client *sdk.Client,
-	simple *SimplePollingFlow,
+	timer *PollingWithTimerFlow,
 	backoff *BackoffPollingFlow,
+	iteration *IterationFlow,
 ) {
-	controller := &controller{client: client, simple: simple, backoff: backoff}
+	controller := &controller{client: client, timer: timer, backoff: backoff, iteration: iteration}
 	group := router.Group("/patterns/polling")
-	group.GET("/start/simple", controller.startSimple)
+	group.GET("/start/timer", controller.startTimer)
 	group.GET("/start/backoff", controller.startBackoff)
+	group.GET("/start/iteration", controller.startIteration)
 }
 
 func patternStartOptions() sdk.StartFlowOptions {
@@ -51,18 +54,27 @@ func patternStartOptions() sdk.StartFlowOptions {
 	return sdk.StartFlowOptions{Timeout: &timeout}
 }
 
-func (controller *controller) startSimple(request *gin.Context) {
+func (controller *controller) startTimer(request *gin.Context) {
 	flowID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
 		return
 	}
 	runID, err := controller.client.StartFlow(
 		request.Request.Context(),
-		controller.simple,
+		controller.timer,
 		flowID,
 		nil,
 		patternStartOptions(),
 	)
+	httputil.RespondString(request, runID, err)
+}
+
+func (controller *controller) startIteration(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	runID, err := controller.client.StartFlow(request.Request.Context(), controller.iteration, flowID, "", patternStartOptions())
 	httputil.RespondString(request, runID, err)
 }
 

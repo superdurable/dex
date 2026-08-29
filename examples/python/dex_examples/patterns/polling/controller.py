@@ -24,10 +24,10 @@ from dex_examples.shared.query import required_query
 def create_polling_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("pattern_polling", __name__, url_prefix="/patterns/polling")
 
-    @blueprint.get("/start/simple")
-    async def start_simple_polling() -> str:
+    @blueprint.get("/start/timer")
+    async def start_timer_polling() -> str:
         return await app_state.client.start_flow(
-            app_state.simple_polling,
+            app_state.polling_with_timer,
             required_query("workflowId"),
             None,
             start_options(),
@@ -39,6 +39,15 @@ def create_polling_pattern_blueprint(app_state: ExampleApp) -> Blueprint:
             app_state.backoff_polling,
             required_query("workflowId"),
             None,
+            start_options(),
+        )
+
+    @blueprint.get("/start/iteration")
+    async def start_iteration() -> str:
+        return await app_state.client.start_flow(
+            app_state.iteration,
+            required_query("workflowId"),
+            "",
             start_options(),
         )
 

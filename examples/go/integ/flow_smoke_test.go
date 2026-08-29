@@ -172,13 +172,13 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "patterns/polling/simple",
+			name: "patterns/polling/timer",
 			trigger: func(t *testing.T) (string, string) {
 				query := url.Values{"workflowId": {smokeWorkflowID(t, "pattern-polling-simple")}}
 				return triggerFlowSmokeHTTP(
 					t,
 					http.MethodGet,
-					"/patterns/polling/start/simple",
+					"/patterns/polling/start/timer",
 					query,
 					nil,
 				)
@@ -192,6 +192,19 @@ func flowSmokeCatalog() []flowSmokeEntry {
 					t,
 					http.MethodGet,
 					"/patterns/polling/start/backoff",
+					query,
+					nil,
+				)
+			},
+		},
+		{
+			name: "patterns/polling/iteration",
+			trigger: func(t *testing.T) (string, string) {
+				query := url.Values{"workflowId": {smokeWorkflowID(t, "pattern-polling-iteration")}}
+				return triggerFlowSmokeHTTP(
+					t,
+					http.MethodGet,
+					"/patterns/polling/start/iteration",
 					query,
 					nil,
 				)

@@ -1,0 +1,39 @@
+---
+title: Backoff Polling
+---
+
+# Backoff Polling
+
+![BackoffPollingFlow](/img/design-patterns/backoff-polling-flow.png)
+
+**BackoffPollingFlow** runs **PollingStep** against an external service. When the condition is not met, the Step returns an expected error. Its **ExecuteRetry** policy retries that same execution with exponential backoff; a successful response completes the Flow.
+
+Use **RetryAfter** to request the exact delay for the next retry while preserving the error. Because the expected not-ready result is a failed Step attempt, operation monitors and runbooks must classify it as expected and must not page on-call for it.
+
+## Core implementation
+
+<SdkTabs examples={{go: 'examples/go/patterns/polling/backoff.go'}}>
+<SdkSnippet lang="go">
+
+```go
+type pollingStep struct {
+	dex.DefaultStepType
+	dex.NoWaitFor[dex.None]
+	service patternsservice.ServiceDependency
+}
+
+func (pollingStep) GetStepType() string { return "PollingStep" }
+
+func (pollingStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{InitialInterval: 3 * time.Second, BackoffCoefficient: 2.0, MaximumAttempts: 5}}
+}
+
+func (step pollingStep) Execute(ctx dex.Context, input dex.None) (*dex.StepDecision, error) {
+	result, err := step.service.AttemptExternalAPICall("Poll for BackoffPollingFlow")
+	if err != nil { return nil, dex.RetryAfter(30*time.Second, err) }
+	return dex.GracefulComplete(result), nil
+}
+```
+
+</SdkSnippet>
+</SdkTabs>

@@ -1,0 +1,10 @@
+---
+title: 使用 Timer 的 Polling
+sidebar_label: Polling with Timer
+---
+
+# 使用 Timer 的 Polling
+
+![PollingWithTimerFlow](/img/design-patterns/polling-with-timer-flow.png)
+
+**PollingWithTimerFlow** 显式等待 Timer。**PollingStep** 在每个 interval 后检查外部条件，然后完成，或调度自身进行下一轮检查。它的代码多一点，但未就绪是正常的 Step decision，而不是失败的 attempt。

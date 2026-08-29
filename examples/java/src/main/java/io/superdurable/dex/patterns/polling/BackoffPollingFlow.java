@@ -32,8 +32,7 @@ import java.time.Duration;
 @Component
 public class BackoffPollingFlow implements Flow<Void> {
     private final ServiceDependency service;
-    private final ReadExternalDep readExternalDep = new ReadExternalDep();
-    private final PollingComplete pollingComplete = new PollingComplete();
+    private final PollingStep pollingStep = new PollingStep();
 
     public BackoffPollingFlow(final ServiceDependency service) {
         this.service = service;
@@ -41,7 +40,7 @@ public class BackoffPollingFlow implements Flow<Void> {
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.startStep(readExternalDep).otherSteps(pollingComplete);
+        return StepList.startStep(pollingStep);
     }
 
     @Override
@@ -49,11 +48,14 @@ public class BackoffPollingFlow implements Flow<Void> {
         return PersistenceSchema.of();
     }
 
-    final class ReadExternalDep implements Step<Void> {
+    final class PollingStep implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
         }
+
+        @Override
+        public String getStepType() { return "PollingStep"; }
 
         @Override
         public StepOptions getStepOptions() {
@@ -71,23 +73,8 @@ public class BackoffPollingFlow implements Flow<Void> {
         @Override
         public StepDecision execute(final Context context, final Void input) {
             final String result =
-                    service.attemptExternalApiCall("Read for BackoffPollingFlow");
-            return StepDecision.goTo(PollingComplete.class, result);
-        }
-    }
-
-    final class PollingComplete implements Step<String> {
-        @Override
-        public Class<String> getInputType() {
-            return String.class;
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final String externalDataInput) {
-            System.out.printf(
-                    "Executing final state to complete the workflow: (%s)%n",
-                    externalDataInput);
-            return StepDecision.gracefulComplete(externalDataInput);
+                    service.attemptExternalApiCall("Poll for BackoffPollingFlow");
+            return StepDecision.gracefulComplete(result);
         }
     }
 }

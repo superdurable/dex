@@ -52,7 +52,8 @@ from dex_examples.patterns.parallel.first_win_parallel_steps_flow import FirstWi
 from dex_examples.patterns.parallel.static_parallel_steps_flow import StaticParallelStepsFlow
 from dex_examples.patterns.parent_child.parent_flow_v2 import ParentFlowV2
 from dex_examples.patterns.polling.backoff_polling_flow import BackoffPollingFlow
-from dex_examples.patterns.polling.simple_polling_flow import SimplePollingFlow
+from dex_examples.patterns.polling.simple_polling_flow import PollingWithTimerFlow
+from dex_examples.patterns.polling.iteration_flow import IterationFlow
 from dex_examples.patterns.recovery.failure_recovery_flow import FailureRecoveryFlow
 from dex_examples.patterns.reminders.reminder_flow import ReminderFlow
 from dex_examples.patterns.resettable_timer.resettable_timer_flow import (
@@ -141,8 +142,9 @@ class ExampleApp:
         self.dynamic_parallel = DynamicParallelStepsFlow()
         self.await_parallel = AwaitParallelStepsFlow()
         self.first_win_parallel = FirstWinParallelStepsFlow()
-        self.simple_polling = SimplePollingFlow()
+        self.polling_with_timer = PollingWithTimerFlow()
         self.backoff_polling = BackoffPollingFlow(pattern_service)
+        self.iteration = IterationFlow()
         self.failure_recovery = FailureRecoveryFlow()
         self.reminder = ReminderFlow(pattern_service)
         self.resettable_timer = ResettableTimerFlow()
@@ -200,8 +202,9 @@ class ExampleApp:
             self.dynamic_parallel,
             self.await_parallel,
             self.first_win_parallel,
-            self.simple_polling,
+            self.polling_with_timer,
             self.backoff_polling,
+            self.iteration,
             self.failure_recovery,
             self.reminder,
             self.resettable_timer,
