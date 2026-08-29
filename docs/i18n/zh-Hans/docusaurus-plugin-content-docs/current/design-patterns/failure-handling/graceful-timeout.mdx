@@ -12,6 +12,152 @@ title: Graceful Timeout
 
 当截止时间是业务结果的一部分，而不是客户端请求超时时，使用此模式。
 
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/timeout/flow_graceful_timeout.py',
+    go: 'examples/go/patterns/timeout/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/timeout/FlowGracefulTimeout.java',
+    typescript: 'examples/typescript/src/patterns/timeout/flow-graceful-timeout.ts',
+    rust: 'examples/rust/src/patterns/timeout/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class LongWaitStep(Step[bool]):
+    def wait_for(self, context: Context, succeeded: bool) -> Wait:
+        del context
+        return Wait.skip_immediately() if succeeded else Wait.until(Timer.by_duration(timedelta(seconds=65)))
+
+    def execute(self, context: Context, succeeded: bool) -> StepDecision:
+        del context, succeeded
+        return force_complete("work completed before timeout")
+
+class TimeoutHandleStep(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        del context, input
+        return Wait.until(Timer.by_duration(timedelta(seconds=60)))
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del context, input
+        return force_fail("work timed out")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type longWaitStep struct{ dex.StepDefaults }
+
+func (longWaitStep) WaitFor(_ dex.Context, succeeded bool) (*dex.Wait, error) {
+	if succeeded { return dex.SkipWaitImmediately(), nil }
+	return dex.Until(dex.Timer(65 * time.Second)), nil
+}
+
+func (longWaitStep) Execute(_ dex.Context, _ bool) (*dex.StepDecision, error) {
+	return dex.ForceComplete("work completed before timeout"), nil
+}
+
+type timeoutHandleStep struct{ dex.StepDefaults }
+
+func (timeoutHandleStep) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
+	return dex.Until(dex.Timer(time.Minute)), nil
+}
+
+func (timeoutHandleStep) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	return dex.ForceFail("work timed out"), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class LongWaitStep implements Step<Boolean> {
+    @Override public Class<Boolean> getInputType() { return Boolean.class; }
+
+    @Override public Wait waitFor(final Context context, final Boolean succeeded) {
+        return Boolean.TRUE.equals(succeeded)
+                ? Wait.skipImmediately()
+                : Wait.until(Timer.byDuration(Duration.ofSeconds(65)));
+    }
+
+    @Override public StepDecision execute(final Context context, final Boolean succeeded) {
+        return StepDecision.forceComplete("work completed before timeout");
+    }
+}
+
+final class TimeoutHandleStep implements Step<Void> {
+    @Override public Class<Void> getInputType() { return Void.class; }
+
+    @Override public Wait waitFor(final Context context, final Void input) {
+        return Wait.until(Timer.byDuration(Duration.ofSeconds(60)));
+    }
+
+    @Override public StepDecision execute(final Context context, final Void input) {
+        return StepDecision.forceFail("work timed out");
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class LongWaitStep implements Step<boolean> {
+  public readonly inputCodec = booleanCodec;
+
+  public waitFor(_context: Context, succeeded: boolean): Wait {
+    return succeeded ? Wait.skipImmediately() : Wait.until(Timer.byDuration(65_000));
+  }
+
+  public execute(_context: Context, _succeeded: boolean): StepDecision {
+    return forceComplete("work completed before timeout");
+  }
+}
+
+class TimeoutHandleStep implements Step<void> {
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.until(Timer.byDuration(60_000));
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return forceFail("work timed out");
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for LongWaitStep {
+    type Input = bool;
+
+    fn wait_for(&self, _context: &mut Context, succeeded: Self::Input) -> HandlerResult<Wait> {
+        Ok(if succeeded { Wait::skip_immediately() } else { Wait::until(Timer::by_duration(Duration::from_secs(65))) })
+    }
+
+    fn execute(&self, _context: &mut Context, _succeeded: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::force_complete("work completed before timeout"))
+    }
+}
+
+impl Step for TimeoutHandleStep {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(Timer::by_duration(Duration::from_secs(60))))
+    }
+
+    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::force_fail("work timed out"))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
 ## 相关内容
 
 - [Failure Handling](/design-patterns/failure-handling)

@@ -12,7 +12,200 @@ Escalate a Step to a person after its automatic retries are exhausted.
 
 ## Core implementation
 
-Each sample defines the retry policy and the operator decision. The runnable example registers the Flow and exposes an HTTP start endpoint.
+**DoWorkStep** owns the retry policy and its exhausted-failure movement. **ManualStep** owns the durable wait for the operator's Channel message and turns that message into the next decision.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/intervention/manual_recovery_flow.py',
+    go: 'examples/go/patterns/intervention/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/intervention/ManualRecoveryFlow.java',
+    typescript: 'examples/typescript/src/patterns/intervention/manual-recovery-flow.ts',
+    rust: 'examples/rust/src/patterns/intervention/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class DoWorkStep(Step[bool]):
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(
+                initial_interval=timedelta(seconds=1),
+                backoff_coefficient=2.0,
+                maximum_interval=timedelta(seconds=4),
+                maximum_attempts=4,
+            )
+        ).on_execute_failure_proceed_to(ManualStep)
+
+    def execute(self, context: Context, should_fail: bool) -> StepDecision:
+        del context
+        if should_fail:
+            raise RuntimeError("work failed")
+        return graceful_complete("work completed")
+
+class ManualStep(Step[bool]):
+    def wait_for(self, context: Context, input: bool) -> Wait:
+        del context, input
+        return Wait.any_of(retry_channel.for_one(), skip_channel.for_one())
+
+    def execute(self, context: Context, input: bool) -> StepDecision:
+        del input
+        if retry_channel.results(context):
+            return go_to(DoWorkStep, False)
+        return force_fail("manual recovery skipped")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+func (doWorkStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{
+		ExecuteRetry: &dex.RetryPolicy{InitialInterval: time.Second, BackoffCoefficient: 2, MaximumInterval: 4 * time.Second, MaximumAttempts: 4},
+		ExecuteFailure: dex.ProceedToOnExecuteFailure(manualStep{}, nil),
+	}
+}
+
+func (doWorkStep) Execute(_ dex.Context, shouldFail bool) (*dex.StepDecision, error) {
+	if shouldFail {
+		return nil, fmt.Errorf("work failed")
+	}
+	return dex.GracefulComplete("work completed"), nil
+}
+
+func (manualStep) WaitFor(_ dex.Context, _ bool) (*dex.Wait, error) {
+	return dex.AnyOf(RetryChannel.ForOne(), SkipChannel.ForOne()), nil
+}
+
+func (manualStep) Execute(ctx dex.Context, _ bool) (*dex.StepDecision, error) {
+	retryResults, err := RetryChannel.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(retryResults) > 0 {
+		return dex.GoTo(doWorkStep{}, false), nil
+	}
+	return dex.ForceFail("manual recovery skipped"), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class DoWorkStep implements Step<Boolean> {
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder()
+                        .initialInterval(Duration.ofSeconds(1))
+                        .backoffCoefficient(2.0)
+                        .maximumInterval(Duration.ofSeconds(4))
+                        .maximumAttempts(4)
+                        .build())
+                .onExecuteFailureProceedTo(ManualStep.class)
+                .build();
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Boolean shouldFail) {
+        if (Boolean.TRUE.equals(shouldFail)) {
+            throw new IllegalStateException("work failed");
+        }
+        return StepDecision.gracefulComplete("work completed");
+    }
+}
+
+final class ManualStep implements Step<Boolean> {
+    @Override
+    public Wait waitFor(final Context context, final Boolean input) {
+        return Wait.anyOf(retryChannel.forOne(), skipChannel.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Boolean input) {
+        if (!retryChannel.getConditionResults(context).isEmpty()) {
+            return StepDecision.goTo(DoWorkStep.class, false);
+        }
+        return StepDecision.forceFail("manual recovery skipped");
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class DoWorkStep implements Step<boolean> {
+  public readonly inputCodec = booleanCodec;
+
+  public getStepOptions(): StepOptions {
+    return {
+      executeRetry: { initialIntervalMs: 1_000, backoffCoefficient: 2, maximumIntervalMs: 4_000, maximumAttempts: 4 },
+      executeFailure: ExecuteFailure.proceedTo(ManualStep),
+    };
+  }
+
+  public execute(_context: Context, shouldFail: boolean): StepDecision {
+    if (shouldFail) {
+      throw new Error("work failed");
+    }
+    return gracefulComplete("work completed");
+  }
+}
+
+class ManualStep implements Step<boolean> {
+  public waitFor(_context: Context, _input: boolean): Wait {
+    return Wait.anyOf(retryChannel.forOne(), skipChannel.forOne());
+  }
+
+  public execute(context: Context, _input: boolean): StepDecision {
+    if (retryChannel.results(context).length > 0) {
+      return goTo(DoWorkStep, false);
+    }
+    return forceFail("manual recovery skipped");
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for DoWorkStep {
+    type Input = bool;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new()
+            .execute_retry(RetryPolicy::new().maximum_attempts(4))
+            .on_execute_failure_proceed_to(&ManualStep)
+    }
+
+    fn execute(&self, _context: &mut Context, should_fail: Self::Input) -> HandlerResult<StepDecision> {
+        if should_fail {
+            return Err(HandlerError::new("DoWorkStep", "work failed"));
+        }
+        Ok(StepDecision::graceful_complete("work completed"))
+    }
+}
+
+impl Step for ManualStep {
+    type Input = bool;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([retry().for_one(), skip().for_one()]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        if !retry().condition_results(context)?.is_empty() {
+            return Ok(StepDecision::go_to(&DoWorkStep, false));
+        }
+        Ok(StepDecision::force_fail("manual recovery skipped"))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
 
 ## Related
 

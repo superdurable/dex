@@ -4,7 +4,9 @@ title: Failure Handling
 
 # Failure Handling
 
-Choose how a Flow should continue after a **WaitFor** or **Execute** failure. Each pattern starts with retries. Its recovery path decides whether Dex should compensate automatically, wait for a person, finish at a deadline, or continue after an exhausted wait failure.
+Failure handling is the core of a durable execution platform. By default, Dex retries a failed Step method—**WaitFor** or **Execute**—with exponential backoff. Configure that retry behavior through **StepOptions**.
+
+When retries alone do not meet the requirement, choose one of these patterns. They add an explicit recovery path for compensation, operator intervention, an overall Flow deadline, or an exhausted **WaitFor** failure.
 
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) — Retry failed work, then move to a recovery Step.
 - [Manual Recovery](/design-patterns/failure-handling/manual-recovery) — Escalate an exhausted failure to a person.

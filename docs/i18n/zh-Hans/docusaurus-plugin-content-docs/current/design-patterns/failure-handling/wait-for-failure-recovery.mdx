@@ -12,6 +12,159 @@ title: WaitFor Failure Recovery
 
 当失败的条件查询可以恢复，而且 Flow 可以在普通 Step 代码中决定下一步时，使用此模式。
 
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py',
+    go: 'examples/go/primitives/proceed-on-wait-failure/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/proceedonwaitfailure/ProceedOnWaitFailureFlow.java',
+    typescript: 'examples/typescript/src/primitives/proceed-on-wait-failure/proceed-on-wait-failure-flow.ts',
+    rust: 'examples/rust/src/primitives/proceed_on_wait_failure/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class FailingStep(Step[str]):
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            wait_for_retry=RetryPolicy(maximum_attempts=2),
+            wait_for_failure=WaitForFailurePolicy.PROCEED,
+        )
+
+    def wait_for(self, context: Context, input: str) -> Wait:
+        del context, input
+        raise RuntimeError("planned WaitFor failure")
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        if not context.wait_for_method_failed():
+            raise RuntimeError("waitFor failure was not reported")
+        return go_to(RecoveryStep, input)
+
+class RecoveryStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        del context
+        return graceful_complete(f"recovered {input}")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type failingStep struct{ dex.StepDefaults }
+
+func (failingStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{WaitForRetry: &dex.RetryPolicy{MaximumAttempts: 2}, WaitForFailure: dex.ProceedOnWaitForFailure}
+}
+
+func (failingStep) WaitFor(_ dex.Context, _ string) (*dex.Wait, error) {
+	return nil, fmt.Errorf("planned WaitFor failure")
+}
+
+func (failingStep) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
+	if !ctx.WaitForMethodFailed() { return nil, fmt.Errorf("waitFor failure was not reported") }
+	return dex.GoTo(recoveryStep{}, input), nil
+}
+
+type recoveryStep struct{ dex.StepDefaultsNoWaitFor[string] }
+
+func (recoveryStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("recovered " + input), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class FailingStep implements Step<String> {
+    @Override public Class<String> getInputType() { return String.class; }
+
+    @Override public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .waitForRetry(RetryPolicy.newBuilder().maximumAttempts(2).build())
+                .waitForFailure(WaitForFailurePolicy.PROCEED)
+                .build();
+    }
+
+    @Override public Wait waitFor(final Context context, final String input) {
+        throw new IllegalStateException("planned WaitFor failure");
+    }
+
+    @Override public StepDecision execute(final Context context, final String input) {
+        if (!context.waitForMethodFailed()) { throw new IllegalStateException("waitFor failure was not reported"); }
+        return StepDecision.goTo(RecoveryStep.class, input);
+    }
+}
+
+final class RecoveryStep implements Step<String> {
+    @Override public Class<String> getInputType() { return String.class; }
+    @Override public StepDecision execute(final Context context, final String input) {
+        return StepDecision.gracefulComplete("recovered " + input);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class FailingStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepOptions(): StepOptions {
+    return { waitForRetry: { maximumAttempts: 2 }, waitForFailure: "proceed" };
+  }
+
+  public waitFor(_context: Context, _input: string): Wait {
+    throw new Error("planned WaitFor failure");
+  }
+
+  public execute(context: Context, input: string): StepDecision {
+    if (!context.waitForMethodFailed()) { throw new Error("waitFor failure was not reported"); }
+    return goTo(RecoveryStep, input);
+  }
+}
+
+class RecoveryStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+  public execute(_context: Context, input: string): StepDecision {
+    return gracefulComplete(`recovered ${input}`);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for FailingStep {
+    type Input = String;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().wait_for_retry(RetryPolicy::new().maximum_attempts(2))
+            .wait_for_failure(WaitForFailurePolicy::Proceed)
+    }
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Err(HandlerError::new("FailingStep", "planned WaitFor failure"))
+    }
+
+    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        if !context.wait_for_method_failed() { return Err(HandlerError::new("FailingStep", "waitFor failure was not reported")); }
+        Ok(StepDecision::go_to(&RecoveryStep, input))
+    }
+}
+
+impl Step for RecoveryStep {
+    type Input = String;
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(format!("recovered {input}")))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
 ## 相关内容
 
 - [Failure Handling](/design-patterns/failure-handling)
