@@ -30,7 +30,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 @Component
-public final class AdvancedShortLiveParentFlow implements Flow<ParentInput> {
+public class AdvancedShortLiveParentFlow implements Flow<ParentInput> {
     public static final int DEFAULT_CONCURRENCY = 10;
     public static final int MAX_BUFFERED_REQUESTS = 100;
 
