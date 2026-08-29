@@ -18,6 +18,7 @@ import {
   StepList,
   goTo,
   gracefulComplete,
+  retryAfter,
   stringCodec,
   type Context,
   type Flow,
@@ -53,8 +54,11 @@ class PollingStep implements Step<void> {
   }
 
   public execute(_context: Context, _input: void): StepDecision {
-    const result = this.service.attemptExternalApiCall("Poll for BackoffPollingFlow");
-    return gracefulComplete(result);
+    try {
+      return gracefulComplete(this.service.attemptExternalApiCall("Poll for BackoffPollingFlow"));
+    } catch (error) {
+      throw retryAfter(30, error instanceof Error ? error : new Error(String(error)));
+    }
   }
 }
 

@@ -10,7 +10,7 @@ title: Iteration
 
 ## Core implementation
 
-<SdkTabs examples={{go: 'examples/go/patterns/polling/iteration.go'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/polling/iteration_flow.py', go: 'examples/go/patterns/polling/iteration.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/polling/IterationFlow.java', typescript: 'examples/typescript/src/patterns/polling/iteration-flow.ts', rust: 'examples/rust/src/patterns/polling/flow.rs'}}>
 <SdkSnippet lang="go">
 
 ```go
@@ -21,6 +21,58 @@ func (iterationStep) Execute(ctx dex.Context, pageToken string) (*dex.StepDecisi
 	process(documents)
 	if nextPageToken == "" { return dex.GracefulComplete(nil), nil }
 	return dex.GoTo(iterationStep{}, nextPageToken), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="python">
+
+```python
+class IterationStep(Step[str]):
+    def execute(self, context: Context, page_token: str) -> StepDecision:
+        next_page_token = "page-2" if not page_token else "page-3" if page_token == "page-2" else ""
+        return graceful_complete() if not next_page_token else go_to(IterationStep, next_page_token)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class IterationStep implements Step<String> {
+    @Override public Class<String> getInputType() { return String.class; }
+    @Override public String getStepType() { return "IterationStep"; }
+    @Override public StepDecision execute(final Context context, final String pageToken) {
+        final String nextPageToken = pageToken.isEmpty() ? "page-2" : pageToken.equals("page-2") ? "page-3" : "";
+        return nextPageToken.isEmpty() ? StepDecision.gracefulComplete() : StepDecision.goTo(IterationStep.class, nextPageToken);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class IterationStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+  public getStepType(): string { return "IterationStep"; }
+  public execute(_context: Context, pageToken: string): StepDecision {
+    const nextPageToken = pageToken === "" ? "page-2" : pageToken === "page-2" ? "page-3" : "";
+    return nextPageToken === "" ? gracefulComplete() : goTo(IterationStep, nextPageToken);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for IterationStep {
+    type Input = String;
+    fn step_type(&self) -> &'static str { "IterationStep" }
+    fn execute(&self, _: &mut Context, page_token: String) -> HandlerResult<StepDecision> {
+        let next_page_token = match page_token.as_str() { "" => "page-2", "page-2" => "page-3", _ => "" };
+        if next_page_token.is_empty() { Ok(StepDecision::graceful_complete(())) } else { Ok(StepDecision::go_to(&IterationStep, next_page_token.to_owned())) }
+    }
 }
 ```
 

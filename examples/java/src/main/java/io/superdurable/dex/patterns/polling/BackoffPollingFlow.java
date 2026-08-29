@@ -24,6 +24,7 @@ import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepOptions;
+import io.superdurable.dex.exceptions.RetryAfterException;
 import io.superdurable.dex.shared.ServiceDependency;
 import org.springframework.stereotype.Component;
 
@@ -72,9 +73,12 @@ public class BackoffPollingFlow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            final String result =
-                    service.attemptExternalApiCall("Poll for BackoffPollingFlow");
-            return StepDecision.gracefulComplete(result);
+            try {
+                return StepDecision.gracefulComplete(
+                        service.attemptExternalApiCall("Poll for BackoffPollingFlow"));
+            } catch (final RuntimeException error) {
+                throw RetryAfterException.after(Duration.ofSeconds(30), error);
+            }
         }
     }
 }
