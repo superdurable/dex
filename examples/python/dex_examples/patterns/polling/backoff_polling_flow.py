@@ -27,7 +27,6 @@ from dex import (
     StepOptions,
     go_to,
     graceful_complete,
-    retry_after,
 )
 
 from dex_examples.patterns.shared.service_dependency import ServiceDependency
@@ -53,10 +52,7 @@ class PollingStep(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        try:
-            result = self.service.attempt_external_api_call("Poll for BackoffPollingFlow")
-        except RuntimeError as error:
-            raise retry_after(30, error) from error
+        result = self.service.attempt_external_api_call("Poll for BackoffPollingFlow")
         return graceful_complete(result)
 
 
