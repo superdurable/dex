@@ -17,12 +17,10 @@
 from __future__ import annotations
 
 import random
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Callable, cast
 
-from dex_examples.patterns.parent_child.wait_for_child_input import (
-    WaitForChildInput,
-)
 from sync_examples.config import start_options
 
 from dex import (
@@ -46,6 +44,12 @@ from dex import (
 
 CONCURRENCY_PER_PARENT_WORKFLOW = 3
 MAX_WAIT_SECONDS = 10
+
+
+@dataclass
+class WaitForChildInput:
+    child_wf_id: str
+    timer_seconds: int
 
 
 class ChildProcessing(Step[str]):

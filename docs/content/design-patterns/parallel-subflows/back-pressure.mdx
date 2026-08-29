@@ -1,0 +1,353 @@
+---
+title: "Advanced: Back Pressure for High Availability"
+---
+
+# Advanced: Back Pressure for High Availability
+
+Use a short **SubmitRequestFlow** when the target parent may reject an overloaded request.
+
+![Back pressure for high availability](/img/design-patterns/parallel-subflows-back-pressure.png)
+
+The client starts **SubmitRequestFlow** instead of retrying an RPC in memory. **SubmitStep** partitions the request, calls the selected parent's **SendRequest** RPC, and completes only after the parent accepts it. A false response fails the Step, so the normal Step retry policy durably backs off and tries again. The same retry handles parent-start races: **FlowAlreadyStarted** fails **SubmitStep**, and its next execution invokes the RPC on the active parent. If the submitting process or Worker restarts, Dex preserves the retry.
+
+This separates admission from processing: parent Flows remain bounded, while submissions remain durable and independently retryable.
+
+## Core implementation
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
+    go: 'examples/go/patterns/parallel-subflows/flows.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/SubmitRequestFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
+    rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class SubmitStep(Step[SubmitRequestInput]):
+    def __init__(
+        self,
+        client_provider: Callable[[], AsyncClient],
+        parent_flow: AdvancedShortLiveParentFlow,
+    ) -> None:
+        self.client_provider = client_provider
+        self.parent_flow = parent_flow
+
+    async def execute(  # type: ignore[override]
+        self, context: Context, input: SubmitRequestInput
+    ) -> StepDecision:
+        del context
+        if not input.parent_ids:
+            raise ValueError("at least one parent Flow ID is required")
+        parent_id = input.parent_ids[partition(input.request, len(input.parent_ids))]
+        accepted = await enqueue_request(
+            self.client_provider(), self.parent_flow, parent_id, input.request
+        )
+        if not accepted:
+            raise RuntimeError(f"parent {parent_id} rejected the request")
+        return graceful_complete(parent_id)
+
+
+async def enqueue_request(
+    client: AsyncClient,
+    parent_flow: AdvancedShortLiveParentFlow,
+    parent_id: str,
+    request: str,
+) -> bool:
+    try:
+        return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
+    except FlowNotActiveError:
+        await client.start_flow(
+            parent_flow,
+            parent_id,
+            ParentInput([request], DEFAULT_CONCURRENCY),
+            StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
+        )
+        return True
+
+
+class SubmitRequestFlow(Flow[SubmitRequestInput]):
+    def __init__(
+        self,
+        client_provider: Callable[[], AsyncClient],
+        parent_flow: AdvancedShortLiveParentFlow,
+    ) -> None:
+        self.submit = SubmitStep(client_provider, parent_flow)
+
+    def get_steps(self) -> StepList[SubmitRequestInput]:
+        return StepList.start_step(self.submit)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type submitStep struct {
+	dex.StepDefaultsNoWaitFor[SubmitRequestInput]
+	getClient  func() *dex.Client
+	parentFlow *AdvancedShortLiveParentFlow
+}
+
+func (submitStep) GetStepType() string { return "SubmitStep" }
+
+func (step submitStep) Execute(_ dex.Context, input SubmitRequestInput) (*dex.StepDecision, error) {
+	if len(input.ParentIDs) == 0 {
+		return nil, fmt.Errorf("at least one parent Flow ID is required")
+	}
+	client := step.getClient()
+	if client == nil {
+		return nil, fmt.Errorf("dex client is not available")
+	}
+	parentID := input.ParentIDs[partition(input.Request, len(input.ParentIDs))]
+	accepted, err := enqueueRequest(
+		context.Background(), client, step.parentFlow, parentID, input.Request,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if !accepted {
+		return nil, fmt.Errorf("parent %s rejected the request", parentID)
+	}
+	return dex.GracefulComplete(parentID), nil
+}
+
+func enqueueRequest(
+	ctx context.Context,
+	client *dex.Client,
+	parentFlow *AdvancedShortLiveParentFlow,
+	parentID string,
+	request string,
+) (bool, error) {
+	accepted, err := invokeRequest(ctx, client, parentFlow, parentID, request)
+	if err == nil { return accepted, nil }
+	var inactive *dex.FlowNotActiveError
+	if !errors.As(err, &inactive) { return false, err }
+	_, err = client.StartFlow(ctx, parentFlow, parentID, ParentInput{
+		Requests: []string{request}, Concurrency: DefaultConcurrency,
+	}, dex.StartFlowOptions{IDReusePolicy: dex.IDReuseAllowIfNotRunning})
+	if err != nil { return false, err }
+	return true, nil
+}
+
+type SubmitRequestFlow struct {
+	dex.FlowDefaults
+	getClient  func() *dex.Client
+	parentFlow *AdvancedShortLiveParentFlow
+}
+
+func (flow *SubmitRequestFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(submitStep{getClient: flow.getClient, parentFlow: flow.parentFlow})}
+}
+
+func (*SubmitRequestFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@Component
+public final class SubmitRequestFlow implements Flow<SubmitRequestInput> {
+    private final SubmitStep submitStep;
+
+    public SubmitRequestFlow(
+            final ObjectProvider<Client> clientProvider,
+            final AdvancedShortLiveParentFlow parentFlow) {
+        submitStep = new SubmitStep(clientProvider, parentFlow);
+    }
+
+    @Override
+    public StepList<SubmitRequestInput> getSteps() {
+        return StepList.startStep(submitStep);
+    }
+
+    static final class SubmitStep implements Step<SubmitRequestInput> {
+    private final ObjectProvider<Client> clientProvider;
+    private final AdvancedShortLiveParentFlow parentFlow;
+
+    SubmitStep(
+            final ObjectProvider<Client> clientProvider,
+            final AdvancedShortLiveParentFlow parentFlow) {
+        this.clientProvider = clientProvider;
+        this.parentFlow = parentFlow;
+    }
+
+    @Override
+    public Class<SubmitRequestInput> getInputType() {
+        return SubmitRequestInput.class;
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final SubmitRequestInput input) {
+        if (input.parentIds.length == 0) {
+            throw new IllegalArgumentException("at least one parent Flow ID is required");
+        }
+        final String parentId = input.parentIds[partition(input.request, input.parentIds.length)];
+        if (!enqueueRequest(parentId, input.request)) {
+            throw new IllegalStateException("parent " + parentId + " rejected the request");
+        }
+        return StepDecision.gracefulComplete(parentId);
+    }
+
+    private boolean enqueueRequest(final String parentId, final String request) {
+        final Client client = clientProvider.getObject();
+        final AdvancedShortLiveParentFlow stub =
+                client.newRpcStub(AdvancedShortLiveParentFlow.class, parentId);
+        try {
+            return client.invokeRPC(stub::sendRequest, request);
+        } catch (final FlowNotActiveException inactive) {
+            client.startFlow(
+                    parentFlow,
+                    parentId,
+                    new ParentInput(
+                            new String[] {request},
+                            AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
+                    StartFlowOptions.newBuilder()
+                            .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
+                            .build());
+            return true;
+        }
+    }
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class SubmitStep implements Step<SubmitRequestInput> {
+  public readonly inputCodec = submitRequestInputCodec;
+
+  public constructor(private readonly parentFlow: AdvancedShortLiveParentFlow) {}
+
+  public getStepType(): string {
+    return "SubmitStep";
+  }
+
+  public async execute(_context: Context, input: SubmitRequestInput): Promise<StepDecision> {
+    if (input.parentIds.length === 0) throw new Error("parent Flow IDs are required");
+    const parentId = input.parentIds[partition(input.request, input.parentIds.length)];
+    if (parentId === undefined) throw new Error("parent Flow ID is missing");
+    const accepted = await enqueueRequest(getClient(), this.parentFlow, parentId, input.request);
+    if (!accepted) throw new Error(`parent ${parentId} rejected the request`);
+    return gracefulComplete(parentId);
+  }
+}
+
+async function enqueueRequest(
+  client: Client,
+  parentFlow: AdvancedShortLiveParentFlow,
+  parentId: string,
+  request: string,
+): Promise<boolean> {
+  try {
+    return await client.invokeRPC(parentFlow.sendRequest, parentId, request);
+  } catch (error) {
+    if (!isFlowMissingOrInactive(error)) throw error;
+  }
+  await client.startFlow(
+    parentFlow,
+    parentId,
+    { requests: [request], concurrency: DEFAULT_CONCURRENCY },
+    { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
+  );
+  return true;
+}
+
+export class SubmitRequestFlow implements Flow<SubmitRequestInput> {
+  private readonly submit: SubmitStep;
+
+  public constructor(parentFlow: AdvancedShortLiveParentFlow) {
+    this.submit = new SubmitStep(parentFlow);
+  }
+
+  public getFlowType(): string { return "SubmitRequestFlow"; }
+  public getSteps() { return StepList.startStep(this.submit); }
+  public getPersistenceSchema(): PersistenceSchema { return {}; }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+pub struct SubmitRequestFlow {
+    submit: SubmitStep,
+}
+
+impl SubmitRequestFlow {
+    pub fn new(client: Arc<Client>) -> Self {
+        Self { submit: SubmitStep { client: Some(client) } }
+    }
+}
+
+impl Flow for SubmitRequestFlow {
+    type StartInput = SubmitRequestInput;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.submit)
+    }
+}
+
+#[derive(Default)]
+struct SubmitStep {
+    client: Option<Arc<Client>>,
+}
+
+impl Step for SubmitStep {
+    type Input = SubmitRequestInput;
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        if input.parent_ids.is_empty() {
+            return Err(HandlerError::new(
+                "ParallelSubFlows",
+                "at least one parent Flow ID is required",
+            ));
+        }
+        let parent_id = &input.parent_ids[partition(&input.request, input.parent_ids.len())];
+        let client = self.client.as_ref().ok_or_else(|| {
+            HandlerError::new("ParallelSubFlows", "Dex client is not initialized")
+        })?;
+        let accepted = enqueue_request(client, parent_id, input.request)?;
+        if !accepted {
+            return Err(HandlerError::new(
+                "ParallelSubFlows",
+                format!("parent {parent_id} rejected the request"),
+            ));
+        }
+        Ok(StepDecision::graceful_complete(parent_id.clone()))
+    }
+}
+
+fn enqueue_request(client: &Client, parent_id: &str, request: String) -> HandlerResult<bool> {
+    match client.invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request.clone()) {
+        Ok(accepted) => Ok(accepted),
+        Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }) => {
+            let parent = AdvancedShortLiveParentFlow::default();
+            let input = ParentInput {
+                requests: vec![request.clone()],
+                concurrency: DEFAULT_CONCURRENCY,
+            };
+            let options = StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning);
+            client
+                .start_flow_with_options(&parent, parent_id, input, options)
+                .map_err(HandlerError::from_error)?;
+            Ok(true)
+        }
+        Err(error) => Err(HandlerError::from_error(error)),
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Multiple parents with partitioning](/design-patterns/parallel-subflows/partitioning)
+- [Failure recovery](/design-patterns/recovery)

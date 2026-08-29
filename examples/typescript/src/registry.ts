@@ -28,16 +28,20 @@ import {
   firstWinParallelStepsFlow,
   staticParallelStepsFlow,
 } from "./patterns/parallel/parallel-step-flows.js";
-import { parentFlowV2 } from "./patterns/parent-child/parent-flow-v2.js";
+import {
+  advancedLongLiveParentFlow,
+  advancedShortLiveParentFlow,
+  basicParentFlow,
+  exampleSubFlow as parallelExampleSubFlow,
+  submitRequestFlow,
+  waitForHalfParentFlow,
+} from "./patterns/parallel-subflows/parallel-subflows.js";
 import { backoffPollingFlow } from "./patterns/polling/backoff-polling-flow.js";
 import { pollingWithTimerFlow } from "./patterns/polling/simple-polling-flow.js";
 import { iterationFlow } from "./patterns/polling/iteration-flow.js";
 import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.js";
 import { reminderFlow } from "./patterns/reminders/reminder-flow.js";
 import { resettableTimerFlow } from "./patterns/resettable-timer/resettable-timer-flow.js";
-import { childFlow } from "./patterns/scalable-parallel/child-flow.js";
-import { parentFlow } from "./patterns/scalable-parallel/parent-flow.js";
-import { requestReceiverFlow } from "./patterns/scalable-parallel/request-receiver-flow.js";
 import { flowGracefulTimeout } from "./patterns/timeout/flow-graceful-timeout.js";
 import { waitForStateCompletionFlow } from "./patterns/wait-for-state-completion/wait-for-state-completion-flow.js";
 import { attributeFlow } from "./primitives/attribute/attribute-flow.js";
@@ -92,16 +96,18 @@ export const allExampleFlows: readonly Flow<any>[] = [
   dynamicParallelStepsFlow,
   awaitParallelStepsFlow,
   firstWinParallelStepsFlow,
-  parentFlowV2,
+  parallelExampleSubFlow,
+  basicParentFlow,
+  waitForHalfParentFlow,
+  advancedLongLiveParentFlow,
+  advancedShortLiveParentFlow,
+  submitRequestFlow,
   pollingWithTimerFlow,
   backoffPollingFlow,
   iterationFlow,
   failureRecoveryFlow,
   reminderFlow,
   resettableTimerFlow,
-  childFlow,
-  parentFlow,
-  requestReceiverFlow,
   userProfileFlow,
   flowGracefulTimeout,
   waitForStateCompletionFlow,
@@ -150,16 +156,18 @@ export {
   dynamicParallelStepsFlow,
   awaitParallelStepsFlow,
   firstWinParallelStepsFlow,
-  parentFlowV2,
+  parallelExampleSubFlow,
+  basicParentFlow,
+  waitForHalfParentFlow,
+  advancedLongLiveParentFlow,
+  advancedShortLiveParentFlow,
+  submitRequestFlow,
   pollingWithTimerFlow,
   backoffPollingFlow,
   iterationFlow,
   failureRecoveryFlow,
   reminderFlow,
   resettableTimerFlow,
-  childFlow,
-  parentFlow,
-  requestReceiverFlow,
   userProfileFlow,
   flowGracefulTimeout,
   waitForStateCompletionFlow,

@@ -326,14 +326,14 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
-    id: "parent-child",
-    title: "Parent / child",
-    flowIdPrefix: "parent-child",
+    id: "parallel-subflows",
+    title: "Parallel SubFlows",
+    flowIdPrefix: "parallel-subflows",
     endpoints: [
-      endpoint("GET", "/patterns/parent-child/start", "Start", [
-        flowId(),
-        query("numOfChildWfs", { type: "number", default: "3" }),
-      ]),
+      endpoint("GET", "/patterns/parallel-subflows/start/basic", "Start basic", [flowId()]),
+      endpoint("GET", "/patterns/parallel-subflows/start/long-lived-parent", "Start long-lived parent", [flowId()]),
+      endpoint("GET", "/patterns/parallel-subflows/start/short-lived-parent", "Start short-lived parent", [flowId()]),
+      endpoint("GET", "/patterns/parallel-subflows/start/submit", "Start submit request", [flowId()]),
     ],
   },
   {
@@ -398,18 +398,6 @@ window.PLAYGROUND_CATALOG = [
       ]),
       endpoint("GET", "/patterns/resource-control/processing/describe", "Describe processing", [
         query("id", { default: "req-1" }),
-      ]),
-    ],
-  },
-  {
-    group: "patterns",
-    id: "scalable-parallel",
-    title: "Scalable parallel",
-    flowIdPrefix: "scalable-parallel",
-    endpoints: [
-      endpoint("GET", "/patterns/scalable-parallel/start", "Start", [
-        flowId(),
-        query("numOfChildWfs", { type: "number", default: "3" }),
       ]),
     ],
   },

@@ -18,10 +18,9 @@ Full samples live under examples/go, examples/java, examples/python, examples/ty
 - [Interruptible execution](/design-patterns/interruptible) — Stop or redirect long work gracefully based on durable control signals.
 - [Failure Handling](/design-patterns/failure-handling) — Recover from execute or wait failures, escalate to an operator, or enforce a business deadline.
 - [Parallel Steps](/design-patterns/parallel) — Choose static, dynamic, await-all, or first-win concurrent Step coordination.
-- [Parent–child Flows](/design-patterns/parent-child) — Start a child Flow and wait for its completion from the parent.
+- [Parallel SubFlows](/design-patterns/parallel-subflows) — Fan out work to SubFlows, bound parent concurrency, partition across parents, and add durable back pressure.
 - [Polling and Iteration](/design-patterns/polling) — Revisit external state or process paginated work over time.
 - [Reminders](/design-patterns/reminders) — Send periodic reminders until opt-out or timeout.
 - [Resettable timer](/design-patterns/resettable-timer) — Extend or reset a wait window based on fresh activity.
-- [Scalable parallel](/design-patterns/scalable-parallel) — Control fan-out with parent/child Flows for large parallel workloads.
 - [Entity Store](/design-patterns/entity-store) — Project durable per-entity Flow Attributes into an application-owned SQL table.
 - [Wait for Step completion](/design-patterns/wait-for-step-completion) — Let callers wait for a Step while background work continues.

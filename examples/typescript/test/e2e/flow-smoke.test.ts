@@ -250,24 +250,10 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
         }),
       flags: stepStartMayFailFlags(),
     },
-    {
-      name: "patterns/scalable-parallel",
-      trigger: () =>
-        triggerGet(context, "/patterns/scalable-parallel/start", {
-          workflowId: newFlowId("scalable-parallel"),
-          numOfChildWfs: 1,
-        }),
-      flags: defaultFlags(),
-    },
-    {
-      name: "patterns/parent-child",
-      trigger: () =>
-        triggerGet(context, "/patterns/parent-child/start", {
-          workflowId: newFlowId("parent-child"),
-          numOfChildWfs: 1,
-        }),
-      flags: defaultFlags(),
-    },
+    parallelSubFlowsSmokeEntry("basic"),
+    parallelSubFlowsSmokeEntry("wait-for-half"),
+    parallelSubFlowsSmokeEntry("long-lived-parent"),
+    parallelSubFlowsSmokeEntry("short-lived-parent"),
     {
       name: "patterns/drain-channels/internal",
       trigger: () =>
@@ -437,6 +423,17 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
   ];
+}
+
+function parallelSubFlowsSmokeEntry(kind: string): FlowSmokeEntry {
+  return {
+    name: `patterns/parallel-subflows/${kind}`,
+    trigger: () =>
+      triggerGet(context, `/patterns/parallel-subflows/start/${kind}`, {
+        workflowId: newFlowId(`parallel-subflows-${kind}`),
+      }),
+    flags: defaultFlags(),
+  };
 }
 
 test("flow smoke catalog size", () => {

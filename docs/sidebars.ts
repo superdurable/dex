@@ -83,7 +83,19 @@ const sidebars: SidebarsConfig = {
             'design-patterns/parallel/first-win',
           ],
         },
-        'design-patterns/parent-child',
+        {
+          type: 'category',
+          label: 'Parallel SubFlows',
+          link: {type: 'doc', id: 'design-patterns/parallel-subflows'},
+          items: [
+            'design-patterns/parallel-subflows/basic',
+            'design-patterns/parallel-subflows/wait-for-half',
+            'design-patterns/parallel-subflows/long-lived-parent',
+            'design-patterns/parallel-subflows/short-lived-parent',
+            'design-patterns/parallel-subflows/partitioning',
+            'design-patterns/parallel-subflows/back-pressure',
+          ],
+        },
         {
           type: 'category',
           label: 'Polling and Iteration',
@@ -96,7 +108,6 @@ const sidebars: SidebarsConfig = {
         },
         'design-patterns/reminders',
         'design-patterns/resettable-timer',
-        'design-patterns/scalable-parallel',
         'design-patterns/entity-store',
         'design-patterns/wait-for-step-completion',
       ],

@@ -18,10 +18,9 @@ slug: /design-patterns
 - [可中断执行](/design-patterns/interruptible) — 根据 durable 控制消息，优雅地停止或转向长时间工作。
 - [Failure Handling](/design-patterns/failure-handling) — 恢复 Execute 或 WaitFor 失败、升级给操作人员，或强制执行业务截止时间。
 - [Parallel Steps](/design-patterns/parallel) — 选择静态、动态、等待全部完成或首个获胜的并发 Step 协调方式。
-- [Parent–child Flows](/design-patterns/parent-child) — 启动子 Flow，并从父 Flow 等待其完成。
+- [Parallel SubFlows](/design-patterns/parallel-subflows) — 用 SubFlow fan-out、父 Flow 并发上限、分区和 durable 背压处理大规模并行工作。
 - [Polling and Iteration](/design-patterns/polling) — 周期性检查外部状态，或按页处理大量数据。
 - [Reminders](/design-patterns/reminders) — 定期发送提醒，直到 opt-out 或超时。
 - [Resettable timer](/design-patterns/resettable-timer) — 根据新活动延长或重置等待窗口。
-- [Scalable parallel](/design-patterns/scalable-parallel) — 用父/子 Flow 控制大规模 fan-out。
 - [Entity Store](/design-patterns/entity-store) — 将每个实体的 durable Flow Attribute 投影到应用自有的 SQL 表。
 - [Wait for Step completion](/design-patterns/wait-for-step-completion) — 让调用方在后台工作继续时等待一个 Step。

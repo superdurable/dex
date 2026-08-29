@@ -1,0 +1,562 @@
+---
+title: "Advanced: Short-lived Parent"
+---
+
+# Advanced: Short-lived Parent
+
+Drain the current workload, then complete the parent without racing new requests.
+
+![Short-lived parent](/img/design-patterns/parallel-subflows-short-lived-parent.png)
+
+**InitStep** fills **RequestChannel**, initializes **CurrSubFlowNum**, and starts N workers. **HandleRequestStep.Execute** holds the Attribute lock while incrementing the active SubFlow count. **HandleSubFlowStep.Execute** holds the same lock while decrementing it.
+
+The last active worker uses **ForceCompleteIfChannelsEmpty**. Dex atomically checks **RequestChannel** and completes only when it is empty. If an RPC published a request first, Dex schedules another **HandleRequestStep** instead. This atomic decision is the key difference from checking Channel size in application code.
+
+## Core implementation
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
+    go: 'examples/go/patterns/parallel-subflows/flows.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/AdvancedShortLiveParentFlow.java',
+    typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
+    rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+DEFAULT_CONCURRENCY = 10
+MAX_BUFFERED_REQUESTS = 100
+
+
+class ShortLiveInitStep(Step[ParentInput]):
+    def __init__(
+        self,
+        request_channel: Channel[str],
+        curr_subflow_num: Attribute[int],
+    ) -> None:
+        self.request_channel = request_channel
+        self.curr_subflow_num = curr_subflow_num
+
+    def get_step_type(self) -> str:
+        return "InitStep"
+
+    def execute(self, context: Context, input: ParentInput) -> StepDecision:
+        for request in input.requests:
+            self.request_channel.publish(context, request)
+        self.curr_subflow_num.set(context, 0)
+        concurrency = input.concurrency if input.concurrency > 0 else DEFAULT_CONCURRENCY
+        return go_to_many(
+            *(StepMovement.of(ShortLiveHandleRequestStep, None) for _ in range(concurrency))
+        )
+
+
+class ShortLiveHandleRequestStep(Step[None]):
+    def __init__(
+        self,
+        request_channel: Channel[str],
+        curr_subflow_num: Attribute[int],
+    ) -> None:
+        self.request_channel = request_channel
+        self.curr_subflow_num = curr_subflow_num
+
+    def get_step_type(self) -> str:
+        return "HandleRequestStep"
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_lock_attributes=(self.curr_subflow_num.lock(),))
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        del context, input
+        return Wait.until(self.request_channel.for_one())
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        del input
+        request = self.request_channel.results(context)[0]
+        self.curr_subflow_num.set(context, (self.curr_subflow_num.get(context) or 0) + 1)
+        return go_to(ShortLiveHandleSubFlowStep, request)
+
+
+class ShortLiveHandleSubFlowStep(Step[str]):
+    def __init__(
+        self,
+        example_subflow: ExampleSubFlow,
+        request_channel: Channel[str],
+        curr_subflow_num: Attribute[int],
+    ) -> None:
+        self.example_subflow = example_subflow
+        self.request_channel = request_channel
+        self.curr_subflow_num = curr_subflow_num
+
+    def get_step_type(self) -> str:
+        return "HandleSubFlowStep"
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(execute_lock_attributes=(self.curr_subflow_num.lock(),))
+
+    def wait_for(self, context: Context, request: str) -> Wait:
+        del context
+        return Wait.until(SubFlow.run(self.example_subflow, request))
+
+    def execute(self, context: Context, request: str) -> StepDecision:
+        del request
+        current = (self.curr_subflow_num.get(context) or 0) - 1
+        self.curr_subflow_num.set(context, current)
+        if current == 0:
+            return force_complete_if_channels_empty(
+                None,
+                StepMovement.of(ShortLiveHandleRequestStep, None),
+                self.request_channel,
+            )
+        return go_to(ShortLiveHandleRequestStep, None)
+
+
+class AdvancedShortLiveParentFlow(Flow[ParentInput]):
+    request_channel = Channel("RequestChannel", str)
+    curr_subflow_num = Attribute("CurrSubFlowNum", int)
+
+    def __init__(self, example_subflow: ExampleSubFlow) -> None:
+        self.init = ShortLiveInitStep(self.request_channel, self.curr_subflow_num)
+        self.handle_request = ShortLiveHandleRequestStep(
+            self.request_channel, self.curr_subflow_num
+        )
+        self.handle_subflow = ShortLiveHandleSubFlowStep(
+            example_subflow, self.request_channel, self.curr_subflow_num
+        )
+
+    def get_steps(self) -> StepList[ParentInput]:
+        return StepList.start_step(self.init).other_steps(
+            self.handle_request, self.handle_subflow
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(self.request_channel, self.curr_subflow_num)
+
+    @rpc
+    def send_request(self, context: Context, request: str) -> RPCResult[bool]:
+        if self.request_channel.size(context) >= MAX_BUFFERED_REQUESTS:
+            return RPCResult(False)
+        self.request_channel.publish(context, request)
+        return RPCResult(True)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+const (
+	DefaultConcurrency  = 10
+	MaxBufferedRequests = 100
+)
+
+var (
+	RequestChannel = dex.DefineChannel[string]("RequestChannel")
+	CurrSubFlowNum = dex.DefineAttribute[int]("CurrSubFlowNum")
+)
+
+type AdvancedShortLiveParentFlow struct {
+	dex.FlowDefaults
+	exampleFlow *ExampleSubFlow
+}
+
+func NewAdvancedShortLiveParentFlow(exampleFlow *ExampleSubFlow) *AdvancedShortLiveParentFlow {
+	return &AdvancedShortLiveParentFlow{exampleFlow: exampleFlow}
+}
+
+func (flow *AdvancedShortLiveParentFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(shortLiveInitStep{}),
+		dex.DefineStep(shortLiveHandleRequestStep{}),
+		dex.DefineStep(shortLiveHandleSubFlowStep{exampleFlow: flow.exampleFlow}),
+	}
+}
+
+func (*AdvancedShortLiveParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{CurrSubFlowNum}, Channels: []dex.ChannelDef{RequestChannel}}
+}
+
+func (*AdvancedShortLiveParentFlow) SendRequest(ctx dex.Context, request string) (*dex.RPCResult[bool], error) {
+	if RequestChannel.Size(ctx) >= MaxBufferedRequests {
+		return &dex.RPCResult[bool]{Output: false}, nil
+	}
+	if err := RequestChannel.Publish(ctx, request); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[bool]{Output: true}, nil
+}
+
+type shortLiveInitStep struct {
+	dex.StepDefaultsNoWaitFor[ParentInput]
+}
+
+func (shortLiveInitStep) GetStepType() string { return "InitStep" }
+
+func (shortLiveInitStep) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecision, error) {
+	for _, request := range input.Requests {
+		if err := RequestChannel.Publish(ctx, request); err != nil {
+			return nil, err
+		}
+	}
+	if err := CurrSubFlowNum.Set(ctx, 0); err != nil {
+		return nil, err
+	}
+	return dex.GoToMany(shortLiveWorkerMovements(concurrency(input.Concurrency))...), nil
+}
+
+type shortLiveHandleRequestStep struct{ dex.StepDefaults }
+
+func (shortLiveHandleRequestStep) GetStepType() string { return "HandleRequestStep" }
+
+func (shortLiveHandleRequestStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(CurrSubFlowNum)}}
+}
+
+func (shortLiveHandleRequestStep) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
+	return dex.Until(RequestChannel.ForOne()), nil
+}
+
+func (shortLiveHandleRequestStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	requests, err := RequestChannel.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	current, err := CurrSubFlowNum.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := CurrSubFlowNum.Set(ctx, current+1); err != nil {
+		return nil, err
+	}
+	return dex.GoTo(shortLiveHandleSubFlowStep{}, requests[0]), nil
+}
+
+type shortLiveHandleSubFlowStep struct {
+	dex.StepDefaults
+	exampleFlow *ExampleSubFlow
+}
+
+func (shortLiveHandleSubFlowStep) GetStepType() string { return "HandleSubFlowStep" }
+
+func (shortLiveHandleSubFlowStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteLockAttributes: []dex.AttributeLock{dex.LockAttribute(CurrSubFlowNum)}}
+}
+
+func (step shortLiveHandleSubFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+	return dex.Until(dex.SubFlow(step.exampleFlow, request)), nil
+}
+
+func (shortLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+	current, err := CurrSubFlowNum.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	current--
+	if err := CurrSubFlowNum.Set(ctx, current); err != nil {
+		return nil, err
+	}
+	if current == 0 {
+		return dex.ForceCompleteIfChannelsEmpty(
+			nil,
+			[]dex.ChannelDef{RequestChannel},
+			dex.MovementOf(shortLiveHandleRequestStep{}, nil),
+		), nil
+	}
+	return dex.GoTo(shortLiveHandleRequestStep{}, nil), nil
+}
+
+func shortLiveWorkerMovements(count int) []dex.StepMovement {
+	movements := make([]dex.StepMovement, 0, count)
+	for index := 0; index < count; index++ {
+		movements = append(movements, dex.MovementOf(shortLiveHandleRequestStep{}, nil))
+	}
+	return movements
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+public class AdvancedShortLiveParentFlow implements Flow<ParentInput> {
+    public static final int DEFAULT_CONCURRENCY = 10;
+    public static final int MAX_BUFFERED_REQUESTS = 100;
+
+    public final Channel<String> requestChannel = Channel.define("RequestChannel", String.class);
+    public final Attribute<Integer> currSubFlowNum = Attribute.define("CurrSubFlowNum", Integer.class);
+
+    private final InitStep initStep = new InitStep();
+    private final HandleRequestStep handleRequestStep = new HandleRequestStep();
+    private final HandleSubFlowStep handleSubFlowStep;
+
+    public AdvancedShortLiveParentFlow(final ExampleSubFlow exampleSubFlow) {
+        handleSubFlowStep = new HandleSubFlowStep(exampleSubFlow);
+    }
+
+    @Override
+    public StepList<ParentInput> getSteps() {
+        return StepList.startStep(initStep).otherSteps(handleRequestStep, handleSubFlowStep);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(requestChannel, currSubFlowNum);
+    }
+
+    @RPC
+    public RPCResult<Boolean> sendRequest(final Context context, final String request) {
+        if (requestChannel.size(context) >= MAX_BUFFERED_REQUESTS) {
+            return RPCResult.of(false);
+        }
+        requestChannel.publish(context, request);
+        return RPCResult.of(true);
+    }
+
+    final class InitStep implements Step<ParentInput> {
+        @Override
+        public Class<ParentInput> getInputType() {
+            return ParentInput.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final ParentInput input) {
+            for (final String request : input.requests) {
+                requestChannel.publish(context, request);
+            }
+            currSubFlowNum.set(context, 0);
+            final int concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
+            final StepMovement<?>[] movements = new StepMovement<?>[concurrency];
+            for (int index = 0; index < concurrency; index++) {
+                movements[index] = StepMovement.of(HandleRequestStep.class, null);
+            }
+            return StepDecision.goToMany(movements);
+        }
+    }
+
+    final class HandleRequestStep implements Step<Void> {
+        @Override
+        public Class<Void> getInputType() {
+            return Void.class;
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(currSubFlowNum)).build();
+        }
+
+        @Override
+        public Wait waitFor(final Context context, final Void input) {
+            return Wait.until(requestChannel.forOne());
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
+            final List<String> requests = requestChannel.getConditionResults(context);
+            currSubFlowNum.set(context, currSubFlowNum.get(context) + 1);
+            return StepDecision.goTo(HandleSubFlowStep.class, requests.get(0));
+        }
+    }
+
+final class HandleSubFlowStep implements Step<String> {
+    private final ExampleSubFlow exampleSubFlow;
+
+    HandleSubFlowStep(final ExampleSubFlow exampleSubFlow) {
+        this.exampleSubFlow = exampleSubFlow;
+    }
+
+    @Override
+    public Class<String> getInputType() {
+        return String.class;
+    }
+
+    @Override
+    public StepOptions getStepOptions() {
+        return StepOptions.newBuilder().addExecuteLock(AttributeLock.of(currSubFlowNum)).build();
+    }
+
+    @Override
+    public Wait waitFor(final Context context, final String request) {
+        return Wait.until(SubFlow.run(ExampleSubFlow.class, request));
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final String request) {
+        final int current = currSubFlowNum.get(context) - 1;
+        currSubFlowNum.set(context, current);
+        if (current == 0) {
+            return StepDecision.forceCompleteIfChannelsEmpty(
+                    null,
+                    StepMovement.of(HandleRequestStep.class, null),
+                    requestChannel);
+        }
+        return StepDecision.goTo(HandleRequestStep.class, null);
+    }
+}
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const DEFAULT_CONCURRENCY = 10;
+const MAX_BUFFERED_REQUESTS = 100;
+const requestChannel = new Channel("RequestChannel", stringCodec);
+
+class ShortLiveInitStep implements Step<ParentInput> {
+  public readonly inputCodec = parentInputCodec;
+
+  public constructor(private readonly flow: AdvancedShortLiveParentFlow) {}
+
+  public getStepType(): string {
+    return "InitStep";
+  }
+
+  public execute(context: Context, input: ParentInput): StepDecision {
+    for (const request of input.requests) requestChannel.publish(context, request);
+    this.flow.currSubFlowNum.set(context, 0);
+    const concurrency = input.concurrency > 0 ? input.concurrency : DEFAULT_CONCURRENCY;
+    return goToMany(
+      ...Array.from({ length: concurrency }, () =>
+        StepMovement.of(ShortLiveHandleRequestStep, undefined),
+      ),
+    );
+  }
+}
+
+class ShortLiveHandleRequestStep implements Step<void> {
+  public readonly inputCodec = voidCodec;
+
+  public constructor(private readonly flow: AdvancedShortLiveParentFlow) {}
+
+  public getStepType(): string {
+    return "HandleRequestStep";
+  }
+
+  public getStepOptions(): StepOptions {
+    return { executeLockAttributes: [this.flow.currSubFlowNum.lock()] };
+  }
+
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.until(requestChannel.forOne());
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    const request = requestChannel.results(context)[0];
+    if (request === undefined) throw new Error("request is missing");
+    this.flow.currSubFlowNum.set(context, (this.flow.currSubFlowNum.get(context) ?? 0) + 1);
+    return goTo(ShortLiveHandleSubFlowStep, request);
+  }
+}
+
+class ShortLiveHandleSubFlowStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public constructor(
+    private readonly flow: AdvancedShortLiveParentFlow,
+    private readonly exampleSubFlow: ExampleSubFlow,
+  ) {}
+
+  public getStepType(): string {
+    return "HandleSubFlowStep";
+  }
+
+  public getStepOptions(): StepOptions {
+    return { executeLockAttributes: [this.flow.currSubFlowNum.lock()] };
+  }
+
+  public waitFor(_context: Context, request: string): Wait {
+    return Wait.until(SubFlow.run(this.exampleSubFlow, request));
+  }
+
+  public execute(context: Context, _request: string): StepDecision {
+    const current = (this.flow.currSubFlowNum.get(context) ?? 0) - 1;
+    this.flow.currSubFlowNum.set(context, current);
+    if (current === 0) {
+      return forceCompleteIfChannelsEmpty(
+        null,
+        StepMovement.of(ShortLiveHandleRequestStep, undefined),
+        requestChannel,
+      );
+    }
+    return goTo(ShortLiveHandleRequestStep, undefined);
+  }
+}
+
+export class AdvancedShortLiveParentFlow implements Flow<ParentInput> {
+  public readonly currSubFlowNum = new Attribute("CurrSubFlowNum", doubleCodec);
+  private readonly init = new ShortLiveInitStep(this);
+  private readonly handleRequest = new ShortLiveHandleRequestStep(this);
+  private readonly handleSubFlow: ShortLiveHandleSubFlowStep;
+
+  public constructor(exampleSubFlow: ExampleSubFlow) {
+    this.handleSubFlow = new ShortLiveHandleSubFlowStep(this, exampleSubFlow);
+  }
+
+  public getFlowType(): string {
+    return "AdvancedShortLiveParentFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.init).otherSteps(this.handleRequest, this.handleSubFlow);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { attributes: [this.currSubFlowNum], channels: [requestChannel] };
+  }
+
+  @rpc({ inputCodec: stringCodec, outputCodec: booleanCodec })
+  public sendRequest(context: Context, request: string): RPCResult<boolean> {
+    if (requestChannel.size(context) >= MAX_BUFFERED_REQUESTS) return { output: false };
+    requestChannel.publish(context, request);
+    return { output: true };
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+struct ShortLiveHandleSubFlowStep;
+
+impl Step for ShortLiveHandleSubFlowStep {
+    type Input = String;
+
+    fn step_type(&self) -> &'static str {
+        "HandleSubFlowStep"
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_lock(CURR_SUB_FLOW_NUM.lock())
+    }
+
+    fn wait_for(&self, _context: &mut Context, request: String) -> HandlerResult<Wait> {
+        let child = ExampleSubFlow::default();
+        Ok(Wait::until(
+            SubFlow::run(&child, request).map_err(HandlerError::from_error)?,
+        ))
+    }
+
+    fn execute(&self, context: &mut Context, _request: String) -> HandlerResult<StepDecision> {
+        let current = CURR_SUB_FLOW_NUM.get(context)?.unwrap_or(1) - 1;
+        CURR_SUB_FLOW_NUM.set(context, current)?;
+        if current == 0 {
+            return Ok(StepDecision::force_complete_if_channels_empty(
+                (),
+                StepMovement::to(&ShortLiveHandleRequestStep, ()),
+                [REQUEST_CHANNEL.when_empty()],
+            ));
+        }
+        Ok(StepDecision::go_to(&ShortLiveHandleRequestStep, ()))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Multiple parents with partitioning](/design-patterns/parallel-subflows/partitioning)
+- [Step decision](/primitives/step/step-decision#forcecompleteifchannelsempty)

@@ -111,18 +111,10 @@ final class FlowSmokeCatalog {
                                 "itemName", "smoke-item",
                                 "quantity", "2"),
                         FlowSmokeFlags.stepStartMayFail()),
-                FlowSmokeEntry.get(
-                        "patterns/scalable-parallel",
-                        "/patterns/scalable-parallel/start",
-                        Map.of(
-                                "workflowId", environment.newFlowId("scalable-parallel"),
-                                "numOfChildWfs", "1")),
-                FlowSmokeEntry.get(
-                        "patterns/parent-child",
-                        "/patterns/parent-child/start",
-                        Map.of(
-                                "workflowId", environment.newFlowId("parent-child"),
-                                "numOfChildWfs", "1")),
+                parallelSubFlows(environment, "basic"),
+                parallelSubFlows(environment, "wait-for-half"),
+                parallelSubFlows(environment, "long-lived-parent"),
+                parallelSubFlows(environment, "short-lived-parent"),
                 FlowSmokeEntry.get(
                         "patterns/drain-channels/internal",
                         "/patterns/drain-channels/internal/start",
@@ -230,6 +222,15 @@ final class FlowSmokeCatalog {
                         Map.of(
                                 "workflowId", environment.newFlowId("primitive-client-apis"),
                                 "keyword", "smoke")));
+    }
+
+    private static FlowSmokeEntry parallelSubFlows(
+            final FlowSmokeEnvironment environment,
+            final String kind) {
+        return FlowSmokeEntry.get(
+                "patterns/parallel-subflows/" + kind,
+                "/patterns/parallel-subflows/start/" + kind,
+                Map.of("workflowId", environment.newFlowId("parallel-subflows-" + kind)));
     }
 
     private static Map<String, String> signupQuery(final FlowSmokeEnvironment environment) {

@@ -39,12 +39,11 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
 	"github.com/superdurable/dex/examples/go/patterns/parallel"
-	"github.com/superdurable/dex/examples/go/patterns/parent-child"
+	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
 	patternspolling "github.com/superdurable/dex/examples/go/patterns/polling"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
 	"github.com/superdurable/dex/examples/go/patterns/reminders"
 	"github.com/superdurable/dex/examples/go/patterns/resettable-timer"
-	"github.com/superdurable/dex/examples/go/patterns/scalable-parallel"
 	"github.com/superdurable/dex/examples/go/patterns/timeout"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
 	primitiveattribute "github.com/superdurable/dex/examples/go/primitives/attribute"
@@ -181,9 +180,8 @@ func NewRouter(client *sdk.Client) http.Handler {
 	intervention.RegisterRoutes(router, client, registry.ManualRecovery)
 	resettabletimer.RegisterRoutes(router, client, registry.ResettableTimer)
 	parallel.RegisterRoutes(router, client, registry.StaticParallel, registry.DynamicParallel, registry.AwaitParallel, registry.FirstWinParallel)
+	parallelsubflows.RegisterRoutes(router, client, registry.BasicSubFlows, registry.WaitForHalfSubFlows, registry.LongLiveSubFlows, registry.ShortLiveSubFlows, registry.SubmitSubFlowRequest)
 	recovery.RegisterRoutes(router, client, registry.FailureRecovery)
-	scalableparallel.RegisterRoutes(router, client, registry.RequestReceiver)
-	parentchild.RegisterRoutes(router, client, registry.ParentChild)
 	draininternal.RegisterRoutes(router, client, registry.DrainInternal)
 	drainexternal.RegisterRoutes(router, client, registry.DrainExternal)
 	waitforstatecompletion.RegisterRoutes(router, client, registry.WaitForStateCompletion)

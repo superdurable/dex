@@ -18,7 +18,9 @@ pub mod products;
 pub mod server;
 pub mod shared;
 
-use dex_sdk::{Registry, SdkResult};
+use std::sync::Arc;
+
+use dex_sdk::{Client, Registry, SdkResult};
 
 pub const PRODUCT_FLOW_TYPES: [&str; 10] = [
     "MoneyTransferFlow",
@@ -33,7 +35,7 @@ pub const PRODUCT_FLOW_TYPES: [&str; 10] = [
     "ShortlistFlow",
 ];
 
-pub const PATTERN_FLOW_TYPES: [&str; 22] = [
+pub const PATTERN_FLOW_TYPES: [&str; 23] = [
     "CronScheduleFlow",
     "DrainInternalChannelFlow",
     "DrainingExternalChannelFlow",
@@ -43,16 +45,17 @@ pub const PATTERN_FLOW_TYPES: [&str; 22] = [
     "DynamicParallelStepsFlow",
     "AwaitParallelStepsFlow",
     "FirstWinParallelStepsFlow",
-    "ParentFlowV2",
+    "ExampleSubFlow",
+    "BasicParentFlow",
+    "AdvancedLongLiveParentFlow",
+    "AdvancedShortLiveParentFlow",
+    "SubmitRequestFlow",
     "PollingWithTimerFlow",
     "BackoffPollingFlow",
     "IterationFlow",
     "FailureRecoveryFlow",
     "ReminderFlow",
     "ResettableTimerFlow",
-    "ChildFlow",
-    "ParentFlow",
-    "RequestReceiverFlow",
     "UserProfileFlow",
     "FlowGracefulTimeout",
     "WaitForStateCompletionFlow",
@@ -61,5 +64,11 @@ pub const PATTERN_FLOW_TYPES: [&str; 22] = [
 pub fn create_example_registry() -> SdkResult<Registry> {
     products::register(Registry::new())
         .and_then(patterns::register)
+        .and_then(primitives::register)
+}
+
+pub fn create_worker_registry(client: Arc<Client>) -> SdkResult<Registry> {
+    products::register(Registry::new())
+        .and_then(|registry| patterns::register_worker(registry, client))
         .and_then(primitives::register)
 }

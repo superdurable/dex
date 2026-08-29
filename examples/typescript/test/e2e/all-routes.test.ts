@@ -420,24 +420,15 @@ test("design-pattern recovery start", async () => {
   );
 });
 
-test("design-pattern scalableparallel start", async () => {
-  requireOk(
-    await get("/patterns/scalable-parallel/start", {
-      workflowId: id("scalable"),
-      numOfChildWfs: 2,
-    }),
-    "scalableparallel",
-  );
-});
-
-test("design-pattern parentchild start", async () => {
-  requireOk(
-    await get("/patterns/parent-child/start", {
-      workflowId: id("parent"),
-      numOfChildWfs: 2,
-    }),
-    "parentchild",
-  );
+test("design-pattern parallel SubFlows start", async () => {
+  for (const kind of ["basic", "wait-for-half", "long-lived-parent", "short-lived-parent"]) {
+    requireOk(
+      await get(`/patterns/parallel-subflows/start/${kind}`, {
+        workflowId: id(`parallel-subflows-${kind}`),
+      }),
+      `parallel SubFlows ${kind}`,
+    );
+  }
 });
 
 test("design-pattern drain channels", async () => {

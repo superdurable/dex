@@ -47,11 +47,10 @@ pub fn build_router(client: SharedClient) -> axum::Router {
             client.clone(),
         ))
         .merge(patterns::parallel::controller::mount(client.clone()))
-        .merge(patterns::recovery::controller::mount(client.clone()))
-        .merge(patterns::scalable_parallel::controller::mount(
+        .merge(patterns::parallel_subflows::controller::mount(
             client.clone(),
         ))
-        .merge(patterns::parent_child::controller::mount(client.clone()))
+        .merge(patterns::recovery::controller::mount(client.clone()))
         .merge(patterns::drain_channels::controller::mount(client.clone()))
         .merge(patterns::wait_for_state_completion::controller::mount(
             client.clone(),

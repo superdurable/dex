@@ -1,0 +1,26 @@
+---
+title: Parallel SubFlows
+---
+
+# Parallel SubFlows
+
+Use SubFlows when:
+
+1. You need to run parallel work with independent execution histories, retries, and lifecycle control.
+2. You need to fan out concurrent actions beyond the concurrency limit of one Flow execution.
+
+## Choose a pattern
+
+- [Basic parent Flow](/design-patterns/parallel-subflows/basic) — Start a runtime-sized group and wait for every SubFlow.
+- [Wait for half](/design-patterns/parallel-subflows/wait-for-half) — Wait for half of the SubFlows, then let each unfinished Step stop its own child.
+- [Advanced: long-lived parent](/design-patterns/parallel-subflows/long-lived-parent) — Keep a fixed worker pool alive and accept requests through an RPC that publishes to a Channel.
+- [Advanced: short-lived parent](/design-patterns/parallel-subflows/short-lived-parent) — Drain queued requests and atomically complete when the last SubFlow and Channel are both empty.
+- [Advanced: multiple parents with partitioning](/design-patterns/parallel-subflows/partitioning) — Route requests across multiple parents so total SubFlow concurrency can grow horizontally.
+- [Advanced: back pressure for high availability](/design-patterns/parallel-subflows/back-pressure) — Submit through a retrying Flow when a parent rejects an overloaded request.
+
+The first four pages define parent Flow shapes. Partitioning and back pressure extend those shapes for higher scale and availability.
+
+## Related
+
+- [SubFlow](/primitives/subflow)
+- [Parallel Steps](/design-patterns/parallel)

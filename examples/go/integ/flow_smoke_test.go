@@ -336,32 +336,10 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 			flags: flowSmokeFlags{stepStartMayFail: true},
 		},
-		{
-			name: "patterns/scalable-parallel",
-			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{
-					"workflowId":    {smokeWorkflowID(t, "scalable-parallel")},
-					"numOfChildWfs": {"1"},
-				}
-				return triggerFlowSmokeHTTP(
-					t,
-					http.MethodGet,
-					"/patterns/scalable-parallel/start",
-					query,
-					nil,
-				)
-			},
-		},
-		{
-			name: "patterns/parent-child",
-			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{
-					"workflowId":    {smokeWorkflowID(t, "parent-child")},
-					"numOfChildWfs": {"1"},
-				}
-				return triggerFlowSmokeHTTP(t, http.MethodGet, "/patterns/parent-child/start", query, nil)
-			},
-		},
+		parallelSubFlowsSmokeEntry("basic"),
+		parallelSubFlowsSmokeEntry("wait-for-half"),
+		parallelSubFlowsSmokeEntry("long-lived-parent"),
+		parallelSubFlowsSmokeEntry("short-lived-parent"),
 		{
 			name: "patterns/drain-channels/internal",
 			trigger: func(t *testing.T) (string, string) {
@@ -571,6 +549,22 @@ func parallelSmokeEntry(kind string) flowSmokeEntry {
 				t,
 				http.MethodGet,
 				"/patterns/parallel/start/"+kind,
+				query,
+				nil,
+			)
+		},
+	}
+}
+
+func parallelSubFlowsSmokeEntry(kind string) flowSmokeEntry {
+	return flowSmokeEntry{
+		name: "patterns/parallel-subflows/" + kind,
+		trigger: func(t *testing.T) (string, string) {
+			query := url.Values{"workflowId": {smokeWorkflowID(t, "parallel-subflows-"+kind)}}
+			return triggerFlowSmokeHTTP(
+				t,
+				http.MethodGet,
+				"/patterns/parallel-subflows/start/"+kind,
 				query,
 				nil,
 			)

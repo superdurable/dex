@@ -24,7 +24,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -39,8 +38,8 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
 	"github.com/superdurable/dex/examples/go/patterns/interruptible"
 	"github.com/superdurable/dex/examples/go/patterns/intervention"
+	parallelsubflows "github.com/superdurable/dex/examples/go/patterns/parallel-subflows"
 	"github.com/superdurable/dex/examples/go/patterns/recovery"
-	"github.com/superdurable/dex/examples/go/patterns/scalable-parallel"
 	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
 	"github.com/superdurable/dex/examples/go/products/engagement"
 	"github.com/superdurable/dex/examples/go/products/job-post"
@@ -247,8 +246,9 @@ func runPatternScenarios(
 		{"pattern/parallel-await", func() result { return verifyParallelAwait(ctx, client, stamp) }},
 		{"pattern/parallel-first-win", func() result { return verifyParallelFirstWin(ctx, client, stamp) }},
 		{"pattern/recovery", func() result { return verifyRecovery(ctx, client, stamp) }},
-		{"pattern/scalable-parallel", func() result { return verifyScalableParallel(ctx, client, stamp) }},
-		{"pattern/parent-child", func() result { return verifyParentChild(ctx, client, stamp) }},
+		{"pattern/parallel-subflows-basic", func() result { return verifyParallelSubFlowsBasic(ctx, client, stamp) }},
+		{"pattern/parallel-subflows-long-lived", func() result { return verifyParallelSubFlowsLongLived(ctx, client, stamp) }},
+		{"pattern/parallel-subflows-short-lived", func() result { return verifyParallelSubFlowsShortLived(ctx, client, stamp) }},
 		{"pattern/drain-internal", func() result { return verifyDrainInternal(ctx, client, stamp) }},
 		{"pattern/drain-external", func() result { return verifyDrainingChannel(ctx, client, stamp) }},
 		{"pattern/wait-for-state-completion", func() result { return verifyWaitForStateCompletion(ctx, client, stamp) }},
@@ -1053,66 +1053,49 @@ func verifyRecovery(ctx context.Context, client *dex.Client, stamp string) resul
 	return pass(name, "payment fail → void → ForceFail as designed")
 }
 
-func verifyScalableParallel(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/scalable-parallel"
-	parentID := "dv-sp-parent-" + stamp
-	taskA := "task-a-" + stamp
-	taskB := "task-b-" + stamp
-	_, err := client.StartFlow(
-		ctx, registry.ScalableParent, parentID,
-		scalableparallel.BatchEnqueueRequest{List: []string{taskA, taskB}},
-		hourStartOptions(),
-	)
+func verifyParallelSubFlowsBasic(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/parallel-subflows-basic"
+	flowID := "dv-parallel-subflows-basic-" + stamp
+	_, err := client.StartFlow(ctx, registry.BasicSubFlows, flowID, []string{"one", "two", "three"}, hourStartOptions())
 	if err != nil {
-		return fail(name, "start unique parent", err)
+		return fail(name, "start", err)
 	}
-	// Parent ForceCompletes when queue drained and all children reported complete.
-	if _, err := waitCompleted(ctx, client, parentID, 3*time.Minute); err != nil {
-		return fail(name, "parent ForceComplete after children", err)
+	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
+		return fail(name, "wait", err)
 	}
-	for _, childID := range []string{"processing-" + taskA, "processing-" + taskB} {
-		wait, waitErr := waitForFlow(ctx, client, childID, true, 10*time.Second)
-		if waitErr != nil {
-			return fail(name, "child "+childID, waitErr)
-		}
-		if wait.Status != dex.FlowCompleted {
-			return fail(name, fmt.Sprintf("%s status=%v", childID, wait.Status), nil)
-		}
-	}
-	return pass(name, "unique parent + 2 children completed end-to-end")
+	return pass(name, "completed after half of the SubFlows and stopped the rest")
 }
 
-func verifyParentChild(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "pattern/parent-child"
-	flowID := "dv-parent-" + stamp
-	// Fixed child IDs child-wf-{n}; stop leftovers so StartFlow is clean.
-	for _, childID := range []string{"child-wf-0", "child-wf-1"} {
-		_ = client.StopFlow(ctx, childID, dex.StopOptions{})
-	}
-	_, err := client.StartFlow(
-		ctx, registry.ParentChild, flowID, 2, idReuseHourOptions(),
-	)
+func verifyParallelSubFlowsLongLived(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/parallel-subflows-long-lived"
+	flowID := "dv-parallel-subflows-long-lived-" + stamp
+	input := parallelsubflows.ParentInput{Requests: []string{"one", "two"}, Concurrency: 2}
+	_, err := client.StartFlow(ctx, registry.LongLiveSubFlows, flowID, input, hourStartOptions())
 	if err != nil {
-		return fail(name, "start parent", err)
+		return fail(name, "start", err)
 	}
-	for _, childID := range []string{"child-wf-0", "child-wf-1"} {
-		if _, err := waitCompleted(ctx, client, childID, 90*time.Second); err != nil {
-			return fail(name, "wait "+childID, err)
-		}
+	var output dex.None
+	if err := client.InvokeRPC(ctx, flowID, registry.LongLiveSubFlows.Stop, nil, &output, dex.InvokeOptions{}); err != nil {
+		return fail(name, "stop", err)
 	}
-	// Parent keeps ConcurrencyPerParentWorkflow loop waiters forever after queue drain.
-	wait, err := waitForFlow(ctx, client, flowID, false, 3*time.Second)
+	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
+		return fail(name, "wait", err)
+	}
+	return pass(name, "workers completed after the durable stop attribute was set")
+}
+
+func verifyParallelSubFlowsShortLived(ctx context.Context, client *dex.Client, stamp string) result {
+	name := "pattern/parallel-subflows-short-lived"
+	flowID := "dv-parallel-subflows-short-lived-" + stamp
+	input := parallelsubflows.ParentInput{Requests: []string{"one", "two", "three"}, Concurrency: 2}
+	_, err := client.StartFlow(ctx, registry.ShortLiveSubFlows, flowID, input, hourStartOptions())
 	if err != nil {
-		var timeout *dex.LongPollTimeoutError
-		if errors.As(err, &timeout) {
-			return pass(name, "children completed; parent still running (by design)")
-		}
-		return fail(name, "parent status", err)
+		return fail(name, "start", err)
 	}
-	if wait.Status != dex.FlowRunning {
-		return fail(name, fmt.Sprintf("expected parent still running, got %v", wait.Status), nil)
+	if _, err := waitCompleted(ctx, client, flowID, 90*time.Second); err != nil {
+		return fail(name, "wait", err)
 	}
-	return pass(name, "children completed; parent still running (by design)")
+	return pass(name, "completed after the request Channel drained and every SubFlow finished")
 }
 
 func verifyDrainInternal(ctx context.Context, client *dex.Client, stamp string) result {
