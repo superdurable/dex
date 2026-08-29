@@ -97,6 +97,12 @@ one requires equivalent updates to all three in the same commit.
   Link the example (and the examples playground when the sample has HTTP and
   is catalogued). Do not invent APIs; add the example first.
   See `.cursor/rules/docs-examples.mdc`.
+- Design-pattern Step graph PNGs must remain responsive. Set only a percentage
+  `max-width`, never a fixed width or height. Choose each maximum so its Flow type
+  name renders at the same size as `DrainInternalChannelFlow` in
+  `drain-internal-channel.png`, and keep the image centered. Match its stable
+  filename fragment in `docs/src/css/custom.css` because Docusaurus hashes
+  Markdown image URLs. Apply this rule when adding or replacing a Step graph.
 - Before producing a binary, add its exact path to both `.gitignore` and
   `.dockerignore`, then remove any stray uncommitted binaries.
 
