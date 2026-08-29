@@ -89,7 +89,9 @@ public class ManualRecoveryFlow implements Flow<Boolean> {
 
         @Override
         public Wait waitFor(final Context context, final Boolean input) {
-            return Wait.anyOf(retryChannel.forOne(), skipChannel.forOne());
+            return Wait.anyOf(
+                    retryChannel.forOne(),
+                    skipChannel.forOne());
         }
 
         @Override

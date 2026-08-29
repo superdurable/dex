@@ -22,7 +22,6 @@ import io.superdurable.dex.PersistenceSchema;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
-import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.Timer;
 import io.superdurable.dex.Wait;
 import org.springframework.stereotype.Component;
@@ -31,13 +30,11 @@ import java.time.Duration;
 
 @Component
 public class FlowGracefulTimeout implements Flow<Boolean> {
-    private final Init init = new Init();
-    private final Timeout timeout = new Timeout();
-    private final Task task = new Task();
+    private final LongWaitStep longWaitStep = new LongWaitStep();
 
     @Override
     public StepList<Boolean> getSteps() {
-        return StepList.startStep(init).otherSteps(timeout, task);
+        return StepList.startStep(longWaitStep);
     }
 
     @Override
@@ -45,38 +42,7 @@ public class FlowGracefulTimeout implements Flow<Boolean> {
         return PersistenceSchema.of();
     }
 
-    final class Init implements Step<Boolean> {
-        @Override
-        public Class<Boolean> getInputType() {
-            return Boolean.class;
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Boolean workflowSuccessful) {
-            return StepDecision.goToMany(
-                    StepMovement.of(Timeout.class, null),
-                    StepMovement.of(Task.class, workflowSuccessful));
-        }
-    }
-
-    final class Timeout implements Step<Void> {
-        @Override
-        public Class<Void> getInputType() {
-            return Void.class;
-        }
-
-        @Override
-        public Wait waitFor(final Context context, final Void input) {
-            return Wait.until(Timer.byDuration(Duration.ofMinutes(1)));
-        }
-
-        @Override
-        public StepDecision execute(final Context context, final Void input) {
-            return StepDecision.forceFail("Workflow did not finish the task in time");
-        }
-    }
-
-    final class Task implements Step<Boolean> {
+    final class LongWaitStep implements Step<Boolean> {
         @Override
         public Class<Boolean> getInputType() {
             return Boolean.class;
@@ -94,5 +60,10 @@ public class FlowGracefulTimeout implements Flow<Boolean> {
         public StepDecision execute(final Context context, final Boolean workflowSuccessful) {
             return StepDecision.forceComplete("Workflow completed successfully");
         }
+    }
+
+    @Override
+    public StepDecision handleTimeout(final Context context) {
+        return StepDecision.forceFail("Workflow did not finish the task in time");
     }
 }

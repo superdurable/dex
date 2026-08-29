@@ -1,0 +1,19 @@
+---
+title: Failure Handling
+---
+
+# Failure Handling
+
+Failure handling 是 Durable Execution 平台的核心。默认情况下，Dex 会对失败的 Step 方法——**WaitFor** 或 **Execute**——执行指数退避重试。可以通过 **StepOptions** 配置这种重试行为。
+
+当只靠重试无法满足需求时，选择以下模式之一。它们分别为补偿、人工介入、整个 Flow 的截止时间，以及 **WaitFor** 重试耗尽后的处理定义明确的恢复路径。
+
+- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) — 重试失败的工作，耗尽后转到恢复 Step。
+- [Manual Recovery](/design-patterns/failure-handling/manual-recovery) — 将重试耗尽的失败升级给人工，由人工决策或介入处理。
+- [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout) — 利用 Dex 内置的 graceful timeout 功能处理整个 Flow 的超时。
+- [WaitFor Failure Recovery](/design-patterns/failure-handling/wait-for-failure-recovery) — 在 **WaitFor** 失败耗尽后继续执行并恢复。
+
+## 相关内容
+
+- [Step options](/primitives/step/step-options)
+- [Timer](/primitives/timer)

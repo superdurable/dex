@@ -1,0 +1,152 @@
+---
+title: Execute Failure Recovery
+---
+
+# Execute Failure Recovery
+
+Recover automatically when an **Execute** method still fails after its retry policy is exhausted.
+
+![ExecuteFailureRecoveryFlow](/img/design-patterns/execute-failure-recovery-flow.png)
+
+**ExecuteFailureRecoveryFlow** starts **FailingStep**. Its **Execute** method can fail, and its **ExecuteFailure** policy sends the Flow to **RecoveryStep** after retries are exhausted. **RecoveryStep** performs the compensating action and completes the Flow.
+
+Use this pattern when the Flow can recover without a person. Keep the recovery Step idempotent because it may be retried independently.
+
+## Core implementation
+
+The failed **FailingStep** owns both its retry policy and the movement to **RecoveryStep**. **RecoveryStep** receives the same input and performs the compensating action before it completes or fails the Flow.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/patterns/recovery/failure_recovery_flow.py',
+    go: 'examples/go/patterns/recovery/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/recovery/FailureRecoveryFlow.java',
+    typescript: 'examples/typescript/src/patterns/recovery/failure-recovery-flow.ts',
+    rust: 'examples/rust/src/patterns/recovery/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class FailingStep(Step[str]):
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            execute_retry=RetryPolicy(maximum_attempts=3)
+        ).on_execute_failure_proceed_to(RecoveryStep)
+
+    def execute(self, context: Context, input: str) -> StepDecision:
+        del context, input
+        raise RuntimeError("planned Execute failure")
+
+class RecoveryStep(Step[str]):
+    def execute(self, context: Context, input: str) -> StepDecision:
+        del context
+        return graceful_complete(f"recovered {input}")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type failingStep struct{ dex.StepDefaultsNoWaitFor[string] }
+
+func (failingStep) GetStepOptions() *dex.StepOptions {
+	return &dex.StepOptions{ExecuteRetry: &dex.RetryPolicy{MaximumAttempts: 3}, ExecuteFailure: dex.ProceedToOnExecuteFailure(recoveryStep{}, nil)}
+}
+
+func (failingStep) Execute(_ dex.Context, _ string) (*dex.StepDecision, error) {
+	return nil, fmt.Errorf("planned Execute failure")
+}
+
+type recoveryStep struct{ dex.StepDefaultsNoWaitFor[string] }
+
+func (recoveryStep) Execute(_ dex.Context, input string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete("recovered " + input), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+final class FailingStep implements Step<String> {
+    @Override public Class<String> getInputType() { return String.class; }
+
+    @Override public StepOptions getStepOptions() {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder().maximumAttempts(3).build())
+                .onExecuteFailureProceedTo(RecoveryStep.class)
+                .build();
+    }
+
+    @Override public StepDecision execute(final Context context, final String input) {
+        throw new IllegalStateException("planned Execute failure");
+    }
+}
+
+final class RecoveryStep implements Step<String> {
+    @Override public Class<String> getInputType() { return String.class; }
+
+    @Override public StepDecision execute(final Context context, final String input) {
+        return StepDecision.gracefulComplete("recovered " + input);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+class FailingStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public getStepOptions(): StepOptions {
+    return { executeRetry: { maximumAttempts: 3 }, executeFailure: ExecuteFailure.proceedTo(RecoveryStep) };
+  }
+
+  public execute(_context: Context, _input: string): StepDecision {
+    throw new Error("planned Execute failure");
+  }
+}
+
+class RecoveryStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public execute(_context: Context, input: string): StepDecision {
+    return gracefulComplete(`recovered ${input}`);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+impl Step for FailingStep {
+    type Input = String;
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        StepOptions::new().execute_retry(RetryPolicy::new().maximum_attempts(3))
+            .on_execute_failure_proceed_to(&RecoveryStep)
+    }
+
+    fn execute(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        Err(HandlerError::new("FailingStep", "planned Execute failure"))
+    }
+}
+
+impl Step for RecoveryStep {
+    type Input = String;
+
+    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
+        Ok(StepDecision::graceful_complete(format!("recovered {input}")))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Failure Handling](/design-patterns/failure-handling)
+- [Step options](/primitives/step/step-options)

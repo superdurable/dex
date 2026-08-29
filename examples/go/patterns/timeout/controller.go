@@ -43,8 +43,11 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *FlowGracefulTi
 }
 
 func patternStartOptions() sdk.StartFlowOptions {
-	timeout := time.Hour
-	return sdk.StartFlowOptions{Timeout: &timeout}
+	timeout := time.Minute
+	return sdk.StartFlowOptions{
+		Timeout:       &timeout,
+		TimeoutPolicy: sdk.TimeoutHandler,
+	}
 }
 
 func (controller *controller) start(request *gin.Context) {

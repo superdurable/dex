@@ -31,44 +31,30 @@
 use std::time::Duration;
 
 use dex_sdk::{
-    Context, Flow, HandlerResult, Step, StepDecision, StepList, StepMovement, Timer, Wait,
+    Context, Flow, FlowTimeoutHandler, HandlerResult, Step, StepDecision, StepList, Timer, Wait,
 };
 
 #[derive(Default)]
 pub struct FlowGracefulTimeout {
-    start: Start,
-    task: Task,
-    timeout: Timeout,
+    long_wait_step: LongWaitStep,
 }
 
 impl Flow for FlowGracefulTimeout {
     type StartInput = bool;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.start)
-            .and(&self.task)
-            .and(&self.timeout)
+        StepList::start(&self.long_wait_step)
+    }
+
+    fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
+        Some(Self::handle_timeout)
     }
 }
 
 #[derive(Default)]
-struct Start;
+struct LongWaitStep;
 
-impl Step for Start {
-    type Input = bool;
-
-    fn execute(&self, _context: &mut Context, successful: bool) -> HandlerResult<StepDecision> {
-        Ok(StepDecision::go_to_many([
-            StepMovement::to(&Task, successful),
-            StepMovement::to(&Timeout, ()),
-        ]))
-    }
-}
-
-#[derive(Default)]
-struct Task;
-
-impl Step for Task {
+impl Step for LongWaitStep {
     type Input = bool;
 
     fn wait_for(&self, _context: &mut Context, successful: bool) -> HandlerResult<Wait> {
@@ -83,17 +69,8 @@ impl Step for Task {
     }
 }
 
-#[derive(Default)]
-struct Timeout;
-
-impl Step for Timeout {
-    type Input = ();
-
-    fn wait_for(&self, _context: &mut Context, _input: ()) -> HandlerResult<Wait> {
-        Ok(Wait::until(Timer::by_duration(Duration::from_secs(60))))
-    }
-
-    fn execute(&self, _context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
+impl FlowGracefulTimeout {
+    fn handle_timeout(&self, _context: &mut Context) -> HandlerResult<StepDecision> {
         Ok(StepDecision::force_fail("task exceeded graceful timeout"))
     }
 }

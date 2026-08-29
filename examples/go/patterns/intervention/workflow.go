@@ -92,7 +92,10 @@ func (manualStep) WaitFor(
 	_ dex.Context,
 	_ bool,
 ) (*dex.Wait, error) {
-	return dex.AnyOf(RetryChannel.ForOne(), SkipChannel.ForOne()), nil
+	return dex.AnyOf(
+		RetryChannel.ForOne(),
+		SkipChannel.ForOne(),
+	), nil
 }
 
 func (manualStep) Execute(
