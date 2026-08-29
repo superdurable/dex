@@ -29,7 +29,6 @@ from dex_examples.shared.query import (
     started_flow,
 )
 from dex_examples.products.engagement.engagement_input import EngagementInput
-from dex_examples.products.engagement.status import Status
 
 
 def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
@@ -38,16 +37,17 @@ def create_engagement_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/start")
     async def start() -> Response:
         flow_id = new_flow_id("engagement")
+        input = EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes")
         run_id = await app_state.client.start_flow(
             app_state.engagement,
             flow_id,
-            EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes"),
+            input,
             start_options(),
         )
         await app_state.client.wait_for_attribute_equal(
             flow_id,
-            app_state.engagement.engagement_status,
-            Status.INITIATED,
+            app_state.engagement.employer_id,
+            input.employer_id,
             timedelta(seconds=15),
         )
         return started_flow(flow_id, run_id)

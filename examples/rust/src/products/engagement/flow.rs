@@ -110,7 +110,7 @@ impl Flow for EngagementFlow {
     fn persistence(&self) -> PersistenceSchema {
         PersistenceSchema::new()
             .attribute(&STATUS)
-            .attribute(&ENGAGEMENT_STATUS)
+            .attribute(&EMPLOYER_ID)
             .channel(&DECISION)
     }
 
@@ -137,7 +137,7 @@ impl Step for Start {
                 notes: String::new(),
             },
         )?;
-        ENGAGEMENT_STATUS.set(context, "pending".to_owned())?;
+        EMPLOYER_ID.set(context, input.employer_id.clone())?;
         Ok(StepDecision::go_to_many([
             StepMovement::to(&WaitForDecision, input.clone()),
             StepMovement::to(
@@ -171,7 +171,6 @@ impl Step for WaitForDecision {
                 notes: String::new(),
             });
         STATUS.set(context, resolved.clone())?;
-        ENGAGEMENT_STATUS.set(context, resolved.status.clone())?;
         Ok(StepDecision::go_to(&NotifyExternalSystem, resolved.status))
     }
 }
@@ -191,8 +190,8 @@ impl Step for NotifyExternalSystem {
 static STATUS: LazyLock<Attribute<EngagementStatus>> =
     LazyLock::new(|| Attribute::new("engagement-status").indexed(AttributeIndex::keyword()));
 
-pub static ENGAGEMENT_STATUS: LazyLock<Attribute<String>> =
-    LazyLock::new(|| Attribute::new("engagement-status-value").indexed(AttributeIndex::keyword()));
+pub static EMPLOYER_ID: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("employer-id").indexed(AttributeIndex::keyword()));
 
 static DECISION: LazyLock<Channel<EngagementStatus>> =
     LazyLock::new(|| Channel::new("engagement-decision"));

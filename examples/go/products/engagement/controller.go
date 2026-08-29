@@ -68,8 +68,8 @@ func (controller *controller) start(request *gin.Context) {
 	err = controller.client.WaitForAttributeEqual(
 		waitContext,
 		flowID,
-		EngagementStatus,
-		StatusInitiated,
+		EmployerID,
+		input.EmployerID,
 	)
 	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
 }

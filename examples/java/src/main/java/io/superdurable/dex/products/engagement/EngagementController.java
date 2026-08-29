@@ -53,8 +53,8 @@ public class EngagementController {
         final String runId = client.startFlow(flow, flowId, input, ExampleFlows.startOptions());
         client.waitForAttributeEqual(
                 flowId,
-                flow.engagementStatus,
-                Status.INITIATED,
+                flow.employerId,
+                input.employerId,
                 Duration.ofSeconds(15));
         final Map<String, String> response = new LinkedHashMap<String, String>();
         response.put("flowID", flowId);

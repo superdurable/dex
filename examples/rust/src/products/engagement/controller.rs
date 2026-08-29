@@ -23,8 +23,8 @@ use serde_json::json;
 use std::time::Duration;
 
 use crate::products::engagement::flow::{
-    ENGAGEMENT_ACCEPT, ENGAGEMENT_DECLINE, ENGAGEMENT_DESCRIBE, ENGAGEMENT_OPT_OUT,
-    ENGAGEMENT_STATUS, EngagementFlow, EngagementRequest,
+    EMPLOYER_ID, ENGAGEMENT_ACCEPT, ENGAGEMENT_DECLINE, ENGAGEMENT_DESCRIBE, ENGAGEMENT_OPT_OUT,
+    EngagementFlow, EngagementRequest,
 };
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, run_blocking,
@@ -63,11 +63,12 @@ async fn start(State(client): State<SharedClient>) -> impl IntoResponse {
             employer_id: "test-employer-id".into(),
             candidate_id: "test-job-seeker-id".into(),
         };
+        let employer_id = input.employer_id.clone();
         let run_id = client.start_flow(&flow, &flow_id, input)?;
         client.wait_for_attribute_equal(
             &flow_id,
-            &ENGAGEMENT_STATUS,
-            "pending".to_owned(),
+            &EMPLOYER_ID,
+            employer_id,
             Duration::from_secs(15),
         )?;
         Ok(StartResponse { flow_id, run_id })

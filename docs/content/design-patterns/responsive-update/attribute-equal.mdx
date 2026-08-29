@@ -6,7 +6,7 @@ title: Wait for Attribute Equal
 
 Use **WaitForAttributeEqual** when the condition a caller needs is business state, not merely that a particular Step ran. The client waits until a singleton Attribute in the active Flow equals a primitive value. It returns immediately if the Attribute already has that value.
 
-The **EngagementFlow** sample writes its initial status as it starts. Its start endpoint waits for that durable value, then returns the Flow and run identifiers. The object-model samples use **Initiated**; the Rust sample uses **pending**. The Flow remains active so a caller can later accept, decline, or opt out.
+The **EngagementFlow** sample writes **EmployerId** from its start request. Its start endpoint waits until that durable identifier is available, then returns the Flow and run identifiers. The Flow remains active so a caller can later accept, decline, or opt out.
 
 Only string, Boolean, and numeric Attribute values can be compared by this wait. Keep a compact Attribute for the condition when the richer result is an object or collection.
 
@@ -39,8 +39,8 @@ func (controller *controller) start(request *gin.Context) {
 	err = controller.client.WaitForAttributeEqual(
 		waitContext,
 		flowID,
-		EngagementStatus,
-		StatusInitiated,
+		EmployerID,
+		input.EmployerID,
 	)
 	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
 }
@@ -53,16 +53,17 @@ func (controller *controller) start(request *gin.Context) {
 @blueprint.get("/start")
 async def start() -> Response:
     flow_id = new_flow_id("engagement")
+    input = EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes")
     run_id = await app_state.client.start_flow(
         app_state.engagement,
         flow_id,
-        EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes"),
+        input,
         start_options(),
     )
     await app_state.client.wait_for_attribute_equal(
         flow_id,
-        app_state.engagement.engagement_status,
-        Status.INITIATED,
+        app_state.engagement.employer_id,
+        input.employer_id,
         timedelta(seconds=15),
     )
     return started_flow(flow_id, run_id)
@@ -82,8 +83,8 @@ public ResponseEntity<Map<String, String>> start() {
     final String runId = client.startFlow(flow, flowId, input, ExampleFlows.startOptions());
     client.waitForAttributeEqual(
             flowId,
-            flow.engagementStatus,
-            Status.INITIATED,
+            flow.employerId,
+            input.employerId,
             Duration.ofSeconds(15));
     final Map<String, String> response = new LinkedHashMap<String, String>();
     response.put("flowID", flowId);
@@ -106,8 +107,8 @@ router.get("/start", async (_request, response) => {
   const runId = await client.startFlow(engagementFlow, flowId, input, startOptions());
   await client.waitForAttributeEqual(
     flowId,
-    engagementFlow.engagementStatus,
-    Status.INITIATED,
+    engagementFlow.employerId,
+    input.employerId,
     15_000,
   );
   response.json({ flowID: flowId, runID: runId });
@@ -126,11 +127,12 @@ async fn start(State(client): State<SharedClient>) -> impl IntoResponse {
             employer_id: "test-employer-id".into(),
             candidate_id: "test-job-seeker-id".into(),
         };
+        let employer_id = input.employer_id.clone();
         let run_id = client.start_flow(&flow, &flow_id, input)?;
         client.wait_for_attribute_equal(
             &flow_id,
-            &ENGAGEMENT_STATUS,
-            "pending".to_owned(),
+            &EMPLOYER_ID,
+            employer_id,
             Duration::from_secs(15),
         )?;
         Ok(StartResponse { flow_id, run_id })
