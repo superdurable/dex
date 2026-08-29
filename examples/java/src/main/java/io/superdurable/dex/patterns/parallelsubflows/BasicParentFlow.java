@@ -10,6 +10,7 @@
 
 package io.superdurable.dex.patterns.parallelsubflows;
 
+import io.superdurable.dex.Condition;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -42,8 +43,7 @@ public final class BasicParentFlow implements Flow<String[]> {
 
         @Override
         public Wait waitFor(final Context context, final String[] requests) {
-            final io.superdurable.dex.Condition[] conditions =
-                    new io.superdurable.dex.Condition[requests.length];
+            final Condition[] conditions = new Condition[requests.length];
             for (int index = 0; index < requests.length; index++) {
                 conditions[index] = SubFlow.run(ExampleSubFlow.class, requests[index]);
             }
