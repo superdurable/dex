@@ -431,6 +431,7 @@ fn parallel_subflows_entry(
 ) -> FlowSmokeEntry {
     let name = match kind {
         "basic" => "patterns/parallel-subflows/basic",
+        "wait-for-half" => "patterns/parallel-subflows/wait-for-half",
         "long-lived-parent" => "patterns/parallel-subflows/long-lived-parent",
         "short-lived-parent" => "patterns/parallel-subflows/short-lived-parent",
         _ => panic!("unknown Parallel SubFlows kind: {kind}"),
