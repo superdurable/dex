@@ -1,0 +1,55 @@
+---
+title: Data Storage
+sidebar_label: Data Storage
+---
+
+# Data Storage
+
+为每个 application entity 保留一个 durable Flow，再将选定的 Attribute 投影到
+application 自有的 SQL table。Flow 是 write model 和 source of truth；SQL 是用于读取和
+查询的 asynchronous、latest-state projection。
+
+可运行示例为每个 user 创建一个 **UserProfileFlow**。Flow ID 会成为
+**public.user_profiles** 的 **user_id** primary key；Server configuration 将 projection
+target 命名为 **entityStore**。
+
+## 适用场景
+
+当一个 entity 既需要 durable state 或 RPC update，又需要通过 database tools 查询其
+latest state 时，使用此 pattern。不要通过 SQL projection 做 Flow decision，因为 Dex state
+始终 authoritative。
+
+## Projection 如何工作
+
+1. 将 entity ID 用作 Flow ID。
+2. 用 **syncToAttributeStore** 标记每个需要投影的 Attribute。
+3. 启动 Flow 时通过 **FlowConfig** 选择 Server-configured Attribute Store。
+4. 通过 Flow write、update 或 delete Attribute；Dex 将最终值投影到 SQL。
+
+示例投影 text、boolean、integer、double、datetime 和 JSON values。删除 Attribute 会保留
+SQL row，并将该 column 投影为 **NULL**。
+
+## 核心实现
+
+五种 SDK 都实现同一组 **UserProfileFlow** Attribute、persistence schema、update RPC 和
+**FlowConfig** target selection。English page 的 SDK tabs 包含对应的 Python、Go、Java、
+TypeScript 和 Rust core snippets；每个 tab 都链接到可运行 sample source。
+
+## API endpoints
+
+- **POST /patterns/entity-store/profile** — 创建 profile Flow
+- **POST /patterns/entity-store/profile/update** — 更新同步 fields
+- **GET /patterns/entity-store/profile?userId=...** — 读取 authoritative Flow state
+- **POST /patterns/entity-store/profile/clear?userId=...** — 删除同步 values
+
+## 使用 PostgreSQL 运行
+
+[shared example setup](https://github.com/superdurable/dex/tree/main/examples/entity-store)
+会启动 PostgreSQL、创建 **public.user_profiles**，并将 **entityStore** configuration
+传给 **dexcli dev**。其中还包含 table schema 和五种语言示例的 curl commands。
+
+## 相关内容
+
+- [Attribute Store projection](/primitives/attribute#attribute-store-projection)
+- [Custom Attribute Store operations](/production/attribute-store)
+- [Examples on GitHub](https://github.com/superdurable/dex/tree/main/examples)
