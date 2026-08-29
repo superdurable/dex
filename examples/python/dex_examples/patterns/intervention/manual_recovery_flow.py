@@ -64,7 +64,10 @@ class ManualStep(Step[bool]):
 
     def wait_for(self, context: Context, input: bool) -> Wait:
         del context, input
-        return Wait.any_of(self.retry_channel.for_one(), self.skip_channel.for_one())
+        return Wait.any_of(
+            self.retry_channel.for_one(),
+            self.skip_channel.for_one(),
+        )
 
     def execute(self, context: Context, input: bool) -> StepDecision:
         del input

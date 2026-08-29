@@ -72,7 +72,10 @@ class ManualStep implements Step<boolean> {
   }
 
   public waitFor(_context: Context, _input: boolean): Wait {
-    return Wait.anyOf(retryChannel.forOne(), skipChannel.forOne());
+    return Wait.anyOf(
+      retryChannel.forOne(),
+      skipChannel.forOne(),
+    );
   }
 
   public execute(context: Context, _input: boolean): StepDecision {

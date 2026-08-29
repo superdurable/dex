@@ -94,7 +94,9 @@ impl Step for ManualStep {
     type Input = bool;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([RETRY.for_one(), SKIP.for_one()]))
+        let retry_condition = RETRY.for_one();
+        let skip_condition = SKIP.for_one();
+        Ok(Wait::any_of([retry_condition, skip_condition]))
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {

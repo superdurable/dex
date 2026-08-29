@@ -45,7 +45,10 @@ class DoWorkStep(Step[bool]):
 class ManualStep(Step[bool]):
     def wait_for(self, context: Context, input: bool) -> Wait:
         del context, input
-        return Wait.any_of(retry_channel.for_one(), skip_channel.for_one())
+        return Wait.any_of(
+            retry_channel.for_one(),
+            skip_channel.for_one(),
+        )
 
     def execute(self, context: Context, input: bool) -> StepDecision:
         del input
@@ -73,7 +76,10 @@ func (doWorkStep) Execute(_ dex.Context, shouldFail bool) (*dex.StepDecision, er
 }
 
 func (manualStep) WaitFor(_ dex.Context, _ bool) (*dex.Wait, error) {
-	return dex.AnyOf(RetryChannel.ForOne(), SkipChannel.ForOne()), nil
+	return dex.AnyOf(
+		RetryChannel.ForOne(),
+		SkipChannel.ForOne(),
+	), nil
 }
 
 func (manualStep) Execute(ctx dex.Context, _ bool) (*dex.StepDecision, error) {
@@ -118,7 +124,9 @@ final class DoWorkStep implements Step<Boolean> {
 final class ManualStep implements Step<Boolean> {
     @Override
     public Wait waitFor(final Context context, final Boolean input) {
-        return Wait.anyOf(retryChannel.forOne(), skipChannel.forOne());
+        return Wait.anyOf(
+                retryChannel.forOne(),
+                skipChannel.forOne());
     }
 
     @Override
@@ -155,7 +163,10 @@ class DoWorkStep implements Step<boolean> {
 
 class ManualStep implements Step<boolean> {
   public waitFor(_context: Context, _input: boolean): Wait {
-    return Wait.anyOf(retryChannel.forOne(), skipChannel.forOne());
+    return Wait.anyOf(
+      retryChannel.forOne(),
+      skipChannel.forOne(),
+    );
   }
 
   public execute(context: Context, _input: boolean): StepDecision {
@@ -192,7 +203,9 @@ impl Step for ManualStep {
     type Input = bool;
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
-        Ok(Wait::any_of([retry().for_one(), skip().for_one()]))
+        let retry_condition = retry().for_one();
+        let skip_condition = skip().for_one();
+        Ok(Wait::any_of([retry_condition, skip_condition]))
     }
 
     fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
