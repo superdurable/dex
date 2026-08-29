@@ -1,50 +1,50 @@
 ---
-title: Money transfer
+title: 转账
 ---
 
-# Money transfer
+# 转账
 
-Move money between two accounts without leaving a partial debit or credit when a downstream operation fails.
+在两个账户之间转移资金，并确保下游操作失败时不会留下不完整的借记或贷记。
 
-## Product requirements
+## 产品需求
 
-The transfer accepts a source account, destination account, amount, and note. It must:
+转账请求包含源账户、目标账户、金额和备注。流程必须：
 
-1. Check that the source account can cover the transfer. Reject the Flow before creating any side effect when the balance is insufficient.
-2. Create a debit memo, debit the source account, create a credit memo, and credit the destination account in that order.
-3. Complete only after the destination account is credited.
-4. Compensate the transfer when a side-effecting Step still fails after its retry policy is exhausted.
+1. 检查源账户余额是否足够。余额不足时，在产生任何副作用之前拒绝 Flow。
+2. 按顺序创建借记 memo、借记源账户、创建贷记 memo、贷记目标账户。
+3. 只有在目标账户贷记成功后才完成。
+4. 当带副作用的 Step 在重试耗尽后仍然失败时，对转账进行补偿。
 
-The happy path does not wait for approval, a Channel message, or an RPC. It only waits between retries. The Go, Java, Python, and TypeScript examples retry each side-effecting Step for up to one hour, then retry compensation for up to 24 hours. The Rust example uses three attempts so its released-SDK integration test finishes quickly.
+正常路径不等待审批、Channel 消息或 RPC，只会等待重试间隔。Go、Java、Python 和 TypeScript 示例会对每个带副作用的 Step 重试最多一小时，并对补偿重试最多 24 小时。Rust 示例使用三次尝试，让已发布 SDK 的集成测试可以快速完成。
 
-The Rust example uses a positive amount as its stubbed balance check and records ledger effects as events. The other examples call an in-memory dependency service with explicit balance and undo methods.
+Rust 示例用正数金额模拟余额检查，并把账务副作用记录为事件。其他语言的示例会调用带有明确余额检查和撤销方法的内存依赖服务。
 
-Potential failures fall into three groups:
+潜在故障分为三类：
 
-- An insufficient balance is a business rejection. The Flow fails immediately because no money has moved.
-- Memo, debit, and credit calls can fail transiently. Dex retries them with backoff without losing the current Step.
-- An operation can keep failing after retries are exhausted. The Flow proceeds to compensation, reverses the transfer effects, and finishes with a failed result. Compensation itself is retried because leaving it incomplete is also a failure.
+- 余额不足属于业务拒绝。因为资金尚未移动，Flow 会立即失败。
+- memo、借记和贷记调用可能发生瞬时故障。Dex 会按退避策略重试，并保留当前 Step 的状态。
+- 操作在重试耗尽后仍可能失败。Flow 会进入补偿路径，撤销转账副作用，并以失败结果结束。补偿本身也会重试，因为补偿不完整同样是故障。
 
-The dependency calls must be idempotent. A Worker can retry a call after the remote system committed it but before Dex recorded the result.
+依赖服务调用必须具备幂等性。远端系统可能已经提交调用，但 Dex 尚未记录结果，此时 Worker 会再次执行调用。
 
-## Flow design
+## Flow 设计
 
-The Flow is a sequential saga:
+这个 Flow 是一个顺序 saga：
 
 **CheckBalance** → **CreateDebitMemo** → **Debit** → **CreateCreditMemo** → **Credit**
 
-It combines these design patterns:
+它组合了以下设计模式：
 
-- **Fail-fast validation** keeps an expected business rejection outside the compensation path.
-- **Durable retry** handles transient dependency failures at the Step that owns the operation.
-- [**Execute Failure Recovery**](/design-patterns/failure-handling/execute-failure-recovery) moves an exhausted side-effecting Step to **Compensate**.
-- **Saga compensation** applies inverse operations and then force-fails the Flow so callers cannot mistake a reversed transfer for success.
+- **快速失败校验**让预期内的业务拒绝不进入补偿路径。
+- **持久重试**在拥有该操作的 Step 内处理瞬时依赖故障。
+- [**Execute Failure Recovery**](/design-patterns/failure-handling/execute-failure-recovery) 在带副作用的 Step 重试耗尽后转到 **Compensate**。
+- **Saga 补偿**执行反向操作，随后强制失败 Flow，防止调用方把已撤销的转账误判为成功。
 
-Each side effect has its own Step. This makes retry state and execution history visible, and it prevents a retry of **Credit** from repeating **Debit**.
+每个副作用都使用独立 Step。这样可以清楚看到重试状态和执行历史，也能避免重试 **Credit** 时再次执行 **Debit**。
 
-## Core implementation
+## 核心实现
 
-The tabs show the Flow topology, retry policy, and compensation path. Each linked example also includes its request model, dependency service, HTTP controller, and integration test.
+下面的标签页展示 Flow 拓扑、重试策略和补偿路径。每个链接指向可运行的完整示例，其中还包含请求模型、依赖服务、HTTP controller 和集成测试。
 
 <SdkTabs
   examples={{
@@ -68,21 +68,6 @@ def compensated_step_options(
     )
 
 
-class CheckBalance(Step[TransferRequest]):
-    def __init__(
-        self,
-        service: MyDependencyService,
-        create_debit_memo: CreateDebitMemo,
-    ) -> None:
-        self.service = service
-        self.create_debit_memo = create_debit_memo
-
-    def execute(self, context: Context, input: TransferRequest) -> StepDecision:
-        if not self.service.check_balance(input.from_account, input.amount):
-            return force_fail("insufficient funds")
-        return go_to(CreateDebitMemo, input)
-
-
 class MoneyTransferFlow(Flow[TransferRequest]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
@@ -102,19 +87,10 @@ class MoneyTransferFlow(Flow[TransferRequest]):
             self.credit,
             self.compensate,
         )
-
-    def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of()
 ```
 
 ```python
 class Compensate(Step[TransferRequest]):
-    def __init__(self, service: MyDependencyService) -> None:
-        self.service = service
-
-    def get_step_options(self) -> StepOptions:
-        return StepOptions(execute_retry=COMPENSATE_RETRY)
-
     def execute(self, context: Context, input: TransferRequest) -> StepDecision:
         self.service.undo_credit(input.to_account, input.amount)
         self.service.undo_create_credit_memo(
@@ -149,16 +125,6 @@ func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
 	}
 }
 
-func (step checkBalanceStep) Execute(
-	_ dex.Context,
-	request TransferRequest,
-) (*dex.StepDecision, error) {
-	if !step.service.CheckBalance(request.FromAccount, request.Amount) {
-		return dex.ForceFail("insufficient funds"), nil
-	}
-	return dex.GoTo(createDebitMemoStep{}, request), nil
-}
-
 func compensatedStepOptions(totalDuration time.Duration) *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{TotalDuration: totalDuration},
@@ -177,8 +143,6 @@ func (step compensateStep) Execute(
 	_ dex.Context,
 	request TransferRequest,
 ) (*dex.StepDecision, error) {
-	// NOTE: to improve, we can use Dex data attributes to track whether each step has been attempted to execute
-	// and check a flag to see if we should undo it or not
 	if err := step.service.UndoCredit(request.ToAccount, request.Amount); err != nil {
 		return nil, err
 	}
@@ -230,39 +194,10 @@ private StepOptions compensatedStepOptions(final Duration totalDuration) {
                             .build())
             .build();
 }
-
-final class CheckBalance implements Step<TransferRequest> {
-    @Override
-    public Class<TransferRequest> getInputType() {
-        return TransferRequest.class;
-    }
-
-    @Override
-    public StepDecision execute(final Context context, final TransferRequest request) {
-        if (!service.checkBalance(request.fromAccount, request.amount)) {
-            return StepDecision.forceFail("insufficient funds");
-        }
-        return StepDecision.goTo(CreateDebitMemo.class, request);
-    }
-}
 ```
 
 ```java
 final class Compensate implements Step<TransferRequest> {
-    @Override
-    public Class<TransferRequest> getInputType() {
-        return TransferRequest.class;
-    }
-
-    @Override
-    public StepOptions getStepOptions() {
-        return StepOptions.newBuilder()
-                .executeRetry(RetryPolicy.newBuilder()
-                        .totalDuration(Duration.ofHours(24))
-                        .build())
-                .build();
-    }
-
     @Override
     public StepDecision execute(final Context context, final TransferRequest request) {
         service.undoCredit(request.toAccount, request.amount);
@@ -300,35 +235,10 @@ public compensatedStepOptions(totalDurationMs: number): StepOptions {
     }),
   };
 }
-
-class CheckBalance implements Step<TransferRequest> {
-  public constructor(private readonly flow: MoneyTransferFlow) {}
-
-  public getStepType(): string {
-    return "CheckBalance";
-  }
-
-  public execute(_context: Context, request: TransferRequest): StepDecision {
-    if (!this.flow.service.checkBalance(request.fromAccount, request.amount)) {
-      return forceFail("insufficient funds");
-    }
-    return goTo(CreateDebitMemo, request);
-  }
-}
 ```
 
 ```typescript
 class Compensate implements Step<TransferRequest> {
-  public constructor(private readonly flow: MoneyTransferFlow) {}
-
-  public getStepType(): string {
-    return "Compensate";
-  }
-
-  public getStepOptions(): StepOptions {
-    return { executeRetry: { totalDurationMs: DAY_MS } };
-  }
-
   public execute(_context: Context, request: TransferRequest): StepDecision {
     this.flow.service.undoCredit(request.toAccount, request.amount);
     this.flow.service.undoCreateCreditMemo(request.toAccount, request.amount, request.notes);
@@ -368,31 +278,10 @@ impl Flow for MoneyTransferFlow {
     }
 }
 
-impl Step for CheckBalance {
-    type Input = TransferRequest;
-
-    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        if input.amount_cents <= 0 {
-            return Ok(StepDecision::force_fail("transfer amount must be positive"));
-        }
-        Ok(StepDecision::go_to(&CreateDebitMemo, input))
-    }
-}
-
-impl Step for Credit {
-    type Input = TransferRequest;
-
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        context.record_event(
-            "credit",
-            format!("{}:{}", input.to_account, input.amount_cents),
-        )?;
-        Ok(StepDecision::graceful_complete(input))
-    }
-
-    fn options(&self) -> StepOptions<Self::Input> {
-        compensated_step_options()
-    }
+fn compensated_step_options() -> StepOptions<TransferRequest> {
+    StepOptions::new()
+        .execute_retry(transfer_retry())
+        .on_execute_failure_proceed_to(&Compensate)
 }
 ```
 
@@ -409,35 +298,19 @@ impl Step for Compensate {
             "transfer failed; effects compensated",
         ))
     }
-
-    fn options(&self) -> StepOptions<Self::Input> {
-        StepOptions::new().execute_retry(transfer_retry())
-    }
-}
-
-fn compensated_step_options() -> StepOptions<TransferRequest> {
-    StepOptions::new()
-        .execute_retry(transfer_retry())
-        .on_execute_failure_proceed_to(&Compensate)
-}
-
-fn transfer_retry() -> RetryPolicy {
-    RetryPolicy::new()
-        .initial_interval(Duration::from_secs(1))
-        .maximum_attempts(3)
 }
 ```
 
 </SdkSnippet>
 </SdkTabs>
 
-## Demo
+## 演示
 
-Run Dex and any language example server, then start Money transfer from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). The completed Go run below moved 42 units from **from-ci** to **to-ci**. Each business operation appears as its own completed Step.
+启动 Dex 和任意语言的示例服务，然后通过 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 启动 Money transfer。下面是一次已完成的 Go 运行：它把 42 个单位从 **from-ci** 转到 **to-ci**，每个业务操作都显示为独立且已完成的 Step。
 
-![Completed Money transfer Step execution graph](/img/use-cases/money-transfer-step-execution-graph.jpg)
+![已完成的 Money transfer Step 执行图](/img/use-cases/money-transfer-step-execution-graph.jpg)
 
-## Related
+## 相关内容
 
 - [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery)
 - [Failure Handling](/design-patterns/failure-handling)
