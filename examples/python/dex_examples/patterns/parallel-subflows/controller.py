@@ -41,6 +41,15 @@ def create_parallel_subflows_blueprint(app_state: ExampleApp) -> Blueprint:
             start_options(),
         )
 
+    @blueprint.get("/start/wait-for-half")
+    async def start_wait_for_half() -> str:
+        return await app_state.client.start_flow(
+            app_state.wait_for_half_subflows,
+            required_query("workflowId"),
+            ["one", "two", "three", "four"],
+            start_options(),
+        )
+
     async def start_parent(flow: object) -> str:
         return await app_state.client.start_flow(
             flow,  # type: ignore[arg-type]

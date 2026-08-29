@@ -5,17 +5,21 @@ sidebar_label: Parallel SubFlows
 
 # 并行 SubFlow
 
-当并行工作需要独立的执行历史、重试和生命周期控制时，使用 SubFlow。
+在以下场景中使用 SubFlow：
+
+1. 需要让并行工作拥有独立的执行历史、重试和生命周期控制。
+2. 需要把并发操作扇出到单个 Flow execution 的并发限制之外。
 
 ## 选择模式
 
-- [基础 SubFlow fan-out](/design-patterns/parallel-subflows/basic) — 启动运行时数量的 SubFlow，等待一半成功，然后停止其余 SubFlow。
+- [基础父 Flow](/design-patterns/parallel-subflows/basic) — 启动运行时数量的 SubFlow，并等待它们全部完成。
+- [等待一半完成](/design-patterns/parallel-subflows/wait-for-half) — 等待一半 SubFlow，然后由每个未完成的 Step 停止自己的子 Flow。
 - [高级：长生命周期父 Flow](/design-patterns/parallel-subflows/long-lived-parent) — 保持固定 worker pool，并通过向 Channel 发布消息的 RPC 接收请求。
 - [高级：短生命周期父 Flow](/design-patterns/parallel-subflows/short-lived-parent) — 排空请求，并在最后一个 SubFlow 与 Channel 都为空时原子完成。
 - [高级：多父 Flow 分区](/design-patterns/parallel-subflows/partitioning) — 将请求路由到多个父 Flow，横向扩展 SubFlow 并发。
 - [高级：高可用背压](/design-patterns/parallel-subflows/back-pressure) — 父 Flow 过载拒绝请求时，通过可重试的提交 Flow 提供 durable 背压。
 
-前三页定义父 Flow 的核心形状。后两页在此基础上增加横向扩展和高可用能力。
+前四页定义父 Flow 的核心形状。分区和背压在此基础上增加横向扩展和高可用能力。
 
 ## 相关内容
 

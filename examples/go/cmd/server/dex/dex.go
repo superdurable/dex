@@ -180,7 +180,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	intervention.RegisterRoutes(router, client, registry.ManualRecovery)
 	resettabletimer.RegisterRoutes(router, client, registry.ResettableTimer)
 	parallel.RegisterRoutes(router, client, registry.StaticParallel, registry.DynamicParallel, registry.AwaitParallel, registry.FirstWinParallel)
-	parallelsubflows.RegisterRoutes(router, client, registry.BasicSubFlows, registry.LongLiveSubFlows, registry.ShortLiveSubFlows, registry.SubmitSubFlowRequest)
+	parallelsubflows.RegisterRoutes(router, client, registry.BasicSubFlows, registry.WaitForHalfSubFlows, registry.LongLiveSubFlows, registry.ShortLiveSubFlows, registry.SubmitSubFlowRequest)
 	recovery.RegisterRoutes(router, client, registry.FailureRecovery)
 	draininternal.RegisterRoutes(router, client, registry.DrainInternal)
 	drainexternal.RegisterRoutes(router, client, registry.DrainExternal)

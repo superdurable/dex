@@ -112,6 +112,7 @@ final class FlowSmokeCatalog {
                                 "quantity", "2"),
                         FlowSmokeFlags.stepStartMayFail()),
                 parallelSubFlows(environment, "basic"),
+                parallelSubFlows(environment, "wait-for-half"),
                 parallelSubFlows(environment, "long-lived-parent"),
                 parallelSubFlows(environment, "short-lived-parent"),
                 FlowSmokeEntry.get(

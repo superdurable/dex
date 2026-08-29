@@ -39,10 +39,10 @@ pub fn register_worker(registry: Registry, client: Arc<Client>) -> SdkResult<Reg
 }
 
 fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkResult<Registry> {
-    let basic_parent = client
+    let wait_for_half_parent = client
         .as_ref()
-        .map_or_else(parallel_subflows::BasicParentFlow::default, |value| {
-            parallel_subflows::BasicParentFlow::new(Arc::clone(value))
+        .map_or_else(parallel_subflows::WaitForHalfParentFlow::default, |value| {
+            parallel_subflows::WaitForHalfParentFlow::new(Arc::clone(value))
         });
     let submit_request = client
         .map_or_else(parallel_subflows::SubmitRequestFlow::default, |value| {
@@ -59,7 +59,8 @@ fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkR
         .register(parallel::AwaitParallelStepsFlow::default())?
         .register(parallel::FirstWinParallelStepsFlow::default())?
         .register(parallel_subflows::ExampleSubFlow::default())?
-        .register(basic_parent)?
+        .register(parallel_subflows::BasicParentFlow::default())?
+        .register(wait_for_half_parent)?
         .register(parallel_subflows::AdvancedLongLiveParentFlow::default())?
         .register(parallel_subflows::AdvancedShortLiveParentFlow::default())?
         .register(submit_request)?

@@ -225,6 +225,7 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             flags=FlowSmokeFlags(step_start_may_fail=True),
         ),
         parallel_subflows_entry("basic"),
+        parallel_subflows_entry("wait-for-half"),
         parallel_subflows_entry("long-lived-parent"),
         parallel_subflows_entry("short-lived-parent"),
         FlowSmokeEntry(

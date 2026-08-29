@@ -11,5 +11,5 @@ mod flow;
 
 pub use flow::{
     AdvancedLongLiveParentFlow, AdvancedShortLiveParentFlow, BasicParentFlow, ExampleSubFlow,
-    ParentInput, SubmitRequestFlow, SubmitRequestInput,
+    ParentInput, SubmitRequestFlow, SubmitRequestInput, WaitForHalfParentFlow,
 };

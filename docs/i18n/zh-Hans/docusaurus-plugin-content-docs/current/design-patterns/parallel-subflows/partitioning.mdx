@@ -1,19 +1,20 @@
 ---
-title: 高级：多父 Flow 分区
-sidebar_label: "Advanced: Multiple Parents with Partitioning"
+title: "高级：多父 Flow 分区"
 ---
 
 # 高级：多父 Flow 分区
 
-将请求路由到多个父 Flow ID，让 active SubFlow 总数突破单个父 Flow 的并发限制。
+将请求路由到多个父 Flow ID，使活跃 SubFlow 总数能够超过单个父 Flow 的并发限制。
 
 ![多父 Flow 分区](/img/design-patterns/parallel-subflows-partitioning.png)
 
-使用稳定分区键，例如 request ID 的哈希值对父 Flow 数量取模。同一个键始终进入同一个父 Flow。每个父 Flow 独立执行 Channel buffer 和 SubFlow 并发限制，因此增加父 Flow 数量即可横向提升容量。
+使用稳定的分区键，例如请求 ID 哈希对父 Flow 数量取模。相同键的请求始终到达同一个父 Flow。每个父 Flow 独立执行 Channel 缓冲区和 SubFlow 并发限制，因此增加父 Flow 数量即可提高总容量，而不会让单个 Flow execution 无界增长。
 
-改变分区数量或顺序会重新映射 key。扩缩容期间需要稳定 affinity 时，应使用带版本的 parent set 或 consistent hashing。
+改变分区数量或顺序会重新映射键。扩容时如果需要稳定亲和性，请使用带版本的父 Flow 集合或一致性哈希。
 
 ## 核心实现
+
+提交方先调用目标父 Flow 的 RPC。如果父 Flow 不存在或已不活跃，就以该请求作为初始输入启动父 Flow。并发提交方可能抢先完成启动；遇到这种竞争时重试 RPC。初始请求不会丢失，因为父 Flow 的 **InitStep** 会把它发布到 **RequestChannel**。
 
 <SdkTabs
   examples={{
@@ -26,6 +27,22 @@ sidebar_label: "Advanced: Multiple Parents with Partitioning"
 <SdkSnippet lang="python">
 
 ```python
+async def enqueue_request(client, parent_flow, parent_id: str, request: str) -> bool:
+    try:
+        return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
+    except FlowNotActiveError:
+        try:
+            await client.start_flow(
+                parent_flow,
+                parent_id,
+                ParentInput([request], DEFAULT_CONCURRENCY),
+                StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
+            )
+            return True
+        except FlowAlreadyStartedError:
+            return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
+
+
 def partition(request: str, partitions: int) -> int:
     hash_value = 2_166_136_261
     for byte in request.encode():
@@ -38,6 +55,20 @@ def partition(request: str, partitions: int) -> int:
 <SdkSnippet lang="go">
 
 ```go
+func enqueueRequest(ctx context.Context, client *dex.Client, parentFlow *AdvancedShortLiveParentFlow, parentID string, request string) (bool, error) {
+	accepted, err := invokeRequest(ctx, client, parentFlow, parentID, request)
+	if err == nil { return accepted, nil }
+	var inactive *dex.FlowNotActiveError
+	if !errors.As(err, &inactive) { return false, err }
+	_, err = client.StartFlow(ctx, parentFlow, parentID, ParentInput{
+		Requests: []string{request}, Concurrency: DefaultConcurrency,
+	}, dex.StartFlowOptions{IDReusePolicy: dex.IDReuseAllowIfNotRunning})
+	if err == nil { return true, nil }
+	var alreadyStarted *dex.FlowAlreadyStartedError
+	if !errors.As(err, &alreadyStarted) { return false, err }
+	return invokeRequest(ctx, client, parentFlow, parentID, request)
+}
+
 func partition(request string, partitions int) int {
 	hash := fnv.New32a()
 	_, _ = hash.Write([]byte(request))
@@ -49,6 +80,26 @@ func partition(request string, partitions int) int {
 <SdkSnippet lang="java">
 
 ```java
+private boolean enqueueRequest(final String parentId, final String request) {
+    final Client client = clientProvider.getObject();
+    final AdvancedShortLiveParentFlow stub =
+            client.newRpcStub(AdvancedShortLiveParentFlow.class, parentId);
+    try {
+        return client.invokeRPC(stub::sendRequest, request);
+    } catch (final FlowNotActiveException inactive) {
+        try {
+            client.startFlow(
+                    parentFlow,
+                    parentId,
+                    new ParentInput(new String[] {request}, AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
+                    StartFlowOptions.newBuilder().idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING).build());
+            return true;
+        } catch (final FlowAlreadyStartedException alreadyStarted) {
+            return client.invokeRPC(stub::sendRequest, request);
+        }
+    }
+}
+
 private static int partition(final String request, final int partitions) {
     int hash = 0x811c9dc5;
     for (final byte value : request.getBytes(StandardCharsets.UTF_8)) {
@@ -63,6 +114,26 @@ private static int partition(final String request, final int partitions) {
 <SdkSnippet lang="typescript">
 
 ```typescript
+async function enqueueRequest(client: Client, parentFlow: AdvancedShortLiveParentFlow, parentId: string, request: string): Promise<boolean> {
+  try {
+    return await client.invokeRPC(parentFlow.sendRequest, parentId, request);
+  } catch (error) {
+    if (!isFlowMissingOrInactive(error)) throw error;
+  }
+  try {
+    await client.startFlow(
+      parentFlow,
+      parentId,
+      { requests: [request], concurrency: DEFAULT_CONCURRENCY },
+      { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
+    );
+    return true;
+  } catch (error) {
+    if (!isFlowAlreadyStarted(error)) throw error;
+    return client.invokeRPC(parentFlow.sendRequest, parentId, request);
+  }
+}
+
 function partition(request: string, partitions: number): number {
   let hash = 2_166_136_261;
   for (const byte of new TextEncoder().encode(request)) {
@@ -77,6 +148,23 @@ function partition(request: string, partitions: number): number {
 <SdkSnippet lang="rust">
 
 ```rust
+fn enqueue_request(client: &Client, parent_id: &str, request: String) -> HandlerResult<bool> {
+    match client.invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request.clone()) {
+        Ok(accepted) => Ok(accepted),
+        Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }) => {
+            let parent = AdvancedShortLiveParentFlow::default();
+            let input = ParentInput { requests: vec![request.clone()], concurrency: DEFAULT_CONCURRENCY };
+            let options = StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning);
+            match client.start_flow_with_options(&parent, parent_id, input, options) {
+                Ok(_) => Ok(true),
+                Err(SdkError::FlowAlreadyStarted { .. }) => client.invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request).map_err(HandlerError::from_error),
+                Err(error) => Err(HandlerError::from_error(error)),
+            }
+        }
+        Err(error) => Err(HandlerError::from_error(error)),
+    }
+}
+
 fn partition(request: &str, partitions: usize) -> usize {
     let mut hash = 2_166_136_261_u32;
     for byte in request.bytes() {

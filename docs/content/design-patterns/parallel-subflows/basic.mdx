@@ -1,74 +1,67 @@
 ---
-title: Basic SubFlow Fan-out
+title: Basic Parent Flow
 ---
 
-# Basic SubFlow Fan-out
+# Basic Parent Flow
 
-Start one SubFlow for each input, wait until half complete, then stop the unfinished SubFlows.
+Start one SubFlow for each input and wait for every SubFlow to complete.
 
-![Basic SubFlow fan-out](/img/design-patterns/parallel-subflows-basic.png)
+![Basic parent Flow](/img/design-patterns/parallel-subflows-basic.png)
 
-**SubFlowsStep.WaitFor** starts every **ExampleSubFlow** and expresses “any half” as an **anyCombinationOf** wait. When Dex invokes **Execute**, every SubFlow result is still addressable by index. Completed winners have a terminal status; unfinished losers have **RUNNING** status. The Step uses **SubFlowID** to cancel only those losers.
+**SubFlowsStep.WaitFor** builds one SubFlow condition per request and combines them with **allOf**. The parent resumes only after all children finish. This is the smallest useful parent–child fan-out when partial completion and cancellation are not required.
 
 ## Core implementation
 
-<SdkTabs
-  examples={{
-    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
-    go: 'examples/go/patterns/parallel-subflows/flows.go',
-    java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/BasicParentFlow.java',
-    typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
-    rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',
-  }}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py', go: 'examples/go/patterns/parallel-subflows/flows.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/BasicParentFlow.java', typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts', rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python
 class SubFlowsStep(Step[list[str]]):
-    def __init__(
-        self,
-        client_provider: Callable[[], AsyncClient],
-        example_subflow: ExampleSubFlow,
-    ) -> None:
-        self.client_provider = client_provider
+    def __init__(self, example_subflow: ExampleSubFlow) -> None:
         self.example_subflow = example_subflow
 
     def wait_for(self, context: Context, requests: list[str]) -> Wait:
         del context
-        conditions = [
-            SubFlow.run(
-                self.example_subflow,
-                request,
-                SubFlowOptions(condition_id=f"subflow-{index}"),
-            )
-            for index, request in enumerate(requests)
-        ]
-        winner_count = (len(conditions) + 1) // 2
-        return Wait.any_combination_of(
-            *(
-                ConditionCombination.of(*selected)
-                for selected in combinations(conditions, winner_count)
-            )
+        return Wait.all_of(
+            *(SubFlow.run(self.example_subflow, request) for request in requests)
         )
 
-    async def execute(  # type: ignore[override]
-        self, context: Context, requests: list[str]
-    ) -> StepDecision:
-        for index in range(len(requests)):
-            result = SubFlow.get_condition_results(context, index)
-            if result.status is FlowStatus.RUNNING:
-                await self.client_provider().stop_flow(
-                    SubFlow.get_flow_id(context, index)
-                )
+    def execute(self, context: Context, requests: list[str]) -> StepDecision:
+        del context, requests
         return graceful_complete()
+
+
+class BasicParentFlow(Flow[list[str]]):
+    def __init__(self, example_subflow: ExampleSubFlow) -> None:
+        self.subflows = SubFlowsStep(example_subflow)
+
+    def get_steps(self) -> StepList[list[str]]:
+        return StepList.start_step(self.subflows)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
+type BasicParentFlow struct {
+	dex.FlowDefaults
+	exampleFlow *ExampleSubFlow
+}
+
+func NewBasicParentFlow(exampleFlow *ExampleSubFlow) *BasicParentFlow {
+	return &BasicParentFlow{exampleFlow: exampleFlow}
+}
+
+func (flow *BasicParentFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(subFlowsStep{exampleFlow: flow.exampleFlow})}
+}
+
+func (*BasicParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{}
+}
+
 type subFlowsStep struct {
 	dex.StepDefaults
-	getClient   func() *dex.Client
 	exampleFlow *ExampleSubFlow
 }
 
@@ -76,38 +69,13 @@ func (subFlowsStep) GetStepType() string { return "SubFlowsStep" }
 
 func (step subFlowsStep) WaitFor(_ dex.Context, requests []string) (*dex.Wait, error) {
 	conditions := make([]dex.Condition, 0, len(requests))
-	for index, request := range requests {
-		conditions = append(conditions, dex.SubFlow(step.exampleFlow, request, dex.SubFlowOptions{
-			ConditionID: fmt.Sprintf("subflow-%d", index),
-		}))
+	for _, request := range requests {
+		conditions = append(conditions, dex.SubFlow(step.exampleFlow, request))
 	}
-	winners := (len(conditions) + 1) / 2
-	return dex.AnyComboOf(conditionCombinations(conditions, winners)...), nil
+	return dex.AllOf(conditions...), nil
 }
 
-func (step subFlowsStep) Execute(ctx dex.Context, requests []string) (*dex.StepDecision, error) {
-	client := step.getClient()
-	if client == nil {
-		return nil, fmt.Errorf("dex client is not available")
-	}
-	for index := range requests {
-		result, err := dex.SubFlowResult(ctx, index)
-		if err != nil {
-			return nil, err
-		}
-		if result.Status != dex.FlowRunning {
-			continue
-		}
-		flowID, err := dex.SubFlowID(ctx, index)
-		if err != nil {
-			return nil, err
-		}
-		if err := client.StopFlow(context.Background(), flowID, dex.StopOptions{
-			Type: dex.CancelFlow, Reason: "enough SubFlows completed",
-		}); err != nil {
-			return nil, err
-		}
-	}
+func (subFlowsStep) Execute(_ dex.Context, _ []string) (*dex.StepDecision, error) {
 	return dex.GracefulComplete(nil), nil
 }
 ```
@@ -116,45 +84,40 @@ func (step subFlowsStep) Execute(ctx dex.Context, requests []string) (*dex.StepD
 <SdkSnippet lang="java">
 
 ```java
-static final class SubFlowsStep implements Step<String[]> {
-    private final ObjectProvider<Client> clientProvider;
-    private final ExampleSubFlow exampleSubFlow;
+@Component
+public final class BasicParentFlow implements Flow<String[]> {
+    private final SubFlowsStep subFlowsStep = new SubFlowsStep();
 
-    SubFlowsStep(
-            final ObjectProvider<Client> clientProvider,
-            final ExampleSubFlow exampleSubFlow) {
-        this.clientProvider = clientProvider;
-        this.exampleSubFlow = exampleSubFlow;
+    @Override
+    public StepList<String[]> getSteps() {
+        return StepList.startStep(subFlowsStep);
     }
 
     @Override
-    public Class<String[]> getInputType() {
-        return String[].class;
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of();
     }
 
-    @Override
-    public Wait waitFor(final Context context, final String[] requests) {
-        final Condition[] conditions = new Condition[requests.length];
-        for (int index = 0; index < requests.length; index++) {
-            conditions[index] = SubFlow.run(
-                    ExampleSubFlow.class,
-                    requests[index],
-                    SubFlowOptions.newBuilder()
-                            .conditionId("subflow-" + index)
-                            .build());
+    static final class SubFlowsStep implements Step<String[]> {
+        @Override
+        public Class<String[]> getInputType() {
+            return String[].class;
         }
-        return Wait.anyCombinationOf(combinations(conditions, (conditions.length + 1) / 2));
-    }
 
-    @Override
-    public StepDecision execute(final Context context, final String[] requests) {
-        for (int index = 0; index < requests.length; index++) {
-            final FlowResult result = SubFlow.getConditionResults(context, index);
-            if (result.getStatus() == FlowStatus.RUNNING) {
-                clientProvider.getObject().stopFlow(SubFlow.getFlowId(context, index));
+        @Override
+        public Wait waitFor(final Context context, final String[] requests) {
+            final io.superdurable.dex.Condition[] conditions =
+                    new io.superdurable.dex.Condition[requests.length];
+            for (int index = 0; index < requests.length; index++) {
+                conditions[index] = SubFlow.run(ExampleSubFlow.class, requests[index]);
             }
+            return Wait.allOf(conditions);
         }
-        return StepDecision.gracefulComplete(null);
+
+        @Override
+        public StepDecision execute(final Context context, final String[] requests) {
+            return StepDecision.gracefulComplete(null);
+        }
     }
 }
 ```
@@ -173,23 +136,31 @@ class SubFlowsStep implements Step<readonly string[]> {
   }
 
   public waitFor(_context: Context, requests: readonly string[]): Wait {
-    const conditions = requests.map((request, index) =>
-      SubFlow.run(this.exampleSubFlow, request, { conditionId: `subflow-${index}` }),
-    );
-    return Wait.anyCombinationOf(
-      ...combinations(conditions, Math.ceil(conditions.length / 2)).map((selected) =>
-        ConditionCombination.of(...selected),
-      ),
-    );
+    return Wait.allOf(...requests.map((request) => SubFlow.run(this.exampleSubFlow, request)));
   }
 
-  public async execute(context: Context, requests: readonly string[]): Promise<StepDecision> {
-    for (let index = 0; index < requests.length; index++) {
-      if (SubFlow.getConditionResults(context, index).status === "running") {
-        await getClient().stopFlow(SubFlow.getFlowId(context, index));
-      }
-    }
+  public execute(_context: Context, _requests: readonly string[]): StepDecision {
     return gracefulComplete();
+  }
+}
+
+export class BasicParentFlow implements Flow<readonly string[]> {
+  private readonly subFlows: SubFlowsStep;
+
+  public constructor(exampleSubFlow: ExampleSubFlow) {
+    this.subFlows = new SubFlowsStep(exampleSubFlow);
+  }
+
+  public getFlowType(): string {
+    return "BasicParentFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.subFlows);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {};
   }
 }
 ```
@@ -199,6 +170,19 @@ class SubFlowsStep implements Step<readonly string[]> {
 
 ```rust
 #[derive(Default)]
+pub struct BasicParentFlow {
+    sub_flows: SubFlowsStep,
+}
+
+impl Flow for BasicParentFlow {
+    type StartInput = Vec<String>;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.sub_flows)
+    }
+}
+
+#[derive(Default)]
 struct SubFlowsStep;
 
 impl Step for SubFlowsStep {
@@ -207,38 +191,13 @@ impl Step for SubFlowsStep {
     fn wait_for(&self, _context: &mut Context, requests: Self::Input) -> HandlerResult<Wait> {
         let child = ExampleSubFlow::default();
         let mut conditions = Vec::with_capacity(requests.len());
-        for (index, request) in requests.into_iter().enumerate() {
-            conditions.push(
-                SubFlow::run_with_options(
-                    &child,
-                    request,
-                    SubFlowOptions::new().condition_id(format!("subflow-{index}")),
-                )
-                .map_err(HandlerError::from_error)?,
-            );
+        for request in requests {
+            conditions.push(SubFlow::run(&child, request).map_err(HandlerError::from_error)?);
         }
-        let winner_count = conditions.len().div_ceil(2);
-        Ok(Wait::any_combination_of(condition_combinations(
-            &conditions,
-            winner_count,
-        )))
+        Ok(Wait::all_of(conditions))
     }
 
-    fn execute(&self, context: &mut Context, requests: Self::Input) -> HandlerResult<StepDecision> {
-        let client = client_holder::get().ok_or_else(|| {
-            HandlerError::new("ParallelSubFlows", "Dex client is not initialized")
-        })?;
-        for index in 0..requests.len() {
-            if SubFlow::condition_result_at(context, index)?.status() == FlowStatus::Running {
-                let flow_id = SubFlow::flow_id_at(context, index)?;
-                client
-                    .stop_flow(
-                        &flow_id,
-                        StopFlowOptions::cancel().reason("enough SubFlows completed"),
-                    )
-                    .map_err(HandlerError::from_error)?;
-            }
-        }
+    fn execute(&self, _context: &mut Context, _requests: Self::Input) -> HandlerResult<StepDecision> {
         Ok(StepDecision::graceful_complete(()))
     }
 }
@@ -249,5 +208,5 @@ impl Step for SubFlowsStep {
 
 ## Related
 
+- [Wait for half](/design-patterns/parallel-subflows/wait-for-half)
 - [Parallel SubFlows](/design-patterns/parallel-subflows)
-- [SubFlow](/primitives/subflow)

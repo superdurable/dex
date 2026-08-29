@@ -14,6 +14,8 @@ Changing the number or order of partitions remaps keys. Use a versioned parent s
 
 ## Core implementation
 
+The submitter first invokes the selected parent's RPC. If that parent is absent or no longer active, it starts the parent with the request as its initial input. A concurrent submitter may win that start race; in that case, retry the RPC. The initial request is not lost because the parent's **InitStep** publishes it to **RequestChannel**.
+
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
@@ -25,6 +27,22 @@ Changing the number or order of partitions remaps keys. Use a versioned parent s
 <SdkSnippet lang="python">
 
 ```python
+async def enqueue_request(client, parent_flow, parent_id: str, request: str) -> bool:
+    try:
+        return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
+    except FlowNotActiveError:
+        try:
+            await client.start_flow(
+                parent_flow,
+                parent_id,
+                ParentInput([request], DEFAULT_CONCURRENCY),
+                StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
+            )
+            return True
+        except FlowAlreadyStartedError:
+            return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
+
+
 def partition(request: str, partitions: int) -> int:
     hash_value = 2_166_136_261
     for byte in request.encode():
@@ -37,6 +55,20 @@ def partition(request: str, partitions: int) -> int:
 <SdkSnippet lang="go">
 
 ```go
+func enqueueRequest(ctx context.Context, client *dex.Client, parentFlow *AdvancedShortLiveParentFlow, parentID string, request string) (bool, error) {
+	accepted, err := invokeRequest(ctx, client, parentFlow, parentID, request)
+	if err == nil { return accepted, nil }
+	var inactive *dex.FlowNotActiveError
+	if !errors.As(err, &inactive) { return false, err }
+	_, err = client.StartFlow(ctx, parentFlow, parentID, ParentInput{
+		Requests: []string{request}, Concurrency: DefaultConcurrency,
+	}, dex.StartFlowOptions{IDReusePolicy: dex.IDReuseAllowIfNotRunning})
+	if err == nil { return true, nil }
+	var alreadyStarted *dex.FlowAlreadyStartedError
+	if !errors.As(err, &alreadyStarted) { return false, err }
+	return invokeRequest(ctx, client, parentFlow, parentID, request)
+}
+
 func partition(request string, partitions int) int {
 	hash := fnv.New32a()
 	_, _ = hash.Write([]byte(request))
@@ -48,6 +80,26 @@ func partition(request string, partitions int) int {
 <SdkSnippet lang="java">
 
 ```java
+private boolean enqueueRequest(final String parentId, final String request) {
+    final Client client = clientProvider.getObject();
+    final AdvancedShortLiveParentFlow stub =
+            client.newRpcStub(AdvancedShortLiveParentFlow.class, parentId);
+    try {
+        return client.invokeRPC(stub::sendRequest, request);
+    } catch (final FlowNotActiveException inactive) {
+        try {
+            client.startFlow(
+                    parentFlow,
+                    parentId,
+                    new ParentInput(new String[] {request}, AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
+                    StartFlowOptions.newBuilder().idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING).build());
+            return true;
+        } catch (final FlowAlreadyStartedException alreadyStarted) {
+            return client.invokeRPC(stub::sendRequest, request);
+        }
+    }
+}
+
 private static int partition(final String request, final int partitions) {
     int hash = 0x811c9dc5;
     for (final byte value : request.getBytes(StandardCharsets.UTF_8)) {
@@ -62,6 +114,26 @@ private static int partition(final String request, final int partitions) {
 <SdkSnippet lang="typescript">
 
 ```typescript
+async function enqueueRequest(client: Client, parentFlow: AdvancedShortLiveParentFlow, parentId: string, request: string): Promise<boolean> {
+  try {
+    return await client.invokeRPC(parentFlow.sendRequest, parentId, request);
+  } catch (error) {
+    if (!isFlowMissingOrInactive(error)) throw error;
+  }
+  try {
+    await client.startFlow(
+      parentFlow,
+      parentId,
+      { requests: [request], concurrency: DEFAULT_CONCURRENCY },
+      { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
+    );
+    return true;
+  } catch (error) {
+    if (!isFlowAlreadyStarted(error)) throw error;
+    return client.invokeRPC(parentFlow.sendRequest, parentId, request);
+  }
+}
+
 function partition(request: string, partitions: number): number {
   let hash = 2_166_136_261;
   for (const byte of new TextEncoder().encode(request)) {
@@ -76,6 +148,23 @@ function partition(request: string, partitions: number): number {
 <SdkSnippet lang="rust">
 
 ```rust
+fn enqueue_request(client: &Client, parent_id: &str, request: String) -> HandlerResult<bool> {
+    match client.invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request.clone()) {
+        Ok(accepted) => Ok(accepted),
+        Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }) => {
+            let parent = AdvancedShortLiveParentFlow::default();
+            let input = ParentInput { requests: vec![request.clone()], concurrency: DEFAULT_CONCURRENCY };
+            let options = StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning);
+            match client.start_flow_with_options(&parent, parent_id, input, options) {
+                Ok(_) => Ok(true),
+                Err(SdkError::FlowAlreadyStarted { .. }) => client.invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request).map_err(HandlerError::from_error),
+                Err(error) => Err(HandlerError::from_error(error)),
+            }
+        }
+        Err(error) => Err(HandlerError::from_error(error)),
+    }
+}
+
 fn partition(request: &str, partitions: usize) -> usize {
     let mut hash = 2_166_136_261_u32;
     for byte in request.bytes() {

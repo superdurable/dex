@@ -251,6 +251,7 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: stepStartMayFailFlags(),
     },
     parallelSubFlowsSmokeEntry("basic"),
+    parallelSubFlowsSmokeEntry("wait-for-half"),
     parallelSubFlowsSmokeEntry("long-lived-parent"),
     parallelSubFlowsSmokeEntry("short-lived-parent"),
     {

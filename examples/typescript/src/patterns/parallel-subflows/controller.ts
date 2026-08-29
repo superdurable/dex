@@ -24,6 +24,7 @@ import {
   advancedShortLiveParentFlow,
   basicParentFlow,
   submitRequestFlow,
+  waitForHalfParentFlow,
 } from "./parallel-subflows.js";
 
 export function createParallelSubFlowsRouter(client: Client): Router {
@@ -31,6 +32,11 @@ export function createParallelSubFlowsRouter(client: Client): Router {
   router.get("/start/basic", async (request, response) => {
     response.send(
       await start(client, basicParentFlow, request, ["one", "two", "three", "four"]),
+    );
+  });
+  router.get("/start/wait-for-half", async (request, response) => {
+    response.send(
+      await start(client, waitForHalfParentFlow, request, ["one", "two", "three", "four"]),
     );
   });
   router.get("/start/long-lived-parent", async (request, response) => {

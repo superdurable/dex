@@ -255,6 +255,11 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
         parallel_subflows_entry(client, "basic", "/patterns/parallel-subflows/start/basic"),
         parallel_subflows_entry(
             client,
+            "wait-for-half",
+            "/patterns/parallel-subflows/start/wait-for-half",
+        ),
+        parallel_subflows_entry(
+            client,
             "long-lived-parent",
             "/patterns/parallel-subflows/start/long-lived-parent",
         ),

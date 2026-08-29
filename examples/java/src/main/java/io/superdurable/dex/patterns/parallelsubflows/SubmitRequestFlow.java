@@ -13,9 +13,13 @@ package io.superdurable.dex.patterns.parallelsubflows;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
+import io.superdurable.dex.IdReusePolicy;
+import io.superdurable.dex.StartFlowOptions;
 import io.superdurable.dex.Step;
 import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
+import io.superdurable.dex.exceptions.FlowAlreadyStartedException;
+import io.superdurable.dex.exceptions.FlowNotActiveException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
@@ -58,12 +62,34 @@ public final class SubmitRequestFlow implements Flow<SubmitRequestInput> {
                 throw new IllegalArgumentException("at least one parent Flow ID is required");
             }
             final String parentId = input.parentIds[partition(input.request, input.parentIds.length)];
-            final AdvancedShortLiveParentFlow stub =
-                    clientProvider.getObject().newRpcStub(AdvancedShortLiveParentFlow.class, parentId);
-            if (!clientProvider.getObject().invokeRPC(stub::sendRequest, input.request)) {
+            if (!enqueueRequest(parentId, input.request)) {
                 throw new IllegalStateException("parent " + parentId + " rejected the request");
             }
             return StepDecision.gracefulComplete(parentId);
+        }
+
+        private boolean enqueueRequest(final String parentId, final String request) {
+            final Client client = clientProvider.getObject();
+            final AdvancedShortLiveParentFlow stub =
+                    client.newRpcStub(AdvancedShortLiveParentFlow.class, parentId);
+            try {
+                return client.invokeRPC(stub::sendRequest, request);
+            } catch (final FlowNotActiveException inactive) {
+                try {
+                    client.startFlow(
+                            parentFlow,
+                            parentId,
+                            new ParentInput(
+                                    new String[] {request},
+                                    AdvancedShortLiveParentFlow.DEFAULT_CONCURRENCY),
+                            StartFlowOptions.newBuilder()
+                                    .idReusePolicy(IdReusePolicy.ALLOW_IF_NOT_RUNNING)
+                                    .build());
+                    return true;
+                } catch (final FlowAlreadyStartedException alreadyStarted) {
+                    return client.invokeRPC(stub::sendRequest, request);
+                }
+            }
         }
 
         private static int partition(final String request, final int partitions) {

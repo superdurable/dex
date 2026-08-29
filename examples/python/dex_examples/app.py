@@ -56,6 +56,7 @@ from dex_examples.patterns.parallel_subflows.flows import (
     BasicParentFlow,
     ExampleSubFlow as ParallelExampleSubFlow,
     SubmitRequestFlow,
+    WaitForHalfParentFlow,
 )
 from dex_examples.patterns.polling.backoff_polling_flow import BackoffPollingFlow
 from dex_examples.patterns.polling.simple_polling_flow import PollingWithTimerFlow
@@ -144,7 +145,8 @@ class ExampleApp:
         self.await_parallel = AwaitParallelStepsFlow()
         self.first_win_parallel = FirstWinParallelStepsFlow()
         self.parallel_subflow_child = ParallelExampleSubFlow()
-        self.basic_subflows = BasicParentFlow(
+        self.basic_subflows = BasicParentFlow(self.parallel_subflow_child)
+        self.wait_for_half_subflows = WaitForHalfParentFlow(
             client_provider, self.parallel_subflow_child
         )
         self.long_live_subflows = AdvancedLongLiveParentFlow(
@@ -212,6 +214,7 @@ class ExampleApp:
             self.first_win_parallel,
             self.parallel_subflow_child,
             self.basic_subflows,
+            self.wait_for_half_subflows,
             self.long_live_subflows,
             self.short_live_subflows,
             self.submit_subflow_request,

@@ -73,6 +73,7 @@ const sidebars: SidebarsConfig = {
           link: {type: 'doc', id: 'design-patterns/parallel-subflows'},
           items: [
             'design-patterns/parallel-subflows/basic',
+            'design-patterns/parallel-subflows/wait-for-half',
             'design-patterns/parallel-subflows/long-lived-parent',
             'design-patterns/parallel-subflows/short-lived-parent',
             'design-patterns/parallel-subflows/partitioning',

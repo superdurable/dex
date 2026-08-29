@@ -337,6 +337,7 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			flags: flowSmokeFlags{stepStartMayFail: true},
 		},
 		parallelSubFlowsSmokeEntry("basic"),
+		parallelSubFlowsSmokeEntry("wait-for-half"),
 		parallelSubFlowsSmokeEntry("long-lived-parent"),
 		parallelSubFlowsSmokeEntry("short-lived-parent"),
 		{

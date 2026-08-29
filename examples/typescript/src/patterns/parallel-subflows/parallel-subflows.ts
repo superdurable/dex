@@ -17,7 +17,7 @@
 import {
   Attribute,
   Channel,
-  ConditionCombination,
+  IdReusePolicy,
   StepList,
   StepMovement,
   SubFlow,
@@ -33,8 +33,8 @@ import {
   stringCodec,
   voidCodec,
   type Codec,
-  type Condition,
   type Context,
+  type Client,
   type Flow,
   type PersistenceSchema,
   type RPCResult,
@@ -44,6 +44,7 @@ import {
 } from "@superdurable/dex";
 
 import { getClient } from "../../client-holder.js";
+import { isFlowAlreadyStarted, isFlowMissingOrInactive } from "../../service-errors.js";
 
 const DEFAULT_CONCURRENCY = 10;
 const MAX_BUFFERED_REQUESTS = 100;
@@ -114,40 +115,12 @@ class SubFlowsStep implements Step<readonly string[]> {
   }
 
   public waitFor(_context: Context, requests: readonly string[]): Wait {
-    const conditions = requests.map((request, index) =>
-      SubFlow.run(this.exampleSubFlow, request, { conditionId: `subflow-${index}` }),
-    );
-    return Wait.anyCombinationOf(
-      ...combinations(conditions, Math.ceil(conditions.length / 2)).map((selected) =>
-        ConditionCombination.of(...selected),
-      ),
-    );
+    return Wait.allOf(...requests.map((request) => SubFlow.run(this.exampleSubFlow, request)));
   }
 
-  public async execute(context: Context, requests: readonly string[]): Promise<StepDecision> {
-    for (let index = 0; index < requests.length; index++) {
-      if (SubFlow.getConditionResults(context, index).status === "running") {
-        await getClient().stopFlow(SubFlow.getFlowId(context, index));
-      }
-    }
+  public execute(_context: Context, _requests: readonly string[]): StepDecision {
     return gracefulComplete();
   }
-}
-
-function combinations<T>(values: readonly T[], size: number): readonly (readonly T[])[] {
-  const result: T[][] = [];
-  const collect = (start: number, selected: readonly T[]): void => {
-    if (selected.length === size) {
-      result.push([...selected]);
-      return;
-    }
-    for (let index = start; index <= values.length - (size - selected.length); index++) {
-      const value = values[index];
-      if (value !== undefined) collect(index + 1, [...selected, value]);
-    }
-  };
-  collect(0, []);
-  return result;
 }
 
 export class BasicParentFlow implements Flow<readonly string[]> {
@@ -167,6 +140,88 @@ export class BasicParentFlow implements Flow<readonly string[]> {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {};
+  }
+}
+
+const subFlowCompletedCh = new Channel("SubFlowCompletedCh", booleanCodec);
+const allDoneCh = new Channel("AllDoneCh", booleanCodec);
+
+class WaitForHalfInitStep implements Step<readonly string[]> {
+  public readonly inputCodec = stringArrayCodec;
+
+  public getStepType(): string {
+    return "InitStep";
+  }
+
+  public execute(_context: Context, requests: readonly string[]): StepDecision {
+    if (requests.length === 0) return gracefulComplete();
+    return goToMany(
+      StepMovement.of(WaitSubFlowsStep, requests.length),
+      ...requests.map((request) => StepMovement.of(SubFlowStep, request)),
+    );
+  }
+}
+
+class SubFlowStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+
+  public constructor(private readonly exampleSubFlow: ExampleSubFlow) {}
+
+  public getStepType(): string {
+    return "SubFlowStep";
+  }
+
+  public waitFor(_context: Context, request: string): Wait {
+    return Wait.anyOf(SubFlow.run(this.exampleSubFlow, request), allDoneCh.forOne());
+  }
+
+  public async execute(context: Context, _request: string): Promise<StepDecision> {
+    if (SubFlow.getConditionResults(context).status !== "running") {
+      subFlowCompletedCh.publish(context, true);
+      return gracefulComplete();
+    }
+    await getClient().stopFlow(SubFlow.getFlowId(context));
+    return gracefulComplete();
+  }
+}
+
+class WaitSubFlowsStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+
+  public getStepType(): string {
+    return "WaitSubFlowsStep";
+  }
+
+  public waitFor(_context: Context, total: number): Wait {
+    return Wait.until(subFlowCompletedCh.forN(Math.ceil(total / 2)));
+  }
+
+  public execute(context: Context, total: number): StepDecision {
+    const remaining = total - Math.ceil(total / 2);
+    for (let index = 0; index < remaining; index++) allDoneCh.publish(context, true);
+    return gracefulComplete();
+  }
+}
+
+export class WaitForHalfParentFlow implements Flow<readonly string[]> {
+  private readonly init = new WaitForHalfInitStep();
+  private readonly subFlow: SubFlowStep;
+  private readonly waitSubFlows = new WaitSubFlowsStep();
+
+  public constructor(exampleSubFlow: ExampleSubFlow) {
+    this.subFlow = new SubFlowStep(exampleSubFlow);
+  }
+
+  public getFlowType(): string {
+    return "WaitForHalfParentFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.init).otherSteps(this.subFlow, this.waitSubFlows);
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return { channels: [subFlowCompletedCh, allDoneCh] };
   }
 }
 
@@ -390,9 +445,34 @@ class SubmitStep implements Step<SubmitRequestInput> {
     if (input.parentIds.length === 0) throw new Error("parent Flow IDs are required");
     const parentId = input.parentIds[partition(input.request, input.parentIds.length)];
     if (parentId === undefined) throw new Error("parent Flow ID is missing");
-    const accepted = await getClient().invokeRPC(this.parentFlow.sendRequest, parentId, input.request);
+    const accepted = await enqueueRequest(getClient(), this.parentFlow, parentId, input.request);
     if (!accepted) throw new Error(`parent ${parentId} rejected the request`);
     return gracefulComplete(parentId);
+  }
+}
+
+async function enqueueRequest(
+  client: Client,
+  parentFlow: AdvancedShortLiveParentFlow,
+  parentId: string,
+  request: string,
+): Promise<boolean> {
+  try {
+    return await client.invokeRPC(parentFlow.sendRequest, parentId, request);
+  } catch (error) {
+    if (!isFlowMissingOrInactive(error)) throw error;
+  }
+  try {
+    await client.startFlow(
+      parentFlow,
+      parentId,
+      { requests: [request], concurrency: DEFAULT_CONCURRENCY },
+      { idReusePolicy: IdReusePolicy.ALLOW_IF_NOT_RUNNING },
+    );
+    return true;
+  } catch (error) {
+    if (!isFlowAlreadyStarted(error)) throw error;
+    return client.invokeRPC(parentFlow.sendRequest, parentId, request);
   }
 }
 
@@ -427,6 +507,7 @@ export class SubmitRequestFlow implements Flow<SubmitRequestInput> {
 
 export const exampleSubFlow = new ExampleSubFlow();
 export const basicParentFlow = new BasicParentFlow(exampleSubFlow);
+export const waitForHalfParentFlow = new WaitForHalfParentFlow(exampleSubFlow);
 export const advancedLongLiveParentFlow = new AdvancedLongLiveParentFlow(exampleSubFlow);
 export const advancedShortLiveParentFlow = new AdvancedShortLiveParentFlow(exampleSubFlow);
 export const submitRequestFlow = new SubmitRequestFlow(advancedShortLiveParentFlow);

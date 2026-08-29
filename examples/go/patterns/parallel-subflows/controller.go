@@ -32,6 +32,7 @@ import (
 type controller struct {
 	client    *dex.Client
 	basic     *BasicParentFlow
+	waitHalf  *WaitForHalfParentFlow
 	longLive  *AdvancedLongLiveParentFlow
 	shortLive *AdvancedShortLiveParentFlow
 	submit    *SubmitRequestFlow
@@ -41,13 +42,15 @@ func RegisterRoutes(
 	router gin.IRouter,
 	client *dex.Client,
 	basic *BasicParentFlow,
+	waitHalf *WaitForHalfParentFlow,
 	longLive *AdvancedLongLiveParentFlow,
 	shortLive *AdvancedShortLiveParentFlow,
 	submit *SubmitRequestFlow,
 ) {
-	controller := &controller{client: client, basic: basic, longLive: longLive, shortLive: shortLive, submit: submit}
+	controller := &controller{client: client, basic: basic, waitHalf: waitHalf, longLive: longLive, shortLive: shortLive, submit: submit}
 	group := router.Group("/patterns/parallel-subflows")
 	group.GET("/start/basic", controller.startBasic)
+	group.GET("/start/wait-for-half", controller.startWaitForHalf)
 	group.GET("/start/long-lived-parent", controller.startLongLive)
 	group.GET("/start/short-lived-parent", controller.startShortLive)
 	group.GET("/start/submit", controller.startSubmit)
@@ -57,6 +60,10 @@ func RegisterRoutes(
 
 func (controller *controller) startBasic(request *gin.Context) {
 	controller.start(request, controller.basic, []string{"one", "two", "three", "four"})
+}
+
+func (controller *controller) startWaitForHalf(request *gin.Context) {
+	controller.start(request, controller.waitHalf, []string{"one", "two", "three", "four"})
 }
 
 func (controller *controller) startLongLive(request *gin.Context) {
@@ -94,9 +101,8 @@ func (controller *controller) sendRequest(request *gin.Context) {
 	if !found {
 		return
 	}
-	var accepted bool
-	err := controller.client.InvokeRPC(
-		request.Request.Context(), flowID, controller.shortLive.SendRequest, "appended", &accepted, dex.InvokeOptions{},
+	accepted, err := enqueueRequest(
+		request.Request.Context(), controller.client, controller.shortLive, flowID, "appended",
 	)
 	httputil.RespondString(request, fmt.Sprintf("%t", accepted), err)
 }

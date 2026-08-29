@@ -17,9 +17,9 @@ use std::thread;
 use std::time::Duration;
 
 use dex_sdk::{
-    Attribute, Channel, Client, Condition, ConditionCombination, Context, Flow, FlowStatus,
-    HandlerError, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult, Step, StepDecision,
-    StepList, StepMovement, StepOptions, StopFlowOptions, SubFlow, SubFlowOptions, Wait,
+    Attribute, Channel, Client, Context, Flow, FlowStatus, HandlerError, HandlerResult,
+    IdReusePolicy, PersistenceSchema, Rpc, RpcList, RpcResult, SdkError, StartFlowOptions, Step,
+    StepDecision, StepList, StepMovement, StepOptions, StopFlowOptions, SubFlow, Wait,
 };
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +31,9 @@ static REQUEST_CHANNEL: LazyLock<Channel<String>> =
 static STOPPED: LazyLock<Attribute<bool>> = LazyLock::new(|| Attribute::new("Stopped"));
 static CURR_SUB_FLOW_NUM: LazyLock<Attribute<usize>> =
     LazyLock::new(|| Attribute::new("CurrSubFlowNum"));
+static SUB_FLOW_COMPLETED_CH: LazyLock<Channel<bool>> =
+    LazyLock::new(|| Channel::new("SubFlowCompletedCh"));
+static ALL_DONE_CH: LazyLock<Channel<bool>> = LazyLock::new(|| Channel::new("AllDoneCh"));
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct ParentInput {
@@ -74,16 +77,6 @@ pub struct BasicParentFlow {
     sub_flows: SubFlowsStep,
 }
 
-impl BasicParentFlow {
-    pub fn new(client: Arc<Client>) -> Self {
-        Self {
-            sub_flows: SubFlowsStep {
-                client: Some(client),
-            },
-        }
-    }
-}
-
 impl Flow for BasicParentFlow {
     type StartInput = Vec<String>;
 
@@ -93,9 +86,7 @@ impl Flow for BasicParentFlow {
 }
 
 #[derive(Default)]
-struct SubFlowsStep {
-    client: Option<Arc<Client>>,
-}
+struct SubFlowsStep;
 
 impl Step for SubFlowsStep {
     type Input = Vec<String>;
@@ -103,65 +94,132 @@ impl Step for SubFlowsStep {
     fn wait_for(&self, _context: &mut Context, requests: Self::Input) -> HandlerResult<Wait> {
         let child = ExampleSubFlow::default();
         let mut conditions = Vec::with_capacity(requests.len());
-        for (index, request) in requests.into_iter().enumerate() {
-            conditions.push(
-                SubFlow::run_with_options(
-                    &child,
-                    request,
-                    SubFlowOptions::new().condition_id(format!("subflow-{index}")),
-                )
-                .map_err(HandlerError::from_error)?,
-            );
+        for request in requests {
+            conditions.push(SubFlow::run(&child, request).map_err(HandlerError::from_error)?);
         }
-        let winner_count = conditions.len().div_ceil(2);
-        Ok(Wait::any_combination_of(condition_combinations(
-            &conditions,
-            winner_count,
-        )))
+        Ok(Wait::all_of(conditions))
     }
 
-    fn execute(&self, context: &mut Context, requests: Self::Input) -> HandlerResult<StepDecision> {
-        let client = self.client.as_ref().ok_or_else(|| {
-            HandlerError::new("ParallelSubFlows", "Dex client is not initialized")
-        })?;
-        for index in 0..requests.len() {
-            if SubFlow::condition_result_at(context, index)?.status() == FlowStatus::Running {
-                let flow_id = SubFlow::flow_id_at(context, index)?;
-                client
-                    .stop_flow(
-                        &flow_id,
-                        StopFlowOptions::cancel().reason("enough SubFlows completed"),
-                    )
-                    .map_err(HandlerError::from_error)?;
-            }
-        }
+    fn execute(
+        &self,
+        _context: &mut Context,
+        _requests: Self::Input,
+    ) -> HandlerResult<StepDecision> {
         Ok(StepDecision::graceful_complete(()))
     }
 }
 
-fn condition_combinations(conditions: &[Condition], size: usize) -> Vec<ConditionCombination> {
-    fn collect(
-        conditions: &[Condition],
-        size: usize,
-        start: usize,
-        selected: &mut Vec<Condition>,
-        result: &mut Vec<ConditionCombination>,
-    ) {
-        if selected.len() == size {
-            result.push(ConditionCombination::all_of(selected.clone()));
-            return;
-        }
-        let remaining = size - selected.len();
-        for index in start..=conditions.len() - remaining {
-            selected.push(conditions[index].clone());
-            collect(conditions, size, index + 1, selected, result);
-            selected.pop();
+#[derive(Default)]
+pub struct WaitForHalfParentFlow {
+    init: WaitForHalfInitStep,
+    sub_flow: SubFlowStep,
+    wait_sub_flows: WaitSubFlowsStep,
+}
+
+impl WaitForHalfParentFlow {
+    pub fn new(client: Arc<Client>) -> Self {
+        Self {
+            sub_flow: SubFlowStep {
+                client: Some(client),
+            },
+            ..Self::default()
         }
     }
+}
 
-    let mut result = Vec::new();
-    collect(conditions, size, 0, &mut Vec::new(), &mut result);
-    result
+impl Flow for WaitForHalfParentFlow {
+    type StartInput = Vec<String>;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.init)
+            .and(&self.sub_flow)
+            .and(&self.wait_sub_flows)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .channel(&SUB_FLOW_COMPLETED_CH)
+            .channel(&ALL_DONE_CH)
+    }
+}
+
+#[derive(Default)]
+struct WaitForHalfInitStep;
+
+impl Step for WaitForHalfInitStep {
+    type Input = Vec<String>;
+
+    fn step_type(&self) -> &'static str {
+        "InitStep"
+    }
+
+    fn execute(
+        &self,
+        _context: &mut Context,
+        requests: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        if requests.is_empty() {
+            return Ok(StepDecision::graceful_complete(()));
+        }
+        let mut movements = Vec::with_capacity(requests.len() + 1);
+        movements.push(StepMovement::to(&WaitSubFlowsStep, requests.len()));
+        movements.extend(
+            requests
+                .into_iter()
+                .map(|request| StepMovement::to(&SubFlowStep::default(), request)),
+        );
+        Ok(StepDecision::go_to_many(movements))
+    }
+}
+
+#[derive(Default)]
+struct SubFlowStep {
+    client: Option<Arc<Client>>,
+}
+
+impl Step for SubFlowStep {
+    type Input = String;
+
+    fn wait_for(&self, _context: &mut Context, request: Self::Input) -> HandlerResult<Wait> {
+        let sub_flow =
+            SubFlow::run(&ExampleSubFlow::default(), request).map_err(HandlerError::from_error)?;
+        Ok(Wait::any_of([sub_flow, ALL_DONE_CH.for_one()]))
+    }
+
+    fn execute(&self, context: &mut Context, _request: Self::Input) -> HandlerResult<StepDecision> {
+        if SubFlow::condition_result(context)?.status() != FlowStatus::Running {
+            SUB_FLOW_COMPLETED_CH.publish(context, true)?;
+            return Ok(StepDecision::graceful_complete(()));
+        }
+        let client = self.client.as_ref().ok_or_else(|| {
+            HandlerError::new("ParallelSubFlows", "Dex client is not initialized")
+        })?;
+        client
+            .stop_flow(
+                &SubFlow::flow_id(context)?,
+                StopFlowOptions::cancel().reason("enough SubFlows completed"),
+            )
+            .map_err(HandlerError::from_error)?;
+        Ok(StepDecision::graceful_complete(()))
+    }
+}
+
+#[derive(Default)]
+struct WaitSubFlowsStep;
+
+impl Step for WaitSubFlowsStep {
+    type Input = usize;
+
+    fn wait_for(&self, _context: &mut Context, total: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(SUB_FLOW_COMPLETED_CH.for_n(total.div_ceil(2))))
+    }
+
+    fn execute(&self, context: &mut Context, total: Self::Input) -> HandlerResult<StepDecision> {
+        for _ in 0..total - total.div_ceil(2) {
+            ALL_DONE_CH.publish(context, true)?;
+        }
+        Ok(StepDecision::graceful_complete(()))
+    }
 }
 
 pub const LONG_LIVE_SEND_REQUEST: Rpc<String, bool> = Rpc::new("SendRequest");
@@ -466,9 +524,7 @@ impl Step for SubmitStep {
         let client = self.client.as_ref().ok_or_else(|| {
             HandlerError::new("ParallelSubFlows", "Dex client is not initialized")
         })?;
-        let accepted = client
-            .invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, input.request)
-            .map_err(HandlerError::from_error)?;
+        let accepted = enqueue_request(client, parent_id, input.request)?;
         if !accepted {
             return Err(HandlerError::new(
                 "ParallelSubFlows",
@@ -476,6 +532,28 @@ impl Step for SubmitStep {
             ));
         }
         Ok(StepDecision::graceful_complete(parent_id.clone()))
+    }
+}
+
+fn enqueue_request(client: &Client, parent_id: &str, request: String) -> HandlerResult<bool> {
+    match client.invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request.clone()) {
+        Ok(accepted) => Ok(accepted),
+        Err(SdkError::FlowNotFound { .. } | SdkError::FlowNotActive { .. }) => {
+            let parent = AdvancedShortLiveParentFlow::default();
+            let input = ParentInput {
+                requests: vec![request.clone()],
+                concurrency: DEFAULT_CONCURRENCY,
+            };
+            let options = StartFlowOptions::new().id_reuse_policy(IdReusePolicy::AllowIfNotRunning);
+            match client.start_flow_with_options(&parent, parent_id, input, options) {
+                Ok(_) => Ok(true),
+                Err(SdkError::FlowAlreadyStarted { .. }) => client
+                    .invoke_rpc(parent_id, SHORT_LIVE_SEND_REQUEST, request)
+                    .map_err(HandlerError::from_error),
+                Err(error) => Err(HandlerError::from_error(error)),
+            }
+        }
+        Err(error) => Err(HandlerError::from_error(error)),
     }
 }
 

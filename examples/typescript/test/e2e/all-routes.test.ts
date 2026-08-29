@@ -421,7 +421,7 @@ test("design-pattern recovery start", async () => {
 });
 
 test("design-pattern parallel SubFlows start", async () => {
-  for (const kind of ["basic", "long-lived-parent", "short-lived-parent"]) {
+  for (const kind of ["basic", "wait-for-half", "long-lived-parent", "short-lived-parent"]) {
     requireOk(
       await get(`/patterns/parallel-subflows/start/${kind}`, {
         workflowId: id(`parallel-subflows-${kind}`),

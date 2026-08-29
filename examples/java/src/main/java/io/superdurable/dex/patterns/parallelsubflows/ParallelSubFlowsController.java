@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
 public final class ParallelSubFlowsController {
     private final Client client;
     private final BasicParentFlow basic;
+    private final WaitForHalfParentFlow waitForHalf;
     private final AdvancedLongLiveParentFlow longLive;
     private final AdvancedShortLiveParentFlow shortLive;
     private final SubmitRequestFlow submit;
@@ -37,11 +38,13 @@ public final class ParallelSubFlowsController {
     public ParallelSubFlowsController(
             final Client client,
             final BasicParentFlow basic,
+            final WaitForHalfParentFlow waitForHalf,
             final AdvancedLongLiveParentFlow longLive,
             final AdvancedShortLiveParentFlow shortLive,
             final SubmitRequestFlow submit) {
         this.client = client;
         this.basic = basic;
+        this.waitForHalf = waitForHalf;
         this.longLive = longLive;
         this.shortLive = shortLive;
         this.submit = submit;
@@ -50,6 +53,11 @@ public final class ParallelSubFlowsController {
     @GetMapping("/start/basic")
     ResponseEntity<String> startBasic(@RequestParam final String workflowId) {
         return start(basic, workflowId, new String[] {"one", "two", "three", "four"});
+    }
+
+    @GetMapping("/start/wait-for-half")
+    ResponseEntity<String> startWaitForHalf(@RequestParam final String workflowId) {
+        return start(waitForHalf, workflowId, new String[] {"one", "two", "three", "four"});
     }
 
     @GetMapping("/start/long-lived-parent")

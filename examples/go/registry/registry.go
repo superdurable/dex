@@ -99,6 +99,7 @@ var (
 	FirstWinParallel       *parallel.FirstWinParallelStepsFlow
 	ParallelSubFlowChild   *parallelsubflows.ExampleSubFlow
 	BasicSubFlows          *parallelsubflows.BasicParentFlow
+	WaitForHalfSubFlows    *parallelsubflows.WaitForHalfParentFlow
 	LongLiveSubFlows       *parallelsubflows.AdvancedLongLiveParentFlow
 	ShortLiveSubFlows      *parallelsubflows.AdvancedShortLiveParentFlow
 	SubmitSubFlowRequest   *parallelsubflows.SubmitRequestFlow
@@ -169,7 +170,8 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	AwaitParallel = parallel.NewAwaitParallelStepsFlow()
 	FirstWinParallel = parallel.NewFirstWinParallelStepsFlow()
 	ParallelSubFlowChild = parallelsubflows.NewExampleSubFlow()
-	BasicSubFlows = parallelsubflows.NewBasicParentFlow(getClient, ParallelSubFlowChild)
+	BasicSubFlows = parallelsubflows.NewBasicParentFlow(ParallelSubFlowChild)
+	WaitForHalfSubFlows = parallelsubflows.NewWaitForHalfParentFlow(getClient, ParallelSubFlowChild)
 	LongLiveSubFlows = parallelsubflows.NewAdvancedLongLiveParentFlow(ParallelSubFlowChild)
 	ShortLiveSubFlows = parallelsubflows.NewAdvancedShortLiveParentFlow(ParallelSubFlowChild)
 	SubmitSubFlowRequest = parallelsubflows.NewSubmitRequestFlow(getClient, ShortLiveSubFlows)
@@ -229,6 +231,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		FirstWinParallel,
 		ParallelSubFlowChild,
 		BasicSubFlows,
+		WaitForHalfSubFlows,
 		LongLiveSubFlows,
 		ShortLiveSubFlows,
 		SubmitSubFlowRequest,

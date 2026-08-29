@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use axum::{
     Router,
     extract::{Query, State},
@@ -23,7 +25,7 @@ use serde::Deserialize;
 
 use super::{
     AdvancedLongLiveParentFlow, AdvancedShortLiveParentFlow, BasicParentFlow, ParentInput,
-    SubmitRequestFlow, SubmitRequestInput,
+    SubmitRequestFlow, SubmitRequestInput, WaitForHalfParentFlow,
 };
 use crate::server::helpers::{SharedClient, map_sdk_error, new_flow_id, ok_text, run_blocking};
 
@@ -37,6 +39,10 @@ pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route("/patterns/parallel-subflows/start/basic", get(start_basic))
         .route(
+            "/patterns/parallel-subflows/start/wait-for-half",
+            get(start_wait_for_half),
+        )
+        .route(
             "/patterns/parallel-subflows/start/long-lived-parent",
             get(start_long_live),
         )
@@ -49,6 +55,22 @@ pub fn mount(client: SharedClient) -> Router {
             get(start_submit),
         )
         .with_state(client)
+}
+
+async fn start_wait_for_half(
+    State(client): State<SharedClient>,
+    Query(query): Query<ParallelSubFlowsQuery>,
+) -> Response {
+    start(
+        Arc::clone(&client),
+        query,
+        WaitForHalfParentFlow::new(client),
+        vec!["one", "two", "three", "four"]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+    )
+    .await
 }
 
 async fn start_basic(

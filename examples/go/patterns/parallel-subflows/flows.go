@@ -22,6 +22,7 @@ package parallelsubflows
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"time"
@@ -35,9 +36,11 @@ const (
 )
 
 var (
-	RequestChannel = dex.DefineChannel[string]("RequestChannel")
-	Stopped        = dex.DefineAttribute[bool]("Stopped")
-	CurrSubFlowNum = dex.DefineAttribute[int]("CurrSubFlowNum")
+	RequestChannel     = dex.DefineChannel[string]("RequestChannel")
+	Stopped            = dex.DefineAttribute[bool]("Stopped")
+	CurrSubFlowNum     = dex.DefineAttribute[int]("CurrSubFlowNum")
+	SubFlowCompletedCh = dex.DefineChannel[bool]("SubFlowCompletedCh")
+	AllDoneCh          = dex.DefineChannel[bool]("AllDoneCh")
 )
 
 type ParentInput struct {
@@ -75,19 +78,15 @@ func (doWorkStep) Execute(_ dex.Context, request string) (*dex.StepDecision, err
 
 type BasicParentFlow struct {
 	dex.FlowDefaults
-	getClient   func() *dex.Client
 	exampleFlow *ExampleSubFlow
 }
 
-func NewBasicParentFlow(getClient func() *dex.Client, exampleFlow *ExampleSubFlow) *BasicParentFlow {
-	return &BasicParentFlow{getClient: getClient, exampleFlow: exampleFlow}
+func NewBasicParentFlow(exampleFlow *ExampleSubFlow) *BasicParentFlow {
+	return &BasicParentFlow{exampleFlow: exampleFlow}
 }
 
 func (flow *BasicParentFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(subFlowsStep{
-		getClient:   flow.getClient,
-		exampleFlow: flow.exampleFlow,
-	})}
+	return []dex.StepDef{dex.DefineStartStep(subFlowsStep{exampleFlow: flow.exampleFlow})}
 }
 
 func (*BasicParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
@@ -96,7 +95,6 @@ func (*BasicParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
 
 type subFlowsStep struct {
 	dex.StepDefaults
-	getClient   func() *dex.Client
 	exampleFlow *ExampleSubFlow
 }
 
@@ -104,55 +102,114 @@ func (subFlowsStep) GetStepType() string { return "SubFlowsStep" }
 
 func (step subFlowsStep) WaitFor(_ dex.Context, requests []string) (*dex.Wait, error) {
 	conditions := make([]dex.Condition, 0, len(requests))
-	for index, request := range requests {
-		conditions = append(conditions, dex.SubFlow(step.exampleFlow, request, dex.SubFlowOptions{
-			ConditionID: fmt.Sprintf("subflow-%d", index),
-		}))
+	for _, request := range requests {
+		conditions = append(conditions, dex.SubFlow(step.exampleFlow, request))
 	}
-	winners := (len(conditions) + 1) / 2
-	return dex.AnyComboOf(conditionCombinations(conditions, winners)...), nil
+	return dex.AllOf(conditions...), nil
 }
 
-func (step subFlowsStep) Execute(ctx dex.Context, requests []string) (*dex.StepDecision, error) {
+func (subFlowsStep) Execute(_ dex.Context, _ []string) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(nil), nil
+}
+
+type WaitForHalfParentFlow struct {
+	dex.FlowDefaults
+	getClient   func() *dex.Client
+	exampleFlow *ExampleSubFlow
+}
+
+func NewWaitForHalfParentFlow(
+	getClient func() *dex.Client,
+	exampleFlow *ExampleSubFlow,
+) *WaitForHalfParentFlow {
+	return &WaitForHalfParentFlow{getClient: getClient, exampleFlow: exampleFlow}
+}
+
+func (flow *WaitForHalfParentFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(waitForHalfInitStep{}),
+		dex.DefineStep(subFlowStep{getClient: flow.getClient, exampleFlow: flow.exampleFlow}),
+		dex.DefineStep(waitSubFlowsStep{}),
+	}
+}
+
+func (*WaitForHalfParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{SubFlowCompletedCh, AllDoneCh}}
+}
+
+type waitForHalfInitStep struct {
+	dex.StepDefaultsNoWaitFor[[]string]
+}
+
+func (waitForHalfInitStep) GetStepType() string { return "InitStep" }
+
+func (waitForHalfInitStep) Execute(_ dex.Context, requests []string) (*dex.StepDecision, error) {
+	if len(requests) == 0 {
+		return dex.GracefulComplete(nil), nil
+	}
+	movements := make([]dex.StepMovement, 0, len(requests)+1)
+	movements = append(movements, dex.MovementOf(waitSubFlowsStep{}, len(requests)))
+	for _, request := range requests {
+		movements = append(movements, dex.MovementOf(subFlowStep{}, request))
+	}
+	return dex.GoToMany(movements...), nil
+}
+
+type subFlowStep struct {
+	dex.StepDefaults
+	getClient   func() *dex.Client
+	exampleFlow *ExampleSubFlow
+}
+
+func (subFlowStep) GetStepType() string { return "SubFlowStep" }
+
+func (step subFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+	return dex.AnyOf(dex.SubFlow(step.exampleFlow, request), AllDoneCh.ForOne()), nil
+}
+
+func (step subFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if result.Status != dex.FlowRunning {
+		if err := SubFlowCompletedCh.Publish(ctx, true); err != nil {
+			return nil, err
+		}
+		return dex.GracefulComplete(nil), nil
+	}
 	client := step.getClient()
 	if client == nil {
 		return nil, fmt.Errorf("dex client is not available")
 	}
-	for index := range requests {
-		result, err := dex.SubFlowResult(ctx, index)
-		if err != nil {
-			return nil, err
-		}
-		if result.Status != dex.FlowRunning {
-			continue
-		}
-		flowID, err := dex.SubFlowID(ctx, index)
-		if err != nil {
-			return nil, err
-		}
-		if err := client.StopFlow(context.Background(), flowID, dex.StopOptions{
-			Type: dex.CancelFlow, Reason: "enough SubFlows completed",
-		}); err != nil {
-			return nil, err
-		}
+	flowID, err := dex.SubFlowID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.StopFlow(context.Background(), flowID, dex.StopOptions{
+		Type: dex.CancelFlow, Reason: "enough SubFlows completed",
+	}); err != nil {
+		return nil, err
 	}
 	return dex.GracefulComplete(nil), nil
 }
 
-func conditionCombinations(conditions []dex.Condition, size int) []dex.ConditionCombination {
-	var combinations []dex.ConditionCombination
-	var visit func(start int, selected []dex.Condition)
-	visit = func(start int, selected []dex.Condition) {
-		if len(selected) == size {
-			combinations = append(combinations, dex.Combo(selected...))
-			return
-		}
-		for index := start; index <= len(conditions)-(size-len(selected)); index++ {
-			visit(index+1, append(selected, conditions[index]))
+type waitSubFlowsStep struct{ dex.StepDefaults }
+
+func (waitSubFlowsStep) GetStepType() string { return "WaitSubFlowsStep" }
+
+func (waitSubFlowsStep) WaitFor(_ dex.Context, total int) (*dex.Wait, error) {
+	return dex.Until(SubFlowCompletedCh.ForN((total + 1) / 2)), nil
+}
+
+func (waitSubFlowsStep) Execute(ctx dex.Context, total int) (*dex.StepDecision, error) {
+	remaining := total - (total+1)/2
+	for index := 0; index < remaining; index++ {
+		if err := AllDoneCh.Publish(ctx, true); err != nil {
+			return nil, err
 		}
 	}
-	visit(0, nil)
-	return combinations
+	return dex.GracefulComplete(nil), nil
 }
 
 type AdvancedLongLiveParentFlow struct {
@@ -422,16 +479,58 @@ func (step submitStep) Execute(_ dex.Context, input SubmitRequestInput) (*dex.St
 		return nil, fmt.Errorf("dex client is not available")
 	}
 	parentID := input.ParentIDs[partition(input.Request, len(input.ParentIDs))]
-	var accepted bool
-	if err := client.InvokeRPC(
-		context.Background(), parentID, step.parentFlow.SendRequest, input.Request, &accepted, dex.InvokeOptions{},
-	); err != nil {
+	accepted, err := enqueueRequest(
+		context.Background(), client, step.parentFlow, parentID, input.Request,
+	)
+	if err != nil {
 		return nil, err
 	}
 	if !accepted {
 		return nil, fmt.Errorf("parent %s rejected the request", parentID)
 	}
 	return dex.GracefulComplete(parentID), nil
+}
+
+func enqueueRequest(
+	ctx context.Context,
+	client *dex.Client,
+	parentFlow *AdvancedShortLiveParentFlow,
+	parentID string,
+	request string,
+) (bool, error) {
+	accepted, err := invokeRequest(ctx, client, parentFlow, parentID, request)
+	if err == nil {
+		return accepted, nil
+	}
+	var inactive *dex.FlowNotActiveError
+	if !errors.As(err, &inactive) {
+		return false, err
+	}
+	_, err = client.StartFlow(ctx, parentFlow, parentID, ParentInput{
+		Requests: []string{request}, Concurrency: DefaultConcurrency,
+	}, dex.StartFlowOptions{IDReusePolicy: dex.IDReuseAllowIfNotRunning})
+	if err == nil {
+		return true, nil
+	}
+	var alreadyStarted *dex.FlowAlreadyStartedError
+	if !errors.As(err, &alreadyStarted) {
+		return false, err
+	}
+	return invokeRequest(ctx, client, parentFlow, parentID, request)
+}
+
+func invokeRequest(
+	ctx context.Context,
+	client *dex.Client,
+	parentFlow *AdvancedShortLiveParentFlow,
+	parentID string,
+	request string,
+) (bool, error) {
+	var accepted bool
+	err := client.InvokeRPC(
+		ctx, parentID, parentFlow.SendRequest, request, &accepted, dex.InvokeOptions{},
+	)
+	return accepted, err
 }
 
 func partition(request string, partitions int) int {
@@ -443,6 +542,7 @@ func partition(request string, partitions int) int {
 var (
 	_ dex.Flow                    = (*ExampleSubFlow)(nil)
 	_ dex.Flow                    = (*BasicParentFlow)(nil)
+	_ dex.Flow                    = (*WaitForHalfParentFlow)(nil)
 	_ dex.Flow                    = (*AdvancedLongLiveParentFlow)(nil)
 	_ dex.Flow                    = (*AdvancedShortLiveParentFlow)(nil)
 	_ dex.Flow                    = (*SubmitRequestFlow)(nil)

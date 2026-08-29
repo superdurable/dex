@@ -1,0 +1,388 @@
+---
+title: Wait for Half
+---
+
+# Wait for Half
+
+Start N SubFlows, wait for half to finish, then stop the unfinished children.
+
+![Wait for half parent Flow](/img/design-patterns/parallel-subflows-wait-for-half.png)
+
+Each child runs in its own **SubFlowStep** execution. A completed child publishes one message to **SubFlowCompletedCh**. **WaitSubFlowsStep** waits for half of those messages, then publishes one **AllDoneCh** message for every possible unfinished child.
+
+The important detail is that the parent does not complete immediately after reaching the threshold. Each unfinished **SubFlowStep** first consumes an **AllDoneCh** message, obtains its own **SubFlowID**, and stops that child. Only then does that Step execution complete gracefully. This gives every losing branch a chance to clean up its SubFlow.
+
+## Core implementation
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py', go: 'examples/go/patterns/parallel-subflows/flows.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/WaitForHalfParentFlow.java', typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts', rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs'}}>
+<SdkSnippet lang="python">
+
+```python
+class WaitForHalfInitStep(Step[list[str]]):
+    def execute(self, context: Context, requests: list[str]) -> StepDecision:
+        del context
+        if not requests:
+            return graceful_complete()
+        return go_to_many(
+            StepMovement.of(WaitSubFlowsStep, len(requests)),
+            *(StepMovement.of(SubFlowStep, request) for request in requests),
+        )
+
+
+class SubFlowStep(Step[str]):
+    def __init__(
+        self,
+        client_provider: Callable[[], AsyncClient],
+        example_subflow: ExampleSubFlow,
+        subflow_completed_ch: Channel[bool],
+        all_done_ch: Channel[bool],
+    ) -> None:
+        self.client_provider = client_provider
+        self.example_subflow = example_subflow
+        self.subflow_completed_ch = subflow_completed_ch
+        self.all_done_ch = all_done_ch
+
+    def wait_for(self, context: Context, request: str) -> Wait:
+        del context
+        return Wait.any_of(SubFlow.run(self.example_subflow, request), self.all_done_ch.for_one())
+
+    async def execute(self, context: Context, request: str) -> StepDecision:
+        del request
+        if SubFlow.get_condition_results(context).status is not FlowStatus.RUNNING:
+            self.subflow_completed_ch.publish(context, True)
+            return graceful_complete()
+        await self.client_provider().stop_flow(SubFlow.get_flow_id(context))
+        return graceful_complete()
+
+
+class WaitSubFlowsStep(Step[int]):
+    def __init__(
+        self, subflow_completed_ch: Channel[bool], all_done_ch: Channel[bool]
+    ) -> None:
+        self.subflow_completed_ch = subflow_completed_ch
+        self.all_done_ch = all_done_ch
+
+    def wait_for(self, context: Context, total: int) -> Wait:
+        del context
+        return Wait.until(self.subflow_completed_ch.for_n((total + 1) // 2))
+
+    def execute(self, context: Context, total: int) -> StepDecision:
+        for _ in range(total - (total + 1) // 2):
+            self.all_done_ch.publish(context, True)
+        return graceful_complete()
+
+
+class WaitForHalfParentFlow(Flow[list[str]]):
+    subflow_completed_ch = Channel("SubFlowCompletedCh", bool)
+    all_done_ch = Channel("AllDoneCh", bool)
+
+    def __init__(
+        self,
+        client_provider: Callable[[], AsyncClient],
+        example_subflow: ExampleSubFlow,
+    ) -> None:
+        self.init = WaitForHalfInitStep()
+        self.subflow = SubFlowStep(client_provider, example_subflow, self.subflow_completed_ch, self.all_done_ch)
+        self.wait_subflows = WaitSubFlowsStep(self.subflow_completed_ch, self.all_done_ch)
+
+    def get_steps(self) -> StepList[list[str]]:
+        return StepList.start_step(self.init).other_steps(self.subflow, self.wait_subflows)
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(self.subflow_completed_ch, self.all_done_ch)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+var (
+	SubFlowCompletedCh = dex.DefineChannel[bool]("SubFlowCompletedCh")
+	AllDoneCh          = dex.DefineChannel[bool]("AllDoneCh")
+)
+
+type WaitForHalfParentFlow struct {
+	dex.FlowDefaults
+	getClient   func() *dex.Client
+	exampleFlow *ExampleSubFlow
+}
+
+func NewWaitForHalfParentFlow(getClient func() *dex.Client, exampleFlow *ExampleSubFlow) *WaitForHalfParentFlow {
+	return &WaitForHalfParentFlow{getClient: getClient, exampleFlow: exampleFlow}
+}
+
+func (flow *WaitForHalfParentFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(waitForHalfInitStep{}),
+		dex.DefineStep(subFlowStep{getClient: flow.getClient, exampleFlow: flow.exampleFlow}),
+		dex.DefineStep(waitSubFlowsStep{}),
+	}
+}
+
+func (*WaitForHalfParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{SubFlowCompletedCh, AllDoneCh}}
+}
+
+type waitForHalfInitStep struct {
+	dex.StepDefaultsNoWaitFor[[]string]
+}
+
+func (waitForHalfInitStep) GetStepType() string { return "InitStep" }
+
+func (waitForHalfInitStep) Execute(_ dex.Context, requests []string) (*dex.StepDecision, error) {
+	if len(requests) == 0 { return dex.GracefulComplete(nil), nil }
+	movements := []dex.StepMovement{dex.MovementOf(waitSubFlowsStep{}, len(requests))}
+	for _, request := range requests { movements = append(movements, dex.MovementOf(subFlowStep{}, request)) }
+	return dex.GoToMany(movements...), nil
+}
+
+type subFlowStep struct {
+	dex.StepDefaults
+	getClient   func() *dex.Client
+	exampleFlow *ExampleSubFlow
+}
+
+func (subFlowStep) GetStepType() string { return "SubFlowStep" }
+
+func (step subFlowStep) WaitFor(_ dex.Context, request string) (*dex.Wait, error) {
+	return dex.AnyOf(dex.SubFlow(step.exampleFlow, request), AllDoneCh.ForOne()), nil
+}
+
+func (step subFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDecision, error) {
+	result, err := dex.SubFlowResult(ctx)
+	if err != nil { return nil, err }
+	if result.Status != dex.FlowRunning {
+		if err := SubFlowCompletedCh.Publish(ctx, true); err != nil { return nil, err }
+		return dex.GracefulComplete(nil), nil
+	}
+	flowID, err := dex.SubFlowID(ctx)
+	if err != nil { return nil, err }
+	if err := step.getClient().StopFlow(context.Background(), flowID, dex.StopOptions{Type: dex.CancelFlow, Reason: "enough SubFlows completed"}); err != nil { return nil, err }
+	return dex.GracefulComplete(nil), nil
+}
+
+type waitSubFlowsStep struct{ dex.StepDefaults }
+
+func (waitSubFlowsStep) GetStepType() string { return "WaitSubFlowsStep" }
+
+func (waitSubFlowsStep) WaitFor(_ dex.Context, total int) (*dex.Wait, error) {
+	return dex.Until(SubFlowCompletedCh.ForN((total + 1) / 2)), nil
+}
+
+func (waitSubFlowsStep) Execute(ctx dex.Context, total int) (*dex.StepDecision, error) {
+	for index := 0; index < total-(total+1)/2; index++ {
+		if err := AllDoneCh.Publish(ctx, true); err != nil { return nil, err }
+	}
+	return dex.GracefulComplete(nil), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@Component
+public final class WaitForHalfParentFlow implements Flow<String[]> {
+    public final Channel<Boolean> subFlowCompletedCh = Channel.define("SubFlowCompletedCh", Boolean.class);
+    public final Channel<Boolean> allDoneCh = Channel.define("AllDoneCh", Boolean.class);
+    private final InitStep initStep = new InitStep();
+    private final SubFlowStep subFlowStep;
+    private final WaitSubFlowsStep waitSubFlowsStep = new WaitSubFlowsStep();
+
+    public WaitForHalfParentFlow(final ObjectProvider<Client> clientProvider) {
+        subFlowStep = new SubFlowStep(clientProvider);
+    }
+
+    public StepList<String[]> getSteps() {
+        return StepList.startStep(initStep).otherSteps(subFlowStep, waitSubFlowsStep);
+    }
+
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(subFlowCompletedCh, allDoneCh);
+    }
+
+    final class InitStep implements Step<String[]> {
+        public Class<String[]> getInputType() { return String[].class; }
+        public StepDecision execute(final Context context, final String[] requests) {
+            if (requests.length == 0) return StepDecision.gracefulComplete(null);
+            final StepMovement<?>[] movements = new StepMovement<?>[requests.length + 1];
+            movements[0] = StepMovement.of(WaitSubFlowsStep.class, requests.length);
+            for (int index = 0; index < requests.length; index++) movements[index + 1] = StepMovement.of(SubFlowStep.class, requests[index]);
+            return StepDecision.goToMany(movements);
+        }
+    }
+
+    final class SubFlowStep implements Step<String> {
+        private final ObjectProvider<Client> clientProvider;
+        SubFlowStep(final ObjectProvider<Client> clientProvider) { this.clientProvider = clientProvider; }
+        public Class<String> getInputType() { return String.class; }
+        public Wait waitFor(final Context context, final String request) {
+            return Wait.anyOf(SubFlow.run(ExampleSubFlow.class, request), allDoneCh.forOne());
+        }
+        public StepDecision execute(final Context context, final String request) {
+            final FlowResult result = SubFlow.getConditionResults(context);
+            if (result.getStatus() != FlowStatus.RUNNING) {
+                subFlowCompletedCh.publish(context, true);
+                return StepDecision.gracefulComplete(null);
+            }
+            clientProvider.getObject().stopFlow(SubFlow.getFlowId(context));
+            return StepDecision.gracefulComplete(null);
+        }
+    }
+
+    final class WaitSubFlowsStep implements Step<Integer> {
+        public Class<Integer> getInputType() { return Integer.class; }
+        public Wait waitFor(final Context context, final Integer total) {
+            return Wait.until(subFlowCompletedCh.forN((total + 1) / 2));
+        }
+        public StepDecision execute(final Context context, final Integer total) {
+            for (int index = 0; index < total - (total + 1) / 2; index++) allDoneCh.publish(context, true);
+            return StepDecision.gracefulComplete(null);
+        }
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+const subFlowCompletedCh = new Channel("SubFlowCompletedCh", booleanCodec);
+const allDoneCh = new Channel("AllDoneCh", booleanCodec);
+
+export class WaitForHalfParentFlow implements Flow<readonly string[]> {
+  private readonly init = new WaitForHalfInitStep();
+  private readonly subFlow: SubFlowStep;
+  private readonly waitSubFlows = new WaitSubFlowsStep();
+
+  public constructor(exampleSubFlow: ExampleSubFlow) {
+    this.subFlow = new SubFlowStep(exampleSubFlow);
+  }
+  public getFlowType(): string { return "WaitForHalfParentFlow"; }
+  public getSteps() { return StepList.startStep(this.init).otherSteps(this.subFlow, this.waitSubFlows); }
+  public getPersistenceSchema(): PersistenceSchema { return { channels: [subFlowCompletedCh, allDoneCh] }; }
+}
+
+class WaitForHalfInitStep implements Step<readonly string[]> {
+  public readonly inputCodec = stringArrayCodec;
+  public getStepType(): string { return "InitStep"; }
+  public execute(_context: Context, requests: readonly string[]): StepDecision {
+    if (requests.length === 0) return gracefulComplete();
+    return goToMany(StepMovement.of(WaitSubFlowsStep, requests.length), ...requests.map((request) => StepMovement.of(SubFlowStep, request)));
+  }
+}
+
+class SubFlowStep implements Step<string> {
+  public readonly inputCodec = stringCodec;
+  public constructor(private readonly exampleSubFlow: ExampleSubFlow) {}
+  public getStepType(): string { return "SubFlowStep"; }
+  public waitFor(_context: Context, request: string): Wait {
+    return Wait.anyOf(SubFlow.run(this.exampleSubFlow, request), allDoneCh.forOne());
+  }
+  public async execute(context: Context, _request: string): Promise<StepDecision> {
+    if (SubFlow.getConditionResults(context).status !== "running") {
+      subFlowCompletedCh.publish(context, true);
+      return gracefulComplete();
+    }
+    await getClient().stopFlow(SubFlow.getFlowId(context));
+    return gracefulComplete();
+  }
+}
+
+class WaitSubFlowsStep implements Step<number> {
+  public readonly inputCodec = doubleCodec;
+  public getStepType(): string { return "WaitSubFlowsStep"; }
+  public waitFor(_context: Context, total: number): Wait { return Wait.until(subFlowCompletedCh.forN(Math.ceil(total / 2))); }
+  public execute(context: Context, total: number): StepDecision {
+    for (let index = 0; index < total - Math.ceil(total / 2); index++) allDoneCh.publish(context, true);
+    return gracefulComplete();
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+static SUB_FLOW_COMPLETED_CH: LazyLock<Channel<bool>> =
+    LazyLock::new(|| Channel::new("SubFlowCompletedCh"));
+static ALL_DONE_CH: LazyLock<Channel<bool>> = LazyLock::new(|| Channel::new("AllDoneCh"));
+
+#[derive(Default)]
+pub struct WaitForHalfParentFlow {
+    init: WaitForHalfInitStep,
+    sub_flow: SubFlowStep,
+    wait_sub_flows: WaitSubFlowsStep,
+}
+
+impl WaitForHalfParentFlow {
+    pub fn new(client: Arc<Client>) -> Self {
+        Self { sub_flow: SubFlowStep { client: Some(client) }, ..Self::default() }
+    }
+}
+
+impl Flow for WaitForHalfParentFlow {
+    type StartInput = Vec<String>;
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.init).and(&self.sub_flow).and(&self.wait_sub_flows)
+    }
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new().channel(&SUB_FLOW_COMPLETED_CH).channel(&ALL_DONE_CH)
+    }
+}
+
+#[derive(Default)]
+struct WaitForHalfInitStep;
+
+impl Step for WaitForHalfInitStep {
+    type Input = Vec<String>;
+    fn execute(&self, _context: &mut Context, requests: Self::Input) -> HandlerResult<StepDecision> {
+        if requests.is_empty() { return Ok(StepDecision::graceful_complete(())); }
+        let mut movements = vec![StepMovement::to(&WaitSubFlowsStep, requests.len())];
+        movements.extend(requests.into_iter().map(|request| StepMovement::to(&SubFlowStep::default(), request)));
+        Ok(StepDecision::go_to_many(movements))
+    }
+}
+
+#[derive(Default)]
+struct SubFlowStep {
+    client: Option<Arc<Client>>,
+}
+
+impl Step for SubFlowStep {
+    type Input = String;
+    fn wait_for(&self, _context: &mut Context, request: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([SubFlow::run(&ExampleSubFlow::default(), request).map_err(HandlerError::from_error)?, ALL_DONE_CH.for_one()]))
+    }
+    fn execute(&self, context: &mut Context, _request: Self::Input) -> HandlerResult<StepDecision> {
+        if SubFlow::condition_result(context)?.status() != FlowStatus::Running {
+            SUB_FLOW_COMPLETED_CH.publish(context, true)?;
+            return Ok(StepDecision::graceful_complete(()));
+        }
+        self.client.as_ref().unwrap().stop_flow(&SubFlow::flow_id(context)?, StopFlowOptions::cancel().reason("enough SubFlows completed")).map_err(HandlerError::from_error)?;
+        Ok(StepDecision::graceful_complete(()))
+    }
+}
+
+#[derive(Default)]
+struct WaitSubFlowsStep;
+
+impl Step for WaitSubFlowsStep {
+    type Input = usize;
+    fn wait_for(&self, _context: &mut Context, total: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(SUB_FLOW_COMPLETED_CH.for_n(total.div_ceil(2))))
+    }
+    fn execute(&self, context: &mut Context, total: Self::Input) -> HandlerResult<StepDecision> {
+        for _ in 0..total - total.div_ceil(2) { ALL_DONE_CH.publish(context, true)?; }
+        Ok(StepDecision::graceful_complete(()))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Basic parent Flow](/design-patterns/parallel-subflows/basic)
+- [Long-lived parent](/design-patterns/parallel-subflows/long-lived-parent)

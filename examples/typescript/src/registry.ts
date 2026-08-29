@@ -34,6 +34,7 @@ import {
   basicParentFlow,
   exampleSubFlow as parallelExampleSubFlow,
   submitRequestFlow,
+  waitForHalfParentFlow,
 } from "./patterns/parallel-subflows/parallel-subflows.js";
 import { backoffPollingFlow } from "./patterns/polling/backoff-polling-flow.js";
 import { pollingWithTimerFlow } from "./patterns/polling/simple-polling-flow.js";
@@ -97,6 +98,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   firstWinParallelStepsFlow,
   parallelExampleSubFlow,
   basicParentFlow,
+  waitForHalfParentFlow,
   advancedLongLiveParentFlow,
   advancedShortLiveParentFlow,
   submitRequestFlow,
@@ -156,6 +158,7 @@ export {
   firstWinParallelStepsFlow,
   parallelExampleSubFlow,
   basicParentFlow,
+  waitForHalfParentFlow,
   advancedLongLiveParentFlow,
   advancedShortLiveParentFlow,
   submitRequestFlow,

@@ -16,17 +16,18 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from itertools import combinations
 from typing import Callable
 
 from dex import (
     AsyncClient,
     Attribute,
     Channel,
-    ConditionCombination,
     Context,
     Flow,
+    FlowAlreadyStartedError,
+    FlowNotActiveError,
     FlowStatus,
+    IdReusePolicy,
     PersistenceSchema,
     RPCResult,
     Step,
@@ -34,8 +35,8 @@ from dex import (
     StepList,
     StepMovement,
     StepOptions,
+    StartFlowOptions,
     SubFlow,
-    SubFlowOptions,
     Wait,
     force_complete_if_channels_empty,
     go_to,
@@ -76,54 +77,111 @@ class ExampleSubFlow(Flow[str]):
 
 
 class SubFlowsStep(Step[list[str]]):
-    def __init__(
-        self,
-        client_provider: Callable[[], AsyncClient],
-        example_subflow: ExampleSubFlow,
-    ) -> None:
-        self.client_provider = client_provider
+    def __init__(self, example_subflow: ExampleSubFlow) -> None:
         self.example_subflow = example_subflow
 
     def wait_for(self, context: Context, requests: list[str]) -> Wait:
         del context
-        conditions = [
-            SubFlow.run(
-                self.example_subflow,
-                request,
-                SubFlowOptions(condition_id=f"subflow-{index}"),
-            )
-            for index, request in enumerate(requests)
-        ]
-        winner_count = (len(conditions) + 1) // 2
-        return Wait.any_combination_of(
-            *(
-                ConditionCombination.of(*selected)
-                for selected in combinations(conditions, winner_count)
-            )
+        return Wait.all_of(
+            *(SubFlow.run(self.example_subflow, request) for request in requests)
         )
 
-    async def execute(  # type: ignore[override]
-        self, context: Context, requests: list[str]
-    ) -> StepDecision:
-        for index in range(len(requests)):
-            result = SubFlow.get_condition_results(context, index)
-            if result.status is FlowStatus.RUNNING:
-                await self.client_provider().stop_flow(
-                    SubFlow.get_flow_id(context, index)
-                )
+    def execute(self, context: Context, requests: list[str]) -> StepDecision:
+        del context, requests
         return graceful_complete()
 
 
 class BasicParentFlow(Flow[list[str]]):
+    def __init__(self, example_subflow: ExampleSubFlow) -> None:
+        self.subflows = SubFlowsStep(example_subflow)
+
+    def get_steps(self) -> StepList[list[str]]:
+        return StepList.start_step(self.subflows)
+
+
+class WaitForHalfInitStep(Step[list[str]]):
+    def execute(self, context: Context, requests: list[str]) -> StepDecision:
+        del context
+        if not requests:
+            return graceful_complete()
+        return go_to_many(
+            StepMovement.of(WaitSubFlowsStep, len(requests)),
+            *(StepMovement.of(SubFlowStep, request) for request in requests),
+        )
+
+
+class SubFlowStep(Step[str]):
+    def __init__(
+        self,
+        client_provider: Callable[[], AsyncClient],
+        example_subflow: ExampleSubFlow,
+        subflow_completed_ch: Channel[bool],
+        all_done_ch: Channel[bool],
+    ) -> None:
+        self.client_provider = client_provider
+        self.example_subflow = example_subflow
+        self.subflow_completed_ch = subflow_completed_ch
+        self.all_done_ch = all_done_ch
+
+    def wait_for(self, context: Context, request: str) -> Wait:
+        del context
+        return Wait.any_of(
+            SubFlow.run(self.example_subflow, request), self.all_done_ch.for_one()
+        )
+
+    async def execute(  # type: ignore[override]
+        self, context: Context, request: str
+    ) -> StepDecision:
+        del request
+        result = SubFlow.get_condition_results(context)
+        if result.status is not FlowStatus.RUNNING:
+            self.subflow_completed_ch.publish(context, True)
+            return graceful_complete()
+        await self.client_provider().stop_flow(SubFlow.get_flow_id(context))
+        return graceful_complete()
+
+
+class WaitSubFlowsStep(Step[int]):
+    def __init__(
+        self, subflow_completed_ch: Channel[bool], all_done_ch: Channel[bool]
+    ) -> None:
+        self.subflow_completed_ch = subflow_completed_ch
+        self.all_done_ch = all_done_ch
+
+    def wait_for(self, context: Context, total: int) -> Wait:
+        del context
+        return Wait.until(self.subflow_completed_ch.for_n((total + 1) // 2))
+
+    def execute(self, context: Context, total: int) -> StepDecision:
+        for _ in range(total - (total + 1) // 2):
+            self.all_done_ch.publish(context, True)
+        return graceful_complete()
+
+
+class WaitForHalfParentFlow(Flow[list[str]]):
+    subflow_completed_ch = Channel("SubFlowCompletedCh", bool)
+    all_done_ch = Channel("AllDoneCh", bool)
+
     def __init__(
         self,
         client_provider: Callable[[], AsyncClient],
         example_subflow: ExampleSubFlow,
     ) -> None:
-        self.subflows = SubFlowsStep(client_provider, example_subflow)
+        self.init = WaitForHalfInitStep()
+        self.subflow = SubFlowStep(
+            client_provider, example_subflow, self.subflow_completed_ch, self.all_done_ch
+        )
+        self.wait_subflows = WaitSubFlowsStep(
+            self.subflow_completed_ch, self.all_done_ch
+        )
 
     def get_steps(self) -> StepList[list[str]]:
-        return StepList.start_step(self.subflows)
+        return StepList.start_step(self.init).other_steps(
+            self.subflow, self.wait_subflows
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(self.subflow_completed_ch, self.all_done_ch)
 
 
 class LongLiveInitStep(Step[ParentInput]):
@@ -343,12 +401,33 @@ class SubmitStep(Step[SubmitRequestInput]):
         if not input.parent_ids:
             raise ValueError("at least one parent Flow ID is required")
         parent_id = input.parent_ids[partition(input.request, len(input.parent_ids))]
-        accepted = await self.client_provider().invoke_rpc(
-            self.parent_flow.send_request, parent_id, input.request
+        accepted = await enqueue_request(
+            self.client_provider(), self.parent_flow, parent_id, input.request
         )
         if not accepted:
             raise RuntimeError(f"parent {parent_id} rejected the request")
         return graceful_complete(parent_id)
+
+
+async def enqueue_request(
+    client: AsyncClient,
+    parent_flow: AdvancedShortLiveParentFlow,
+    parent_id: str,
+    request: str,
+) -> bool:
+    try:
+        return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
+    except FlowNotActiveError:
+        try:
+            await client.start_flow(
+                parent_flow,
+                parent_id,
+                ParentInput([request], DEFAULT_CONCURRENCY),
+                StartFlowOptions(id_reuse_policy=IdReusePolicy.ALLOW_IF_NOT_RUNNING),
+            )
+            return True
+        except FlowAlreadyStartedError:
+            return await client.invoke_rpc(parent_flow.send_request, parent_id, request)
 
 
 def partition(request: str, partitions: int) -> int:
