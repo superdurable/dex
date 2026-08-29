@@ -4,7 +4,10 @@ title: Backoff Polling
 
 # Backoff Polling
 
-![BackoffPollingFlow](/img/design-patterns/backoff-polling-flow.png)
+<img
+  alt="BackoffPollingFlow"
+  src="/img/design-patterns/backoff-polling-flow.png"
+/>
 
 **BackoffPollingFlow** runs **PollingStep** against an external service. When the condition is not met, the Step returns an expected error. Its **ExecuteRetry** policy retries that same execution with exponential backoff; a successful response completes the Flow.
 

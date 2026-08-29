@@ -33,3 +33,11 @@ Application snippets must be copied from runnable files under `examples/`.
 The page must link to that example. If the example has HTTP, also link the
 examples playground when the sample is catalogued there. Add the example first
 when the API does not exist yet. See `.cursor/rules/docs-examples.mdc`.
+
+Design-pattern Step graph PNGs must remain responsive. Set only a percentage
+`max-width`, never a fixed width or height. Choose each maximum so its Flow type
+name renders at the same size as `DrainInternalChannelFlow` in
+`drain-internal-channel.png`, and keep the image centered. Use an HTML `img`
+with its `/img/design-patterns/` path so Docusaurus cannot inline the PNG as a
+data URL, then match its stable filename fragment in `docs/src/css/custom.css`.
+Apply this rule when adding or replacing a Step graph.

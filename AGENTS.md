@@ -41,6 +41,13 @@ only when a section genuinely doesn't apply.
   `examples/`. Link the example (and the examples playground when the sample has
   HTTP and is catalogued). Do not invent APIs; add the example first.
   See `.cursor/rules/docs-examples.mdc`.
+- Design-pattern Step graph PNGs must remain responsive. Set only a percentage
+  `max-width`, never a fixed width or height. Choose each maximum so its Flow type
+  name renders at the same size as `DrainInternalChannelFlow` in
+  `drain-internal-channel.png`, and keep the image centered. Use an HTML `img`
+  with its `/img/design-patterns/` path so Docusaurus cannot inline the PNG as a
+  data URL, then match its stable filename fragment in `docs/src/css/custom.css`.
+  Apply this rule when adding or replacing a Step graph.
 
 ### UI/UX
 

@@ -1,3 +1,13 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
 
 :root {
@@ -571,6 +581,94 @@ summary:focus-visible {
 
 .theme-doc-markdown {
   color: var(--muted-strong);
+}
+
+.theme-doc-markdown img[src*='-flow'],
+.theme-doc-markdown img[src*='parallel-subflows-'],
+.theme-doc-markdown img[src*='drain-internal-channel'],
+.theme-doc-markdown img[src*='draining-external-channel-publishing'] {
+  display: block;
+  width: auto;
+  max-width: var(--step-graph-max-width, 100%);
+  height: auto;
+  margin-inline: auto;
+}
+
+.theme-doc-markdown img[src*='backoff-polling-flow'] {
+  --step-graph-max-width: 31.8%;
+}
+
+.theme-doc-markdown img[src*='execute-failure-recovery-flow'] {
+  --step-graph-max-width: 33.4%;
+}
+
+.theme-doc-markdown img[src*='wait-for-failure-recovery-flow'] {
+  --step-graph-max-width: 35.1%;
+}
+
+.theme-doc-markdown img[src*='polling-with-timer-flow'] {
+  --step-graph-max-width: 30.3%;
+}
+
+.theme-doc-markdown img[src*='iteration-flow'] {
+  --step-graph-max-width: 37.5%;
+}
+
+.theme-doc-markdown img[src*='inactiveness-tracker-timer-flow'],
+.theme-doc-markdown img[src*='reminder-flow'] {
+  --step-graph-max-width: 45.7%;
+}
+
+.theme-doc-markdown img[src*='draining-external-channel-publishing'] {
+  --step-graph-max-width: 42.5%;
+}
+
+.theme-doc-markdown img[src*='graceful-timeout-flow'] {
+  --step-graph-max-width: 50.3%;
+}
+
+.theme-doc-markdown img[src*='cron-schedule-flow'] {
+  --step-graph-max-width: 53.8%;
+}
+
+.theme-doc-markdown img[src*='parallel-dynamic-steps-flow'] {
+  --step-graph-max-width: 46.6%;
+}
+
+.theme-doc-markdown img[src*='parallel-static-steps-flow'] {
+  --step-graph-max-width: 58.2%;
+}
+
+.theme-doc-markdown img[src*='parallel-subflows-basic'] {
+  --step-graph-max-width: 60.6%;
+}
+
+.theme-doc-markdown img[src*='parallel-await-steps-flow'] {
+  --step-graph-max-width: 61.5%;
+}
+
+.theme-doc-markdown img[src*='parallel-first-win-steps-flow'] {
+  --step-graph-max-width: 71.4%;
+}
+
+.theme-doc-markdown img[src*='parallel-subflows-wait-for-half'] {
+  --step-graph-max-width: 82.4%;
+}
+
+.theme-doc-markdown img[src*='parallel-subflows-partitioning'] {
+  --step-graph-max-width: 92.9%;
+}
+
+.theme-doc-markdown img[src*='parallel-subflows-long-lived-parent'] {
+  --step-graph-max-width: 73.9%;
+}
+
+.theme-doc-markdown img[src*='parallel-subflows-short-lived-parent'] {
+  --step-graph-max-width: 84.1%;
+}
+
+.theme-doc-markdown img[src*='manual-recovery-flow'] {
+  --step-graph-max-width: 85%;
 }
 
 .theme-doc-markdown h1,
