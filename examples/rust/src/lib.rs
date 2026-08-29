@@ -35,7 +35,7 @@ pub const PRODUCT_FLOW_TYPES: [&str; 10] = [
     "ShortlistFlow",
 ];
 
-pub const PATTERN_FLOW_TYPES: [&str; 26] = [
+pub const PATTERN_FLOW_TYPES: [&str; 23] = [
     "CronScheduleFlow",
     "DrainInternalChannelFlow",
     "DrainingExternalChannelFlow",

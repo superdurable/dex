@@ -91,16 +91,16 @@ fn catalog_matches_every_cross_language_example() {
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
     assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
-    assert_eq!(product_flows.len() + pattern_flows.len(), 36);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 33);
     assert_eq!(
         product_flows
             .into_iter()
             .chain(pattern_flows)
             .collect::<HashSet<_>>()
             .len(),
-        36
+        33
     );
-    create_example_registry().expect("all 36 example Flow definitions must register together");
+    create_example_registry().expect("all 33 example Flow definitions must register together");
 }
 
 #[test]
