@@ -1,0 +1,22 @@
+---
+title: Responsive Update
+---
+
+# Responsive Update
+
+An interactive caller should not have to choose between waiting for an entire Flow and polling its state. A responsive update returns at the boundary that the caller needs, while the Flow continues to own durable work.
+
+Choose the boundary deliberately:
+
+- [Wait for Step Completion](/design-patterns/responsive-update/step-completion) returns after one named Step has completed. Use it when that Step makes the result safe for a client to read or use.
+- [Wait for Attribute Equal](/design-patterns/responsive-update/attribute-equal) returns after an Attribute reaches a business value. Use it when readiness is expressed as durable state rather than one Step.
+- [Wait and Stream](/design-patterns/responsive-update/stream) long-polls for the next incremental update and resumes from its token. Use it for progress or a changing feed.
+
+The first two waits observe durable state. They are appropriate for a client-visible boundary, not a substitute for an application timeout or a final Flow result. Streams carry ordered incremental messages; clients keep the latest resume token and use it on the next read.
+
+## Related
+
+- [Client](/primitives/client)
+- [Step](/primitives/step)
+- [Attribute](/primitives/attribute)
+- [Stream](/primitives/stream)

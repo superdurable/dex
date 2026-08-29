@@ -1,0 +1,150 @@
+---
+title: 等待 Attribute 相等
+---
+
+# 等待 Attribute 相等
+
+当调用方需要的是业务状态，而不只是某个 Step 已执行时，使用 **WaitForAttributeEqual**。客户端会等待活跃 Flow 中的 singleton Attribute 等于一个原始值。如果 Attribute 已经具有该值，它会立即返回。
+
+**EngagementFlow** 示例会在启动时写入初始状态。它的 start endpoint 会等待这个 durable 值，然后返回 Flow 和 run 标识符。对象模型示例使用 **Initiated**；Rust 示例使用 **pending**。Flow 仍保持活跃，因此调用方之后可以接受、拒绝或 opt out。
+
+这个等待只能比较 string、Boolean 和 numeric Attribute 值。当较丰富的结果是对象或集合时，请为条件保留一个紧凑的 Attribute。
+
+## 核心实现
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/engagement/controller.py', go: 'examples/go/products/engagement/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/engagement/EngagementController.java', typescript: 'examples/typescript/src/products/engagement/controller.ts', rust: 'examples/rust/src/products/engagement/controller.rs'}}>
+<SdkSnippet lang="go">
+
+```go
+func (controller *controller) start(request *gin.Context) {
+	flowID := httputil.NewFlowID("engagement")
+	input := EngagementInput{
+		EmployerID:  "test-employer-id",
+		JobSeekerID: "test-job-seeker-id",
+		Notes:       "test-notes",
+	}
+	runID, err := controller.client.StartFlow(
+		request.Request.Context(),
+		controller.flow,
+		flowID,
+		input,
+		sdk.StartFlowOptions{},
+	)
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return
+	}
+	waitContext, cancelWait := context.WithTimeout(request.Request.Context(), 15*time.Second)
+	defer cancelWait()
+	err = controller.client.WaitForAttributeEqual(
+		waitContext,
+		flowID,
+		EngagementStatus,
+		StatusInitiated,
+	)
+	httputil.Respond(request, gin.H{"flowID": flowID, "runID": runID}, err)
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="python">
+
+```python
+@blueprint.get("/start")
+async def start() -> Response:
+    flow_id = new_flow_id("engagement")
+    run_id = await app_state.client.start_flow(
+        app_state.engagement,
+        flow_id,
+        EngagementInput("test-employer-id", "test-job-seeker-id", "test-notes"),
+        start_options(),
+    )
+    await app_state.client.wait_for_attribute_equal(
+        flow_id,
+        app_state.engagement.engagement_status,
+        Status.INITIATED,
+        timedelta(seconds=15),
+    )
+    return started_flow(flow_id, run_id)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@GetMapping("/start")
+public ResponseEntity<Map<String, String>> start() {
+    final String flowId = "engagement-" + System.nanoTime();
+    final EngagementInput input = new EngagementInput(
+            "test-employer-id",
+            "test-job-seeker-id",
+            "test-notes");
+    final String runId = client.startFlow(flow, flowId, input, ExampleFlows.startOptions());
+    client.waitForAttributeEqual(
+            flowId,
+            flow.engagementStatus,
+            Status.INITIATED,
+            Duration.ofSeconds(15));
+    final Map<String, String> response = new LinkedHashMap<String, String>();
+    response.put("flowID", flowId);
+    response.put("runID", runId);
+    return ResponseEntity.ok(response);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+router.get("/start", async (_request, response) => {
+  const flowId = `engagement-${process.hrtime.bigint()}`;
+  const input: EngagementInput = {
+    employerId: "test-employer-id",
+    jobSeekerId: "test-job-seeker-id",
+    notes: "test-notes",
+  };
+  const runId = await client.startFlow(engagementFlow, flowId, input, startOptions());
+  await client.waitForAttributeEqual(
+    flowId,
+    engagementFlow.engagementStatus,
+    Status.INITIATED,
+    15_000,
+  );
+  response.json({ flowID: flowId, runID: runId });
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+async fn start(State(client): State<SharedClient>) -> impl IntoResponse {
+    match run_blocking(move || {
+        let flow_id = new_flow_id("engagement");
+        let flow = EngagementFlow::default();
+        let input = EngagementRequest {
+            employer_id: "test-employer-id".into(),
+            candidate_id: "test-job-seeker-id".into(),
+        };
+        let run_id = client.start_flow(&flow, &flow_id, input)?;
+        client.wait_for_attribute_equal(
+            &flow_id,
+            &ENGAGEMENT_STATUS,
+            "pending".to_owned(),
+            Duration::from_secs(15),
+        )?;
+        Ok(StartResponse { flow_id, run_id })
+    }) {
+        Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 相关内容
+
+- [Attribute](/primitives/attribute)
+- [Client 高级操作](/primitives/client/advanced)

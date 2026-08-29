@@ -1,0 +1,179 @@
+---
+title: Wait for Step Completion
+---
+
+# Wait for Step Completion
+
+Use **WaitForStepCompletion** when a Flow has a durable client-visible milestone before its background work finishes. The caller starts the Flow, waits for that Step, then reads the result it needs. Later Steps can continue without holding the caller open.
+
+The **WaitForStateCompletionFlow** sample persists a record in **PersistData**, then starts **BackgroundWork**. Its controller waits for **PersistData** before querying the persisted record. Choose a Step only after it has committed the state that makes the response valid.
+
+## Core implementation
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/wait-for-state-completion/controller.py', go: 'examples/go/patterns/wait-for-state-completion/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/waitforstatecompletion/WaitForStateCompletionController.java', typescript: 'examples/typescript/src/patterns/wait-for-state-completion/controller.ts', rust: 'examples/rust/src/patterns/wait_for_state_completion/controller.rs'}}>
+<SdkSnippet lang="go">
+
+```go
+func (controller *controller) start(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	input := JobSeekerData{ID: 1}
+	_, err := controller.client.StartFlow(
+		request.Request.Context(), controller.flow, flowID, input, patternStartOptions(),
+	)
+	if err != nil {
+		httputil.RespondString(request, "", err)
+		return
+	}
+	waitContext, cancelWait := context.WithTimeout(request.Request.Context(), 5*time.Minute)
+	defer cancelWait()
+	err = controller.client.WaitForStepCompletion(
+		waitContext, flowID, sdk.StepExecutionID{StepType: "PersistData"},
+	)
+	if err != nil {
+		httputil.RespondString(request, "", err)
+		return
+	}
+	var persistedData JobSeekerData
+	err = controller.client.InvokeRPC(
+		request.Request.Context(), flowID, controller.flow.GetJobSeekerData,
+		nil, &persistedData, sdk.InvokeOptions{},
+	)
+	if err != nil {
+		httputil.RespondString(request, "", err)
+		return
+	}
+	serialized, err := json.Marshal(persistedData)
+	if err != nil {
+		httputil.RespondString(request, "", err)
+		return
+	}
+	httputil.RespondString(
+		request, fmt.Sprintf("success for workflow %s with data %s", flowID, serialized), nil,
+	)
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="python">
+
+```python
+@blueprint.get("/start")
+async def start_wait_for_state_completion() -> str:
+    flow_id = required_query("workflowId")
+    await app_state.client.start_flow(
+        app_state.wait_for_state_completion,
+        flow_id,
+        JobSeekerData(1),
+        start_options(),
+    )
+    await app_state.client.wait_for_step_completion(
+        flow_id,
+        PERSIST_DATA_STEP,
+        PERSIST_DATA_TIMEOUT,
+    )
+    persisted = await app_state.client.invoke_rpc(
+        app_state.wait_for_state_completion.get_job_seeker_data,
+        flow_id,
+    )
+    payload = json.dumps(asdict(persisted), sort_keys=True)
+    return f"success for workflow {flow_id} with data {payload}"
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@GetMapping("/start")
+ResponseEntity<String> startWaitForStateCompletion(@RequestParam final String workflowId)
+        throws JsonProcessingException {
+    final ObjectMapper objectMapper = new ObjectMapper();
+    final JobSeekerData data = new JobSeekerData(1);
+    client.startFlow(
+            waitForStateCompletionFlow,
+            workflowId,
+            data,
+            ExampleFlows.startOptions());
+    client.waitForStepCompletion(
+            workflowId,
+            StepExecutionId.of("PersistData"),
+            Duration.ofMinutes(5));
+    final WaitForStateCompletionFlow stub =
+            client.newRpcStub(WaitForStateCompletionFlow.class, workflowId);
+    final JobSeekerData persistedData = client.invokeRPC(stub::getJobSeekerData);
+    return ResponseEntity.ok(String.format(
+            "success for workflow %s with data %s",
+            workflowId,
+            objectMapper.writeValueAsString(persistedData)));
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+router.get("/start", async (request, response) => {
+  const workflowId = String(request.query.workflowId ?? "");
+  await client.startFlow(
+    waitForStateCompletionFlow,
+    workflowId,
+    { id: 1, name: "Test Job Seeker", resume: "Test Resume", email: "testjobseeker@indeed.com" },
+    startOptions(),
+  );
+  await client.waitForStepCompletion(
+    workflowId,
+    StepExecutionId.of("PersistData"),
+    15_000,
+  );
+  const persistedData = await client.invokeRPC(
+    waitForStateCompletionFlow.getJobSeekerData,
+    workflowId,
+  );
+  response.send(
+    `success for workflow ${workflowId} with data ${JSON.stringify(persistedData)}`,
+  );
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+async fn start(
+    State(client): State<SharedClient>,
+    Query(query): Query<StartQuery>,
+) -> impl IntoResponse {
+    let flow_id = if query.workflow_id.is_empty() {
+        new_flow_id("wait-state")
+    } else {
+        query.workflow_id
+    };
+    match run_blocking(move || {
+        let flow = WaitForStateCompletionFlow::default();
+        let input = PersistRequest {
+            record_id: "1".into(),
+            payload: "Test Resume".into(),
+        };
+        let run_id = client.start_flow(&flow, &flow_id, input)?;
+        client.wait_for_step_completion(
+            &flow_id,
+            WaitForStateCompletionFlow::persisted_step(),
+            Duration::from_secs(300),
+        )?;
+        Ok(StartResponse { flow_id, run_id })
+    }) {
+        Ok(value) => ok_json(value),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Related
+
+- [Step](/primitives/step)
+- [Client advanced operations](/primitives/client/advanced)

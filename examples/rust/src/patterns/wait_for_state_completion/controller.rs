@@ -19,6 +19,7 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
+use std::time::Duration;
 
 use crate::patterns::wait_for_state_completion::flow::{
     PersistRequest, WaitForStateCompletionFlow,
@@ -54,9 +55,13 @@ async fn start(
             record_id: "1".into(),
             payload: "Test Resume".into(),
         };
-        client
-            .start_flow(&flow, &flow_id, input)
-            .map(|run_id| StartResponse { flow_id, run_id })
+        let run_id = client.start_flow(&flow, &flow_id, input)?;
+        client.wait_for_step_completion(
+            &flow_id,
+            WaitForStateCompletionFlow::persisted_step(),
+            Duration::from_secs(300),
+        )?;
+        Ok(StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),
         Err(error) => map_sdk_error(error).into_response(),

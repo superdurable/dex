@@ -1,0 +1,137 @@
+---
+title: 等待并流式接收更新
+---
+
+# 等待并流式接收更新
+
+当调用方需要接收一系列更新，而不是一个就绪边界时，使用 Stream。**ReadStream** 会等待所提供 resume token 之后的下一条消息。响应带有一个新 token；在下一次读取中传入它，即可按顺序继续。
+
+**StreamFlow** 示例公开一个 progress Stream。它的 read endpoint 最多长轮询 20 秒，返回一条消息，并提供客户端应保存的 token。客户端处理这条消息后可以立刻发起下一次读取。
+
+Stream 是 durable、有序消息，而不是最终 Flow 结果。当调用方必须在继续前等待一个特定 durable 条件时，使用 **WaitForStepCompletion** 或 **WaitForAttributeEqual**。
+
+## 核心实现
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/primitives/stream/controller.py', go: 'examples/go/primitives/stream/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/primitives/stream/StreamController.java', typescript: 'examples/typescript/src/primitives/stream/controller.ts', rust: 'examples/rust/src/primitives/stream/controller.rs'}}>
+<SdkSnippet lang="go">
+
+```go
+func (controller *controller) read(request *gin.Context) {
+	flowID, found := httputil.RequiredQuery(request, "workflowId")
+	if !found {
+		return
+	}
+	var value string
+	message, err := controller.client.ReadStream(
+		request.Request.Context(),
+		flowID,
+		Progress,
+		request.Query("resumeToken"),
+		&value,
+	)
+	if err != nil {
+		request.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	request.JSON(http.StatusOK, gin.H{
+		"value":          value,
+		"resumeToken":    message.ResumeToken,
+		"createdTime":    message.CreatedTime.Format(time.RFC3339Nano),
+		"idempotencyKey": message.IdempotencyKey,
+	})
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="python">
+
+```python
+@blueprint.get("/read")
+async def read() -> Response:
+    message = await app_state.client.read_stream(
+        required_query("workflowId"),
+        app_state.stream.progress,
+        optional_query("resumeToken", ""),
+        timedelta(seconds=20),
+    )
+    return jsonify(
+        value=message.value,
+        resume_token=message.resume_token,
+        created_time=message.created_time.isoformat(),
+        idempotency_key=message.idempotency_key,
+    )
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@GetMapping("/read")
+public ResponseEntity<Map<String, String>> read(
+        @RequestParam final String workflowId,
+        @RequestParam(defaultValue = "") final String resumeToken) {
+    final StreamMessage<String> message = client.readStream(
+            workflowId,
+            flow.progress,
+            resumeToken,
+            Duration.ofSeconds(20));
+    final Map<String, String> response = new LinkedHashMap<String, String>();
+    response.put("value", message.getValue());
+    response.put("resumeToken", message.getResumeToken());
+    response.put("createdTime", message.getCreatedTime().toString());
+    response.put("idempotencyKey", message.getIdempotencyKey());
+    return ResponseEntity.ok(response);
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+router.get("/read", async (request, response) => {
+  const message = await client.readStream(
+    String(request.query.workflowId ?? ""),
+    progress,
+    String(request.query.resumeToken ?? ""),
+    20_000,
+  );
+  response.json(message);
+});
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+async fn read(
+    State(client): State<SharedClient>,
+    Query(query): Query<ReadQuery>,
+) -> impl IntoResponse {
+    match run_blocking(move || {
+        client
+            .read_stream_with_timeout(
+                &query.workflow_id,
+                &PROGRESS,
+                &query.resume_token,
+                Duration::from_secs(20),
+            )
+            .map(|message| ReadResponse {
+                value: message.value,
+                resume_token: message.resume_token,
+                created_time: format!("{:?}", message.created_time),
+                idempotency_key: message.idempotency_key,
+            })
+    }) {
+        Ok(response) => ok_json(response),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 相关内容
+
+- [Stream](/primitives/stream)
+- [Client 高级操作](/primitives/client/advanced)
