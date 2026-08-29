@@ -62,9 +62,13 @@ class PollingStep(Step[None]):
 
     def execute(self, context: Context, input: None) -> StepDecision:
         del context, input
-        return graceful_complete(
-            self.service.attempt_external_api_call("Poll for BackoffPollingFlow")
-        )
+        try:
+            result = self.service.attempt_external_api_call(
+                "Poll for BackoffPollingFlow"
+            )
+        except RuntimeError as error:
+            raise retry_after(1, error) from error
+        return graceful_complete(result)
 ```
 
 </SdkSnippet>

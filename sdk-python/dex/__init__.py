@@ -141,6 +141,7 @@ __all__ = [
     "LongPollTimeoutError",
     "PersistenceSchema",
     "RPCResult",
+    "RetryAfterError",
     "RpcLockConflictError",
     "Registry",
     "TimeTravelOptions",
@@ -185,4 +186,5 @@ __all__ = [
     "go_to_many",
     "open_blob_cache",
     "rpc",
+    "retry_after",
 ]

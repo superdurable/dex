@@ -83,8 +83,13 @@ dexcli_pid=$!
 cd "$script_dir"
 uv sync --locked
 export DEXCLI_PATH="$script_dir/../../cli/dexcli"
-DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  uv run --frozen pytest tests/unit tests/integ sync-python/sync_tests/integ -v "${test_args[@]}" 2>&1 | tee "$test_log"
+if ((${#test_args[@]})); then
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+    uv run --frozen pytest tests/unit tests/integ sync-python/sync_tests/integ -v "${test_args[@]}" 2>&1 | tee "$test_log"
+else
+  DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
+    uv run --frozen pytest tests/unit tests/integ sync-python/sync_tests/integ -v 2>&1 | tee "$test_log"
+fi
 
 if $keep_running; then
   echo ""
