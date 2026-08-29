@@ -1,0 +1,18 @@
+---
+title: Graceful Timeout
+---
+
+# Graceful Timeout
+
+Bound long work with a timeout handler that owns the final outcome.
+
+![ExampleGracefulTimeoutFlow](/img/design-patterns/graceful-timeout-flow.png)
+
+**ExampleGracefulTimeoutFlow** starts **LongWaitStep** and **TimeoutHandleStep** together. **LongWaitStep** waits for either immediate completion or work that lasts longer than the timeout. **TimeoutHandleStep** waits for the deadline. Whichever Step reaches **Execute** first forcefully completes or fails the Flow, ending the other branch.
+
+Use this pattern when a deadline is part of the business outcome, rather than a client-side request timeout.
+
+## Related
+
+- [Failure Handling](/design-patterns/failure-handling)
+- [Timer](/primitives/timer)

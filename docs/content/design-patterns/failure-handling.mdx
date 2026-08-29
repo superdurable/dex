@@ -1,0 +1,17 @@
+---
+title: Failure Handling
+---
+
+# Failure Handling
+
+Choose how a Flow should continue after a **WaitFor** or **Execute** failure. Each pattern starts with retries. Its recovery path decides whether Dex should compensate automatically, wait for a person, finish at a deadline, or continue after an exhausted wait failure.
+
+- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) — Retry failed work, then move to a recovery Step.
+- [Manual Recovery](/design-patterns/failure-handling/manual-recovery) — Escalate an exhausted failure to a person.
+- [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout) — Race long work with a timeout handler.
+- [WaitFor Failure Recovery](/design-patterns/failure-handling/wait-for-failure-recovery) — Continue from an exhausted **WaitFor** failure and recover in a Step.
+
+## Related
+
+- [Step options](/primitives/step/step-options)
+- [Timer](/primitives/timer)

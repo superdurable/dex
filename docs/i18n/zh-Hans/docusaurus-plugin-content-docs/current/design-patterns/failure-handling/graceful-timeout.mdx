@@ -1,0 +1,18 @@
+---
+title: Graceful Timeout
+---
+
+# Graceful Timeout
+
+使用拥有最终结果的超时处理器限制长时间工作。
+
+![ExampleGracefulTimeoutFlow](/img/design-patterns/graceful-timeout-flow.png)
+
+**ExampleGracefulTimeoutFlow** 同时启动 **LongWaitStep** 和 **TimeoutHandleStep**。**LongWaitStep** 等待即时完成或超过超时时间的工作。**TimeoutHandleStep** 等待截止时间。先进入 **Execute** 的 Step 会强制完成或失败整个 Flow，并结束另一条分支。
+
+当截止时间是业务结果的一部分，而不是客户端请求超时时，使用此模式。
+
+## 相关内容
+
+- [Failure Handling](/design-patterns/failure-handling)
+- [Timer](/primitives/timer)

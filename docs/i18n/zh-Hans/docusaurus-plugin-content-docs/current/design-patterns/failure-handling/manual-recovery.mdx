@@ -1,0 +1,20 @@
+---
+title: Manual Recovery
+---
+
+# Manual Recovery
+
+在自动重试耗尽后，将 Step 升级给人工处理。
+
+![ManualRecoveryFlow：DoWorkStep 成功时完成；重试耗尽后转入 ManualStep。ManualStep 等待 Retry 或 Skip；Retry 回到 DoWorkStep，Skip 使 Flow 失败。](/img/design-patterns/manual-recovery-flow.png)
+
+**ManualRecoveryFlow** 从 **DoWorkStep** 开始。它的失败策略执行三次指数退避重试，然后转到 **ManualStep**。**ManualStep** 等待 **Retry** Channel 或 **Skip** Channel。操作人员解决问题后，Retry 回到 **DoWorkStep**；Skip 使用明确原因使 Flow 失败。
+
+## 核心实现
+
+每个示例都定义了重试策略和操作人员决策。可运行示例注册 Flow，并提供 HTTP 启动端点。
+
+## 相关内容
+
+- [Failure Handling](/design-patterns/failure-handling)
+- [Channel](/primitives/channel)

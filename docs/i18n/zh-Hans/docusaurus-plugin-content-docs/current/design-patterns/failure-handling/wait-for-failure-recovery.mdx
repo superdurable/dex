@@ -1,0 +1,18 @@
+---
+title: WaitFor Failure Recovery
+---
+
+# WaitFor Failure Recovery
+
+在 **WaitFor** 耗尽重试策略后进行恢复。
+
+![WaitForFailureRecoveryFlow](/img/design-patterns/wait-for-failure-recovery-flow.png)
+
+**WaitForFailureRecoveryFlow** 从 **FailingStep** 开始。它的 **WaitFor** 方法返回要等待的间隔，但示例有意让该方法失败。**WaitForRetry** 耗尽后，其 **WaitForFailure** 策略继续到 **FailingStep.Execute**。Execute 从上下文读取等待失败信息，再转到 **RecoveryStep**，后者完成 Flow。
+
+当失败的条件查询可以恢复，而且 Flow 可以在普通 Step 代码中决定下一步时，使用此模式。
+
+## 相关内容
+
+- [Failure Handling](/design-patterns/failure-handling)
+- [Step options](/primitives/step/step-options)

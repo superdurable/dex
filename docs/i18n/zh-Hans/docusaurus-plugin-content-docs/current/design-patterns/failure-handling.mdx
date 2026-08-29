@@ -1,0 +1,17 @@
+---
+title: Failure Handling
+---
+
+# Failure Handling
+
+选择 Flow 在 **WaitFor** 或 **Execute** 失败后如何继续。每个模式都从重试开始；恢复路径决定 Dex 是自动补偿、等待人工处理、在截止时间结束，还是在 **WaitFor** 失败耗尽后继续执行。
+
+- [Execute Failure Recovery](/design-patterns/failure-handling/execute-failure-recovery) — 重试失败的工作，耗尽后转到恢复 Step。
+- [Manual Recovery](/design-patterns/failure-handling/manual-recovery) — 将重试耗尽的失败升级给人工。
+- [Graceful Timeout](/design-patterns/failure-handling/graceful-timeout) — 让长时间工作与超时处理器竞争。
+- [WaitFor Failure Recovery](/design-patterns/failure-handling/wait-for-failure-recovery) — 在 **WaitFor** 失败耗尽后继续执行并恢复。
+
+## 相关内容
+
+- [Step options](/primitives/step/step-options)
+- [Timer](/primitives/timer)

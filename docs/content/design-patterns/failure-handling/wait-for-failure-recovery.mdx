@@ -1,0 +1,18 @@
+---
+title: WaitFor Failure Recovery
+---
+
+# WaitFor Failure Recovery
+
+Recover after **WaitFor** exhausts its retry policy.
+
+![WaitForFailureRecoveryFlow](/img/design-patterns/wait-for-failure-recovery-flow.png)
+
+**WaitForFailureRecoveryFlow** starts **FailingStep**. Its **WaitFor** method returns the interval to wait on, but the sample deliberately fails that method. After **WaitForRetry** is exhausted, its **WaitForFailure** policy proceeds to **FailingStep.Execute**. Execute reads the wait failure from its context, then moves to **RecoveryStep**, which completes the Flow.
+
+Use this pattern when a failed condition lookup is recoverable and the Flow can decide what to do in normal Step code.
+
+## Related
+
+- [Failure Handling](/design-patterns/failure-handling)
+- [Step options](/primitives/step/step-options)

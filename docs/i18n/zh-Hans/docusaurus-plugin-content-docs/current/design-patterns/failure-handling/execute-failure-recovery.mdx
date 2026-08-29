@@ -1,0 +1,22 @@
+---
+title: Execute Failure Recovery
+---
+
+# Execute Failure Recovery
+
+当 **Execute** 方法在重试策略耗尽后仍然失败时，自动恢复。
+
+![ExecuteFailureRecoveryFlow](/img/design-patterns/execute-failure-recovery-flow.png)
+
+**ExecuteFailureRecoveryFlow** 从 **FailingStep** 开始。它的 **Execute** 方法可能失败；重试耗尽后，其 **ExecuteFailure** 策略将 Flow 转到 **RecoveryStep**。**RecoveryStep** 执行补偿操作并完成 Flow。
+
+当 Flow 无需人工即可恢复时使用此模式。恢复 Step 应保持幂等，因为它可以独立重试。
+
+## 核心实现
+
+恢复目标定义在失败 Step 的 **ExecuteFailure** 策略中。恢复上下文会提供失败信息。
+
+## 相关内容
+
+- [Failure Handling](/design-patterns/failure-handling)
+- [Step options](/primitives/step/step-options)
