@@ -52,8 +52,14 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'design-patterns/index'},
       items: [
         'design-patterns/cron',
-        'design-patterns/drain-internal-channels',
-        'design-patterns/draining-channel-for-external-publishing',
+        {
+          type: 'category',
+          label: 'Drain Channels',
+          items: [
+            'design-patterns/drain-internal-channels',
+            'design-patterns/draining-channel-for-external-publishing',
+          ],
+        },
         'design-patterns/interruptible',
         {
           type: 'category',
