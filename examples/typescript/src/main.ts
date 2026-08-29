@@ -33,7 +33,7 @@ import { createParallelSubFlowsRouter } from "./patterns/parallel-subflows/contr
 import { createPatternPollingRouter } from "./patterns/polling/controller.js";
 import { createRecoveryRouter } from "./patterns/recovery/controller.js";
 import { createRemindersRouter } from "./patterns/reminders/controller.js";
-import { createResettableTimerRouter } from "./patterns/resettable-timer/controller.js";
+import { createInactivenessTrackerTimerRouter } from "./patterns/inactiveness-tracker-timer/controller.js";
 import { createTimeoutRouter } from "./patterns/timeout/controller.js";
 import { createWaitForStepCompletionRouter } from "./patterns/wait-for-step-completion/controller.js";
 import { createAttributeRouter } from "./primitives/attribute/controller.js";
@@ -107,7 +107,10 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/patterns/reminders", createRemindersRouter(client));
   app.use("/patterns/entity-store", createEntityStoreRouter(client));
   app.use("/patterns/manual-recovery", createManualRecoveryRouter(client));
-  app.use("/patterns/resettable-timer", createResettableTimerRouter(client));
+  app.use(
+    "/patterns/inactiveness-tracker-timer",
+    createInactivenessTrackerTimerRouter(client),
+  );
   app.use("/patterns/parallel", createParallelRouter(client));
   app.use("/patterns/parallel-subflows", createParallelSubFlowsRouter(client));
   app.use("/patterns/recovery", createRecoveryRouter(client));

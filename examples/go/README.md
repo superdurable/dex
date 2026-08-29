@@ -146,7 +146,7 @@ Under [`patterns/`](./patterns):
 - [Polling (simple / backoff)](./patterns/polling)
 - [Failure recovery](./patterns/recovery)
 - [Reminders](./patterns/reminders)
-- [Resettable timer](./patterns/resettable-timer)
+- [Inactiveness Tracker Timer](./patterns/inactiveness-tracker-timer)
 - [Entity Store user profiles](./patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - [Timeout handling](./patterns/timeout)
 - [Wait for Step completion](./patterns/wait-for-step-completion)

@@ -191,25 +191,25 @@ async def test_failure_recovery(
     assert "Failed to process transaction" in (result.error_message or "")
 
 
-async def test_reminder_accept(
+async def test_reminder_opt_out(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("reminder")
     await client.start_flow(app.reminder, flow_id, None, start_options())
-    await client.invoke_rpc(app.reminder.accept, flow_id)
+    await client.publish(flow_id, app.reminder.opt_out, None)
     await client.wait_for_flow(flow_id, WAIT_TIMEOUT)
 
 
-async def test_resettable_timer(
+async def test_inactiveness_tracker_timer(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
-    flow_id = new_flow_id("resettable-timer")
-    await client.start_flow(app.resettable_timer, flow_id, None, start_options())
-    await client.invoke_rpc(app.resettable_timer.send_reset_message, flow_id)
+    flow_id = new_flow_id("inactiveness-tracker-timer")
+    await client.start_flow(app.inactiveness_tracker, flow_id, None, start_options())
+    await client.invoke_rpc(app.inactiveness_tracker.record_activity, flow_id)
 
 
 async def test_basic_parallel_subflows(

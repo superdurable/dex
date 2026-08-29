@@ -21,28 +21,28 @@ from dex_examples.config import start_options
 from dex_examples.shared.query import required_query
 
 
-def create_resettable_timer_blueprint(app_state: ExampleApp) -> Blueprint:
+def create_inactiveness_tracker_timer_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint(
-        "pattern_resettable_timer",
+        "pattern_inactiveness_tracker_timer",
         __name__,
-        url_prefix="/patterns/resettable-timer",
+        url_prefix="/patterns/inactiveness-tracker-timer",
     )
 
     @blueprint.get("/start")
-    async def start_resettable_timer() -> str:
+    async def start_inactiveness_tracker_timer() -> str:
         return await app_state.client.start_flow(
-            app_state.resettable_timer,
+            app_state.inactiveness_tracker,
             required_query("workflowId"),
             None,
             start_options(),
         )
 
-    @blueprint.get("/reset")
-    async def reset_resettable_timer() -> str:
+    @blueprint.get("/activity")
+    async def record_activity() -> str:
         await app_state.client.invoke_rpc(
-            app_state.resettable_timer.send_reset_message,
+            app_state.inactiveness_tracker.record_activity,
             required_query("workflowId"),
         )
-        return "reset"
+        return "activity recorded"
 
     return blueprint

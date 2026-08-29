@@ -38,7 +38,6 @@ func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *ReminderFlow) 
 	controller := &controller{client: client, flow: flow}
 	group := router.Group("/patterns/reminders")
 	group.GET("/start", controller.start)
-	group.GET("/accept", controller.accept)
 	group.GET("/optout", controller.optOut)
 }
 
@@ -59,23 +58,6 @@ func (controller *controller) start(request *gin.Context) {
 	httputil.RespondString(request, fmt.Sprintf("started workflowId: %s", flowID), err)
 }
 
-func (controller *controller) accept(request *gin.Context) {
-	flowID, found := httputil.RequiredQuery(request, "workflowId")
-	if !found {
-		return
-	}
-	var none sdk.None
-	err := controller.client.InvokeRPC(
-		request.Request.Context(),
-		flowID,
-		controller.flow.Accept,
-		nil,
-		&none,
-		sdk.InvokeOptions{},
-	)
-	httputil.RespondString(request, "accepted", err)
-}
-
 func (controller *controller) optOut(request *gin.Context) {
 	flowID, found := httputil.RequiredQuery(request, "workflowId")
 	if !found {
@@ -84,7 +66,7 @@ func (controller *controller) optOut(request *gin.Context) {
 	err := controller.client.PublishToChannel(
 		request.Request.Context(),
 		flowID,
-		OptOutReminder,
+		OptOut,
 		nil,
 	)
 	httputil.RespondString(request, "done", err)

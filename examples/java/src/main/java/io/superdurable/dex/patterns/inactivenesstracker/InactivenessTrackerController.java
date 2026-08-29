@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.resettabletimer;
+package io.superdurable.dex.patterns.inactivenesstracker;
 
 import io.superdurable.dex.Client;
 import io.superdurable.dex.shared.ExampleFlows;
@@ -25,33 +25,33 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/patterns/resettable-timer")
-public class ResettableTimerController {
+@RequestMapping("/patterns/inactiveness-tracker-timer")
+public class InactivenessTrackerController {
     private final Client client;
-    private final ResettableTimerFlow resettableTimerFlow;
+    private final InactivenessTrackerFlow inactivenessTrackerFlow;
 
-    public ResettableTimerController(
+    public InactivenessTrackerController(
             final Client client,
-            final ResettableTimerFlow resettableTimerFlow) {
+            final InactivenessTrackerFlow inactivenessTrackerFlow) {
         this.client = client;
-        this.resettableTimerFlow = resettableTimerFlow;
+        this.inactivenessTrackerFlow = inactivenessTrackerFlow;
     }
 
     @GetMapping("/start")
-    ResponseEntity<String> startResettableTimer(@RequestParam final String workflowId) {
+    ResponseEntity<String> startInactivenessTracker(@RequestParam final String workflowId) {
         final String runId = client.startFlow(
-                resettableTimerFlow,
+                inactivenessTrackerFlow,
                 workflowId,
                 null,
                 ExampleFlows.startOptions());
         return ResponseEntity.ok(runId);
     }
 
-    @GetMapping("/reset")
-    ResponseEntity<String> resetResettableTimer(@RequestParam final String workflowId) {
-        final ResettableTimerFlow stub =
-                client.newRpcStub(ResettableTimerFlow.class, workflowId);
-        client.invokeRPC(stub::sendResetMessage);
-        return ResponseEntity.ok("reset");
+    @GetMapping("/activity")
+    ResponseEntity<String> recordActivity(@RequestParam final String workflowId) {
+        final InactivenessTrackerFlow stub =
+                client.newRpcStub(InactivenessTrackerFlow.class, workflowId);
+        client.invokeRPC(stub::recordActivity);
+        return ResponseEntity.ok("activity recorded");
     }
 }

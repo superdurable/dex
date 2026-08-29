@@ -55,7 +55,7 @@ pub const PATTERN_FLOW_TYPES: [&str; 23] = [
     "IterationFlow",
     "FailureRecoveryFlow",
     "ReminderFlow",
-    "ResettableTimerFlow",
+    "InactivenessTrackerFlow",
     "UserProfileFlow",
     "FlowGracefulTimeout",
     "WaitForStepCompletionFlow",

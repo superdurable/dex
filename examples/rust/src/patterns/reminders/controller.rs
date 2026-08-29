@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::reminders::flow::{REMINDER_ACCEPT, REMINDER_OPT_OUT, ReminderFlow};
+use crate::patterns::reminders::flow::{OPT_OUT, ReminderFlow};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
@@ -34,7 +34,6 @@ struct WorkflowQuery {
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
         .route("/patterns/reminders/start", get(start))
-        .route("/patterns/reminders/accept", get(accept))
         .route("/patterns/reminders/optout", get(optout))
         .with_state(client)
 }
@@ -50,7 +49,7 @@ async fn start(
     };
     match run_blocking(move || {
         let flow = ReminderFlow::default();
-        let input = "reminder".to_string();
+        let input = ();
         client
             .start_flow(&flow, &flow_id, input)
             .map(|run_id| StartResponse { flow_id, run_id })
@@ -60,23 +59,12 @@ async fn start(
     }
 }
 
-async fn accept(
-    State(client): State<SharedClient>,
-    Query(query): Query<WorkflowQuery>,
-) -> impl IntoResponse {
-    let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, REMINDER_ACCEPT)) {
-        Ok(()) => ok_text("accepted"),
-        Err(error) => map_sdk_error(error).into_response(),
-    }
-}
-
 async fn optout(
     State(client): State<SharedClient>,
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, REMINDER_OPT_OUT)) {
+    match run_blocking(move || client.publish(&flow_id, &OPT_OUT, ())) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
     }

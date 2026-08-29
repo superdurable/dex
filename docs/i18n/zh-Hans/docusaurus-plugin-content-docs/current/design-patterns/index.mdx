@@ -11,7 +11,7 @@ slug: /design-patterns
 
 完整示例位于 examples/go、examples/java、examples/python、examples/typescript 和 examples/rust。可在 examples playground 中试用 HTTP 示例；见 **examples/README.md**。
 
-- [Cron schedule](/design-patterns/cron) — 在一条 Flow 中按固定间隔运行工作。
+- [Durable Timer](/zh-Hans/design-patterns/durable-timer) — 选择 cron schedule、Reminder 或 inactivity tracker。
 - Drain Channels
   - [Drain Internal Channels](/design-patterns/drain-internal-channels) — 让 producer/consumer Flow 不丢失在途 Channel 消息地完成。
   - [Drain External Channels](/design-patterns/draining-channel-for-external-publishing) — 处理外部发布的消息，并在 Channel 为空时完成。
@@ -20,7 +20,5 @@ slug: /design-patterns
 - [Parallel Steps](/design-patterns/parallel) — 选择静态、动态、等待全部完成或首个获胜的并发 Step 协调方式。
 - [Parallel SubFlows](/design-patterns/parallel-subflows) — 用 SubFlow fan-out、父 Flow 并发上限、分区和 durable 背压处理大规模并行工作。
 - [Polling and Iteration](/design-patterns/polling) — 周期性检查外部状态，或按页处理大量数据。
-- [Reminders](/design-patterns/reminders) — 定期发送提醒，直到 opt-out 或超时。
-- [Resettable timer](/design-patterns/resettable-timer) — 根据新活动延长或重置等待窗口。
 - [Data Storage](/design-patterns/entity-store) — 将每个实体的 durable Flow Attribute 投影到应用自有的 SQL 表。
 - [响应式更新](/design-patterns/responsive-update) — 在 Step 边界返回、等待 durable 状态，或流式传递增量更新。

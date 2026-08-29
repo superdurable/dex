@@ -76,7 +76,7 @@ remain split so their orchestration boundaries are visible.
 | Backoff polling | [`BackoffPollingFlow`](src/patterns/polling.rs) | Execute retry with exponential backoff |
 | Failure recovery | [`FailureRecoveryFlow`](src/patterns/recovery.rs) | Retry exhaustion and compensation Step |
 | Reminders | [`ReminderFlow`](src/patterns/reminders.rs) | Reminder loop, accept/opt-out Channels, global timeout |
-| Resettable timer | [`ResettableTimerFlow`](src/patterns/resettable_timer.rs) | Reset Channel racing an identified timer |
+| Inactiveness Tracker Timer | [`InactivenessTrackerFlow`](src/patterns/inactiveness_tracker/flow.rs) | Activity resets a timer; expiry processes inactiveness |
 | Entity Store | [`UserProfileFlow`](src/patterns/entity_store.rs) | Attribute Store projection and profile RPCs |
 | Timeout handling | [`FlowGracefulTimeout`](src/patterns/timeout.rs) | Task-versus-timeout race and forced completion/failure |
 | Wait for Step completion | [`WaitForStepCompletionFlow`](src/patterns/wait_for_step_completion.rs) | `Client::wait_for_step_completion` target followed by background work |

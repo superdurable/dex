@@ -20,7 +20,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::patterns::resettable_timer::flow::{RESETTABLE_TIMER_RESET, ResettableTimerFlow};
+use crate::patterns::inactiveness_tracker::flow::{InactivenessTrackerFlow, RECORD_ACTIVITY};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
@@ -33,8 +33,11 @@ struct WorkflowQuery {
 
 pub fn mount(client: SharedClient) -> Router {
     Router::new()
-        .route("/patterns/resettable-timer/start", get(start))
-        .route("/patterns/resettable-timer/reset", get(reset))
+        .route("/patterns/inactiveness-tracker-timer/start", get(start))
+        .route(
+            "/patterns/inactiveness-tracker-timer/activity",
+            get(record_activity),
+        )
         .with_state(client)
 }
 
@@ -43,13 +46,13 @@ async fn start(
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = if query.workflow_id.is_empty() {
-        new_flow_id("timer")
+        new_flow_id("inactiveness-tracker")
     } else {
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = ResettableTimerFlow::default();
-        let input = 0_u64;
+        let flow = InactivenessTrackerFlow::default();
+        let input = ();
         client
             .start_flow(&flow, &flow_id, input)
             .map(|run_id| StartResponse { flow_id, run_id })
@@ -59,13 +62,13 @@ async fn start(
     }
 }
 
-async fn reset(
+async fn record_activity(
     State(client): State<SharedClient>,
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
     let flow_id = query.workflow_id;
-    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, RESETTABLE_TIMER_RESET)) {
-        Ok(()) => ok_text("reset"),
+    match run_blocking(move || client.invoke_rpc_without_input(&flow_id, RECORD_ACTIVITY)) {
+        Ok(()) => ok_text("activity recorded"),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }

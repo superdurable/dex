@@ -80,7 +80,7 @@ Under [`patterns/`](./src/main/java/io/superdurable/dex/patterns):
 - Polling (simple / backoff)
 - Failure recovery (saga)
 - Reminders
-- Resettable timer
+- Inactiveness Tracker Timer
 - [Entity Store user profiles](./src/main/java/io/superdurable/dex/patterns/entitystore) ([PostgreSQL setup](../entity-store))
 - Timeout handling
 - Wait for Step completion

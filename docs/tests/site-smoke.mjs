@@ -6,9 +6,9 @@ import {dirname, join} from 'node:path';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'build');
 const home = await readFile(join(root, 'index.html'), 'utf8');
 const cloud = await readFile(join(root, 'cloud', 'index.html'), 'utf8');
-const cron = await readFile(join(root, 'design-patterns', 'cron', 'index.html'), 'utf8');
+const cron = await readFile(join(root, 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const production = await readFile(join(root, 'production', 'index.html'), 'utf8');
-const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'cron', 'index.html'), 'utf8');
+const zhCron = await readFile(join(root, 'zh-Hans', 'design-patterns', 'durable-timer', 'cron', 'index.html'), 'utf8');
 const zhSubflow = await readFile(join(root, 'zh-Hans', 'primitives', 'subflow', 'index.html'), 'utf8');
 const sitemap = await readFile(join(root, 'sitemap.xml'), 'utf8');
 

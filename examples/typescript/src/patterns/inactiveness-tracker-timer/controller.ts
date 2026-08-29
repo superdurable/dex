@@ -19,15 +19,15 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { resettableTimerFlow } from "./resettable-timer-flow.js";
+import { inactivenessTrackerFlow } from "./inactiveness-tracker-flow.js";
 
-export function createResettableTimerRouter(client: Client): Router {
+export function createInactivenessTrackerTimerRouter(client: Client): Router {
   const router = Router();
 
   router.get("/start", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const runId = await client.startFlow(
-      resettableTimerFlow,
+      inactivenessTrackerFlow,
       workflowId,
       undefined,
       startOptions(),
@@ -35,13 +35,13 @@ export function createResettableTimerRouter(client: Client): Router {
     response.send(runId);
   });
 
-  router.get("/reset", async (request, response) => {
+  router.get("/activity", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     await client.invokeRPC(
-      resettableTimerFlow.sendResetMessage,
+      inactivenessTrackerFlow.recordActivity,
       workflowId,
     );
-    response.send("reset");
+    response.send("activity recorded");
   });
 
   return router;

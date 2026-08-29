@@ -368,18 +368,17 @@ window.PLAYGROUND_CATALOG = [
     note: "Start mints reminder_test_id_<nanos>; copy it from the response.",
     endpoints: [
       endpoint("GET", "/patterns/reminders/start", "Start"),
-      endpoint("GET", "/patterns/reminders/accept", "Accept", [flowId()]),
       endpoint("GET", "/patterns/reminders/optout", "Opt out", [flowId()]),
     ],
   },
   {
     group: "patterns",
-    id: "resettable-timer",
-    title: "Resettable timer",
-    flowIdPrefix: "resettable-timer",
+    id: "inactiveness-tracker-timer",
+    title: "Inactiveness Tracker Timer",
+    flowIdPrefix: "inactiveness-tracker",
     endpoints: [
-      endpoint("GET", "/patterns/resettable-timer/start", "Start", [flowId()]),
-      endpoint("GET", "/patterns/resettable-timer/reset", "Reset", [flowId()]),
+      endpoint("GET", "/patterns/inactiveness-tracker-timer/start", "Start", [flowId()]),
+      endpoint("GET", "/patterns/inactiveness-tracker-timer/activity", "Record activity", [flowId()]),
     ],
   },
   {

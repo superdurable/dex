@@ -178,10 +178,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             ),
         ),
         FlowSmokeEntry(
-            "patterns/resettable-timer",
+            "patterns/inactiveness-tracker-timer",
             lambda c: trigger_get(
-                "/patterns/resettable-timer/start",
-                {"workflowId": new_id("resettable-timer")},
+                "/patterns/inactiveness-tracker-timer/start",
+                {"workflowId": new_id("inactiveness-tracker-timer")},
             ),
         ),
         FlowSmokeEntry(

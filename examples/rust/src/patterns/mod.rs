@@ -15,6 +15,7 @@
 pub mod cron;
 pub mod drain_channels;
 pub mod entity_store;
+pub mod inactiveness_tracker;
 pub mod interruptible;
 pub mod intervention;
 pub mod parallel;
@@ -22,7 +23,6 @@ pub mod parallel_subflows;
 pub mod polling;
 pub mod recovery;
 pub mod reminders;
-pub mod resettable_timer;
 pub mod timeout;
 pub mod wait_for_step_completion;
 
@@ -69,7 +69,7 @@ fn register_with_client(registry: Registry, client: Option<Arc<Client>>) -> SdkR
         .register(polling::IterationFlow::default())?
         .register(recovery::FailureRecoveryFlow::default())?
         .register(reminders::ReminderFlow::default())?
-        .register(resettable_timer::ResettableTimerFlow::default())?
+        .register(inactiveness_tracker::InactivenessTrackerFlow::default())?
         .register(entity_store::UserProfileFlow)?
         .register(timeout::FlowGracefulTimeout::default())?
         .register(wait_for_step_completion::WaitForStepCompletionFlow::default())

@@ -21,31 +21,15 @@
 package reminders
 
 import (
-	"fmt"
 	"time"
 
 	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-const (
-	DAStatus                       = "Status"
-	SignalNameOptOutReminder       = "OptOutReminder"
-	InternalChannelCompleteProcess = "CompleteProcess"
-)
+const OptOutChannelName = "OptOut"
 
-type Status string
-
-const (
-	StatusInitiated Status = "INITIATED"
-	StatusAccepted  Status = "ACCEPTED"
-)
-
-var (
-	StatusAttribute = dex.DefineAttribute[string](DAStatus)
-	OptOutReminder  = dex.DefineChannel[dex.None](SignalNameOptOutReminder)
-	CompleteProcess = dex.DefineChannel[dex.None](InternalChannelCompleteProcess)
-)
+var OptOut = dex.DefineChannel[dex.None](OptOutChannelName)
 
 type ReminderFlow struct {
 	dex.FlowDefaults
@@ -58,87 +42,12 @@ func NewReminderFlow(service patternsservice.ServiceDependency) *ReminderFlow {
 
 func (flow *ReminderFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(initStep{}),
-		dex.DefineStep(processTimeoutStep{service: flow.service}),
-		dex.DefineStep(reminderStep{service: flow.service}),
+		dex.DefineStartStep(reminderStep{service: flow.service}),
 	}
 }
 
 func (*ReminderFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{StatusAttribute},
-		Channels:   []dex.ChannelDef{OptOutReminder, CompleteProcess},
-	}
-}
-
-func (*ReminderFlow) Accept(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.RPCResult[dex.None], error) {
-	currentStatus, err := StatusAttribute.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if currentStatus != string(StatusInitiated) {
-		return nil, fmt.Errorf(
-			"can only accept in INITIATED status",
-		)
-	}
-	if err := StatusAttribute.Set(ctx, string(StatusAccepted)); err != nil {
-		return nil, err
-	}
-	if err := CompleteProcess.Publish(ctx, nil); err != nil {
-		return nil, err
-	}
-	return &dex.RPCResult[dex.None]{}, nil
-}
-
-type initStep struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
-}
-
-func (initStep) Execute(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.StepDecision, error) {
-	if err := StatusAttribute.Set(ctx, string(StatusInitiated)); err != nil {
-		return nil, err
-	}
-	return dex.GoToMany(
-		dex.MovementOf(processTimeoutStep{}, nil),
-		dex.MovementOf(reminderStep{}, nil),
-	), nil
-}
-
-type processTimeoutStep struct {
-	dex.StepDefaults
-	service patternsservice.ServiceDependency
-}
-
-func (processTimeoutStep) WaitFor(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.Wait, error) {
-	return dex.AnyOf(
-		dex.Timer(60*24*time.Hour),
-		CompleteProcess.ForOne(),
-	), nil
-}
-
-func (step processTimeoutStep) Execute(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.StepDecision, error) {
-	currentStatus, err := StatusAttribute.Get(ctx)
-	if err != nil {
-		return nil, err
-	}
-	resultStatus := "TIMEOUT"
-	if currentStatus == string(StatusAccepted) {
-		resultStatus = "ACCEPTED"
-	}
-	step.service.UpdateExternalSystem("notify for status: " + resultStatus)
-	return dex.ForceComplete("done"), nil
+	return dex.PersistenceSchema{Channels: []dex.ChannelDef{OptOut}}
 }
 
 type reminderStep struct {
@@ -152,7 +61,7 @@ func (reminderStep) WaitFor(
 ) (*dex.Wait, error) {
 	return dex.AnyOf(
 		dex.Timer(5*time.Second),
-		OptOutReminder.ForOne(),
+		OptOut.ForOne(),
 	), nil
 }
 
@@ -160,27 +69,11 @@ func (step reminderStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
-	currentStatus, err := StatusAttribute.Get(ctx)
-	if err != nil {
-		return nil, err
+	if !ctx.HasTimerFired() {
+		return dex.GracefulComplete(nil), nil
 	}
-	if currentStatus == string(StatusAccepted) {
-		fmt.Println("Reminder state timer expired, but status already ACCEPTED")
-		return dex.ForceComplete("done"), nil
-	}
-	optOuts, err := OptOutReminder.GetConditionResults(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if len(optOuts) > 0 {
-		step.service.UpdateExternalSystem("user opted out - no more reminders")
-		return dex.ForceComplete("done - opt out"), nil
-	}
-	step.service.SendEmail("Reminder:xxx please respond", "Hello xxx, ...")
+	step.service.SendEmail("Reminder: please respond", "Hello, ...")
 	return dex.GoTo(reminderStep{}, nil), nil
 }
 
-var (
-	_ dex.Flow                    = (*ReminderFlow)(nil)
-	_ dex.RPC[dex.None, dex.None] = (*ReminderFlow)(nil).Accept
-)
+var _ dex.Flow = (*ReminderFlow)(nil)

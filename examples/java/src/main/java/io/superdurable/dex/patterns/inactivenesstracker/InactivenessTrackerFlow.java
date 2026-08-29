@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.resettabletimer;
+package io.superdurable.dex.patterns.inactivenesstracker;
 
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
@@ -30,37 +30,33 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 
-/**
- * A flow that starts a timer whose expiry triggers an action. The timer resets when a message
- * is received on the reset channel.
- */
 @Component
-public class ResettableTimerFlow implements Flow<Void> {
-    public static final String RESET_TIMER_CHANNEL = "RESET_TIMER_CHANNEL";
-    public static final Duration TIMER_DURATION = Duration.ofMinutes(5);
+public class InactivenessTrackerFlow implements Flow<Void> {
+    public static final String ACTIVE_CHANNEL = "Active";
+    public static final Duration TRACKER_DURATION = Duration.ofMinutes(5);
 
-    public final Channel<String> resetTimerChannel =
-            Channel.define(RESET_TIMER_CHANNEL, String.class);
+    public final Channel<Void> activeChannel = Channel.define(ACTIVE_CHANNEL, Void.class);
 
-    private final ResettableTimerStep resettableTimer = new ResettableTimerStep();
-    private final TimerExpired timerExpired = new TimerExpired();
+    private final TrackerStep trackerStep = new TrackerStep();
+    private final ProcessInactivenessStep processInactivenessStep =
+            new ProcessInactivenessStep();
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.startStep(resettableTimer).otherSteps(timerExpired);
+        return StepList.startStep(trackerStep).otherSteps(processInactivenessStep);
     }
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(resetTimerChannel);
+        return PersistenceSchema.of(activeChannel);
     }
 
     @RPC
-    public void sendResetMessage(final Context context) {
-        resetTimerChannel.publish(context, "reset");
+    public void recordActivity(final Context context) {
+        activeChannel.publish(context, null);
     }
 
-    final class ResettableTimerStep implements Step<Void> {
+    final class TrackerStep implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
@@ -69,20 +65,20 @@ public class ResettableTimerFlow implements Flow<Void> {
         @Override
         public Wait waitFor(final Context context, final Void input) {
             return Wait.anyOf(
-                    Timer.byDuration(TIMER_DURATION),
-                    resetTimerChannel.forOne());
+                    Timer.byDuration(TRACKER_DURATION),
+                    activeChannel.forOne());
         }
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
             if (context.hasTimerFired()) {
-                return StepDecision.goTo(TimerExpired.class, null);
+                return StepDecision.goTo(ProcessInactivenessStep.class, null);
             }
-            return StepDecision.goTo(ResettableTimerStep.class, null);
+            return StepDecision.goTo(TrackerStep.class, null);
         }
     }
 
-    final class TimerExpired implements Step<Void> {
+    final class ProcessInactivenessStep implements Step<Void> {
         @Override
         public Class<Void> getInputType() {
             return Void.class;
@@ -90,7 +86,7 @@ public class ResettableTimerFlow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            System.out.println("Timer fired; this is where we would send an email");
+            System.out.println("No activity arrived before the timer fired");
             return StepDecision.gracefulComplete();
         }
     }

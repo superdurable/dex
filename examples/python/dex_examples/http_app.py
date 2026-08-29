@@ -44,8 +44,8 @@ from dex_examples.patterns.parallel_subflows.controller import (
 from dex_examples.patterns.polling.controller import create_polling_pattern_blueprint
 from dex_examples.patterns.recovery.controller import create_recovery_blueprint
 from dex_examples.patterns.reminders.controller import create_reminders_blueprint
-from dex_examples.patterns.resettable_timer.controller import (
-    create_resettable_timer_blueprint,
+from dex_examples.patterns.inactiveness_tracker_timer.controller import (
+    create_inactiveness_tracker_timer_blueprint,
 )
 from dex_examples.patterns.resource_control.controller import (
     create_resource_control_blueprint,
@@ -120,7 +120,7 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_reminders_blueprint(app_state))
     quart_app.register_blueprint(create_entity_store_blueprint(app_state))
     quart_app.register_blueprint(create_manual_recovery_blueprint(app_state))
-    quart_app.register_blueprint(create_resettable_timer_blueprint(app_state))
+    quart_app.register_blueprint(create_inactiveness_tracker_timer_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_blueprint(app_state))
     quart_app.register_blueprint(create_parallel_subflows_blueprint(app_state))
     quart_app.register_blueprint(create_recovery_blueprint(app_state))

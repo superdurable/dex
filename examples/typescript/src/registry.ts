@@ -41,7 +41,7 @@ import { pollingWithTimerFlow } from "./patterns/polling/simple-polling-flow.js"
 import { iterationFlow } from "./patterns/polling/iteration-flow.js";
 import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.js";
 import { reminderFlow } from "./patterns/reminders/reminder-flow.js";
-import { resettableTimerFlow } from "./patterns/resettable-timer/resettable-timer-flow.js";
+import { inactivenessTrackerFlow } from "./patterns/inactiveness-tracker-timer/inactiveness-tracker-flow.js";
 import { flowGracefulTimeout } from "./patterns/timeout/flow-graceful-timeout.js";
 import { waitForStepCompletionFlow } from "./patterns/wait-for-step-completion/wait-for-step-completion-flow.js";
 import { attributeFlow } from "./primitives/attribute/attribute-flow.js";
@@ -107,7 +107,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   iterationFlow,
   failureRecoveryFlow,
   reminderFlow,
-  resettableTimerFlow,
+  inactivenessTrackerFlow,
   userProfileFlow,
   flowGracefulTimeout,
   waitForStepCompletionFlow,
@@ -167,7 +167,7 @@ export {
   iterationFlow,
   failureRecoveryFlow,
   reminderFlow,
-  resettableTimerFlow,
+  inactivenessTrackerFlow,
   userProfileFlow,
   flowGracefulTimeout,
   waitForStepCompletionFlow,
