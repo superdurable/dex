@@ -1,3 +1,13 @@
+/*
+ * Copyright (c) 2026 Super Durable, Inc.
+ *
+ * Licensed under the Super Durable Source License 1.0.
+ * You may not use this file except in compliance with the License.
+ * See the LICENSE file in the repository root.
+ *
+ * SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+ */
+
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
 
 :root {
@@ -601,7 +611,7 @@ summary:focus-visible {
 }
 
 .theme-doc-markdown img[src*='iteration-flow'] {
-  --step-graph-max-width: 39.8%;
+  --step-graph-max-width: 37.5%;
 }
 
 .theme-doc-markdown img[src*='inactiveness-tracker-timer-flow'],
