@@ -4,9 +4,9 @@ title: Inactiveness Tracker Timer
 
 # Inactiveness Tracker Timer
 
-![InactivenessTrackerFlow](/img/design-patterns/inactiveness-tracker-timer-flow.png)
-
 Use this pattern when an action should happen only after a period without activity. **InactivenessTrackerFlow** starts with **TrackerStep**. It waits for either the Timer or the **Active** Channel. Activity arrives first, so **TrackerStep** moves to itself and starts a fresh Timer. If the Timer fires first, the Flow moves to **ProcessInactivenessStep**.
+
+![InactivenessTrackerFlow](/img/design-patterns/inactiveness-tracker-timer-flow.png)
 
 ## Core Step
 

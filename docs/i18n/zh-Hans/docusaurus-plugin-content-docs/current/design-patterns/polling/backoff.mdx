@@ -4,11 +4,11 @@ title: Backoff Polling
 
 # Backoff Polling
 
+**BackoffPollingFlow** 中的 **PollingStep** 会调用外部服务。条件尚未满足时，Step 返回预期错误，**ExecuteRetry** 会按指数退避重试该 execution；成功时完成 Flow。
+
+可以使用 **RetryAfter** 精确指定下一次 retry 的等待时间，同时保留当前错误。因为未就绪会显示为失败的 Step attempt，监控和 runbook 必须把它归为预期结果，不应为此呼叫 on-call。
+
 <img
   alt="BackoffPollingFlow"
   src="/img/design-patterns/backoff-polling-flow.png"
 />
-
-**BackoffPollingFlow** 中的 **PollingStep** 会调用外部服务。条件尚未满足时，Step 返回预期错误，**ExecuteRetry** 会按指数退避重试该 execution；成功时完成 Flow。
-
-可以使用 **RetryAfter** 精确指定下一次 retry 的等待时间，同时保留当前错误。因为未就绪会显示为失败的 Step attempt，监控和 runbook 必须把它归为预期结果，不应为此呼叫 on-call。
