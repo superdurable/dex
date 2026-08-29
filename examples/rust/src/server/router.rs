@@ -52,7 +52,7 @@ pub fn build_router(client: SharedClient) -> axum::Router {
         ))
         .merge(patterns::recovery::controller::mount(client.clone()))
         .merge(patterns::drain_channels::controller::mount(client.clone()))
-        .merge(patterns::wait_for_state_completion::controller::mount(
+        .merge(patterns::wait_for_step_completion::controller::mount(
             client.clone(),
         ))
         .merge(patterns::timeout::controller::mount(client.clone()))

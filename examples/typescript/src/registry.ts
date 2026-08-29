@@ -43,7 +43,7 @@ import { failureRecoveryFlow } from "./patterns/recovery/failure-recovery-flow.j
 import { reminderFlow } from "./patterns/reminders/reminder-flow.js";
 import { resettableTimerFlow } from "./patterns/resettable-timer/resettable-timer-flow.js";
 import { flowGracefulTimeout } from "./patterns/timeout/flow-graceful-timeout.js";
-import { waitForStateCompletionFlow } from "./patterns/wait-for-state-completion/wait-for-state-completion-flow.js";
+import { waitForStepCompletionFlow } from "./patterns/wait-for-step-completion/wait-for-step-completion-flow.js";
 import { attributeFlow } from "./primitives/attribute/attribute-flow.js";
 import { channelFlow } from "./primitives/channel/channel-flow.js";
 import { clientApisFlow } from "./primitives/client-apis/client-apis-flow.js";
@@ -110,7 +110,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   resettableTimerFlow,
   userProfileFlow,
   flowGracefulTimeout,
-  waitForStateCompletionFlow,
+  waitForStepCompletionFlow,
   exampleFlow,
   stepFlow,
   retryFlow,
@@ -170,7 +170,7 @@ export {
   resettableTimerFlow,
   userProfileFlow,
   flowGracefulTimeout,
-  waitForStateCompletionFlow,
+  waitForStepCompletionFlow,
   exampleFlow,
   stepFlow,
   retryFlow,

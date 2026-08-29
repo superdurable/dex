@@ -6,11 +6,11 @@ title: Wait for Step Completion
 
 Use **WaitForStepCompletion** when a Flow has a durable client-visible milestone before its background work finishes. The caller starts the Flow, waits for that Step, then reads the result it needs. Later Steps can continue without holding the caller open.
 
-The **WaitForStateCompletionFlow** sample persists a record in **PersistData**, then starts **BackgroundWork**. Its controller waits for **PersistData** before querying the persisted record. Choose a Step only after it has committed the state that makes the response valid.
+The **WaitForStepCompletionFlow** sample persists a record in **PersistData**, then starts **BackgroundWork**. Its controller waits for **PersistData** before querying the persisted record. Choose a Step only after it has committed the state that makes the response valid.
 
 ## Core implementation
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/wait-for-state-completion/controller.py', go: 'examples/go/patterns/wait-for-state-completion/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/waitforstatecompletion/WaitForStateCompletionController.java', typescript: 'examples/typescript/src/patterns/wait-for-state-completion/controller.ts', rust: 'examples/rust/src/patterns/wait_for_state_completion/controller.rs'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/wait-for-step-completion/controller.py', go: 'examples/go/patterns/wait-for-step-completion/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/waitforstepcompletion/WaitForStepCompletionController.java', typescript: 'examples/typescript/src/patterns/wait-for-step-completion/controller.ts', rust: 'examples/rust/src/patterns/wait_for_step_completion/controller.rs'}}>
 <SdkSnippet lang="go">
 
 ```go
@@ -61,10 +61,10 @@ func (controller *controller) start(request *gin.Context) {
 
 ```python
 @blueprint.get("/start")
-async def start_wait_for_state_completion() -> str:
+async def start_wait_for_step_completion() -> str:
     flow_id = required_query("workflowId")
     await app_state.client.start_flow(
-        app_state.wait_for_state_completion,
+        app_state.wait_for_step_completion,
         flow_id,
         JobSeekerData(1),
         start_options(),
@@ -75,7 +75,7 @@ async def start_wait_for_state_completion() -> str:
         PERSIST_DATA_TIMEOUT,
     )
     persisted = await app_state.client.invoke_rpc(
-        app_state.wait_for_state_completion.get_job_seeker_data,
+        app_state.wait_for_step_completion.get_job_seeker_data,
         flow_id,
     )
     payload = json.dumps(asdict(persisted), sort_keys=True)
@@ -87,12 +87,12 @@ async def start_wait_for_state_completion() -> str:
 
 ```java
 @GetMapping("/start")
-ResponseEntity<String> startWaitForStateCompletion(@RequestParam final String workflowId)
+ResponseEntity<String> startWaitForStepCompletion(@RequestParam final String workflowId)
         throws JsonProcessingException {
     final ObjectMapper objectMapper = new ObjectMapper();
     final JobSeekerData data = new JobSeekerData(1);
     client.startFlow(
-            waitForStateCompletionFlow,
+            waitForStepCompletionFlow,
             workflowId,
             data,
             ExampleFlows.startOptions());
@@ -100,8 +100,8 @@ ResponseEntity<String> startWaitForStateCompletion(@RequestParam final String wo
             workflowId,
             StepExecutionId.of("PersistData"),
             Duration.ofMinutes(5));
-    final WaitForStateCompletionFlow stub =
-            client.newRpcStub(WaitForStateCompletionFlow.class, workflowId);
+    final WaitForStepCompletionFlow stub =
+            client.newRpcStub(WaitForStepCompletionFlow.class, workflowId);
     final JobSeekerData persistedData = client.invokeRPC(stub::getJobSeekerData);
     return ResponseEntity.ok(String.format(
             "success for workflow %s with data %s",
@@ -117,7 +117,7 @@ ResponseEntity<String> startWaitForStateCompletion(@RequestParam final String wo
 router.get("/start", async (request, response) => {
   const workflowId = String(request.query.workflowId ?? "");
   await client.startFlow(
-    waitForStateCompletionFlow,
+    waitForStepCompletionFlow,
     workflowId,
     { id: 1, name: "Test Job Seeker", resume: "Test Resume", email: "testjobseeker@indeed.com" },
     startOptions(),
@@ -128,7 +128,7 @@ router.get("/start", async (request, response) => {
     15_000,
   );
   const persistedData = await client.invokeRPC(
-    waitForStateCompletionFlow.getJobSeekerData,
+    waitForStepCompletionFlow.getJobSeekerData,
     workflowId,
   );
   response.send(
@@ -151,7 +151,7 @@ async fn start(
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = WaitForStateCompletionFlow::default();
+        let flow = WaitForStepCompletionFlow::default();
         let input = PersistRequest {
             record_id: "1".into(),
             payload: "Test Resume".into(),
@@ -159,7 +159,7 @@ async fn start(
         let run_id = client.start_flow(&flow, &flow_id, input)?;
         client.wait_for_step_completion(
             &flow_id,
-            WaitForStateCompletionFlow::persisted_step(),
+            WaitForStepCompletionFlow::persisted_step(),
             Duration::from_secs(300),
         )?;
         Ok(StartResponse { flow_id, run_id })

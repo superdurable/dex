@@ -86,7 +86,7 @@ Under [`src/patterns/`](./src/patterns):
 - Resettable timer
 - [Entity Store user profiles](./src/patterns/entity-store) ([PostgreSQL setup](../entity-store))
 - Timeout handling
-- Wait for state completion
+- Wait for Step completion
 
 ## Primitives
 

@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package waitforstatecompletion
+package waitforstepcompletion
 
 import (
 	"encoding/json"
@@ -38,31 +38,31 @@ type JobSeekerData struct {
 	Email  string
 }
 
-type WaitForStateCompletionFlow struct {
+type WaitForStepCompletionFlow struct {
 	dex.FlowDefaults
 	service patternsservice.ServiceDependency
 }
 
-func NewWaitForStateCompletionFlow(
+func NewWaitForStepCompletionFlow(
 	service patternsservice.ServiceDependency,
-) *WaitForStateCompletionFlow {
-	return &WaitForStateCompletionFlow{service: service}
+) *WaitForStepCompletionFlow {
+	return &WaitForStepCompletionFlow{service: service}
 }
 
-func (flow *WaitForStateCompletionFlow) GetSteps() []dex.StepDef {
+func (flow *WaitForStepCompletionFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(persistDataStep{service: flow.service}),
 		dex.DefineStep(updateExternalSystemStep{service: flow.service}),
 	}
 }
 
-func (*WaitForStateCompletionFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*WaitForStepCompletionFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{JobSeekerDataAttribute},
 	}
 }
 
-func (*WaitForStateCompletionFlow) GetJobSeekerData(
+func (*WaitForStepCompletionFlow) GetJobSeekerData(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[JobSeekerData], error) {
@@ -113,6 +113,6 @@ func (step updateExternalSystemStep) Execute(
 }
 
 var (
-	_ dex.Flow                         = (*WaitForStateCompletionFlow)(nil)
-	_ dex.RPC[dex.None, JobSeekerData] = (*WaitForStateCompletionFlow)(nil).GetJobSeekerData
+	_ dex.Flow                         = (*WaitForStepCompletionFlow)(nil)
+	_ dex.RPC[dex.None, JobSeekerData] = (*WaitForStepCompletionFlow)(nil).GetJobSeekerData
 )

@@ -43,7 +43,7 @@ export const JOB_SEEKER_DATA = "job_seeker_data";
 const jobSeekerDataInputCodec = jsonCodec<JobSeekerData>(jobSeekerDataCodec);
 
 class PersistData implements Step<JobSeekerData> {
-  public constructor(private readonly flow: WaitForStateCompletionFlow) {}
+  public constructor(private readonly flow: WaitForStepCompletionFlow) {}
 
   public getStepType(): string {
     return "PersistData";
@@ -57,7 +57,7 @@ class PersistData implements Step<JobSeekerData> {
 }
 
 class UpdateExternalSystem implements Step<JobSeekerData> {
-  public constructor(private readonly flow: WaitForStateCompletionFlow) {}
+  public constructor(private readonly flow: WaitForStepCompletionFlow) {}
 
   public getStepType(): string {
     return "UpdateExternalSystem";
@@ -69,7 +69,7 @@ class UpdateExternalSystem implements Step<JobSeekerData> {
   }
 }
 
-export class WaitForStateCompletionFlow implements Flow<JobSeekerData> {
+export class WaitForStepCompletionFlow implements Flow<JobSeekerData> {
   public readonly jobSeekerData = new Attribute(JOB_SEEKER_DATA, jobSeekerDataInputCodec);
 
   private readonly persistData: PersistData;
@@ -88,7 +88,7 @@ export class WaitForStateCompletionFlow implements Flow<JobSeekerData> {
   }
 
   public getFlowType(): string {
-    return "WaitForStateCompletionFlow";
+    return "WaitForStepCompletionFlow";
   }
 
   public getSteps() {
@@ -109,4 +109,4 @@ export class WaitForStateCompletionFlow implements Flow<JobSeekerData> {
   }
 }
 
-export const waitForStateCompletionFlow = new WaitForStateCompletionFlow();
+export const waitForStepCompletionFlow = new WaitForStepCompletionFlow();

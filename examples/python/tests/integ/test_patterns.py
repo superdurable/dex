@@ -34,7 +34,7 @@ from dex_examples.patterns.cron.cron_schedule_flow import (
     Interval,
     IntervalUnit,
 )
-from dex_examples.patterns.wait_for_state_completion.job_seeker_data import (
+from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
     JobSeekerData,
 )
 from tests.integ.conftest import (
@@ -305,14 +305,14 @@ async def test_entity_store_profile_lifecycle(
     await client.invoke_rpc(app.user_profile.clear_profile, flow_id)
 
 
-async def test_wait_for_state_completion(
+async def test_wait_for_step_completion(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("wait-state")
     await client.start_flow(
-        app.wait_for_state_completion,
+        app.wait_for_step_completion,
         flow_id,
         JobSeekerData(1),
         start_options(),
@@ -323,7 +323,7 @@ async def test_wait_for_state_completion(
         timedelta(minutes=1),
     )
     data = await client.invoke_rpc(
-        app.wait_for_state_completion.get_job_seeker_data, flow_id
+        app.wait_for_step_completion.get_job_seeker_data, flow_id
     )
     assert data.id == 1
 

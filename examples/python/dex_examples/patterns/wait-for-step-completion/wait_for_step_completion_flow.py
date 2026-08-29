@@ -32,7 +32,7 @@ from dex import (
 )
 
 from dex_examples.patterns.shared.service_dependency import ServiceDependency
-from dex_examples.patterns.wait_for_state_completion.job_seeker_data import (
+from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
     JobSeekerData,
 )
 
@@ -66,7 +66,7 @@ class PersistData(Step[JobSeekerData]):
         return go_to(UpdateExternalSystem, input)
 
 
-class WaitForStateCompletionFlow(Flow[JobSeekerData]):
+class WaitForStepCompletionFlow(Flow[JobSeekerData]):
     JOB_SEEKER_DATA = "job_seeker_data"
 
     job_seeker_data = Attribute(JOB_SEEKER_DATA, JobSeekerData)

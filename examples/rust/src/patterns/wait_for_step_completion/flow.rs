@@ -43,18 +43,18 @@ pub struct PersistRequest {
 }
 
 #[derive(Default)]
-pub struct WaitForStateCompletionFlow {
+pub struct WaitForStepCompletionFlow {
     persist_data: PersistData,
     background_work: BackgroundWork,
 }
 
-impl WaitForStateCompletionFlow {
+impl WaitForStepCompletionFlow {
     pub fn persisted_step() -> StepExecutionId {
         StepExecutionId::of(&PersistData)
     }
 }
 
-impl Flow for WaitForStateCompletionFlow {
+impl Flow for WaitForStepCompletionFlow {
     type StartInput = PersistRequest;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {

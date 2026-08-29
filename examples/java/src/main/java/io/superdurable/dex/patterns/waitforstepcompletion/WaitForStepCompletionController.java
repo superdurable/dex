@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.waitforstatecompletion;
+package io.superdurable.dex.patterns.waitforstepcompletion;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,25 +30,25 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.Duration;
 
 @RestController
-@RequestMapping("/patterns/wait-for-state-completion")
-public class WaitForStateCompletionController {
+@RequestMapping("/patterns/wait-for-step-completion")
+public class WaitForStepCompletionController {
     private final Client client;
-    private final WaitForStateCompletionFlow waitForStateCompletionFlow;
+    private final WaitForStepCompletionFlow waitForStepCompletionFlow;
 
-    public WaitForStateCompletionController(
+    public WaitForStepCompletionController(
             final Client client,
-            final WaitForStateCompletionFlow waitForStateCompletionFlow) {
+            final WaitForStepCompletionFlow waitForStepCompletionFlow) {
         this.client = client;
-        this.waitForStateCompletionFlow = waitForStateCompletionFlow;
+        this.waitForStepCompletionFlow = waitForStepCompletionFlow;
     }
 
     @GetMapping("/start")
-    ResponseEntity<String> startWaitForStateCompletion(@RequestParam final String workflowId)
+    ResponseEntity<String> startWaitForStepCompletion(@RequestParam final String workflowId)
             throws JsonProcessingException {
         final ObjectMapper objectMapper = new ObjectMapper();
         final JobSeekerData data = new JobSeekerData(1);
         client.startFlow(
-                waitForStateCompletionFlow,
+                waitForStepCompletionFlow,
                 workflowId,
                 data,
                 ExampleFlows.startOptions());
@@ -56,8 +56,8 @@ public class WaitForStateCompletionController {
                 workflowId,
                 StepExecutionId.of("PersistData"),
                 Duration.ofMinutes(5));
-        final WaitForStateCompletionFlow stub =
-                client.newRpcStub(WaitForStateCompletionFlow.class, workflowId);
+        final WaitForStepCompletionFlow stub =
+                client.newRpcStub(WaitForStepCompletionFlow.class, workflowId);
         final JobSeekerData persistedData = client.invokeRPC(stub::getJobSeekerData);
         return ResponseEntity.ok(String.format(
                 "success for workflow %s with data %s",

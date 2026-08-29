@@ -33,7 +33,7 @@ use dex_examples_rust::patterns::{
     reminders::ReminderFlow,
     resettable_timer::ResettableTimerFlow,
     timeout::FlowGracefulTimeout,
-    wait_for_state_completion::WaitForStateCompletionFlow,
+    wait_for_step_completion::WaitForStepCompletionFlow,
 };
 use dex_examples_rust::products::{
     engagement::EngagementFlow,
@@ -86,7 +86,7 @@ fn catalog_matches_every_cross_language_example() {
         ResettableTimerFlow::default().flow_type(),
         UserProfileFlow.flow_type(),
         FlowGracefulTimeout::default().flow_type(),
-        WaitForStateCompletionFlow::default().flow_type(),
+        WaitForStepCompletionFlow::default().flow_type(),
     ];
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);

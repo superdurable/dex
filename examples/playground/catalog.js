@@ -415,11 +415,11 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "patterns",
-    id: "wait-for-state-completion",
-    title: "Wait for state completion",
+    id: "wait-for-step-completion",
+    title: "Wait for Step completion",
     flowIdPrefix: "wait-state",
     endpoints: [
-      endpoint("GET", "/patterns/wait-for-state-completion/start", "Start", [flowId()]),
+      endpoint("GET", "/patterns/wait-for-step-completion/start", "Start", [flowId()]),
     ],
   },
   {

@@ -35,7 +35,7 @@ import (
 	"github.com/superdurable/dex/examples/go/patterns/resettable-timer"
 	patternsservice "github.com/superdurable/dex/examples/go/patterns/shared/service"
 	"github.com/superdurable/dex/examples/go/patterns/timeout"
-	"github.com/superdurable/dex/examples/go/patterns/wait-for-state-completion"
+	"github.com/superdurable/dex/examples/go/patterns/wait-for-step-completion"
 	"github.com/superdurable/dex/examples/go/primitives/attribute"
 	"github.com/superdurable/dex/examples/go/primitives/channel"
 	"github.com/superdurable/dex/examples/go/primitives/client-apis"
@@ -84,30 +84,30 @@ var (
 	EmployerOptIn   *shortlistcandidates.EmployerOptInFlow
 	Shortlist       *shortlistcandidates.ShortlistFlow
 
-	CronSchedule           *cron.CronScheduleFlow
-	PollingWithTimer       *patternspolling.PollingWithTimerFlow
-	BackoffPolling         *patternspolling.BackoffPollingFlow
-	Iteration              *patternspolling.IterationFlow
-	Interruptible          *interruptible.InterruptibleFlow
-	Reminder               *reminders.ReminderFlow
-	UserProfile            *entitystore.UserProfileFlow
-	ManualRecovery         *intervention.ManualRecoveryFlow
-	ResettableTimer        *resettabletimer.ResettableTimerFlow
-	StaticParallel         *parallel.StaticParallelStepsFlow
-	DynamicParallel        *parallel.DynamicParallelStepsFlow
-	AwaitParallel          *parallel.AwaitParallelStepsFlow
-	FirstWinParallel       *parallel.FirstWinParallelStepsFlow
-	ParallelSubFlowChild   *parallelsubflows.ExampleSubFlow
-	BasicSubFlows          *parallelsubflows.BasicParentFlow
-	WaitForHalfSubFlows    *parallelsubflows.WaitForHalfParentFlow
-	LongLiveSubFlows       *parallelsubflows.AdvancedLongLiveParentFlow
-	ShortLiveSubFlows      *parallelsubflows.AdvancedShortLiveParentFlow
-	SubmitSubFlowRequest   *parallelsubflows.SubmitRequestFlow
-	FailureRecovery        *recovery.FailureRecoveryFlow
-	DrainInternal          *draininternal.DrainInternalChannelFlow
-	DrainExternal          *drainexternal.DrainingExternalChannelFlow
-	WaitForStateCompletion *waitforstatecompletion.WaitForStateCompletionFlow
-	GracefulTimeout        *timeout.FlowGracefulTimeout
+	CronSchedule          *cron.CronScheduleFlow
+	PollingWithTimer      *patternspolling.PollingWithTimerFlow
+	BackoffPolling        *patternspolling.BackoffPollingFlow
+	Iteration             *patternspolling.IterationFlow
+	Interruptible         *interruptible.InterruptibleFlow
+	Reminder              *reminders.ReminderFlow
+	UserProfile           *entitystore.UserProfileFlow
+	ManualRecovery        *intervention.ManualRecoveryFlow
+	ResettableTimer       *resettabletimer.ResettableTimerFlow
+	StaticParallel        *parallel.StaticParallelStepsFlow
+	DynamicParallel       *parallel.DynamicParallelStepsFlow
+	AwaitParallel         *parallel.AwaitParallelStepsFlow
+	FirstWinParallel      *parallel.FirstWinParallelStepsFlow
+	ParallelSubFlowChild  *parallelsubflows.ExampleSubFlow
+	BasicSubFlows         *parallelsubflows.BasicParentFlow
+	WaitForHalfSubFlows   *parallelsubflows.WaitForHalfParentFlow
+	LongLiveSubFlows      *parallelsubflows.AdvancedLongLiveParentFlow
+	ShortLiveSubFlows     *parallelsubflows.AdvancedShortLiveParentFlow
+	SubmitSubFlowRequest  *parallelsubflows.SubmitRequestFlow
+	FailureRecovery       *recovery.FailureRecoveryFlow
+	DrainInternal         *draininternal.DrainInternalChannelFlow
+	DrainExternal         *drainexternal.DrainingExternalChannelFlow
+	WaitForStepCompletion *waitforstepcompletion.WaitForStepCompletionFlow
+	GracefulTimeout       *timeout.FlowGracefulTimeout
 
 	Step                 *step.StepFlow
 	ExampleFlow          *flow.ExampleFlow
@@ -178,7 +178,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	FailureRecovery = recovery.NewFailureRecoveryFlow()
 	DrainInternal = draininternal.NewDrainInternalChannelFlow(patternService)
 	DrainExternal = drainexternal.NewDrainingExternalChannelFlow()
-	WaitForStateCompletion = waitforstatecompletion.NewWaitForStateCompletionFlow(patternService)
+	WaitForStepCompletion = waitforstepcompletion.NewWaitForStepCompletionFlow(patternService)
 	GracefulTimeout = timeout.NewFlowGracefulTimeout()
 
 	Step = step.NewStepFlow()
@@ -238,7 +238,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		FailureRecovery,
 		DrainInternal,
 		DrainExternal,
-		WaitForStateCompletion,
+		WaitForStepCompletion,
 		GracefulTimeout,
 		Step,
 		ExampleFlow,

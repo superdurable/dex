@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.waitforstatecompletion;
+package io.superdurable.dex.patterns.waitforstepcompletion;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,7 +31,7 @@ import io.superdurable.dex.shared.ServiceDependency;
 import org.springframework.stereotype.Component;
 
 @Component
-public class WaitForStateCompletionFlow implements Flow<JobSeekerData> {
+public class WaitForStepCompletionFlow implements Flow<JobSeekerData> {
     public static final String JOB_SEEKER_DATA = "job_seeker_data";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -45,7 +45,7 @@ public class WaitForStateCompletionFlow implements Flow<JobSeekerData> {
     private final PersistData persistData = new PersistData();
     private final UpdateExternalSystem updateExternalSystem = new UpdateExternalSystem();
 
-    public WaitForStateCompletionFlow(final ServiceDependency serviceDependency) {
+    public WaitForStepCompletionFlow(final ServiceDependency serviceDependency) {
         this.mongoCollection = serviceDependency;
         this.externalService = serviceDependency;
     }

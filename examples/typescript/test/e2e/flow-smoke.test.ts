@@ -271,9 +271,9 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
-      name: "patterns/wait-for-state-completion",
+      name: "patterns/wait-for-step-completion",
       trigger: () =>
-        triggerGet(context, "/patterns/wait-for-state-completion/start", {
+        triggerGet(context, "/patterns/wait-for-step-completion/start", {
           workflowId: newFlowId("wait-for-state"),
         }),
       flags: defaultFlags(),

@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package waitforstatecompletion
+package waitforstepcompletion
 
 import (
 	"context"
@@ -33,12 +33,12 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *WaitForStateCompletionFlow
+	flow   *WaitForStepCompletionFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *WaitForStateCompletionFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *WaitForStepCompletionFlow) {
 	controller := &controller{client: client, flow: flow}
-	group := router.Group("/patterns/wait-for-state-completion")
+	group := router.Group("/patterns/wait-for-step-completion")
 	group.GET("/start", controller.start)
 }
 

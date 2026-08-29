@@ -70,8 +70,8 @@ from dex_examples.patterns.resource_control.controller_flow import ControllerFlo
 from dex_examples.patterns.resource_control.processing_flow import ProcessingFlow
 from dex_examples.patterns.shared.service_dependency import ServiceDependency
 from dex_examples.patterns.timeout.flow_graceful_timeout import FlowGracefulTimeout
-from dex_examples.patterns.wait_for_state_completion.wait_for_state_completion_flow import (
-    WaitForStateCompletionFlow,
+from dex_examples.patterns.wait_for_step_completion.wait_for_step_completion_flow import (
+    WaitForStepCompletionFlow,
 )
 from dex_examples.primitives.attribute.attribute_flow import AttributeFlow
 from dex_examples.primitives.channel.channel_flow import ChannelFlow
@@ -166,7 +166,7 @@ class ExampleApp:
         self.resettable_timer = ResettableTimerFlow()
         self.user_profile = UserProfileFlow()
         self.timeout = FlowGracefulTimeout()
-        self.wait_for_state_completion = WaitForStateCompletionFlow(pattern_service)
+        self.wait_for_step_completion = WaitForStepCompletionFlow(pattern_service)
 
         self.example_flow = ExampleFlow()
         self.step = StepFlow()
@@ -226,7 +226,7 @@ class ExampleApp:
             self.resettable_timer,
             self.user_profile,
             self.timeout,
-            self.wait_for_state_completion,
+            self.wait_for_step_completion,
             self.example_flow,
             self.step,
             self.step_retry,

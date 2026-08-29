@@ -281,8 +281,8 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
-            name: "patterns/wait-for-state-completion",
-            path: "/patterns/wait-for-state-completion/start",
+            name: "patterns/wait-for-step-completion",
+            path: "/patterns/wait-for-step-completion/start",
             query: query(&client.new_flow_id("wait-for-state")),
             flags: FlowSmokeFlags::NONE,
         },

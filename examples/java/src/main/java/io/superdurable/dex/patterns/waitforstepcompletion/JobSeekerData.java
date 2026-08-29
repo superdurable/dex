@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package io.superdurable.dex.patterns.waitforstatecompletion;
+package io.superdurable.dex.patterns.waitforstepcompletion;
 
 public class JobSeekerData {
     public Integer id;

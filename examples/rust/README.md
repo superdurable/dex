@@ -79,7 +79,7 @@ remain split so their orchestration boundaries are visible.
 | Resettable timer | [`ResettableTimerFlow`](src/patterns/resettable_timer.rs) | Reset Channel racing an identified timer |
 | Entity Store | [`UserProfileFlow`](src/patterns/entity_store.rs) | Attribute Store projection and profile RPCs |
 | Timeout handling | [`FlowGracefulTimeout`](src/patterns/timeout.rs) | Task-versus-timeout race and forced completion/failure |
-| Wait for state completion | [`WaitForStateCompletionFlow`](src/patterns/wait_for_state_completion.rs) | `Client::wait_for_step_completion` target followed by background work |
+| Wait for Step completion | [`WaitForStepCompletionFlow`](src/patterns/wait_for_step_completion.rs) | `Client::wait_for_step_completion` target followed by background work |
 
 The Java retrying-Worker example, Python basic/resource-control/AI-agent examples,
 and Go dataset-deal example (separate `dex-dataset-deal` binary) are language-specific
