@@ -17,12 +17,15 @@
 package io.superdurable.dex.patterns.timeout;
 
 import io.superdurable.dex.Client;
-import io.superdurable.dex.shared.ExampleFlows;
+import io.superdurable.dex.FlowTimeoutPolicy;
+import io.superdurable.dex.StartFlowOptions;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Duration;
 
 @RestController
 @RequestMapping("/patterns/timeout")
@@ -45,7 +48,10 @@ public class TimeoutController {
                 flowGracefulTimeout,
                 workflowId,
                 successfulWorkflow,
-                ExampleFlows.startOptions());
+                StartFlowOptions.newBuilder()
+                        .timeout(Duration.ofMinutes(1))
+                        .timeoutPolicy(FlowTimeoutPolicy.HANDLER)
+                        .build());
         return ResponseEntity.ok(String.format("success for workflow %s", workflowId));
     }
 }

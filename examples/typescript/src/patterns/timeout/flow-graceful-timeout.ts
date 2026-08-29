@@ -16,13 +16,11 @@
 
 import {
   StepList,
-  StepMovement,
   Timer,
   Wait,
   booleanCodec,
   forceComplete,
   forceFail,
-  goToMany,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -30,42 +28,11 @@ import {
   type StepDecision,
 } from "@superdurable/dex";
 
-class Init implements Step<boolean> {
-  public readonly inputCodec = booleanCodec;
-
-  public constructor(private readonly flow: FlowGracefulTimeout) {}
-
-  public getStepType(): string {
-    return "Init";
-  }
-
-  public execute(_context: Context, workflowSuccessful: boolean): StepDecision {
-    return goToMany(
-      StepMovement.of(Timeout, undefined),
-      StepMovement.of(Task, workflowSuccessful),
-    );
-  }
-}
-
-class Timeout implements Step<void> {
-  public getStepType(): string {
-    return "Timeout";
-  }
-
-  public waitFor(_context: Context, _input: void): Wait {
-    return Wait.until(Timer.byDuration(60_000));
-  }
-
-  public execute(_context: Context, _input: void): StepDecision {
-    return forceFail("Workflow did not finish the task in time");
-  }
-}
-
-class Task implements Step<boolean> {
+class LongWaitStep implements Step<boolean> {
   public readonly inputCodec = booleanCodec;
 
   public getStepType(): string {
-    return "Task";
+    return "LongWaitStep";
   }
 
   public waitFor(_context: Context, workflowSuccessful: boolean): Wait {
@@ -81,28 +48,22 @@ class Task implements Step<boolean> {
 }
 
 export class FlowGracefulTimeout implements Flow<boolean> {
-  private readonly initStep = new Init(this);
-  private readonly timeout = new Timeout();
-  private readonly task = new Task();
-
-  public get timeoutStep(): Step<void> {
-    return this.timeout;
-  }
-
-  public get taskStep(): Step<boolean> {
-    return this.task;
-  }
+  private readonly longWaitStep = new LongWaitStep();
 
   public getFlowType(): string {
     return "FlowGracefulTimeout";
   }
 
   public getSteps() {
-    return StepList.startStep(this.initStep).otherSteps(this.timeout, this.task);
+    return StepList.startStep(this.longWaitStep);
   }
 
   public getPersistenceSchema(): PersistenceSchema {
     return {};
+  }
+
+  public handleTimeout(_context: Context): StepDecision {
+    return forceFail("Workflow did not finish the task in time");
   }
 }
 

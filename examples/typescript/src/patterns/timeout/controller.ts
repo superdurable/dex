@@ -16,7 +16,7 @@
 
 import { Router } from "express";
 
-import type { Client } from "@superdurable/dex";
+import { FlowTimeoutPolicy, type Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
 import { flowGracefulTimeout } from "./flow-graceful-timeout.js";
@@ -31,7 +31,11 @@ export function createTimeoutRouter(client: Client): Router {
       flowGracefulTimeout,
       workflowId,
       successfulWorkflow,
-      startOptions(),
+      {
+        ...startOptions(),
+        timeoutMs: 60_000,
+        timeoutPolicy: FlowTimeoutPolicy.HANDLER,
+      },
     );
     response.send(`success for workflow ${workflowId}`);
   });

@@ -36,9 +36,7 @@ func NewFlowGracefulTimeout() *FlowGracefulTimeout {
 
 func (*FlowGracefulTimeout) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStartStep(initStep{}),
-		dex.DefineStep(timeoutStep{}),
-		dex.DefineStep(taskStep{}),
+		dex.DefineStartStep(longWaitStep{}),
 	}
 }
 
@@ -46,44 +44,12 @@ func (*FlowGracefulTimeout) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{}
 }
 
-type initStep struct {
-	dex.StepDefaultsNoWaitFor[bool]
-}
-
-func (initStep) Execute(
-	ctx dex.Context,
-	workflowSuccessful bool,
-) (*dex.StepDecision, error) {
-	return dex.GoToMany(
-		dex.MovementOf(timeoutStep{}, nil),
-		dex.MovementOf(taskStep{}, workflowSuccessful),
-	), nil
-}
-
-type timeoutStep struct {
+type longWaitStep struct {
 	dex.StepDefaults
 }
 
-func (timeoutStep) WaitFor(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.Wait, error) {
-	return dex.Until(dex.Timer(time.Minute)), nil
-}
-
-func (timeoutStep) Execute(
-	ctx dex.Context,
-	_ dex.None,
-) (*dex.StepDecision, error) {
-	return dex.ForceFail("Workflow did not finish the task in time"), nil
-}
-
-type taskStep struct {
-	dex.StepDefaults
-}
-
-func (taskStep) WaitFor(
-	ctx dex.Context,
+func (longWaitStep) WaitFor(
+	_ dex.Context,
 	workflowSuccessful bool,
 ) (*dex.Wait, error) {
 	if workflowSuccessful {
@@ -92,11 +58,18 @@ func (taskStep) WaitFor(
 	return dex.Until(dex.Timer(65 * time.Second)), nil
 }
 
-func (taskStep) Execute(
-	ctx dex.Context,
+func (longWaitStep) Execute(
+	_ dex.Context,
 	_ bool,
 ) (*dex.StepDecision, error) {
 	return dex.ForceComplete("Workflow completed successfully"), nil
 }
 
+func (*FlowGracefulTimeout) HandleTimeout(
+	_ dex.Context,
+) (*dex.StepDecision, error) {
+	return dex.ForceFail("Workflow did not finish the task in time"), nil
+}
+
 var _ dex.Flow = (*FlowGracefulTimeout)(nil)
+var _ dex.FlowTimeoutHandler = (*FlowGracefulTimeout)(nil)

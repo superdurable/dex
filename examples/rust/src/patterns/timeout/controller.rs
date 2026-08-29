@@ -19,6 +19,9 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
+use std::time::Duration;
+
+use dex_sdk::{FlowTimeoutPolicy, StartFlowOptions};
 
 use crate::patterns::timeout::flow::FlowGracefulTimeout;
 use crate::server::helpers::{
@@ -50,7 +53,14 @@ async fn start(
         let flow = FlowGracefulTimeout::default();
         let input = true;
         client
-            .start_flow(&flow, &flow_id, input)
+            .start_flow_with_options(
+                &flow,
+                &flow_id,
+                input,
+                StartFlowOptions::new()
+                    .timeout(Duration::from_secs(60))
+                    .timeout_policy(FlowTimeoutPolicy::Handler),
+            )
             .map(|run_id| StartResponse { flow_id, run_id })
     }) {
         Ok(value) => ok_json(value),

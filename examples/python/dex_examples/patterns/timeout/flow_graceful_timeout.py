@@ -23,29 +23,16 @@ from dex import (
     Step,
     StepDecision,
     StepList,
-    StepMovement,
     Timer,
     Wait,
     force_complete,
     force_fail,
-    go_to_many,
 )
 
-TIMEOUT_DURATION = timedelta(minutes=1)
 SLOW_TASK_DURATION = timedelta(seconds=65)
 
 
-class Timeout(Step[None]):
-    def wait_for(self, context: Context, input: None) -> Wait:
-        del context, input
-        return Wait.until(Timer.by_duration(TIMEOUT_DURATION))
-
-    def execute(self, context: Context, input: None) -> StepDecision:
-        del context, input
-        return force_fail("Workflow did not finish the task in time")
-
-
-class Task(Step[bool]):
+class LongWaitStep(Step[bool]):
     def wait_for(self, context: Context, input: bool) -> Wait:
         del context
         if input:
@@ -57,27 +44,16 @@ class Task(Step[bool]):
         return force_complete("Workflow completed successfully")
 
 
-class Init(Step[bool]):
-    def __init__(self, timeout: Timeout, task: Task) -> None:
-        self.timeout = timeout
-        self.task = task
-
-    def execute(self, context: Context, input: bool) -> StepDecision:
-        del context
-        return go_to_many(
-            StepMovement.of(Timeout, None),
-            StepMovement.of(Task, input),
-        )
-
-
 class FlowGracefulTimeout(Flow[bool]):
     def __init__(self) -> None:
-        self.timeout = Timeout()
-        self.task = Task()
-        self.init = Init(self.timeout, self.task)
+        self.long_wait_step = LongWaitStep()
 
     def get_steps(self) -> StepList[bool]:
-        return StepList.start_step(self.init).other_steps(self.timeout, self.task)
+        return StepList.start_step(self.long_wait_step)
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of()
+
+    def handle_timeout(self, context: Context) -> StepDecision:
+        del context
+        return force_fail("Workflow did not finish the task in time")

@@ -14,10 +14,13 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from quart import Blueprint
 
+from dex import FlowTimeoutPolicy, StartFlowOptions
+
 from dex_examples.app import ExampleApp
-from dex_examples.config import start_options
 from dex_examples.shared.query import optional_query, required_query
 
 
@@ -31,7 +34,10 @@ def create_timeout_blueprint(app_state: ExampleApp) -> Blueprint:
             app_state.timeout,
             flow_id,
             optional_query("successfulWorkflow", "true").lower() == "true",
-            start_options(),
+            StartFlowOptions(
+                timeout=timedelta(minutes=1),
+                timeout_policy=FlowTimeoutPolicy.HANDLER,
+            ),
         )
         return f"success for workflow {flow_id}"
 
