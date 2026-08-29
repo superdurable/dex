@@ -36,6 +36,7 @@ from dex.codec import (
 )
 from dex.condition import ConditionCombination
 from dex.context import Context
+from dex._grpc_errors import RetryAfterError, retry_after
 from dex.flow import Flow, PersistenceSchema, Registry, RPCResult, rpc
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_info import (
