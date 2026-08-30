@@ -133,7 +133,7 @@ const sidebars: SidebarsConfig = {
       items: [
         'use-cases/money-transfer',
         'use-cases/microservice-orchestration',
-        'use-cases/engagement',
+        'use-cases/job-seeker-engagement',
         'use-cases/subscription',
         'use-cases/polling',
         'use-cases/signup',
