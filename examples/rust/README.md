@@ -41,7 +41,7 @@ Every shared product example has a distinct Rust Flow and implementation file.
 
 | Java/Python/TypeScript example | Rust Flow | Demonstrated SDK features |
 |---|---|---|
-| Money transfer | [`MoneyTransferFlow`](src/products/money_transfer.rs) | Execute retry and debit compensation |
+| Money transfer | [`MoneyTransferFlow`](src/products/money_transfer/flow.rs) | Debit/credit saga, Execute retry, and compensation |
 | Order processing | [`OrderProcessingFlow`](src/products/order_processing) | Charge, seller Channel + reminder Timer, ship retry, refund |
 | Microservice orchestration | [`OrchestrationFlow`](src/products/microservices.rs) | Parallel Steps, Attribute swap RPC, Channel-or-timer wait |
 | Engagement | [`EngagementFlow`](src/products/engagement.rs) | Indexed status, decision RPCs, reminders, external notification |
