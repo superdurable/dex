@@ -79,6 +79,17 @@ Keep the Cursor (`.cursor/rules/`), Codex (`AGENTS.md`), and Claude
 (`CLAUDE.md`) coding-agent rules synchronized. Any addition or modification to
 one requires equivalent updates to all three in the same commit.
 
+### Temporal Skill Routing
+
+- In this repository, use the `temporal-developer` skill only when changing or
+  diagnosing `server/service/interpreter/**` requires Temporal runtime or SDK
+  semantics.
+- Do not use it for other modules, SDKs, examples, docs, routine integration
+  tests, or merely because Temporal, workflow, signal, query, worker,
+  heartbeat, or `temporalIntegTests` is mentioned.
+- An explicit user request to use `temporal-developer` overrides this
+  restriction.
+
 ### Regenerate the Entire Repository After Proto Changes
 
 Whenever any `.proto` file changes, run `make generated-code` from the repository
