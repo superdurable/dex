@@ -11,6 +11,7 @@ Unlike replay-based durable execution engines, Dex does not split your logic int
 
 Learn more: [What is Durable Execution?](https://docs.superdurable.io/intro/what-is-durable-execution) · [Why Dex?](https://docs.superdurable.io/intro/what-is-dex)
 
+AI coding assistants can use the repository's [Dex Developer skill](skills/dex-developer/SKILL.md) to build, test, and operate Dex applications through Dex's public programming model.
 
 ## Quick start
 
