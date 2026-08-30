@@ -17,6 +17,8 @@ A **Client** invokes an RPC. **Dex Server** sends it to a **Worker**. The **Work
 
 RPC can read and write durable state through Attributes, publish Channels, and trigger a brand-new Step to run.
 
+Each RPC invocation is a commit boundary. Dex Server stages the Attribute writes and Channel publications from the RPC, then commits them together with the RPC result only after the method returns successfully. If the RPC fails, none of those durable changes are committed. External API calls are outside this atomic boundary.
+
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/primitives/rpc',
