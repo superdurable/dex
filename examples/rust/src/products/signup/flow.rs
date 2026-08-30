@@ -111,7 +111,6 @@ impl Step for Submit {
     type Input = String;
 
     fn execute(&self, context: &mut Context, email: Self::Input) -> HandlerResult<StepDecision> {
-        ONBOARDING_STATUS.set(context, WAITING_FOR_VERIFICATION.to_string())?;
         context.record_event("verification-email", email.clone())?;
         Ok(StepDecision::go_to(&VerifyEmail, email))
     }
@@ -123,7 +122,8 @@ struct VerifyEmail;
 impl Step for VerifyEmail {
     type Input = String;
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        ONBOARDING_STATUS.set(context, WAITING_FOR_VERIFICATION.to_string())?;
         Ok(Wait::any_of([
             VERIFY_EMAIL.for_one(),
             Timer::by_duration(Duration::from_secs(24)),
@@ -132,7 +132,6 @@ impl Step for VerifyEmail {
 
     fn execute(&self, context: &mut Context, email: Self::Input) -> HandlerResult<StepDecision> {
         if !VERIFY_EMAIL.condition_results(context)?.is_empty() {
-            ONBOARDING_STATUS.set(context, WAITING_FOR_TASK_1.to_string())?;
             context.record_event("onboarding-task-1", email.clone())?;
             return Ok(StepDecision::go_to(&AccomplishTask1, email));
         }
@@ -147,7 +146,8 @@ struct AccomplishTask1;
 impl Step for AccomplishTask1 {
     type Input = String;
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        ONBOARDING_STATUS.set(context, WAITING_FOR_TASK_1.to_string())?;
         Ok(Wait::any_of([
             TASK_1_COMPLETED.for_one(),
             Timer::by_duration(Duration::from_secs(24)),
@@ -156,7 +156,6 @@ impl Step for AccomplishTask1 {
 
     fn execute(&self, context: &mut Context, email: Self::Input) -> HandlerResult<StepDecision> {
         if !TASK_1_COMPLETED.condition_results(context)?.is_empty() {
-            ONBOARDING_STATUS.set(context, WAITING_FOR_TASK_2.to_string())?;
             context.record_event("onboarding-task-2", email.clone())?;
             return Ok(StepDecision::go_to(&AccomplishTask2, email));
         }
@@ -171,7 +170,8 @@ struct AccomplishTask2;
 impl Step for AccomplishTask2 {
     type Input = String;
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        ONBOARDING_STATUS.set(context, WAITING_FOR_TASK_2.to_string())?;
         Ok(Wait::any_of([
             TASK_2_COMPLETED.for_one(),
             Timer::by_duration(Duration::from_secs(24)),

@@ -41,7 +41,7 @@ Go、Java、Python、TypeScript 和 Rust 示例都实现并通过集成测试覆
 - [**可中断等待**](/design-patterns/interruptible)使用 **AnyOf**，让 Channel 消息可以在提醒 Timer 之前唤醒 Step。
 - [**响应式更新**](/design-patterns/responsive-update)使用 RPC 校验当前阶段，并在 Flow 等待期间发布对应的 Channel 消息。
 - **顺序状态机**明确规定邮箱验证和两个任务的顺序，后面的任务不能绕过前面的任务。
-- **持久进度状态**将当前阶段保存在 **Status** Attribute 中，让 RPC 和运维人员观察同一份状态。
+- **持久进度状态**由每个目标阶段的 **WaitFor** 方法记录。**Status** Attribute 会在持久等待安装时更新，因此 RPC 和运维人员看到的就是 Flow 当前实际等待的阶段。
 - **幂等副作用**让重试的 Step 可以安全地重新调用具备外部去重能力的邮件服务。
 
 邮箱验证、任务 1 和任务 2 分别使用独立的 Channel。这样每个外部动作只会解除一个等待，也能直接拒绝无效状态转换。
@@ -99,6 +99,7 @@ class UserOnboardingFlow(Flow[SignupForm]):
 ```python
 class AccomplishTask1(Step[None]):
     def wait_for(self, context: Context, input: None) -> Wait:
+        self.status.set(context, "waiting_for_task_1")
         return Wait.any_of(
             Timer.by_duration(timedelta(seconds=24)),
             self.task_1_completed.for_one(),
@@ -107,7 +108,6 @@ class AccomplishTask1(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         signup_form = self.form.get(context)
         if self.task_1_completed.results(context):
-            self.status.set(context, "waiting_for_task_2")
             self.service.send_email(
                 signup_form.email,
                 "complete onboarding task 2",
@@ -161,7 +161,10 @@ func (*UserOnboardingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 ```
 
 ```go
-func (accomplishTask1Step) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+func (accomplishTask1Step) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
+	if err := Status.Set(ctx, StatusWaitingForTask1); err != nil {
+		return nil, err
+	}
 	return dex.AnyOf(dex.Timer(24*time.Second), Task1Completed.ForOne()), nil
 }
 
@@ -178,9 +181,6 @@ func (step accomplishTask1Step) Execute(
 		return nil, err
 	}
 	if len(results) > 0 {
-		if err := Status.Set(ctx, StatusWaitingForTask2); err != nil {
-			return nil, err
-		}
 		step.service.SendEmail(form.Email, "complete onboarding task 2", "task 2 is ready")
 		return dex.GoTo(accomplishTask2Step{}, nil), nil
 	}
@@ -230,6 +230,7 @@ public class UserOnboardingFlow implements Flow<SignupForm> {
 final class AccomplishTask1 implements Step<Void> {
     @Override
     public Wait waitFor(final Context context, final Void input) {
+        status.set(context, WAITING_FOR_TASK_1);
         return Wait.anyOf(
                 Timer.byDuration(Duration.ofSeconds(24)),
                 task1Completed.forOne());
@@ -239,7 +240,6 @@ final class AccomplishTask1 implements Step<Void> {
     public StepDecision execute(final Context context, final Void input) {
         final SignupForm signupForm = form.get(context);
         if (!task1Completed.getConditionResults(context).isEmpty()) {
-            status.set(context, WAITING_FOR_TASK_2);
             service.sendEmail(
                     signupForm.email,
                     "complete onboarding task 2",
@@ -293,14 +293,14 @@ export class UserOnboardingFlow implements Flow<SignupForm> {
 
 ```typescript
 class AccomplishTask1 implements Step<void> {
-  public waitFor(_context: Context, _input: void): Wait {
+  public waitFor(context: Context, _input: void): Wait {
+    this.flow.status.set(context, "waiting_for_task_1");
     return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), task1Completed.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
     const signupForm = this.flow.form.get(context);
     if (task1Completed.results(context).length > 0) {
-      this.flow.status.set(context, "waiting_for_task_2");
       this.flow.service.sendEmail(
         signupForm.email,
         "complete onboarding task 2",
@@ -361,7 +361,8 @@ impl Flow for UserOnboardingFlow {
 impl Step for AccomplishTask1 {
     type Input = String;
 
-    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+    fn wait_for(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        ONBOARDING_STATUS.set(context, WAITING_FOR_TASK_1.to_string())?;
         Ok(Wait::any_of([
             TASK_1_COMPLETED.for_one(),
             Timer::by_duration(Duration::from_secs(24)),
@@ -370,7 +371,6 @@ impl Step for AccomplishTask1 {
 
     fn execute(&self, context: &mut Context, email: Self::Input) -> HandlerResult<StepDecision> {
         if !TASK_1_COMPLETED.condition_results(context)?.is_empty() {
-            ONBOARDING_STATUS.set(context, WAITING_FOR_TASK_2.to_string())?;
             context.record_event("onboarding-task-2", email.clone())?;
             return Ok(StepDecision::go_to(&AccomplishTask2, email));
         }

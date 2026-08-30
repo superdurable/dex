@@ -112,7 +112,6 @@ class Submit implements Step<SignupForm> {
 
   public execute(context: Context, input: SignupForm): StepDecision {
     this.flow.form.set(context, input);
-    this.flow.status.set(context, "waiting_for_verification");
     this.flow.service.sendEmail(input.email, "verify your email", "start your onboarding");
     return goTo(VerifyEmail, undefined);
   }
@@ -125,14 +124,14 @@ class VerifyEmail implements Step<void> {
     return "VerifyEmail";
   }
 
-  public waitFor(_context: Context, _input: void): Wait {
+  public waitFor(context: Context, _input: void): Wait {
+    this.flow.status.set(context, "waiting_for_verification");
     return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), verifyEmail.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
     const signupForm = this.flow.form.get(context);
     if (verifyEmail.results(context).length > 0) {
-      this.flow.status.set(context, "waiting_for_task_1");
       this.flow.service.sendEmail(
         signupForm.email,
         "complete onboarding task 1",
@@ -156,14 +155,14 @@ class AccomplishTask1 implements Step<void> {
     return "AccomplishTask1";
   }
 
-  public waitFor(_context: Context, _input: void): Wait {
+  public waitFor(context: Context, _input: void): Wait {
+    this.flow.status.set(context, "waiting_for_task_1");
     return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), task1Completed.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
     const signupForm = this.flow.form.get(context);
     if (task1Completed.results(context).length > 0) {
-      this.flow.status.set(context, "waiting_for_task_2");
       this.flow.service.sendEmail(
         signupForm.email,
         "complete onboarding task 2",
@@ -187,7 +186,8 @@ class AccomplishTask2 implements Step<void> {
     return "AccomplishTask2";
   }
 
-  public waitFor(_context: Context, _input: void): Wait {
+  public waitFor(context: Context, _input: void): Wait {
+    this.flow.status.set(context, "waiting_for_task_2");
     return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), task2Completed.forOne());
   }
 

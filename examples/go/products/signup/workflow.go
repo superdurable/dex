@@ -137,9 +137,6 @@ func (step submitStep) Execute(
 	if err := Form.Set(ctx, input); err != nil {
 		return nil, err
 	}
-	if err := Status.Set(ctx, StatusWaitingForVerification); err != nil {
-		return nil, err
-	}
 	step.service.SendEmail(input.Email, "verify your email", "start your onboarding")
 	return dex.GoTo(verifyEmailStep{}, nil), nil
 }
@@ -149,7 +146,10 @@ type verifyEmailStep struct {
 	service service.MyService
 }
 
-func (verifyEmailStep) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+func (verifyEmailStep) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
+	if err := Status.Set(ctx, StatusWaitingForVerification); err != nil {
+		return nil, err
+	}
 	return dex.AnyOf(dex.Timer(24*time.Second), VerifyEmail.ForOne()), nil
 }
 
@@ -166,9 +166,6 @@ func (step verifyEmailStep) Execute(
 		return nil, err
 	}
 	if len(results) > 0 {
-		if err := Status.Set(ctx, StatusWaitingForTask1); err != nil {
-			return nil, err
-		}
 		step.service.SendEmail(form.Email, "complete onboarding task 1", "task 1 is ready")
 		return dex.GoTo(accomplishTask1Step{}, nil), nil
 	}
@@ -181,7 +178,10 @@ type accomplishTask1Step struct {
 	service service.MyService
 }
 
-func (accomplishTask1Step) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+func (accomplishTask1Step) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
+	if err := Status.Set(ctx, StatusWaitingForTask1); err != nil {
+		return nil, err
+	}
 	return dex.AnyOf(dex.Timer(24*time.Second), Task1Completed.ForOne()), nil
 }
 
@@ -198,9 +198,6 @@ func (step accomplishTask1Step) Execute(
 		return nil, err
 	}
 	if len(results) > 0 {
-		if err := Status.Set(ctx, StatusWaitingForTask2); err != nil {
-			return nil, err
-		}
 		step.service.SendEmail(form.Email, "complete onboarding task 2", "task 2 is ready")
 		return dex.GoTo(accomplishTask2Step{}, nil), nil
 	}
@@ -213,7 +210,10 @@ type accomplishTask2Step struct {
 	service service.MyService
 }
 
-func (accomplishTask2Step) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+func (accomplishTask2Step) WaitFor(ctx dex.Context, _ dex.None) (*dex.Wait, error) {
+	if err := Status.Set(ctx, StatusWaitingForTask2); err != nil {
+		return nil, err
+	}
 	return dex.AnyOf(dex.Timer(24*time.Second), Task2Completed.ForOne()), nil
 }
 

@@ -49,6 +49,7 @@ class VerifyEmail(Step[None]):
         self.status = status
 
     def wait_for(self, context: Context, input: None) -> Wait:
+        self.status.set(context, "waiting_for_verification")
         return Wait.any_of(
             Timer.by_duration(timedelta(seconds=24)),
             self.verify_email.for_one(),
@@ -57,7 +58,6 @@ class VerifyEmail(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         signup_form = self.form.get(context)
         if self.verify_email.results(context):
-            self.status.set(context, "waiting_for_task_1")
             self.service.send_email(
                 signup_form.email,
                 "complete onboarding task 1",
@@ -86,6 +86,7 @@ class AccomplishTask1(Step[None]):
         self.task_1_completed = task_1_completed
 
     def wait_for(self, context: Context, input: None) -> Wait:
+        self.status.set(context, "waiting_for_task_1")
         return Wait.any_of(
             Timer.by_duration(timedelta(seconds=24)),
             self.task_1_completed.for_one(),
@@ -94,7 +95,6 @@ class AccomplishTask1(Step[None]):
     def execute(self, context: Context, input: None) -> StepDecision:
         signup_form = self.form.get(context)
         if self.task_1_completed.results(context):
-            self.status.set(context, "waiting_for_task_2")
             self.service.send_email(
                 signup_form.email,
                 "complete onboarding task 2",
@@ -123,6 +123,7 @@ class AccomplishTask2(Step[None]):
         self.task_2_completed = task_2_completed
 
     def wait_for(self, context: Context, input: None) -> Wait:
+        self.status.set(context, "waiting_for_task_2")
         return Wait.any_of(
             Timer.by_duration(timedelta(seconds=24)),
             self.task_2_completed.for_one(),
@@ -161,7 +162,6 @@ class Submit(Step[SignupForm]):
 
     def execute(self, context: Context, input: SignupForm) -> StepDecision:
         self.form.set(context, input)
-        self.status.set(context, "waiting_for_verification")
         self.service.send_email(input.email, "verify your email", "start your onboarding")
         return go_to(VerifyEmail, None)
 

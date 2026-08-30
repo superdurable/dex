@@ -105,7 +105,6 @@ public class UserOnboardingFlow implements Flow<SignupForm> {
         @Override
         public StepDecision execute(final Context context, final SignupForm input) {
             form.set(context, input);
-            status.set(context, WAITING_FOR_VERIFICATION);
             service.sendEmail(input.email, "verify your email", "start your onboarding");
             return StepDecision.goTo(VerifyEmail.class, null);
         }
@@ -119,6 +118,7 @@ public class UserOnboardingFlow implements Flow<SignupForm> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
+            status.set(context, WAITING_FOR_VERIFICATION);
             return Wait.anyOf(
                     Timer.byDuration(Duration.ofSeconds(24)),
                     verifyEmail.forOne());
@@ -128,7 +128,6 @@ public class UserOnboardingFlow implements Flow<SignupForm> {
         public StepDecision execute(final Context context, final Void input) {
             final SignupForm signupForm = form.get(context);
             if (!verifyEmail.getConditionResults(context).isEmpty()) {
-                status.set(context, WAITING_FOR_TASK_1);
                 service.sendEmail(signupForm.email, "complete onboarding task 1", "task 1 is ready");
                 return StepDecision.goTo(AccomplishTask1.class, null);
             }
@@ -145,6 +144,7 @@ public class UserOnboardingFlow implements Flow<SignupForm> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
+            status.set(context, WAITING_FOR_TASK_1);
             return Wait.anyOf(
                     Timer.byDuration(Duration.ofSeconds(24)),
                     task1Completed.forOne());
@@ -154,7 +154,6 @@ public class UserOnboardingFlow implements Flow<SignupForm> {
         public StepDecision execute(final Context context, final Void input) {
             final SignupForm signupForm = form.get(context);
             if (!task1Completed.getConditionResults(context).isEmpty()) {
-                status.set(context, WAITING_FOR_TASK_2);
                 service.sendEmail(signupForm.email, "complete onboarding task 2", "task 2 is ready");
                 return StepDecision.goTo(AccomplishTask2.class, null);
             }
@@ -171,6 +170,7 @@ public class UserOnboardingFlow implements Flow<SignupForm> {
 
         @Override
         public Wait waitFor(final Context context, final Void input) {
+            status.set(context, WAITING_FOR_TASK_2);
             return Wait.anyOf(
                     Timer.byDuration(Duration.ofSeconds(24)),
                     task2Completed.forOne());
