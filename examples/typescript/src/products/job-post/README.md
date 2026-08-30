@@ -1,8 +1,9 @@
-# Job post
+# Job posting
 
-CRUD job post with indexed attributes and external-system updates. Create seeds
-initial attributes; update starts the ExternalUpdate step; search uses Dex
-SearchFlows.
+CRUD job posting with indexed Attributes and job-board updates. Create seeds
+initial Attributes. The update RPC locks Title before starting the LinkedIn and
+Indeed Steps in parallel. Each Step uses a destination-specific lock so repeated
+updates to one job board execute serially. Search uses Dex SearchFlows.
 
 The Worker synchronizes the job-post Indexed Attributes automatically before
 opening its listener.

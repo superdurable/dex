@@ -22,6 +22,7 @@ package jobpost
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/superdurable/dex/examples/go/shared/service"
@@ -41,7 +42,20 @@ var (
 		"LastUpdateTimeMillis",
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexInt}),
 	)
-	Notes = dex.DefineAttribute[string]("Notes")
+	Notes                  = dex.DefineAttribute[string]("Notes")
+	UpdateVersion          = dex.DefineAttribute[int]("UpdateVersion")
+	UpdatePostingLock      = dex.DefineAttribute[dex.None]("UpdatePostingLock")
+	LinkedInPostingUpdates = dex.DefineChannel[PostingUpdate](
+		"LinkedInPostingUpdates",
+	)
+	IndeedPostingUpdates = dex.DefineChannel[PostingUpdate](
+		"IndeedPostingUpdates",
+	)
+)
+
+const (
+	UpdateLinkedInPostingStepType = "UpdateLinkedInPosting"
+	UpdateIndeedPostingStepType   = "UpdateIndeedPosting"
 )
 
 type JobInfo struct {
@@ -50,28 +64,44 @@ type JobInfo struct {
 	Notes       string
 }
 
-type JobPostFlow struct {
+type PostingUpdate struct {
+	Version        int
+	IdempotencyKey string
+	Posting        JobInfo
+}
+
+type JobPostingFlow struct {
 	dex.FlowDefaults
 	service service.MyService
 }
 
-func NewJobPostFlow(applicationService service.MyService) *JobPostFlow {
-	return &JobPostFlow{service: applicationService}
+func NewJobPostingFlow(applicationService service.MyService) *JobPostingFlow {
+	return &JobPostingFlow{service: applicationService}
 }
 
-func (flow *JobPostFlow) GetSteps() []dex.StepDef {
+func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStep(externalUpdateStep{service: flow.service}),
+		dex.DefineStartStep(InitStep{}),
+		dex.DefineStep(UpdateLinkedInPosting{service: flow.service}),
+		dex.DefineStep(UpdateIndeedPosting{service: flow.service}),
 	}
 }
 
-func (*JobPostFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*JobPostingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{Title, JobDescription, LastUpdateTimeMillis, Notes},
+		Attributes: []dex.AttributeDef{
+			Title,
+			JobDescription,
+			LastUpdateTimeMillis,
+			Notes,
+			UpdateVersion,
+			UpdatePostingLock,
+		},
+		Channels: []dex.ChannelDef{LinkedInPostingUpdates, IndeedPostingUpdates},
 	}
 }
 
-func (*JobPostFlow) Get(
+func (*JobPostingFlow) Get(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[JobInfo], error) {
@@ -82,7 +112,7 @@ func (*JobPostFlow) Get(
 	return &dex.RPCResult[JobInfo]{Output: info}, nil
 }
 
-func (*JobPostFlow) GetWithStrongConsistency(
+func (*JobPostingFlow) GetWithStrongConsistency(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[JobInfo], error) {
@@ -93,10 +123,15 @@ func (*JobPostFlow) GetWithStrongConsistency(
 	return &dex.RPCResult[JobInfo]{Output: info}, nil
 }
 
-func (*JobPostFlow) Update(
+func (*JobPostingFlow) Update(
 	ctx dex.Context,
 	input JobInfo,
-) (*dex.RPCResult[dex.None], error) {
+) (*dex.RPCResult[int], error) {
+	version, err := UpdateVersion.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	version++
 	if err := Title.Set(ctx, input.Title); err != nil {
 		return nil, err
 	}
@@ -111,9 +146,27 @@ func (*JobPostFlow) Update(
 			return nil, err
 		}
 	}
-	return &dex.RPCResult[dex.None]{
-		NextSteps: []dex.StepMovement{dex.MovementOf(externalUpdateStep{}, nil)},
-	}, nil
+	if err := UpdateVersion.Set(ctx, version); err != nil {
+		return nil, err
+	}
+	update := PostingUpdate{
+		Version:        version,
+		IdempotencyKey: fmt.Sprintf("%s:%d", ctx.FlowID(), version),
+		Posting:        input,
+	}
+	if err := LinkedInPostingUpdates.Publish(ctx, update); err != nil {
+		return nil, err
+	}
+	if err := IndeedPostingUpdates.Publish(ctx, update); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[int]{Output: version}, nil
+}
+
+func UpdateInvokeOptions() dex.InvokeOptions {
+	return dex.InvokeOptions{
+		LockAttributes: []dex.AttributeLock{dex.LockAttribute(UpdatePostingLock)},
+	}
 }
 
 func readJobInfo(ctx dex.Context) (JobInfo, error) {
@@ -136,12 +189,121 @@ func readJobInfo(ctx dex.Context) (JobInfo, error) {
 	return JobInfo{Title: title, Description: description, Notes: notes}, nil
 }
 
-type externalUpdateStep struct {
+type InitStep struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
+}
+
+func (InitStep) GetStepType() string {
+	return "InitStep"
+}
+
+func (InitStep) Execute(
+	_ dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	return dex.GoToMany(
+		dex.MovementOf(UpdateLinkedInPosting{}, nil),
+		dex.MovementOf(UpdateIndeedPosting{}, nil),
+	), nil
+}
+
+type UpdateLinkedInPosting struct {
+	dex.StepDefaults
 	service service.MyService
 }
 
-func (externalUpdateStep) GetStepOptions() *dex.StepOptions {
+func (UpdateLinkedInPosting) GetStepOptions() *dex.StepOptions {
+	return jobBoardUpdateStepOptions()
+}
+
+func (UpdateLinkedInPosting) GetStepType() string {
+	return UpdateLinkedInPostingStepType
+}
+
+func (UpdateLinkedInPosting) WaitFor(
+	_ dex.Context,
+	_ dex.None,
+) (*dex.Wait, error) {
+	return dex.Until(LinkedInPostingUpdates.ForOne()), nil
+}
+
+func (step UpdateLinkedInPosting) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	update, err := linkedInPostingUpdate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	step.service.UpdateExternalSystem(fmt.Sprintf(
+		"update LinkedIn job posting v%d [%s]: %s",
+		update.Version,
+		update.IdempotencyKey,
+		update.Posting.Title,
+	))
+	return dex.GoTo(UpdateLinkedInPosting{}, nil), nil
+}
+
+func linkedInPostingUpdate(ctx dex.Context) (PostingUpdate, error) {
+	updates, err := LinkedInPostingUpdates.GetConditionResults(ctx)
+	if err != nil {
+		return PostingUpdate{}, err
+	}
+	if len(updates) != 1 {
+		return PostingUpdate{}, fmt.Errorf("expected one LinkedIn posting update, got %d", len(updates))
+	}
+	return updates[0], nil
+}
+
+type UpdateIndeedPosting struct {
+	dex.StepDefaults
+	service service.MyService
+}
+
+func (UpdateIndeedPosting) GetStepOptions() *dex.StepOptions {
+	return jobBoardUpdateStepOptions()
+}
+
+func (UpdateIndeedPosting) GetStepType() string {
+	return UpdateIndeedPostingStepType
+}
+
+func (UpdateIndeedPosting) WaitFor(
+	_ dex.Context,
+	_ dex.None,
+) (*dex.Wait, error) {
+	return dex.Until(IndeedPostingUpdates.ForOne()), nil
+}
+
+func (step UpdateIndeedPosting) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	update, err := indeedPostingUpdate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	step.service.UpdateExternalSystem(fmt.Sprintf(
+		"update Indeed job posting v%d [%s]: %s",
+		update.Version,
+		update.IdempotencyKey,
+		update.Posting.Title,
+	))
+	return dex.GoTo(UpdateIndeedPosting{}, nil), nil
+}
+
+func indeedPostingUpdate(ctx dex.Context) (PostingUpdate, error) {
+	updates, err := IndeedPostingUpdates.GetConditionResults(ctx)
+	if err != nil {
+		return PostingUpdate{}, err
+	}
+	if len(updates) != 1 {
+		return PostingUpdate{}, fmt.Errorf("expected one Indeed posting update, got %d", len(updates))
+	}
+	return updates[0], nil
+}
+
+func jobBoardUpdateStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval:    3 * time.Second,
@@ -153,12 +315,4 @@ func (externalUpdateStep) GetStepOptions() *dex.StepOptions {
 	}
 }
 
-func (step externalUpdateStep) Execute(
-	_ dex.Context,
-	_ dex.None,
-) (*dex.StepDecision, error) {
-	step.service.UpdateExternalSystem("this is an update to external service")
-	return dex.DeadEnd(), nil
-}
-
-var _ dex.Flow = (*JobPostFlow)(nil)
+var _ dex.Flow = (*JobPostingFlow)(nil)

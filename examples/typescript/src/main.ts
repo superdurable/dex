@@ -52,7 +52,7 @@ import { createSubflowRouter } from "./primitives/subflow/controller.js";
 import { createTimerRouter } from "./primitives/timer/controller.js";
 import { createWaitTypesRouter } from "./primitives/wait-types/controller.js";
 import { createEngagementRouter } from "./products/engagement/controller.js";
-import { createJobPostRouter } from "./products/job-post/controller.js";
+import { createJobPostingRouter } from "./products/job-post/controller.js";
 import { createMicroserviceRouter } from "./products/microservices/controller.js";
 import { createMoneyTransferRouter } from "./products/money-transfer/controller.js";
 import { createOrderProcessingRouter } from "./products/order-processing/controller.js";
@@ -98,7 +98,7 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/products/engagement", createEngagementRouter(client));
   app.use("/products/subscription", createSubscriptionRouter(client));
   app.use("/products/signup", createSignupRouter(client));
-  app.use("/products/job-post", createJobPostRouter(client));
+  app.use("/products/job-post", createJobPostingRouter(client));
   app.use("/products/shortlist-candidates", createShortlistCandidatesRouter(client));
   app.use("/patterns/polling", createPatternPollingRouter(client));
   app.use("/patterns/interruptible", createInterruptibleRouter(client));

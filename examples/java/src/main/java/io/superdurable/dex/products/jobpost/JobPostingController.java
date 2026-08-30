@@ -31,13 +31,13 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/products/job-post")
-public class JobPostController {
+public class JobPostingController {
     private final Client client;
-    private final JobPostFlow flow;
+    private final JobPostingFlow flow;
 
-    public JobPostController(
+    public JobPostingController(
             final Client client,
-            final JobPostFlow flow) {
+            final JobPostingFlow flow) {
         this.client = client;
         this.flow = flow;
     }
@@ -55,6 +55,7 @@ public class JobPostController {
                 .addAttribute(flow.title, title)
                 .addAttribute(flow.jobDescription, description)
                 .addAttribute(flow.lastUpdateTimeMillis, System.currentTimeMillis())
+                .addAttribute(flow.updateVersion, 0)
                 .configOverride(FlowConfig.newBuilder().continueAsNewThreshold(10).build())
                 .build();
         client.startFlow(flow, flowId, null, options);
@@ -63,7 +64,7 @@ public class JobPostController {
 
     @GetMapping("/read")
     public ResponseEntity<JobInfo> read(@RequestParam final String workflowId) {
-        final JobPostFlow stub = client.newRpcStub(JobPostFlow.class, workflowId);
+        final JobPostingFlow stub = client.newRpcStub(JobPostingFlow.class, workflowId);
         return ResponseEntity.ok(client.invokeRPC(stub::get));
     }
 
@@ -77,9 +78,11 @@ public class JobPostController {
         description = escapeQuote(description);
         notes = escapeQuote(notes);
 
-        final JobPostFlow stub = client.newRpcStub(JobPostFlow.class, workflowId);
-        client.invokeRPC(stub::update, new JobInfo(title, description, notes));
-        return ResponseEntity.ok("updated");
+        final JobPostingFlow stub = client.newRpcStub(JobPostingFlow.class, workflowId);
+        final int version = client.invokeRPC(
+                stub::update,
+                new JobInfo(title, description, notes));
+        return ResponseEntity.ok("updated version " + version);
     }
 
     @GetMapping("/delete")

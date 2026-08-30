@@ -28,19 +28,22 @@
  * limitations under the License.
  */
 
-use std::sync::LazyLock;
+use std::{sync::LazyLock, time::Duration};
 
 use dex_sdk::{
-    Attribute, AttributeIndex, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList,
-    RpcResult, Step, StepDecision, StepList,
+    Attribute, AttributeIndex, Channel, Context, Flow, HandlerError, HandlerResult,
+    PersistenceSchema, RetryPolicy, Rpc, RpcList, RpcResult, Step, StepDecision, StepList,
+    StepMovement, StepOptions, Wait,
 };
 use serde::{Deserialize, Serialize};
 
+use crate::shared::MyDependencyService;
+
 pub const JOB_POST_READ: Rpc<(), JobPost> = Rpc::new("JobPostRead");
-pub const JOB_POST_UPDATE: Rpc<JobPost, JobPost> = Rpc::new("JobPostUpdate");
+pub const JOB_POST_UPDATE: Rpc<JobPost, i32> = Rpc::new("JobPostUpdate");
 pub const JOB_POST_DELETE: Rpc<String, ()> = Rpc::new("JobPostDelete");
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JobPost {
     pub title: String,
     pub description: String,
@@ -48,25 +51,39 @@ pub struct JobPost {
     pub deleted: bool,
 }
 
-#[derive(Default)]
-pub struct JobPostFlow {
-    create: Create,
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct PostingUpdate {
+    pub version: i32,
+    pub idempotency_key: String,
+    pub posting: JobPost,
 }
 
-impl JobPostFlow {
+#[derive(Default)]
+pub struct JobPostingFlow {
+    init: Init,
+    update_linkedin_posting: UpdateLinkedInPosting,
+    update_indeed_posting: UpdateIndeedPosting,
+}
+
+impl JobPostingFlow {
     fn read(&self, context: &mut Context) -> HandlerResult<RpcResult<JobPost>> {
         Ok(RpcResult::new(POST.get_required(context)?))
     }
 
-    fn update(
-        &self,
-        context: &mut Context,
-        replacement: JobPost,
-    ) -> HandlerResult<RpcResult<JobPost>> {
+    fn update(&self, context: &mut Context, replacement: JobPost) -> HandlerResult<RpcResult<i32>> {
+        let version = UPDATE_VERSION.get_required(context)? + 1;
         POST.set(context, replacement.clone())?;
         TITLE.set(context, replacement.title.clone())?;
         DESCRIPTION.set(context, replacement.description.clone())?;
-        Ok(RpcResult::new(replacement))
+        UPDATE_VERSION.set(context, version)?;
+        let update = PostingUpdate {
+            version,
+            idempotency_key: format!("{}:{version}", context.flow_id()),
+            posting: replacement,
+        };
+        LINKEDIN_POSTING_UPDATES.publish(context, update.clone())?;
+        INDEED_POSTING_UPDATES.publish(context, update)?;
+        Ok(RpcResult::new(version))
     }
 
     fn delete(&self, context: &mut Context, notes: String) -> HandlerResult<()> {
@@ -77,11 +94,13 @@ impl JobPostFlow {
     }
 }
 
-impl Flow for JobPostFlow {
+impl Flow for JobPostingFlow {
     type StartInput = JobPost;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.create)
+        StepList::start(&self.init)
+            .and(&self.update_linkedin_posting)
+            .and(&self.update_indeed_posting)
     }
 
     fn persistence(&self) -> PersistenceSchema {
@@ -89,28 +108,112 @@ impl Flow for JobPostFlow {
             .attribute(&POST)
             .attribute(&TITLE)
             .attribute(&DESCRIPTION)
+            .attribute(&UPDATE_VERSION)
+            .attribute(&UPDATE_POSTING_LOCK)
+            .channel(&LINKEDIN_POSTING_UPDATES)
+            .channel(&INDEED_POSTING_UPDATES)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .function_without_input(JOB_POST_READ, Self::read)
-            .function(JOB_POST_UPDATE, Self::update)
+            .function(
+                JOB_POST_UPDATE.lock(UPDATE_POSTING_LOCK.lock()),
+                Self::update,
+            )
             .procedure(JOB_POST_DELETE, Self::delete)
     }
 }
 
 #[derive(Default)]
-struct Create;
+pub struct Init;
 
-impl Step for Create {
+impl Step for Init {
     type Input = JobPost;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         POST.set(context, input.clone())?;
         TITLE.set(context, input.title)?;
         DESCRIPTION.set(context, input.description)?;
-        Ok(StepDecision::dead_end())
+        UPDATE_VERSION.set(context, 0)?;
+        Ok(StepDecision::go_to_many([
+            StepMovement::to(&UpdateLinkedInPosting::default(), ()),
+            StepMovement::to(&UpdateIndeedPosting::default(), ()),
+        ]))
     }
+}
+
+#[derive(Default)]
+pub struct UpdateLinkedInPosting {
+    service: MyDependencyService,
+}
+
+impl Step for UpdateLinkedInPosting {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(LINKEDIN_POSTING_UPDATES.for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let update = LINKEDIN_POSTING_UPDATES
+            .condition_results(context)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                HandlerError::new("MissingPostingUpdate", "LinkedIn update is missing")
+            })?;
+        self.service.update_external_system(&format!(
+            "update LinkedIn job posting v{} [{}]: {}",
+            update.version, update.idempotency_key, update.posting.title
+        ));
+        Ok(StepDecision::go_to(&UpdateLinkedInPosting::default(), ()))
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        job_board_update_options()
+    }
+}
+
+#[derive(Default)]
+pub struct UpdateIndeedPosting {
+    service: MyDependencyService,
+}
+
+impl Step for UpdateIndeedPosting {
+    type Input = ();
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::until(INDEED_POSTING_UPDATES.for_one()))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let update = INDEED_POSTING_UPDATES
+            .condition_results(context)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| HandlerError::new("MissingPostingUpdate", "Indeed update is missing"))?;
+        self.service.update_external_system(&format!(
+            "update Indeed job posting v{} [{}]: {}",
+            update.version, update.idempotency_key, update.posting.title
+        ));
+        Ok(StepDecision::go_to(&UpdateIndeedPosting::default(), ()))
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        job_board_update_options()
+    }
+}
+
+fn job_board_update_options() -> StepOptions<()> {
+    StepOptions::new().execute_retry(
+        RetryPolicy::new()
+            .initial_interval(Duration::from_secs(3))
+            .backoff_coefficient(2.0)
+            .maximum_interval(Duration::from_secs(60))
+            .maximum_attempts(100)
+            .total_duration(Duration::from_secs(60 * 60)),
+    )
 }
 
 static POST: LazyLock<Attribute<JobPost>> = LazyLock::new(|| Attribute::new("job-post"));
@@ -120,3 +223,14 @@ static TITLE: LazyLock<Attribute<String>> =
 
 static DESCRIPTION: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new("job-post-description").indexed(AttributeIndex::full_text()));
+
+static UPDATE_VERSION: LazyLock<Attribute<i32>> = LazyLock::new(|| Attribute::new("UpdateVersion"));
+
+static UPDATE_POSTING_LOCK: LazyLock<Attribute<()>> =
+    LazyLock::new(|| Attribute::new("UpdatePostingLock"));
+
+static LINKEDIN_POSTING_UPDATES: LazyLock<Channel<PostingUpdate>> =
+    LazyLock::new(|| Channel::new("LinkedInPostingUpdates"));
+
+static INDEED_POSTING_UPDATES: LazyLock<Channel<PostingUpdate>> =
+    LazyLock::new(|| Channel::new("IndeedPostingUpdates"));

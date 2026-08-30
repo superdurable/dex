@@ -26,6 +26,7 @@ import { HOUR_MS } from "../../src/config/env.js";
 import { failureRecoveryFlow } from "../../src/patterns/recovery/failure-recovery-flow.js";
 import { streamFlow } from "../../src/primitives/stream/stream-flow.js";
 import { engagementFlow } from "../../src/products/engagement/engagement-flow.js";
+import { jobPostingFlow } from "../../src/products/job-post/job-post-flow.js";
 import { orchestrationFlow } from "../../src/products/microservices/orchestration-flow.js";
 import { moneyTransferFlow } from "../../src/products/money-transfer/money-transfer-flow.js";
 import { OrderProcessingFlow } from "../../src/products/order-processing/order-processing-flow.js";
@@ -42,6 +43,7 @@ export interface IntegEnvironment {
   readonly moneyTransferFlow: typeof moneyTransferFlow;
   readonly orderProcessingFlow: typeof orderProcessingFlow;
   readonly engagementFlow: typeof engagementFlow;
+  readonly jobPostingFlow: typeof jobPostingFlow;
   readonly orchestrationFlow: typeof orchestrationFlow;
   readonly subscriptionFlow: typeof subscriptionFlow;
   readonly userOnboardingFlow: typeof userOnboardingFlow;
@@ -77,6 +79,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     moneyTransferFlow,
     orderProcessingFlow,
     engagementFlow,
+    jobPostingFlow,
     orchestrationFlow,
     subscriptionFlow,
     userOnboardingFlow,
@@ -103,6 +106,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     moneyTransferFlow,
     orderProcessingFlow,
     engagementFlow,
+    jobPostingFlow,
     orchestrationFlow,
     subscriptionFlow,
     userOnboardingFlow,

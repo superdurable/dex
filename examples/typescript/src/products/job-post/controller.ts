@@ -20,7 +20,7 @@ import { InitialAttribute, type Client } from "@superdurable/dex";
 
 import { DAY_MS } from "../../config/env.js";
 import type { JobInfo } from "./job-info.js";
-import { jobPostFlow } from "./job-post-flow.js";
+import { jobPostingFlow } from "./job-post-flow.js";
 
 function escapeQuote(input: string): string {
   let value = input;
@@ -33,19 +33,20 @@ function escapeQuote(input: string): string {
   return value;
 }
 
-export function createJobPostRouter(client: Client): Router {
+export function createJobPostingRouter(client: Client): Router {
   const router = Router();
 
   router.get("/create", async (request, response) => {
     const flowId = `job_id_${Math.floor(Date.now() / 1000)}`;
     const title = escapeQuote(String(request.query.title ?? ""));
     const description = escapeQuote(String(request.query.description ?? ""));
-    await client.startFlow(jobPostFlow, flowId, undefined, {
+    await client.startFlow(jobPostingFlow, flowId, undefined, {
       timeoutMs: DAY_MS,
       attributes: [
-        InitialAttribute.of(jobPostFlow.title, title),
-        InitialAttribute.of(jobPostFlow.jobDescription, description),
-        InitialAttribute.of(jobPostFlow.lastUpdateTimeMillis, BigInt(Date.now())),
+        InitialAttribute.of(jobPostingFlow.title, title),
+        InitialAttribute.of(jobPostingFlow.jobDescription, description),
+        InitialAttribute.of(jobPostingFlow.lastUpdateTimeMillis, BigInt(Date.now())),
+        InitialAttribute.of(jobPostingFlow.updateVersion, 0),
       ],
       configOverride: {
         continueAsNewThreshold: 10,
@@ -56,7 +57,7 @@ export function createJobPostRouter(client: Client): Router {
 
   router.get("/read", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
-    const jobInfo = await client.invokeRPC(jobPostFlow.get, workflowId);
+    const jobInfo = await client.invokeRPC(jobPostingFlow.get, workflowId);
     response.json(jobInfo);
   });
 
@@ -66,8 +67,8 @@ export function createJobPostRouter(client: Client): Router {
     const description = escapeQuote(String(request.query.description ?? ""));
     const notes = escapeQuote(String(request.query.notes ?? "test-notes"));
     const jobInfo: JobInfo = { title, description, notes };
-    await client.invokeRPC(jobPostFlow.update, workflowId, jobInfo);
-    response.send("updated");
+    const version = await client.invokeRPC(jobPostingFlow.update, workflowId, jobInfo);
+    response.send(`updated version ${version}`);
   });
 
   router.get("/delete", async (request, response) => {

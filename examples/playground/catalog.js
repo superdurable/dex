@@ -63,7 +63,7 @@ window.PLAYGROUND_CATALOG = [
   {
     group: "products",
     id: "job-post",
-    title: "Job post",
+    title: "Job posting",
     flowIdPrefix: "job_id",
     note: "Create mints job_id_<unix>; Rust also exposes GET /start.",
     endpoints: [

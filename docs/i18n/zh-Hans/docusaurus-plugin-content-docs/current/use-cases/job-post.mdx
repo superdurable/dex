@@ -1,43 +1,44 @@
 ---
-title: Job posting
+title: 职位发布
+sidebar_label: Job posting
 ---
 
-# Job posting
+# 职位发布
 
-Keep one job posting durable and searchable while delivering every accepted update to LinkedIn and Indeed in order.
+持久化并检索一条职位发布信息，同时把每个已接受的更新按顺序发送到 LinkedIn 和 Indeed。
 
-## Product requirements
+## 产品需求
 
-The process represents one job posting for its full lifecycle. It must:
+这个流程在职位发布信息的整个生命周期内代表同一个实体。它必须：
 
-1. Create the Flow with a title, description, last-update timestamp, and update version 0. The title and description are full-text indexed Attributes.
-2. Run **InitStep** once. It starts **UpdateLinkedInPosting** and **UpdateIndeedPosting** in parallel. Each Step then waits on its own Channel without occupying a Worker.
-3. Return the current title, description, and notes through a read RPC.
-4. Accept a replacement title, description, and notes through an update RPC. The RPC locks the dedicated, null-valued **UpdatePostingLock** Attribute so only one accepted update can allocate a version and publish at a time.
-5. Increment **UpdateVersion**, persist the current posting, and publish the same immutable **PostingUpdate** to **LinkedInPostingUpdates** and **IndeedPostingUpdates**. The payload contains the version, a stable idempotency key, and the posting snapshot.
-6. Consume one message at a time from each FIFO Channel. After a successful external call, each consumer loops to a new execution of itself and waits for the next message.
-7. Retry each job-board call independently with exponential backoff: three seconds initially, at most 60 seconds between attempts, no more than 100 attempts, and no longer than one hour.
-8. Stop the Flow when the posting is deleted. Search can find active postings through their indexed Attributes.
+1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称和描述是支持全文检索的 Attribute。
+2. 只运行一次 **InitStep**，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。之后每个 Step 在自己的 Channel 上等待，且不会占用 Worker。
+3. 通过读取 RPC 返回当前名称、描述和备注。
+4. 通过更新 RPC 接收新的名称、描述和备注。RPC 使用专用且值为 null 的 **UpdatePostingLock** Attribute，确保同一时间只有一个已接受的更新可以分配版本并发布消息。
+5. 递增 **UpdateVersion**，持久化当前职位信息，并把同一个不可变 **PostingUpdate** 发布到 **LinkedInPostingUpdates** 和 **IndeedPostingUpdates**。消息包含版本、稳定的幂等键和职位快照。
+6. 从每个 FIFO Channel 一次消费一条消息。外部调用成功后，consumer 回到自身的新 execution，等待下一条消息。
+7. 独立重试两个招聘网站的调用：首次间隔三秒，最大间隔 60 秒，最多 100 次，总时长不超过一小时。
+8. 删除职位时停止 Flow。搜索操作通过建立索引的 Attribute 查找活跃职位。
 
-The Flow waits while either Channel is empty and between failed Step retry attempts. The update RPC does not wait for LinkedIn or Indeed. It returns the committed version after the state and both Channel messages are durably committed.
+当任一 Channel 为空时，Flow 会持久化等待；Step 失败时还会在重试之间等待。更新 RPC 不等待 LinkedIn 或 Indeed。当前状态和两条 Channel 消息持久化提交后，它会返回已提交的版本。
 
-Potential failures include:
+潜在失败包括：
 
-- Creation can fail when required initial Attributes are missing or cannot be encoded. The Flow is not created with partial state.
-- An update RPC can fail because the Flow ID is unknown, the Flow has stopped, the input cannot be persisted, or another RPC holds **UpdatePostingLock**. A lock conflict is safe to retry.
-- LinkedIn or Indeed can be unavailable, time out, rate-limit the request, or reject the posting. One consumer can continue while the other retries or ultimately fails.
-- A job-board request can succeed remotely while its response is lost. The version-derived idempotency key lets the external adapter deduplicate the retry.
-- A failed consumer blocks later messages for that destination until it succeeds or exhausts retries. This preserves FIFO order instead of allowing a newer posting to overtake an older one.
-- Delete can race with an accepted update. The chosen stop policy must cancel or finish queued and in-flight work according to the product's deletion contract.
+- 创建时可能缺少必需的初始 Attribute，或者值无法编码。此时不会留下部分创建的 Flow。
+- Flow ID 不存在、Flow 已停止、输入无法持久化，或者另一个 RPC 持有 **UpdatePostingLock** 时，更新 RPC 会失败。lock conflict 可以安全重试。
+- LinkedIn 或 Indeed 可能不可用、超时、限流或拒绝职位信息。一个 consumer 可以继续运行，而另一个仍在重试或最终失败。
+- 远端请求可能已经成功，但响应丢失。由版本生成的幂等键让外部适配器可以对重试去重。
+- 某个 consumer 失败后，该目标的后续消息会等待它成功或耗尽重试。这可以保持 FIFO 顺序，避免较新的职位状态越过旧状态。
+- 删除可能与已接受的更新竞争。停止策略必须按照产品的删除约定取消或完成排队中和执行中的工作。
 
-The lock orders successful RPC commits, not client arrival times. Concurrent callers may race to acquire it. The returned version is the authoritative accepted order, and each destination observes those versions in FIFO order.
+lock 决定成功提交的 RPC 顺序，而不是客户端请求到达顺序。并发调用方可能竞争 lock。返回的版本是权威的接受顺序，每个目标都会按照 FIFO 顺序观察这些版本。
 
-## Flow design
+## Flow 设计
 
-The Flow uses one locked producer and two durable, independently progressing consumers:
+这个 Flow 使用一个带 lock 的 producer 和两个持久化、独立推进的 consumer：
 
 ```text
-Create posting (version 0)
+创建职位（版本 0）
              │
              ▼
           InitStep
@@ -46,35 +47,35 @@ Create posting (version 0)
  UpdateLinkedIn  UpdateIndeed
  Posting        Posting
         │         │
- wait on LI     wait on Indeed
+ 等待 LinkedIn  等待 Indeed
  Channel        Channel
         ▲         ▲
         │         │
         └────┬────┘
              │
- Update RPC [UpdatePostingLock]
- persist version N + publish the same PostingUpdate
+ 更新 RPC [UpdatePostingLock]
+ 持久化版本 N + 发布相同的 PostingUpdate
              │
-             └── return version N
+             └── 返回版本 N
 ```
 
-It combines these design patterns:
+设计使用了以下模式：
 
-- [**Entity store**](/design-patterns/entity-store) gives each posting a stable Flow ID and keeps its current searchable state in Attributes.
-- **Initialization fan-out** uses **InitStep** to create both long-lived consumer branches exactly once.
-- **Locked producer** serializes version allocation, state replacement, and publication through **UpdatePostingLock**.
-- **Transactional outbox inside the Flow** commits the current state and both Channel messages as one RPC result, so an accepted update cannot be published to only one destination.
-- **Immutable versioned message** gives each consumer the exact posting snapshot from its originating RPC instead of reading mutable shared Attributes later.
-- **FIFO Channel consumer loop** processes one message and moves back to the same Step. Each destination observes v1 before v2 even when RPCs arrive quickly.
-- **Parallel failure isolation** gives LinkedIn and Indeed separate waits, executions, retry histories, and progress. A slow destination does not block the other.
-- **Durable retry** handles transient external failures without holding a process or losing progress across restarts.
-- **Indexed state** supports title and description search without a second application-side catalog.
+- [**实体存储**](/design-patterns/entity-store)为每条职位信息分配稳定的 Flow ID，并使用 Attribute 保存可检索的当前状态。
+- **初始化扇出**使用 **InitStep** 恰好创建一次两个长期运行的 consumer 分支。
+- **带 lock 的 producer**通过 **UpdatePostingLock** 串行处理版本分配、状态替换和消息发布。
+- **Flow 内的事务型 outbox**把当前状态和两条 Channel 消息作为一个 RPC 结果提交，因此已接受的更新不会只发给一个目标。
+- **不可变版本消息**让每个 consumer 获得触发它的 RPC 中的准确职位快照，而不是稍后读取可变的共享 Attribute。
+- **FIFO Channel consumer 循环**每次处理一条消息，再回到同一个 Step。即使 RPC 快速连续到达，每个目标也会先观察 v1，再观察 v2。
+- **并行故障隔离**让 LinkedIn 和 Indeed 拥有独立的等待、execution、重试历史和进度。较慢的目标不会阻塞另一个目标。
+- **持久化重试**处理临时外部故障，在进程重启后也不会丢失进度。
+- **索引状态**直接支持名称和描述搜索，不需要应用维护第二份目录。
 
-The destination Steps do not need Attribute locks. Each has one sequential consumer chain, and its Channel supplies the ordering. Adding destination locks would prevent overlap but would not by itself preserve an update snapshot or FIFO delivery.
+目标 Step 不需要 Attribute lock。每个目标只有一条串行 consumer 链，顺序由 Channel 提供。增加目标 lock 可以避免重叠，但它本身无法保存更新快照或保证 FIFO 交付。
 
-## Core implementation
+## 核心实现
 
-The tabs show each Flow signature and the end-to-end mechanism: **InitStep**, the RPC lock, versioned dual publication, one-message Channel waits, consumer loops, and retry policy. Every snippet comes from the linked runnable example.
+下面的标签页包含每种语言的 Flow 签名和完整机制：**InitStep**、RPC lock、带版本的双路发布、单消息 Channel 等待、consumer 循环和重试策略。所有片段都来自链接的可运行示例。
 
 <SdkTabs
   examples={{
@@ -87,39 +88,16 @@ The tabs show each Flow signature and the end-to-end mechanism: **InitStep**, th
 <SdkSnippet lang="python">
 
 ```python
-UPDATE_VERSION = Attribute("UpdateVersion", int)
-UPDATE_POSTING_LOCK = Attribute("UpdatePostingLock", type(None))
-LINKEDIN_POSTING_UPDATES = Channel("LinkedInPostingUpdates", PostingUpdate)
-INDEED_POSTING_UPDATES = Channel("IndeedPostingUpdates", PostingUpdate)
-
-
 class JobPostingFlow(Flow[None]):
     update_version = UPDATE_VERSION
     update_posting_lock = UPDATE_POSTING_LOCK
     linkedin_posting_updates = LINKEDIN_POSTING_UPDATES
     indeed_posting_updates = INDEED_POSTING_UPDATES
 
-    def __init__(self, service: MyDependencyService) -> None:
-        self.init = InitStep()
-        self.update_linkedin_posting = UpdateLinkedInPosting(service)
-        self.update_indeed_posting = UpdateIndeedPosting(service)
-
     def get_steps(self) -> StepList[None]:
         return StepList.start_step(self.init).other_steps(
             self.update_linkedin_posting,
             self.update_indeed_posting,
-        )
-
-    def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(
-            self.title,
-            self.job_description,
-            self.last_update_time_millis,
-            self.notes,
-            self.update_version,
-            self.update_posting_lock,
-            self.linkedin_posting_updates,
-            self.indeed_posting_updates,
         )
 
     @rpc(lock_attributes=(update_posting_lock.lock(),))
@@ -172,16 +150,6 @@ func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 	}
 }
 
-func (*JobPostingFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{
-			Title, JobDescription, LastUpdateTimeMillis, Notes,
-			UpdateVersion, UpdatePostingLock,
-		},
-		Channels: []dex.ChannelDef{LinkedInPostingUpdates, IndeedPostingUpdates},
-	}
-}
-
 func (*JobPostingFlow) Update(
 	ctx dex.Context,
 	input JobInfo,
@@ -191,9 +159,6 @@ func (*JobPostingFlow) Update(
 		return nil, err
 	}
 	version++
-	if err := Title.Set(ctx, input.Title); err != nil {
-		return nil, err
-	}
 	if err := UpdateVersion.Set(ctx, version); err != nil {
 		return nil, err
 	}
@@ -273,24 +238,10 @@ public class JobPostingFlow implements Flow<Void> {
                 .otherSteps(updateLinkedInPosting, updateIndeedPosting);
     }
 
-    @Override
-    public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(
-                title,
-                jobDescription,
-                lastUpdateTimeMillis,
-                notes,
-                updateVersion,
-                updatePostingLock,
-                linkedInPostingUpdates,
-                indeedPostingUpdates);
-    }
-
     @RPC(lockAttributes = {"UpdatePostingLock"})
     public RPCResult<Integer> update(final Context context, final JobInfo input) {
         final int version = updateVersion.get(context) + 1;
         title.set(context, input.title);
-        jobDescription.set(context, input.description);
         updateVersion.set(context, version);
         final PostingUpdate update = new PostingUpdate(
                 version,
@@ -348,20 +299,6 @@ export class JobPostingFlow implements Flow {
     );
   }
 
-  public getPersistenceSchema(): PersistenceSchema {
-    return {
-      attributes: [
-        this.title,
-        this.jobDescription,
-        this.lastUpdateTimeMillis,
-        this.notes,
-        this.updateVersion,
-        this.updatePostingLock,
-      ],
-      channels: [this.linkedInPostingUpdates, this.indeedPostingUpdates],
-    };
-  }
-
   @rpc({
     inputCodec: jobInfoCodec,
     outputCodec: doubleCodec,
@@ -370,7 +307,6 @@ export class JobPostingFlow implements Flow {
   public update(context: Context, input: JobInfo): RPCResult<number> {
     const version = this.updateVersion.get(context) + 1;
     this.title.set(context, input.title);
-    this.jobDescription.set(context, input.description);
     this.updateVersion.set(context, version);
     const update = {
       version,
@@ -451,15 +387,6 @@ impl Flow for JobPostingFlow {
             .and(&self.update_indeed_posting)
     }
 
-    fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new()
-            .attribute(&POST)
-            .attribute(&UPDATE_VERSION)
-            .attribute(&UPDATE_POSTING_LOCK)
-            .channel(&LINKEDIN_POSTING_UPDATES)
-            .channel(&INDEED_POSTING_UPDATES)
-    }
-
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new().function(
             JOB_POST_UPDATE.lock(UPDATE_POSTING_LOCK.lock()),
@@ -520,19 +447,19 @@ impl Step for UpdateLinkedInPosting {
 </SdkSnippet>
 </SdkTabs>
 
-## Demo
+## 演示
 
-Run Dex and any language example server, then create and update a posting from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). This run accepted two updates. The graph shows **InitStep**, two ordered executions for each job board, and the next LinkedIn and Indeed consumer executions waiting for another Channel message.
+运行 Dex 和任意语言的示例服务，然后在[示例 Playground](https://github.com/superdurable/dex/tree/main/examples/playground)中创建并更新职位。下面的运行接受了两次更新。执行图显示 **InitStep**、每个招聘网站的两个有序 execution，以及等待下一条 Channel 消息的 LinkedIn 和 Indeed consumer execution。
 
-<a href="/img/use-cases/job-posting-step-execution-graph.png" target="_blank" rel="noopener noreferrer" title="Open the full-resolution Step graph">
-  <img className="job-posting-step-graph" src="/img/use-cases/job-posting-step-execution-graph.png" alt="Job posting Flow with InitStep and two ordered Channel consumer executions per job board" />
+<a href="/img/use-cases/job-posting-step-execution-graph.png" target="_blank" rel="noopener noreferrer" title="打开原始分辨率 Step graph">
+  <img className="job-posting-step-graph" src="/img/use-cases/job-posting-step-execution-graph.png" alt="职位发布 Flow，其中 InitStep 为每个招聘网站启动两个有序的 Channel consumer execution" />
 </a>
 
-## Related
+## 相关内容
 
-- [Entity store](/design-patterns/entity-store)
-- [Static Parallel Steps](/design-patterns/parallel/static)
-- [Channels](/primitives/channel)
-- [RPCs](/primitives/rpc)
-- [Attributes](/primitives/attribute)
-- [Client APIs](/primitives/client)
+- [实体存储](/design-patterns/entity-store)
+- [静态并行 Step](/design-patterns/parallel/static)
+- [Channel](/primitives/channel)
+- [RPC](/primitives/rpc)
+- [Attribute](/primitives/attribute)
+- [Client API](/primitives/client)

@@ -128,7 +128,7 @@ details.
 - [Employer/job-seeker engagement](./products/engagement)
 - [Subscription](./products/subscription)
 - [User onboarding process](./products/signup)
-- [Job post](./products/job-post)
+- [Job posting](./products/job-post)
 - [Shortlist candidates](./products/shortlist-candidates)
 - [Dataset Deal DSL](./products/dataset-deal) (Go only; separate `dex-dataset-deal` binary)
 

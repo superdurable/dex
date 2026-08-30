@@ -58,7 +58,7 @@ let run_id = client.start_flow(&flow, "order-123", "first order")?;
 
 **StopFlow** 关闭一个 active Flow。默认是请求它 cooperative cancellation。你也可以立刻 terminate，或者带 reason 把它标记为 failed。
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/controller.py', go: 'examples/go/products/job-post/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostController.java', typescript: 'examples/typescript/src/products/job-post/controller.ts', rust: 'examples/rust/src/products/job_post/controller.rs'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/job-post/controller.py', go: 'examples/go/products/job-post/controller.go', java: 'examples/java/src/main/java/io/superdurable/dex/products/jobpost/JobPostingController.java', typescript: 'examples/typescript/src/products/job-post/controller.ts', rust: 'examples/rust/src/products/job_post/controller.rs'}}>
 <SdkSnippet lang="python">
 
 ```python

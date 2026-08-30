@@ -20,6 +20,7 @@ from typing import Callable
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
+from dex_examples.products.job_post.job_info import JobInfo
 from dex_examples.products.shortlist_candidates import workflow_ids
 from dex_examples.products.shortlist_candidates.employer_opt_in_input import (
     EmployerOptInInput,
@@ -28,9 +29,13 @@ from dex_examples.products.shortlist_candidates.shortlist_input import Shortlist
 from dex_examples.products.signup.signup_form import SignupForm
 from tests.integ.conftest import WAIT_TIMEOUT
 
-from dex import AsyncClient, StartFlowOptions
+from dex import AsyncClient, StartFlowOptions, StepExecutionId
 
 pytestmark = pytest.mark.integ
+
+SECOND_LINKEDIN_POSTING_UPDATE = StepExecutionId("UpdateLinkedInPosting", 2)
+SECOND_INDEED_POSTING_UPDATE = StepExecutionId("UpdateIndeedPosting", 2)
+JOB_POSTING_INIT = StepExecutionId("InitStep", 1)
 
 
 async def test_user_onboarding_completes_all_tasks(
@@ -73,7 +78,7 @@ async def test_user_onboarding_completes_all_tasks(
     ) == "onboarding completed"
 
 
-async def test_job_post_create_and_read(
+async def test_job_posting_create_read_and_update_both_job_boards(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
@@ -85,12 +90,40 @@ async def test_job_post_create_and_read(
         .with_attribute(app.job_post.job_description, "Build durable workflows")
         .with_attribute(app.job_post.last_update_time_millis, 1)
         .with_attribute(app.job_post.notes, "initial")
+        .with_attribute(app.job_post.update_version, 0)
     )
     await client.start_flow(app.job_post, flow_id, None, options)
+    await client.wait_for_step_completion(flow_id, JOB_POSTING_INIT, WAIT_TIMEOUT)
     info = await client.invoke_rpc(app.job_post.get, flow_id)
     assert info.title == "Software Engineer"
     assert info.description == "Build durable workflows"
     assert info.notes == "initial"
+
+    version = await client.invoke_rpc(
+        app.job_post.update,
+        flow_id,
+        JobInfo("Senior Software Engineer", "Build durable systems", "updated"),
+    )
+    assert version == 1
+    newest = JobInfo(
+        "Principal Software Engineer",
+        "Lead durable systems",
+        "final scope",
+    )
+    version = await client.invoke_rpc(app.job_post.update, flow_id, newest)
+    assert version == 2
+    await client.wait_for_step_completion(
+        flow_id,
+        SECOND_LINKEDIN_POSTING_UPDATE,
+        WAIT_TIMEOUT,
+    )
+    await client.wait_for_step_completion(
+        flow_id,
+        SECOND_INDEED_POSTING_UPDATE,
+        WAIT_TIMEOUT,
+    )
+    updated = await client.invoke_rpc(app.job_post.get, flow_id)
+    assert updated == newest
 
 
 async def test_shortlist_opt_in_and_revoke(

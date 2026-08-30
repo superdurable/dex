@@ -37,7 +37,7 @@ use dex_examples_rust::patterns::{
 };
 use dex_examples_rust::products::{
     engagement::EngagementFlow,
-    job_post::JobPostFlow,
+    job_post::JobPostingFlow,
     microservices::OrchestrationFlow,
     money_transfer::MoneyTransferFlow,
     order_processing::OrderProcessingFlow,
@@ -57,7 +57,7 @@ fn catalog_matches_every_cross_language_example() {
         EngagementFlow::default().flow_type(),
         SubscriptionFlow::default().flow_type(),
         UserOnboardingFlow::default().flow_type(),
-        JobPostFlow::default().flow_type(),
+        JobPostingFlow::default().flow_type(),
         EmployerOptInFlow::default().flow_type(),
         ShortlistFlow::default().flow_type(),
     ];

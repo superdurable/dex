@@ -543,7 +543,7 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	if err != nil {
 		return fail(name, "initial lastUpdate", err)
 	}
-	_, err = client.StartFlow(ctx, registry.JobPost, flowID, nil, dex.StartFlowOptions{
+	_, err = client.StartFlow(ctx, registry.JobPosting, flowID, nil, dex.StartFlowOptions{
 		Timeout: &timeout,
 		Attributes: []dex.InitialAttributeDef{
 			titleAttr, descriptionAttr, lastUpdateAttr,
@@ -555,7 +555,7 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	}
 	var info jobpost.JobInfo
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.JobPost.Get, nil, &info, dex.InvokeOptions{},
+		ctx, flowID, registry.JobPosting.Get, nil, &info, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "get", err)
 	}
@@ -564,14 +564,14 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	}
 	var none dex.None
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.JobPost.Update,
+		ctx, flowID, registry.JobPosting.Update,
 		jobpost.JobInfo{Title: "Senior DeepVerify", Description: "More depth", Notes: "n1"},
-		&none, dex.InvokeOptions{},
+		&none, jobpost.UpdateInvokeOptions(),
 	); err != nil {
 		return fail(name, "update", err)
 	}
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.JobPost.Get, nil, &info, dex.InvokeOptions{},
+		ctx, flowID, registry.JobPosting.Get, nil, &info, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "get after update", err)
 	}

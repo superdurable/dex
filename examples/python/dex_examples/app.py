@@ -99,7 +99,7 @@ from dex_examples.primitives.timer.timer_flow import TimerFlow
 from dex_examples.primitives.wait_types.wait_types_flow import WaitTypesFlow
 from dex_examples.products.ai_agent_email.ai_agent_flow import EmailAgentFlow
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
-from dex_examples.products.job_post.job_post_flow import JobPostFlow
+from dex_examples.products.job_post.job_post_flow import JobPostingFlow
 from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
 from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransferFlow
 from dex_examples.products.order_processing.order_processing_flow import OrderProcessingFlow
@@ -126,7 +126,7 @@ class ExampleApp:
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
         self.user_onboarding = UserOnboardingFlow(service)
-        self.job_post = JobPostFlow(service)
+        self.job_post = JobPostingFlow(service)
         self.employer_opt_in = EmployerOptInFlow()
         self.shortlist = ShortlistFlow(
             service,
