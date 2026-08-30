@@ -40,7 +40,7 @@ window.PLAYGROUND_CATALOG = [
   {
     group: "products",
     id: "engagement",
-    title: "Engagement",
+    title: "Job seeker engagement",
     flowIdPrefix: "engagement",
     note: "Start mints its own flowID in most languages; copy it from the response.",
     endpoints: [

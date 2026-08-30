@@ -1,0 +1,426 @@
+---
+title: Job seeker engagement
+---
+
+# Job seeker engagement
+
+Keep an employer and a job seeker aligned while the job seeker decides whether to accept an opportunity.
+
+## Product requirements
+
+The process accepts an employer ID, job seeker ID, and initial notes. It must:
+
+1. Store both participants, set the status to **Initiated**, record the update time, and preserve the notes.
+2. Start three branches: watch the overall deadline, manage reminders, and notify the external recruiting system that the process started.
+3. Send a reminder every five seconds in the example while the status remains **Initiated**. A production deployment would use a longer interval.
+4. Let the job seeker opt out of reminders without ending the decision process.
+5. Let the job seeker decline while the process is **Initiated**. A declined process remains open and can later be accepted.
+6. Let the job seeker accept while the process is **Initiated** or **Declined**. Acceptance stops the overall wait, notifies the external system, and completes the Flow with **done**.
+7. Complete with **timeout** if no acceptance arrives within 60 days.
+8. Expose the current status and notes through an RPC, and make status searchable through an indexed Attribute.
+
+The overall branch waits for either the 60-day Timer or a message on **CompleteProcess**. The reminder branch independently waits for either a five-second Timer or a message on **OptOutReminder**. Workers can stop during either wait without losing the deadline, reminder schedule, or external events.
+
+Potential failures and exceptional outcomes include:
+
+- No acceptance arrives before the deadline. This is an expected **timeout** result, not an infrastructure failure.
+- A decline is requested after the status has changed, or an acceptance is requested after completion. The RPC rejects the invalid transition without scheduling a notification Step.
+- Email or recruiting-system calls can fail transiently. Their adapters should surface those errors so Dex can retry the owning Step.
+- A dependency can commit a side effect before the Worker records success. Email and notification calls therefore need idempotency keys or equivalent deduplication in production.
+- Reminder opt-out stops only future reminders. The status and overall acceptance deadline remain active.
+
+The Go, Java, Python, and TypeScript examples implement the full 60-day process. The Rust released-SDK example keeps the same end-to-end start, describe, accept, decline, opt-out, notification, and search endpoints, but uses one decision Channel with a 24-hour Timer so its integration path stays compact.
+
+## Flow design
+
+The main topology fans out after initialization:
+
+**Initialize** → **ProcessTimeout** ∥ **Reminder** ∥ **NotifyExternalSystem**
+
+It combines these design patterns:
+
+- [**Static parallel Steps**](/design-patterns/parallel/static) separate the overall deadline, reminder loop, and external notification. A slow branch does not block the others.
+- [**Durable reminder**](/design-patterns/durable-timer/reminder) moves **Reminder** back to itself after each Timer fires.
+- [**Interruptible wait**](/design-patterns/interruptible) uses **AnyOf** so a Channel message can wake a Step before its Timer.
+- [**Responsive update**](/design-patterns/responsive-update) lets **Accept** and **Decline** RPCs validate and change persisted state while the Flow is waiting.
+- [**Attribute search**](/design-patterns/responsive-update/attribute-equal) exposes status for operational search and lets the start endpoint wait until initialization is visible.
+- **Graceful completion** lets the timeout branch produce either **done** or **timeout** while the other branches finish or become dead ends.
+
+The reminder and overall timeout use separate Channels because opting out of email must not accept, decline, or finish the opportunity. Status, notes, and timestamps live in Attributes so every branch and RPC observes the same durable state.
+
+## Core implementation
+
+Each tab starts with the Flow signature and topology, then shows the durable waits that control completion and reminders. The linked runnable example contains the complete RPC handlers, request models, controller, and integration test.
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/engagement/engagement_flow.py',
+    go: 'examples/go/products/engagement/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/engagement/EngagementFlow.java',
+    typescript: 'examples/typescript/src/products/engagement/engagement-flow.ts',
+    rust: 'examples/rust/src/products/engagement/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class EngagementFlow(Flow[EngagementInput]):
+    employer_id = Attribute("EmployerId", str)
+    job_seeker_id = Attribute("JobSeekerId", str)
+    engagement_status = Attribute(
+        "EngagementStatus",
+        Status,
+        AttributeIndex(IndexType.KEYWORD, STATUS_SEARCH_KEY),
+    )
+    last_update_timestamp = Attribute("LastUpdateTimeMillis", int)
+    notes = Attribute("notes", str)
+    opt_out_reminder = Channel[None]("OptOutReminder", type(None))
+    complete_process = Channel[None]("CompleteProcess", type(None))
+
+    def __init__(self, service: MyDependencyService) -> None:
+        self.service = service
+        self.initialize = Initialize(self)
+        self.process_timeout = ProcessTimeout(self)
+        self.reminder = Reminder(self)
+        self.notify_external_system = NotifyExternalSystem(self)
+
+    def get_steps(self) -> StepList[EngagementInput]:
+        return StepList.start_step(self.initialize).other_steps(
+            self.process_timeout,
+            self.reminder,
+            self.notify_external_system,
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(
+            self.employer_id,
+            self.job_seeker_id,
+            self.engagement_status,
+            self.last_update_timestamp,
+            self.notes,
+            self.opt_out_reminder,
+            self.complete_process,
+        )
+```
+
+```python
+class ProcessTimeout(Step[None]):
+    def __init__(self, flow: "EngagementFlow") -> None:
+        self.flow = flow
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.any_of(
+            Timer.by_duration(timedelta(days=60)),
+            self.flow.complete_process.for_one(),
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        description = self.flow.describe_engagement(context)
+        result = "timeout"
+        if description.current_status == Status.ACCEPTED:
+            result = "done"
+        self.flow.service.update_external_system(
+            f"engagement from employer {description.employer_id} "
+            f"to job seeker {description.job_seeker_id} "
+            f"finished with status {description.current_status}"
+        )
+        return graceful_complete(result)
+
+
+class Reminder(Step[None]):
+    def __init__(self, flow: "EngagementFlow") -> None:
+        self.flow = flow
+
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.any_of(
+            Timer.by_duration(timedelta(seconds=5)),
+            self.flow.opt_out_reminder.for_one(),
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        status = self.flow.engagement_status.get(context)
+        if status is not Status.INITIATED:
+            return dead_end()
+        if self.flow.opt_out_reminder.results(context):
+            self.flow.update_status(context, status, "user opted out of reminders")
+            return dead_end()
+        self.flow.service.send_email(
+            self.flow.job_seeker_id.get(context),
+            "Reminder: please respond",
+            "Please respond to the engagement.",
+        )
+        return go_to(Reminder, None)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type EngagementFlow struct {
+	dex.FlowDefaults
+	service service.MyService
+}
+
+func NewEngagementFlow(applicationService service.MyService) *EngagementFlow {
+	return &EngagementFlow{service: applicationService}
+}
+
+func (flow *EngagementFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(initializeStep{}),
+		dex.DefineStep(processTimeoutStep{service: flow.service}),
+		dex.DefineStep(reminderStep{service: flow.service}),
+		dex.DefineStep(notifyExternalSystemStep{service: flow.service}),
+	}
+}
+
+func (*EngagementFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{
+			EmployerID,
+			JobSeekerID,
+			EngagementStatus,
+			LastUpdateTimestamp,
+			Notes,
+		},
+		Channels: []dex.ChannelDef{OptOutReminder, CompleteProcess},
+	}
+}
+```
+
+```go
+func (processTimeoutStep) WaitFor(
+	dex.Context,
+	dex.None,
+) (*dex.Wait, error) {
+	return dex.AnyOf(
+		dex.Timer(60*24*time.Hour),
+		CompleteProcess.ForOne(),
+	), nil
+}
+
+func (reminderStep) WaitFor(
+	dex.Context,
+	dex.None,
+) (*dex.Wait, error) {
+	return dex.AnyOf(
+		dex.Timer(5*time.Second),
+		OptOutReminder.ForOne(),
+	), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@Component
+public class EngagementFlow implements Flow<EngagementInput> {
+    public static final String STATUS_SEARCH_KEY = "CustomKeywordField";
+
+    public final Attribute<String> employerId = Attribute.define("EmployerId", String.class);
+    public final Attribute<String> jobSeekerId = Attribute.define("JobSeekerId", String.class);
+    public final Attribute<Status> engagementStatus = Attribute.define(
+            "EngagementStatus",
+            Status.class,
+            new AttributeIndex(AttributeIndex.Type.KEYWORD, STATUS_SEARCH_KEY));
+    public final Attribute<Long> lastUpdateTimestamp =
+            Attribute.define("LastUpdateTimeMillis", Long.class);
+    public final Attribute<String> notes = Attribute.define("notes", String.class);
+    public final Channel<Void> optOutReminder = Channel.define("OptOutReminder", Void.class);
+    public final Channel<Void> completeProcess = Channel.define("CompleteProcess", Void.class);
+
+    private final MyDependencyService service;
+    private final Initialize initialize = new Initialize();
+    private final ProcessTimeout processTimeout = new ProcessTimeout();
+    private final Reminder reminder = new Reminder();
+    private final NotifyExternalSystem notifyExternalSystem = new NotifyExternalSystem();
+
+    public EngagementFlow(final MyDependencyService service) {
+        this.service = service;
+    }
+
+    @Override
+    public StepList<EngagementInput> getSteps() {
+        return StepList.startStep(initialize)
+                .otherSteps(processTimeout, reminder, notifyExternalSystem);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(
+                employerId,
+                jobSeekerId,
+                engagementStatus,
+                lastUpdateTimestamp,
+                notes,
+                optOutReminder,
+                completeProcess);
+    }
+}
+```
+
+```java
+final class ProcessTimeout implements Step<Void> {
+    @Override
+    public Wait waitFor(final Context context, final Void input) {
+        return Wait.anyOf(
+                Timer.byDuration(Duration.ofDays(60)),
+                completeProcess.forOne());
+    }
+}
+
+final class Reminder implements Step<Void> {
+    @Override
+    public Wait waitFor(final Context context, final Void input) {
+        return Wait.anyOf(
+                Timer.byDuration(Duration.ofSeconds(5)),
+                optOutReminder.forOne());
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export class EngagementFlow implements Flow<EngagementInput> {
+  public readonly employerId = new Attribute("EmployerId", stringCodec);
+  public readonly jobSeekerId = new Attribute("JobSeekerId", stringCodec);
+  public readonly engagementStatus = new Attribute("EngagementStatus", statusCodec, {
+    type: IndexType.KEYWORD,
+    indexKey: STATUS_SEARCH_KEY,
+  });
+  public readonly lastUpdateTimestamp = new Attribute("LastUpdateTimeMillis", int64Codec);
+  public readonly notes = new Attribute("notes", optionalCodec(stringCodec));
+
+  public readonly initialize = new Initialize(this);
+  public readonly processTimeout = new ProcessTimeout(this);
+  public readonly reminder = new Reminder(this);
+  public readonly notifyExternalSystem = new NotifyExternalSystem(this);
+
+  public constructor(public readonly service: MyDependencyService = myDependencyService) {}
+
+  public getFlowType(): string {
+    return "EngagementFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.initialize).otherSteps(
+      this.processTimeout,
+      this.reminder,
+      this.notifyExternalSystem,
+    );
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {
+      attributes: [
+        this.employerId,
+        this.jobSeekerId,
+        this.engagementStatus,
+        this.lastUpdateTimestamp,
+        this.notes,
+      ],
+      channels: [optOutReminder, completeProcess],
+    };
+  }
+}
+```
+
+```typescript
+class ProcessTimeout implements Step<void> {
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.anyOf(
+      Timer.byDuration(PROCESS_TIMEOUT_MS),
+      completeProcess.forOne(),
+    );
+  }
+}
+
+class Reminder implements Step<void> {
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.anyOf(Timer.byDuration(REMINDER_MS), optOutReminder.forOne());
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+pub struct EngagementFlow {
+    start: Start,
+    wait_for_decision: WaitForDecision,
+    notify_external_system: NotifyExternalSystem,
+}
+
+impl Flow for EngagementFlow {
+    type StartInput = EngagementRequest;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.start)
+            .and(&self.wait_for_decision)
+            .and(&self.notify_external_system)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .attribute(&STATUS)
+            .attribute(&EMPLOYER_ID)
+            .channel(&DECISION)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new()
+            .function_without_input(ENGAGEMENT_DESCRIBE, Self::describe)
+            .procedure(ENGAGEMENT_ACCEPT, Self::accept)
+            .procedure(ENGAGEMENT_DECLINE, Self::decline)
+            .procedure_without_input(ENGAGEMENT_OPT_OUT, Self::opt_out)
+    }
+}
+```
+
+```rust
+impl Step for WaitForDecision {
+    type Input = EngagementRequest;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            DECISION.for_one(),
+            Timer::by_duration(Duration::from_secs(86_400)),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let resolved = DECISION
+            .condition_results(context)?
+            .into_iter()
+            .next()
+            .unwrap_or(EngagementStatus {
+                status: "reminder-due".into(),
+                notes: String::new(),
+            });
+        STATUS.set(context, resolved.clone())?;
+        Ok(StepDecision::go_to(&NotifyExternalSystem, resolved.status))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## Demo
+
+Run Dex and any language example server, then start Job seeker engagement from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). The demo below uses the Go example. It initializes an employer and job seeker, opts out of reminders, records a decline, then accepts the opportunity. The Flow finishes with **done** after the acceptance message wakes **ProcessTimeout**.
+
+Select the image to inspect the original 2370 × 1050 capture.
+
+[![Completed Job seeker engagement Step execution graph](/img/use-cases/job-seeker-engagement-step-execution-graph.jpg)](/img/use-cases/job-seeker-engagement-step-execution-graph.jpg)
+
+## Related
+
+- [Reminder](/design-patterns/durable-timer/reminder)
+- [Interruptible](/design-patterns/interruptible)
+- [Responsive update](/design-patterns/responsive-update)
+- [Attribute equal](/design-patterns/responsive-update/attribute-equal)
