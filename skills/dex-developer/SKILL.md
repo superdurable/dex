@@ -42,6 +42,8 @@ Write a short application-level design before a non-trivial implementation:
 
 Keep external side effects in **Execute**. Use **WaitFor** to declare durable Conditions and prepare state needed for the wait. Make every Step transition and terminal decision explicit.
 
+When a status Attribute means “waiting for X,” write it in the target Step's **WaitFor** beside the wait for X. Do not write it in the previous Step's **Execute**: the transition may fail before the target wait becomes active. A reminder self-loop may idempotently write the same status when it re-enters **WaitFor**.
+
 Read [modeling.md](references/modeling.md) for design rules and [primitives.md](references/primitives.md) when choosing or combining primitives.
 
 Read [large-attributes-and-locality.md](references/large-attributes-and-locality.md) when a Flow keeps large documents, conversation history, or API/MCP results in Attributes; when choosing AttributeMap instances or external projections for a growing collection; or when deploying replicated Workers. Do not add an application-managed blob store, cache, or dual-write path solely because an Attribute is large; first evaluate Dex blob hydration, the SDK BlobCache, headless Worker locality, and Attribute Store synchronization.
