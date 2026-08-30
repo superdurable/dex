@@ -49,7 +49,35 @@ Prefer immutable or infrequently changed values:
 
 Old chunks retain their blob IDs and stay reusable in the local cache; one newly added chunk causes only its own first hydration miss.
 
-An external application store becomes useful when the data needs relational queries, independent pagination, cross-Flow sharing, analytics, or a retention lifecycle different from the Flow. Do not choose one merely to avoid repeat reads of unchanged large Attributes.
+### Use AttributeMap deliberately
+
+Choose one Attribute when the value is a cohesive snapshot that handlers normally read and replace together. Choose an AttributeMap when keys are known only at runtime and instances are read, written, or deleted independently. Each instance is a separate blob, so changing one message chunk, tool result, item, or document part does not rewrite the others.
+
+Use stable domain identifiers or monotonic chunk IDs as instance keys. Do not place volatile or unbounded user text in keys. Group very small records into bounded chunks when per-instance overhead would dominate, and define when old instances are deleted.
+
+Inside a handler, map size and instance-key enumeration include buffered writes and deletes. They do not provide server-side pagination. An unbounded map can therefore avoid blob rewrite amplification while still becoming expensive to enumerate, transfer, and decode.
+
+Locks are scoped to one AttributeMap instance. Lock the exact instance when parallel Steps or RPCs perform a read-modify-write on the same value; unrelated instances can remain concurrent.
+
+An indexed AttributeMap does not create one searchable entry per instance. Every instance writes the same fixed Flow search field, a later instance can replace the prior indexed value, and the instance key is not searchable. Use a regular Attribute with a keyword-array index for a bounded searchable collection, or an external projection for per-instance queries.
+
+## Project Attributes for external queries
+
+When data needs relational queries, independent pagination, cross-Flow access, analytics, or a different retention lifecycle, first consider Dex Attribute Store synchronization instead of application-managed dual writes.
+
+Attribute Store synchronization is opt-in for each Attribute or AttributeMap, and a Flow selects one or more Server-configured stores. Dex asynchronously projects latest-state writes and retries transient failures. A projection failure does not roll back the Flow Attribute, and retry exhaustion does not automatically replay or backfill the missed batch. Keep Dex or the application's authoritative database as the source of truth and make important projections reconcilable.
+
+The built-in Attribute Store targets are currently PostgreSQL and MySQL. They project into columns of an existing table keyed by Flow ID; Dex does not create the table. They are not direct Elasticsearch or vector-store connectors, and synchronization does not generate embeddings or transform documents.
+
+For Elasticsearch or a vector database, choose among:
+
+- synchronize a suitable SQL projection, then use CDC or another downstream indexer
+- run an explicit durable projection Step when chunking, embedding, deletion, or version checks are required
+- add a Dex Attribute Store backend when direct projection is a product requirement
+
+An AttributeMap does not automatically become child rows or vector records in the built-in SQL stores. Verify how every physical instance name maps to the destination schema before enabling synchronization for a dynamic map.
+
+Do not introduce an external projection merely to avoid repeat reads of unchanged large Attributes; BlobCache and Worker locality already address that path.
 
 ## Verify the deployment
 

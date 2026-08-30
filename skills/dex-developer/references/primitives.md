@@ -20,7 +20,11 @@ Docs: https://docs.superdurable.io/primitives/step
 
 Use an Attribute for durable state inside one Flow execution. Register every Attribute in the persistence schema before reading or writing it.
 
-Use an AttributeMap for a dynamic set of keyed values. Use indexes for search and locks when concurrent handlers update shared state.
+Use one Attribute when the value is cohesive and should be replaced as a unit. Use an AttributeMap when runtime-keyed instances change independently; each instance is stored separately, avoiding a rewrite of the whole collection. Use stable domain keys and delete instances that are no longer needed.
+
+Lock the exact AttributeMap instance when Steps or RPCs can race on it. Do not treat an AttributeMap index as an index over its instances: all instances share one Flow search field, later writes replace that field, and instance keys are not searchable. AttributeMap enumeration is not server-side pagination.
+
+Read [large-attributes-and-locality.md](large-attributes-and-locality.md) for large values, map chunking, BlobCache locality, and external projections.
 
 Docs: https://docs.superdurable.io/primitives/attribute
 
