@@ -148,15 +148,6 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
-            name: "products/polling",
-            path: "/products/polling/start",
-            query: query_with(
-                &client.new_flow_id("product-polling"),
-                &[("pollingCompletionThreshold", "3")],
-            ),
-            flags: FlowSmokeFlags::NONE,
-        },
-        FlowSmokeEntry {
             name: "products/subscription",
             path: "/products/subscription/start",
             query: HashMap::new(),

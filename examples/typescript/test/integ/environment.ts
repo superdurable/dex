@@ -29,7 +29,6 @@ import { engagementFlow } from "../../src/products/engagement/engagement-flow.js
 import { orchestrationFlow } from "../../src/products/microservices/orchestration-flow.js";
 import { moneyTransferFlow } from "../../src/products/money-transfer/money-transfer-flow.js";
 import { OrderProcessingFlow } from "../../src/products/order-processing/order-processing-flow.js";
-import { pollingFlow } from "../../src/products/polling/polling-flow.js";
 import { MyDependencyService } from "../../src/shared/my-dependency-service.js";
 import { subscriptionFlow } from "../../src/products/subscription/subscription-flow.js";
 
@@ -43,7 +42,6 @@ export interface IntegEnvironment {
   readonly orderProcessingFlow: typeof orderProcessingFlow;
   readonly engagementFlow: typeof engagementFlow;
   readonly orchestrationFlow: typeof orchestrationFlow;
-  readonly pollingFlow: typeof pollingFlow;
   readonly subscriptionFlow: typeof subscriptionFlow;
   newFlowId(prefix: string): string;
   startOptions(): { timeoutMs: number };
@@ -78,7 +76,6 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     orderProcessingFlow,
     engagementFlow,
     orchestrationFlow,
-    pollingFlow,
     subscriptionFlow,
   ];
   const registry = new Registry(flows);
@@ -104,7 +101,6 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     orderProcessingFlow,
     engagementFlow,
     orchestrationFlow,
-    pollingFlow,
     subscriptionFlow,
     newFlowId(prefix: string) {
       return `${prefix}-${randomUUID()}`;

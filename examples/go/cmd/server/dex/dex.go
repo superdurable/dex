@@ -67,7 +67,6 @@ import (
 	"github.com/superdurable/dex/examples/go/products/microservices"
 	"github.com/superdurable/dex/examples/go/products/money-transfer"
 	"github.com/superdurable/dex/examples/go/products/order-processing"
-	productspolling "github.com/superdurable/dex/examples/go/products/polling"
 	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
 	"github.com/superdurable/dex/examples/go/products/signup"
 	"github.com/superdurable/dex/examples/go/products/subscription"
@@ -164,7 +163,6 @@ func NewRouter(client *sdk.Client) http.Handler {
 	microservices.RegisterRoutes(router, client, registry.Microservices)
 	moneytransfer.RegisterRoutes(router, client, registry.MoneyTransfer)
 	orderprocessing.RegisterRoutes(router, client, registry.OrderProcessing)
-	productspolling.RegisterRoutes(router, client, registry.Polling)
 	signup.RegisterRoutes(router, client, registry.Signup)
 	jobpost.RegisterRoutes(router, client, registry.JobPost)
 	shortlistcandidates.RegisterRoutes(

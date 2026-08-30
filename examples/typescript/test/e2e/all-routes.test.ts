@@ -182,22 +182,6 @@ test("product subscription start describe update cancel", async () => {
   requireOk(await get("/products/subscription/cancel", { workflowId }), "subscription/cancel");
 });
 
-test("product polling start complete", async () => {
-  const workflowId = id("poll");
-  requireOk(
-    await get("/products/polling/start", { workflowId, pollingCompletionThreshold: 3 }),
-    "polling/start",
-  );
-  requireOk(
-    await get("/products/polling/complete", { workflowId, channel: "task-a-completed" }),
-    "polling/complete-a",
-  );
-  requireOk(
-    await get("/products/polling/complete", { workflowId, channel: "task-b-completed" }),
-    "polling/complete-b",
-  );
-});
-
 test("product signup submit verify", async () => {
   const username = id("user").replace(/-/g, "");
   requireOk(

@@ -53,7 +53,7 @@ npm run smoke            # every product + pattern HTTP route
 ```
 
 The integration suite starts and verifies Money Transfer, Order Processing,
-Engagement, Microservice, Polling, Subscription, and Failure Recovery Flows.
+Engagement, Microservice, Subscription, and Failure Recovery Flows.
 
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
 after E2E tests for manual HTTP exploration.
@@ -65,7 +65,6 @@ after E2E tests for manual HTTP exploration.
 - [Microservice orchestration](./src/products/microservices)
 - [Engagement](./src/products/engagement)
 - [Subscription](./src/products/subscription)
-- [Polling](./src/products/polling)
 - [Signup](./src/products/signup)
 - [Job post](./src/products/job-post)
 - [Shortlist candidates](./src/products/shortlist-candidates)

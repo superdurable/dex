@@ -45,12 +45,6 @@ final class FlowSmokeCatalog {
                         "products/order-processing",
                         "/products/order-processing/start",
                         Map.of()),
-                FlowSmokeEntry.get(
-                        "products/polling",
-                        "/products/polling/start",
-                        Map.of(
-                                "workflowId", environment.newFlowId("product-polling"),
-                                "pollingCompletionThreshold", "3")),
                 FlowSmokeEntry.get("products/subscription", "/products/subscription/start", Map.of()),
                 FlowSmokeEntry.get(
                         "products/signup",

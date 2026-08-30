@@ -32,7 +32,6 @@ pub fn build_router(client: SharedClient) -> axum::Router {
                 crate::shared::MyDependencyService,
             ),
         ))
-        .merge(products::polling::controller::mount(client.clone()))
         .merge(products::shortlist_candidates::controller::mount(
             client.clone(),
         ))

@@ -46,7 +46,6 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | Microservice orchestration | [`OrchestrationFlow`](src/products/microservices.rs) | Parallel Steps, Attribute swap RPC, Channel-or-timer wait |
 | Engagement | [`EngagementFlow`](src/products/engagement.rs) | Indexed status, decision RPCs, reminders, external notification |
 | Subscription | [`SubscriptionFlow`](src/products/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
-| Polling | [`PollingFlow`](src/products/polling.rs) | Two external Channels and a timer-driven polling branch |
 | Signup | [`UserSignupFlow`](src/products/signup.rs) | Verification Channel and recurring reminder timer |
 | Job post | [`JobPostFlow`](src/products/job_post.rs) | Full-text Attributes and read/update/soft-delete RPCs |
 | Shortlist candidates: employer opt-in | [`EmployerOptInFlow`](src/products/shortlist_candidates.rs) | Long-running opt-in state and opt-out Channel |
@@ -94,12 +93,12 @@ make test
 ./run-integration-tests.sh
 ```
 
-The catalog integration test constructs every Flow, checks the exact 10 + 22
+The catalog integration test constructs every Flow, checks the exact 9 + 23
 mapping, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 
 The integration script starts the current checkout's `dexcli dev`, then starts
-and verifies Money Transfer, Engagement, Microservice, Polling, Subscription,
+and verifies Money Transfer, Engagement, Microservice, Subscription,
 and Failure Recovery Flows through the published Rust SDK.
 
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
