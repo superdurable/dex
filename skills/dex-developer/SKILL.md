@@ -44,6 +44,8 @@ Keep external side effects in **Execute**. Use **WaitFor** to declare durable Co
 
 Read [modeling.md](references/modeling.md) for design rules and [primitives.md](references/primitives.md) when choosing or combining primitives.
 
+Read [large-attributes-and-locality.md](references/large-attributes-and-locality.md) when a Flow keeps large documents, conversation history, or API/MCP results in Attributes, or when deploying replicated Workers. Do not add an application-managed blob store or cache solely because an Attribute is large; first evaluate Dex blob hydration, the SDK BlobCache, and headless Worker locality.
+
 ## Choose proven Flow shapes
 
 Prefer an existing Dex pattern over an ad hoc coordination loop. Read [patterns.md](references/patterns.md) when the request involves retries with compensation, polling, reminders, inactivity, parallel work, fan-out, back pressure, interruption, external publishing, responsive updates, or durable entity state.
