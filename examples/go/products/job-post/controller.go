@@ -32,10 +32,10 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *JobPostFlow
+	flow   *JobPostingFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *JobPostFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *JobPostingFlow) {
 	controller := &controller{client: client, flow: flow}
 	group := router.Group("/products/job-post")
 	group.GET("/create", controller.create)

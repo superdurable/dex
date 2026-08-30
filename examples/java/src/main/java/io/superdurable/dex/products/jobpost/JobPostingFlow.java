@@ -35,7 +35,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 @Component
-public class JobPostFlow implements Flow<Void> {
+public class JobPostingFlow implements Flow<Void> {
     public final Attribute<String> title = Attribute.define(
             "Title",
             String.class,
@@ -51,15 +51,16 @@ public class JobPostFlow implements Flow<Void> {
     public final Attribute<String> notes = Attribute.define("Notes", String.class);
 
     private final MyDependencyService service;
-    private final ExternalUpdate externalUpdate = new ExternalUpdate();
+    private final UpdateLinkedInPosting updateLinkedInPosting = new UpdateLinkedInPosting();
+    private final UpdateIndeedPosting updateIndeedPosting = new UpdateIndeedPosting();
 
-    public JobPostFlow(final MyDependencyService service) {
+    public JobPostingFlow(final MyDependencyService service) {
         this.service = service;
     }
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.withoutStartStep(externalUpdate);
+        return StepList.withoutStartStep(updateLinkedInPosting, updateIndeedPosting);
     }
 
     @Override
@@ -85,7 +86,10 @@ public class JobPostFlow implements Flow<Void> {
         if (input.notes != null) {
             notes.set(context, input.notes);
         }
-        return RPCResult.of(null, StepMovement.of(ExternalUpdate.class, null));
+        return RPCResult.of(
+                null,
+                StepMovement.of(UpdateLinkedInPosting.class, null),
+                StepMovement.of(UpdateIndeedPosting.class, null));
     }
 
     private JobInfo readJobInfo(final Context context) {
@@ -95,7 +99,7 @@ public class JobPostFlow implements Flow<Void> {
                 notes.get(context));
     }
 
-    final class ExternalUpdate implements Step<Void> {
+    final class UpdateLinkedInPosting implements Step<Void> {
         private final StepOptions options = StepOptions.newBuilder()
                 .executeRetry(RetryPolicy.newBuilder()
                         .backoffCoefficient(2.0)
@@ -118,7 +122,35 @@ public class JobPostFlow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            service.updateExternalSystem("this is an update to external service");
+            service.updateExternalSystem("update LinkedIn job posting");
+            return StepDecision.deadEnd();
+        }
+    }
+
+    final class UpdateIndeedPosting implements Step<Void> {
+        private final StepOptions options = StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder()
+                        .backoffCoefficient(2.0)
+                        .maximumAttempts(100)
+                        .totalDuration(Duration.ofHours(1))
+                        .initialInterval(Duration.ofSeconds(3))
+                        .maximumInterval(Duration.ofSeconds(60))
+                        .build())
+                .build();
+
+        @Override
+        public Class<Void> getInputType() {
+            return Void.class;
+        }
+
+        @Override
+        public StepOptions getStepOptions() {
+            return options;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
+            service.updateExternalSystem("update Indeed job posting");
             return StepDecision.deadEnd();
         }
     }

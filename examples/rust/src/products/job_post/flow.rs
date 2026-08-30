@@ -28,19 +28,21 @@
  * limitations under the License.
  */
 
-use std::sync::LazyLock;
+use std::{sync::LazyLock, time::Duration};
 
 use dex_sdk::{
-    Attribute, AttributeIndex, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList,
-    RpcResult, Step, StepDecision, StepList,
+    Attribute, AttributeIndex, Context, Flow, HandlerResult, PersistenceSchema, RetryPolicy, Rpc,
+    RpcList, RpcResult, Step, StepDecision, StepList, StepMovement, StepOptions,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::shared::MyDependencyService;
 
 pub const JOB_POST_READ: Rpc<(), JobPost> = Rpc::new("JobPostRead");
 pub const JOB_POST_UPDATE: Rpc<JobPost, JobPost> = Rpc::new("JobPostUpdate");
 pub const JOB_POST_DELETE: Rpc<String, ()> = Rpc::new("JobPostDelete");
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct JobPost {
     pub title: String,
     pub description: String,
@@ -49,11 +51,13 @@ pub struct JobPost {
 }
 
 #[derive(Default)]
-pub struct JobPostFlow {
+pub struct JobPostingFlow {
     create: Create,
+    update_linkedin_posting: UpdateLinkedInPosting,
+    update_indeed_posting: UpdateIndeedPosting,
 }
 
-impl JobPostFlow {
+impl JobPostingFlow {
     fn read(&self, context: &mut Context) -> HandlerResult<RpcResult<JobPost>> {
         Ok(RpcResult::new(POST.get_required(context)?))
     }
@@ -66,7 +70,9 @@ impl JobPostFlow {
         POST.set(context, replacement.clone())?;
         TITLE.set(context, replacement.title.clone())?;
         DESCRIPTION.set(context, replacement.description.clone())?;
-        Ok(RpcResult::new(replacement))
+        Ok(RpcResult::new(replacement)
+            .then(StepMovement::to(&self.update_linkedin_posting, ()))
+            .then(StepMovement::to(&self.update_indeed_posting, ())))
     }
 
     fn delete(&self, context: &mut Context, notes: String) -> HandlerResult<()> {
@@ -77,11 +83,13 @@ impl JobPostFlow {
     }
 }
 
-impl Flow for JobPostFlow {
+impl Flow for JobPostingFlow {
     type StartInput = JobPost;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
         StepList::start(&self.create)
+            .and(&self.update_linkedin_posting)
+            .and(&self.update_indeed_posting)
     }
 
     fn persistence(&self) -> PersistenceSchema {
@@ -100,7 +108,7 @@ impl Flow for JobPostFlow {
 }
 
 #[derive(Default)]
-struct Create;
+pub struct Create;
 
 impl Step for Create {
     type Input = JobPost;
@@ -111,6 +119,57 @@ impl Step for Create {
         DESCRIPTION.set(context, input.description)?;
         Ok(StepDecision::dead_end())
     }
+}
+
+#[derive(Default)]
+pub struct UpdateLinkedInPosting {
+    service: MyDependencyService,
+}
+
+impl Step for UpdateLinkedInPosting {
+    type Input = ();
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let posting = POST.get_required(context)?;
+        self.service
+            .update_external_system(&format!("update LinkedIn job posting: {}", posting.title));
+        Ok(StepDecision::dead_end())
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        job_board_update_options()
+    }
+}
+
+#[derive(Default)]
+pub struct UpdateIndeedPosting {
+    service: MyDependencyService,
+}
+
+impl Step for UpdateIndeedPosting {
+    type Input = ();
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let posting = POST.get_required(context)?;
+        self.service
+            .update_external_system(&format!("update Indeed job posting: {}", posting.title));
+        Ok(StepDecision::dead_end())
+    }
+
+    fn options(&self) -> StepOptions<Self::Input> {
+        job_board_update_options()
+    }
+}
+
+fn job_board_update_options() -> StepOptions<()> {
+    StepOptions::new().execute_retry(
+        RetryPolicy::new()
+            .initial_interval(Duration::from_secs(3))
+            .backoff_coefficient(2.0)
+            .maximum_interval(Duration::from_secs(60))
+            .maximum_attempts(100)
+            .total_duration(Duration::from_secs(60 * 60)),
+    )
 }
 
 static POST: LazyLock<Attribute<JobPost>> = LazyLock::new(|| Attribute::new("job-post"));

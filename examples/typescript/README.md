@@ -66,7 +66,7 @@ after E2E tests for manual HTTP exploration.
 - [Engagement](./src/products/engagement)
 - [Subscription](./src/products/subscription)
 - [Signup](./src/products/signup)
-- [Job post](./src/products/job-post)
+- [Job posting](./src/products/job-post)
 - [Shortlist candidates](./src/products/shortlist-candidates)
 
 ## Patterns

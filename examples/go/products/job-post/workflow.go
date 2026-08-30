@@ -44,34 +44,40 @@ var (
 	Notes = dex.DefineAttribute[string]("Notes")
 )
 
+const (
+	UpdateLinkedInPostingStepType = "UpdateLinkedInPosting"
+	UpdateIndeedPostingStepType   = "UpdateIndeedPosting"
+)
+
 type JobInfo struct {
 	Title       string
 	Description string
 	Notes       string
 }
 
-type JobPostFlow struct {
+type JobPostingFlow struct {
 	dex.FlowDefaults
 	service service.MyService
 }
 
-func NewJobPostFlow(applicationService service.MyService) *JobPostFlow {
-	return &JobPostFlow{service: applicationService}
+func NewJobPostingFlow(applicationService service.MyService) *JobPostingFlow {
+	return &JobPostingFlow{service: applicationService}
 }
 
-func (flow *JobPostFlow) GetSteps() []dex.StepDef {
+func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
-		dex.DefineStep(externalUpdateStep{service: flow.service}),
+		dex.DefineStep(UpdateLinkedInPosting{service: flow.service}),
+		dex.DefineStep(UpdateIndeedPosting{service: flow.service}),
 	}
 }
 
-func (*JobPostFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*JobPostingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{Title, JobDescription, LastUpdateTimeMillis, Notes},
 	}
 }
 
-func (*JobPostFlow) Get(
+func (*JobPostingFlow) Get(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[JobInfo], error) {
@@ -82,7 +88,7 @@ func (*JobPostFlow) Get(
 	return &dex.RPCResult[JobInfo]{Output: info}, nil
 }
 
-func (*JobPostFlow) GetWithStrongConsistency(
+func (*JobPostingFlow) GetWithStrongConsistency(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[JobInfo], error) {
@@ -93,7 +99,7 @@ func (*JobPostFlow) GetWithStrongConsistency(
 	return &dex.RPCResult[JobInfo]{Output: info}, nil
 }
 
-func (*JobPostFlow) Update(
+func (*JobPostingFlow) Update(
 	ctx dex.Context,
 	input JobInfo,
 ) (*dex.RPCResult[dex.None], error) {
@@ -112,7 +118,10 @@ func (*JobPostFlow) Update(
 		}
 	}
 	return &dex.RPCResult[dex.None]{
-		NextSteps: []dex.StepMovement{dex.MovementOf(externalUpdateStep{}, nil)},
+		NextSteps: []dex.StepMovement{
+			dex.MovementOf(UpdateLinkedInPosting{}, nil),
+			dex.MovementOf(UpdateIndeedPosting{}, nil),
+		},
 	}, nil
 }
 
@@ -136,12 +145,49 @@ func readJobInfo(ctx dex.Context) (JobInfo, error) {
 	return JobInfo{Title: title, Description: description, Notes: notes}, nil
 }
 
-type externalUpdateStep struct {
+type UpdateLinkedInPosting struct {
 	dex.StepDefaultsNoWaitFor[dex.None]
 	service service.MyService
 }
 
-func (externalUpdateStep) GetStepOptions() *dex.StepOptions {
+func (UpdateLinkedInPosting) GetStepOptions() *dex.StepOptions {
+	return jobBoardUpdateStepOptions()
+}
+
+func (UpdateLinkedInPosting) GetStepType() string {
+	return UpdateLinkedInPostingStepType
+}
+
+func (step UpdateLinkedInPosting) Execute(
+	_ dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	step.service.UpdateExternalSystem("update LinkedIn job posting")
+	return dex.DeadEnd(), nil
+}
+
+type UpdateIndeedPosting struct {
+	dex.StepDefaultsNoWaitFor[dex.None]
+	service service.MyService
+}
+
+func (UpdateIndeedPosting) GetStepOptions() *dex.StepOptions {
+	return jobBoardUpdateStepOptions()
+}
+
+func (UpdateIndeedPosting) GetStepType() string {
+	return UpdateIndeedPostingStepType
+}
+
+func (step UpdateIndeedPosting) Execute(
+	_ dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	step.service.UpdateExternalSystem("update Indeed job posting")
+	return dex.DeadEnd(), nil
+}
+
+func jobBoardUpdateStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval:    3 * time.Second,
@@ -153,12 +199,4 @@ func (externalUpdateStep) GetStepOptions() *dex.StepOptions {
 	}
 }
 
-func (step externalUpdateStep) Execute(
-	_ dex.Context,
-	_ dex.None,
-) (*dex.StepDecision, error) {
-	step.service.UpdateExternalSystem("this is an update to external service")
-	return dex.DeadEnd(), nil
-}
-
-var _ dex.Flow = (*JobPostFlow)(nil)
+var _ dex.Flow = (*JobPostingFlow)(nil)

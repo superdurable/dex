@@ -1,6 +1,6 @@
-# Job post
+# Job posting
 
-CRUD job post with indexed attributes and external-system updates. Create seeds initial attributes; update starts the ExternalUpdate step; search uses Dex SearchFlows.
+CRUD job posting with indexed Attributes and job-board updates. Create seeds initial Attributes; update starts the LinkedIn and Indeed Steps in parallel; search uses Dex SearchFlows.
 
 With the sample server running:
 

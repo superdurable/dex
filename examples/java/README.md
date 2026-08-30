@@ -63,7 +63,7 @@ after E2E tests for manual HTTP exploration.
 - [Engagement](./src/main/java/io/superdurable/dex/products/engagement)
 - [Subscription](./src/main/java/io/superdurable/dex/products/subscription)
 - [Signup](./src/main/java/io/superdurable/dex/products/signup)
-- [Job post](./src/main/java/io/superdurable/dex/products/jobpost)
+- [Job posting](./src/main/java/io/superdurable/dex/products/jobpost)
 - [Shortlist candidates](./src/main/java/io/superdurable/dex/products/shortlistcandidates)
 
 ## Patterns

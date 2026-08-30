@@ -20,6 +20,7 @@ from typing import Callable
 import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
+from dex_examples.products.job_post.job_info import JobInfo
 from dex_examples.products.shortlist_candidates import workflow_ids
 from dex_examples.products.shortlist_candidates.employer_opt_in_input import (
     EmployerOptInInput,
@@ -28,9 +29,12 @@ from dex_examples.products.shortlist_candidates.shortlist_input import Shortlist
 from dex_examples.products.signup.signup_form import SignupForm
 from tests.integ.conftest import WAIT_TIMEOUT
 
-from dex import AsyncClient, StartFlowOptions
+from dex import AsyncClient, StartFlowOptions, StepExecutionId
 
 pytestmark = pytest.mark.integ
+
+UPDATE_LINKEDIN_POSTING = StepExecutionId("UpdateLinkedInPosting")
+UPDATE_INDEED_POSTING = StepExecutionId("UpdateIndeedPosting")
 
 
 async def test_signup_verify_completes(
@@ -47,7 +51,7 @@ async def test_signup_verify_completes(
     ) == "done"
 
 
-async def test_job_post_create_and_read(
+async def test_job_posting_create_read_and_update_both_job_boards(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
@@ -65,6 +69,26 @@ async def test_job_post_create_and_read(
     assert info.title == "Software Engineer"
     assert info.description == "Build durable workflows"
     assert info.notes == "initial"
+
+    await client.invoke_rpc(
+        app.job_post.update,
+        flow_id,
+        JobInfo("Senior Software Engineer", "Build durable systems", "updated"),
+    )
+    await client.wait_for_step_completion(
+        flow_id,
+        UPDATE_LINKEDIN_POSTING,
+        WAIT_TIMEOUT,
+    )
+    await client.wait_for_step_completion(
+        flow_id,
+        UPDATE_INDEED_POSTING,
+        WAIT_TIMEOUT,
+    )
+    updated = await client.invoke_rpc(app.job_post.get, flow_id)
+    assert updated.title == "Senior Software Engineer"
+    assert updated.description == "Build durable systems"
+    assert updated.notes == "updated"
 
 
 async def test_shortlist_opt_in_and_revoke(

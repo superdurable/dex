@@ -23,6 +23,10 @@ use dex_examples_rust::primitives::stream::flow::{PROGRESS, StreamFlow};
 use dex_examples_rust::products::engagement::{
     ENGAGEMENT_ACCEPT, ENGAGEMENT_DESCRIBE, EngagementFlow, EngagementRequest, EngagementStatus,
 };
+use dex_examples_rust::products::job_post::{
+    Create, JOB_POST_READ, JOB_POST_UPDATE, JobPost, JobPostingFlow, UpdateIndeedPosting,
+    UpdateLinkedInPosting,
+};
 use dex_examples_rust::products::microservices::{
     DATA, ORCHESTRATION_READY, ORCHESTRATION_SWAP, OrchestrationFlow,
 };
@@ -36,7 +40,7 @@ use dex_examples_rust::products::subscription::{
 };
 use dex_sdk::{
     BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult, StepExecutionId,
-    TimerId, Worker, WorkerOptions,
+    StopFlowOptions, TimerId, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 
@@ -174,6 +178,79 @@ fn money_transfer_completes_with_released_sdk() {
             .status,
         FlowStatus::Completed
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn job_posting_update_reaches_both_job_boards() {
+    let environment = DexEnvironment::start();
+    let flow = JobPostingFlow::default();
+    let flow_id = unique_flow_id("job-posting");
+    let initial = JobPost {
+        title: "Software Engineer".to_string(),
+        description: "Build reliable systems".to_string(),
+        ..JobPost::default()
+    };
+    environment
+        .client
+        .start_flow(&flow, &flow_id, initial.clone())
+        .expect("start Rust Job Posting Flow");
+    environment
+        .client
+        .wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&Create),
+            Duration::from_secs(30),
+        )
+        .expect("wait for Rust Job Posting Create Step");
+    assert_eq!(
+        environment
+            .client
+            .invoke_rpc_without_input(&flow_id, JOB_POST_READ)
+            .expect("read initial Rust Job Posting"),
+        initial
+    );
+
+    let updated = JobPost {
+        title: "Senior Software Engineer".to_string(),
+        description: "Build durable systems".to_string(),
+        notes: "expanded scope".to_string(),
+        deleted: false,
+    };
+    assert_eq!(
+        environment
+            .client
+            .invoke_rpc(&flow_id, JOB_POST_UPDATE, updated.clone())
+            .expect("update Rust Job Posting"),
+        updated
+    );
+    environment
+        .client
+        .wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&UpdateLinkedInPosting::default()),
+            Duration::from_secs(30),
+        )
+        .expect("wait for Rust LinkedIn posting update");
+    environment
+        .client
+        .wait_for_step_completion(
+            &flow_id,
+            StepExecutionId::of(&UpdateIndeedPosting::default()),
+            Duration::from_secs(30),
+        )
+        .expect("wait for Rust Indeed posting update");
+    assert_eq!(
+        environment
+            .client
+            .invoke_rpc_without_input(&flow_id, JOB_POST_READ)
+            .expect("read updated Rust Job Posting"),
+        updated
+    );
+    environment
+        .client
+        .stop_flow(&flow_id, StopFlowOptions::cancel())
+        .expect("stop Rust Job Posting Flow");
 }
 
 #[test]

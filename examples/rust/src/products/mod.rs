@@ -35,7 +35,7 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(engagement::EngagementFlow::default())?
         .register(subscription::SubscriptionFlow::default())?
         .register(signup::UserSignupFlow::default())?
-        .register(job_post::JobPostFlow::default())?
+        .register(job_post::JobPostingFlow::default())?
         .register(shortlist_candidates::EmployerOptInFlow::default())?
         .register(shortlist_candidates::ShortlistFlow::default())
 }

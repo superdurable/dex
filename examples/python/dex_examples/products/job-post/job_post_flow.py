@@ -36,7 +36,7 @@ from dex import (
 from dex_examples.shared.my_dependency_service import MyDependencyService
 from dex_examples.products.job_post.job_info import JobInfo
 
-EXTERNAL_UPDATE_OPTIONS = StepOptions(
+JOB_BOARD_UPDATE_OPTIONS = StepOptions(
     execute_retry=RetryPolicy(
         initial_interval=timedelta(seconds=3),
         backoff_coefficient=2.0,
@@ -47,19 +47,31 @@ EXTERNAL_UPDATE_OPTIONS = StepOptions(
 )
 
 
-class ExternalUpdate(Step[None]):
+class UpdateLinkedInPosting(Step[None]):
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
 
     def get_step_options(self) -> StepOptions:
-        return EXTERNAL_UPDATE_OPTIONS
+        return JOB_BOARD_UPDATE_OPTIONS
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        self.service.update_external_system("this is an update to external service")
+        self.service.update_external_system("update LinkedIn job posting")
         return dead_end()
 
 
-class JobPostFlow(Flow[None]):
+class UpdateIndeedPosting(Step[None]):
+    def __init__(self, service: MyDependencyService) -> None:
+        self.service = service
+
+    def get_step_options(self) -> StepOptions:
+        return JOB_BOARD_UPDATE_OPTIONS
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        self.service.update_external_system("update Indeed job posting")
+        return dead_end()
+
+
+class JobPostingFlow(Flow[None]):
     title = Attribute("Title", str, AttributeIndex(IndexType.FULL_TEXT))
     job_description = Attribute(
         "JobDescription",
@@ -75,10 +87,14 @@ class JobPostFlow(Flow[None]):
 
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
-        self.external_update = ExternalUpdate(service)
+        self.update_linkedin_posting = UpdateLinkedInPosting(service)
+        self.update_indeed_posting = UpdateIndeedPosting(service)
 
     def get_steps(self) -> StepList[None]:
-        return StepList.without_start_step(self.external_update)
+        return StepList.without_start_step(
+            self.update_linkedin_posting,
+            self.update_indeed_posting,
+        )
 
     def get_persistence_schema(self) -> PersistenceSchema:
         return PersistenceSchema.of(
@@ -105,7 +121,10 @@ class JobPostFlow(Flow[None]):
             self.notes.set(context, input.notes)
         return RPCResult(
             None,
-            next_steps=(StepMovement.of(ExternalUpdate, None),),
+            next_steps=(
+                StepMovement.of(UpdateLinkedInPosting, None),
+                StepMovement.of(UpdateIndeedPosting, None),
+            ),
         )
 
     def read_job_info(self, context: Context) -> JobInfo:

@@ -39,7 +39,7 @@ import {
 } from "../../shared/my-dependency-service.js";
 import { optionalStringCodec, type JobInfo } from "./job-info.js";
 
-export class JobPostFlow implements Flow {
+export class JobPostingFlow implements Flow {
   public readonly title = new Attribute("Title", stringCodec, {
     type: IndexType.FULL_TEXT,
   });
@@ -51,16 +51,20 @@ export class JobPostFlow implements Flow {
   });
   public readonly notes = new Attribute("Notes", optionalStringCodec);
 
-  public readonly externalUpdate = new ExternalUpdate(this);
+  public readonly updateLinkedInPosting = new UpdateLinkedInPosting(this);
+  public readonly updateIndeedPosting = new UpdateIndeedPosting(this);
 
   public constructor(public readonly service: MyDependencyService = myDependencyService) {}
 
   public getFlowType(): string {
-    return "JobPostFlow";
+    return "JobPostingFlow";
   }
 
   public getSteps() {
-    return StepList.withoutStartStep<void>(this.externalUpdate);
+    return StepList.withoutStartStep<void>(
+      this.updateLinkedInPosting,
+      this.updateIndeedPosting,
+    );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
@@ -87,7 +91,13 @@ export class JobPostFlow implements Flow {
     if (input.notes !== undefined && input.notes.length > 0) {
       this.notes.set(context, input.notes);
     }
-    return { output: undefined, nextSteps: [StepMovement.of(ExternalUpdate, undefined)] };
+    return {
+      output: undefined,
+      nextSteps: [
+        StepMovement.of(UpdateLinkedInPosting, undefined),
+        StepMovement.of(UpdateIndeedPosting, undefined),
+      ],
+    };
   }
 
   private readJobInfo(context: Context): JobInfo {
@@ -99,7 +109,7 @@ export class JobPostFlow implements Flow {
   }
 }
 
-class ExternalUpdate implements Step<void> {
+class UpdateLinkedInPosting implements Step<void> {
   private readonly options: StepOptions = {
     executeRetry: {
       backoffCoefficient: 2,
@@ -110,10 +120,10 @@ class ExternalUpdate implements Step<void> {
     },
   };
 
-  public constructor(private readonly flow: JobPostFlow) {}
+  public constructor(private readonly flow: JobPostingFlow) {}
 
   public getStepType(): string {
-    return "ExternalUpdate";
+    return "UpdateLinkedInPosting";
   }
 
   public getStepOptions(): StepOptions {
@@ -121,9 +131,36 @@ class ExternalUpdate implements Step<void> {
   }
 
   public execute(_context: Context, _input: void): StepDecision {
-    this.flow.service.updateExternalSystem("this is an update to external service");
+    this.flow.service.updateExternalSystem("update LinkedIn job posting");
     return deadEnd();
   }
 }
 
-export const jobPostFlow = new JobPostFlow();
+class UpdateIndeedPosting implements Step<void> {
+  private readonly options: StepOptions = {
+    executeRetry: {
+      backoffCoefficient: 2,
+      maximumAttempts: 100,
+      totalDurationMs: HOUR_MS,
+      initialIntervalMs: 3_000,
+      maximumIntervalMs: 60_000,
+    },
+  };
+
+  public constructor(private readonly flow: JobPostingFlow) {}
+
+  public getStepType(): string {
+    return "UpdateIndeedPosting";
+  }
+
+  public getStepOptions(): StepOptions {
+    return this.options;
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    this.flow.service.updateExternalSystem("update Indeed job posting");
+    return deadEnd();
+  }
+}
+
+export const jobPostingFlow = new JobPostingFlow();

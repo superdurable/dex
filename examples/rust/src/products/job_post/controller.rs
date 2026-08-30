@@ -21,7 +21,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::products::job_post::flow::{JOB_POST_READ, JOB_POST_UPDATE, JobPost, JobPostFlow};
+use crate::products::job_post::flow::{JOB_POST_READ, JOB_POST_UPDATE, JobPost, JobPostingFlow};
 use crate::server::helpers::{
     SharedClient, StartResponse, map_sdk_error, new_flow_id, ok_json, ok_text, run_blocking,
 };
@@ -86,7 +86,7 @@ async fn start(
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = JobPostFlow::default();
+        let flow = JobPostingFlow::default();
         let input = JobPost {
             title: "Engineer".into(),
             description: "Build flows".into(),
@@ -113,7 +113,7 @@ async fn create(
             .unwrap_or(0)
     );
     match run_blocking(move || {
-        let flow = JobPostFlow::default();
+        let flow = JobPostingFlow::default();
         let input = JobPost {
             title: query.title,
             description: query.description,
