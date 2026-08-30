@@ -44,21 +44,27 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 		dex.StartFlowOptions{Attributes: initialAttributes},
 	)
 	require.NoError(t, err)
+	require.NoError(t, integClient.WaitForStepCompletion(
+		ctx,
+		flowID,
+		dex.StepExecutionID{StepType: "InitStep"},
+	))
 
 	updated := jobpost.JobInfo{
 		Title:       "Senior Software Engineer",
 		Description: "Build durable systems",
 		Notes:       "expanded scope",
 	}
-	var none dex.None
+	var version int
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,
 		registry.JobPosting.Update,
 		updated,
-		&none,
+		&version,
 		jobpost.UpdateInvokeOptions(),
 	))
+	require.Equal(t, 1, version)
 	newest := jobpost.JobInfo{
 		Title:       "Principal Software Engineer",
 		Description: "Lead durable systems",
@@ -69,9 +75,10 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 		flowID,
 		registry.JobPosting.Update,
 		newest,
-		&none,
+		&version,
 		jobpost.UpdateInvokeOptions(),
 	))
+	require.Equal(t, 2, version)
 	require.NoError(t, integClient.WaitForStepCompletion(
 		ctx,
 		flowID,
@@ -110,5 +117,7 @@ func jobPostingInitialAttributes(t *testing.T) []dex.InitialAttributeDef {
 	require.NoError(t, err)
 	lastUpdate, err := dex.InitialAttribute(jobpost.LastUpdateTimeMillis, time.Now().UnixMilli())
 	require.NoError(t, err)
-	return []dex.InitialAttributeDef{title, description, lastUpdate}
+	updateVersion, err := dex.InitialAttribute(jobpost.UpdateVersion, 0)
+	require.NoError(t, err)
+	return []dex.InitialAttributeDef{title, description, lastUpdate, updateVersion}
 }

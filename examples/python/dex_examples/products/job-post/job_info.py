@@ -20,3 +20,10 @@ class JobInfo:
     title: str | None = None
     description: str | None = None
     notes: str | None = None
+
+
+@dataclass(frozen=True)
+class PostingUpdate:
+    version: int
+    idempotency_key: str
+    posting: JobInfo

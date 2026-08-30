@@ -24,7 +24,7 @@ use dex_examples_rust::products::engagement::{
     ENGAGEMENT_ACCEPT, ENGAGEMENT_DESCRIBE, EngagementFlow, EngagementRequest, EngagementStatus,
 };
 use dex_examples_rust::products::job_post::{
-    Create, JOB_POST_READ, JOB_POST_UPDATE, JobPost, JobPostingFlow, UpdateIndeedPosting,
+    Init, JOB_POST_READ, JOB_POST_UPDATE, JobPost, JobPostingFlow, UpdateIndeedPosting,
     UpdateLinkedInPosting,
 };
 use dex_examples_rust::products::microservices::{
@@ -199,7 +199,7 @@ fn job_posting_update_reaches_both_job_boards() {
         .client
         .wait_for_step_completion(
             &flow_id,
-            StepExecutionId::of(&Create),
+            StepExecutionId::of(&Init),
             Duration::from_secs(30),
         )
         .expect("wait for Rust Job Posting Create Step");
@@ -220,9 +220,9 @@ fn job_posting_update_reaches_both_job_boards() {
     assert_eq!(
         environment
             .client
-            .invoke_rpc(&flow_id, JOB_POST_UPDATE, updated.clone())
+            .invoke_rpc(&flow_id, JOB_POST_UPDATE, updated)
             .expect("update Rust Job Posting"),
-        updated
+        1
     );
     let newest = JobPost {
         title: "Principal Software Engineer".to_string(),
@@ -235,7 +235,7 @@ fn job_posting_update_reaches_both_job_boards() {
             .client
             .invoke_rpc(&flow_id, JOB_POST_UPDATE, newest.clone())
             .expect("update Rust Job Posting again"),
-        newest
+        2
     );
     environment
         .client

@@ -74,6 +74,11 @@ func (controller *controller) create(request *gin.Context) {
 		httputil.Respond(request, nil, err)
 		return
 	}
+	updateVersionAttr, err := sdk.InitialAttribute(UpdateVersion, 0)
+	if err != nil {
+		httputil.Respond(request, nil, err)
+		return
+	}
 	httputil.StartFlow(
 		request,
 		controller.client,
@@ -86,6 +91,7 @@ func (controller *controller) create(request *gin.Context) {
 				titleAttr,
 				descriptionAttr,
 				lastUpdateAttr,
+				updateVersionAttr,
 			},
 			ConfigOverride: &sdk.FlowConfig{
 				ContinueAsNewThreshold: ptr.Any(int32(10)),
@@ -128,16 +134,16 @@ func (controller *controller) update(request *gin.Context) {
 	if notes == "" {
 		notes = "test-notes"
 	}
-	var none sdk.None
+	var version int
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		flowID,
 		controller.flow.Update,
 		JobInfo{Title: title, Description: description, Notes: notes},
-		&none,
+		&version,
 		UpdateInvokeOptions(),
 	)
-	httputil.Respond(request, gin.H{"updated": true}, err)
+	httputil.Respond(request, gin.H{"updated": true, "version": version}, err)
 }
 
 func (controller *controller) delete(request *gin.Context) {

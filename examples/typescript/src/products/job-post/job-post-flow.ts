@@ -16,15 +16,18 @@
 
 import {
   Attribute,
+  Channel,
   IndexType,
   StepList,
   StepMovement,
-  deadEnd,
+  Wait,
+  doubleCodec,
+  goTo,
+  goToMany,
   int64Codec,
   rpc,
   stringCodec,
   voidCodec,
-  type AttributeLock,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -36,14 +39,22 @@ import {
 
 import { HOUR_MS } from "../../config/env.js";
 import {
-  myDependencyService,
   type MyDependencyService,
+  myDependencyService,
 } from "../../shared/my-dependency-service.js";
-import { optionalStringCodec, type JobInfo } from "./job-info.js";
+import {
+  jobInfoCodec,
+  optionalStringCodec,
+  postingUpdateCodec,
+  type JobInfo,
+} from "./job-info.js";
 
 const title = new Attribute("Title", stringCodec, {
   type: IndexType.FULL_TEXT,
 });
+const updatePostingLock = new Attribute("UpdatePostingLock", voidCodec);
+const linkedInPostingUpdates = new Channel("LinkedInPostingUpdates", postingUpdateCodec);
+const indeedPostingUpdates = new Channel("IndeedPostingUpdates", postingUpdateCodec);
 
 export class JobPostingFlow implements Flow {
   public readonly title = title;
@@ -54,15 +65,12 @@ export class JobPostingFlow implements Flow {
     type: IndexType.INT,
   });
   public readonly notes = new Attribute("Notes", optionalStringCodec);
-  public readonly updateLinkedInPostingLock = new Attribute(
-    "UpdateLinkedInPostingLock",
-    voidCodec,
-  );
-  public readonly updateIndeedPostingLock = new Attribute(
-    "UpdateIndeedPostingLock",
-    voidCodec,
-  );
+  public readonly updateVersion = new Attribute("UpdateVersion", doubleCodec);
+  public readonly updatePostingLock = updatePostingLock;
+  public readonly linkedInPostingUpdates = linkedInPostingUpdates;
+  public readonly indeedPostingUpdates = indeedPostingUpdates;
 
+  public readonly init = new InitStep();
   public readonly updateLinkedInPosting = new UpdateLinkedInPosting(this);
   public readonly updateIndeedPosting = new UpdateIndeedPosting(this);
 
@@ -73,7 +81,7 @@ export class JobPostingFlow implements Flow {
   }
 
   public getSteps() {
-    return StepList.withoutStartStep<void>(
+    return StepList.startStep(this.init).otherSteps(
       this.updateLinkedInPosting,
       this.updateIndeedPosting,
     );
@@ -86,9 +94,10 @@ export class JobPostingFlow implements Flow {
         this.jobDescription,
         this.lastUpdateTimeMillis,
         this.notes,
-        this.updateLinkedInPostingLock,
-        this.updateIndeedPostingLock,
+        this.updateVersion,
+        this.updatePostingLock,
       ],
+      channels: [this.linkedInPostingUpdates, this.indeedPostingUpdates],
     };
   }
 
@@ -102,20 +111,29 @@ export class JobPostingFlow implements Flow {
     return this.get(context);
   }
 
-  @rpc({ lockAttributes: [title.lock()] })
-  public update(context: Context, input: JobInfo): RPCResult<void> {
+  @rpc({
+    inputCodec: jobInfoCodec,
+    outputCodec: doubleCodec,
+    lockAttributes: [updatePostingLock.lock()],
+  })
+  public update(context: Context, input: JobInfo): RPCResult<number> {
+    const version = this.updateVersion.get(context) + 1;
     this.title.set(context, input.title);
     this.jobDescription.set(context, input.description);
     this.lastUpdateTimeMillis.set(context, BigInt(Date.now()));
     if (input.notes !== undefined && input.notes.length > 0) {
       this.notes.set(context, input.notes);
     }
+    this.updateVersion.set(context, version);
+    const update = {
+      version,
+      idempotencyKey: `${context.flowId}:${version}`,
+      posting: input,
+    };
+    this.linkedInPostingUpdates.publish(context, update);
+    this.indeedPostingUpdates.publish(context, update);
     return {
-      output: undefined,
-      nextSteps: [
-        StepMovement.of(UpdateLinkedInPosting, undefined),
-        StepMovement.of(UpdateIndeedPosting, undefined),
-      ],
+      output: version,
     };
   }
 
@@ -128,6 +146,21 @@ export class JobPostingFlow implements Flow {
   }
 }
 
+class InitStep implements Step<void> {
+  public readonly inputCodec = voidCodec;
+
+  public getStepType(): string {
+    return "InitStep";
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    return goToMany(
+      StepMovement.of(UpdateLinkedInPosting, undefined),
+      StepMovement.of(UpdateIndeedPosting, undefined),
+    );
+  }
+}
+
 class UpdateLinkedInPosting implements Step<void> {
   public constructor(private readonly flow: JobPostingFlow) {}
 
@@ -136,12 +169,21 @@ class UpdateLinkedInPosting implements Step<void> {
   }
 
   public getStepOptions(): StepOptions {
-    return jobBoardUpdateOptions(this.flow.updateLinkedInPostingLock.lock());
+    return jobBoardUpdateOptions();
   }
 
-  public execute(_context: Context, _input: void): StepDecision {
-    this.flow.service.updateExternalSystem("update LinkedIn job posting");
-    return deadEnd();
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.until(this.flow.linkedInPostingUpdates.forOne());
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    const update = this.flow.linkedInPostingUpdates.results(context)[0];
+    if (update === undefined) throw new Error("LinkedIn posting update is required");
+    this.flow.service.updateExternalSystem(
+      `update LinkedIn job posting v${update.version} `
+      + `[${update.idempotencyKey}]: ${update.posting.title}`,
+    );
+    return goTo(UpdateLinkedInPosting, undefined);
   }
 }
 
@@ -153,18 +195,26 @@ class UpdateIndeedPosting implements Step<void> {
   }
 
   public getStepOptions(): StepOptions {
-    return jobBoardUpdateOptions(this.flow.updateIndeedPostingLock.lock());
+    return jobBoardUpdateOptions();
   }
 
-  public execute(_context: Context, _input: void): StepDecision {
-    this.flow.service.updateExternalSystem("update Indeed job posting");
-    return deadEnd();
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.until(this.flow.indeedPostingUpdates.forOne());
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    const update = this.flow.indeedPostingUpdates.results(context)[0];
+    if (update === undefined) throw new Error("Indeed posting update is required");
+    this.flow.service.updateExternalSystem(
+      `update Indeed job posting v${update.version} `
+      + `[${update.idempotencyKey}]: ${update.posting.title}`,
+    );
+    return goTo(UpdateIndeedPosting, undefined);
   }
 }
 
-function jobBoardUpdateOptions(executeLock: AttributeLock): StepOptions {
+function jobBoardUpdateOptions(): StepOptions {
   return {
-    executeLockAttributes: [executeLock],
     executeRetry: {
       backoffCoefficient: 2,
       maximumAttempts: 100,

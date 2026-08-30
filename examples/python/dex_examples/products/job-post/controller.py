@@ -49,6 +49,7 @@ def create_job_post_blueprint(app_state: ExampleApp) -> Blueprint:
                 unquote(required_query("description")),
             )
             .with_attribute(flow.last_update_time_millis, int(time.time() * 1000))
+            .with_attribute(flow.update_version, 0)
         )
         await app_state.client.start_flow(flow, flow_id, None, options)
         return f"started workflowId: {flow_id}"

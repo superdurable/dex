@@ -55,6 +55,7 @@ public class JobPostingController {
                 .addAttribute(flow.title, title)
                 .addAttribute(flow.jobDescription, description)
                 .addAttribute(flow.lastUpdateTimeMillis, System.currentTimeMillis())
+                .addAttribute(flow.updateVersion, 0)
                 .configOverride(FlowConfig.newBuilder().continueAsNewThreshold(10).build())
                 .build();
         client.startFlow(flow, flowId, null, options);
@@ -78,8 +79,10 @@ public class JobPostingController {
         notes = escapeQuote(notes);
 
         final JobPostingFlow stub = client.newRpcStub(JobPostingFlow.class, workflowId);
-        client.invokeRPC(stub::update, new JobInfo(title, description, notes));
-        return ResponseEntity.ok("updated");
+        final int version = client.invokeRPC(
+                stub::update,
+                new JobInfo(title, description, notes));
+        return ResponseEntity.ok("updated version " + version);
     }
 
     @GetMapping("/delete")

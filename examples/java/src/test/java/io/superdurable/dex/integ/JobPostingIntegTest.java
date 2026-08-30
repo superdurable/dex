@@ -39,20 +39,25 @@ public class JobPostingIntegTest {
                 .addAttribute(flow.title, "Software Engineer")
                 .addAttribute(flow.jobDescription, "Build reliable systems")
                 .addAttribute(flow.lastUpdateTimeMillis, System.currentTimeMillis())
+                .addAttribute(flow.updateVersion, 0)
                 .build();
         environment.client().startFlow(flow, flowId, null, options);
+        environment.client().waitForStepCompletion(
+                flowId,
+                StepExecutionId.of("InitStep", 1),
+                Duration.ofSeconds(30));
 
         final JobPostingFlow stub = environment.client().newRpcStub(JobPostingFlow.class, flowId);
         final JobInfo updated = new JobInfo(
                 "Senior Software Engineer",
                 "Build durable systems",
                 "expanded scope");
-        environment.client().invokeRPC(stub::update, updated);
+        assertEquals(1, environment.client().invokeRPC(stub::update, updated));
         final JobInfo newest = new JobInfo(
                 "Principal Software Engineer",
                 "Lead durable systems",
                 "final scope");
-        environment.client().invokeRPC(stub::update, newest);
+        assertEquals(2, environment.client().invokeRPC(stub::update, newest));
         environment.client().waitForStepCompletion(
                 flowId,
                 StepExecutionId.of("UpdateLinkedInPosting", 2),

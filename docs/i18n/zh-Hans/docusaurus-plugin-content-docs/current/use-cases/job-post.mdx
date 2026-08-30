@@ -5,73 +5,77 @@ sidebar_label: Job posting
 
 # 职位发布
 
-将一条职位发布信息持久化并建立搜索索引，同时把每次更新独立同步到 LinkedIn 和 Indeed。
+持久化并检索一条职位发布信息，同时把每个已接受的更新按顺序发送到 LinkedIn 和 Indeed。
 
 ## 产品需求
 
 这个流程在职位发布信息的整个生命周期内代表同一个实体。它必须：
 
-1. 使用职位名称、描述和最后更新时间创建 Flow。这些值保存在持久化 Attribute 中，其中名称和描述支持全文检索。
-2. 创建后保持运行，等待读取、更新、搜索或删除请求。空闲期间是持久化等待，不会占用 Worker。
+1. 使用职位名称、描述、最后更新时间和初始值为 0 的更新版本创建 Flow。名称和描述是支持全文检索的 Attribute。
+2. 只运行一次 **InitStep**，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。之后每个 Step 在自己的 Channel 上等待，且不会占用 Worker。
 3. 通过读取 RPC 返回当前名称、描述和备注。
-4. 通过更新 RPC 接收新的名称、描述和备注。RPC 使用 **Title** lock，确保同一时间只有一个职位更新可以提交，并在启动外部操作前持久化新状态。
-5. 每次成功更新后，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。
-6. 串行处理同一目标的重复更新。**UpdateLinkedInPosting** 使用值为 null 的 **UpdateLinkedInPostingLock** Attribute，**UpdateIndeedPosting** 使用 **UpdateIndeedPostingLock**。两者使用不同 lock，因此仍可并行执行。
-7. 独立重试两个招聘网站的更新：首次间隔三秒，最大间隔 60 秒，最多 100 次，总时长不超过一小时。
-8. 删除职位时停止 Flow。搜索操作通过建立索引的 Attribute 查找职位发布信息。
+4. 通过更新 RPC 接收新的名称、描述和备注。RPC 使用专用且值为 null 的 **UpdatePostingLock** Attribute，确保同一时间只有一个已接受的更新可以分配版本并发布消息。
+5. 递增 **UpdateVersion**，持久化当前职位信息，并把同一个不可变 **PostingUpdate** 发布到 **LinkedInPostingUpdates** 和 **IndeedPostingUpdates**。消息包含版本、稳定的幂等键和职位快照。
+6. 从每个 FIFO Channel 一次消费一条消息。外部调用成功后，consumer 回到自身的新 execution，等待下一条消息。
+7. 独立重试两个招聘网站的调用：首次间隔三秒，最大间隔 60 秒，最多 100 次，总时长不超过一小时。
+8. 删除职位时停止 Flow。搜索操作通过建立索引的 Attribute 查找活跃职位。
 
-职位空闲时，流程会持久化等待下一个 RPC；同一目标的重复 Step 会等待对应的 Attribute lock；招聘网站 Step 失败时还会在重试之间等待。更新 RPC 不等待 LinkedIn 或 Indeed，而是在职位状态和两个 Step movement 一起提交后返回。
+当任一 Channel 为空时，Flow 会持久化等待；Step 失败时还会在重试之间等待。更新 RPC 不等待 LinkedIn 或 Indeed。当前状态和两条 Channel 消息持久化提交后，它会返回已提交的版本。
 
 潜在失败包括：
 
 - 创建时可能缺少必需的初始 Attribute，或者值无法编码。此时不会留下部分创建的 Flow。
-- Flow ID 不存在、Flow 已停止、输入无法持久化，或者另一个更新持有 **Title** lock 时，更新 RPC 会被拒绝。lock conflict 可以安全重试。
-- LinkedIn 或 Indeed 可能不可用、超时、限流或拒绝职位信息。一个目标可能已经成功，而另一个仍在重试或最终失败。
-- 远端请求可能已经成功，但响应丢失。每个集成都必须使用稳定的幂等键，避免重试产生重复职位。
-- 重复更新会创建新的 Step execution number。每个目标独立的 lock 可避免两个 LinkedIn execution 或两个 Indeed execution 同时调用同一目标。如果每个 execution 都必须发布其原始状态，生产适配器仍应携带职位版本或不可变载荷。
-- 删除可能与执行中的更新竞争。停止策略必须按照产品的删除约定取消或完成尚未结束的招聘网站操作。
+- Flow ID 不存在、Flow 已停止、输入无法持久化，或者另一个 RPC 持有 **UpdatePostingLock** 时，更新 RPC 会失败。lock conflict 可以安全重试。
+- LinkedIn 或 Indeed 可能不可用、超时、限流或拒绝职位信息。一个 consumer 可以继续运行，而另一个仍在重试或最终失败。
+- 远端请求可能已经成功，但响应丢失。由版本生成的幂等键让外部适配器可以对重试去重。
+- 某个 consumer 失败后，该目标的后续消息会等待它成功或耗尽重试。这可以保持 FIFO 顺序，避免较新的职位状态越过旧状态。
+- 删除可能与已接受的更新竞争。停止策略必须按照产品的删除约定取消或完成排队中和执行中的工作。
+
+lock 决定成功提交的 RPC 顺序，而不是客户端请求到达顺序。并发调用方可能竞争 lock。返回的版本是权威的接受顺序，每个目标都会按照 FIFO 顺序观察这些版本。
 
 ## Flow 设计
 
-这是一个由 RPC 触发并行分支的长生命周期实体 Flow：
+这个 Flow 使用一个带 lock 的 producer 和两个持久化、独立推进的 consumer：
 
 ```text
-使用索引 Attribute 创建
-            │
-            ▼
-        等待 RPC
-            │
-  更新 RPC [Title lock]
-            │
-       持久化职位信息
-       ┌────┴────┐
-       ▼         ▼
-UpdateLinkedIn  UpdateIndeed
-Posting [LI lock] Posting [IN lock]
-       │         │
-       └─ DeadEnd┘
-            │
-        等待 RPC
+创建职位（版本 0）
+             │
+             ▼
+          InitStep
+        ┌────┴────┐
+        ▼         ▼
+ UpdateLinkedIn  UpdateIndeed
+ Posting        Posting
+        │         │
+ 等待 LinkedIn  等待 Indeed
+ Channel        Channel
+        ▲         ▲
+        │         │
+        └────┬────┘
+             │
+ 更新 RPC [UpdatePostingLock]
+ 持久化版本 N + 发布相同的 PostingUpdate
+             │
+             └── 返回版本 N
 ```
 
 设计使用了以下模式：
 
-- [**实体存储**](/design-patterns/entity-store)为每条职位信息分配稳定的 Flow ID，并使用 Attribute 保存可变状态。
-- **请求-响应交互**使用强类型 RPC 读取和更新状态。更新操作会原子提交状态和后续 movement。
-- [**静态并行 Step**](/design-patterns/parallel/static)同时启动两个已知目标，避免把它们放进同一个重试边界。
-- **失败隔离**让 LinkedIn 和 Indeed 拥有独立的 Step execution、重试计数、历史和最终失败状态。
-- **分区 locking**使用 **Title** 串行提交 RPC，使用两个值为 null 的独立 lock Attribute 串行处理各自目标，同时保留 LinkedIn 和 Indeed 之间的并行能力。
-- **持久化重试**在进程重启后继续处理临时外部故障，同时不会占用等待中的进程。
+- [**实体存储**](/design-patterns/entity-store)为每条职位信息分配稳定的 Flow ID，并使用 Attribute 保存可检索的当前状态。
+- **初始化扇出**使用 **InitStep** 恰好创建一次两个长期运行的 consumer 分支。
+- **带 lock 的 producer**通过 **UpdatePostingLock** 串行处理版本分配、状态替换和消息发布。
+- **Flow 内的事务型 outbox**把当前状态和两条 Channel 消息作为一个 RPC 结果提交，因此已接受的更新不会只发给一个目标。
+- **不可变版本消息**让每个 consumer 获得触发它的 RPC 中的准确职位快照，而不是稍后读取可变的共享 Attribute。
+- **FIFO Channel consumer 循环**每次处理一条消息，再回到同一个 Step。即使 RPC 快速连续到达，每个目标也会先观察 v1，再观察 v2。
+- **并行故障隔离**让 LinkedIn 和 Indeed 拥有独立的等待、execution、重试历史和进度。较慢的目标不会阻塞另一个目标。
+- **持久化重试**处理临时外部故障，在进程重启后也不会丢失进度。
 - **索引状态**直接支持名称和描述搜索，不需要应用维护第二份目录。
-- **Dead-end 分支**结束一次同步，但不完成长生命周期的实体 Flow，因此它仍可处理下一个 RPC。
 
-在并行分支前持久化职位信息，可确保两个分支读取持久化状态。lock 可以防止同一分区的 handler 重叠，但不会为共享 Attribute 建立快照。如果每个 execution 都必须发布触发它的 RPC 状态，应向每个 Step 传递版本号或不可变的更新载荷。
+目标 Step 不需要 Attribute lock。每个目标只有一条串行 consumer 链，顺序由 Channel 提供。增加目标 lock 可以避免重叠，但它本身无法保存更新快照或保证 FIFO 交付。
 
 ## 核心实现
 
-下面的标签页包含 Flow 签名、持久化 schema、更新 RPC lock、并行 Step movement、每个目标独立的 lock 和重试策略。每个链接示例还包含 HTTP controller，以及连续调用两次 RPC 并等待第二轮两个招聘网站 Step 的端到端测试。
-
-Python、Java、TypeScript 和 Rust 把 **Title** lock 绑定到 RPC definition。Go 在示例的每个调用位置通过 **UpdateInvokeOptions** 提供相同的 lock。
+下面的标签页包含每种语言的 Flow 签名和完整机制：**InitStep**、RPC lock、带版本的双路发布、单消息 Channel 等待、consumer 循环和重试策略。所有片段都来自链接的可运行示例。
 
 <SdkTabs
   examples={{
@@ -84,231 +88,132 @@ Python、Java、TypeScript 和 Rust 把 **Title** lock 绑定到 RPC definition�
 <SdkSnippet lang="python">
 
 ```python
-JOB_BOARD_UPDATE_RETRY = RetryPolicy(
-    initial_interval=timedelta(seconds=3),
-    backoff_coefficient=2.0,
-    maximum_interval=timedelta(seconds=60),
-    maximum_attempts=100,
-    total_duration=timedelta(hours=1),
-)
-UPDATE_LINKEDIN_POSTING_LOCK = Attribute("UpdateLinkedInPostingLock", type(None))
-UPDATE_INDEED_POSTING_LOCK = Attribute("UpdateIndeedPostingLock", type(None))
-
-
 class JobPostingFlow(Flow[None]):
-    title = Attribute("Title", str, AttributeIndex(IndexType.FULL_TEXT))
-    job_description = Attribute(
-        "JobDescription",
-        str,
-        AttributeIndex(IndexType.FULL_TEXT),
-    )
-    last_update_time_millis = Attribute(
-        "LastUpdateTimeMillis",
-        int,
-        AttributeIndex(IndexType.INT),
-    )
-    notes = Attribute("Notes", str)
-    update_linkedin_posting_lock = UPDATE_LINKEDIN_POSTING_LOCK
-    update_indeed_posting_lock = UPDATE_INDEED_POSTING_LOCK
-
-    def __init__(self, service: MyDependencyService) -> None:
-        self.service = service
-        self.update_linkedin_posting = UpdateLinkedInPosting(service)
-        self.update_indeed_posting = UpdateIndeedPosting(service)
+    update_version = UPDATE_VERSION
+    update_posting_lock = UPDATE_POSTING_LOCK
+    linkedin_posting_updates = LINKEDIN_POSTING_UPDATES
+    indeed_posting_updates = INDEED_POSTING_UPDATES
 
     def get_steps(self) -> StepList[None]:
-        return StepList.without_start_step(
+        return StepList.start_step(self.init).other_steps(
             self.update_linkedin_posting,
             self.update_indeed_posting,
         )
 
-    def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(
-            self.title,
-            self.job_description,
-            self.last_update_time_millis,
-            self.notes,
-            self.update_linkedin_posting_lock,
-            self.update_indeed_posting_lock,
-        )
-
-    @rpc(lock_attributes=(title.lock(),))
-    def update(self, context: Context, input: JobInfo) -> RPCResult[None]:
+    @rpc(lock_attributes=(update_posting_lock.lock(),))
+    def update(self, context: Context, input: JobInfo) -> RPCResult[int]:
+        version = self.update_version.get(context) + 1
         self.title.set(context, input.title or "")
         self.job_description.set(context, input.description or "")
-        self.last_update_time_millis.set(context, int(time.time() * 1000))
-        if input.notes is not None:
-            self.notes.set(context, input.notes)
-        return RPCResult(
-            None,
-            next_steps=(
-                StepMovement.of(UpdateLinkedInPosting, None),
-                StepMovement.of(UpdateIndeedPosting, None),
-            ),
-        )
-```
+        self.update_version.set(context, version)
+        update = PostingUpdate(version, f"{context.flow_id}:{version}", input)
+        self.linkedin_posting_updates.publish(context, update)
+        self.indeed_posting_updates.publish(context, update)
+        return RPCResult(version)
 
-```python
+
+class InitStep(Step[None]):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return go_to_many(
+            StepMovement.of(UpdateLinkedInPosting, None),
+            StepMovement.of(UpdateIndeedPosting, None),
+        )
+
+
 class UpdateLinkedInPosting(Step[None]):
-    def __init__(self, service: MyDependencyService) -> None:
-        self.service = service
-
-    def get_step_options(self) -> StepOptions:
-        return StepOptions(
-            execute_retry=JOB_BOARD_UPDATE_RETRY,
-            execute_lock_attributes=(UPDATE_LINKEDIN_POSTING_LOCK.lock(),),
-        )
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.until(LINKEDIN_POSTING_UPDATES.for_one())
 
     def execute(self, context: Context, input: None) -> StepDecision:
-        self.service.update_external_system("update LinkedIn job posting")
-        return dead_end()
-
-
-class UpdateIndeedPosting(Step[None]):
-    def __init__(self, service: MyDependencyService) -> None:
-        self.service = service
-
-    def get_step_options(self) -> StepOptions:
-        return StepOptions(
-            execute_retry=JOB_BOARD_UPDATE_RETRY,
-            execute_lock_attributes=(UPDATE_INDEED_POSTING_LOCK.lock(),),
+        update = LINKEDIN_POSTING_UPDATES.results(context)[0]
+        self.service.update_external_system(
+            f"update LinkedIn job posting v{update.version} "
+            f"[{update.idempotency_key}]: {update.posting.title}"
         )
-
-    def execute(self, context: Context, input: None) -> StepDecision:
-        self.service.update_external_system("update Indeed job posting")
-        return dead_end()
+        return go_to(UpdateLinkedInPosting, None)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
-var (
-	Title = dex.DefineAttribute[string](
-		"Title",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
-	)
-	JobDescription = dex.DefineAttribute[string](
-		"JobDescription",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
-	)
-	LastUpdateTimeMillis = dex.DefineAttribute[int64](
-		"LastUpdateTimeMillis",
-		dex.Indexed(dex.AttributeIndex{Type: dex.IndexInt}),
-	)
-	Notes                     = dex.DefineAttribute[string]("Notes")
-	UpdateLinkedInPostingLock = dex.DefineAttribute[dex.None]("UpdateLinkedInPostingLock")
-	UpdateIndeedPostingLock   = dex.DefineAttribute[dex.None]("UpdateIndeedPostingLock")
-)
-
 type JobPostingFlow struct {
 	dex.FlowDefaults
 	service service.MyService
 }
 
-func NewJobPostingFlow(applicationService service.MyService) *JobPostingFlow {
-	return &JobPostingFlow{service: applicationService}
-}
-
 func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
+		dex.DefineStartStep(InitStep{}),
 		dex.DefineStep(UpdateLinkedInPosting{service: flow.service}),
 		dex.DefineStep(UpdateIndeedPosting{service: flow.service}),
-	}
-}
-
-func (*JobPostingFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{
-			Title,
-			JobDescription,
-			LastUpdateTimeMillis,
-			Notes,
-			UpdateLinkedInPostingLock,
-			UpdateIndeedPostingLock,
-		},
 	}
 }
 
 func (*JobPostingFlow) Update(
 	ctx dex.Context,
 	input JobInfo,
-) (*dex.RPCResult[dex.None], error) {
-	if err := Title.Set(ctx, input.Title); err != nil {
+) (*dex.RPCResult[int], error) {
+	version, err := UpdateVersion.Get(ctx)
+	if err != nil {
 		return nil, err
 	}
-	if err := JobDescription.Set(ctx, input.Description); err != nil {
+	version++
+	if err := UpdateVersion.Set(ctx, version); err != nil {
 		return nil, err
 	}
-	if err := LastUpdateTimeMillis.Set(ctx, time.Now().UnixMilli()); err != nil {
+	update := PostingUpdate{
+		Version:        version,
+		IdempotencyKey: fmt.Sprintf("%s:%d", ctx.FlowID(), version),
+		Posting:        input,
+	}
+	if err := LinkedInPostingUpdates.Publish(ctx, update); err != nil {
 		return nil, err
 	}
-	if input.Notes != "" {
-		if err := Notes.Set(ctx, input.Notes); err != nil {
-			return nil, err
-		}
+	if err := IndeedPostingUpdates.Publish(ctx, update); err != nil {
+		return nil, err
 	}
-	return &dex.RPCResult[dex.None]{
-		NextSteps: []dex.StepMovement{
-			dex.MovementOf(UpdateLinkedInPosting{}, nil),
-			dex.MovementOf(UpdateIndeedPosting{}, nil),
-		},
-	}, nil
+	return &dex.RPCResult[int]{Output: version}, nil
 }
 
 func UpdateInvokeOptions() dex.InvokeOptions {
 	return dex.InvokeOptions{
-		LockAttributes: []dex.AttributeLock{dex.LockAttribute(Title)},
+		LockAttributes: []dex.AttributeLock{dex.LockAttribute(UpdatePostingLock)},
 	}
 }
-```
 
-```go
-type UpdateLinkedInPosting struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
-	service service.MyService
+func (InitStep) Execute(
+	_ dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	return dex.GoToMany(
+		dex.MovementOf(UpdateLinkedInPosting{}, nil),
+		dex.MovementOf(UpdateIndeedPosting{}, nil),
+	), nil
 }
 
-func (UpdateLinkedInPosting) GetStepOptions() *dex.StepOptions {
-	return jobBoardUpdateStepOptions(dex.LockAttribute(UpdateLinkedInPostingLock))
+func (UpdateLinkedInPosting) WaitFor(
+	_ dex.Context,
+	_ dex.None,
+) (*dex.Wait, error) {
+	return dex.Until(LinkedInPostingUpdates.ForOne()), nil
 }
 
 func (step UpdateLinkedInPosting) Execute(
-	_ dex.Context,
+	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
-	step.service.UpdateExternalSystem("update LinkedIn job posting")
-	return dex.DeadEnd(), nil
-}
-
-type UpdateIndeedPosting struct {
-	dex.StepDefaultsNoWaitFor[dex.None]
-	service service.MyService
-}
-
-func (UpdateIndeedPosting) GetStepOptions() *dex.StepOptions {
-	return jobBoardUpdateStepOptions(dex.LockAttribute(UpdateIndeedPostingLock))
-}
-
-func (step UpdateIndeedPosting) Execute(
-	_ dex.Context,
-	_ dex.None,
-) (*dex.StepDecision, error) {
-	step.service.UpdateExternalSystem("update Indeed job posting")
-	return dex.DeadEnd(), nil
-}
-
-func jobBoardUpdateStepOptions(executeLock dex.AttributeLock) *dex.StepOptions {
-	return &dex.StepOptions{
-		ExecuteLockAttributes: []dex.AttributeLock{executeLock},
-		ExecuteRetry: &dex.RetryPolicy{
-			InitialInterval:    3 * time.Second,
-			BackoffCoefficient: 2,
-			MaximumInterval:    60 * time.Second,
-			MaximumAttempts:    100,
-			TotalDuration:      time.Hour,
-		},
+	update, err := linkedInPostingUpdate(ctx)
+	if err != nil {
+		return nil, err
 	}
+	step.service.UpdateExternalSystem(fmt.Sprintf(
+		"update LinkedIn job posting v%d [%s]: %s",
+		update.Version,
+		update.IdempotencyKey,
+		update.Posting.Title,
+	))
+	return dex.GoTo(UpdateLinkedInPosting{}, nil), nil
 }
 ```
 
@@ -318,100 +223,61 @@ func jobBoardUpdateStepOptions(executeLock dex.AttributeLock) *dex.StepOptions {
 ```java
 @Component
 public class JobPostingFlow implements Flow<Void> {
-    public final Attribute<String> title = Attribute.define(
-            "Title",
-            String.class,
-            new AttributeIndex(AttributeIndex.Type.FULL_TEXT));
-    public final Attribute<String> jobDescription = Attribute.define(
-            "JobDescription",
-            String.class,
-            new AttributeIndex(AttributeIndex.Type.FULL_TEXT));
-    public final Attribute<Void> updateLinkedInPostingLock =
-            Attribute.define("UpdateLinkedInPostingLock", Void.class);
-    public final Attribute<Void> updateIndeedPostingLock =
-            Attribute.define("UpdateIndeedPostingLock", Void.class);
-
-    private final MyDependencyService service;
-    private final UpdateLinkedInPosting updateLinkedInPosting = new UpdateLinkedInPosting();
-    private final UpdateIndeedPosting updateIndeedPosting = new UpdateIndeedPosting();
-
-    public JobPostingFlow(final MyDependencyService service) {
-        this.service = service;
-    }
+    public final Attribute<Integer> updateVersion =
+            Attribute.define("UpdateVersion", Integer.class);
+    public final Attribute<Void> updatePostingLock =
+            Attribute.define("UpdatePostingLock", Void.class);
+    public final Channel<PostingUpdate> linkedInPostingUpdates =
+            Channel.define("LinkedInPostingUpdates", PostingUpdate.class);
+    public final Channel<PostingUpdate> indeedPostingUpdates =
+            Channel.define("IndeedPostingUpdates", PostingUpdate.class);
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.withoutStartStep(updateLinkedInPosting, updateIndeedPosting);
+        return StepList.startStep(init)
+                .otherSteps(updateLinkedInPosting, updateIndeedPosting);
     }
 
-    @Override
-    public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(
-                title,
-                jobDescription,
-                lastUpdateTimeMillis,
-                notes,
-                updateLinkedInPostingLock,
-                updateIndeedPostingLock);
-    }
-
-    @RPC(lockAttributes = {"Title"})
-    public RPCResult<Void> update(final Context context, final JobInfo input) {
+    @RPC(lockAttributes = {"UpdatePostingLock"})
+    public RPCResult<Integer> update(final Context context, final JobInfo input) {
+        final int version = updateVersion.get(context) + 1;
         title.set(context, input.title);
-        jobDescription.set(context, input.description);
-        lastUpdateTimeMillis.set(context, System.currentTimeMillis());
-        if (input.notes != null) {
-            notes.set(context, input.notes);
+        updateVersion.set(context, version);
+        final PostingUpdate update = new PostingUpdate(
+                version,
+                context.getFlowId() + ":" + version,
+                input);
+        linkedInPostingUpdates.publish(context, update);
+        indeedPostingUpdates.publish(context, update);
+        return RPCResult.of(version);
+    }
+
+    final class InitStep implements Step<Void> {
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
+            return StepDecision.goToMany(
+                    StepMovement.of(UpdateLinkedInPosting.class, null),
+                    StepMovement.of(UpdateIndeedPosting.class, null));
         }
-        return RPCResult.of(
-                null,
-                StepMovement.of(UpdateLinkedInPosting.class, null),
-                StepMovement.of(UpdateIndeedPosting.class, null));
-    }
-}
-```
-
-```java
-private StepOptions jobBoardUpdateOptions(final Attribute<Void> executeLock) {
-    return StepOptions.newBuilder()
-            .addExecuteLock(AttributeLock.of(executeLock))
-            .executeRetry(RetryPolicy.newBuilder()
-                    .backoffCoefficient(2.0)
-                    .maximumAttempts(100)
-                    .totalDuration(Duration.ofHours(1))
-                    .initialInterval(Duration.ofSeconds(3))
-                    .maximumInterval(Duration.ofSeconds(60))
-                    .build())
-            .build();
-}
-
-final class UpdateLinkedInPosting implements Step<Void> {
-    private final StepOptions options = jobBoardUpdateOptions(updateLinkedInPostingLock);
-
-    @Override
-    public StepOptions getStepOptions() {
-        return options;
     }
 
-    @Override
-    public StepDecision execute(final Context context, final Void input) {
-        service.updateExternalSystem("update LinkedIn job posting");
-        return StepDecision.deadEnd();
-    }
-}
+    final class UpdateLinkedInPosting implements Step<Void> {
+        @Override
+        public Wait waitFor(final Context context, final Void input) {
+            return Wait.until(linkedInPostingUpdates.forOne());
+        }
 
-final class UpdateIndeedPosting implements Step<Void> {
-    private final StepOptions options = jobBoardUpdateOptions(updateIndeedPostingLock);
-
-    @Override
-    public StepOptions getStepOptions() {
-        return options;
-    }
-
-    @Override
-    public StepDecision execute(final Context context, final Void input) {
-        service.updateExternalSystem("update Indeed job posting");
-        return StepDecision.deadEnd();
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
+            final PostingUpdate update =
+                    linkedInPostingUpdates.getConditionResults(context).get(0);
+            service.updateExternalSystem(String.format(
+                    "update LinkedIn job posting v%d [%s]: %s",
+                    update.version,
+                    update.idempotencyKey,
+                    update.posting.title));
+            return StepDecision.goTo(UpdateLinkedInPosting.class, null);
+        }
     }
 }
 ```
@@ -420,110 +286,62 @@ final class UpdateIndeedPosting implements Step<Void> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-const title = new Attribute("Title", stringCodec, {
-  type: IndexType.FULL_TEXT,
-});
-
 export class JobPostingFlow implements Flow {
-  public readonly title = title;
-  public readonly jobDescription = new Attribute("JobDescription", stringCodec, {
-    type: IndexType.FULL_TEXT,
-  });
-  public readonly updateLinkedInPostingLock = new Attribute(
-    "UpdateLinkedInPostingLock",
-    voidCodec,
-  );
-  public readonly updateIndeedPostingLock = new Attribute(
-    "UpdateIndeedPostingLock",
-    voidCodec,
-  );
-
-  public readonly updateLinkedInPosting = new UpdateLinkedInPosting(this);
-  public readonly updateIndeedPosting = new UpdateIndeedPosting(this);
-
-  public constructor(public readonly service: MyDependencyService = myDependencyService) {}
-
-  public getFlowType(): string {
-    return "JobPostingFlow";
-  }
+  public readonly updateVersion = new Attribute("UpdateVersion", doubleCodec);
+  public readonly updatePostingLock = updatePostingLock;
+  public readonly linkedInPostingUpdates = linkedInPostingUpdates;
+  public readonly indeedPostingUpdates = indeedPostingUpdates;
 
   public getSteps() {
-    return StepList.withoutStartStep<void>(
+    return StepList.startStep(this.init).otherSteps(
       this.updateLinkedInPosting,
       this.updateIndeedPosting,
     );
   }
 
-  public getPersistenceSchema(): PersistenceSchema {
-    return {
-      attributes: [
-        this.title,
-        this.jobDescription,
-        this.lastUpdateTimeMillis,
-        this.notes,
-        this.updateLinkedInPostingLock,
-        this.updateIndeedPostingLock,
-      ],
-    };
-  }
-
-  @rpc({ lockAttributes: [title.lock()] })
-  public update(context: Context, input: JobInfo): RPCResult<void> {
+  @rpc({
+    inputCodec: jobInfoCodec,
+    outputCodec: doubleCodec,
+    lockAttributes: [updatePostingLock.lock()],
+  })
+  public update(context: Context, input: JobInfo): RPCResult<number> {
+    const version = this.updateVersion.get(context) + 1;
     this.title.set(context, input.title);
-    this.jobDescription.set(context, input.description);
-    this.lastUpdateTimeMillis.set(context, BigInt(Date.now()));
-    if (input.notes !== undefined && input.notes.length > 0) {
-      this.notes.set(context, input.notes);
-    }
-    return {
-      output: undefined,
-      nextSteps: [
-        StepMovement.of(UpdateLinkedInPosting, undefined),
-        StepMovement.of(UpdateIndeedPosting, undefined),
-      ],
+    this.updateVersion.set(context, version);
+    const update = {
+      version,
+      idempotencyKey: `${context.flowId}:${version}`,
+      posting: input,
     };
+    this.linkedInPostingUpdates.publish(context, update);
+    this.indeedPostingUpdates.publish(context, update);
+    return { output: version };
   }
 }
-```
 
-```typescript
+class InitStep implements Step<void> {
+  public execute(_context: Context, _input: void): StepDecision {
+    return goToMany(
+      StepMovement.of(UpdateLinkedInPosting, undefined),
+      StepMovement.of(UpdateIndeedPosting, undefined),
+    );
+  }
+}
+
 class UpdateLinkedInPosting implements Step<void> {
-  public constructor(private readonly flow: JobPostingFlow) {}
-
-  public getStepOptions(): StepOptions {
-    return jobBoardUpdateOptions(this.flow.updateLinkedInPostingLock.lock());
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.until(this.flow.linkedInPostingUpdates.forOne());
   }
 
-  public execute(_context: Context, _input: void): StepDecision {
-    this.flow.service.updateExternalSystem("update LinkedIn job posting");
-    return deadEnd();
+  public execute(context: Context, _input: void): StepDecision {
+    const update = this.flow.linkedInPostingUpdates.results(context)[0];
+    if (update === undefined) throw new Error("LinkedIn posting update is required");
+    this.flow.service.updateExternalSystem(
+      `update LinkedIn job posting v${update.version} `
+      + `[${update.idempotencyKey}]: ${update.posting.title}`,
+    );
+    return goTo(UpdateLinkedInPosting, undefined);
   }
-}
-
-class UpdateIndeedPosting implements Step<void> {
-  public constructor(private readonly flow: JobPostingFlow) {}
-
-  public getStepOptions(): StepOptions {
-    return jobBoardUpdateOptions(this.flow.updateIndeedPostingLock.lock());
-  }
-
-  public execute(_context: Context, _input: void): StepDecision {
-    this.flow.service.updateExternalSystem("update Indeed job posting");
-    return deadEnd();
-  }
-}
-
-function jobBoardUpdateOptions(executeLock: AttributeLock): StepOptions {
-  return {
-    executeLockAttributes: [executeLock],
-    executeRetry: {
-      backoffCoefficient: 2,
-      maximumAttempts: 100,
-      totalDurationMs: HOUR_MS,
-      initialIntervalMs: 3_000,
-      maximumIntervalMs: 60_000,
-    },
-  };
 }
 ```
 
@@ -531,9 +349,11 @@ function jobBoardUpdateOptions(executeLock: AttributeLock): StepOptions {
 <SdkSnippet lang="rust">
 
 ```rust
+pub const JOB_POST_UPDATE: Rpc<JobPost, i32> = Rpc::new("JobPostUpdate");
+
 #[derive(Default)]
 pub struct JobPostingFlow {
-    create: Create,
+    init: Init,
     update_linkedin_posting: UpdateLinkedInPosting,
     update_indeed_posting: UpdateIndeedPosting,
 }
@@ -543,13 +363,18 @@ impl JobPostingFlow {
         &self,
         context: &mut Context,
         replacement: JobPost,
-    ) -> HandlerResult<RpcResult<JobPost>> {
+    ) -> HandlerResult<RpcResult<i32>> {
+        let version = UPDATE_VERSION.get_required(context)? + 1;
         POST.set(context, replacement.clone())?;
-        TITLE.set(context, replacement.title.clone())?;
-        DESCRIPTION.set(context, replacement.description.clone())?;
-        Ok(RpcResult::new(replacement)
-            .then(StepMovement::to(&self.update_linkedin_posting, ()))
-            .then(StepMovement::to(&self.update_indeed_posting, ())))
+        UPDATE_VERSION.set(context, version)?;
+        let update = PostingUpdate {
+            version,
+            idempotency_key: format!("{}:{version}", context.flow_id()),
+            posting: replacement,
+        };
+        LINKEDIN_POSTING_UPDATES.publish(context, update.clone())?;
+        INDEED_POSTING_UPDATES.publish(context, update)?;
+        Ok(RpcResult::new(version))
     }
 }
 
@@ -557,76 +382,66 @@ impl Flow for JobPostingFlow {
     type StartInput = JobPost;
 
     fn steps(&self) -> StepList<'_, Self::StartInput> {
-        StepList::start(&self.create)
+        StepList::start(&self.init)
             .and(&self.update_linkedin_posting)
             .and(&self.update_indeed_posting)
     }
 
-    fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new()
-            .attribute(&POST)
-            .attribute(&TITLE)
-            .attribute(&DESCRIPTION)
-            .attribute(&UPDATE_LINKEDIN_POSTING_LOCK)
-            .attribute(&UPDATE_INDEED_POSTING_LOCK)
-    }
-
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new()
-            .function_without_input(JOB_POST_READ, Self::read)
-            .function(JOB_POST_UPDATE.lock(TITLE.lock()), Self::update)
-            .procedure(JOB_POST_DELETE, Self::delete)
+        RpcList::new().function(
+            JOB_POST_UPDATE.lock(UPDATE_POSTING_LOCK.lock()),
+            Self::update,
+        )
     }
 }
-```
 
-```rust
+impl Step for Init {
+    type Input = JobPost;
+
+    fn execute(
+        &self,
+        context: &mut Context,
+        input: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        POST.set(context, input.clone())?;
+        UPDATE_VERSION.set(context, 0)?;
+        Ok(StepDecision::go_to_many([
+            StepMovement::to(&UpdateLinkedInPosting::default(), ()),
+            StepMovement::to(&UpdateIndeedPosting::default(), ()),
+        ]))
+    }
+}
+
 impl Step for UpdateLinkedInPosting {
     type Input = ();
 
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        let posting = POST.get_required(context)?;
-        self.service
-            .update_external_system(&format!("update LinkedIn job posting: {}", posting.title));
-        Ok(StepDecision::dead_end())
+    fn wait_for(
+        &self,
+        _context: &mut Context,
+        _input: Self::Input,
+    ) -> HandlerResult<Wait> {
+        Ok(Wait::until(LINKEDIN_POSTING_UPDATES.for_one()))
     }
 
-    fn options(&self) -> StepOptions<Self::Input> {
-        job_board_update_options().execute_lock(UPDATE_LINKEDIN_POSTING_LOCK.lock())
+    fn execute(
+        &self,
+        context: &mut Context,
+        _input: Self::Input,
+    ) -> HandlerResult<StepDecision> {
+        let update = LINKEDIN_POSTING_UPDATES
+            .condition_results(context)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                HandlerError::new("MissingPostingUpdate", "LinkedIn update is missing")
+            })?;
+        self.service.update_external_system(&format!(
+            "update LinkedIn job posting v{} [{}]: {}",
+            update.version, update.idempotency_key, update.posting.title
+        ));
+        Ok(StepDecision::go_to(&UpdateLinkedInPosting::default(), ()))
     }
 }
-
-impl Step for UpdateIndeedPosting {
-    type Input = ();
-
-    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
-        let posting = POST.get_required(context)?;
-        self.service
-            .update_external_system(&format!("update Indeed job posting: {}", posting.title));
-        Ok(StepDecision::dead_end())
-    }
-
-    fn options(&self) -> StepOptions<Self::Input> {
-        job_board_update_options().execute_lock(UPDATE_INDEED_POSTING_LOCK.lock())
-    }
-}
-
-fn job_board_update_options() -> StepOptions<()> {
-    StepOptions::new().execute_retry(
-        RetryPolicy::new()
-            .initial_interval(Duration::from_secs(3))
-            .backoff_coefficient(2.0)
-            .maximum_interval(Duration::from_secs(60))
-            .maximum_attempts(100)
-            .total_duration(Duration::from_secs(60 * 60)),
-    )
-}
-
-static UPDATE_LINKEDIN_POSTING_LOCK: LazyLock<Attribute<()>> =
-    LazyLock::new(|| Attribute::new("UpdateLinkedInPostingLock"));
-
-static UPDATE_INDEED_POSTING_LOCK: LazyLock<Attribute<()>> =
-    LazyLock::new(|| Attribute::new("UpdateIndeedPostingLock"));
 ```
 
 </SdkSnippet>
@@ -634,14 +449,17 @@ static UPDATE_INDEED_POSTING_LOCK: LazyLock<Attribute<()>> =
 
 ## 演示
 
-运行 Dex 和任意语言的示例服务，然后在[示例 playground](https://github.com/superdurable/dex/tree/main/examples/playground)中创建并更新职位发布信息。下面完成的 Go 运行把职位名称改为 **Senior Software Engineer**，持久化了新的描述和备注，并把 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting** 作为两个并行 Step execution 执行完成。
+运行 Dex 和任意语言的示例服务，然后在[示例 Playground](https://github.com/superdurable/dex/tree/main/examples/playground)中创建并更新职位。下面的运行接受了两次更新。执行图显示 **InitStep**、每个招聘网站的两个有序 execution，以及等待下一条 Channel 消息的 LinkedIn 和 Indeed consumer execution。
 
-![LinkedIn 和 Indeed Step execution 均已完成的职位发布更新](/img/use-cases/job-posting-step-execution-graph.jpg)
+<a href="/img/use-cases/job-posting-step-execution-graph.png" target="_blank" rel="noopener noreferrer" title="打开原始分辨率 Step graph">
+  <img className="job-posting-step-graph" src="/img/use-cases/job-posting-step-execution-graph.png" alt="职位发布 Flow，其中 InitStep 为每个招聘网站启动两个有序的 Channel consumer execution" />
+</a>
 
 ## 相关内容
 
 - [实体存储](/design-patterns/entity-store)
 - [静态并行 Step](/design-patterns/parallel/static)
+- [Channel](/primitives/channel)
 - [RPC](/primitives/rpc)
 - [Attribute](/primitives/attribute)
 - [Client API](/primitives/client)

@@ -41,21 +41,27 @@ test("jobPostingUpdateReachesBothJobBoards", async () => {
       InitialAttribute.of(flow.title, "Software Engineer"),
       InitialAttribute.of(flow.jobDescription, "Build reliable systems"),
       InitialAttribute.of(flow.lastUpdateTimeMillis, BigInt(Date.now())),
+      InitialAttribute.of(flow.updateVersion, 0),
     ],
   });
+  await environment.client.waitForStepCompletion(
+    flowId,
+    StepExecutionId.of("InitStep", 1),
+    30_000,
+  );
 
   const updated: JobInfo = {
     title: "Senior Software Engineer",
     description: "Build durable systems",
     notes: "expanded scope",
   };
-  await environment.client.invokeRPC(flow.update, flowId, updated);
+  assert.equal(await environment.client.invokeRPC(flow.update, flowId, updated), 1);
   const newest: JobInfo = {
     title: "Principal Software Engineer",
     description: "Lead durable systems",
     notes: "final scope",
   };
-  await environment.client.invokeRPC(flow.update, flowId, newest);
+  assert.equal(await environment.client.invokeRPC(flow.update, flowId, newest), 2);
   await environment.client.waitForStepCompletion(
     flowId,
     StepExecutionId.of("UpdateLinkedInPosting", 2),

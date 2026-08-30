@@ -18,7 +18,7 @@ package io.superdurable.dex.products.jobpost;
 
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeIndex;
-import io.superdurable.dex.AttributeLock;
+import io.superdurable.dex.Channel;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -30,10 +30,12 @@ import io.superdurable.dex.StepDecision;
 import io.superdurable.dex.StepList;
 import io.superdurable.dex.StepMovement;
 import io.superdurable.dex.StepOptions;
+import io.superdurable.dex.Wait;
 import io.superdurable.dex.shared.MyDependencyService;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.List;
 
 @Component
 public class JobPostingFlow implements Flow<Void> {
@@ -50,12 +52,16 @@ public class JobPostingFlow implements Flow<Void> {
             Long.class,
             new AttributeIndex(AttributeIndex.Type.INT));
     public final Attribute<String> notes = Attribute.define("Notes", String.class);
-    public final Attribute<Void> updateLinkedInPostingLock =
-            Attribute.define("UpdateLinkedInPostingLock", Void.class);
-    public final Attribute<Void> updateIndeedPostingLock =
-            Attribute.define("UpdateIndeedPostingLock", Void.class);
+    public final Attribute<Integer> updateVersion = Attribute.define("UpdateVersion", Integer.class);
+    public final Attribute<Void> updatePostingLock =
+            Attribute.define("UpdatePostingLock", Void.class);
+    public final Channel<PostingUpdate> linkedInPostingUpdates =
+            Channel.define("LinkedInPostingUpdates", PostingUpdate.class);
+    public final Channel<PostingUpdate> indeedPostingUpdates =
+            Channel.define("IndeedPostingUpdates", PostingUpdate.class);
 
     private final MyDependencyService service;
+    private final InitStep init = new InitStep();
     private final UpdateLinkedInPosting updateLinkedInPosting = new UpdateLinkedInPosting();
     private final UpdateIndeedPosting updateIndeedPosting = new UpdateIndeedPosting();
 
@@ -65,7 +71,8 @@ public class JobPostingFlow implements Flow<Void> {
 
     @Override
     public StepList<Void> getSteps() {
-        return StepList.withoutStartStep(updateLinkedInPosting, updateIndeedPosting);
+        return StepList.startStep(init)
+                .otherSteps(updateLinkedInPosting, updateIndeedPosting);
     }
 
     @Override
@@ -75,8 +82,10 @@ public class JobPostingFlow implements Flow<Void> {
                 jobDescription,
                 lastUpdateTimeMillis,
                 notes,
-                updateLinkedInPostingLock,
-                updateIndeedPostingLock);
+                updateVersion,
+                updatePostingLock,
+                linkedInPostingUpdates,
+                indeedPostingUpdates);
     }
 
     @RPC
@@ -89,18 +98,23 @@ public class JobPostingFlow implements Flow<Void> {
         return get(context);
     }
 
-    @RPC(lockAttributes = {"Title"})
-    public RPCResult<Void> update(final Context context, final JobInfo input) {
+    @RPC(lockAttributes = {"UpdatePostingLock"})
+    public RPCResult<Integer> update(final Context context, final JobInfo input) {
+        final int version = updateVersion.get(context) + 1;
         title.set(context, input.title);
         jobDescription.set(context, input.description);
         lastUpdateTimeMillis.set(context, System.currentTimeMillis());
         if (input.notes != null) {
             notes.set(context, input.notes);
         }
-        return RPCResult.of(
-                null,
-                StepMovement.of(UpdateLinkedInPosting.class, null),
-                StepMovement.of(UpdateIndeedPosting.class, null));
+        updateVersion.set(context, version);
+        final PostingUpdate update = new PostingUpdate(
+                version,
+                context.getFlowId() + ":" + version,
+                input);
+        linkedInPostingUpdates.publish(context, update);
+        indeedPostingUpdates.publish(context, update);
+        return RPCResult.of(version);
     }
 
     private JobInfo readJobInfo(final Context context) {
@@ -110,9 +124,8 @@ public class JobPostingFlow implements Flow<Void> {
                 notes.get(context));
     }
 
-    private StepOptions jobBoardUpdateOptions(final Attribute<Void> executeLock) {
+    private StepOptions jobBoardUpdateOptions() {
         return StepOptions.newBuilder()
-                .addExecuteLock(AttributeLock.of(executeLock))
                 .executeRetry(RetryPolicy.newBuilder()
                         .backoffCoefficient(2.0)
                         .maximumAttempts(100)
@@ -123,8 +136,22 @@ public class JobPostingFlow implements Flow<Void> {
                 .build();
     }
 
+    final class InitStep implements Step<Void> {
+        @Override
+        public Class<Void> getInputType() {
+            return Void.class;
+        }
+
+        @Override
+        public StepDecision execute(final Context context, final Void input) {
+            return StepDecision.goToMany(
+                    StepMovement.of(UpdateLinkedInPosting.class, null),
+                    StepMovement.of(UpdateIndeedPosting.class, null));
+        }
+    }
+
     final class UpdateLinkedInPosting implements Step<Void> {
-        private final StepOptions options = jobBoardUpdateOptions(updateLinkedInPostingLock);
+        private final StepOptions options = jobBoardUpdateOptions();
 
         @Override
         public Class<Void> getInputType() {
@@ -137,14 +164,25 @@ public class JobPostingFlow implements Flow<Void> {
         }
 
         @Override
+        public Wait waitFor(final Context context, final Void input) {
+            return Wait.until(linkedInPostingUpdates.forOne());
+        }
+
+        @Override
         public StepDecision execute(final Context context, final Void input) {
-            service.updateExternalSystem("update LinkedIn job posting");
-            return StepDecision.deadEnd();
+            final List<PostingUpdate> updates = linkedInPostingUpdates.getConditionResults(context);
+            final PostingUpdate update = updates.get(0);
+            service.updateExternalSystem(String.format(
+                    "update LinkedIn job posting v%d [%s]: %s",
+                    update.version,
+                    update.idempotencyKey,
+                    update.posting.title));
+            return StepDecision.goTo(UpdateLinkedInPosting.class, null);
         }
     }
 
     final class UpdateIndeedPosting implements Step<Void> {
-        private final StepOptions options = jobBoardUpdateOptions(updateIndeedPostingLock);
+        private final StepOptions options = jobBoardUpdateOptions();
 
         @Override
         public Class<Void> getInputType() {
@@ -157,9 +195,20 @@ public class JobPostingFlow implements Flow<Void> {
         }
 
         @Override
+        public Wait waitFor(final Context context, final Void input) {
+            return Wait.until(indeedPostingUpdates.forOne());
+        }
+
+        @Override
         public StepDecision execute(final Context context, final Void input) {
-            service.updateExternalSystem("update Indeed job posting");
-            return StepDecision.deadEnd();
+            final List<PostingUpdate> updates = indeedPostingUpdates.getConditionResults(context);
+            final PostingUpdate update = updates.get(0);
+            service.updateExternalSystem(String.format(
+                    "update Indeed job posting v%d [%s]: %s",
+                    update.version,
+                    update.idempotencyKey,
+                    update.posting.title));
+            return StepDecision.goTo(UpdateIndeedPosting.class, null);
         }
     }
 }

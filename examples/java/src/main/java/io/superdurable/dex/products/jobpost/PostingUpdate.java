@@ -14,20 +14,22 @@
  * limitations under the License.
  */
 
-import { jsonCodec, optionalCodec, stringCodec } from "@superdurable/dex";
+package io.superdurable.dex.products.jobpost;
 
-export interface JobInfo {
-  title: string;
-  description: string;
-  notes: string;
+public class PostingUpdate {
+    public int version;
+    public String idempotencyKey;
+    public JobInfo posting;
+
+    public PostingUpdate() {
+    }
+
+    public PostingUpdate(
+            final int version,
+            final String idempotencyKey,
+            final JobInfo posting) {
+        this.version = version;
+        this.idempotencyKey = idempotencyKey;
+        this.posting = posting;
+    }
 }
-
-export interface PostingUpdate {
-  version: number;
-  idempotencyKey: string;
-  posting: JobInfo;
-}
-
-export const jobInfoCodec = jsonCodec<JobInfo>();
-export const postingUpdateCodec = jsonCodec<PostingUpdate>();
-export const optionalStringCodec = optionalCodec(stringCodec);

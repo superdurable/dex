@@ -46,6 +46,7 @@ export function createJobPostingRouter(client: Client): Router {
         InitialAttribute.of(jobPostingFlow.title, title),
         InitialAttribute.of(jobPostingFlow.jobDescription, description),
         InitialAttribute.of(jobPostingFlow.lastUpdateTimeMillis, BigInt(Date.now())),
+        InitialAttribute.of(jobPostingFlow.updateVersion, 0),
       ],
       configOverride: {
         continueAsNewThreshold: 10,
@@ -66,8 +67,8 @@ export function createJobPostingRouter(client: Client): Router {
     const description = escapeQuote(String(request.query.description ?? ""));
     const notes = escapeQuote(String(request.query.notes ?? "test-notes"));
     const jobInfo: JobInfo = { title, description, notes };
-    await client.invokeRPC(jobPostingFlow.update, workflowId, jobInfo);
-    response.send("updated");
+    const version = await client.invokeRPC(jobPostingFlow.update, workflowId, jobInfo);
+    response.send(`updated version ${version}`);
   });
 
   router.get("/delete", async (request, response) => {
