@@ -24,7 +24,7 @@ use dex_examples_rust::products::engagement::{
     ENGAGEMENT_ACCEPT, ENGAGEMENT_DESCRIBE, EngagementFlow, EngagementRequest, EngagementStatus,
 };
 use dex_examples_rust::products::microservices::{
-    ORCHESTRATION_READY, ORCHESTRATION_SWAP, OrchestrationFlow,
+    DATA, ORCHESTRATION_READY, ORCHESTRATION_SWAP, OrchestrationFlow,
 };
 use dex_examples_rust::products::money_transfer::{MoneyTransferFlow, TransferRequest};
 use dex_examples_rust::products::order_processing::{
@@ -36,8 +36,8 @@ use dex_examples_rust::products::subscription::{
     SubscriptionRequest, SubscriptionState,
 };
 use dex_sdk::{
-    Attribute, BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult,
-    StepExecutionId, TimerId, Worker, WorkerOptions,
+    BlobCache, BlobCacheConfig, Client, ClientOptions, FlowStatus, SdkResult, StepExecutionId,
+    TimerId, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 
@@ -403,12 +403,11 @@ fn microservice_swaps_data_and_completes_when_ready() {
         .expect("start Rust Microservice Flow");
     assert!(!run_id.is_empty());
 
-    let data = Attribute::<String>::new("orchestration-data");
     environment
         .client
         .wait_for_attribute_equal(
             &flow_id,
-            &data,
+            &DATA,
             "initial-data".to_string(),
             Duration::from_secs(20),
         )
@@ -422,7 +421,7 @@ fn microservice_swaps_data_and_completes_when_ready() {
         .client
         .wait_for_attribute_equal(
             &flow_id,
-            &data,
+            &DATA,
             "updated-data".to_string(),
             Duration::from_secs(20),
         )
@@ -431,10 +430,12 @@ fn microservice_swaps_data_and_completes_when_ready() {
         .client
         .invoke_rpc_without_input::<()>(&flow_id, ORCHESTRATION_READY)
         .expect("release Rust Microservice Flow");
-    environment
+    let output: String = environment
         .client
         .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .and_then(|result| result.single_output())
         .expect("complete Rust Microservice Flow");
+    assert_eq!(output, "updated-data");
 }
 
 #[test]

@@ -1,61 +1,61 @@
 ---
-title: Microservice orchestration
+title: 微服务编排
 ---
 
-# Microservice orchestration
+# 微服务编排
 
-Coordinate concurrent service calls, accept an in-flight state update, and finish through an external event or a timeout fallback.
+协调并发服务调用，接收执行中的状态更新，并通过外部事件或超时兜底完成流程。
 
-## Product requirements
+## 产品需求
 
-The process starts with a data value and must:
+流程以一个数据值启动，并且必须：
 
-1. Call API 1, then persist the input in the **Data** Attribute.
-2. Start **CallAPI2** and **CallAPI3** concurrently.
-3. Let **CallAPI2** read the current data, call API 2, and end its branch.
-4. Keep **CallAPI3** waiting for either one **Ready** Channel message or a 24-hour durable Timer.
-5. Allow a caller to invoke the **Swap** RPC while the Flow is running. The RPC must return the previous value and replace it with the new value atomically.
-6. After a **Ready** message, call API 3 with the latest data and complete the Flow.
-7. If the Timer wins, call API 3, continue to **CallAPI4**, call API 4 with the latest data, and then complete.
+1. 调用 API 1，然后把输入持久化到 **Data** Attribute。
+2. 并发启动 **CallAPI2** 和 **CallAPI3**。
+3. 让 **CallAPI2** 读取当前数据、调用 API 2，并结束自己的分支。
+4. 让 **CallAPI3** 等待一条 **Ready** Channel 消息或一个 24 小时的持久 Timer，任一条件满足即可继续。
+5. 允许调用方在 Flow 运行期间调用 **Swap** RPC。RPC 必须原子地返回旧值并写入新值。
+6. 收到 **Ready** 消息后，使用最新数据调用 API 3，然后完成 Flow。
+7. 如果 Timer 先触发，则调用 API 3，继续到 **CallAPI4**，使用最新数据调用 API 4，然后完成。
 
-The wait is durable. A Worker or Dex restart does not lose the Channel message, Timer deadline, persisted data, or current Step. A **Ready** message normally arrives from another service after its asynchronous work is complete. If it never arrives, the Timer selects the fallback path.
+这段等待是持久的。Worker 或 Dex 重启不会丢失 Channel 消息、Timer 截止时间、持久化数据或当前 Step。**Ready** 消息通常由另一个服务在异步工作完成后发送。如果消息始终没有到达，Timer 会选择兜底路径。
 
-Potential failures include:
+潜在故障包括：
 
-- A downstream API can be unavailable, time out, or reject its input. The Step must report that failure so its configured retry and failure policy can act on it.
-- A downstream call can succeed while its response is lost. Production API operations must be idempotent because Dex may retry the Step.
-- A **Swap** RPC or **Ready** publish can target an unknown or completed Flow and return a client error. Callers should retain the Flow ID and handle that response.
-- No **Ready** message may arrive. This is an expected outcome, not lost progress; the durable Timer eventually routes the Flow through **CallAPI4**.
-- **CallAPI2** and **CallAPI3** can observe different values when **Swap** runs between their Attribute reads. The process intentionally guarantees that each read is durable, not that both concurrent branches share a snapshot.
+- 下游 API 可能不可用、超时或拒绝输入。Step 必须上报故障，让配置的重试和失败策略处理它。
+- 下游调用可能已经成功，但响应丢失。Dex 可能重试 Step，因此生产环境中的 API 操作必须具备幂等性。
+- **Swap** RPC 或 **Ready** 发布可能指向不存在或已经完成的 Flow，并返回客户端错误。调用方应保留 Flow ID 并处理该响应。
+- **Ready** 消息可能一直没有到达。这属于预期结果而非进度丢失；持久 Timer 最终会让 Flow 进入 **CallAPI4**。
+- 如果 **Swap** 恰好发生在两个分支读取 Attribute 之间，**CallAPI2** 和 **CallAPI3** 可能看到不同的值。流程保证每次读取都是持久的，但不保证并发分支共享同一个快照。
 
-The examples use local dependency stubs. Production adapters should add timeouts, idempotency keys, and the retry or recovery policy appropriate for each API.
+示例使用本地依赖 stub。生产适配器还应为每个 API 配置超时、幂等键，以及适当的重试或恢复策略。
 
-## Flow design
+## Flow 设计
 
-The Flow has one fan-out point and two ways to finish:
+这个 Flow 包含一个 fan-out 点和两种完成路径：
 
 ```text
 CallAPI1 ─┬─▶ CallAPI2 ─▶ DeadEnd
           │
           └─▶ Wait(Ready | 24h Timer) ─▶ CallAPI3 ─┬─▶ Complete
                                                    └─▶ CallAPI4 ─▶ Complete
-                                                        (Timer only)
+                                                        (仅 Timer)
 ```
 
-It combines these design patterns:
+它组合了以下设计模式：
 
-- [**Static parallel Steps**](/design-patterns/parallel/static) fan out two known service calls without placing both operations in one retry boundary.
-- **Durable external-event gate** uses **Wait.anyOf** with a Channel and Timer. The Channel handles the normal callback; the Timer guarantees bounded waiting.
-- **Timeout fallback** sends only the timed-out execution to **CallAPI4**. The normal Channel path skips that fallback.
-- **Request-response interaction** exposes **Swap** as a typed RPC so a caller can change persisted state and receive the previous value in one operation.
-- **Durable shared state** stores the current payload in an Attribute. Both parallel branches read it at execution time instead of carrying a stale copy through the graph.
-- **Branch termination** lets **CallAPI2** return **DeadEnd** while the waiting branch owns the business completion result.
+- [**静态并行 Step**](/design-patterns/parallel/static) 并发启动两个已知的服务调用，不把两个操作放进同一个重试边界。
+- **持久外部事件门控**通过 **Wait.anyOf** 组合 Channel 和 Timer。Channel 处理正常回调，Timer 保证等待时间有上限。
+- **超时兜底**只把超时的执行送到 **CallAPI4**。正常的 Channel 路径会跳过这个兜底步骤。
+- **请求—响应交互**把 **Swap** 暴露为强类型 RPC，让调用方在一次操作中更新持久状态并收到旧值。
+- **持久共享状态**把当前 payload 存入 Attribute。两个并发分支在执行时读取数据，而不是在图中一直携带可能过期的副本。
+- **分支终止**让 **CallAPI2** 返回 **DeadEnd**，由等待分支提供业务完成结果。
 
-Each downstream API has its own Step. A retry of API 3 therefore does not repeat API 1 or API 2, and the Step execution graph shows exactly which call is waiting, retrying, or complete.
+每个下游 API 都有独立 Step。因此重试 API 3 不会重复 API 1 或 API 2，Step 执行图也能准确显示哪个调用正在等待、重试或已经完成。
 
-## Core implementation
+## 核心实现
 
-The tabs show the Flow signature, topology, persistence schema, **Swap** RPC, parallel fan-out, and Channel-or-Timer wait. Each linked example also includes its dependency stub, HTTP controller, and end-to-end integration test.
+下面的标签页展示 Flow 签名、拓扑、持久化 schema、**Swap** RPC、并发 fan-out，以及 Channel 或 Timer 等待。每个链接还指向包含依赖 stub、HTTP controller 和端到端集成测试的完整示例。
 
 <SdkTabs
   examples={{
@@ -423,16 +423,16 @@ impl Step for CallApiThree {
 </SdkSnippet>
 </SdkTabs>
 
-## Demo
+## 演示
 
-Run Dex and any language example server, then start Microservice orchestration from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). For the run below, the Flow started with **test initial data**, the **Swap** RPC replaced it with **updated in-flight data**, and a **Ready** message released the wait. **CallAPI1**, **CallAPI2**, and **CallAPI3** completed; **CallAPI4** did not run because the Channel won before the 24-hour Timer.
+启动 Dex 和任意语言的示例服务，然后通过 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 启动 Microservice orchestration。在下面这次运行中，Flow 以 **test initial data** 启动，**Swap** RPC 把它替换为 **updated in-flight data**，随后一条 **Ready** 消息结束等待。**CallAPI1**、**CallAPI2** 和 **CallAPI3** 均已完成；因为 Channel 在 24 小时 Timer 之前满足条件，所以 **CallAPI4** 没有执行。
 
-![Completed Microservice orchestration Step execution graph](/img/use-cases/microservice-orchestration-step-execution-graph.jpg)
+![已完成的 Microservice orchestration Step 执行图](/img/use-cases/microservice-orchestration-step-execution-graph.jpg)
 
-## Related
+## 相关内容
 
 - [Static Parallel Steps](/design-patterns/parallel/static)
-- [Channels](/primitives/channel)
-- [Timers](/primitives/timer)
-- [RPCs](/primitives/rpc)
-- [Attributes](/primitives/attribute)
+- [Channel](/primitives/channel)
+- [Timer](/primitives/timer)
+- [RPC](/primitives/rpc)
+- [Attribute](/primitives/attribute)
