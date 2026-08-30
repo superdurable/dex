@@ -28,7 +28,7 @@
  * limitations under the License.
  */
 
-use std::time::Duration;
+use std::{sync::LazyLock, time::Duration};
 
 use dex_sdk::{
     Attribute, Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, RpcResult,
@@ -37,24 +37,27 @@ use dex_sdk::{
 
 pub const ORCHESTRATION_SWAP: Rpc<String, String> = Rpc::new("OrchestrationSwap");
 pub const ORCHESTRATION_READY: Rpc<(), ()> = Rpc::new("OrchestrationReady");
+pub static DATA: LazyLock<Attribute<String>> =
+    LazyLock::new(|| Attribute::new("orchestration-data"));
+pub static READY: LazyLock<Channel<()>> = LazyLock::new(|| Channel::new("orchestration-ready"));
 
 #[derive(Default)]
 pub struct OrchestrationFlow {
     call_api_one: CallApiOne,
     call_api_two: CallApiTwo,
     call_api_three: CallApiThree,
+    call_api_four: CallApiFour,
 }
 
 impl OrchestrationFlow {
     fn swap(&self, context: &mut Context, replacement: String) -> HandlerResult<RpcResult<String>> {
-        let data = Attribute::<String>::new("orchestration-data");
-        let previous = data.get(context)?.unwrap_or_default();
-        data.set(context, replacement)?;
+        let previous = DATA.get(context)?.unwrap_or_default();
+        DATA.set(context, replacement)?;
         Ok(RpcResult::new(previous))
     }
 
     fn ready(&self, context: &mut Context) -> HandlerResult<()> {
-        Channel::<()>::new("orchestration-ready").publish(context, ())
+        READY.publish(context, ())
     }
 }
 
@@ -65,12 +68,11 @@ impl Flow for OrchestrationFlow {
         StepList::start(&self.call_api_one)
             .and(&self.call_api_two)
             .and(&self.call_api_three)
+            .and(&self.call_api_four)
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new()
-            .attribute(&Attribute::<String>::new("orchestration-data"))
-            .channel(&Channel::<()>::new("orchestration-ready"))
+        PersistenceSchema::new().attribute(&DATA).channel(&READY)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
@@ -87,10 +89,11 @@ impl Step for CallApiOne {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        Attribute::<String>::new("orchestration-data").set(context, input.clone())?;
+        context.record_event("api-one", input.clone())?;
+        DATA.set(context, input)?;
         Ok(StepDecision::go_to_many([
-            StepMovement::to(&CallApiTwo, input.clone()),
-            StepMovement::to(&CallApiThree, input),
+            StepMovement::to(&CallApiTwo, ()),
+            StepMovement::to(&CallApiThree, ()),
         ]))
     }
 }
@@ -99,11 +102,11 @@ impl Step for CallApiOne {
 struct CallApiTwo;
 
 impl Step for CallApiTwo {
-    type Input = String;
+    type Input = ();
 
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        context.record_event("api-two", input)?;
-        Ok(StepDecision::graceful_complete(()))
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        context.record_event("api-two", DATA.get(context)?.unwrap_or_default())?;
+        Ok(StepDecision::dead_end())
     }
 }
 
@@ -111,17 +114,34 @@ impl Step for CallApiTwo {
 struct CallApiThree;
 
 impl Step for CallApiThree {
-    type Input = String;
+    type Input = ();
 
     fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
         Ok(Wait::any_of([
-            Channel::<()>::new("orchestration-ready").for_one(),
-            Timer::by_duration(Duration::from_secs(30)),
+            READY.for_one(),
+            Timer::by_duration(Duration::from_secs(24 * 60 * 60)),
         ]))
     }
 
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        context.record_event("api-three", input)?;
-        Ok(StepDecision::graceful_complete(()))
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let data = DATA.get(context)?.unwrap_or_default();
+        context.record_event("api-three", data.clone())?;
+        if context.has_timer_fired(0) {
+            return Ok(StepDecision::go_to(&CallApiFour, ()));
+        }
+        Ok(StepDecision::graceful_complete(data))
+    }
+}
+
+#[derive(Default)]
+struct CallApiFour;
+
+impl Step for CallApiFour {
+    type Input = ();
+
+    fn execute(&self, context: &mut Context, _input: Self::Input) -> HandlerResult<StepDecision> {
+        let data = DATA.get(context)?.unwrap_or_default();
+        context.record_event("api-four", data.clone())?;
+        Ok(StepDecision::graceful_complete(data))
     }
 }
