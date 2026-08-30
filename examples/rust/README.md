@@ -46,7 +46,7 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | Microservice orchestration | [`OrchestrationFlow`](src/products/microservices.rs) | Parallel Steps, Attribute swap RPC, Channel-or-timer wait |
 | Engagement | [`EngagementFlow`](src/products/engagement.rs) | Indexed status, decision RPCs, reminders, external notification |
 | Subscription | [`SubscriptionFlow`](src/products/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
-| Signup | [`UserSignupFlow`](src/products/signup.rs) | Verification Channel and recurring reminder timer |
+| User onboarding process | [`UserOnboardingFlow`](src/products/signup/flow.rs) | Email verification and two ordered tasks with durable reminders |
 | Job post | [`JobPostFlow`](src/products/job_post.rs) | Full-text Attributes and read/update/soft-delete RPCs |
 | Shortlist candidates: employer opt-in | [`EmployerOptInFlow`](src/products/shortlist_candidates.rs) | Long-running opt-in state and opt-out Channel |
 | Shortlist candidates: shortlist | [`ShortlistFlow`](src/products/shortlist_candidates.rs) | Scheduled contact or revoke race |

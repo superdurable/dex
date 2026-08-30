@@ -56,7 +56,7 @@ after E2E tests for manual HTTP exploration.
 - [Microservice orchestration](./dex_examples/products/microservices)
 - [Engagement](./dex_examples/products/engagement)
 - [Subscription](./dex_examples/products/subscription)
-- [Signup](./dex_examples/products/signup)
+- [User onboarding process](./dex_examples/products/signup)
 - [Job post](./dex_examples/products/job-post)
 - [Shortlist candidates](./dex_examples/products/shortlist-candidates)
 - [AI agent email](./ai-agent-email/) (Python only; UI assets in [`ai-agent-email/`](./ai-agent-email))

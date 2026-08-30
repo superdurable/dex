@@ -29,11 +29,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/products/signup")
 public class SignupController {
     private final Client client;
-    private final UserSignupFlow flow;
+    private final UserOnboardingFlow flow;
 
     public SignupController(
             final Client client,
-            final UserSignupFlow flow) {
+            final UserOnboardingFlow flow) {
         this.client = client;
         this.flow = flow;
     }
@@ -53,7 +53,19 @@ public class SignupController {
 
     @GetMapping("/verify")
     public ResponseEntity<String> verify(@RequestParam final String username) {
-        final UserSignupFlow stub = client.newRpcStub(UserSignupFlow.class, username);
+        final UserOnboardingFlow stub = client.newRpcStub(UserOnboardingFlow.class, username);
         return ResponseEntity.ok(client.invokeRPC(stub::verify));
+    }
+
+    @GetMapping("/accomplish-task-1")
+    public ResponseEntity<String> accomplishTask1(@RequestParam final String username) {
+        final UserOnboardingFlow stub = client.newRpcStub(UserOnboardingFlow.class, username);
+        return ResponseEntity.ok(client.invokeRPC(stub::accomplishTask1));
+    }
+
+    @GetMapping("/accomplish-task-2")
+    public ResponseEntity<String> accomplishTask2(@RequestParam final String username) {
+        final UserOnboardingFlow stub = client.newRpcStub(UserOnboardingFlow.class, username);
+        return ResponseEntity.ok(client.invokeRPC(stub::accomplishTask2));
     }
 }

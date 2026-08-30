@@ -30,6 +30,10 @@ use dex_examples_rust::products::money_transfer::{MoneyTransferFlow, TransferReq
 use dex_examples_rust::products::order_processing::{
     Charge, ORDER_APPROVE, OrderProcessingFlow, OrderRequest, Ship,
 };
+use dex_examples_rust::products::signup::{
+    ONBOARDING_STATUS, ONBOARDING_TASK_1, ONBOARDING_TASK_2, ONBOARDING_VERIFY, UserOnboardingFlow,
+    WAITING_FOR_TASK_1, WAITING_FOR_TASK_2, WAITING_FOR_VERIFICATION,
+};
 use dex_examples_rust::products::subscription::{
     SUBSCRIPTION_CANCEL, SUBSCRIPTION_DESCRIBE, SUBSCRIPTION_UPDATE_CHARGE, SubscriptionFlow,
     SubscriptionRequest, SubscriptionState,
@@ -388,6 +392,70 @@ fn engagement_invokes_rpcs_and_completes() {
             .status,
         FlowStatus::Completed
     );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn user_onboarding_verifies_and_completes_both_tasks() {
+    let environment = DexEnvironment::start();
+    let flow = UserOnboardingFlow::default();
+    let flow_id = unique_flow_id("user-onboarding");
+    let run_id = environment
+        .client
+        .start_flow(&flow, &flow_id, format!("{flow_id}@example.com"))
+        .expect("start Rust User Onboarding Flow");
+    assert!(!run_id.is_empty());
+    environment
+        .client
+        .wait_for_attribute_equal(
+            &flow_id,
+            &ONBOARDING_STATUS,
+            WAITING_FOR_VERIFICATION.to_string(),
+            Duration::from_secs(20),
+        )
+        .expect("wait for email verification");
+
+    let verified: String = environment
+        .client
+        .invoke_rpc_without_input(&flow_id, ONBOARDING_VERIFY)
+        .expect("verify onboarding email");
+    assert_eq!(verified, "verified");
+    environment
+        .client
+        .wait_for_attribute_equal(
+            &flow_id,
+            &ONBOARDING_STATUS,
+            WAITING_FOR_TASK_1.to_string(),
+            Duration::from_secs(20),
+        )
+        .expect("wait for onboarding task 1");
+
+    let task_1: String = environment
+        .client
+        .invoke_rpc_without_input(&flow_id, ONBOARDING_TASK_1)
+        .expect("accomplish onboarding task 1");
+    assert_eq!(task_1, "task 1 accomplished");
+    environment
+        .client
+        .wait_for_attribute_equal(
+            &flow_id,
+            &ONBOARDING_STATUS,
+            WAITING_FOR_TASK_2.to_string(),
+            Duration::from_secs(20),
+        )
+        .expect("wait for onboarding task 2");
+
+    let task_2: String = environment
+        .client
+        .invoke_rpc_without_input(&flow_id, ONBOARDING_TASK_2)
+        .expect("accomplish onboarding task 2");
+    assert_eq!(task_2, "task 2 accomplished");
+    let output: String = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .and_then(|result| result.single_output())
+        .expect("complete Rust User Onboarding Flow");
+    assert_eq!(output, "onboarding completed");
 }
 
 #[test]

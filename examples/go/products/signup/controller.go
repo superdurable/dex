@@ -32,14 +32,16 @@ import (
 
 type controller struct {
 	client *sdk.Client
-	flow   *UserSignupFlow
+	flow   *UserOnboardingFlow
 }
 
-func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *UserSignupFlow) {
+func RegisterRoutes(router gin.IRouter, client *sdk.Client, flow *UserOnboardingFlow) {
 	controller := &controller{client: client, flow: flow}
 	group := router.Group("/products/signup")
 	group.GET("/submit", controller.submit)
 	group.GET("/verify", controller.verify)
+	group.GET("/accomplish-task-1", controller.accomplishTask1)
+	group.GET("/accomplish-task-2", controller.accomplishTask2)
 }
 
 func (controller *controller) submit(request *gin.Context) {
@@ -78,6 +80,21 @@ func (controller *controller) submit(request *gin.Context) {
 }
 
 func (controller *controller) verify(request *gin.Context) {
+	controller.invoke(request, controller.flow.Verify)
+}
+
+func (controller *controller) accomplishTask1(request *gin.Context) {
+	controller.invoke(request, controller.flow.AccomplishTask1)
+}
+
+func (controller *controller) accomplishTask2(request *gin.Context) {
+	controller.invoke(request, controller.flow.AccomplishTask2)
+}
+
+func (controller *controller) invoke(
+	request *gin.Context,
+	rpc sdk.RPC[sdk.None, string],
+) {
 	username, found := httputil.RequiredQuery(request, "username")
 	if !found {
 		return
@@ -86,7 +103,7 @@ func (controller *controller) verify(request *gin.Context) {
 	err := controller.client.InvokeRPC(
 		request.Request.Context(),
 		username,
-		controller.flow.Verify,
+		rpc,
 		nil,
 		&output,
 		sdk.InvokeOptions{},

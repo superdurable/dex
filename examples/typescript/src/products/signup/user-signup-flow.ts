@@ -41,45 +41,70 @@ import { signupFormCodec, type SignupForm } from "./signup-form.js";
 
 const VERIFY_TIMER_MS = 24_000;
 
-const verify = new Channel("Verify", voidCodec);
+const verifyEmail = new Channel("VerifyEmail", voidCodec);
+const task1Completed = new Channel("Task1Completed", voidCodec);
+const task2Completed = new Channel("Task2Completed", voidCodec);
 
-export class UserSignupFlow implements Flow<SignupForm> {
+export class UserOnboardingFlow implements Flow<SignupForm> {
   public readonly form = new Attribute("Form", signupFormCodec);
   public readonly status = new Attribute("Status", stringCodec);
 
   public readonly submit = new Submit(this);
-  public readonly verifyStep = new Verify(this);
+  public readonly verifyEmailStep = new VerifyEmail(this);
+  public readonly accomplishTask1Step = new AccomplishTask1(this);
+  public readonly accomplishTask2Step = new AccomplishTask2(this);
 
   public constructor(public readonly service: MyDependencyService = myDependencyService) {}
 
   public getFlowType(): string {
-    return "UserSignupFlow";
+    return "UserOnboardingFlow";
   }
 
   public getSteps() {
-    return StepList.startStep(this.submit).otherSteps(this.verifyStep);
+    return StepList.startStep(this.submit).otherSteps(
+      this.verifyEmailStep,
+      this.accomplishTask1Step,
+      this.accomplishTask2Step,
+    );
   }
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
       attributes: [this.form, this.status],
-      channels: [verify],
+      channels: [verifyEmail, task1Completed, task2Completed],
     };
   }
 
   @rpc({ name: "verify", outputCodec: stringCodec })
   public verifySignup(context: Context): RPCResult<string> {
-    if (this.status.get(context) === "verified") {
+    if (this.status.get(context) !== "waiting_for_verification") {
       return { output: "already verified" };
     }
-    this.status.set(context, "verified");
-    verify.publish(context, undefined);
-    return { output: "done" };
+    verifyEmail.publish(context, undefined);
+    return { output: "verified" };
+  }
+
+  @rpc({ name: "accomplishTask1", outputCodec: stringCodec })
+  public accomplishTask1(context: Context): RPCResult<string> {
+    if (this.status.get(context) !== "waiting_for_task_1") {
+      return { output: "task 1 is not waiting" };
+    }
+    task1Completed.publish(context, undefined);
+    return { output: "task 1 accomplished" };
+  }
+
+  @rpc({ name: "accomplishTask2", outputCodec: stringCodec })
+  public accomplishTask2(context: Context): RPCResult<string> {
+    if (this.status.get(context) !== "waiting_for_task_2") {
+      return { output: "task 2 is not waiting" };
+    }
+    task2Completed.publish(context, undefined);
+    return { output: "task 2 accomplished" };
   }
 }
 
 class Submit implements Step<SignupForm> {
-  public constructor(private readonly flow: UserSignupFlow) {}
+  public constructor(private readonly flow: UserOnboardingFlow) {}
 
   public getStepType(): string {
     return "Submit";
@@ -87,32 +112,103 @@ class Submit implements Step<SignupForm> {
 
   public execute(context: Context, input: SignupForm): StepDecision {
     this.flow.form.set(context, input);
-    this.flow.status.set(context, "waiting");
-    this.flow.service.sendEmail(input.email, "please verify the signup", "content");
-    return goTo(Verify, undefined);
+    this.flow.service.sendEmail(input.email, "verify your email", "start your onboarding");
+    return goTo(VerifyEmail, undefined);
   }
 }
 
-class Verify implements Step<void> {
-  public constructor(private readonly flow: UserSignupFlow) {}
+class VerifyEmail implements Step<void> {
+  public constructor(private readonly flow: UserOnboardingFlow) {}
 
   public getStepType(): string {
-    return "Verify";
+    return "VerifyEmail";
   }
 
-  public waitFor(_context: Context, _input: void): Wait {
-    return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), verify.forOne());
+  public waitFor(context: Context, _input: void): Wait {
+    this.flow.status.set(context, "waiting_for_verification");
+    return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), verifyEmail.forOne());
   }
 
   public execute(context: Context, _input: void): StepDecision {
     const signupForm = this.flow.form.get(context);
-    if (verify.results(context).length > 0) {
-      this.flow.service.sendEmail(signupForm.email, "welcome", "welcome to Indeed!");
-      return gracefulComplete("done");
+    if (verifyEmail.results(context).length > 0) {
+      this.flow.service.sendEmail(
+        signupForm.email,
+        "complete onboarding task 1",
+        "task 1 is ready",
+      );
+      return goTo(AccomplishTask1, undefined);
     }
-    this.flow.service.sendEmail(signupForm.email, "reminder", "please verify your email");
-    return goTo(Verify, undefined);
+    this.flow.service.sendEmail(
+      signupForm.email,
+      "verification reminder",
+      "please verify your email",
+    );
+    return goTo(VerifyEmail, undefined);
   }
 }
 
-export const userSignupFlow = new UserSignupFlow();
+class AccomplishTask1 implements Step<void> {
+  public constructor(private readonly flow: UserOnboardingFlow) {}
+
+  public getStepType(): string {
+    return "AccomplishTask1";
+  }
+
+  public waitFor(context: Context, _input: void): Wait {
+    this.flow.status.set(context, "waiting_for_task_1");
+    return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), task1Completed.forOne());
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    const signupForm = this.flow.form.get(context);
+    if (task1Completed.results(context).length > 0) {
+      this.flow.service.sendEmail(
+        signupForm.email,
+        "complete onboarding task 2",
+        "task 2 is ready",
+      );
+      return goTo(AccomplishTask2, undefined);
+    }
+    this.flow.service.sendEmail(
+      signupForm.email,
+      "task 1 reminder",
+      "please complete onboarding task 1",
+    );
+    return goTo(AccomplishTask1, undefined);
+  }
+}
+
+class AccomplishTask2 implements Step<void> {
+  public constructor(private readonly flow: UserOnboardingFlow) {}
+
+  public getStepType(): string {
+    return "AccomplishTask2";
+  }
+
+  public waitFor(context: Context, _input: void): Wait {
+    this.flow.status.set(context, "waiting_for_task_2");
+    return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), task2Completed.forOne());
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    const signupForm = this.flow.form.get(context);
+    if (task2Completed.results(context).length > 0) {
+      this.flow.status.set(context, "completed");
+      this.flow.service.sendEmail(
+        signupForm.email,
+        "onboarding complete",
+        "welcome aboard",
+      );
+      return gracefulComplete("onboarding completed");
+    }
+    this.flow.service.sendEmail(
+      signupForm.email,
+      "task 2 reminder",
+      "please complete onboarding task 2",
+    );
+    return goTo(AccomplishTask2, undefined);
+  }
+}
+
+export const userOnboardingFlow = new UserOnboardingFlow();

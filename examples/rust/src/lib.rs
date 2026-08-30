@@ -28,7 +28,7 @@ pub const PRODUCT_FLOW_TYPES: [&str; 9] = [
     "OrchestrationFlow",
     "EngagementFlow",
     "SubscriptionFlow",
-    "UserSignupFlow",
+    "UserOnboardingFlow",
     "JobPostFlow",
     "EmployerOptInFlow",
     "ShortlistFlow",

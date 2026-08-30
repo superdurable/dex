@@ -21,7 +21,7 @@ import type { Client } from "@superdurable/dex";
 import { startOptions } from "../../config/env.js";
 import { isFlowAlreadyStarted } from "../../service-errors.js";
 import type { SignupForm } from "./signup-form.js";
-import { userSignupFlow } from "./user-signup-flow.js";
+import { userOnboardingFlow } from "./user-signup-flow.js";
 
 export function createSignupRouter(client: Client): Router {
   const router = Router();
@@ -36,7 +36,7 @@ export function createSignupRouter(client: Client): Router {
       lastName: "Test",
     };
     try {
-      await client.startFlow(userSignupFlow, username, form, startOptions());
+      await client.startFlow(userOnboardingFlow, username, form, startOptions());
     } catch (failure) {
       if (isFlowAlreadyStarted(failure)) {
         response.send("username already started registry");
@@ -50,10 +50,20 @@ export function createSignupRouter(client: Client): Router {
   router.get("/verify", async (request, response) => {
     const username = String(request.query.username ?? "");
     const result = await client.invokeRPC(
-      userSignupFlow.verifySignup,
+      userOnboardingFlow.verifySignup,
       username,
     );
     response.send(result);
+  });
+
+  router.get("/accomplish-task-1", async (request, response) => {
+    const username = String(request.query.username ?? "");
+    response.send(await client.invokeRPC(userOnboardingFlow.accomplishTask1, username));
+  });
+
+  router.get("/accomplish-task-2", async (request, response) => {
+    const username = String(request.query.username ?? "");
+    response.send(await client.invokeRPC(userOnboardingFlow.accomplishTask2, username));
   });
 
   return router;

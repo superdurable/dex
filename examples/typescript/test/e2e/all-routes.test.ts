@@ -20,6 +20,7 @@ import test from "node:test";
 
 import { loadEnv } from "../../src/config/env.js";
 import { startSampleServer, type SampleServer } from "../../src/main.js";
+import { userOnboardingFlow } from "../../src/products/signup/user-signup-flow.js";
 
 let server: SampleServer;
 let baseUrl: string;
@@ -182,13 +183,39 @@ test("product subscription start describe update cancel", async () => {
   requireOk(await get("/products/subscription/cancel", { workflowId }), "subscription/cancel");
 });
 
-test("product signup submit verify", async () => {
+test("product user onboarding completes every task", async () => {
   const username = id("user").replace(/-/g, "");
   requireOk(
     await get("/products/signup/submit", { username, email: `${username}@example.com` }),
     "signup/submit",
   );
+  await server.client.waitForAttributeEqual(
+    username,
+    userOnboardingFlow.status,
+    "waiting_for_verification",
+    20_000,
+  );
   requireOk(await get("/products/signup/verify", { username }), "signup/verify");
+  await server.client.waitForAttributeEqual(
+    username,
+    userOnboardingFlow.status,
+    "waiting_for_task_1",
+    20_000,
+  );
+  requireOk(
+    await get("/products/signup/accomplish-task-1", { username }),
+    "signup/accomplish-task-1",
+  );
+  await server.client.waitForAttributeEqual(
+    username,
+    userOnboardingFlow.status,
+    "waiting_for_task_2",
+    20_000,
+  );
+  requireOk(
+    await get("/products/signup/accomplish-task-2", { username }),
+    "signup/accomplish-task-2",
+  );
 });
 
 test("product jobpost create read update delete search", async () => {

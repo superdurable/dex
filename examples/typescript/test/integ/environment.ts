@@ -31,6 +31,7 @@ import { moneyTransferFlow } from "../../src/products/money-transfer/money-trans
 import { OrderProcessingFlow } from "../../src/products/order-processing/order-processing-flow.js";
 import { MyDependencyService } from "../../src/shared/my-dependency-service.js";
 import { subscriptionFlow } from "../../src/products/subscription/subscription-flow.js";
+import { userOnboardingFlow } from "../../src/products/signup/user-signup-flow.js";
 
 const orderProcessingFlow = new OrderProcessingFlow(new MyDependencyService());
 
@@ -43,6 +44,7 @@ export interface IntegEnvironment {
   readonly engagementFlow: typeof engagementFlow;
   readonly orchestrationFlow: typeof orchestrationFlow;
   readonly subscriptionFlow: typeof subscriptionFlow;
+  readonly userOnboardingFlow: typeof userOnboardingFlow;
   newFlowId(prefix: string): string;
   startOptions(): { timeoutMs: number };
   close(): Promise<void>;
@@ -77,6 +79,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     engagementFlow,
     orchestrationFlow,
     subscriptionFlow,
+    userOnboardingFlow,
   ];
   const registry = new Registry(flows);
   const cacheDirectory = await mkdtemp(join(tmpdir(), "dex-typescript-examples-integ-"));
@@ -102,6 +105,7 @@ async function startIntegEnvironment(): Promise<IntegEnvironment> {
     engagementFlow,
     orchestrationFlow,
     subscriptionFlow,
+    userOnboardingFlow,
     newFlowId(prefix: string) {
       return `${prefix}-${randomUUID()}`;
     },

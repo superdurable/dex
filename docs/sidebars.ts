@@ -135,7 +135,7 @@ const sidebars: SidebarsConfig = {
         'use-cases/microservice-orchestration',
         'use-cases/job-seeker-engagement',
         'use-cases/subscription',
-        'use-cases/signup',
+        'use-cases/user-onboarding-process',
         'use-cases/job-post',
         'use-cases/shortlist-candidates',
         'use-cases/dataset-deal',
