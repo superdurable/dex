@@ -36,15 +36,15 @@ from dex import (
 from dex_examples.shared.my_dependency_service import MyDependencyService
 from dex_examples.products.job_post.job_info import JobInfo
 
-JOB_BOARD_UPDATE_OPTIONS = StepOptions(
-    execute_retry=RetryPolicy(
-        initial_interval=timedelta(seconds=3),
-        backoff_coefficient=2.0,
-        maximum_interval=timedelta(seconds=60),
-        maximum_attempts=100,
-        total_duration=timedelta(hours=1),
-    )
+JOB_BOARD_UPDATE_RETRY = RetryPolicy(
+    initial_interval=timedelta(seconds=3),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=60),
+    maximum_attempts=100,
+    total_duration=timedelta(hours=1),
 )
+UPDATE_LINKEDIN_POSTING_LOCK = Attribute("UpdateLinkedInPostingLock", type(None))
+UPDATE_INDEED_POSTING_LOCK = Attribute("UpdateIndeedPostingLock", type(None))
 
 
 class UpdateLinkedInPosting(Step[None]):
@@ -52,7 +52,10 @@ class UpdateLinkedInPosting(Step[None]):
         self.service = service
 
     def get_step_options(self) -> StepOptions:
-        return JOB_BOARD_UPDATE_OPTIONS
+        return StepOptions(
+            execute_retry=JOB_BOARD_UPDATE_RETRY,
+            execute_lock_attributes=(UPDATE_LINKEDIN_POSTING_LOCK.lock(),),
+        )
 
     def execute(self, context: Context, input: None) -> StepDecision:
         self.service.update_external_system("update LinkedIn job posting")
@@ -64,7 +67,10 @@ class UpdateIndeedPosting(Step[None]):
         self.service = service
 
     def get_step_options(self) -> StepOptions:
-        return JOB_BOARD_UPDATE_OPTIONS
+        return StepOptions(
+            execute_retry=JOB_BOARD_UPDATE_RETRY,
+            execute_lock_attributes=(UPDATE_INDEED_POSTING_LOCK.lock(),),
+        )
 
     def execute(self, context: Context, input: None) -> StepDecision:
         self.service.update_external_system("update Indeed job posting")
@@ -84,6 +90,8 @@ class JobPostingFlow(Flow[None]):
         AttributeIndex(IndexType.INT),
     )
     notes = Attribute("Notes", str)
+    update_linkedin_posting_lock = UPDATE_LINKEDIN_POSTING_LOCK
+    update_indeed_posting_lock = UPDATE_INDEED_POSTING_LOCK
 
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
@@ -102,6 +110,8 @@ class JobPostingFlow(Flow[None]):
             self.job_description,
             self.last_update_time_millis,
             self.notes,
+            self.update_linkedin_posting_lock,
+            self.update_indeed_posting_lock,
         )
 
     @rpc
@@ -112,7 +122,7 @@ class JobPostingFlow(Flow[None]):
     def get_with_strong_consistency(self, context: Context) -> RPCResult[JobInfo]:
         return self.get(context)
 
-    @rpc
+    @rpc(lock_attributes=(title.lock(),))
     def update(self, context: Context, input: JobInfo) -> RPCResult[None]:
         self.title.set(context, input.title or "")
         self.job_description.set(context, input.description or "")

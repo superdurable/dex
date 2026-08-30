@@ -135,7 +135,7 @@ func (controller *controller) update(request *gin.Context) {
 		controller.flow.Update,
 		JobInfo{Title: title, Description: description, Notes: notes},
 		&none,
-		sdk.InvokeOptions{},
+		UpdateInvokeOptions(),
 	)
 	httputil.Respond(request, gin.H{"updated": true}, err)
 }

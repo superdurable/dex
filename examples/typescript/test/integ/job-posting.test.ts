@@ -50,17 +50,23 @@ test("jobPostingUpdateReachesBothJobBoards", async () => {
     notes: "expanded scope",
   };
   await environment.client.invokeRPC(flow.update, flowId, updated);
+  const newest: JobInfo = {
+    title: "Principal Software Engineer",
+    description: "Lead durable systems",
+    notes: "final scope",
+  };
+  await environment.client.invokeRPC(flow.update, flowId, newest);
   await environment.client.waitForStepCompletion(
     flowId,
-    StepExecutionId.of("UpdateLinkedInPosting"),
+    StepExecutionId.of("UpdateLinkedInPosting", 2),
     30_000,
   );
   await environment.client.waitForStepCompletion(
     flowId,
-    StepExecutionId.of("UpdateIndeedPosting"),
+    StepExecutionId.of("UpdateIndeedPosting", 2),
     30_000,
   );
 
-  assert.deepEqual(await environment.client.invokeRPC(flow.get, flowId), updated);
+  assert.deepEqual(await environment.client.invokeRPC(flow.get, flowId), newest);
   await environment.client.stopFlow(flowId);
 });

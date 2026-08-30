@@ -41,7 +41,9 @@ var (
 		"LastUpdateTimeMillis",
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexInt}),
 	)
-	Notes = dex.DefineAttribute[string]("Notes")
+	Notes                     = dex.DefineAttribute[string]("Notes")
+	UpdateLinkedInPostingLock = dex.DefineAttribute[dex.None]("UpdateLinkedInPostingLock")
+	UpdateIndeedPostingLock   = dex.DefineAttribute[dex.None]("UpdateIndeedPostingLock")
 )
 
 const (
@@ -73,7 +75,14 @@ func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 
 func (*JobPostingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{Title, JobDescription, LastUpdateTimeMillis, Notes},
+		Attributes: []dex.AttributeDef{
+			Title,
+			JobDescription,
+			LastUpdateTimeMillis,
+			Notes,
+			UpdateLinkedInPostingLock,
+			UpdateIndeedPostingLock,
+		},
 	}
 }
 
@@ -125,6 +134,12 @@ func (*JobPostingFlow) Update(
 	}, nil
 }
 
+func UpdateInvokeOptions() dex.InvokeOptions {
+	return dex.InvokeOptions{
+		LockAttributes: []dex.AttributeLock{dex.LockAttribute(Title)},
+	}
+}
+
 func readJobInfo(ctx dex.Context) (JobInfo, error) {
 	title, err := Title.Get(ctx)
 	if err != nil {
@@ -151,7 +166,7 @@ type UpdateLinkedInPosting struct {
 }
 
 func (UpdateLinkedInPosting) GetStepOptions() *dex.StepOptions {
-	return jobBoardUpdateStepOptions()
+	return jobBoardUpdateStepOptions(dex.LockAttribute(UpdateLinkedInPostingLock))
 }
 
 func (UpdateLinkedInPosting) GetStepType() string {
@@ -172,7 +187,7 @@ type UpdateIndeedPosting struct {
 }
 
 func (UpdateIndeedPosting) GetStepOptions() *dex.StepOptions {
-	return jobBoardUpdateStepOptions()
+	return jobBoardUpdateStepOptions(dex.LockAttribute(UpdateIndeedPostingLock))
 }
 
 func (UpdateIndeedPosting) GetStepType() string {
@@ -187,8 +202,9 @@ func (step UpdateIndeedPosting) Execute(
 	return dex.DeadEnd(), nil
 }
 
-func jobBoardUpdateStepOptions() *dex.StepOptions {
+func jobBoardUpdateStepOptions(executeLock dex.AttributeLock) *dex.StepOptions {
 	return &dex.StepOptions{
+		ExecuteLockAttributes: []dex.AttributeLock{executeLock},
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval:    3 * time.Second,
 			BackoffCoefficient: 2,

@@ -23,6 +23,8 @@ import {
   int64Codec,
   rpc,
   stringCodec,
+  voidCodec,
+  type AttributeLock,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -39,10 +41,12 @@ import {
 } from "../../shared/my-dependency-service.js";
 import { optionalStringCodec, type JobInfo } from "./job-info.js";
 
+const title = new Attribute("Title", stringCodec, {
+  type: IndexType.FULL_TEXT,
+});
+
 export class JobPostingFlow implements Flow {
-  public readonly title = new Attribute("Title", stringCodec, {
-    type: IndexType.FULL_TEXT,
-  });
+  public readonly title = title;
   public readonly jobDescription = new Attribute("JobDescription", stringCodec, {
     type: IndexType.FULL_TEXT,
   });
@@ -50,6 +54,14 @@ export class JobPostingFlow implements Flow {
     type: IndexType.INT,
   });
   public readonly notes = new Attribute("Notes", optionalStringCodec);
+  public readonly updateLinkedInPostingLock = new Attribute(
+    "UpdateLinkedInPostingLock",
+    voidCodec,
+  );
+  public readonly updateIndeedPostingLock = new Attribute(
+    "UpdateIndeedPostingLock",
+    voidCodec,
+  );
 
   public readonly updateLinkedInPosting = new UpdateLinkedInPosting(this);
   public readonly updateIndeedPosting = new UpdateIndeedPosting(this);
@@ -69,7 +81,14 @@ export class JobPostingFlow implements Flow {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [this.title, this.jobDescription, this.lastUpdateTimeMillis, this.notes],
+      attributes: [
+        this.title,
+        this.jobDescription,
+        this.lastUpdateTimeMillis,
+        this.notes,
+        this.updateLinkedInPostingLock,
+        this.updateIndeedPostingLock,
+      ],
     };
   }
 
@@ -83,7 +102,7 @@ export class JobPostingFlow implements Flow {
     return this.get(context);
   }
 
-  @rpc()
+  @rpc({ lockAttributes: [title.lock()] })
   public update(context: Context, input: JobInfo): RPCResult<void> {
     this.title.set(context, input.title);
     this.jobDescription.set(context, input.description);
@@ -110,16 +129,6 @@ export class JobPostingFlow implements Flow {
 }
 
 class UpdateLinkedInPosting implements Step<void> {
-  private readonly options: StepOptions = {
-    executeRetry: {
-      backoffCoefficient: 2,
-      maximumAttempts: 100,
-      totalDurationMs: HOUR_MS,
-      initialIntervalMs: 3_000,
-      maximumIntervalMs: 60_000,
-    },
-  };
-
   public constructor(private readonly flow: JobPostingFlow) {}
 
   public getStepType(): string {
@@ -127,7 +136,7 @@ class UpdateLinkedInPosting implements Step<void> {
   }
 
   public getStepOptions(): StepOptions {
-    return this.options;
+    return jobBoardUpdateOptions(this.flow.updateLinkedInPostingLock.lock());
   }
 
   public execute(_context: Context, _input: void): StepDecision {
@@ -137,7 +146,25 @@ class UpdateLinkedInPosting implements Step<void> {
 }
 
 class UpdateIndeedPosting implements Step<void> {
-  private readonly options: StepOptions = {
+  public constructor(private readonly flow: JobPostingFlow) {}
+
+  public getStepType(): string {
+    return "UpdateIndeedPosting";
+  }
+
+  public getStepOptions(): StepOptions {
+    return jobBoardUpdateOptions(this.flow.updateIndeedPostingLock.lock());
+  }
+
+  public execute(_context: Context, _input: void): StepDecision {
+    this.flow.service.updateExternalSystem("update Indeed job posting");
+    return deadEnd();
+  }
+}
+
+function jobBoardUpdateOptions(executeLock: AttributeLock): StepOptions {
+  return {
+    executeLockAttributes: [executeLock],
     executeRetry: {
       backoffCoefficient: 2,
       maximumAttempts: 100,
@@ -146,21 +173,6 @@ class UpdateIndeedPosting implements Step<void> {
       maximumIntervalMs: 60_000,
     },
   };
-
-  public constructor(private readonly flow: JobPostingFlow) {}
-
-  public getStepType(): string {
-    return "UpdateIndeedPosting";
-  }
-
-  public getStepOptions(): StepOptions {
-    return this.options;
-  }
-
-  public execute(_context: Context, _input: void): StepDecision {
-    this.flow.service.updateExternalSystem("update Indeed job posting");
-    return deadEnd();
-  }
 }
 
 export const jobPostingFlow = new JobPostingFlow();

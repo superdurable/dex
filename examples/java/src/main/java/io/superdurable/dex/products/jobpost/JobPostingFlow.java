@@ -18,6 +18,7 @@ package io.superdurable.dex.products.jobpost;
 
 import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeIndex;
+import io.superdurable.dex.AttributeLock;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -49,6 +50,10 @@ public class JobPostingFlow implements Flow<Void> {
             Long.class,
             new AttributeIndex(AttributeIndex.Type.INT));
     public final Attribute<String> notes = Attribute.define("Notes", String.class);
+    public final Attribute<Void> updateLinkedInPostingLock =
+            Attribute.define("UpdateLinkedInPostingLock", Void.class);
+    public final Attribute<Void> updateIndeedPostingLock =
+            Attribute.define("UpdateIndeedPostingLock", Void.class);
 
     private final MyDependencyService service;
     private final UpdateLinkedInPosting updateLinkedInPosting = new UpdateLinkedInPosting();
@@ -65,7 +70,13 @@ public class JobPostingFlow implements Flow<Void> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(title, jobDescription, lastUpdateTimeMillis, notes);
+        return PersistenceSchema.of(
+                title,
+                jobDescription,
+                lastUpdateTimeMillis,
+                notes,
+                updateLinkedInPostingLock,
+                updateIndeedPostingLock);
     }
 
     @RPC
@@ -78,7 +89,7 @@ public class JobPostingFlow implements Flow<Void> {
         return get(context);
     }
 
-    @RPC
+    @RPC(lockAttributes = {"Title"})
     public RPCResult<Void> update(final Context context, final JobInfo input) {
         title.set(context, input.title);
         jobDescription.set(context, input.description);
@@ -99,8 +110,9 @@ public class JobPostingFlow implements Flow<Void> {
                 notes.get(context));
     }
 
-    final class UpdateLinkedInPosting implements Step<Void> {
-        private final StepOptions options = StepOptions.newBuilder()
+    private StepOptions jobBoardUpdateOptions(final Attribute<Void> executeLock) {
+        return StepOptions.newBuilder()
+                .addExecuteLock(AttributeLock.of(executeLock))
                 .executeRetry(RetryPolicy.newBuilder()
                         .backoffCoefficient(2.0)
                         .maximumAttempts(100)
@@ -109,6 +121,10 @@ public class JobPostingFlow implements Flow<Void> {
                         .maximumInterval(Duration.ofSeconds(60))
                         .build())
                 .build();
+    }
+
+    final class UpdateLinkedInPosting implements Step<Void> {
+        private final StepOptions options = jobBoardUpdateOptions(updateLinkedInPostingLock);
 
         @Override
         public Class<Void> getInputType() {
@@ -128,15 +144,7 @@ public class JobPostingFlow implements Flow<Void> {
     }
 
     final class UpdateIndeedPosting implements Step<Void> {
-        private final StepOptions options = StepOptions.newBuilder()
-                .executeRetry(RetryPolicy.newBuilder()
-                        .backoffCoefficient(2.0)
-                        .maximumAttempts(100)
-                        .totalDuration(Duration.ofHours(1))
-                        .initialInterval(Duration.ofSeconds(3))
-                        .maximumInterval(Duration.ofSeconds(60))
-                        .build())
-                .build();
+        private final StepOptions options = jobBoardUpdateOptions(updateIndeedPostingLock);
 
         @Override
         public Class<Void> getInputType() {

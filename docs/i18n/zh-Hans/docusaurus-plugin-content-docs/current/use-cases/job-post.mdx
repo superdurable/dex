@@ -14,20 +14,21 @@ sidebar_label: Job posting
 1. 使用职位名称、描述和最后更新时间创建 Flow。这些值保存在持久化 Attribute 中，其中名称和描述支持全文检索。
 2. 创建后保持运行，等待读取、更新、搜索或删除请求。空闲期间是持久化等待，不会占用 Worker。
 3. 通过读取 RPC 返回当前名称、描述和备注。
-4. 通过更新 RPC 接收新的名称、描述和备注，并在启动外部操作前持久化新状态。
+4. 通过更新 RPC 接收新的名称、描述和备注。RPC 使用 **Title** lock，确保同一时间只有一个职位更新可以提交，并在启动外部操作前持久化新状态。
 5. 每次成功更新后，并行启动 **UpdateLinkedInPosting** 和 **UpdateIndeedPosting**。
-6. 独立重试两个招聘网站的更新：首次间隔三秒，最大间隔 60 秒，最多 100 次，总时长不超过一小时。
-7. 删除职位时停止 Flow。搜索操作通过建立索引的 Attribute 查找职位发布信息。
+6. 串行处理同一目标的重复更新。**UpdateLinkedInPosting** 使用值为 null 的 **UpdateLinkedInPostingLock** Attribute，**UpdateIndeedPosting** 使用 **UpdateIndeedPostingLock**。两者使用不同 lock，因此仍可并行执行。
+7. 独立重试两个招聘网站的更新：首次间隔三秒，最大间隔 60 秒，最多 100 次，总时长不超过一小时。
+8. 删除职位时停止 Flow。搜索操作通过建立索引的 Attribute 查找职位发布信息。
 
-流程会在两类位置等待。职位空闲时持久化等待下一个 RPC；招聘网站 Step 失败时在重试之间等待。更新 RPC 不等待 LinkedIn 或 Indeed，而是在职位状态和两个 Step movement 一起提交后返回。
+职位空闲时，流程会持久化等待下一个 RPC；同一目标的重复 Step 会等待对应的 Attribute lock；招聘网站 Step 失败时还会在重试之间等待。更新 RPC 不等待 LinkedIn 或 Indeed，而是在职位状态和两个 Step movement 一起提交后返回。
 
 潜在失败包括：
 
 - 创建时可能缺少必需的初始 Attribute，或者值无法编码。此时不会留下部分创建的 Flow。
-- Flow ID 不存在、Flow 已停止或输入无法持久化时，更新 RPC 会被拒绝。
+- Flow ID 不存在、Flow 已停止、输入无法持久化，或者另一个更新持有 **Title** lock 时，更新 RPC 会被拒绝。lock conflict 可以安全重试。
 - LinkedIn 或 Indeed 可能不可用、超时、限流或拒绝职位信息。一个目标可能已经成功，而另一个仍在重试或最终失败。
 - 远端请求可能已经成功，但响应丢失。每个集成都必须使用稳定的幂等键，避免重试产生重复职位。
-- 两次更新可能重叠。每次更新都会创建新的 Step execution number，因此生产适配器应携带职位版本，并由目标端拒绝过期更新。
+- 重复更新会创建新的 Step execution number。每个目标独立的 lock 可避免两个 LinkedIn execution 或两个 Indeed execution 同时调用同一目标。如果每个 execution 都必须发布其原始状态，生产适配器仍应携带职位版本或不可变载荷。
 - 删除可能与执行中的更新竞争。停止策略必须按照产品的删除约定取消或完成尚未结束的招聘网站操作。
 
 ## Flow 设计
@@ -40,13 +41,13 @@ sidebar_label: Job posting
             ▼
         等待 RPC
             │
-         更新 RPC
+  更新 RPC [Title lock]
             │
        持久化职位信息
        ┌────┴────┐
        ▼         ▼
 UpdateLinkedIn  UpdateIndeed
-  Posting         Posting
+Posting [LI lock] Posting [IN lock]
        │         │
        └─ DeadEnd┘
             │
@@ -59,15 +60,18 @@ UpdateLinkedIn  UpdateIndeed
 - **请求-响应交互**使用强类型 RPC 读取和更新状态。更新操作会原子提交状态和后续 movement。
 - [**静态并行 Step**](/design-patterns/parallel/static)同时启动两个已知目标，避免把它们放进同一个重试边界。
 - **失败隔离**让 LinkedIn 和 Indeed 拥有独立的 Step execution、重试计数、历史和最终失败状态。
+- **分区 locking**使用 **Title** 串行提交 RPC，使用两个值为 null 的独立 lock Attribute 串行处理各自目标，同时保留 LinkedIn 和 Indeed 之间的并行能力。
 - **持久化重试**在进程重启后继续处理临时外部故障，同时不会占用等待中的进程。
 - **索引状态**直接支持名称和描述搜索，不需要应用维护第二份目录。
 - **Dead-end 分支**结束一次同步，但不完成长生命周期的实体 Flow，因此它仍可处理下一个 RPC。
 
-在并行分支前持久化职位信息，可确保两个分支读取持久化状态。生产系统如果要求严格的逐版本顺序，应向每个 Step 传递版本号或不可变的更新载荷。
+在并行分支前持久化职位信息，可确保两个分支读取持久化状态。lock 可以防止同一分区的 handler 重叠，但不会为共享 Attribute 建立快照。如果每个 execution 都必须发布触发它的 RPC 状态，应向每个 Step 传递版本号或不可变的更新载荷。
 
 ## 核心实现
 
-下面的标签页包含 Flow 签名、持久化 schema、更新 RPC、并行 Step movement，以及每个目标独立的重试策略。每个链接示例还包含 HTTP controller 和等待两个招聘网站 Step 完成的端到端测试。
+下面的标签页包含 Flow 签名、持久化 schema、更新 RPC lock、并行 Step movement、每个目标独立的 lock 和重试策略。每个链接示例还包含 HTTP controller，以及连续调用两次 RPC 并等待第二轮两个招聘网站 Step 的端到端测试。
+
+Python、Java、TypeScript 和 Rust 把 **Title** lock 绑定到 RPC definition。Go 在示例的每个调用位置通过 **UpdateInvokeOptions** 提供相同的 lock。
 
 <SdkTabs
   examples={{
@@ -80,15 +84,15 @@ UpdateLinkedIn  UpdateIndeed
 <SdkSnippet lang="python">
 
 ```python
-JOB_BOARD_UPDATE_OPTIONS = StepOptions(
-    execute_retry=RetryPolicy(
-        initial_interval=timedelta(seconds=3),
-        backoff_coefficient=2.0,
-        maximum_interval=timedelta(seconds=60),
-        maximum_attempts=100,
-        total_duration=timedelta(hours=1),
-    )
+JOB_BOARD_UPDATE_RETRY = RetryPolicy(
+    initial_interval=timedelta(seconds=3),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=60),
+    maximum_attempts=100,
+    total_duration=timedelta(hours=1),
 )
+UPDATE_LINKEDIN_POSTING_LOCK = Attribute("UpdateLinkedInPostingLock", type(None))
+UPDATE_INDEED_POSTING_LOCK = Attribute("UpdateIndeedPostingLock", type(None))
 
 
 class JobPostingFlow(Flow[None]):
@@ -104,6 +108,8 @@ class JobPostingFlow(Flow[None]):
         AttributeIndex(IndexType.INT),
     )
     notes = Attribute("Notes", str)
+    update_linkedin_posting_lock = UPDATE_LINKEDIN_POSTING_LOCK
+    update_indeed_posting_lock = UPDATE_INDEED_POSTING_LOCK
 
     def __init__(self, service: MyDependencyService) -> None:
         self.service = service
@@ -122,9 +128,11 @@ class JobPostingFlow(Flow[None]):
             self.job_description,
             self.last_update_time_millis,
             self.notes,
+            self.update_linkedin_posting_lock,
+            self.update_indeed_posting_lock,
         )
 
-    @rpc
+    @rpc(lock_attributes=(title.lock(),))
     def update(self, context: Context, input: JobInfo) -> RPCResult[None]:
         self.title.set(context, input.title or "")
         self.job_description.set(context, input.description or "")
@@ -146,7 +154,10 @@ class UpdateLinkedInPosting(Step[None]):
         self.service = service
 
     def get_step_options(self) -> StepOptions:
-        return JOB_BOARD_UPDATE_OPTIONS
+        return StepOptions(
+            execute_retry=JOB_BOARD_UPDATE_RETRY,
+            execute_lock_attributes=(UPDATE_LINKEDIN_POSTING_LOCK.lock(),),
+        )
 
     def execute(self, context: Context, input: None) -> StepDecision:
         self.service.update_external_system("update LinkedIn job posting")
@@ -158,7 +169,10 @@ class UpdateIndeedPosting(Step[None]):
         self.service = service
 
     def get_step_options(self) -> StepOptions:
-        return JOB_BOARD_UPDATE_OPTIONS
+        return StepOptions(
+            execute_retry=JOB_BOARD_UPDATE_RETRY,
+            execute_lock_attributes=(UPDATE_INDEED_POSTING_LOCK.lock(),),
+        )
 
     def execute(self, context: Context, input: None) -> StepDecision:
         self.service.update_external_system("update Indeed job posting")
@@ -169,6 +183,24 @@ class UpdateIndeedPosting(Step[None]):
 <SdkSnippet lang="go">
 
 ```go
+var (
+	Title = dex.DefineAttribute[string](
+		"Title",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
+	)
+	JobDescription = dex.DefineAttribute[string](
+		"JobDescription",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexFullText}),
+	)
+	LastUpdateTimeMillis = dex.DefineAttribute[int64](
+		"LastUpdateTimeMillis",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexInt}),
+	)
+	Notes                     = dex.DefineAttribute[string]("Notes")
+	UpdateLinkedInPostingLock = dex.DefineAttribute[dex.None]("UpdateLinkedInPostingLock")
+	UpdateIndeedPostingLock   = dex.DefineAttribute[dex.None]("UpdateIndeedPostingLock")
+)
+
 type JobPostingFlow struct {
 	dex.FlowDefaults
 	service service.MyService
@@ -187,7 +219,14 @@ func (flow *JobPostingFlow) GetSteps() []dex.StepDef {
 
 func (*JobPostingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
-		Attributes: []dex.AttributeDef{Title, JobDescription, LastUpdateTimeMillis, Notes},
+		Attributes: []dex.AttributeDef{
+			Title,
+			JobDescription,
+			LastUpdateTimeMillis,
+			Notes,
+			UpdateLinkedInPostingLock,
+			UpdateIndeedPostingLock,
+		},
 	}
 }
 
@@ -216,6 +255,12 @@ func (*JobPostingFlow) Update(
 		},
 	}, nil
 }
+
+func UpdateInvokeOptions() dex.InvokeOptions {
+	return dex.InvokeOptions{
+		LockAttributes: []dex.AttributeLock{dex.LockAttribute(Title)},
+	}
+}
 ```
 
 ```go
@@ -225,7 +270,7 @@ type UpdateLinkedInPosting struct {
 }
 
 func (UpdateLinkedInPosting) GetStepOptions() *dex.StepOptions {
-	return jobBoardUpdateStepOptions()
+	return jobBoardUpdateStepOptions(dex.LockAttribute(UpdateLinkedInPostingLock))
 }
 
 func (step UpdateLinkedInPosting) Execute(
@@ -241,6 +286,10 @@ type UpdateIndeedPosting struct {
 	service service.MyService
 }
 
+func (UpdateIndeedPosting) GetStepOptions() *dex.StepOptions {
+	return jobBoardUpdateStepOptions(dex.LockAttribute(UpdateIndeedPostingLock))
+}
+
 func (step UpdateIndeedPosting) Execute(
 	_ dex.Context,
 	_ dex.None,
@@ -249,8 +298,9 @@ func (step UpdateIndeedPosting) Execute(
 	return dex.DeadEnd(), nil
 }
 
-func jobBoardUpdateStepOptions() *dex.StepOptions {
+func jobBoardUpdateStepOptions(executeLock dex.AttributeLock) *dex.StepOptions {
 	return &dex.StepOptions{
+		ExecuteLockAttributes: []dex.AttributeLock{executeLock},
 		ExecuteRetry: &dex.RetryPolicy{
 			InitialInterval:    3 * time.Second,
 			BackoffCoefficient: 2,
@@ -276,6 +326,10 @@ public class JobPostingFlow implements Flow<Void> {
             "JobDescription",
             String.class,
             new AttributeIndex(AttributeIndex.Type.FULL_TEXT));
+    public final Attribute<Void> updateLinkedInPostingLock =
+            Attribute.define("UpdateLinkedInPostingLock", Void.class);
+    public final Attribute<Void> updateIndeedPostingLock =
+            Attribute.define("UpdateIndeedPostingLock", Void.class);
 
     private final MyDependencyService service;
     private final UpdateLinkedInPosting updateLinkedInPosting = new UpdateLinkedInPosting();
@@ -292,10 +346,16 @@ public class JobPostingFlow implements Flow<Void> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(title, jobDescription, lastUpdateTimeMillis, notes);
+        return PersistenceSchema.of(
+                title,
+                jobDescription,
+                lastUpdateTimeMillis,
+                notes,
+                updateLinkedInPostingLock,
+                updateIndeedPostingLock);
     }
 
-    @RPC
+    @RPC(lockAttributes = {"Title"})
     public RPCResult<Void> update(final Context context, final JobInfo input) {
         title.set(context, input.title);
         jobDescription.set(context, input.description);
@@ -312,8 +372,9 @@ public class JobPostingFlow implements Flow<Void> {
 ```
 
 ```java
-final class UpdateLinkedInPosting implements Step<Void> {
-    private final StepOptions options = StepOptions.newBuilder()
+private StepOptions jobBoardUpdateOptions(final Attribute<Void> executeLock) {
+    return StepOptions.newBuilder()
+            .addExecuteLock(AttributeLock.of(executeLock))
             .executeRetry(RetryPolicy.newBuilder()
                     .backoffCoefficient(2.0)
                     .maximumAttempts(100)
@@ -322,6 +383,10 @@ final class UpdateLinkedInPosting implements Step<Void> {
                     .maximumInterval(Duration.ofSeconds(60))
                     .build())
             .build();
+}
+
+final class UpdateLinkedInPosting implements Step<Void> {
+    private final StepOptions options = jobBoardUpdateOptions(updateLinkedInPostingLock);
 
     @Override
     public StepOptions getStepOptions() {
@@ -336,6 +401,13 @@ final class UpdateLinkedInPosting implements Step<Void> {
 }
 
 final class UpdateIndeedPosting implements Step<Void> {
+    private final StepOptions options = jobBoardUpdateOptions(updateIndeedPostingLock);
+
+    @Override
+    public StepOptions getStepOptions() {
+        return options;
+    }
+
     @Override
     public StepDecision execute(final Context context, final Void input) {
         service.updateExternalSystem("update Indeed job posting");
@@ -348,13 +420,23 @@ final class UpdateIndeedPosting implements Step<Void> {
 <SdkSnippet lang="typescript">
 
 ```typescript
+const title = new Attribute("Title", stringCodec, {
+  type: IndexType.FULL_TEXT,
+});
+
 export class JobPostingFlow implements Flow {
-  public readonly title = new Attribute("Title", stringCodec, {
-    type: IndexType.FULL_TEXT,
-  });
+  public readonly title = title;
   public readonly jobDescription = new Attribute("JobDescription", stringCodec, {
     type: IndexType.FULL_TEXT,
   });
+  public readonly updateLinkedInPostingLock = new Attribute(
+    "UpdateLinkedInPostingLock",
+    voidCodec,
+  );
+  public readonly updateIndeedPostingLock = new Attribute(
+    "UpdateIndeedPostingLock",
+    voidCodec,
+  );
 
   public readonly updateLinkedInPosting = new UpdateLinkedInPosting(this);
   public readonly updateIndeedPosting = new UpdateIndeedPosting(this);
@@ -374,11 +456,18 @@ export class JobPostingFlow implements Flow {
 
   public getPersistenceSchema(): PersistenceSchema {
     return {
-      attributes: [this.title, this.jobDescription, this.lastUpdateTimeMillis, this.notes],
+      attributes: [
+        this.title,
+        this.jobDescription,
+        this.lastUpdateTimeMillis,
+        this.notes,
+        this.updateLinkedInPostingLock,
+        this.updateIndeedPostingLock,
+      ],
     };
   }
 
-  @rpc()
+  @rpc({ lockAttributes: [title.lock()] })
   public update(context: Context, input: JobInfo): RPCResult<void> {
     this.title.set(context, input.title);
     this.jobDescription.set(context, input.description);
@@ -399,20 +488,10 @@ export class JobPostingFlow implements Flow {
 
 ```typescript
 class UpdateLinkedInPosting implements Step<void> {
-  private readonly options: StepOptions = {
-    executeRetry: {
-      backoffCoefficient: 2,
-      maximumAttempts: 100,
-      totalDurationMs: HOUR_MS,
-      initialIntervalMs: 3_000,
-      maximumIntervalMs: 60_000,
-    },
-  };
-
   public constructor(private readonly flow: JobPostingFlow) {}
 
   public getStepOptions(): StepOptions {
-    return this.options;
+    return jobBoardUpdateOptions(this.flow.updateLinkedInPostingLock.lock());
   }
 
   public execute(_context: Context, _input: void): StepDecision {
@@ -424,10 +503,27 @@ class UpdateLinkedInPosting implements Step<void> {
 class UpdateIndeedPosting implements Step<void> {
   public constructor(private readonly flow: JobPostingFlow) {}
 
+  public getStepOptions(): StepOptions {
+    return jobBoardUpdateOptions(this.flow.updateIndeedPostingLock.lock());
+  }
+
   public execute(_context: Context, _input: void): StepDecision {
     this.flow.service.updateExternalSystem("update Indeed job posting");
     return deadEnd();
   }
+}
+
+function jobBoardUpdateOptions(executeLock: AttributeLock): StepOptions {
+  return {
+    executeLockAttributes: [executeLock],
+    executeRetry: {
+      backoffCoefficient: 2,
+      maximumAttempts: 100,
+      totalDurationMs: HOUR_MS,
+      initialIntervalMs: 3_000,
+      maximumIntervalMs: 60_000,
+    },
+  };
 }
 ```
 
@@ -471,6 +567,15 @@ impl Flow for JobPostingFlow {
             .attribute(&POST)
             .attribute(&TITLE)
             .attribute(&DESCRIPTION)
+            .attribute(&UPDATE_LINKEDIN_POSTING_LOCK)
+            .attribute(&UPDATE_INDEED_POSTING_LOCK)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new()
+            .function_without_input(JOB_POST_READ, Self::read)
+            .function(JOB_POST_UPDATE.lock(TITLE.lock()), Self::update)
+            .procedure(JOB_POST_DELETE, Self::delete)
     }
 }
 ```
@@ -487,7 +592,7 @@ impl Step for UpdateLinkedInPosting {
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
-        job_board_update_options()
+        job_board_update_options().execute_lock(UPDATE_LINKEDIN_POSTING_LOCK.lock())
     }
 }
 
@@ -502,7 +607,7 @@ impl Step for UpdateIndeedPosting {
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
-        job_board_update_options()
+        job_board_update_options().execute_lock(UPDATE_INDEED_POSTING_LOCK.lock())
     }
 }
 
@@ -516,6 +621,12 @@ fn job_board_update_options() -> StepOptions<()> {
             .total_duration(Duration::from_secs(60 * 60)),
     )
 }
+
+static UPDATE_LINKEDIN_POSTING_LOCK: LazyLock<Attribute<()>> =
+    LazyLock::new(|| Attribute::new("UpdateLinkedInPostingLock"));
+
+static UPDATE_INDEED_POSTING_LOCK: LazyLock<Attribute<()>> =
+    LazyLock::new(|| Attribute::new("UpdateIndeedPostingLock"));
 ```
 
 </SdkSnippet>

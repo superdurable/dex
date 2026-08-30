@@ -1,8 +1,9 @@
 # Job posting
 
 CRUD job posting with indexed Attributes and job-board updates. Create seeds
-initial Attributes; update starts the LinkedIn and Indeed Steps in parallel; search uses Dex
-SearchFlows.
+initial Attributes. The update RPC locks Title before starting the LinkedIn and
+Indeed Steps in parallel. Each Step uses a destination-specific lock so repeated
+updates to one job board execute serially. Search uses Dex SearchFlows.
 
 The Worker synchronizes the job-post Indexed Attributes automatically before
 opening its listener.

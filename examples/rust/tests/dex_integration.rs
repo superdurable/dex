@@ -224,11 +224,24 @@ fn job_posting_update_reaches_both_job_boards() {
             .expect("update Rust Job Posting"),
         updated
     );
+    let newest = JobPost {
+        title: "Principal Software Engineer".to_string(),
+        description: "Lead durable systems".to_string(),
+        notes: "final scope".to_string(),
+        deleted: false,
+    };
+    assert_eq!(
+        environment
+            .client
+            .invoke_rpc(&flow_id, JOB_POST_UPDATE, newest.clone())
+            .expect("update Rust Job Posting again"),
+        newest
+    );
     environment
         .client
         .wait_for_step_completion(
             &flow_id,
-            StepExecutionId::of(&UpdateLinkedInPosting::default()),
+            StepExecutionId::of(&UpdateLinkedInPosting::default()).execution_number(2),
             Duration::from_secs(30),
         )
         .expect("wait for Rust LinkedIn posting update");
@@ -236,7 +249,7 @@ fn job_posting_update_reaches_both_job_boards() {
         .client
         .wait_for_step_completion(
             &flow_id,
-            StepExecutionId::of(&UpdateIndeedPosting::default()),
+            StepExecutionId::of(&UpdateIndeedPosting::default()).execution_number(2),
             Duration::from_secs(30),
         )
         .expect("wait for Rust Indeed posting update");
@@ -245,7 +258,7 @@ fn job_posting_update_reaches_both_job_boards() {
             .client
             .invoke_rpc_without_input(&flow_id, JOB_POST_READ)
             .expect("read updated Rust Job Posting"),
-        updated
+        newest
     );
     environment
         .client

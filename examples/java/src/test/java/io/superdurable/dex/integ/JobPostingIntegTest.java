@@ -48,19 +48,24 @@ public class JobPostingIntegTest {
                 "Build durable systems",
                 "expanded scope");
         environment.client().invokeRPC(stub::update, updated);
+        final JobInfo newest = new JobInfo(
+                "Principal Software Engineer",
+                "Lead durable systems",
+                "final scope");
+        environment.client().invokeRPC(stub::update, newest);
         environment.client().waitForStepCompletion(
                 flowId,
-                StepExecutionId.of("UpdateLinkedInPosting"),
+                StepExecutionId.of("UpdateLinkedInPosting", 2),
                 Duration.ofSeconds(30));
         environment.client().waitForStepCompletion(
                 flowId,
-                StepExecutionId.of("UpdateIndeedPosting"),
+                StepExecutionId.of("UpdateIndeedPosting", 2),
                 Duration.ofSeconds(30));
 
         final JobInfo actual = environment.client().invokeRPC(stub::get);
-        assertEquals(updated.title, actual.title);
-        assertEquals(updated.description, actual.description);
-        assertEquals(updated.notes, actual.notes);
+        assertEquals(newest.title, actual.title);
+        assertEquals(newest.description, actual.description);
+        assertEquals(newest.notes, actual.notes);
         environment.client().stopFlow(flowId);
     }
 }

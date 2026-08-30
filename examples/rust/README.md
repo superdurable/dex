@@ -47,7 +47,7 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | Engagement | [`EngagementFlow`](src/products/engagement.rs) | Indexed status, decision RPCs, reminders, external notification |
 | Subscription | [`SubscriptionFlow`](src/products/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
 | Signup | [`UserSignupFlow`](src/products/signup.rs) | Verification Channel and recurring reminder timer |
-| Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Indexed CRUD with parallel LinkedIn and Indeed updates |
+| Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Indexed CRUD with locked RPC updates and destination-serialized LinkedIn and Indeed Steps |
 | Shortlist candidates: employer opt-in | [`EmployerOptInFlow`](src/products/shortlist_candidates.rs) | Long-running opt-in state and opt-out Channel |
 | Shortlist candidates: shortlist | [`ShortlistFlow`](src/products/shortlist_candidates.rs) | Scheduled contact or revoke race |
 

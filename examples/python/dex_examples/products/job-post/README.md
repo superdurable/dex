@@ -4,8 +4,10 @@ A long-lived Flow that models a single job posting as durable, searchable
 storage. It has no starting Step: `StepList.without_start_step` registers the
 LinkedIn and Indeed updates, so the Flow starts idle and uses RPCs for CRUD.
 
-`get` reads the posting, while `update` writes the indexed Attributes and starts
-both job-board Steps in parallel with independent bounded retry policies.
+`get` reads the posting, while `update` locks `Title`, writes the indexed
+Attributes, and starts both job-board Steps in parallel. Each Step has a
+destination-specific lock and bounded retry policy, so repeated updates to one
+job board execute serially without blocking the other board.
 `Title` and `JobDescription` are full-text indexed and
 `LastUpdateTimeMillis` is integer indexed, so postings can be searched and
 ordered.

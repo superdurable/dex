@@ -97,12 +97,14 @@ impl Flow for JobPostingFlow {
             .attribute(&POST)
             .attribute(&TITLE)
             .attribute(&DESCRIPTION)
+            .attribute(&UPDATE_LINKEDIN_POSTING_LOCK)
+            .attribute(&UPDATE_INDEED_POSTING_LOCK)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
         RpcList::new()
             .function_without_input(JOB_POST_READ, Self::read)
-            .function(JOB_POST_UPDATE, Self::update)
+            .function(JOB_POST_UPDATE.lock(TITLE.lock()), Self::update)
             .procedure(JOB_POST_DELETE, Self::delete)
     }
 }
@@ -137,7 +139,7 @@ impl Step for UpdateLinkedInPosting {
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
-        job_board_update_options()
+        job_board_update_options().execute_lock(UPDATE_LINKEDIN_POSTING_LOCK.lock())
     }
 }
 
@@ -157,7 +159,7 @@ impl Step for UpdateIndeedPosting {
     }
 
     fn options(&self) -> StepOptions<Self::Input> {
-        job_board_update_options()
+        job_board_update_options().execute_lock(UPDATE_INDEED_POSTING_LOCK.lock())
     }
 }
 
@@ -179,3 +181,9 @@ static TITLE: LazyLock<Attribute<String>> =
 
 static DESCRIPTION: LazyLock<Attribute<String>> =
     LazyLock::new(|| Attribute::new("job-post-description").indexed(AttributeIndex::full_text()));
+
+static UPDATE_LINKEDIN_POSTING_LOCK: LazyLock<Attribute<()>> =
+    LazyLock::new(|| Attribute::new("UpdateLinkedInPostingLock"));
+
+static UPDATE_INDEED_POSTING_LOCK: LazyLock<Attribute<()>> =
+    LazyLock::new(|| Attribute::new("UpdateIndeedPostingLock"));

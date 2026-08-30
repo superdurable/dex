@@ -33,8 +33,8 @@ from dex import AsyncClient, StartFlowOptions, StepExecutionId
 
 pytestmark = pytest.mark.integ
 
-UPDATE_LINKEDIN_POSTING = StepExecutionId("UpdateLinkedInPosting")
-UPDATE_INDEED_POSTING = StepExecutionId("UpdateIndeedPosting")
+SECOND_LINKEDIN_POSTING_UPDATE = StepExecutionId("UpdateLinkedInPosting", 2)
+SECOND_INDEED_POSTING_UPDATE = StepExecutionId("UpdateIndeedPosting", 2)
 
 
 async def test_signup_verify_completes(
@@ -75,20 +75,24 @@ async def test_job_posting_create_read_and_update_both_job_boards(
         flow_id,
         JobInfo("Senior Software Engineer", "Build durable systems", "updated"),
     )
+    newest = JobInfo(
+        "Principal Software Engineer",
+        "Lead durable systems",
+        "final scope",
+    )
+    await client.invoke_rpc(app.job_post.update, flow_id, newest)
     await client.wait_for_step_completion(
         flow_id,
-        UPDATE_LINKEDIN_POSTING,
+        SECOND_LINKEDIN_POSTING_UPDATE,
         WAIT_TIMEOUT,
     )
     await client.wait_for_step_completion(
         flow_id,
-        UPDATE_INDEED_POSTING,
+        SECOND_INDEED_POSTING_UPDATE,
         WAIT_TIMEOUT,
     )
     updated = await client.invoke_rpc(app.job_post.get, flow_id)
-    assert updated.title == "Senior Software Engineer"
-    assert updated.description == "Build durable systems"
-    assert updated.notes == "updated"
+    assert updated == newest
 
 
 async def test_shortlist_opt_in_and_revoke(

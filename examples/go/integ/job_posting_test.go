@@ -28,6 +28,7 @@ import (
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/registry"
 	"github.com/superdurable/dex/sdk-go/dex"
+	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
 func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
@@ -56,17 +57,36 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 		registry.JobPosting.Update,
 		updated,
 		&none,
-		dex.InvokeOptions{},
+		jobpost.UpdateInvokeOptions(),
+	))
+	newest := jobpost.JobInfo{
+		Title:       "Principal Software Engineer",
+		Description: "Lead durable systems",
+		Notes:       "final scope",
+	}
+	require.NoError(t, integClient.InvokeRPC(
+		ctx,
+		flowID,
+		registry.JobPosting.Update,
+		newest,
+		&none,
+		jobpost.UpdateInvokeOptions(),
 	))
 	require.NoError(t, integClient.WaitForStepCompletion(
 		ctx,
 		flowID,
-		dex.StepExecutionID{StepType: jobpost.UpdateLinkedInPostingStepType},
+		dex.StepExecutionID{
+			StepType:        jobpost.UpdateLinkedInPostingStepType,
+			ExecutionNumber: ptr.Any(int32(2)),
+		},
 	))
 	require.NoError(t, integClient.WaitForStepCompletion(
 		ctx,
 		flowID,
-		dex.StepExecutionID{StepType: jobpost.UpdateIndeedPostingStepType},
+		dex.StepExecutionID{
+			StepType:        jobpost.UpdateIndeedPostingStepType,
+			ExecutionNumber: ptr.Any(int32(2)),
+		},
 	))
 
 	var actual jobpost.JobInfo
@@ -78,7 +98,7 @@ func TestJobPostingUpdateReachesBothJobBoards(t *testing.T) {
 		&actual,
 		dex.InvokeOptions{},
 	))
-	require.Equal(t, updated, actual)
+	require.Equal(t, newest, actual)
 	require.NoError(t, integClient.StopFlow(ctx, flowID, dex.StopOptions{}))
 }
 

@@ -539,7 +539,7 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 	if err := client.InvokeRPC(
 		ctx, flowID, registry.JobPosting.Update,
 		jobpost.JobInfo{Title: "Senior DeepVerify", Description: "More depth", Notes: "n1"},
-		&none, dex.InvokeOptions{},
+		&none, jobpost.UpdateInvokeOptions(),
 	); err != nil {
 		return fail(name, "update", err)
 	}
