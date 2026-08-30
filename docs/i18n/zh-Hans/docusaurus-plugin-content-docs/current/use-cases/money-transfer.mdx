@@ -44,7 +44,7 @@ Rust 示例用正数金额模拟余额检查，并把账务副作用记录为事
 
 ## 核心实现
 
-下面的标签页展示 Flow 拓扑、重试策略和补偿路径。每个链接指向可运行的完整示例，其中还包含请求模型、依赖服务、HTTP controller 和集成测试。
+下面的标签页展示完整的 Flow 声明、必需的 Flow 方法、拓扑、重试策略和补偿路径。每个链接指向可运行的完整示例，其中还包含请求模型、依赖服务、HTTP controller 和集成测试。
 
 <SdkTabs
   examples={{
@@ -87,6 +87,9 @@ class MoneyTransferFlow(Flow[TransferRequest]):
             self.credit,
             self.compensate,
         )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of()
 ```
 
 ```python
@@ -114,6 +117,15 @@ class Compensate(Step[TransferRequest]):
 <SdkSnippet lang="go">
 
 ```go
+type MoneyTransferFlow struct {
+	dex.FlowDefaults
+	service service.MyService
+}
+
+func NewMoneyTransferFlow(applicationService service.MyService) *MoneyTransferFlow {
+	return &MoneyTransferFlow{service: applicationService}
+}
+
 func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(checkBalanceStep{service: flow.service}),
@@ -123,6 +135,10 @@ func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
 		dex.DefineStep(creditStep{service: flow.service}),
 		dex.DefineStep(compensateStep{service: flow.service}),
 	}
+}
+
+func (*MoneyTransferFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{}
 }
 
 func compensatedStepOptions(totalDuration time.Duration) *dex.StepOptions {
@@ -176,23 +192,43 @@ func (step compensateStep) Execute(
 <SdkSnippet lang="java">
 
 ```java
-@Override
-public StepList<TransferRequest> getSteps() {
-    return StepList.startStep(checkBalance)
-            .otherSteps(createDebitMemo, debit, createCreditMemo, credit, compensate);
-}
+@Component
+public class MoneyTransferFlow implements Flow<TransferRequest> {
+    private final MyDependencyService service;
+    private final CheckBalance checkBalance = new CheckBalance();
+    private final CreateDebitMemo createDebitMemo = new CreateDebitMemo();
+    private final Debit debit = new Debit();
+    private final CreateCreditMemo createCreditMemo = new CreateCreditMemo();
+    private final Credit credit = new Credit();
+    private final Compensate compensate = new Compensate();
 
-private StepOptions compensatedStepOptions(final Duration totalDuration) {
-    return StepOptions.newBuilder()
-            .executeRetry(RetryPolicy.newBuilder().totalDuration(totalDuration).build())
-            .onExecuteFailureProceedTo(
-                    Compensate.class,
-                    StepOptions.newBuilder()
-                            .executeRetry(RetryPolicy.newBuilder()
-                                    .totalDuration(Duration.ofHours(24))
-                                    .build())
-                            .build())
-            .build();
+    public MoneyTransferFlow(final MyDependencyService service) {
+        this.service = service;
+    }
+
+    @Override
+    public StepList<TransferRequest> getSteps() {
+        return StepList.startStep(checkBalance)
+                .otherSteps(createDebitMemo, debit, createCreditMemo, credit, compensate);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of();
+    }
+
+    private StepOptions compensatedStepOptions(final Duration totalDuration) {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder().totalDuration(totalDuration).build())
+                .onExecuteFailureProceedTo(
+                        Compensate.class,
+                        StepOptions.newBuilder()
+                                .executeRetry(RetryPolicy.newBuilder()
+                                        .totalDuration(Duration.ofHours(24))
+                                        .build())
+                                .build())
+                .build();
+    }
 }
 ```
 
@@ -217,23 +253,42 @@ final class Compensate implements Step<TransferRequest> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-public getSteps() {
-  return StepList.startStep(this.checkBalance).otherSteps(
-    this.createDebitMemo,
-    this.debit,
-    this.createCreditMemo,
-    this.credit,
-    this.compensate,
-  );
-}
+export class MoneyTransferFlow implements Flow<TransferRequest> {
+  private readonly checkBalance = new CheckBalance(this);
+  private readonly createDebitMemo = new CreateDebitMemo(this);
+  private readonly debit = new Debit(this);
+  private readonly createCreditMemo = new CreateCreditMemo(this);
+  private readonly credit = new Credit(this);
+  private readonly compensate = new Compensate(this);
 
-public compensatedStepOptions(totalDurationMs: number): StepOptions {
-  return {
-    executeRetry: { totalDurationMs },
-    executeFailure: ExecuteFailure.proceedTo(Compensate, {
-      executeRetry: { totalDurationMs: DAY_MS },
-    }),
-  };
+  public constructor(public readonly service: MyDependencyService = myDependencyService) {}
+
+  public getFlowType(): string {
+    return "MoneyTransferFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.checkBalance).otherSteps(
+      this.createDebitMemo,
+      this.debit,
+      this.createCreditMemo,
+      this.credit,
+      this.compensate,
+    );
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {};
+  }
+
+  public compensatedStepOptions(totalDurationMs: number): StepOptions {
+    return {
+      executeRetry: { totalDurationMs },
+      executeFailure: ExecuteFailure.proceedTo(Compensate, {
+        executeRetry: { totalDurationMs: DAY_MS },
+      }),
+    };
+  }
 }
 ```
 
@@ -306,7 +361,7 @@ impl Step for Compensate {
 
 ## 演示
 
-启动 Dex 和任意语言的示例服务，然后通过 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 启动 Money transfer。下面是一次已完成的 Go 运行：它把 42 个单位从 **from-ci** 转到 **to-ci**，每个业务操作都显示为独立且已完成的 Step。
+启动 Dex 和任意语言的示例服务，然后通过 [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground) 启动 Money transfer。下面的截图展示了一笔金额为 42 个单位的成功转账。Flow 先从 **checking-account** 扣除 42，再向 **savings-account** 增加 42，并按顺序完成余额检查、创建借记 memo、借记、创建贷记 memo 和贷记五个操作。
 
 ![已完成的 Money transfer Step 执行图](/img/use-cases/money-transfer-step-execution-graph.jpg)
 

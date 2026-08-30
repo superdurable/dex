@@ -44,7 +44,7 @@ Each side effect has its own Step. This makes retry state and execution history 
 
 ## Core implementation
 
-The tabs show the Flow topology, retry policy, and compensation path. Each linked example also includes its request model, dependency service, HTTP controller, and integration test.
+The tabs show the complete Flow declaration, required Flow methods, topology, retry policy, and compensation path. Each linked example also includes its request model, dependency service, HTTP controller, and integration test.
 
 <SdkTabs
   examples={{
@@ -66,21 +66,6 @@ def compensated_step_options(
         Compensate,
         StepOptions(execute_retry=COMPENSATE_RETRY),
     )
-
-
-class CheckBalance(Step[TransferRequest]):
-    def __init__(
-        self,
-        service: MyDependencyService,
-        create_debit_memo: CreateDebitMemo,
-    ) -> None:
-        self.service = service
-        self.create_debit_memo = create_debit_memo
-
-    def execute(self, context: Context, input: TransferRequest) -> StepDecision:
-        if not self.service.check_balance(input.from_account, input.amount):
-            return force_fail("insufficient funds")
-        return go_to(CreateDebitMemo, input)
 
 
 class MoneyTransferFlow(Flow[TransferRequest]):
@@ -138,6 +123,15 @@ class Compensate(Step[TransferRequest]):
 <SdkSnippet lang="go">
 
 ```go
+type MoneyTransferFlow struct {
+	dex.FlowDefaults
+	service service.MyService
+}
+
+func NewMoneyTransferFlow(applicationService service.MyService) *MoneyTransferFlow {
+	return &MoneyTransferFlow{service: applicationService}
+}
+
 func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(checkBalanceStep{service: flow.service}),
@@ -149,14 +143,8 @@ func (flow *MoneyTransferFlow) GetSteps() []dex.StepDef {
 	}
 }
 
-func (step checkBalanceStep) Execute(
-	_ dex.Context,
-	request TransferRequest,
-) (*dex.StepDecision, error) {
-	if !step.service.CheckBalance(request.FromAccount, request.Amount) {
-		return dex.ForceFail("insufficient funds"), nil
-	}
-	return dex.GoTo(createDebitMemoStep{}, request), nil
+func (*MoneyTransferFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{}
 }
 
 func compensatedStepOptions(totalDuration time.Duration) *dex.StepOptions {
@@ -212,37 +200,42 @@ func (step compensateStep) Execute(
 <SdkSnippet lang="java">
 
 ```java
-@Override
-public StepList<TransferRequest> getSteps() {
-    return StepList.startStep(checkBalance)
-            .otherSteps(createDebitMemo, debit, createCreditMemo, credit, compensate);
-}
+@Component
+public class MoneyTransferFlow implements Flow<TransferRequest> {
+    private final MyDependencyService service;
+    private final CheckBalance checkBalance = new CheckBalance();
+    private final CreateDebitMemo createDebitMemo = new CreateDebitMemo();
+    private final Debit debit = new Debit();
+    private final CreateCreditMemo createCreditMemo = new CreateCreditMemo();
+    private final Credit credit = new Credit();
+    private final Compensate compensate = new Compensate();
 
-private StepOptions compensatedStepOptions(final Duration totalDuration) {
-    return StepOptions.newBuilder()
-            .executeRetry(RetryPolicy.newBuilder().totalDuration(totalDuration).build())
-            .onExecuteFailureProceedTo(
-                    Compensate.class,
-                    StepOptions.newBuilder()
-                            .executeRetry(RetryPolicy.newBuilder()
-                                    .totalDuration(Duration.ofHours(24))
-                                    .build())
-                            .build())
-            .build();
-}
-
-final class CheckBalance implements Step<TransferRequest> {
-    @Override
-    public Class<TransferRequest> getInputType() {
-        return TransferRequest.class;
+    public MoneyTransferFlow(final MyDependencyService service) {
+        this.service = service;
     }
 
     @Override
-    public StepDecision execute(final Context context, final TransferRequest request) {
-        if (!service.checkBalance(request.fromAccount, request.amount)) {
-            return StepDecision.forceFail("insufficient funds");
-        }
-        return StepDecision.goTo(CreateDebitMemo.class, request);
+    public StepList<TransferRequest> getSteps() {
+        return StepList.startStep(checkBalance)
+                .otherSteps(createDebitMemo, debit, createCreditMemo, credit, compensate);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of();
+    }
+
+    private StepOptions compensatedStepOptions(final Duration totalDuration) {
+        return StepOptions.newBuilder()
+                .executeRetry(RetryPolicy.newBuilder().totalDuration(totalDuration).build())
+                .onExecuteFailureProceedTo(
+                        Compensate.class,
+                        StepOptions.newBuilder()
+                                .executeRetry(RetryPolicy.newBuilder()
+                                        .totalDuration(Duration.ofHours(24))
+                                        .build())
+                                .build())
+                .build();
     }
 }
 ```
@@ -282,37 +275,41 @@ final class Compensate implements Step<TransferRequest> {
 <SdkSnippet lang="typescript">
 
 ```typescript
-public getSteps() {
-  return StepList.startStep(this.checkBalance).otherSteps(
-    this.createDebitMemo,
-    this.debit,
-    this.createCreditMemo,
-    this.credit,
-    this.compensate,
-  );
-}
+export class MoneyTransferFlow implements Flow<TransferRequest> {
+  private readonly checkBalance = new CheckBalance(this);
+  private readonly createDebitMemo = new CreateDebitMemo(this);
+  private readonly debit = new Debit(this);
+  private readonly createCreditMemo = new CreateCreditMemo(this);
+  private readonly credit = new Credit(this);
+  private readonly compensate = new Compensate(this);
 
-public compensatedStepOptions(totalDurationMs: number): StepOptions {
-  return {
-    executeRetry: { totalDurationMs },
-    executeFailure: ExecuteFailure.proceedTo(Compensate, {
-      executeRetry: { totalDurationMs: DAY_MS },
-    }),
-  };
-}
+  public constructor(public readonly service: MyDependencyService = myDependencyService) {}
 
-class CheckBalance implements Step<TransferRequest> {
-  public constructor(private readonly flow: MoneyTransferFlow) {}
-
-  public getStepType(): string {
-    return "CheckBalance";
+  public getFlowType(): string {
+    return "MoneyTransferFlow";
   }
 
-  public execute(_context: Context, request: TransferRequest): StepDecision {
-    if (!this.flow.service.checkBalance(request.fromAccount, request.amount)) {
-      return forceFail("insufficient funds");
-    }
-    return goTo(CreateDebitMemo, request);
+  public getSteps() {
+    return StepList.startStep(this.checkBalance).otherSteps(
+      this.createDebitMemo,
+      this.debit,
+      this.createCreditMemo,
+      this.credit,
+      this.compensate,
+    );
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {};
+  }
+
+  public compensatedStepOptions(totalDurationMs: number): StepOptions {
+    return {
+      executeRetry: { totalDurationMs },
+      executeFailure: ExecuteFailure.proceedTo(Compensate, {
+        executeRetry: { totalDurationMs: DAY_MS },
+      }),
+    };
   }
 }
 ```
@@ -368,31 +365,10 @@ impl Flow for MoneyTransferFlow {
     }
 }
 
-impl Step for CheckBalance {
-    type Input = TransferRequest;
-
-    fn execute(&self, _context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        if input.amount_cents <= 0 {
-            return Ok(StepDecision::force_fail("transfer amount must be positive"));
-        }
-        Ok(StepDecision::go_to(&CreateDebitMemo, input))
-    }
-}
-
-impl Step for Credit {
-    type Input = TransferRequest;
-
-    fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        context.record_event(
-            "credit",
-            format!("{}:{}", input.to_account, input.amount_cents),
-        )?;
-        Ok(StepDecision::graceful_complete(input))
-    }
-
-    fn options(&self) -> StepOptions<Self::Input> {
-        compensated_step_options()
-    }
+fn compensated_step_options() -> StepOptions<TransferRequest> {
+    StepOptions::new()
+        .execute_retry(transfer_retry())
+        .on_execute_failure_proceed_to(&Compensate)
 }
 ```
 
@@ -415,12 +391,6 @@ impl Step for Compensate {
     }
 }
 
-fn compensated_step_options() -> StepOptions<TransferRequest> {
-    StepOptions::new()
-        .execute_retry(transfer_retry())
-        .on_execute_failure_proceed_to(&Compensate)
-}
-
 fn transfer_retry() -> RetryPolicy {
     RetryPolicy::new()
         .initial_interval(Duration::from_secs(1))
@@ -433,7 +403,7 @@ fn transfer_retry() -> RetryPolicy {
 
 ## Demo
 
-Run Dex and any language example server, then start Money transfer from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). The completed Go run below moved 42 units from **from-ci** to **to-ci**. Each business operation appears as its own completed Step.
+Run Dex and any language example server, then start Money transfer from the [examples playground](https://github.com/superdurable/dex/tree/main/examples/playground). The screenshot shows one successful transfer with an amount of 42 units. The Flow debited **checking-account**, credited **savings-account**, and completed all five operations in order: balance check, debit memo, debit, credit memo, and credit.
 
 ![Completed Money transfer Step execution graph](/img/use-cases/money-transfer-step-execution-graph.jpg)
 
