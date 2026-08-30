@@ -28,9 +28,18 @@ import (
 )
 
 var (
-	Form   = dex.DefineAttribute[SignupForm]("Form")
-	Status = dex.DefineAttribute[string]("Status")
-	Verify = dex.DefineChannel[dex.None]("Verify")
+	Form           = dex.DefineAttribute[SignupForm]("Form")
+	Status         = dex.DefineAttribute[string]("Status")
+	VerifyEmail    = dex.DefineChannel[dex.None]("VerifyEmail")
+	Task1Completed = dex.DefineChannel[dex.None]("Task1Completed")
+	Task2Completed = dex.DefineChannel[dex.None]("Task2Completed")
+)
+
+const (
+	StatusWaitingForVerification = "waiting_for_verification"
+	StatusWaitingForTask1        = "waiting_for_task_1"
+	StatusWaitingForTask2        = "waiting_for_task_2"
+	StatusCompleted              = "completed"
 )
 
 type SignupForm struct {
@@ -40,30 +49,32 @@ type SignupForm struct {
 	LastName  string
 }
 
-type UserSignupFlow struct {
+type UserOnboardingFlow struct {
 	dex.FlowDefaults
 	service service.MyService
 }
 
-func NewUserSignupFlow(applicationService service.MyService) *UserSignupFlow {
-	return &UserSignupFlow{service: applicationService}
+func NewUserOnboardingFlow(applicationService service.MyService) *UserOnboardingFlow {
+	return &UserOnboardingFlow{service: applicationService}
 }
 
-func (flow *UserSignupFlow) GetSteps() []dex.StepDef {
+func (flow *UserOnboardingFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(submitStep{service: flow.service}),
-		dex.DefineStep(verifyStep{service: flow.service}),
+		dex.DefineStep(verifyEmailStep{service: flow.service}),
+		dex.DefineStep(accomplishTask1Step{service: flow.service}),
+		dex.DefineStep(accomplishTask2Step{service: flow.service}),
 	}
 }
 
-func (*UserSignupFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*UserOnboardingFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{Form, Status},
-		Channels:   []dex.ChannelDef{Verify},
+		Channels:   []dex.ChannelDef{VerifyEmail, Task1Completed, Task2Completed},
 	}
 }
 
-func (*UserSignupFlow) Verify(
+func (*UserOnboardingFlow) Verify(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.RPCResult[string], error) {
@@ -71,16 +82,47 @@ func (*UserSignupFlow) Verify(
 	if err != nil {
 		return nil, err
 	}
-	if status == "verified" {
+	if status != StatusWaitingForVerification {
 		return &dex.RPCResult[string]{Output: "already verified"}, nil
 	}
-	if err := Status.Set(ctx, "verified"); err != nil {
+	if err := VerifyEmail.Publish(ctx, nil); err != nil {
 		return nil, err
 	}
-	if err := Verify.Publish(ctx, nil); err != nil {
+	return &dex.RPCResult[string]{Output: "verified"}, nil
+}
+
+func (*UserOnboardingFlow) AccomplishTask1(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[string], error) {
+	status, err := Status.Get(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return &dex.RPCResult[string]{Output: "done"}, nil
+	if status != StatusWaitingForTask1 {
+		return &dex.RPCResult[string]{Output: "task 1 is not waiting"}, nil
+	}
+	if err := Task1Completed.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: "task 1 accomplished"}, nil
+}
+
+func (*UserOnboardingFlow) AccomplishTask2(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.RPCResult[string], error) {
+	status, err := Status.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if status != StatusWaitingForTask2 {
+		return &dex.RPCResult[string]{Output: "task 2 is not waiting"}, nil
+	}
+	if err := Task2Completed.Publish(ctx, nil); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[string]{Output: "task 2 accomplished"}, nil
 }
 
 type submitStep struct {
@@ -95,23 +137,23 @@ func (step submitStep) Execute(
 	if err := Form.Set(ctx, input); err != nil {
 		return nil, err
 	}
-	if err := Status.Set(ctx, "waiting"); err != nil {
+	if err := Status.Set(ctx, StatusWaitingForVerification); err != nil {
 		return nil, err
 	}
-	step.service.SendEmail(input.Email, "please verify the signup", "content")
-	return dex.GoTo(verifyStep{}, nil), nil
+	step.service.SendEmail(input.Email, "verify your email", "start your onboarding")
+	return dex.GoTo(verifyEmailStep{}, nil), nil
 }
 
-type verifyStep struct {
+type verifyEmailStep struct {
 	dex.StepDefaults
 	service service.MyService
 }
 
-func (verifyStep) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
-	return dex.AnyOf(dex.Timer(24*time.Second), Verify.ForOne()), nil
+func (verifyEmailStep) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.AnyOf(dex.Timer(24*time.Second), VerifyEmail.ForOne()), nil
 }
 
-func (step verifyStep) Execute(
+func (step verifyEmailStep) Execute(
 	ctx dex.Context,
 	_ dex.None,
 ) (*dex.StepDecision, error) {
@@ -119,16 +161,83 @@ func (step verifyStep) Execute(
 	if err != nil {
 		return nil, err
 	}
-	results, err := Verify.GetConditionResults(ctx)
+	results, err := VerifyEmail.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if len(results) > 0 {
-		step.service.SendEmail(form.Email, "welcome", "welcome to Indeed!")
-		return dex.GracefulComplete("done"), nil
+		if err := Status.Set(ctx, StatusWaitingForTask1); err != nil {
+			return nil, err
+		}
+		step.service.SendEmail(form.Email, "complete onboarding task 1", "task 1 is ready")
+		return dex.GoTo(accomplishTask1Step{}, nil), nil
 	}
-	step.service.SendEmail(form.Email, "reminder", "please verify your email")
-	return dex.GoTo(verifyStep{}, nil), nil
+	step.service.SendEmail(form.Email, "verification reminder", "please verify your email")
+	return dex.GoTo(verifyEmailStep{}, nil), nil
 }
 
-var _ dex.Flow = (*UserSignupFlow)(nil)
+type accomplishTask1Step struct {
+	dex.StepDefaults
+	service service.MyService
+}
+
+func (accomplishTask1Step) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.AnyOf(dex.Timer(24*time.Second), Task1Completed.ForOne()), nil
+}
+
+func (step accomplishTask1Step) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	form, err := Form.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results, err := Task1Completed.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) > 0 {
+		if err := Status.Set(ctx, StatusWaitingForTask2); err != nil {
+			return nil, err
+		}
+		step.service.SendEmail(form.Email, "complete onboarding task 2", "task 2 is ready")
+		return dex.GoTo(accomplishTask2Step{}, nil), nil
+	}
+	step.service.SendEmail(form.Email, "task 1 reminder", "please complete onboarding task 1")
+	return dex.GoTo(accomplishTask1Step{}, nil), nil
+}
+
+type accomplishTask2Step struct {
+	dex.StepDefaults
+	service service.MyService
+}
+
+func (accomplishTask2Step) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.AnyOf(dex.Timer(24*time.Second), Task2Completed.ForOne()), nil
+}
+
+func (step accomplishTask2Step) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	form, err := Form.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results, err := Task2Completed.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) > 0 {
+		if err := Status.Set(ctx, StatusCompleted); err != nil {
+			return nil, err
+		}
+		step.service.SendEmail(form.Email, "onboarding complete", "welcome aboard")
+		return dex.GracefulComplete("onboarding completed"), nil
+	}
+	step.service.SendEmail(form.Email, "task 2 reminder", "please complete onboarding task 2")
+	return dex.GoTo(accomplishTask2Step{}, nil), nil
+}
+
+var _ dex.Flow = (*UserOnboardingFlow)(nil)

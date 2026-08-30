@@ -42,7 +42,7 @@ use dex_examples_rust::products::{
     money_transfer::MoneyTransferFlow,
     order_processing::OrderProcessingFlow,
     shortlist_candidates::{EmployerOptInFlow, ShortlistFlow},
-    signup::UserSignupFlow,
+    signup::UserOnboardingFlow,
     subscription::SubscriptionFlow,
 };
 use dex_examples_rust::{PATTERN_FLOW_TYPES, PRODUCT_FLOW_TYPES, create_example_registry};
@@ -56,7 +56,7 @@ fn catalog_matches_every_cross_language_example() {
         OrchestrationFlow::default().flow_type(),
         EngagementFlow::default().flow_type(),
         SubscriptionFlow::default().flow_type(),
-        UserSignupFlow::default().flow_type(),
+        UserOnboardingFlow::default().flow_type(),
         JobPostFlow::default().flow_type(),
         EmployerOptInFlow::default().flow_type(),
         ShortlistFlow::default().flow_type(),

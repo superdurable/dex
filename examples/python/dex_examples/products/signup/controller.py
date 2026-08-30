@@ -32,7 +32,7 @@ def create_signup_blueprint(app_state: ExampleApp) -> Blueprint:
         form = SignupForm(username, required_query("email"), "Test", "Test")
         try:
             await app_state.client.start_flow(
-                app_state.signup,
+                app_state.user_onboarding,
                 username,
                 form,
                 start_options(),
@@ -44,7 +44,21 @@ def create_signup_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/verify")
     async def verify() -> str:
         return await app_state.client.invoke_rpc(
-            app_state.signup.verify,
+            app_state.user_onboarding.verify,
+            required_query("username"),
+        )
+
+    @blueprint.get("/accomplish-task-1")
+    async def accomplish_task_1() -> str:
+        return await app_state.client.invoke_rpc(
+            app_state.user_onboarding.accomplish_task_1,
+            required_query("username"),
+        )
+
+    @blueprint.get("/accomplish-task-2")
+    async def accomplish_task_2() -> str:
+        return await app_state.client.invoke_rpc(
+            app_state.user_onboarding.accomplish_task_2,
             required_query("username"),
         )
 

@@ -77,7 +77,7 @@ var (
 	MoneyTransfer   *moneytransfer.MoneyTransferFlow
 	OrderProcessing *orderprocessing.OrderProcessingFlow
 	Subscription    *subscription.SubscriptionFlow
-	Signup          *signup.UserSignupFlow
+	UserOnboarding  *signup.UserOnboardingFlow
 	JobPost         *jobpost.JobPostFlow
 	EmployerOptIn   *shortlistcandidates.EmployerOptInFlow
 	Shortlist       *shortlistcandidates.ShortlistFlow
@@ -144,7 +144,7 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	MoneyTransfer = moneytransfer.NewMoneyTransferFlow(applicationService)
 	OrderProcessing = orderprocessing.NewOrderProcessingFlow(applicationService)
 	Subscription = subscription.NewSubscriptionFlow(applicationService)
-	Signup = signup.NewUserSignupFlow(applicationService)
+	UserOnboarding = signup.NewUserOnboardingFlow(applicationService)
 	JobPost = jobpost.NewJobPostFlow(applicationService)
 	EmployerOptIn = shortlistcandidates.NewEmployerOptInFlow()
 	Shortlist = shortlistcandidates.NewShortlistFlow(
@@ -208,7 +208,7 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		MoneyTransfer,
 		OrderProcessing,
 		Subscription,
-		Signup,
+		UserOnboarding,
 		JobPost,
 		EmployerOptIn,
 		Shortlist,

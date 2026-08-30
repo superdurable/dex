@@ -163,16 +163,22 @@ window.PLAYGROUND_CATALOG = [
   {
     group: "products",
     id: "signup",
-    title: "Signup",
+    title: "User onboarding process",
     flowIdPrefix: "signup-user",
     idParam: "username",
-    note: "username is the flowID. Rust uses GET /start instead of /submit.",
+    note: "username is the flowID. Rust also exposes GET /start for a generated ID.",
     endpoints: [
       endpoint("GET", "/products/signup/submit", "Submit", [
         query("username", { role: "flowId" }),
         query("email", { default: "user@example.com" }),
       ]),
       endpoint("GET", "/products/signup/verify", "Verify", [
+        query("username", { role: "flowId" }),
+      ]),
+      endpoint("GET", "/products/signup/accomplish-task-1", "Accomplish task 1", [
+        query("username", { role: "flowId" }),
+      ]),
+      endpoint("GET", "/products/signup/accomplish-task-2", "Accomplish task 2", [
         query("username", { role: "flowId" }),
       ]),
       endpoint("GET", "/products/signup/start", "Start (Rust)", [flowId()]),

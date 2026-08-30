@@ -1,0 +1,398 @@
+---
+title: 用户入驻流程
+---
+
+# 用户入驻流程
+
+引导新用户完成账号创建、邮箱验证和两个必需的设置任务。
+
+## 产品需求
+
+流程接收用户名、邮箱地址、名字和姓氏。它必须：
+
+1. 保存注册表单，将用户标记为等待验证，并发送验证邮件。
+2. 等待用户验证邮箱。示例中每 24 秒发送一次提醒，直到收到验证。
+3. 要求已验证的用户完成任务 1，然后等待任务完成。任务未完成时持续发送任务 1 提醒。
+4. 只有任务 1 完成后，才要求用户完成任务 2。任务未完成时持续发送任务 2 提醒。
+5. 任务 2 完成后，将入驻状态标记为完成，发送欢迎邮件，并完成 Flow。
+6. 通过 RPC 暴露邮箱验证和两个任务完成操作，让应用可以在 Flow 等待时推进流程。
+
+每个等待 Step 都通过 **AnyOf** 同时等待 Timer 和 Channel。Channel 消息会立即推进用户；Timer 会发送提醒，并将同一个 Step 移回自身。Worker 在任何等待期间重启，都不会丢失当前阶段、提醒计划或用户操作。
+
+潜在故障和例外结果包括：
+
+- 重复用户名不能使用同一个 Flow ID 启动第二个 Flow。启动端点会报告该入驻流程已经存在。
+- 邮箱验证或任务可能始终没有完成。Flow 会持久等待并发送提醒，直到流程完成、被取消或达到配置的 Flow 超时。
+- 任务完成操作可能乱序到达。对应 RPC 会返回该任务当前不在等待状态，并且不会发布 Channel 消息。
+- 邮件发送可能发生瞬时故障。邮件适配器应向上返回错误，让 Dex 重试该 Step。
+- 邮件供应商可能已经接受邮件，但 Worker 尚未记录成功。生产环境中的邮件调用需要幂等键或等效的去重机制。
+
+Go、Java、Python、TypeScript 和 Rust 示例都实现并通过集成测试覆盖完整的邮箱验证、任务 1、任务 2 和完成路径。
+
+## Flow 设计
+
+该 Flow 是一个带可中断等待的顺序状态机：
+
+**Submit** → **VerifyEmail** → **AccomplishTask1** → **AccomplishTask2**
+
+它组合了以下设计模式：
+
+- [**持久提醒**](/design-patterns/durable-timer/reminder)在 Timer 触发后把等待 Step 移回自身。
+- [**可中断等待**](/design-patterns/interruptible)使用 **AnyOf**，让 Channel 消息可以在提醒 Timer 之前唤醒 Step。
+- [**响应式更新**](/design-patterns/responsive-update)使用 RPC 校验当前阶段，并在 Flow 等待期间发布对应的 Channel 消息。
+- **顺序状态机**明确规定邮箱验证和两个任务的顺序，后面的任务不能绕过前面的任务。
+- **持久进度状态**将当前阶段保存在 **Status** Attribute 中，让 RPC 和运维人员观察同一份状态。
+- **幂等副作用**让重试的 Step 可以安全地重新调用具备外部去重能力的邮件服务。
+
+邮箱验证、任务 1 和任务 2 分别使用独立的 Channel。这样每个外部动作只会解除一个等待，也能直接拒绝无效状态转换。
+
+## 核心实现
+
+每个标签页首先展示 Flow signature、Step 拓扑和 persistence schema。第二段代码展示一个有代表性的 Timer 与 Channel 组合等待。链接指向完整的可运行示例，其中包含所有 RPC、HTTP controller 和端到端集成测试。
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/products/signup/user_signup_flow.py',
+    go: 'examples/go/products/signup/workflow.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/products/signup/UserOnboardingFlow.java',
+    typescript: 'examples/typescript/src/products/signup/user-signup-flow.ts',
+    rust: 'examples/rust/src/products/signup/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+class UserOnboardingFlow(Flow[SignupForm]):
+    form = Attribute("Form", SignupForm)
+    status = Attribute("Status", str)
+    verify_email = Channel[None]("VerifyEmail", type(None))
+    task_1_completed = Channel[None]("Task1Completed", type(None))
+    task_2_completed = Channel[None]("Task2Completed", type(None))
+
+    def __init__(self, service: MyDependencyService) -> None:
+        self.service = service
+        self.verify_step = VerifyEmail(service, self.form, self.verify_email, self.status)
+        self.task_1_step = AccomplishTask1(
+            service, self.form, self.status, self.task_1_completed
+        )
+        self.task_2_step = AccomplishTask2(
+            service, self.form, self.status, self.task_2_completed
+        )
+        self.submit = Submit(service, self.form, self.status, self.verify_step)
+
+    def get_steps(self) -> StepList[SignupForm]:
+        return StepList.start_step(self.submit).other_steps(
+            self.verify_step,
+            self.task_1_step,
+            self.task_2_step,
+        )
+
+    def get_persistence_schema(self) -> PersistenceSchema:
+        return PersistenceSchema.of(
+            self.form,
+            self.status,
+            self.verify_email,
+            self.task_1_completed,
+            self.task_2_completed,
+        )
+```
+
+```python
+class AccomplishTask1(Step[None]):
+    def wait_for(self, context: Context, input: None) -> Wait:
+        return Wait.any_of(
+            Timer.by_duration(timedelta(seconds=24)),
+            self.task_1_completed.for_one(),
+        )
+
+    def execute(self, context: Context, input: None) -> StepDecision:
+        signup_form = self.form.get(context)
+        if self.task_1_completed.results(context):
+            self.status.set(context, "waiting_for_task_2")
+            self.service.send_email(
+                signup_form.email,
+                "complete onboarding task 2",
+                "task 2 is ready",
+            )
+            return go_to(AccomplishTask2, None)
+        self.service.send_email(
+            signup_form.email,
+            "task 1 reminder",
+            "please complete onboarding task 1",
+        )
+        return go_to(AccomplishTask1, None)
+
+class UserOnboardingFlow(Flow[SignupForm]):
+    @rpc
+    def accomplish_task_1(self, context: Context) -> RPCResult[str]:
+        if self.status.get(context) != "waiting_for_task_1":
+            return RPCResult("task 1 is not waiting")
+        self.task_1_completed.publish(context, None)
+        return RPCResult("task 1 accomplished")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+type UserOnboardingFlow struct {
+	dex.FlowDefaults
+	service service.MyService
+}
+
+func NewUserOnboardingFlow(applicationService service.MyService) *UserOnboardingFlow {
+	return &UserOnboardingFlow{service: applicationService}
+}
+
+func (flow *UserOnboardingFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{
+		dex.DefineStartStep(submitStep{service: flow.service}),
+		dex.DefineStep(verifyEmailStep{service: flow.service}),
+		dex.DefineStep(accomplishTask1Step{service: flow.service}),
+		dex.DefineStep(accomplishTask2Step{service: flow.service}),
+	}
+}
+
+func (*UserOnboardingFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Form, Status},
+		Channels:   []dex.ChannelDef{VerifyEmail, Task1Completed, Task2Completed},
+	}
+}
+```
+
+```go
+func (accomplishTask1Step) WaitFor(dex.Context, dex.None) (*dex.Wait, error) {
+	return dex.AnyOf(dex.Timer(24*time.Second), Task1Completed.ForOne()), nil
+}
+
+func (step accomplishTask1Step) Execute(
+	ctx dex.Context,
+	_ dex.None,
+) (*dex.StepDecision, error) {
+	form, err := Form.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	results, err := Task1Completed.GetConditionResults(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) > 0 {
+		if err := Status.Set(ctx, StatusWaitingForTask2); err != nil {
+			return nil, err
+		}
+		step.service.SendEmail(form.Email, "complete onboarding task 2", "task 2 is ready")
+		return dex.GoTo(accomplishTask2Step{}, nil), nil
+	}
+	step.service.SendEmail(form.Email, "task 1 reminder", "please complete onboarding task 1")
+	return dex.GoTo(accomplishTask1Step{}, nil), nil
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@Component
+public class UserOnboardingFlow implements Flow<SignupForm> {
+    public final Attribute<SignupForm> form = Attribute.define("Form", SignupForm.class);
+    public final Attribute<String> status = Attribute.define("Status", String.class);
+    public final Channel<Void> verifyEmail = Channel.define("VerifyEmail", Void.class);
+    public final Channel<Void> task1Completed = Channel.define("Task1Completed", Void.class);
+    public final Channel<Void> task2Completed = Channel.define("Task2Completed", Void.class);
+
+    private final MyDependencyService service;
+    private final Submit submit = new Submit();
+    private final VerifyEmail verifyEmailStep = new VerifyEmail();
+    private final AccomplishTask1 accomplishTask1Step = new AccomplishTask1();
+    private final AccomplishTask2 accomplishTask2Step = new AccomplishTask2();
+
+    public UserOnboardingFlow(final MyDependencyService service) {
+        this.service = service;
+    }
+
+    @Override
+    public StepList<SignupForm> getSteps() {
+        return StepList.startStep(submit).otherSteps(
+                verifyEmailStep,
+                accomplishTask1Step,
+                accomplishTask2Step);
+    }
+
+    @Override
+    public PersistenceSchema getPersistenceSchema() {
+        return PersistenceSchema.of(form, status, verifyEmail, task1Completed, task2Completed);
+    }
+}
+```
+
+```java
+final class AccomplishTask1 implements Step<Void> {
+    @Override
+    public Wait waitFor(final Context context, final Void input) {
+        return Wait.anyOf(
+                Timer.byDuration(Duration.ofSeconds(24)),
+                task1Completed.forOne());
+    }
+
+    @Override
+    public StepDecision execute(final Context context, final Void input) {
+        final SignupForm signupForm = form.get(context);
+        if (!task1Completed.getConditionResults(context).isEmpty()) {
+            status.set(context, WAITING_FOR_TASK_2);
+            service.sendEmail(
+                    signupForm.email,
+                    "complete onboarding task 2",
+                    "task 2 is ready");
+            return StepDecision.goTo(AccomplishTask2.class, null);
+        }
+        service.sendEmail(
+                signupForm.email,
+                "task 1 reminder",
+                "please complete onboarding task 1");
+        return StepDecision.goTo(AccomplishTask1.class, null);
+    }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+export class UserOnboardingFlow implements Flow<SignupForm> {
+  public readonly form = new Attribute("Form", signupFormCodec);
+  public readonly status = new Attribute("Status", stringCodec);
+
+  public readonly submit = new Submit(this);
+  public readonly verifyEmailStep = new VerifyEmail(this);
+  public readonly accomplishTask1Step = new AccomplishTask1(this);
+  public readonly accomplishTask2Step = new AccomplishTask2(this);
+
+  public constructor(public readonly service: MyDependencyService = myDependencyService) {}
+
+  public getFlowType(): string {
+    return "UserOnboardingFlow";
+  }
+
+  public getSteps() {
+    return StepList.startStep(this.submit).otherSteps(
+      this.verifyEmailStep,
+      this.accomplishTask1Step,
+      this.accomplishTask2Step,
+    );
+  }
+
+  public getPersistenceSchema(): PersistenceSchema {
+    return {
+      attributes: [this.form, this.status],
+      channels: [verifyEmail, task1Completed, task2Completed],
+    };
+  }
+}
+```
+
+```typescript
+class AccomplishTask1 implements Step<void> {
+  public waitFor(_context: Context, _input: void): Wait {
+    return Wait.anyOf(Timer.byDuration(VERIFY_TIMER_MS), task1Completed.forOne());
+  }
+
+  public execute(context: Context, _input: void): StepDecision {
+    const signupForm = this.flow.form.get(context);
+    if (task1Completed.results(context).length > 0) {
+      this.flow.status.set(context, "waiting_for_task_2");
+      this.flow.service.sendEmail(
+        signupForm.email,
+        "complete onboarding task 2",
+        "task 2 is ready",
+      );
+      return goTo(AccomplishTask2, undefined);
+    }
+    this.flow.service.sendEmail(
+      signupForm.email,
+      "task 1 reminder",
+      "please complete onboarding task 1",
+    );
+    return goTo(AccomplishTask1, undefined);
+  }
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+#[derive(Default)]
+pub struct UserOnboardingFlow {
+    submit: Submit,
+    verify_email: VerifyEmail,
+    accomplish_task_1: AccomplishTask1,
+    accomplish_task_2: AccomplishTask2,
+}
+
+impl Flow for UserOnboardingFlow {
+    type StartInput = String;
+
+    fn steps(&self) -> StepList<'_, Self::StartInput> {
+        StepList::start(&self.submit)
+            .and(&self.verify_email)
+            .and(&self.accomplish_task_1)
+            .and(&self.accomplish_task_2)
+    }
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new()
+            .attribute(&ONBOARDING_STATUS)
+            .channel(&VERIFY_EMAIL)
+            .channel(&TASK_1_COMPLETED)
+            .channel(&TASK_2_COMPLETED)
+    }
+
+    fn rpcs(&self) -> RpcList<Self> {
+        RpcList::new()
+            .function_without_input(ONBOARDING_VERIFY, Self::verify)
+            .function_without_input(ONBOARDING_TASK_1, Self::accomplish_task_1)
+            .function_without_input(ONBOARDING_TASK_2, Self::accomplish_task_2)
+    }
+}
+```
+
+```rust
+impl Step for AccomplishTask1 {
+    type Input = String;
+
+    fn wait_for(&self, _context: &mut Context, _input: Self::Input) -> HandlerResult<Wait> {
+        Ok(Wait::any_of([
+            TASK_1_COMPLETED.for_one(),
+            Timer::by_duration(Duration::from_secs(24)),
+        ]))
+    }
+
+    fn execute(&self, context: &mut Context, email: Self::Input) -> HandlerResult<StepDecision> {
+        if !TASK_1_COMPLETED.condition_results(context)?.is_empty() {
+            ONBOARDING_STATUS.set(context, WAITING_FOR_TASK_2.to_string())?;
+            context.record_event("onboarding-task-2", email.clone())?;
+            return Ok(StepDecision::go_to(&AccomplishTask2, email));
+        }
+        context.record_event("task-1-reminder", email.clone())?;
+        Ok(StepDecision::go_to(&AccomplishTask1, email))
+    }
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+## 演示
+
+下面是一次完整的 Go 本地运行：提交用户、验证邮箱、完成任务 1，再完成任务 2。图中每个业务阶段都是独立的已完成 Step；每个等待 Step 都展示了用户操作到达前处于活动状态的 Timer 和 Channel。
+
+<a href="/img/use-cases/user-onboarding-process-step-execution-graph.png">
+  <img
+    src="/img/use-cases/user-onboarding-process-step-execution-graph.png"
+    alt="已完成的 UserOnboardingFlow Step execution graph"
+    style={{display: 'block', width: '100%', maxWidth: '420px', margin: '1rem auto'}}
+  />
+</a>
+
+打开无损 PNG 可以查看完整分辨率的执行图。

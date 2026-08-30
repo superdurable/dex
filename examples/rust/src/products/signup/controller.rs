@@ -20,7 +20,9 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::products::signup::flow::{SIGNUP_VERIFY, UserSignupFlow};
+use crate::products::signup::flow::{
+    ONBOARDING_TASK_1, ONBOARDING_TASK_2, ONBOARDING_VERIFY, UserOnboardingFlow,
+};
 use crate::server::helpers::{
     SharedClient, StartResponse, is_already_started, map_sdk_error, new_flow_id, ok_json, ok_text,
     run_blocking,
@@ -41,7 +43,7 @@ struct SubmitQuery {
 }
 
 #[derive(Deserialize)]
-struct VerifyQuery {
+struct OnboardingActionQuery {
     #[serde(default)]
     username: String,
 }
@@ -51,6 +53,8 @@ pub fn mount(client: SharedClient) -> Router {
         .route("/products/signup/start", get(start))
         .route("/products/signup/submit", get(submit))
         .route("/products/signup/verify", get(verify))
+        .route("/products/signup/accomplish-task-1", get(accomplish_task_1))
+        .route("/products/signup/accomplish-task-2", get(accomplish_task_2))
         .with_state(client)
 }
 
@@ -64,7 +68,7 @@ async fn start(
         query.workflow_id
     };
     match run_blocking(move || {
-        let flow = UserSignupFlow::default();
+        let flow = UserOnboardingFlow::default();
         let input = "user@example.com".to_string();
         client
             .start_flow(&flow, &flow_id, input)
@@ -86,7 +90,7 @@ async fn submit(
         query.email
     };
     match run_blocking(move || {
-        let flow = UserSignupFlow::default();
+        let flow = UserOnboardingFlow::default();
         client.start_flow(&flow, &username, email)
     }) {
         Ok(_) => ok_text("success"),
@@ -97,11 +101,33 @@ async fn submit(
 
 async fn verify(
     State(client): State<SharedClient>,
-    Query(query): Query<VerifyQuery>,
+    Query(query): Query<OnboardingActionQuery>,
 ) -> impl IntoResponse {
     let username = query.username;
-    match run_blocking(move || client.invoke_rpc_without_input(&username, SIGNUP_VERIFY)) {
-        Ok(()) => ok_text("verified"),
+    match run_blocking(move || client.invoke_rpc_without_input(&username, ONBOARDING_VERIFY)) {
+        Ok(output) => ok_text(output),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn accomplish_task_1(
+    State(client): State<SharedClient>,
+    Query(query): Query<OnboardingActionQuery>,
+) -> impl IntoResponse {
+    let username = query.username;
+    match run_blocking(move || client.invoke_rpc_without_input(&username, ONBOARDING_TASK_1)) {
+        Ok(output) => ok_text(output),
+        Err(error) => map_sdk_error(error).into_response(),
+    }
+}
+
+async fn accomplish_task_2(
+    State(client): State<SharedClient>,
+    Query(query): Query<OnboardingActionQuery>,
+) -> impl IntoResponse {
+    let username = query.username;
+    match run_blocking(move || client.invoke_rpc_without_input(&username, ONBOARDING_TASK_2)) {
+        Ok(output) => ok_text(output),
         Err(error) => map_sdk_error(error).into_response(),
     }
 }
