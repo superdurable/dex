@@ -58,7 +58,6 @@ import (
 	"github.com/superdurable/dex/examples/go/products/microservices"
 	"github.com/superdurable/dex/examples/go/products/money-transfer"
 	"github.com/superdurable/dex/examples/go/products/order-processing"
-	"github.com/superdurable/dex/examples/go/products/polling"
 	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
 	"github.com/superdurable/dex/examples/go/products/signup"
 	"github.com/superdurable/dex/examples/go/products/subscription"
@@ -77,7 +76,6 @@ var (
 	Microservices   *microservices.OrchestrationFlow
 	MoneyTransfer   *moneytransfer.MoneyTransferFlow
 	OrderProcessing *orderprocessing.OrderProcessingFlow
-	Polling         *polling.PollingFlow
 	Subscription    *subscription.SubscriptionFlow
 	Signup          *signup.UserSignupFlow
 	JobPost         *jobpost.JobPostFlow
@@ -145,7 +143,6 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	Microservices = microservices.NewOrchestrationFlow(applicationService)
 	MoneyTransfer = moneytransfer.NewMoneyTransferFlow(applicationService)
 	OrderProcessing = orderprocessing.NewOrderProcessingFlow(applicationService)
-	Polling = polling.NewPollingFlow(applicationService)
 	Subscription = subscription.NewSubscriptionFlow(applicationService)
 	Signup = signup.NewUserSignupFlow(applicationService)
 	JobPost = jobpost.NewJobPostFlow(applicationService)
@@ -210,7 +207,6 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		Microservices,
 		MoneyTransfer,
 		OrderProcessing,
-		Polling,
 		Subscription,
 		Signup,
 		JobPost,

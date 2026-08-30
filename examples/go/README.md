@@ -127,7 +127,6 @@ details.
 - [Microservice orchestration](./products/microservices)
 - [Employer/job-seeker engagement](./products/engagement)
 - [Subscription](./products/subscription)
-- [Polling and channel coordination](./products/polling)
 - [Signup](./products/signup)
 - [Job post](./products/job-post)
 - [Shortlist candidates](./products/shortlist-candidates)

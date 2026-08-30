@@ -83,15 +83,6 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
       flags: defaultFlags(),
     },
     {
-      name: "products/polling",
-      trigger: () =>
-        triggerGet(context, "/products/polling/start", {
-          workflowId: newFlowId("product-polling"),
-          pollingCompletionThreshold: 3,
-        }),
-      flags: defaultFlags(),
-    },
-    {
       name: "products/subscription",
       trigger: () => triggerGet(context, "/products/subscription/start"),
       flags: defaultFlags(),

@@ -62,7 +62,6 @@ after E2E tests for manual HTTP exploration.
 - [Microservice orchestration](./src/main/java/io/superdurable/dex/products/microservices)
 - [Engagement](./src/main/java/io/superdurable/dex/products/engagement)
 - [Subscription](./src/main/java/io/superdurable/dex/products/subscription)
-- [Polling](./src/main/java/io/superdurable/dex/products/polling)
 - [Signup](./src/main/java/io/superdurable/dex/products/signup)
 - [Job post](./src/main/java/io/superdurable/dex/products/jobpost)
 - [Shortlist candidates](./src/main/java/io/superdurable/dex/products/shortlistcandidates)

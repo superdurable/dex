@@ -130,26 +130,6 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "products",
-    id: "polling",
-    title: "Polling",
-    flowIdPrefix: "polling",
-    endpoints: [
-      endpoint("GET", "/products/polling/start", "Start", [
-        flowId(),
-        query("pollingCompletionThreshold", { type: "number", default: "3" }),
-      ]),
-      endpoint("GET", "/products/polling/complete", "Complete task", [
-        flowId(),
-        query("channel", {
-          type: "select",
-          options: ["task-a-completed", "task-b-completed"],
-          default: "task-a-completed",
-        }),
-      ]),
-    ],
-  },
-  {
-    group: "products",
     id: "shortlist-candidates",
     title: "Shortlist candidates",
     flowIdPrefix: "test-employer",

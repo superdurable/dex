@@ -73,16 +73,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 			},
 		},
 		{
-			name: "products/polling",
-			trigger: func(t *testing.T) (string, string) {
-				query := url.Values{
-					"workflowId":                 {smokeWorkflowID(t, "product-polling")},
-					"pollingCompletionThreshold": {"3"},
-				}
-				return triggerFlowSmokeHTTP(t, http.MethodGet, "/products/polling/start", query, nil)
-			},
-		},
-		{
 			name: "products/subscription",
 			trigger: func(t *testing.T) (string, string) {
 				flowID, runID := triggerFlowSmokeHTTP(

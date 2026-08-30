@@ -103,7 +103,6 @@ from dex_examples.products.job_post.job_post_flow import JobPostFlow
 from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
 from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransferFlow
 from dex_examples.products.order_processing.order_processing_flow import OrderProcessingFlow
-from dex_examples.products.polling.polling_flow import PollingFlow
 from dex_examples.products.shortlist_candidates.employer_opt_in_flow import EmployerOptInFlow
 from dex_examples.products.shortlist_candidates.shortlist_flow import ShortlistFlow
 from dex_examples.products.shortlist_candidates.workflow_ids import ClientOptInChecker
@@ -126,7 +125,6 @@ class ExampleApp:
         self.orchestration = OrchestrationFlow(service)
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
-        self.polling = PollingFlow(service)
         self.signup = UserSignupFlow(service)
         self.job_post = JobPostFlow(service)
         self.employer_opt_in = EmployerOptInFlow()
@@ -198,7 +196,6 @@ class ExampleApp:
             self.orchestration,
             self.engagement,
             self.subscription,
-            self.polling,
             self.signup,
             self.job_post,
             self.employer_opt_in,

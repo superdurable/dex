@@ -30,7 +30,6 @@ import io.superdurable.dex.products.engagement.EngagementFlow;
 import io.superdurable.dex.products.microservices.OrchestrationFlow;
 import io.superdurable.dex.products.moneytransfer.MoneyTransferFlow;
 import io.superdurable.dex.products.orderprocessing.OrderProcessingFlow;
-import io.superdurable.dex.products.polling.PollingFlow;
 import io.superdurable.dex.primitives.step.RetryingFailureFlow;
 import io.superdurable.dex.primitives.stream.StreamFlow;
 import io.superdurable.dex.products.subscription.SubscriptionFlow;
@@ -64,7 +63,6 @@ final class IntegEnvironment implements AutoCloseable {
     private final OrderProcessingFlow orderProcessingFlow;
     private final EngagementFlow engagementFlow;
     private final OrchestrationFlow orchestrationFlow;
-    private final PollingFlow pollingFlow;
     private final RetryingFailureFlow retryingFailureFlow;
     private final StreamFlow streamFlow;
     private final SubscriptionFlow subscriptionFlow;
@@ -80,7 +78,6 @@ final class IntegEnvironment implements AutoCloseable {
             final OrderProcessingFlow orderProcessingFlow,
             final EngagementFlow engagementFlow,
             final OrchestrationFlow orchestrationFlow,
-            final PollingFlow pollingFlow,
             final RetryingFailureFlow retryingFailureFlow,
             final StreamFlow streamFlow,
             final SubscriptionFlow subscriptionFlow) {
@@ -94,7 +91,6 @@ final class IntegEnvironment implements AutoCloseable {
         this.orderProcessingFlow = orderProcessingFlow;
         this.engagementFlow = engagementFlow;
         this.orchestrationFlow = orchestrationFlow;
-        this.pollingFlow = pollingFlow;
         this.retryingFailureFlow = retryingFailureFlow;
         this.streamFlow = streamFlow;
         this.subscriptionFlow = subscriptionFlow;
@@ -109,7 +105,6 @@ final class IntegEnvironment implements AutoCloseable {
         final OrderProcessingFlow orderProcessingFlow = new OrderProcessingFlow(service);
         final EngagementFlow engagementFlow = new EngagementFlow(service);
         final OrchestrationFlow orchestrationFlow = new OrchestrationFlow(service);
-        final PollingFlow pollingFlow = new PollingFlow(service);
         final RetryingFailureFlow retryingFailureFlow = new RetryingFailureFlow();
         final StreamFlow streamFlow = new StreamFlow();
         final SubscriptionFlow subscriptionFlow = new SubscriptionFlow(service);
@@ -118,7 +113,6 @@ final class IntegEnvironment implements AutoCloseable {
                 orderProcessingFlow,
                 engagementFlow,
                 orchestrationFlow,
-                pollingFlow,
                 retryingFailureFlow,
                 streamFlow,
                 subscriptionFlow);
@@ -163,7 +157,6 @@ final class IntegEnvironment implements AutoCloseable {
                 orderProcessingFlow,
                 engagementFlow,
                 orchestrationFlow,
-                pollingFlow,
                 retryingFailureFlow,
                 streamFlow,
                 subscriptionFlow);
@@ -187,10 +180,6 @@ final class IntegEnvironment implements AutoCloseable {
 
     OrchestrationFlow orchestrationFlow() {
         return orchestrationFlow;
-    }
-
-    PollingFlow pollingFlow() {
-        return pollingFlow;
     }
 
     RetryingFailureFlow retryingFailureFlow() {

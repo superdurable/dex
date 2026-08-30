@@ -46,7 +46,6 @@ import (
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
 	"github.com/superdurable/dex/examples/go/products/money-transfer"
-	"github.com/superdurable/dex/examples/go/products/polling"
 	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
 	"github.com/superdurable/dex/examples/go/products/signup"
 	"github.com/superdurable/dex/examples/go/products/subscription"
@@ -211,7 +210,6 @@ func runProductScenarios(
 		{"product/microservices", func() result { return verifyMicroservices(ctx, client, stamp) }},
 		{"product/engagement", func() result { return verifyEngagement(ctx, client, stamp) }},
 		{"product/subscription", func() result { return verifySubscription(ctx, client, stamp) }},
-		{"product/polling", func() result { return verifyPolling(ctx, client, stamp) }},
 		{"product/signup", func() result { return verifySignup(ctx, client, stamp) }},
 		{"product/jobpost", func() result { return verifyJobPost(ctx, client, stamp) }},
 		{"product/shortlist-revoke", func() result { return verifyShortlistRevoke(ctx, client, stamp) }},
@@ -465,38 +463,6 @@ func verifySubscription(ctx context.Context, client *dex.Client, stamp string) r
 		return fail(name, "output="+output, nil)
 	}
 	return pass(name, "describe+updateCharge+cancel completed")
-}
-
-func verifyPolling(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "product/polling"
-	flowID := "dv-poll-" + stamp
-	_, err := client.StartFlow(ctx, registry.Polling, flowID, 1, dex.StartFlowOptions{})
-	if err != nil {
-		return fail(name, "", err)
-	}
-	if err := client.PublishToChannel(ctx, flowID, polling.TaskACompleted, nil); err != nil {
-		return fail(name, "task-a", err)
-	}
-	if err := client.PublishToChannel(ctx, flowID, polling.TaskBCompleted, nil); err != nil {
-		return fail(name, "task-b", err)
-	}
-	wait, err := waitCompleted(ctx, client, flowID, 45*time.Second)
-	if err != nil {
-		return fail(name, "", err)
-	}
-	output, err := decodeStringCompletion(wait)
-	if err != nil {
-		return fail(name, "", err)
-	}
-	if output != "all tasks completed" {
-		return fail(name, "output="+output, nil)
-	}
-	var pollCount int
-	found, err := client.GetAttribute(ctx, flowID, polling.CurrentPolls, &pollCount)
-	if err != nil || !found || pollCount != 1 {
-		return fail(name, fmt.Sprintf("polls found=%v count=%d", found, pollCount), err)
-	}
-	return pass(name, "channels completed; CurrentPolls=1")
 }
 
 func verifySignup(ctx context.Context, client *dex.Client, stamp string) result {

@@ -100,16 +100,6 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             lambda c: trigger_get("/products/order-processing/start", {}),
         ),
         FlowSmokeEntry(
-            "products/polling",
-            lambda c: trigger_get(
-                "/products/polling/start",
-                {
-                    "workflowId": new_id("product-polling"),
-                    "pollingCompletionThreshold": "3",
-                },
-            ),
-        ),
-        FlowSmokeEntry(
             "products/subscription",
             lambda c: trigger_get("/products/subscription/start", {}),
         ),

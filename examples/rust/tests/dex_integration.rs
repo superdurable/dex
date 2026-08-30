@@ -30,7 +30,6 @@ use dex_examples_rust::products::money_transfer::{MoneyTransferFlow, TransferReq
 use dex_examples_rust::products::order_processing::{
     Charge, ORDER_APPROVE, OrderProcessingFlow, OrderRequest, Ship,
 };
-use dex_examples_rust::products::polling::{POLLING_COMPLETE_TASK, PollingFlow};
 use dex_examples_rust::products::subscription::{
     SUBSCRIPTION_CANCEL, SUBSCRIPTION_DESCRIBE, SUBSCRIPTION_UPDATE_CHARGE, SubscriptionFlow,
     SubscriptionRequest, SubscriptionState,
@@ -436,48 +435,6 @@ fn microservice_swaps_data_and_completes_when_ready() {
         .and_then(|result| result.single_output())
         .expect("complete Rust Microservice Flow");
     assert_eq!(output, "updated-data");
-}
-
-#[test]
-#[ignore = "requires dexcli dev"]
-fn polling_completes_all_tasks() {
-    let environment = DexEnvironment::start();
-    let flow = PollingFlow::default();
-    let flow_id = unique_flow_id("polling");
-    let run_id = environment
-        .client
-        .start_flow(&flow, &flow_id, 1)
-        .expect("start Rust Polling Flow");
-    assert!(!run_id.is_empty());
-    environment
-        .client
-        .invoke_rpc(&flow_id, POLLING_COMPLETE_TASK, "a".to_string())
-        .expect("complete Rust Polling task a");
-    environment
-        .client
-        .invoke_rpc(&flow_id, POLLING_COMPLETE_TASK, "b".to_string())
-        .expect("complete Rust Polling task b");
-
-    let result = environment
-        .client
-        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
-        .expect("complete Rust Polling Flow");
-    assert_eq!(result.status(), FlowStatus::Completed);
-    let output: String = result
-        .completions()
-        .last()
-        .expect("polling Flow has completions")
-        .decode()
-        .expect("decode Rust Polling output");
-    assert_eq!(output, "task-c");
-    assert_eq!(
-        environment
-            .client
-            .describe_flow(&flow_id)
-            .expect("describe completed Rust Polling Flow")
-            .status,
-        FlowStatus::Completed
-    );
 }
 
 #[test]
