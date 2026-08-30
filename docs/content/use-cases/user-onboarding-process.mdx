@@ -24,6 +24,7 @@ Potential failures and exceptional outcomes include:
 - A duplicate username cannot start a second Flow with the same Flow ID. The start endpoint reports that onboarding already exists.
 - Verification or a task may never arrive. The Flow remains durably waiting and sends reminders until it is completed, cancelled, or reaches its configured Flow timeout.
 - A task completion can arrive out of order. Its RPC returns that the task is not waiting and does not publish the Channel message.
+- A Step method or RPC can fail before it returns. Dex commits none of that method's Attribute writes or Channel publications, so a retry starts from the previously committed durable state.
 - Email delivery can fail transiently. The email adapter should surface the error so Dex can retry the Step.
 - An email provider can accept a message before the Worker records success. Production email calls need an idempotency key or equivalent deduplication.
 
@@ -42,6 +43,7 @@ It combines these design patterns:
 - [**Responsive update**](/design-patterns/responsive-update) uses RPCs to validate the current stage and publish the matching Channel message while the Flow is waiting.
 - **Sequential state machine** makes email verification and both tasks explicitly ordered. A later task cannot bypass an earlier one.
 - **Durable progress state** records each target stage in its **WaitFor** method. The **Status** Attribute changes when that durable wait is installed, so RPCs and operators observe the stage the Flow is actually waiting on.
+- **Atomic method commit** makes each **WaitFor**, **Execute**, and RPC invocation a separate commit boundary. Dex Server commits all Attribute writes and Channel publications from one method together only after it succeeds, so failed methods cannot expose partial durable state or messages.
 - **Idempotent side effects** let a retried Step safely resend an externally deduplicated email.
 
 Separate Channels represent verification, task 1, and task 2. This keeps every external action scoped to exactly one wait and makes invalid transitions easy to reject.

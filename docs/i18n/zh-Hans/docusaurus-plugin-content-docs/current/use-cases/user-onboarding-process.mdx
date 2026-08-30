@@ -24,6 +24,7 @@ title: 用户入驻流程
 - 重复用户名不能使用同一个 Flow ID 启动第二个 Flow。启动端点会报告该入驻流程已经存在。
 - 邮箱验证或任务可能始终没有完成。Flow 会持久等待并发送提醒，直到流程完成、被取消或达到配置的 Flow 超时。
 - 任务完成操作可能乱序到达。对应 RPC 会返回该任务当前不在等待状态，并且不会发布 Channel 消息。
+- Step method 或 RPC 可能在返回前失败。Dex 不会 commit 该 method 的任何 Attribute 写入或 Channel publish，因此重试会从之前已 commit 的 durable state 开始。
 - 邮件发送可能发生瞬时故障。邮件适配器应向上返回错误，让 Dex 重试该 Step。
 - 邮件供应商可能已经接受邮件，但 Worker 尚未记录成功。生产环境中的邮件调用需要幂等键或等效的去重机制。
 
@@ -42,6 +43,7 @@ Go、Java、Python、TypeScript 和 Rust 示例都实现并通过集成测试覆
 - [**响应式更新**](/design-patterns/responsive-update)使用 RPC 校验当前阶段，并在 Flow 等待期间发布对应的 Channel 消息。
 - **顺序状态机**明确规定邮箱验证和两个任务的顺序，后面的任务不能绕过前面的任务。
 - **持久进度状态**由每个目标阶段的 **WaitFor** 方法记录。**Status** Attribute 会在持久等待安装时更新，因此 RPC 和运维人员看到的就是 Flow 当前实际等待的阶段。
+- **Method 原子提交**让每次 **WaitFor**、**Execute** 和 RPC 调用都有独立的 commit 边界。Dex Server 只在 method 成功后，才会一起 commit 其中所有 Attribute 写入和 Channel publish，因此失败的 method 不会暴露部分 durable state 或消息。
 - **幂等副作用**让重试的 Step 可以安全地重新调用具备外部去重能力的邮件服务。
 
 邮箱验证、任务 1 和任务 2 分别使用独立的 Channel。这样每个外部动作只会解除一个等待，也能直接拒绝无效状态转换。

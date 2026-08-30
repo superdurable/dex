@@ -42,6 +42,8 @@ Write a short application-level design before a non-trivial implementation:
 
 Keep external side effects in **Execute**. Use **WaitFor** to declare durable Conditions and prepare state needed for the wait. Make every Step transition and terminal decision explicit.
 
+Treat each **WaitFor**, **Execute**, and RPC invocation as its own commit boundary. Dex Server stages all Attribute writes and Channel publications from one method, then commits them together only after that method succeeds. If the method fails, none become visible. **WaitFor** and **Execute** do not share a commit. This atomicity does not include external API calls, which still need idempotency or compensation.
+
 When a status Attribute means “waiting for X,” write it in the target Step's **WaitFor** beside the wait for X. Do not write it in the previous Step's **Execute**: the transition may fail before the target wait becomes active. A reminder self-loop may idempotently write the same status when it re-enters **WaitFor**.
 
 Read [modeling.md](references/modeling.md) for design rules and [primitives.md](references/primitives.md) when choosing or combining primitives.
