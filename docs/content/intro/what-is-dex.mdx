@@ -19,8 +19,6 @@ A **Step** can optionally **WaitFor** some condition (**Channel**, **Timer**, or
 
 **Execute** returns a decision for the next Steps or for completing the Flow. Within the Steps and RPCs, user code can read or write **Attributes**, and/or publish durable **Channel** messages as communication from external events or within threads of a Flow.
 
-Each **WaitFor**, **Execute**, and RPC invocation is a separate commit boundary. Dex Server stages its Attribute writes and Channel publications, then commits them together only after that method completes successfully. If the method fails, none of those changes are committed. **WaitFor** and **Execute** do not share a commit, and external API calls are outside this atomic boundary.
-
 ## Order processing as an example
 
 If you have not read [What is Durable Execution?](/intro/what-is-durable-execution), the example below is the order-processing flow from that page.

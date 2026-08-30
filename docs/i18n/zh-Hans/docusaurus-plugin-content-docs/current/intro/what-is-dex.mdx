@@ -19,8 +19,6 @@ Dex 是结构化编程，只有少数几个概念作为 [primitives](/primitives
 
 **Execute** 返回 decision，用来决定下一步或完成这条 Flow。在 Step 和 RPC 里，用户代码可以读写 **Attribute**，也可以 publish durable 的 **Channel** 消息，用来接外部事件，或在同一条 Flow 的线程之间通信。
 
-每次 **WaitFor**、**Execute** 和 RPC 调用都有独立的 commit 边界。Dex Server 会暂存一个 method 内的 Attribute 写入和 Channel publish，并只在该 method 成功完成后一起 commit。如果 method 失败，这些变更都不会被 commit。**WaitFor** 和 **Execute** 不共享一次 commit，外部 API 调用也不在这个原子边界内。
-
 ## 订单处理作为一个例子
 
 还没看过 [什么是 Durable Execution？](/intro/what-is-durable-execution) 的话，下面用那一页的 order-processing 例子。

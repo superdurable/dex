@@ -18,6 +18,8 @@ RPC 是 “Remote Procedure Call” 的缩写，允许外部系统与 Flow execu
 
 RPC 可以通过 Attribute 读取和写入 durable state、向 Channel publish，也可以 trigger 一个全新的 Step 来运行。
 
+每次 RPC 调用都是一个 commit 边界。Dex Server 会暂存 RPC 中的 Attribute 写入和 Channel publish，并只在 method 成功返回时，将它们与 RPC result 一起 commit。如果 RPC 失败，这些 durable 变更都不会被 commit。外部 API 调用不在这个原子边界内。
+
 <SdkTabs
   examples={{
     python: 'examples/python/dex_examples/primitives/rpc',
