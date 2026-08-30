@@ -1,0 +1,4 @@
+interface:
+  display_name: "Dex Developer"
+  short_description: "Build and operate durable applications with Dex"
+  default_prompt: "Use $dex-developer to build a reliable Dex Flow for this application."
