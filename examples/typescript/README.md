@@ -65,7 +65,7 @@ after E2E tests for manual HTTP exploration.
 - [Microservice orchestration](./src/products/microservices)
 - [Engagement](./src/products/engagement)
 - [Subscription](./src/products/subscription)
-- [Signup](./src/products/signup)
+- [User onboarding process](./src/products/signup)
 - [Job posting](./src/products/job-post)
 - [Shortlist candidates](./src/products/shortlist-candidates)
 

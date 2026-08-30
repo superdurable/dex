@@ -102,6 +102,8 @@ Step implementation 通常只有一个或两个小方法：**WaitFor** -> **Exec
 
 **Execute** 是必需的。它返回 **StepDecision**，用于流转到下一个 Step、分支到多个 Step，或关闭 Flow。
 
+每次 **WaitFor** 或 **Execute** 调用都有独立的 commit 边界。Dex Server 会暂存该 method 内的 Attribute 写入和 Channel publish，并只在 method 成功返回时，将它们与相应的 **Wait** 或 **StepDecision** 一起 commit。如果 method 失败，这些 durable 变更都不会被 commit。**WaitFor** 和 **Execute** 不共享一次 commit，外部 API 调用也不在这个原子边界内。
+
 <StepWaitExecuteDiagram />
 
 <SdkTabs

@@ -106,7 +106,7 @@ from dex_examples.products.order_processing.order_processing_flow import OrderPr
 from dex_examples.products.shortlist_candidates.employer_opt_in_flow import EmployerOptInFlow
 from dex_examples.products.shortlist_candidates.shortlist_flow import ShortlistFlow
 from dex_examples.products.shortlist_candidates.workflow_ids import ClientOptInChecker
-from dex_examples.products.signup.user_signup_flow import UserSignupFlow
+from dex_examples.products.signup.user_signup_flow import UserOnboardingFlow
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
 from dex_examples.shared.my_dependency_service import MyDependencyService
 
@@ -125,7 +125,7 @@ class ExampleApp:
         self.orchestration = OrchestrationFlow(service)
         self.engagement = EngagementFlow(service)
         self.subscription = SubscriptionFlow(service)
-        self.signup = UserSignupFlow(service)
+        self.user_onboarding = UserOnboardingFlow(service)
         self.job_post = JobPostingFlow(service)
         self.employer_opt_in = EmployerOptInFlow()
         self.shortlist = ShortlistFlow(
@@ -196,7 +196,7 @@ class ExampleApp:
             self.orchestration,
             self.engagement,
             self.subscription,
-            self.signup,
+            self.user_onboarding,
             self.job_post,
             self.employer_opt_in,
             self.shortlist,

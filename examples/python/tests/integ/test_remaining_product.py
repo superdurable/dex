@@ -38,18 +38,44 @@ SECOND_INDEED_POSTING_UPDATE = StepExecutionId("UpdateIndeedPosting", 2)
 JOB_POSTING_INIT = StepExecutionId("InitStep", 1)
 
 
-async def test_signup_verify_completes(
+async def test_user_onboarding_completes_all_tasks(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("signup")
     form = SignupForm(flow_id, f"{flow_id}@example.com", "Test", "User")
-    await client.start_flow(app.signup, flow_id, form, start_options())
-    assert await client.invoke_rpc(app.signup.verify, flow_id) == "done"
+    await client.start_flow(app.user_onboarding, flow_id, form, start_options())
+    await client.wait_for_attribute_equal(
+        flow_id,
+        app.user_onboarding.status,
+        "waiting_for_verification",
+        WAIT_TIMEOUT,
+    )
+    assert await client.invoke_rpc(app.user_onboarding.verify, flow_id) == "verified"
+    await client.wait_for_attribute_equal(
+        flow_id,
+        app.user_onboarding.status,
+        "waiting_for_task_1",
+        WAIT_TIMEOUT,
+    )
+    assert (
+        await client.invoke_rpc(app.user_onboarding.accomplish_task_1, flow_id)
+        == "task 1 accomplished"
+    )
+    await client.wait_for_attribute_equal(
+        flow_id,
+        app.user_onboarding.status,
+        "waiting_for_task_2",
+        WAIT_TIMEOUT,
+    )
+    assert (
+        await client.invoke_rpc(app.user_onboarding.accomplish_task_2, flow_id)
+        == "task 2 accomplished"
+    )
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str
-    ) == "done"
+    ) == "onboarding completed"
 
 
 async def test_job_posting_create_read_and_update_both_job_boards(

@@ -163,7 +163,7 @@ func NewRouter(client *sdk.Client) http.Handler {
 	microservices.RegisterRoutes(router, client, registry.Microservices)
 	moneytransfer.RegisterRoutes(router, client, registry.MoneyTransfer)
 	orderprocessing.RegisterRoutes(router, client, registry.OrderProcessing)
-	signup.RegisterRoutes(router, client, registry.Signup)
+	signup.RegisterRoutes(router, client, registry.UserOnboarding)
 	jobpost.RegisterRoutes(router, client, registry.JobPosting)
 	shortlistcandidates.RegisterRoutes(
 		router,

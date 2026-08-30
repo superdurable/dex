@@ -474,18 +474,45 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 		FirstName: "Deep",
 		LastName:  "Verify",
 	}
-	_, err := client.StartFlow(ctx, registry.Signup, flowID, form, dex.StartFlowOptions{})
+	_, err := client.StartFlow(ctx, registry.UserOnboarding, flowID, form, dex.StartFlowOptions{})
 	if err != nil {
 		return fail(name, "", err)
 	}
+	if err := waitForAttributeEqual(
+		ctx, client, flowID, signup.Status, signup.StatusWaitingForVerification, 20*time.Second,
+	); err != nil {
+		return fail(name, "wait verification", err)
+	}
 	var verifyOutput string
 	if err := client.InvokeRPC(
-		ctx, flowID, registry.Signup.Verify, nil, &verifyOutput, dex.InvokeOptions{},
+		ctx, flowID, registry.UserOnboarding.Verify, nil, &verifyOutput, dex.InvokeOptions{},
 	); err != nil {
 		return fail(name, "verify rpc", err)
 	}
-	if verifyOutput != "done" {
+	if verifyOutput != "verified" {
 		return fail(name, "verify="+verifyOutput, nil)
+	}
+	if err := waitForAttributeEqual(
+		ctx, client, flowID, signup.Status, signup.StatusWaitingForTask1, 20*time.Second,
+	); err != nil {
+		return fail(name, "wait task 1", err)
+	}
+	var task1Output string
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.UserOnboarding.AccomplishTask1, nil, &task1Output, dex.InvokeOptions{},
+	); err != nil {
+		return fail(name, "task 1 rpc", err)
+	}
+	if err := waitForAttributeEqual(
+		ctx, client, flowID, signup.Status, signup.StatusWaitingForTask2, 20*time.Second,
+	); err != nil {
+		return fail(name, "wait task 2", err)
+	}
+	var task2Output string
+	if err := client.InvokeRPC(
+		ctx, flowID, registry.UserOnboarding.AccomplishTask2, nil, &task2Output, dex.InvokeOptions{},
+	); err != nil {
+		return fail(name, "task 2 rpc", err)
 	}
 	wait, err := waitCompleted(ctx, client, flowID, 45*time.Second)
 	if err != nil {
@@ -494,10 +521,10 @@ func verifySignup(ctx context.Context, client *dex.Client, stamp string) result 
 	_ = wait
 	var status string
 	found, err := client.GetAttribute(ctx, flowID, signup.Status, &status)
-	if err != nil || !found || status != "verified" {
+	if err != nil || !found || status != signup.StatusCompleted {
 		return fail(name, fmt.Sprintf("status found=%v value=%s", found, status), err)
 	}
-	return pass(name, "verify RPC + Status=verified + completed")
+	return pass(name, "verified + task 1 + task 2 + completed")
 }
 
 func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result {
