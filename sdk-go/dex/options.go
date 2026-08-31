@@ -13,7 +13,8 @@ package dex
 import "time"
 
 // RetryPolicy overrides retry timing for a Step's WaitFor or Execute method.
-// Zero fields preserve server defaults; MaximumAttempts counts the initial attempt.
+// Zero fields preserve server defaults, including a four-hour total duration.
+// MaximumAttempts counts the initial attempt.
 // With asynchronous durability, local and regular execution share attempts and elapsed duration.
 // Fallback is immediate, while subsequent regular retries continue the cumulative backoff sequence.
 type RetryPolicy struct {
@@ -72,15 +73,18 @@ func ProceedToOnExecuteFailure[IN any](
 
 // StepOptions configures one Step's handler execution and persistence behavior.
 //
-// Zero values preserve server timeouts, retry behavior, and durability defaults. WaitFor failures
-// fail the Flow by default. Each lock is held only for the matching handler call.
+// Zero values preserve server defaults. Regular attempts default to two hours with a one-minute
+// heartbeat timeout. Durability resolves from the method override, FlowConfig, then synchronous.
+// Asynchronous durability first uses at most seven local-activity seconds and three attempts.
+// WaitFor failures fail the Flow by default. Each lock is held only for the matching handler call.
 type StepOptions struct {
 	// WaitForMethodTimeout limits one WaitFor attempt; zero uses the server default.
 	WaitForMethodTimeout time.Duration
 	// ExecuteMethodTimeout limits one Execute attempt; zero uses the server default.
 	ExecuteMethodTimeout time.Duration
-	// HeartbeatTimeout enables cooperative cancellation for regular WaitFor and Execute activities.
-	// Zero disables heartbeats. Positive values must be whole seconds within int32 range.
+	// HeartbeatTimeout detects stalled regular WaitFor and Execute activities.
+	// Zero uses the one-minute default. Positive values must be whole seconds within int32 range
+	// and meet the server-configured minimum, which defaults to ten seconds.
 	HeartbeatTimeout time.Duration
 	// WaitForRetry overrides the WaitFor retry policy; nil uses server defaults.
 	WaitForRetry *RetryPolicy

@@ -131,7 +131,6 @@ func NewWorker(
 			cache,
 			logger,
 		),
-		flowService,
 		logger,
 	)
 	dexpb.RegisterWorkerServiceServer(grpcServer, service)

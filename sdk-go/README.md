@@ -33,7 +33,21 @@ func (WaitForCommandStep) WaitFor(
 	ctx dex.Context,
 	input OrderInput,
 ) (*dex.Wait, error) {
+	var checkpoint string
+	found, err := ctx.GetLastHeartbeatValue(&checkpoint)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		checkpoint = "starting"
+	}
+	if err := ctx.RecordHeartbeat(checkpoint); err != nil {
+		return nil, err
+	}
 	if err := Progress.Write(ctx, "waiting for a command"); err != nil {
+		return nil, err
+	}
+	if err := Progress.Write(ctx, "inventory check started"); err != nil {
 		return nil, err
 	}
 	if err := OrderStatus.Set(ctx, "waiting"); err != nil {
@@ -99,6 +113,35 @@ for multiple conditions.
 attempts, total duration, and 1-based attempt numbers. Fallback starts
 immediately; later regular retries continue the backoff sequence at the
 cumulative attempt.
+
+Step durability resolves from the method override, then FlowConfig, then
+`StepDurabilitySync`. Retry total duration defaults to four hours. Regular
+attempts default to two hours with a one-minute heartbeat timeout. The server's
+minimum explicit heartbeat timeout defaults to ten seconds and can be changed
+by operators; the Go SDK validates only non-negative whole seconds in the
+signed int32 range. Async execution first uses at most seven local-activity
+seconds and three attempts. The local phase ignores method and heartbeat
+timeouts before regular fallback.
+
+### Heartbeats and Stream progress
+
+`Context.RecordHeartbeat` emits a checkpoint from WaitFor, Execute, or a Flow
+timeout handler. A retry restores the most recent regular-activity checkpoint
+through `Context.GetLastHeartbeatValue`. Passing nil, including a typed nil,
+explicitly clears the checkpoint. Local-activity heartbeats are ignored.
+
+`Stream.Write` emits a fire-and-forget frame on the same Worker response stream.
+A handler may write any number of messages to the same or different Streams.
+The call reports local validation, encoding, and gRPC send failures, but it does
+not wait for a Stream Store acknowledgment. Server-side store rejection or
+unavailability is visible through server logs and metrics rather than the
+handler return value. Heartbeats and Stream writes may run concurrently; their
+frames are serialized by the Worker.
+
+Messages written by a Step have `#<stepExecutionID>` in
+`StreamMessage.Source`. Client writes accept any non-empty source, including
+values containing `#`. Reusing a source appends another message; source is
+metadata, not an idempotency key.
 
 ### Canceling Step executions
 

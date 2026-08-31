@@ -302,6 +302,14 @@ func (registrationContext) WaitForMethodFailed() bool {
 	return false
 }
 
+func (registrationContext) RecordHeartbeat(any) error {
+	return nil
+}
+
+func (registrationContext) GetLastHeartbeatValue(any) (bool, error) {
+	return false, nil
+}
+
 func (registrationContext) SetStepExecutionLocal(string, any) error {
 	return nil
 }

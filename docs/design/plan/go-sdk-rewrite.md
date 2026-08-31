@@ -790,7 +790,25 @@ fire-and-forget frame on the current Worker response stream, so it does not make
 a Worker-to-server FlowService call. One invocation may emit any number of
 messages to the same or different Streams. The server attempts them in order;
 write failures are observable only through server logs and metrics. Step frames
-use `runID#stepExecutionID` as source metadata. RPC writes are rejected.
+use `#stepExecutionID` as source metadata. RPC writes are rejected.
+
+`Context.RecordHeartbeat(value)` sends a heartbeat frame on that response
+stream. A nil value, including a typed nil pointer, map, slice, or interface,
+sends no Value and explicitly clears backend heartbeat details. A non-nil value
+uses normal Value encoding. `Context.GetLastHeartbeatValue(valuePtr)` requires a
+non-nil pointer, returns false without changing it when details are absent, and
+decodes the latest regular-activity checkpoint otherwise. Local-activity
+heartbeats are ignored and do not reach regular fallback.
+
+Heartbeat and Stream writes share an invocation-scoped emitter and send lock.
+Sequential calls preserve order; concurrent calls enter the gRPC stream in lock
+acquisition order. The first send failure is retained, cancels the handler
+Context, rejects later progress, and prevents a final result even if application
+code ignored the original error. The Worker closes progress before mapping and
+sending the unique result frame. Calls from late goroutines return an invalid
+context error, so no frame can follow the result. Applications must still stop
+and join Context-using goroutines before their handler returns; other Context
+operations are not concurrency-safe.
 
 `Client.WriteStream` accepts the exact registered Stream, Flow ID, non-empty
 source, and typed value. Sources may repeat and may contain `#`.
@@ -1769,6 +1787,8 @@ type Context interface {
 	HasTimerFired() bool
 	HasTimerFiredByIndex(index int) bool
 	WaitForMethodFailed() bool
+	RecordHeartbeat(value any) error
+	GetLastHeartbeatValue(valuePtr any) (found bool, err error)
 
 	SetStepExecutionLocal(key string, value any) error
 	GetStepExecutionLocal(key string, valuePtr any) (found bool, err error)
@@ -1787,6 +1807,8 @@ Semantics:
   WaitFor.
 - `WaitForMethodFailed` is true only when Execute follows a failed WaitFor under
   `ProceedOnFailure`.
+- `RecordHeartbeat` and `GetLastHeartbeatValue` are available in WaitFor,
+  Execute, and Flow timeout handlers. RPC invocation contexts reject both.
 - Step-method `Attempt` starts at one. RPC returns zero `Attempt` and a zero
   `FirstAttemptAt` because its request carries no attempt metadata.
 - writes, events, and channel publishes are buffered until the method returns
@@ -2222,10 +2244,11 @@ The typed constructor prevents callers from placing an erased step inside
 unchanged input, because the server reuses that input. `StepOptions` does not
 expose physical attribute keys, server-owned fields, or a generic skip flag.
 `HeartbeatTimeout` applies to regular WaitFor and Execute activities. Zero uses
-the one-minute default; explicit values require at least ten whole seconds in
-the signed int32 range. Local activities ignore it, and an asynchronous regular
-fallback uses it. Worker heartbeat output may include a typed checkpoint Value.
-The next regular attempt exposes the last checkpoint through its Context.
+the one-minute default. The Go SDK accepts non-negative whole seconds in the
+signed int32 range. The server enforces a configurable minimum that defaults to
+ten seconds. Local activities ignore it, and an asynchronous regular fallback
+uses it. Worker heartbeat output may include a typed checkpoint Value. The next
+regular attempt exposes the last checkpoint through its Context.
 
 The server defaults Step durability to sync and retry total duration to four
 hours. Regular attempts default to two hours. Async durability first uses at

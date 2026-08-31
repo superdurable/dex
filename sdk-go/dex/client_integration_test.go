@@ -128,7 +128,7 @@ type clientTestFlowService struct {
 	waitStepRequest      *dexpb.WaitForStepCompletionRequest
 	continueAsNewRequest *dexpb.TriggerContinueAsNewRequest
 	getAttributesRequest *dexpb.GetAttributesRequest
-	writeStreamRequest   *dexpb.WriteStreamRequest
+	writeStreamRequests  []*dexpb.WriteStreamRequest
 	readStreamRequest    *dexpb.ReadStreamRequest
 }
 
@@ -136,7 +136,7 @@ func (service *clientTestFlowService) WriteStream(
 	_ context.Context,
 	request *dexpb.WriteStreamRequest,
 ) (*emptypb.Empty, error) {
-	service.writeStreamRequest = request
+	service.writeStreamRequests = append(service.writeStreamRequests, request)
 	return &emptypb.Empty{}, nil
 }
 
@@ -150,10 +150,10 @@ func (service *clientTestFlowService) ReadStream(
 		return nil, err
 	}
 	return &dexpb.ReadStreamResponse{Message: &dexpb.StreamMessage{
-		Value:          value,
-		ResumeToken:    "resume-1",
-		CreatedTime:    timestamppb.New(time.Unix(123, 456)),
-		IdempotencyKey: "client-1",
+		Value:       value,
+		ResumeToken: "resume-1",
+		CreatedTime: timestamppb.New(time.Unix(123, 456)),
+		Source:      "client-1",
 	}}, nil
 }
 
@@ -576,18 +576,35 @@ func TestClientStreamTransportAndMetadata(t *testing.T) {
 		"client-1",
 		clientTestRPCOutput{Status: "starting"},
 	))
-	require.Equal(t, "order-1", service.writeStreamRequest.FlowId)
-	require.Equal(t, "dex.clientTestFlow", service.writeStreamRequest.FlowType)
-	require.Equal(t, "thinking", service.writeStreamRequest.StreamName)
-	require.Equal(t, int64(1<<20), service.writeStreamRequest.StreamCapacityBytes)
-	require.Equal(t, "client-1", service.writeStreamRequest.IdempotencyKey)
-	require.ErrorContains(t, client.WriteStream(
+	require.NoError(t, client.WriteStream(
+		ctx,
+		"order-1",
+		clientTestThinking,
+		"client-1",
+		clientTestRPCOutput{},
+	))
+	require.NoError(t, client.WriteStream(
 		ctx,
 		"order-1",
 		clientTestThinking,
 		"reserved#key",
 		clientTestRPCOutput{},
-	), "must not contain")
+	))
+	require.Len(t, service.writeStreamRequests, 3)
+	require.Equal(t, "order-1", service.writeStreamRequests[0].FlowId)
+	require.Equal(t, "dex.clientTestFlow", service.writeStreamRequests[0].FlowType)
+	require.Equal(t, "thinking", service.writeStreamRequests[0].StreamName)
+	require.Equal(t, int64(1<<20), service.writeStreamRequests[0].StreamCapacityBytes)
+	require.Equal(t, "client-1", service.writeStreamRequests[0].Source)
+	require.Equal(t, "client-1", service.writeStreamRequests[1].Source)
+	require.Equal(t, "reserved#key", service.writeStreamRequests[2].Source)
+	require.ErrorContains(t, client.WriteStream(
+		ctx,
+		"order-1",
+		clientTestThinking,
+		"",
+		clientTestRPCOutput{},
+	), "source must not be empty")
 
 	var value clientTestRPCOutput
 	message, err := client.ReadStream(ctx, "order-1", clientTestThinking, "previous", &value)
@@ -595,7 +612,7 @@ func TestClientStreamTransportAndMetadata(t *testing.T) {
 	require.Equal(t, clientTestRPCOutput{Status: "working"}, value)
 	require.Equal(t, "resume-1", message.ResumeToken)
 	require.Equal(t, time.Unix(123, 456).UTC(), message.CreatedTime)
-	require.Equal(t, "client-1", message.IdempotencyKey)
+	require.Equal(t, "client-1", message.Source)
 	require.Equal(t, "previous", service.readStreamRequest.ResumeToken)
 	require.Equal(t, serverCappedLongPollSeconds, service.readStreamRequest.WaitTimeSeconds)
 }

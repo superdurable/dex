@@ -23,16 +23,14 @@ const timeoutHandlerStepType = "sys:timeout_handler"
 
 type workerService struct {
 	dexpb.UnimplementedWorkerServiceServer
-	registry    *Registry
-	hydrator    valueHydrator
-	flowService dexpb.FlowServiceClient
-	logger      Logger
+	registry *Registry
+	hydrator valueHydrator
+	logger   Logger
 }
 
 func newWorkerService(
 	registry *Registry,
 	hydrator valueHydrator,
-	flowService dexpb.FlowServiceClient,
 	logger Logger,
 ) *workerService {
 	if registry == nil {
@@ -41,36 +39,31 @@ func newWorkerService(
 	if hydrator == nil {
 		panic("dex: WorkerService requires value hydrator")
 	}
-	if flowService == nil {
-		panic("dex: WorkerService requires FlowService client")
-	}
 	return &workerService{
-		registry:    registry,
-		hydrator:    hydrator,
-		flowService: flowService,
-		logger:      resolveLogger(logger, nil),
+		registry: registry,
+		hydrator: hydrator,
+		logger:   resolveLogger(logger, nil),
 	}
 }
 
 func (service *workerService) InvokeWaitForMethod(
-	ctx context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
-) (response *dexpb.InvokeWaitForMethodResponse, err error) {
+	stream dexpb.WorkerService_InvokeWaitForMethodServer,
+) (err error) {
 	defer func() {
 		if finalErr := finishWorkerCall(service.logger, recover(), err); finalErr != nil {
-			response = nil
 			err = finalErr
 		}
 	}()
-	return service.invokeWaitForMethod(ctx, request)
+	return service.invokeWaitForMethod(request, newWaitForOutputStream(stream))
 }
 
 func (service *workerService) invokeWaitForMethod(
-	ctx context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
-) (*dexpb.InvokeWaitForMethodResponse, error) {
+	output *waitForOutputStream,
+) error {
 	if request == nil {
-		return nil, newWorkerFailure(
+		return newWorkerFailure(
 			codes.InvalidArgument,
 			fmt.Errorf("dex: Worker request is nil"),
 		)
@@ -81,36 +74,36 @@ func (service *workerService) invokeWaitForMethod(
 		request.StepType,
 		request.StepInput,
 	); err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	flow, step, err := service.lookupStep(request.FlowType, request.StepType)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if step.skipWaitFor {
-		return nil, newWorkerFailure(
+		return newWorkerFailure(
 			codes.FailedPrecondition,
 			fmt.Errorf("dex: step %q is execute-only", step.stepType),
 		)
 	}
 	if err := validateKVEnvelopes("attribute", request.Attributes); err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	if err := service.hydrator.HydrateValuesInPlace(
-		ctx,
-		stepRequestValuePointers(&request.StepInput, request.Attributes),
+		output.stream.Context(),
+		waitForRequestValuePointers(request),
 	); err != nil {
-		return nil, err
+		return err
 	}
 	input, err := decodeHandlerInput(request.StepInput, step.inputType)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	invocation, err := newInvocationContext(
-		ctx,
+		output.stream.Context(),
 		invocationWaitFor,
 		flow,
-		service.flowService,
+		output,
 		request.Context,
 		request.Attributes,
 		nil,
@@ -118,55 +111,54 @@ func (service *workerService) invokeWaitForMethod(
 		nil,
 	)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	wait, err := callWaitForHandler(step, invocation, input)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	waiting, err := mapRegisteredWait(service.registry, flow, wait)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
+		return newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
 			FlowType: flow.flowType,
 			StepType: step.stepType,
 			Method:   "WaitFor",
 			Err:      err,
 		})
 	}
-	return &dexpb.InvokeWaitForMethodResponse{
+	return output.sendResult(&dexpb.InvokeWaitForMethodResponse{
 		UpsertAttributes:    invocation.mappedAttributeWrites(),
 		WaitingCondition:    waiting,
 		UpsertStepExeLocals: invocation.mappedLocalWrites(),
 		RecordEvents:        invocation.recordedEvents,
 		PublishToChannel:    invocation.publications,
-	}, nil
+	})
 }
 
 func (service *workerService) InvokeExecuteMethod(
-	ctx context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
-) (response *dexpb.InvokeExecuteMethodResponse, err error) {
+	stream dexpb.WorkerService_InvokeExecuteMethodServer,
+) (err error) {
 	defer func() {
 		if finalErr := finishWorkerCall(service.logger, recover(), err); finalErr != nil {
-			response = nil
 			err = finalErr
 		}
 	}()
-	return service.invokeExecuteMethod(ctx, request)
+	return service.invokeExecuteMethod(request, newExecuteOutputStream(stream))
 }
 
 func (service *workerService) invokeExecuteMethod(
-	ctx context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
-) (*dexpb.InvokeExecuteMethodResponse, error) {
+	output *executeOutputStream,
+) error {
 	if request == nil {
-		return nil, newWorkerFailure(
+		return newWorkerFailure(
 			codes.InvalidArgument,
 			fmt.Errorf("dex: Worker request is nil"),
 		)
 	}
 	if request.StepType == timeoutHandlerStepType {
-		return service.invokeTimeoutHandler(ctx, request)
+		return service.invokeTimeoutHandler(request, output)
 	}
 	if err := validateStepWorkerRequest(
 		request.Context,
@@ -174,34 +166,34 @@ func (service *workerService) invokeExecuteMethod(
 		request.StepType,
 		request.StepInput,
 	); err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	flow, step, err := service.lookupStep(request.FlowType, request.StepType)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err := validateKVEnvelopes("attribute", request.Attributes); err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	if err := validateKVEnvelopes("step-execution local", request.StepExeLocals); err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	valuePointers, err := executeRequestValuePointers(request)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrator.HydrateValuesInPlace(ctx, valuePointers); err != nil {
-		return nil, err
+	if err := service.hydrator.HydrateValuesInPlace(output.stream.Context(), valuePointers); err != nil {
+		return err
 	}
 	input, err := decodeHandlerInput(request.StepInput, step.inputType)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	invocation, err := newInvocationContext(
-		ctx,
+		output.stream.Context(),
 		invocationExecute,
 		flow,
-		service.flowService,
+		output,
 		request.Context,
 		request.Attributes,
 		request.StepExeLocals,
@@ -209,73 +201,73 @@ func (service *workerService) invokeExecuteMethod(
 		nil,
 	)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	decision, err := callExecuteHandler(step, invocation, input)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	mapped, err := mapRegisteredDecision(flow, decision)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
+		return newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
 			FlowType: flow.flowType,
 			StepType: step.stepType,
 			Method:   "Execute",
 			Err:      err,
 		})
 	}
-	return &dexpb.InvokeExecuteMethodResponse{
+	return output.sendResult(&dexpb.InvokeExecuteMethodResponse{
 		StepDecision:     mapped,
 		UpsertAttributes: invocation.mappedAttributeWrites(),
 		RecordEvents:     invocation.recordedEvents,
 		PublishToChannel: invocation.publications,
-	}, nil
+	})
 }
 
 func (service *workerService) invokeTimeoutHandler(
-	ctx context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
-) (*dexpb.InvokeExecuteMethodResponse, error) {
+	output *executeOutputStream,
+) error {
 	if err := validateWorkerContext(request.Context, true); err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	if request.FlowType == "" || request.StepInput != nil {
-		return nil, newWorkerFailure(
+		return newWorkerFailure(
 			codes.InvalidArgument,
 			fmt.Errorf("dex: timeout handler request has invalid flow or input"),
 		)
 	}
 	flow, isRegistered := service.registry.lookupFlow(request.FlowType)
 	if !isRegistered {
-		return nil, newWorkerFailure(
+		return newWorkerFailure(
 			codes.NotFound,
 			fmt.Errorf("dex: flow %q is not registered", request.FlowType),
 		)
 	}
 	if flow.timeoutHandler == nil {
-		return nil, newWorkerFailure(
+		return newWorkerFailure(
 			codes.FailedPrecondition,
 			fmt.Errorf("dex: flow %q has no timeout handler", request.FlowType),
 		)
 	}
 	if err := validateKVEnvelopes("attribute", request.Attributes); err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	if err := validateKVEnvelopes("step-execution local", request.StepExeLocals); err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	valuePointers, err := executeRequestValuePointers(request)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
-	if err := service.hydrator.HydrateValuesInPlace(ctx, valuePointers); err != nil {
-		return nil, err
+	if err := service.hydrator.HydrateValuesInPlace(output.stream.Context(), valuePointers); err != nil {
+		return err
 	}
 	invocation, err := newInvocationContext(
-		ctx,
+		output.stream.Context(),
 		invocationExecute,
 		flow,
-		service.flowService,
+		output,
 		request.Context,
 		request.Attributes,
 		request.StepExeLocals,
@@ -283,28 +275,28 @@ func (service *workerService) invokeTimeoutHandler(
 		nil,
 	)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, err)
+		return newWorkerFailure(codes.InvalidArgument, err)
 	}
 	decision, err := callFlowTimeoutHandler(flow.timeoutHandler, invocation)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	mapped, err := mapRegisteredDecision(flow, decision)
 	if err != nil {
-		return nil, newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
+		return newWorkerFailure(codes.InvalidArgument, &InvalidStepResultError{
 			FlowType: flow.flowType,
 			StepType: timeoutHandlerStepType,
 			Method:   "Execute",
 			Err:      err,
 		})
 	}
-	return &dexpb.InvokeExecuteMethodResponse{
+	return output.sendResult(&dexpb.InvokeExecuteMethodResponse{
 		StepDecision:        mapped,
 		UpsertAttributes:    invocation.mappedAttributeWrites(),
 		UpsertStepExeLocals: invocation.mappedLocalWrites(),
 		RecordEvents:        invocation.recordedEvents,
 		PublishToChannel:    invocation.publications,
-	}, nil
+	})
 }
 
 func (service *workerService) InvokeWorkerRPC(
@@ -358,7 +350,7 @@ func (service *workerService) invokeWorkerRPC(
 		ctx,
 		invocationRPC,
 		flow,
-		service.flowService,
+		nil,
 		request.Context,
 		request.Attributes,
 		nil,
@@ -411,8 +403,12 @@ func callWaitForHandler(
 	step *registeredStep,
 	invocation *invocationContext,
 	input any,
-) (*Wait, error) {
-	defer invocation.finish()
+) (wait *Wait, err error) {
+	defer func() {
+		if finishErr := invocation.finish(); err == nil {
+			err = finishErr
+		}
+	}()
 	return step.handler.waitFor(invocation, input)
 }
 
@@ -420,16 +416,24 @@ func callExecuteHandler(
 	step *registeredStep,
 	invocation *invocationContext,
 	input any,
-) (*StepDecision, error) {
-	defer invocation.finish()
+) (decision *StepDecision, err error) {
+	defer func() {
+		if finishErr := invocation.finish(); err == nil {
+			err = finishErr
+		}
+	}()
 	return step.handler.execute(invocation, input)
 }
 
 func callFlowTimeoutHandler(
 	handler FlowTimeoutHandler,
 	invocation *invocationContext,
-) (*StepDecision, error) {
-	defer invocation.finish()
+) (decision *StepDecision, err error) {
+	defer func() {
+		if finishErr := invocation.finish(); err == nil {
+			err = finishErr
+		}
+	}()
 	return handler.HandleTimeout(invocation)
 }
 
@@ -437,8 +441,12 @@ func callRPCHandler(
 	rpc *registeredRPC,
 	invocation *invocationContext,
 	input any,
-) (rpcResult, error) {
-	defer invocation.finish()
+) (result rpcResult, err error) {
+	defer func() {
+		if finishErr := invocation.finish(); err == nil {
+			err = finishErr
+		}
+	}()
 	return rpc.invoke(invocation, input)
 }
 
@@ -511,12 +519,25 @@ func stepRequestValuePointers(
 	return valuePointers
 }
 
+func waitForRequestValuePointers(
+	request *dexpb.InvokeWaitForMethodRequest,
+) []**dexpb.Value {
+	valuePointers := stepRequestValuePointers(&request.StepInput, request.Attributes)
+	if request.Context.LastHeartbeatValue != nil {
+		valuePointers = append(valuePointers, &request.Context.LastHeartbeatValue)
+	}
+	return valuePointers
+}
+
 func executeRequestValuePointers(
 	request *dexpb.InvokeExecuteMethodRequest,
 ) ([]**dexpb.Value, error) {
 	valuePointers := make([]**dexpb.Value, 0, 1+len(request.Attributes)+len(request.StepExeLocals))
 	if request.StepInput != nil {
 		valuePointers = append(valuePointers, &request.StepInput)
+	}
+	if request.Context.LastHeartbeatValue != nil {
+		valuePointers = append(valuePointers, &request.Context.LastHeartbeatValue)
 	}
 	for _, attribute := range request.Attributes {
 		valuePointers = append(valuePointers, &attribute.Value)

@@ -164,6 +164,8 @@ func integrationFlows() []dex.Flow {
 		rpcFlow{},
 		channelFlow{},
 		streamTestFlow{},
+		heartbeatRecoveryFlow{},
+		asyncHeartbeatFlow{},
 		executeOnlyFlow{},
 		executeOnlyValueFlow{},
 		forceFailFlow{},

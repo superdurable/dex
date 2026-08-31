@@ -983,27 +983,23 @@ func (client *Client) publishToChannel(
 	return translateRPCError(err, "PublishToChannel", flowID, flowTargetActive)
 }
 
-// WriteStream appends one best-effort message using client-supplied idempotency.
+// WriteStream appends one best-effort message with client-supplied source metadata.
 //
 // stream must be registered in exactly one Flow schema in this Client's Registry. flowID need not
-// identify an existing or active Flow. idempotencyKey must be non-empty and must not contain "#",
-// which is reserved for Step-generated keys. Reusing a retained key is a successful first-write-wins
-// no-op even when value differs.
+// identify an existing or active Flow. source must be non-empty, may contain "#", and may be reused;
+// every successful call appends a distinct message.
 func (client *Client) WriteStream(
 	ctx context.Context,
 	flowID string,
 	stream StreamDef,
-	idempotencyKey string,
+	source string,
 	value any,
 ) error {
 	if err := client.validateFlowCall(ctx, flowID); err != nil {
 		return err
 	}
-	if idempotencyKey == "" {
-		return fmt.Errorf("dex: Stream idempotency key must not be empty")
-	}
-	if strings.Contains(idempotencyKey, "#") {
-		return fmt.Errorf("dex: Stream client idempotency key must not contain %q", "#")
+	if source == "" {
+		return fmt.Errorf("dex: Stream source must not be empty")
 	}
 	flow, registered, err := client.registry.resolveStream(stream)
 	if err != nil {
@@ -1019,7 +1015,7 @@ func (client *Client) WriteStream(
 		StreamName:          registered.definition.name,
 		StreamCapacityBytes: registered.definition.streamCapacityBytes,
 		Value:               encoded,
-		IdempotencyKey:      idempotencyKey,
+		Source:              source,
 	})
 	return translateRPCError(err, "WriteStream", flowID, flowTargetNone)
 }
@@ -1071,9 +1067,9 @@ func (client *Client) ReadStream(
 		return StreamMessage{}, err
 	}
 	return StreamMessage{
-		ResumeToken:    response.Message.ResumeToken,
-		CreatedTime:    response.Message.CreatedTime.AsTime(),
-		IdempotencyKey: response.Message.IdempotencyKey,
+		ResumeToken: response.Message.ResumeToken,
+		CreatedTime: response.Message.CreatedTime.AsTime(),
+		Source:      response.Message.Source,
 	}, nil
 }
 
