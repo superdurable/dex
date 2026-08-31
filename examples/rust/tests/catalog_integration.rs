@@ -36,13 +36,9 @@ use dex_examples_rust::patterns::{
     wait_for_step_completion::WaitForStepCompletionFlow,
 };
 use dex_examples_rust::products::{
-    deal_dsl::DealDSLFlow,
-    engagement::EngagementFlow,
-    job_post::JobPostingFlow,
-    microservices::OrchestrationFlow,
-    money_transfer::MoneyTransferFlow,
-    order_processing::OrderProcessingFlow,
-    signup::UserOnboardingFlow,
+    deal_dsl::DealDSLFlow, engagement::EngagementFlow, job_post::JobPostingFlow,
+    microservices::OrchestrationFlow, money_transfer::MoneyTransferFlow,
+    order_processing::OrderProcessingFlow, signup::UserOnboardingFlow,
     subscription::SubscriptionFlow,
 };
 use dex_examples_rust::{PATTERN_FLOW_TYPES, PRODUCT_FLOW_TYPES, create_example_registry};
