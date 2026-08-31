@@ -1,35 +1,35 @@
 ---
-title: Subscription & billing lifecycle
+title: 订阅与计费生命周期
 ---
 
-# Subscription & billing lifecycle
+# 订阅与计费生命周期
 
-Run a subscription through its trial, recurring billing periods, price changes, and cancellation without losing its state while it waits.
+让订阅经历试用期、周期扣费、价格调整和取消，同时在等待期间不丢失状态。
 
-## Product requirements
+## 产品需求
 
-The Flow starts with a customer and a subscription plan. The plan supplies a trial duration, billing-period duration, maximum number of billing periods, and current charge amount. It must:
+Flow 以客户和订阅计划作为输入。计划包含试用时长、计费周期时长、最大计费周期数和当前扣费金额。它必须：
 
-1. Store the customer and initialize the billing counter.
-2. Send a welcome email, then wait for the trial Timer to fire before billing begins.
-3. Wait for each billing-period Timer, charge the current period, and repeat until the configured number of periods is reached.
-4. Accept a charge-amount update while the trial or a billing Timer is still pending. Persist the new amount so the next charge uses it.
-5. Accept a cancellation at any time. Send the cancellation email and complete the whole Flow, including sibling Steps that are still waiting.
-6. End the subscription after its final billing period and notify the customer.
-7. Return the stored plan through a **Describe** RPC while the Flow is active.
+1. 存储客户并初始化计费计数器。
+2. 发送欢迎邮件，然后等待试用期 Timer 触发，再开始计费。
+3. 等待每个计费周期 Timer，扣除当期费用，并重复直到达到配置的周期数。
+4. 在试用或计费 Timer 仍在等待时接受扣费金额更新。持久化新金额，让下一次扣费使用它。
+5. 随时接受取消请求。发送取消邮件并完成整个 Flow，包括仍在等待的 sibling Step。
+6. 在最后一个计费周期后结束订阅，并通知客户。
+7. 在 Flow 仍处于活动状态时，通过 **Describe** RPC 返回已存储的计划。
 
-The Flow waits on two durable condition types: Timers for the trial and each billing period, and Channel messages for cancellation and charge updates. A Flow can stay in either wait for days or months; restarting a Worker does not restart the trial or lose a message that was already accepted.
+Flow 等待两类持久条件：试用期和每个计费周期的 Timer，以及取消和金额更新的 Channel 消息。Flow 可以在任一等待中停留数天或数月；Worker 重启不会重新开始试用期，也不会丢失已被接受的消息。
 
-Potential failures need product decisions:
+潜在故障需要产品层面的决策：
 
-- A welcome email, charge, or final notification can fail after the external provider has already accepted it. Those operations must be idempotent, because a retried Step can call the provider again.
-- A price update must contain exactly one amount. An invalid or unexpected message causes the update Step to fail instead of silently choosing an amount.
-- Cancellation can race with an expiring billing Timer. The payment provider and cancellation policy must be safe for that race, including any refund or entitlement decision.
-- Publishing after cancellation or normal completion cannot reopen the Flow. Clients should treat that as a terminal result and start a new subscription when appropriate.
+- 欢迎邮件、扣费或结束通知可能在外部提供方已经接受后失败。这些操作必须是幂等的，因为重试的 Step 可能再次调用提供方。
+- 金额更新必须恰好包含一个金额。无效或意外消息会让更新 Step 失败，而不是静默选择一个金额。
+- 取消可能与即将触发的计费 Timer 竞争。支付提供方和取消策略必须能够安全处理该竞争，包括退款或权益策略。
+- 取消或正常完成后再发布消息不能重新打开 Flow。客户端应将其视为终态，并在需要时启动新的订阅。
 
-## Flow design
+## Flow 设计
 
-The initializer fans out into three long-lived branches:
+初始化 Step 扇出为三个长期运行的分支：
 
 **Initialize** → **Trial** → **ChargeCurrentBill** ↻
 
@@ -37,21 +37,21 @@ The initializer fans out into three long-lived branches:
 
 **Initialize** → **UpdateChargeAmount** ↻
 
-**Trial** owns the trial Timer and hands off to the billing loop. **ChargeCurrentBill** increments the durable billing-period Attribute before its next Timer and either charges the period or force-completes once the plan is over. **Cancel** and **UpdateChargeAmount** remain active alongside that path, each waiting for one Channel message at a time.
+**Trial** 管理试用期 Timer，并把控制权交给计费循环。**ChargeCurrentBill** 在下一个 Timer 前递增持久化的计费周期 Attribute；计划结束时强制完成，否则扣除当期费用。**Cancel** 和 **UpdateChargeAmount** 与该路径并行运行，二者每次各等待一条 Channel 消息。
 
-This combines several design patterns:
+它组合了以下设计模式：
 
-- **Fan-out concurrency** starts billing, cancellation, and price-control responsibilities independently from one initializer.
-- **Durable Timer loop** represents a recurring billing schedule as a self-transition, rather than a process that must remain in memory.
-- **Event-driven control plane** uses Channels for customer-initiated cancellation and operational price changes.
-- **Durable state** keeps the customer and billing counter in Attributes, so each branch reads the current plan rather than retaining mutable Worker memory.
-- **Force completion** makes cancellation and end-of-subscription terminal decisions that stop sibling waits.
+- **扇出并发** 从一个初始化 Step 独立启动计费、取消和价格控制职责。
+- **持久 Timer 循环** 用自迁移表达周期计费计划，而不是依赖常驻内存的进程。
+- **事件驱动控制面** 用 Channel 处理客户发起的取消和运营发起的价格调整。
+- **持久状态** 将客户和计费计数器保存在 Attribute 中，使每个分支读取当前计划，而不是保留可变的 Worker 内存。
+- **强制完成** 让取消和订阅结束成为停止 sibling 等待的终态决定。
 
-The Rust example has the same durable state, billing loop, and control branch. Its public update and cancel RPCs publish commands to its internal Channel, while the other SDK examples publish directly to Channels.
+Rust 示例拥有同样的持久状态、计费循环和控制分支。它的公开金额更新和取消 RPC 会向内部 Channel 发布命令；其他 SDK 示例直接向 Channel 发布。
 
-## Core implementation
+## 核心实现
 
-Each tab contains the runnable Flow implementation: its signature, Step topology, persistence schema, and read RPC. The linked examples also contain the request model, dependency service, HTTP controller, and end-to-end test.
+每个标签页都包含可运行的 Flow 实现：签名、Step 拓扑、持久化 schema 和读取 RPC。链接的示例还包含请求模型、依赖服务、HTTP controller 和端到端测试。
 
 <SdkTabs
   examples={{
@@ -305,16 +305,16 @@ impl Flow for SubscriptionFlow {
 </SdkSnippet>
 </SdkTabs>
 
-## Demo
+## 演示
 
-The completed Go run below stored the subscription, fanned out to **Trial**, **Cancel**, and **UpdateChargeAmount**, applied a price update, then completed through cancellation. Completed nodes are completed Step executions. Waiting nodes show the durable condition that was still active when cancellation closed the Flow.
+下方完成的 Go 运行存储了订阅，扇出 **Trial**、**Cancel** 和 **UpdateChargeAmount**，应用价格更新，然后通过取消完成。已完成节点是已完成的 Step execution；等待节点展示了取消关闭 Flow 时仍处于活动状态的持久条件。
 
-Open the image to inspect it at its native resolution.
+打开图片可按原始分辨率查看。
 
 <a href="/img/use-cases/subscription-step-execution-graph.jpg" target="_blank" rel="noreferrer">
   <img
     src="/img/use-cases/subscription-step-execution-graph.jpg"
-    alt="Completed SubscriptionFlow Step execution graph"
+    alt="已完成的 SubscriptionFlow Step execution graph"
     style={{ display: 'block', margin: '0 auto', maxWidth: '100%', width: '100%' }}
   />
 </a>
