@@ -21,17 +21,17 @@ public final class StreamMessage<T> {
     private final T value;
     private final String resumeToken;
     private final Instant createdTime;
-    private final String idempotencyKey;
+    private final String source;
 
     StreamMessage(
             final T value,
             final String resumeToken,
             final Instant createdTime,
-            final String idempotencyKey) {
+            final String source) {
         this.value = value;
         this.resumeToken = resumeToken;
         this.createdTime = createdTime;
-        this.idempotencyKey = idempotencyKey;
+        this.source = source;
     }
 
     /**
@@ -62,11 +62,14 @@ public final class StreamMessage<T> {
     }
 
     /**
-     * Returns the producer idempotency key.
+     * Returns the producer metadata supplied when the message was appended.
      *
-     * @return the client or generated Step key
+     * <p>Step writes use {@code #<stepExecutionID>}. Client writes use the source supplied to
+     * {@link Client#writeStream}. Sources are not unique and carry no deduplication semantics.
+     *
+     * @return the message source
      */
-    public String getIdempotencyKey() {
-        return idempotencyKey;
+    public String getSource() {
+        return source;
     }
 }

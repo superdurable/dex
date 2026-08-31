@@ -76,6 +76,49 @@ activities share maximum attempts, total duration, and 1-based attempt numbers.
 Fallback starts immediately; later regular retries continue the backoff
 sequence at the cumulative attempt.
 
+Dex defaults Step methods to SYNC durability, a four-hour retry duration, a
+two-hour regular attempt timeout, and a one-minute heartbeat timeout. A Step
+method durability override wins over `FlowConfig.stepDurability(...)`, which
+wins over SYNC. Failure policies do not change that order. ASYNC first uses a
+local activity for at most seven seconds and three attempts; the local phase
+ignores method and heartbeat timeouts before regular-activity fallback.
+
+### Step progress and Streams
+
+Dex does not heartbeat a Step automatically. Long-running handlers should emit
+progress before the configured heartbeat timeout:
+
+```java
+@Override
+public StepDecision execute(Context context, Batch batch) {
+    int start = context.hasLastHeartbeatValue()
+            ? context.getLastHeartbeatValue(Integer.class)
+            : 0;
+    for (int index = start; index < batch.items().size(); index++) {
+        process(batch.items().get(index));
+        context.recordHeartbeat(index + 1);
+        progress.write(context, "processed " + (index + 1));
+    }
+    return StepDecision.gracefulComplete();
+}
+```
+
+`recordHeartbeat(value)` persists a nonnull checkpoint for a later regular
+activity attempt. `recordHeartbeat(null)` sends a heartbeat without details and
+clears the current checkpoint. ASYNC local activities ignore heartbeat frames.
+A Stream write is an implicit heartbeat that preserves the latest explicit
+heartbeat details.
+
+Step Stream writes travel on the Worker response stream and are fire-and-forget.
+One handler may write the same Stream any number of times. Dex assigns
+`#<stepExecutionID>` as source metadata. Storage rejection does not fail the
+handler, although local validation, serialization, and Worker transport errors
+can still fail it.
+
+`Client.writeStream(flowId, stream, source, value)` appends on every call.
+Sources are required metadata, may repeat, and may contain `#`. Read them with
+`StreamMessage.getSource()`; they do not provide deduplication.
+
 ### Soft Flow timeout
 
 Override `Flow.handleTimeout` to make a positive timeout use handler policy by

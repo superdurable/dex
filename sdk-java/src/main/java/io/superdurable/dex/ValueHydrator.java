@@ -88,12 +88,19 @@ final class ValueHydrator {
     InvokeWaitForMethodRequest hydrate(final InvokeWaitForMethodRequest request) {
         final List<Value> source = new ArrayList<Value>();
         source.add(request.getStepInput());
+        if (request.getContext().hasLastHeartbeatValue()) {
+            source.add(request.getContext().getLastHeartbeatValue());
+        }
         addValues(source, request.getAttributesList());
         final List<Value> hydrated = hydrateAll(source);
         int index = 0;
         final InvokeWaitForMethodRequest.Builder builder = request.toBuilder()
                 .setStepInput(hydrated.get(index++))
                 .clearAttributes();
+        if (request.getContext().hasLastHeartbeatValue()) {
+            builder.setContext(request.getContext().toBuilder()
+                    .setLastHeartbeatValue(hydrated.get(index++)));
+        }
         for (KV entry : request.getAttributesList()) {
             builder.addAttributes(entry.toBuilder().setValue(hydrated.get(index++)));
         }
@@ -104,6 +111,9 @@ final class ValueHydrator {
         final List<Value> source = new ArrayList<Value>();
         if (request.hasStepInput()) {
             source.add(request.getStepInput());
+        }
+        if (request.getContext().hasLastHeartbeatValue()) {
+            source.add(request.getContext().getLastHeartbeatValue());
         }
         addValues(source, request.getAttributesList());
         addValues(source, request.getStepExeLocalsList());
@@ -119,6 +129,10 @@ final class ValueHydrator {
                 .clearStepExeLocals();
         if (request.hasStepInput()) {
             builder.setStepInput(hydrated.get(index++));
+        }
+        if (request.getContext().hasLastHeartbeatValue()) {
+            builder.setContext(request.getContext().toBuilder()
+                    .setLastHeartbeatValue(hydrated.get(index++)));
         }
         for (KV entry : request.getAttributesList()) {
             builder.addAttributes(entry.toBuilder().setValue(hydrated.get(index++)));

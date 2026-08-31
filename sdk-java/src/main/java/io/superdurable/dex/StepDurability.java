@@ -25,24 +25,14 @@ package io.superdurable.dex;
  * it closes the asynchronous result-loss window. It does not provide exactly-once execution, so Step
  * methods must still be safe to retry.
  *
- * <p>The server default for ordinary Step methods is {@link #ASYNC}. Use
- * {@link FlowConfig.Builder#stepDurability} to change the default for a Flow. Use
+ * <p>The server default for Step methods is {@link #SYNC}. Use
+ * {@link FlowConfig.Builder#stepDurability} to override the default for a Flow. Use
  * {@link StepOptions.Builder#waitForDurability} or
  * {@link StepOptions.Builder#executeDurability} to override one method on a specific Step; these
  * method-level choices take precedence over the Flow configuration.
  *
- * <p>Failure policies use a safer server default. When
- * {@link StepOptions.Builder#waitForFailure} allows execution to proceed after a wait-for failure,
- * or {@link StepOptions.Builder#onExecuteFailureProceedTo} routes an execute failure to a recovery
- * Step, Dex defaults to {@link #SYNC} for the affected method. A Flow-wide durability setting does not
- * override that server choice. The application may still select {@link #ASYNC} explicitly in the
- * relevant {@link StepOptions} when its business semantics accept the replay risk.
- *
- * <p>With asynchronous persistence on a failure-policy path, an extreme failure after execution or
- * recovery has begun can cause Dex to resume from the earlier method and invoke it again. That replay
- * is often harmless for idempotent Steps, but it may violate business expectations after recovery
- * logic has already run. Requiring a method-level override makes this tradeoff an explicit application
- * decision rather than an accidental consequence of the Flow default.
+ * <p>Wait-for and execute failure policies do not change this precedence. A Flow-wide asynchronous
+ * default therefore applies to methods with failure policies unless the Step method overrides it.
  *
  * <pre>{@code
  * FlowConfig fastByDefault = FlowConfig.newBuilder()
@@ -61,12 +51,10 @@ package io.superdurable.dex;
  */
 public enum StepDurability {
     /**
-     * Uses the applicable Flow configuration or the server's failure-policy safety choice.
+     * Uses the applicable Flow configuration or the synchronous server default.
      *
-     * <p>For an ordinary Step method with no Flow-level override, this resolves to the server default,
-     * which is {@link #ASYNC}. For a method using a proceed-on-failure policy, Dex instead defaults to
-     * {@link #SYNC}; only an explicit method-level choice in {@link StepOptions} overrides that safety
-     * choice.
+     * <p>A method-level DEFAULT defers to {@link FlowConfig}. Without a Flow override, it resolves to
+     * {@link #SYNC}. Failure policies do not change the result.
      */
     DEFAULT,
 
@@ -82,9 +70,10 @@ public enum StepDurability {
     /**
      * Allows Dex to advance before the completed method result is durably recorded.
      *
-     * <p>This is the server default. It lowers latency and improves server throughput through batched
-     * persistence, while accepting that an extreme failure may lose an unpersisted result and cause
-     * the Step method to execute again.
+     * <p>This lowers latency and improves server throughput through batched persistence, while
+     * accepting that an extreme failure may lose an unpersisted result and cause the Step method to
+     * execute again. Dex first uses a local activity for at most seven seconds and three attempts,
+     * then falls back to a regular activity using the remaining retry budget.
      */
     ASYNC
 }
