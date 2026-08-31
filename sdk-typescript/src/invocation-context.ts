@@ -7,9 +7,8 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import type { Codec } from "./codec.js";
-import { FlowServiceClient, type WriteStreamRequest } from "./gen/dex.js";
 import { mapAttributeStoreSync } from "./attribute-store-sync.js";
-import type { Context } from "./context.js";
+import type { AsyncContext } from "./context.js";
 import {
   ConditionStatus,
   IndexType as ProtoIndexType,
@@ -20,19 +19,25 @@ import {
   type Context as ProtoContext,
   type IndexConfig,
   type KV,
+  type StepStreamWrite,
   type Value,
 } from "./gen/dex.js";
 import { requireFlowStream, type RegisteredFlow } from "./flow.js";
 import { createFlowResultFromProto, type FlowResult } from "./flow-result.js";
 import { AttributeMap, IndexType, type Attribute } from "./persistence.js";
-import { decodeValue, deletionValue, encodeValue } from "./value-mapper.js";
+import { codecOrJson, decodeValue, deletionValue, encodeValue } from "./value-mapper.js";
 import { requireName } from "./validation.js";
 import { ChannelMap, type Channel } from "./wait.js";
 import type { Stream } from "./stream.js";
 
 export type InvocationMethod = "waitFor" | "execute" | "rpc";
 
-export class InvocationContext implements Context {
+export interface StepOutputEmitter {
+  recordHeartbeat(value: Value | undefined): Promise<void>;
+  writeStream(write: StepStreamWrite): void;
+}
+
+export class InvocationContext implements AsyncContext {
   public readonly flowId: string;
   public readonly runId: string;
   public readonly flowStartedAt: Date;
@@ -50,18 +55,18 @@ export class InvocationContext implements Context {
   private readonly events: KV[] = [];
   private readonly eventNames = new Set<string>();
   private readonly publications: ChannelMessage[] = [];
-  private readonly streamWrites = new Set<Stream<unknown>>();
+  private readonly lastHeartbeatValue: Value | undefined;
 
   public constructor(
     private readonly method: InvocationMethod,
     private readonly flow: RegisteredFlow,
-    private readonly flowService: InstanceType<typeof FlowServiceClient>,
     metadata: ProtoContext | undefined,
     attributes: readonly KV[],
     locals: readonly KV[] = [],
     private readonly conditionResults?: ConditionResults,
     channelInfos: Readonly<Record<string, ChannelInfo>> = {},
     cancellationSignal: AbortSignal = new AbortController().signal,
+    private readonly stepOutput?: StepOutputEmitter,
   ) {
     if (metadata === undefined) {
       throw new TypeError("Worker request Context is required");
@@ -73,34 +78,43 @@ export class InvocationContext implements Context {
     this.fromStepExecutionId = metadata.fromStepExecutionId;
     this.firstAttemptAt = secondsDate(metadata.firstAttemptTimestamp);
     this.attempt = metadata.attempt;
+    this.lastHeartbeatValue = metadata.lastHeartbeatValue;
     this.cancellationSignal = cancellationSignal;
     this.attributes = mapValues("Attribute", attributes);
     this.locals = mapValues("step-execution local", locals);
     this.channelInfos = new Map(Object.entries(channelInfos));
   }
 
-  public async writeStream<T>(stream: Stream<T>, value: T): Promise<void> {
-    if (this.method === "rpc") {
+  public hasLastHeartbeatValue(): boolean {
+    return this.lastHeartbeatValue !== undefined;
+  }
+
+  public getLastHeartbeatValue<T = unknown>(codec?: Codec<T>): T | undefined {
+    if (this.lastHeartbeatValue === undefined) {
+      return undefined;
+    }
+    return decodeValue(codecOrJson(codec), this.lastHeartbeatValue);
+  }
+
+  public recordHeartbeat<T>(value: T | undefined, codec?: Codec<T>): Promise<void> {
+    if (this.stepOutput === undefined) {
+      throw new TypeError("Heartbeats require an async Step Context");
+    }
+    return this.stepOutput.recordHeartbeat(
+      value === undefined ? undefined : encodeValue(codecOrJson(codec), value),
+    );
+  }
+
+  public writeStream<T>(stream: Stream<T>, value: T): void {
+    if (this.stepOutput === undefined) {
       throw new TypeError("Stream writes require a Step Context");
     }
     requireFlowStream(this.flow, stream as Stream<unknown>);
-    if (this.streamWrites.has(stream as Stream<unknown>)) {
-      throw new TypeError(`Stream ${stream.name} was already written by this Step execution`);
-    }
-    this.streamWrites.add(stream as Stream<unknown>);
-    try {
-      await writeStream(this.flowService, {
-        flowId: this.flowId,
-        flowType: this.flow.name,
-        streamName: stream.name,
-        streamCapacityBytes: BigInt(stream.streamCapacityBytes),
-        value: encodeValue(stream.codec, value),
-        idempotencyKey: `${this.runId}#${this.stepExecutionId}`,
-      });
-    } catch (failure) {
-      this.streamWrites.delete(stream as Stream<unknown>);
-      throw failure;
-    }
+    this.stepOutput.writeStream({
+      streamName: stream.name,
+      streamCapacityBytes: BigInt(stream.streamCapacityBytes),
+      value: encodeValue(stream.codec, value),
+    });
   }
 
   public hasTimerFired(index?: number): boolean {
@@ -296,21 +310,6 @@ export class InvocationContext implements Context {
       throw new TypeError(`persistence definition does not belong to Flow: ${definition.name}`);
     }
   }
-}
-
-function writeStream(
-  service: InstanceType<typeof FlowServiceClient>,
-  request: WriteStreamRequest,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    service.writeStream(request, (error) => {
-      if (error !== null) {
-        reject(error);
-        return;
-      }
-      resolve();
-    });
-  });
 }
 
 function definitionName(

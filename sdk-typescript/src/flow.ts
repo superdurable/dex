@@ -110,7 +110,7 @@ export class Registry {
 
 export interface RegisteredStep {
   readonly name: string;
-  readonly step: Step<unknown>;
+  readonly step: Step<any>;
   readonly isStartStep: boolean;
 }
 
@@ -223,7 +223,7 @@ function flowType(flow: Flow<any>): string {
   }
 }
 
-function stepType(flowName: string, step: Step<unknown>): string {
+function stepType(flowName: string, step: Step<any>): string {
   if (typeof step.getStepType !== "function") {
     throw new FlowDefinitionError(`Flow ${flowName} Step must implement getStepType`);
   }

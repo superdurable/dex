@@ -22,7 +22,7 @@ import {
 } from "../../src/index.js";
 import { AbnormalExitFlow } from "./abnormal_exit_flow.js";
 import { BasicFlow } from "./basic_flow.js";
-import { flowId, withEnvironment } from "./environment.js";
+import { flowId, skipTimerWhenPending, withEnvironment } from "./environment.js";
 import {
   AllSubFlowParent,
   AnySubFlowParent,
@@ -108,7 +108,8 @@ test("SubFlow partial results survive continue-as-new without restart", async ()
     });
     await awaitDifferentRun(client, id, firstParentRunId);
     const completedRunId = (await client.describeFlow(completedId)).runId;
-    await client.skipTimer(
+    await skipTimerWhenPending(
+      client,
       delayedId,
       StepExecutionId.of("TimerStep"),
       TimerId.byConditionId("test-timer-id"),
@@ -133,7 +134,8 @@ async function assertRunningReuse(
     await client.timeTravel(id, { type: TimeTravelType.BEGINNING, reason: "verify SubFlow running reuse" });
     const activeRunId = await awaitRunning(client, childId, expectsRestart ? firstRunId : undefined);
     assert.equal(activeRunId !== firstRunId, expectsRestart);
-    await client.skipTimer(
+    await skipTimerWhenPending(
+      client,
       childId,
       StepExecutionId.of("TimerStep"),
       TimerId.byConditionId("test-timer-id"),

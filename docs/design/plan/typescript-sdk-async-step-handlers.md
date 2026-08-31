@@ -1,7 +1,7 @@
 # TypeScript SDK: async Step / RPC handlers
 
-Status: proposed
-Audience: implement in a separate worktree (SDK change first, then simplify `examples/typescript`)
+Status: implemented in the SDK; examples cleanup remains separate
+Audience: SDK and examples maintainers
 
 ## Problem
 
@@ -47,6 +47,11 @@ Allow handlers to return a value or a Promise of that value:
 | RPC method body | sync result / `RPCResult` | same, or `Promise` of same |
 
 Keep existing sync handlers valid (no migration required).
+
+Progress-capable Step handlers use `AsyncContext` and must return a Promise.
+`Context` handlers remain valid for synchronous or Promise-returning logic that
+does not record heartbeats. RPC and Flow timeout handlers continue to receive
+`Context` only.
 
 ### Runtime
 

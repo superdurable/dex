@@ -174,7 +174,52 @@ Synchronous handlers stay valid — returning a plain `StepDecision` / `Wait` /
 - A long `await client.waitForFlow(...)` holds the current WorkerService call
   until it resolves or times out. Prefer a short timeout plus Step retry (or a
   timer-backed re-check) over one unbounded poll. `executeMethodTimeoutMs` /
-  `waitForMethodTimeoutMs` clock the full async handler duration.
+`waitForMethodTimeoutMs` clock the full async handler duration.
+
+### Step progress and Streams
+
+Annotate a Promise-returning Step handler with `AsyncContext` when it needs to
+record progress. The heartbeat value argument is required. Passing `undefined`
+explicitly sends a heartbeat without a Value and clears previously persisted
+heartbeat details. Passing `null` sends a present JSON-null Value.
+
+```typescript
+async execute(context: AsyncContext, input: ImportInput): Promise<StepDecision> {
+  const restored = context.hasLastHeartbeatValue()
+    ? context.getLastHeartbeatValue(importCheckpointCodec)
+    : undefined;
+
+  for await (const page of remainingPages(restored)) {
+    importedRows.write(context, page.rows);
+    await context.recordHeartbeat(page.checkpoint, importCheckpointCodec);
+  }
+  return gracefulComplete();
+}
+```
+
+Omitting the heartbeat codec uses JSON. Read a restored value with the same
+codec used to record it. `hasLastHeartbeatValue()` distinguishes an absent Value
+from a present JSON-null Value; both decode to `undefined`.
+
+`Stream.write(context, value)` is synchronous and fire-and-forget. It validates
+and encodes locally, then writes a frame to the current WaitFor or Execute gRPC
+response stream. A handler may write any number of messages to the same or
+different Streams. Dex attempts each append in call order, but Stream Store
+failures are not returned to the handler. RPC and Flow timeout Contexts reject
+Step Stream writes.
+
+External writes use `client.writeStream(flowId, stream, source, value)`. Source
+must be non-empty, may contain `#`, and may repeat; every write appends a new
+message. `Client.readStream` returns it as `StreamMessage.source`. Step writes
+use `#<stepExecutionID>` as source metadata.
+
+Step durability defaults to the Flow configuration and then sync. Regular
+attempts default to two hours, heartbeat timeout defaults to one minute, and
+retry total duration defaults to four hours. The SDK accepts non-negative
+whole-second heartbeat timeout values, including two seconds, and leaves the
+deployment-configured minimum to Dex Server. Async durability first uses a
+seven-second local-activity window with at most three attempts; that phase
+ignores method timeouts and heartbeats but still writes Stream messages.
 
 Every TypeScript Flow and Step must return an explicit durable name from
 `getFlowType()` or `getStepType()`. Class names are never used as fallbacks
