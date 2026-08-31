@@ -21,11 +21,6 @@ import pytest
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.products.job_post.job_info import JobInfo
-from dex_examples.products.shortlist_candidates import workflow_ids
-from dex_examples.products.shortlist_candidates.employer_opt_in_input import (
-    EmployerOptInInput,
-)
-from dex_examples.products.shortlist_candidates.shortlist_input import ShortlistInput
 from dex_examples.products.signup.signup_form import SignupForm
 from tests.integ.conftest import WAIT_TIMEOUT
 
@@ -124,31 +119,3 @@ async def test_job_posting_create_read_and_update_both_job_boards(
     )
     updated = await client.invoke_rpc(app.job_post.get, flow_id)
     assert updated == newest
-
-
-async def test_shortlist_opt_in_and_revoke(
-    app: ExampleApp,
-    client: AsyncClient,
-    new_flow_id: Callable[[str], str],
-) -> None:
-    employer_id = new_flow_id("employer")
-    candidate_id = new_flow_id("candidate")
-    opt_in_id = workflow_ids.employer_opt_in(employer_id)
-    shortlist_id = workflow_ids.shortlist(employer_id, candidate_id)
-
-    await client.start_flow(
-        app.employer_opt_in,
-        opt_in_id,
-        EmployerOptInInput(employer_id),
-        start_options(),
-    )
-    assert await client.invoke_rpc(app.employer_opt_in.is_opted_in, opt_in_id) is True
-
-    await client.start_flow(
-        app.shortlist,
-        shortlist_id,
-        ShortlistInput(employer_id, candidate_id),
-        start_options(),
-    )
-    await client.publish(shortlist_id, app.shortlist.revoke_shortlist, None)
-    await client.wait_for_flow(shortlist_id, timeout=WAIT_TIMEOUT)

@@ -67,7 +67,6 @@ import (
 	"github.com/superdurable/dex/examples/go/products/microservices"
 	"github.com/superdurable/dex/examples/go/products/money-transfer"
 	"github.com/superdurable/dex/examples/go/products/order-processing"
-	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
 	"github.com/superdurable/dex/examples/go/products/signup"
 	"github.com/superdurable/dex/examples/go/products/subscription"
 	"github.com/superdurable/dex/examples/go/registry"
@@ -165,12 +164,6 @@ func NewRouter(client *sdk.Client) http.Handler {
 	orderprocessing.RegisterRoutes(router, client, registry.OrderProcessing)
 	signup.RegisterRoutes(router, client, registry.UserOnboarding)
 	jobpost.RegisterRoutes(router, client, registry.JobPosting)
-	shortlistcandidates.RegisterRoutes(
-		router,
-		client,
-		registry.EmployerOptIn,
-		registry.Shortlist,
-	)
 	patternspolling.RegisterRoutes(router, client, registry.PollingWithTimer, registry.BackoffPolling, registry.Iteration)
 	interruptible.RegisterRoutes(router, client, registry.Interruptible)
 	reminders.RegisterRoutes(router, client, registry.Reminder)

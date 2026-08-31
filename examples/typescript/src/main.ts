@@ -56,7 +56,6 @@ import { createJobPostingRouter } from "./products/job-post/controller.js";
 import { createMicroserviceRouter } from "./products/microservices/controller.js";
 import { createMoneyTransferRouter } from "./products/money-transfer/controller.js";
 import { createOrderProcessingRouter } from "./products/order-processing/controller.js";
-import { createShortlistCandidatesRouter } from "./products/shortlist-candidates/controller.js";
 import { createSignupRouter } from "./products/signup/controller.js";
 import { createSubscriptionRouter } from "./products/subscription/controller.js";
 import { createExampleRegistry, orderProcessingFlow } from "./registry.js";
@@ -99,7 +98,6 @@ export async function startSampleServer(): Promise<SampleServer> {
   app.use("/products/subscription", createSubscriptionRouter(client));
   app.use("/products/signup", createSignupRouter(client));
   app.use("/products/job-post", createJobPostingRouter(client));
-  app.use("/products/shortlist-candidates", createShortlistCandidatesRouter(client));
   app.use("/patterns/polling", createPatternPollingRouter(client));
   app.use("/patterns/interruptible", createInterruptibleRouter(client));
   app.use("/patterns/reminders", createRemindersRouter(client));

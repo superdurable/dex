@@ -103,9 +103,6 @@ from dex_examples.products.job_post.job_post_flow import JobPostingFlow
 from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
 from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransferFlow
 from dex_examples.products.order_processing.order_processing_flow import OrderProcessingFlow
-from dex_examples.products.shortlist_candidates.employer_opt_in_flow import EmployerOptInFlow
-from dex_examples.products.shortlist_candidates.shortlist_flow import ShortlistFlow
-from dex_examples.products.shortlist_candidates.workflow_ids import ClientOptInChecker
 from dex_examples.products.signup.user_signup_flow import UserOnboardingFlow
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
 from dex_examples.shared.my_dependency_service import MyDependencyService
@@ -127,11 +124,6 @@ class ExampleApp:
         self.subscription = SubscriptionFlow(service)
         self.user_onboarding = UserOnboardingFlow(service)
         self.job_post = JobPostingFlow(service)
-        self.employer_opt_in = EmployerOptInFlow()
-        self.shortlist = ShortlistFlow(
-            service,
-            ClientOptInChecker(client_provider, self.employer_opt_in),
-        )
 
         self.cron_schedule = CronScheduleFlow()
         self.drain_internal = DrainInternalChannelFlow(pattern_service)
@@ -198,8 +190,6 @@ class ExampleApp:
             self.subscription,
             self.user_onboarding,
             self.job_post,
-            self.employer_opt_in,
-            self.shortlist,
             self.cron_schedule,
             self.drain_internal,
             self.drain_external,

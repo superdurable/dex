@@ -48,8 +48,6 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | Subscription | [`SubscriptionFlow`](src/products/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
 | User onboarding process | [`UserOnboardingFlow`](src/products/signup/flow.rs) | Email verification and two ordered tasks with durable reminders |
 | Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Locked, versioned RPC updates feeding independent FIFO LinkedIn and Indeed Channel consumers |
-| Shortlist candidates: employer opt-in | [`EmployerOptInFlow`](src/products/shortlist_candidates.rs) | Long-running opt-in state and opt-out Channel |
-| Shortlist candidates: shortlist | [`ShortlistFlow`](src/products/shortlist_candidates.rs) | Scheduled contact or revoke race |
 
 ## Patterns
 
@@ -93,7 +91,7 @@ make test
 ./run-integration-tests.sh
 ```
 
-The catalog integration test constructs every Flow, checks the exact 9 + 23
+The catalog integration test constructs every Flow, checks the exact 7 + 23
 mapping, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 

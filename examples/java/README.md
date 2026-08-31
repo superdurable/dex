@@ -64,7 +64,6 @@ after E2E tests for manual HTTP exploration.
 - [Subscription](./src/main/java/io/superdurable/dex/products/subscription)
 - [User onboarding process](./src/main/java/io/superdurable/dex/products/signup)
 - [Job posting](./src/main/java/io/superdurable/dex/products/jobpost)
-- [Shortlist candidates](./src/main/java/io/superdurable/dex/products/shortlistcandidates)
 
 ## Patterns
 

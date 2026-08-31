@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/superdurable/dex/examples/go/patterns/entity-store"
-	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
 )
 
 func flowSmokeCatalog() []flowSmokeEntry {
@@ -120,46 +119,6 @@ func flowSmokeCatalog() []flowSmokeEntry {
 				return flowID, runID
 			},
 			flags: flowSmokeFlags{noStartStep: true},
-		},
-		{
-			name: "products/shortlist-candidates/employer-opt-in",
-			trigger: func(t *testing.T) (string, string) {
-				employerID := smokeWorkflowID(t, "employer")
-				body := map[string]string{"employerId": employerID}
-				triggerFlowSmokeHTTPWithBody(
-					t,
-					http.MethodPost,
-					"/products/shortlist-candidates/opt_in",
-					nil,
-					body,
-				)
-				return shortlistcandidates.EmployerOptInFlowID(employerID), ""
-			},
-		},
-		{
-			name: "products/shortlist-candidates/shortlist",
-			trigger: func(t *testing.T) (string, string) {
-				employerID := smokeWorkflowID(t, "shortlist-employer")
-				candidateID := smokeWorkflowID(t, "candidate")
-				triggerFlowSmokeHTTP(
-					t,
-					http.MethodPost,
-					"/products/shortlist-candidates/opt_in",
-					nil,
-					map[string]string{"employerId": employerID},
-				)
-				triggerFlowSmokeHTTPWithBody(
-					t,
-					http.MethodPost,
-					"/products/shortlist-candidates/shortlist",
-					nil,
-					map[string]string{
-						"employerId":  employerID,
-						"candidateId": candidateID,
-					},
-				)
-				return shortlistcandidates.ShortlistFlowID(employerID, candidateID), ""
-			},
 		},
 		{
 			name: "patterns/polling/timer",

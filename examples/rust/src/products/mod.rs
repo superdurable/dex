@@ -17,7 +17,6 @@ pub mod job_post;
 pub mod microservices;
 pub mod money_transfer;
 pub mod order_processing;
-pub mod shortlist_candidates;
 pub mod signup;
 pub mod subscription;
 
@@ -35,7 +34,5 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
         .register(engagement::EngagementFlow::default())?
         .register(subscription::SubscriptionFlow::default())?
         .register(signup::UserOnboardingFlow::default())?
-        .register(job_post::JobPostingFlow::default())?
-        .register(shortlist_candidates::EmployerOptInFlow::default())?
-        .register(shortlist_candidates::ShortlistFlow::default())
+        .register(job_post::JobPostingFlow::default())
 }

@@ -130,38 +130,6 @@ window.PLAYGROUND_CATALOG = [
   },
   {
     group: "products",
-    id: "shortlist-candidates",
-    title: "Shortlist candidates",
-    flowIdPrefix: "test-employer",
-    idParam: "employerId",
-    note: "Flow IDs are derived from employerId / candidateId. Rust also exposes GET /start.",
-    endpoints: [
-      endpoint("POST", "/products/shortlist-candidates/opt_in", "Opt in", [
-        body("employerId", { role: "flowId", default: "test-employer" }),
-      ]),
-      endpoint("POST", "/products/shortlist-candidates/opt_out", "Opt out", [
-        body("employerId", { role: "flowId", default: "test-employer" }),
-      ]),
-      endpoint("GET", "/products/shortlist-candidates/is_opted_in", "Is opted in", [
-        query("employerId", { role: "flowId", default: "test-employer" }),
-      ]),
-      endpoint("POST", "/products/shortlist-candidates/shortlist", "Shortlist", [
-        body("employerId", { role: "flowId", default: "test-employer" }),
-        body("candidateId", { default: "test-candidate" }),
-      ]),
-      endpoint("POST", "/products/shortlist-candidates/revoke_shortlist", "Revoke shortlist", [
-        body("employerId", { role: "flowId", default: "test-employer" }),
-        body("candidateId", { default: "test-candidate" }),
-      ]),
-      endpoint("GET", "/products/shortlist-candidates/email_sent_timestamp", "Email sent timestamp", [
-        query("employerId", { role: "flowId", default: "test-employer" }),
-        query("candidateId", { default: "test-candidate" }),
-      ]),
-      endpoint("GET", "/products/shortlist-candidates/start", "Start (Rust)", [flowId()]),
-    ],
-  },
-  {
-    group: "products",
     id: "signup",
     title: "User onboarding process",
     flowIdPrefix: "signup-user",

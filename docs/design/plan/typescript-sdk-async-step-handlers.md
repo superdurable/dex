@@ -75,7 +75,6 @@ In `examples/typescript`:
 3. Replace `startFlowSync` / `waitForFlowSync` / `invokeRpcSync` / `isOptedInSync` with `await client.*` in async Steps:
    - `patterns/workflow/parentchild/parent-flow-v2.ts`
    - `patterns/workflow/scalableparallel/{parent-flow,request-receiver-flow}.ts`
-   - `workflow/shortlistcandidates/{shortlist-flow,workflow-ids,is-opted-in-worker}.ts` (drop dedicated opt-in worker thread)
 4. Keep `npm run smoke` green with a **single** Worker bind address.
 
 Depend on a published or workspace `@superdurable/dex` that includes async handlers (bump examples package accordingly).
@@ -93,7 +92,7 @@ Do not block the async-handler work on that.
 - Sync bridge: `examples/typescript/src/patterns/client-sync.ts` (`Atomics.wait` + `worker_threads`)
 - Async Client thread: `examples/typescript/src/patterns/dex-sync-worker.ts`
 - Sidecar Worker wiring: `examples/typescript/src/main.ts` (`syncWorker` + `setClient(client, syncWorker.workerTarget)`)
-- Call sites: parent–child, scalable parallel, shortlist `isOptedInSync`
+- Call sites: parent–child, scalable parallel
 
 ## Tests
 
@@ -107,7 +106,7 @@ SDK integ (`sdk-typescript/test/integ/`), against a running Dex:
 
 Examples (after cleanup):
 
-6. **Smoke / integ** — `npm run test:integ` and `npm run smoke` with one Worker; parentchild + scalableparallel + shortlist paths must pass.
+6. **Smoke / integ** — `npm run test:integ` and `npm run smoke` with one Worker; parentchild + scalableparallel paths must pass.
 
 Do not add unit tests unless an edge case cannot be hit via integ.
 

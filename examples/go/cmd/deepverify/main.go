@@ -46,7 +46,6 @@ import (
 	"github.com/superdurable/dex/examples/go/products/job-post"
 	"github.com/superdurable/dex/examples/go/products/microservices"
 	"github.com/superdurable/dex/examples/go/products/money-transfer"
-	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
 	"github.com/superdurable/dex/examples/go/products/signup"
 	"github.com/superdurable/dex/examples/go/products/subscription"
 	"github.com/superdurable/dex/examples/go/registry"
@@ -102,20 +101,7 @@ func main() {
 	}
 
 	// Long-running flows first so their timers overlap with shorter scenarios.
-	var shortlistID, resetID string
-	if want("shortlist/email-path-start") || want("product/shortlist-email") {
-		id, startErr := startShortlistEmailPath(ctx, client, stamp)
-		if startErr != nil {
-			record(result{name: "shortlist/email-path-start", ok: false, err: startErr})
-		} else {
-			shortlistID = id
-			record(result{
-				name:    "shortlist/email-path-start",
-				ok:      true,
-				details: "flowID=" + shortlistID + " (waiting 5m for email)",
-			})
-		}
-	}
+	var resetID string
 	if want("inactivenesstracker/start+activity") || want("pattern/inactivenesstracker-fire") {
 		id, startErr := startInactivenessTrackerPath(ctx, client, stamp)
 		if startErr != nil {
@@ -133,9 +119,6 @@ func main() {
 	runProductScenarios(ctx, client, stamp, record, want)
 	runPatternScenarios(ctx, client, stamp, record, want)
 
-	if shortlistID != "" && want("product/shortlist-email") {
-		record(waitShortlistEmail(ctx, client, shortlistID))
-	}
 	if resetID != "" && want("pattern/inactivenesstracker-fire") {
 		record(waitInactivenessTracker(ctx, client, resetID))
 	}
@@ -212,7 +195,6 @@ func runProductScenarios(
 		{"product/subscription", func() result { return verifySubscription(ctx, client, stamp) }},
 		{"product/signup", func() result { return verifySignup(ctx, client, stamp) }},
 		{"product/jobpost", func() result { return verifyJobPost(ctx, client, stamp) }},
-		{"product/shortlist-revoke", func() result { return verifyShortlistRevoke(ctx, client, stamp) }},
 	}
 	for _, item := range cases {
 		if want(item.name) {
@@ -604,122 +586,6 @@ func verifyJobPost(ctx context.Context, client *dex.Client, stamp string) result
 		return fail(name, "stop", err)
 	}
 	return pass(name, "create+get+update+search+stop")
-}
-
-func verifyShortlistRevoke(ctx context.Context, client *dex.Client, stamp string) result {
-	name := "product/shortlist-revoke"
-	employerID := "emp-revoke-" + stamp
-	candidateID := "cand-revoke-" + stamp
-	optInID := shortlistcandidates.EmployerOptInFlowID(employerID)
-	_, err := client.StartFlow(
-		ctx, registry.EmployerOptIn, optInID,
-		shortlistcandidates.EmployerOptInInput{EmployerID: employerID},
-		dex.StartFlowOptions{},
-	)
-	if err != nil {
-		return fail(name, "opt-in", err)
-	}
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		optedIn, checkErr := shortlistcandidates.IsOptedIn(
-			ctx, client, registry.EmployerOptIn, employerID,
-		)
-		if checkErr == nil && optedIn {
-			break
-		}
-		if time.Now().After(deadline) {
-			return fail(name, "isOptedIn", checkErr)
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	shortlistID := shortlistcandidates.ShortlistFlowID(employerID, candidateID)
-	_, err = client.StartFlow(
-		ctx, registry.Shortlist, shortlistID,
-		shortlistcandidates.ShortlistInput{EmployerID: employerID, CandidateID: candidateID},
-		dex.StartFlowOptions{},
-	)
-	if err != nil {
-		return fail(name, "shortlist start", err)
-	}
-	if err := client.PublishToChannel(
-		ctx, shortlistID, shortlistcandidates.RevokeShortlist, nil,
-	); err != nil {
-		return fail(name, "revoke", err)
-	}
-	wait, err := waitCompleted(ctx, client, shortlistID, 45*time.Second)
-	if err != nil {
-		return fail(name, "", err)
-	}
-	_ = wait
-	var emailTS int64
-	found, err := client.GetAttribute(
-		ctx, shortlistID, shortlistcandidates.ShortlistEmailSentTimestamp, &emailTS,
-	)
-	if err != nil {
-		return fail(name, "email timestamp", err)
-	}
-	if found && emailTS != 0 {
-		return fail(name, fmt.Sprintf("email should not send; ts=%d", emailTS), nil)
-	}
-	return pass(name, "opt-in + shortlist + revoke completed without email")
-}
-
-func startShortlistEmailPath(
-	ctx context.Context,
-	client *dex.Client,
-	stamp string,
-) (string, error) {
-	employerID := "emp-email-" + stamp
-	candidateID := "cand-email-" + stamp
-	optInID := shortlistcandidates.EmployerOptInFlowID(employerID)
-	_, err := client.StartFlow(
-		ctx, registry.EmployerOptIn, optInID,
-		shortlistcandidates.EmployerOptInInput{EmployerID: employerID},
-		dex.StartFlowOptions{},
-	)
-	if err != nil {
-		return "", err
-	}
-	deadline := time.Now().Add(20 * time.Second)
-	for {
-		optedIn, checkErr := shortlistcandidates.IsOptedIn(
-			ctx, client, registry.EmployerOptIn, employerID,
-		)
-		if checkErr == nil && optedIn {
-			break
-		}
-		if time.Now().After(deadline) {
-			if checkErr != nil {
-				return "", checkErr
-			}
-			return "", fmt.Errorf("employer not opted in")
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
-	shortlistID := shortlistcandidates.ShortlistFlowID(employerID, candidateID)
-	_, err = client.StartFlow(
-		ctx, registry.Shortlist, shortlistID,
-		shortlistcandidates.ShortlistInput{EmployerID: employerID, CandidateID: candidateID},
-		dex.StartFlowOptions{},
-	)
-	return shortlistID, err
-}
-
-func waitShortlistEmail(ctx context.Context, client *dex.Client, flowID string) result {
-	name := "product/shortlist-email"
-	wait, err := waitCompleted(ctx, client, flowID, 6*time.Minute)
-	if err != nil {
-		return fail(name, "", err)
-	}
-	_ = wait
-	var emailTS int64
-	found, err := client.GetAttribute(
-		ctx, flowID, shortlistcandidates.ShortlistEmailSentTimestamp, &emailTS,
-	)
-	if err != nil || !found || emailTS == 0 {
-		return fail(name, fmt.Sprintf("email ts found=%v ts=%d", found, emailTS), err)
-	}
-	return pass(name, fmt.Sprintf("email sent ts=%d after 5m timer", emailTS))
 }
 
 func startInactivenessTrackerPath(

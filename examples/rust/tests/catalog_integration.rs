@@ -36,14 +36,9 @@ use dex_examples_rust::patterns::{
     wait_for_step_completion::WaitForStepCompletionFlow,
 };
 use dex_examples_rust::products::{
-    engagement::EngagementFlow,
-    job_post::JobPostingFlow,
-    microservices::OrchestrationFlow,
-    money_transfer::MoneyTransferFlow,
-    order_processing::OrderProcessingFlow,
-    shortlist_candidates::{EmployerOptInFlow, ShortlistFlow},
-    signup::UserOnboardingFlow,
-    subscription::SubscriptionFlow,
+    engagement::EngagementFlow, job_post::JobPostingFlow, microservices::OrchestrationFlow,
+    money_transfer::MoneyTransferFlow, order_processing::OrderProcessingFlow,
+    signup::UserOnboardingFlow, subscription::SubscriptionFlow,
 };
 use dex_examples_rust::{PATTERN_FLOW_TYPES, PRODUCT_FLOW_TYPES, create_example_registry};
 use dex_sdk::Flow;
@@ -58,8 +53,6 @@ fn catalog_matches_every_cross_language_example() {
         SubscriptionFlow::default().flow_type(),
         UserOnboardingFlow::default().flow_type(),
         JobPostingFlow::default().flow_type(),
-        EmployerOptInFlow::default().flow_type(),
-        ShortlistFlow::default().flow_type(),
     ];
     let pattern_flows = [
         CronScheduleFlow::default().flow_type(),
@@ -89,16 +82,16 @@ fn catalog_matches_every_cross_language_example() {
 
     assert_eq!(product_flows, PRODUCT_FLOW_TYPES);
     assert_eq!(pattern_flows, PATTERN_FLOW_TYPES);
-    assert_eq!(product_flows.len() + pattern_flows.len(), 32);
+    assert_eq!(product_flows.len() + pattern_flows.len(), 30);
     assert_eq!(
         product_flows
             .into_iter()
             .chain(pattern_flows)
             .collect::<HashSet<_>>()
             .len(),
-        32
+        30
     );
-    create_example_registry().expect("all 32 example Flow definitions must register together");
+    create_example_registry().expect("all 30 example Flow definitions must register together");
 }
 
 #[test]

@@ -16,8 +16,6 @@
 
 package io.superdurable.dex.integ.smoke;
 
-import io.superdurable.dex.products.shortlistcandidates.WorkflowIds;
-
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,8 +55,6 @@ final class FlowSmokeCatalog {
                                 "title", "Smoke Test Job",
                                 "description", "Smoke test description"),
                         FlowSmokeFlags.noStartStep()),
-                shortlistOptIn(environment),
-                shortlist(environment),
                 FlowSmokeEntry.get(
                         "patterns/polling/timer",
                         "/patterns/polling/start/timer",
@@ -232,44 +228,6 @@ final class FlowSmokeCatalog {
         return Map.of(
                 "username", username,
                 "email", username + "@example.com");
-    }
-
-    private static FlowSmokeEntry shortlistOptIn(final FlowSmokeEnvironment environment) {
-        return FlowSmokeEntry.custom(
-                "products/shortlist-candidates/employer-opt-in",
-                FlowSmokeFlags.none(),
-                env -> {
-                    final String employerId = env.newFlowId("employer");
-                    final Map<String, String> body = Map.of("employerId", employerId);
-                    env.triggerHttp("POST", "/products/shortlist-candidates/opt_in", Map.of(), body);
-                    return new FlowSmokeTriggerResult(
-                            WorkflowIds.employerOptIn(employerId), "");
-                });
-    }
-
-    private static FlowSmokeEntry shortlist(final FlowSmokeEnvironment environment) {
-        return FlowSmokeEntry.custom(
-                "products/shortlist-candidates/shortlist",
-                FlowSmokeFlags.none(),
-                env -> {
-                    final String employerId = env.newFlowId("shortlist-employer");
-                    final String candidateId = env.newFlowId("candidate");
-                    env.triggerHttp(
-                            "POST",
-                            "/products/shortlist-candidates/opt_in",
-                            Map.of(),
-                            Map.of("employerId", employerId));
-                    final FlowSmokeTriggerResult result =
-                            env.triggerHttp(
-                                    "POST",
-                                    "/products/shortlist-candidates/shortlist",
-                                    Map.of(),
-                                    Map.of(
-                                            "employerId", employerId,
-                                            "candidateId", candidateId));
-                    return new FlowSmokeTriggerResult(
-                            WorkflowIds.shortlist(employerId, candidateId), result.runId);
-                });
     }
 
     private static FlowSmokeEntry entityStore(final FlowSmokeEnvironment environment) {

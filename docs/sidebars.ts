@@ -137,7 +137,6 @@ const sidebars: SidebarsConfig = {
         'use-cases/subscription',
         'use-cases/user-onboarding-process',
         'use-cases/job-post',
-        'use-cases/shortlist-candidates',
         'use-cases/dataset-deal',
         'use-cases/ai-agent-email',
       ],

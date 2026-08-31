@@ -24,10 +24,6 @@ import pytest_asyncio
 
 from dex_examples.app import ExampleApp
 from dex_examples.http_app import create_app
-from dex_examples.products.shortlist_candidates.workflow_ids import (
-    employer_opt_in,
-    shortlist,
-)
 from tests.integ.flow_smoke_helper import (
     FlowSmokeEntry,
     FlowSmokeFlags,
@@ -114,14 +110,6 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
                 {"title": "Smoke Test Job", "description": "Smoke test description"},
             ),
             flags=FlowSmokeFlags(no_start_step=True),
-        ),
-        FlowSmokeEntry(
-            "products/shortlist-candidates/employer-opt-in",
-            lambda c: _shortlist_opt_in_trigger(c, new_id),
-        ),
-        FlowSmokeEntry(
-            "products/shortlist-candidates/shortlist",
-            lambda c: _shortlist_trigger(c, new_id),
         ),
         FlowSmokeEntry(
             "products/ai-agent-email",
@@ -400,38 +388,6 @@ async def _signup_trigger(
     )
     parsed_flow_id, parsed_run_id = parse_flow_trigger_response(body, username)
     return parsed_flow_id or flow_id or username, parsed_run_id or run_id
-
-
-async def _shortlist_opt_in_trigger(
-    client: FlowSmokeHttpClient,
-    new_id: Callable[[str], str],
-) -> tuple[str, str]:
-    employer_id = new_id("employer")
-    _, _, body = await client.post(
-        "/products/shortlist-candidates/opt_in",
-        {"employerId": employer_id},
-    )
-    flow_id, run_id = parse_flow_trigger_response(body, employer_opt_in(employer_id))
-    return flow_id or employer_opt_in(employer_id), run_id
-
-
-async def _shortlist_trigger(
-    client: FlowSmokeHttpClient,
-    new_id: Callable[[str], str],
-) -> tuple[str, str]:
-    employer_id = new_id("shortlist-employer")
-    candidate_id = new_id("candidate")
-    await client.post(
-        "/products/shortlist-candidates/opt_in",
-        {"employerId": employer_id},
-    )
-    _, _, body = await client.post(
-        "/products/shortlist-candidates/shortlist",
-        {"employerId": employer_id, "candidateId": candidate_id},
-    )
-    expected_flow_id = shortlist(employer_id, candidate_id)
-    flow_id, run_id = parse_flow_trigger_response(body, expected_flow_id)
-    return flow_id or expected_flow_id, run_id
 
 
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:
