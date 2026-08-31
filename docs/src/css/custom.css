@@ -290,6 +290,18 @@ summary:focus-visible {
   transform: scaleX(1);
 }
 
+.external-arrow {
+  display: inline-block;
+  margin-left: 4px;
+  color: var(--cyan);
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.desktop-nav > a:hover .external-arrow,
+.desktop-nav > a:focus-visible .external-arrow {
+  transform: translate(2px, -2px) rotate(4deg);
+}
+
 .services-menu {
   position: relative;
 }
