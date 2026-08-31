@@ -14,30 +14,27 @@ const sitemap = await readFile(join(root, 'sitemap.xml'), 'utf8');
 
 assert.match(home, /Super Durable home/);
 assert.match(home, /https:\/\/superdurable\.io\/dex/);
-assert.match(home, />Docs</);
-assert.match(home, />Dex BYOC</);
-assert.match(home, /github-star-link/);
+assert.match(home, /https:\/\/github\.com\/superdurable/);
 assert.match(home, /Toggle color theme/);
 assert.match(home, />Book a call\s*</);
-assert.match(home, />Dex OSS</);
-assert.match(home, />Dex Cloud \/ BYOC</);
+assert.doesNotMatch(home, /github-star-link|github-star-stat/);
 
 const navbar = home.match(/<nav aria-label="Main"[\s\S]*?<\/nav><div role="presentation"/)?.[0] ?? '';
 assert.doesNotMatch(navbar, />Team</);
 assert.match(home, /footer-links[\s\S]*?>Team</);
 
 assert.doesNotMatch(home, /product-bar/);
-const docsMenu = home.match(/<nav class="desktop-nav"[\s\S]*?<\/nav>/)?.[0] ?? '';
-assert.match(docsMenu, />Docs</);
-assert.match(docsMenu, />Dex OSS</);
-assert.match(docsMenu, />Dex Cloud \/ BYOC</);
-assert.doesNotMatch(docsMenu, /Coming Soon/);
-assert.doesNotMatch(docsMenu, /iconExternalLink/);
-assert.match(docsMenu, />Dex BYOC</);
-assert.match(docsMenu, /https:\/\/superdurable\.io\/byoc/);
-assert.doesNotMatch(docsMenu, />Services</);
-assert.doesNotMatch(docsMenu, /consulting/i);
-assert.match(docsMenu, /Open-source Dex guides, concepts, and references/);
+const desktopNav = home.match(/<nav class="desktop-nav"[\s\S]*?<\/nav>/)?.[0] ?? '';
+assert.match(desktopNav, />Dex</);
+assert.match(desktopNav, />GitHub/);
+assert.match(desktopNav, /https:\/\/github\.com\/superdurable/);
+assert.doesNotMatch(desktopNav, /Docs|BYOC|Star Us|github-star-stat/);
+
+const footer = home.match(/<footer class="site-footer"[\s\S]*?<\/footer>/)?.[0] ?? '';
+assert.match(footer, />Dex</);
+assert.match(footer, />Team</);
+assert.match(footer, /Process-centric apps, powered by Dex/);
+assert.doesNotMatch(footer, />Docs<|BYOC|Star Us on GitHub/);
 assert.match(home, /English/);
 assert.match(home, /中文/);
 
@@ -69,4 +66,4 @@ await Promise.all([
   access(join(root, 'zh-Hans', 'quick-start', 'index.html')),
 ]);
 
-console.log('Docs shell, product navigation, cloud page, and representative routes passed smoke checks.');
+console.log('Docs shell, simplified product navigation, cloud page, and representative routes passed smoke checks.');
