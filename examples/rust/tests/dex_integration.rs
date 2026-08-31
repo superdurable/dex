@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -20,6 +21,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use dex_examples_rust::create_example_registry;
 use dex_examples_rust::patterns::recovery::FailureRecoveryFlow;
 use dex_examples_rust::primitives::stream::flow::{PROGRESS, StreamFlow};
+use dex_examples_rust::products::deal_dsl::{
+    DEAL_CONDITION_MESSAGES, DEAL_CURRENT_STATE, DealDSLFlow, example_deal_start,
+};
 use dex_examples_rust::products::engagement::{
     ENGAGEMENT_ACCEPT, ENGAGEMENT_DESCRIBE, EngagementFlow, EngagementRequest, EngagementStatus,
 };
@@ -181,6 +185,53 @@ fn money_transfer_completes_with_released_sdk() {
             .expect("describe completed Rust Money Transfer Flow")
             .status,
         FlowStatus::Completed
+    );
+}
+
+#[test]
+#[ignore = "requires dexcli dev"]
+fn deal_dsl_completes_an_item_purchase() {
+    let environment = DexEnvironment::start();
+    let flow = DealDSLFlow::default();
+    let flow_id = unique_flow_id("deal-dsl");
+    environment
+        .client
+        .start_flow(&flow, &flow_id, example_deal_start("buyer-1"))
+        .expect("start Rust Deal DSL Flow");
+    environment
+        .client
+        .wait_for_attribute_equal(
+            &flow_id,
+            &DEAL_CURRENT_STATE,
+            "negotiating".to_string(),
+            Duration::from_secs(30),
+        )
+        .expect("wait for Rust Deal DSL negotiation");
+    environment
+        .client
+        .publish_map(
+            &flow_id,
+            &DEAL_CONDITION_MESSAGES,
+            "buyer-decision",
+            [BTreeMap::from([(
+                "accepted".to_string(),
+                "true".to_string(),
+            )])],
+        )
+        .expect("accept Rust Deal DSL item purchase");
+    let output: BTreeMap<String, String> = environment
+        .client
+        .wait_for_flow_with_timeout(&flow_id, Duration::from_secs(30))
+        .expect("complete Rust Deal DSL Flow")
+        .single_output()
+        .expect("decode Rust Deal DSL output");
+    assert_eq!(
+        output.get("lastAction"),
+        Some(&"deliverItemToBuyer".to_string())
+    );
+    assert_eq!(
+        output.get("itemDeliveryStatus"),
+        Some(&"delivered".to_string())
     );
 }
 

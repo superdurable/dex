@@ -27,6 +27,7 @@ import io.superdurable.dex.Worker;
 import io.superdurable.dex.WorkerOptions;
 import io.superdurable.dex.shared.MyDependencyService;
 import io.superdurable.dex.products.engagement.EngagementFlow;
+import io.superdurable.dex.products.dealdsl.DealDSLFlow;
 import io.superdurable.dex.products.jobpost.JobPostingFlow;
 import io.superdurable.dex.products.microservices.OrchestrationFlow;
 import io.superdurable.dex.products.moneytransfer.MoneyTransferFlow;
@@ -64,6 +65,7 @@ final class IntegEnvironment implements AutoCloseable {
     private final MoneyTransferFlow moneyTransferFlow;
     private final OrderProcessingFlow orderProcessingFlow;
     private final EngagementFlow engagementFlow;
+    private final DealDSLFlow dealDSLFlow;
     private final JobPostingFlow jobPostingFlow;
     private final OrchestrationFlow orchestrationFlow;
     private final RetryingFailureFlow retryingFailureFlow;
@@ -81,6 +83,7 @@ final class IntegEnvironment implements AutoCloseable {
             final MoneyTransferFlow moneyTransferFlow,
             final OrderProcessingFlow orderProcessingFlow,
             final EngagementFlow engagementFlow,
+            final DealDSLFlow dealDSLFlow,
             final JobPostingFlow jobPostingFlow,
             final OrchestrationFlow orchestrationFlow,
             final RetryingFailureFlow retryingFailureFlow,
@@ -96,6 +99,7 @@ final class IntegEnvironment implements AutoCloseable {
         this.moneyTransferFlow = moneyTransferFlow;
         this.orderProcessingFlow = orderProcessingFlow;
         this.engagementFlow = engagementFlow;
+        this.dealDSLFlow = dealDSLFlow;
         this.jobPostingFlow = jobPostingFlow;
         this.orchestrationFlow = orchestrationFlow;
         this.retryingFailureFlow = retryingFailureFlow;
@@ -112,6 +116,7 @@ final class IntegEnvironment implements AutoCloseable {
         final MoneyTransferFlow moneyTransferFlow = new MoneyTransferFlow(service);
         final OrderProcessingFlow orderProcessingFlow = new OrderProcessingFlow(service);
         final EngagementFlow engagementFlow = new EngagementFlow(service);
+        final DealDSLFlow dealDSLFlow = new DealDSLFlow();
         final JobPostingFlow jobPostingFlow = new JobPostingFlow(service);
         final OrchestrationFlow orchestrationFlow = new OrchestrationFlow(service);
         final RetryingFailureFlow retryingFailureFlow = new RetryingFailureFlow();
@@ -122,6 +127,7 @@ final class IntegEnvironment implements AutoCloseable {
                 moneyTransferFlow,
                 orderProcessingFlow,
                 engagementFlow,
+                dealDSLFlow,
                 jobPostingFlow,
                 orchestrationFlow,
                 retryingFailureFlow,
@@ -168,6 +174,7 @@ final class IntegEnvironment implements AutoCloseable {
                 moneyTransferFlow,
                 orderProcessingFlow,
                 engagementFlow,
+                dealDSLFlow,
                 jobPostingFlow,
                 orchestrationFlow,
                 retryingFailureFlow,
@@ -190,6 +197,10 @@ final class IntegEnvironment implements AutoCloseable {
 
     EngagementFlow engagementFlow() {
         return engagementFlow;
+    }
+
+    DealDSLFlow dealDSLFlow() {
+        return dealDSLFlow;
     }
 
     JobPostingFlow jobPostingFlow() {

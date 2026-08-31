@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package datasetdeal
+package dealdsl
 
 import (
 	"fmt"
@@ -28,6 +28,7 @@ import (
 
 const (
 	ProcessIDSearchKey                = "ProcessID"
+	ItemIDSearchKey                   = "ItemID"
 	BuyerIDSearchKey                  = "BuyerID"
 	CurrentStateSearchKey             = "CurrentState"
 	PendingPreConditionStateSearchKey = "PendingPreConditionState"
@@ -40,6 +41,10 @@ var (
 	ProcessID         = dex.DefineAttribute[string](
 		"processID",
 		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: ProcessIDSearchKey}),
+	)
+	ItemID = dex.DefineAttribute[string](
+		"itemID",
+		dex.Indexed(dex.AttributeIndex{Type: dex.IndexKeyword, IndexKey: ItemIDSearchKey}),
 	)
 	BuyerID = dex.DefineAttribute[string](
 		"buyerID",
@@ -67,23 +72,18 @@ var (
 	ConditionMessages = dex.DefineChannelMap[map[string]string]("conditionMessages")
 )
 
-type DealFlow struct {
+type DealDSLFlow struct {
 	dex.FlowDefaults
-	repository Repository
-	actions    *actionRegistry
+	actions *actionRegistry
 }
 
-func NewDealFlow(repository Repository, logger dex.Logger) *DealFlow {
-	if repository == nil {
-		panic("datasetdeal.NewDealFlow requires Repository")
-	}
-	return &DealFlow{
-		repository: repository,
-		actions:    newActionRegistry(logger),
+func NewDealDSLFlow(logger dex.Logger) *DealDSLFlow {
+	return &DealDSLFlow{
+		actions: newActionRegistry(logger),
 	}
 }
 
-func (flow *DealFlow) GetSteps() []dex.StepDef {
+func (flow *DealDSLFlow) GetSteps() []dex.StepDef {
 	return []dex.StepDef{
 		dex.DefineStartStep(initializeStep{flow: flow}),
 		dex.DefineStep(preConditionStep{flow: flow}),
@@ -92,12 +92,13 @@ func (flow *DealFlow) GetSteps() []dex.StepDef {
 	}
 }
 
-func (*DealFlow) GetPersistenceSchema() dex.PersistenceSchema {
+func (*DealDSLFlow) GetPersistenceSchema() dex.PersistenceSchema {
 	return dex.PersistenceSchema{
 		Attributes: []dex.AttributeDef{
 			StateData,
 			ProcessDefinition,
 			ProcessID,
+			ItemID,
 			BuyerID,
 			CurrentState,
 			CurrentActionIndexToExecute,
@@ -109,31 +110,34 @@ func (*DealFlow) GetPersistenceSchema() dex.PersistenceSchema {
 }
 
 type initializeStep struct {
-	dex.StepDefaultsNoWaitFor[string]
-	flow *DealFlow
+	dex.StepDefaultsNoWaitFor[DealStart]
+	flow *DealDSLFlow
+}
+
+func (initializeStep) GetStepType() string {
+	return "InitializeDeal"
 }
 
 func (step initializeStep) Execute(
 	ctx dex.Context,
-	processID string,
+	input DealStart,
 ) (*dex.StepDecision, error) {
-	process, err := step.flow.repository.GetProcess(ctx, processID)
-	if err != nil {
+	if err := ValidateProcess(input.Process); err != nil {
+		return nil, fmt.Errorf("deal process is invalid: %w", err)
+	}
+	if err := BuyerID.Set(ctx, input.BuyerID); err != nil {
 		return nil, err
 	}
-	if err := ValidateProcess(process); err != nil {
-		return nil, fmt.Errorf("stored deal process is invalid: %w", err)
-	}
-	if _, err := BuyerID.Get(ctx); err != nil {
+	if err := ProcessID.Set(ctx, input.Process.ProcessID); err != nil {
 		return nil, err
 	}
-	if err := ProcessID.Set(ctx, processID); err != nil {
+	if err := ItemID.Set(ctx, input.Process.ItemID); err != nil {
 		return nil, err
 	}
-	if err := ProcessDefinition.Set(ctx, process); err != nil {
+	if err := ProcessDefinition.Set(ctx, input.Process); err != nil {
 		return nil, err
 	}
-	if err := StateData.Set(ctx, process.InitialStateData); err != nil {
+	if err := StateData.Set(ctx, input.Process.InitialStateData); err != nil {
 		return nil, err
 	}
 	if err := CurrentActionIndexToExecute.Set(ctx, 0); err != nil {
@@ -141,13 +145,17 @@ func (step initializeStep) Execute(
 	}
 	return dex.GoTo(
 		preConditionStep{flow: step.flow},
-		stateStepInput{StateName: process.InitialState},
+		stateStepInput{StateName: input.Process.InitialState},
 	), nil
 }
 
 type preConditionStep struct {
 	dex.StepDefaults
-	flow *DealFlow
+	flow *DealDSLFlow
+}
+
+func (preConditionStep) GetStepType() string {
+	return "WaitForDealCondition"
 }
 
 func (step preConditionStep) WaitFor(
@@ -215,7 +223,11 @@ func (step preConditionStep) Execute(
 
 type executeActionStep struct {
 	dex.StepDefaultsNoWaitFor[actionStepInput]
-	flow *DealFlow
+	flow *DealDSLFlow
+}
+
+func (executeActionStep) GetStepType() string {
+	return "ExecuteDealAction"
 }
 
 func (step executeActionStep) Execute(
@@ -248,6 +260,8 @@ func (step executeActionStep) Execute(
 	}
 	actionInput := ActionInput{
 		FlowID:      ctx.FlowID(),
+		ItemID:      process.ItemID,
+		ItemName:    process.ItemName,
 		TargetState: state.Name,
 	}
 	actionInput.ProcessID, err = ProcessID.Get(ctx)
@@ -290,7 +304,11 @@ func (step executeActionStep) Execute(
 
 type postConditionStep struct {
 	dex.StepDefaults
-	flow *DealFlow
+	flow *DealDSLFlow
+}
+
+func (postConditionStep) GetStepType() string {
+	return "EvaluateDealTransition"
 }
 
 func (step postConditionStep) WaitFor(
@@ -350,7 +368,7 @@ func (step postConditionStep) Execute(
 	), nil
 }
 
-func (flow *DealFlow) gotoState(
+func (flow *DealDSLFlow) gotoState(
 	ctx dex.Context,
 	state StateDefinition,
 ) (*dex.StepDecision, error) {
@@ -431,4 +449,4 @@ func evaluateDecision(
 	return decision.ElseState
 }
 
-var _ dex.Flow = (*DealFlow)(nil)
+var _ dex.Flow = (*DealDSLFlow)(nil)

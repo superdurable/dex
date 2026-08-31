@@ -1,22 +1,22 @@
 MAKEFLAGS += --no-builtin-rules
 .SUFFIXES:
 
-.PHONY: bins clean datasetDealDemo e2eTests fmt tests triggerDatasetDealDemo unitTests
+.PHONY: bins clean dealDSLDemo e2eTests fmt tests triggerDealDSLDemo unitTests
 
 default: help
 
 bins:
 	go build -o dex-samples ./cmd/server
-	go build -o dex-dataset-deal ./cmd/dataset-deal
+	go build -o dex-deal-dsl ./cmd/deal-dsl
 
 clean:
-	rm -f dex-samples dex-dataset-deal
+	rm -f dex-samples dex-deal-dsl
 
-datasetDealDemo:
-	./run-dataset-deal-demo.sh
+dealDSLDemo:
+	./run-deal-dsl-demo.sh
 
-triggerDatasetDealDemo:
-	./trigger-dataset-deal-demo.sh
+triggerDealDSLDemo:
+	./trigger-deal-dsl-demo.sh
 
 e2eTests:
 	./run-e2e-tests.sh

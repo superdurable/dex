@@ -1884,3 +1884,11 @@ code {
   height: auto;
   margin: 1.5rem auto;
 }
+
+.deal-dsl-step-execution-graph {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  margin: 1.5rem auto;
+}

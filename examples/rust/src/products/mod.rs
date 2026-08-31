@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub mod deal_dsl;
 pub mod engagement;
 pub mod job_post;
 pub mod microservices;
@@ -31,6 +32,7 @@ pub fn register(registry: Registry) -> SdkResult<Registry> {
             MyDependencyService,
         ))?
         .register(microservices::OrchestrationFlow::default())?
+        .register(deal_dsl::DealDSLFlow::default())?
         .register(engagement::EngagementFlow::default())?
         .register(subscription::SubscriptionFlow::default())?
         .register(signup::UserOnboardingFlow::default())?

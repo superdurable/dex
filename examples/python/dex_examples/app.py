@@ -98,6 +98,7 @@ from dex_examples.primitives.subflow.subflow_flow import SubFlowChildFlow, SubFl
 from dex_examples.primitives.timer.timer_flow import TimerFlow
 from dex_examples.primitives.wait_types.wait_types_flow import WaitTypesFlow
 from dex_examples.products.ai_agent_email.ai_agent_flow import EmailAgentFlow
+from dex_examples.products.deal_dsl.deal_dsl_flow import DealDSLFlow
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.job_post.job_post_flow import JobPostingFlow
 from dex_examples.products.microservices.orchestration_flow import OrchestrationFlow
@@ -124,6 +125,7 @@ class ExampleApp:
         self.subscription = SubscriptionFlow(service)
         self.user_onboarding = UserOnboardingFlow(service)
         self.job_post = JobPostingFlow(service)
+        self.deal_dsl = DealDSLFlow()
 
         self.cron_schedule = CronScheduleFlow()
         self.drain_internal = DrainInternalChannelFlow(pattern_service)
@@ -190,6 +192,7 @@ class ExampleApp:
             self.subscription,
             self.user_onboarding,
             self.job_post,
+            self.deal_dsl,
             self.cron_schedule,
             self.drain_internal,
             self.drain_external,

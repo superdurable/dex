@@ -48,6 +48,7 @@ Every shared product example has a distinct Rust Flow and implementation file.
 | Subscription | [`SubscriptionFlow`](src/products/subscription.rs) | Billing timers, concurrent control Step, update/cancel RPCs |
 | User onboarding process | [`UserOnboardingFlow`](src/products/signup/flow.rs) | Email verification and two ordered tasks with durable reminders |
 | Job posting | [`JobPostingFlow`](src/products/job_post/flow.rs) | Locked, versioned RPC updates feeding independent FIFO LinkedIn and Indeed Channel consumers |
+| Deal DSL | [`DealDSLFlow`](src/products/deal_dsl/flow.rs) | Durable state-machine interpreter with keyed condition waits and one-action checkpoints |
 
 ## Patterns
 
@@ -78,9 +79,9 @@ remain split so their orchestration boundaries are visible.
 | Timeout handling | [`FlowGracefulTimeout`](src/patterns/timeout.rs) | Task-versus-timeout race and forced completion/failure |
 | Wait for Step completion | [`WaitForStepCompletionFlow`](src/patterns/wait_for_step_completion.rs) | `Client::wait_for_step_completion` target followed by background work |
 
-The Java retrying-Worker example, Python basic/resource-control/AI-agent examples,
-and Go dataset-deal example (separate `dex-dataset-deal` binary) are language-specific
-and are not part of the shared cross-language catalog.
+The Java retrying-Worker example and Python basic/resource-control/AI-agent
+examples are language-specific. The Go Deal DSL browser UI and PostgreSQL
+catalog remain in its separate `dex-deal-dsl` binary.
 
 ## Verify
 
@@ -91,13 +92,13 @@ make test
 ./run-integration-tests.sh
 ```
 
-The catalog integration test constructs every Flow, checks the exact 7 + 23
+The catalog integration test constructs every Flow, checks the exact 8 + 23
 mapping, rejects duplicate names, validates all definitions in one Registry, and
 ensures the manifest uses the published crate rather than a local path.
 
 The integration script starts the current checkout's `dexcli dev`, then starts
 and verifies Money Transfer, Engagement, Microservice, Subscription,
-and Failure Recovery Flows through the published Rust SDK.
+Deal DSL, and Failure Recovery Flows through the published Rust SDK.
 
 The Go examples support `./run-e2e-tests.sh --keep-running` to leave Dex running
 after E2E tests for manual HTTP exploration.

@@ -63,6 +63,7 @@ import { subFlowChildFlow, subFlowParentFlow } from "./primitives/subflow/subflo
 import { timerFlow } from "./primitives/timer/timer-flow.js";
 import { waitTypesFlow } from "./primitives/wait-types/wait-types-flow.js";
 import { engagementFlow } from "./products/engagement/engagement-flow.js";
+import { dealDSLFlow } from "./products/deal-dsl/deal-dsl-flow.js";
 import { jobPostingFlow } from "./products/job-post/job-post-flow.js";
 import { orchestrationFlow } from "./products/microservices/orchestration-flow.js";
 import { moneyTransferFlow } from "./products/money-transfer/money-transfer-flow.js";
@@ -81,6 +82,7 @@ export const allExampleFlows: readonly Flow<any>[] = [
   subscriptionFlow,
   userOnboardingFlow,
   jobPostingFlow,
+  dealDSLFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,
@@ -138,6 +140,7 @@ export {
   subscriptionFlow,
   userOnboardingFlow,
   jobPostingFlow,
+  dealDSLFlow,
   cronScheduleFlow,
   drainInternalChannelFlow,
   drainingExternalChannelFlow,

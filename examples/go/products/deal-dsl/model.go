@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package datasetdeal
+package dealdsl
 
 import (
 	"fmt"
@@ -29,9 +29,16 @@ import (
 
 type DealProcess struct {
 	ProcessID        string            `json:"processID"`
+	ItemID           string            `json:"itemID"`
+	ItemName         string            `json:"itemName"`
 	InitialState     string            `json:"initialState"`
 	InitialStateData map[string]string `json:"initialStateData"`
 	States           []StateDefinition `json:"states"`
+}
+
+type DealStart struct {
+	Process DealProcess `json:"process"`
+	BuyerID string      `json:"buyerID"`
 }
 
 type StateDefinition struct {
@@ -66,6 +73,8 @@ type DealExecution struct {
 	FlowID                   string            `json:"flowID"`
 	RunID                    string            `json:"runID"`
 	ProcessID                string            `json:"processID"`
+	ItemID                   string            `json:"itemID"`
+	ItemName                 string            `json:"itemName"`
 	ProcessDefinition        DealProcess       `json:"processDefinition"`
 	BuyerID                  string            `json:"buyerID"`
 	CurrentState             string            `json:"currentState"`
@@ -107,6 +116,12 @@ func ValidateProcess(process DealProcess) error {
 func (process DealProcess) validate(availableActions map[string]struct{}) error {
 	if err := validateIdentifier("processID", process.ProcessID); err != nil {
 		return err
+	}
+	if err := validateIdentifier("itemID", process.ItemID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(process.ItemName) == "" {
+		return fmt.Errorf("itemName must not be empty")
 	}
 	if len(process.States) == 0 {
 		return fmt.Errorf("deal process requires at least one state")
