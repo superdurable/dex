@@ -126,19 +126,10 @@ const config: Config = {
           target: '_self',
         },
         {
-          type: 'dropdown',
-          label: 'Docs',
+          href: 'https://github.com/superdurable',
+          label: 'GitHub',
           position: 'left',
-          items: [
-            {label: 'Dex OSS', to: '/', activeBasePath: '/'},
-            {label: 'Dex Cloud / BYOC', to: '/cloud', activeBasePath: '/cloud'},
-          ],
-        },
-        {
-          href: 'https://superdurable.io/byoc',
-          label: 'Dex BYOC',
-          position: 'left',
-          target: '_self',
+          target: '_blank',
         },
         {
           href: 'https://calendar.google.com/appointments/schedules/AcZssZ0XTgrR4TGKOsS-zcB7tu_xqIaYaM3MQGXraOJccpyUe9LK0Z_FF7ImVSw4g_4UGGfx3ykq81mw',
@@ -152,19 +143,15 @@ const config: Config = {
       style: 'dark',
       links: [
         {
-          title: 'Docs',
+          title: 'Explore',
           items: [
-            {label: 'What is Durable Execution?', to: '/intro/what-is-durable-execution'},
-            {label: 'Why Dex?', to: '/intro/what-is-dex'},
-            {label: 'Quick Start', to: '/quick-start'},
-            {label: 'Glossary', to: '/glossary'},
+            {label: 'Dex', href: 'https://superdurable.io/dex'},
           ],
         },
         {
-          title: 'Community',
+          title: 'Company',
           items: [
-            {label: 'GitHub', href: 'https://github.com/superdurable/dex'},
-            {label: 'Website', href: 'https://superdurable.io'},
+            {label: 'Team', href: 'https://superdurable.io/team'},
           ],
         },
       ],

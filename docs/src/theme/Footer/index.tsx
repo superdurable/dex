@@ -12,18 +12,15 @@ export default function Footer(): ReactNode {
         <div>
           <p className="footer-label">Explore</p>
           <a href="https://superdurable.io/dex">Dex</a>
-          <a href="/">Docs</a>
-          <a href="https://superdurable.io/byoc">Dex BYOC</a>
         </div>
         <div>
           <p className="footer-label">Company</p>
           <a href="https://superdurable.io/team">Team</a>
-          <a href="https://github.com/superdurable/dex">Star Us on GitHub</a>
         </div>
       </div>
       <div className="footer-bottom">
         <span>© {new Date().getFullYear()} Super Durable</span>
-        <span>Durable Execution, Re-defined.</span>
+        <span>Process-centric apps, powered by Dex.</span>
       </div>
     </footer>
   );

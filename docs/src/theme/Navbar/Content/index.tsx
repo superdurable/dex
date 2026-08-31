@@ -3,10 +3,8 @@ import {useNavbarMobileSidebar} from '@docusaurus/theme-common/internal';
 import NavbarColorModeToggle from '@theme/Navbar/ColorModeToggle';
 import NavbarMobileSidebarToggle from '@theme/Navbar/MobileSidebar/Toggle';
 import NavbarLogo from '@theme/Navbar/Logo';
-import BrandMenu from '@site/src/components/BrandMenu';
-import GitHubStarNavbarItem from '@site/src/components/GitHubStarNavbarItem';
 import LocaleSwitcher from '@site/src/components/LocaleSwitcher';
-import {BOOKING_URL, BYOC_URL, DOC_ITEMS} from '@site/src/components/brandNavigation';
+import {BOOKING_URL, GITHUB_URL} from '@site/src/components/brandNavigation';
 
 export default function NavbarContent(): ReactNode {
   const mobileSidebar = useNavbarMobileSidebar();
@@ -18,9 +16,9 @@ export default function NavbarContent(): ReactNode {
       </div>
       <nav className="desktop-nav" aria-label="Primary navigation">
         <a href="https://superdurable.io/dex">Dex</a>
-        <BrandMenu label="Docs" items={DOC_ITEMS} />
-        <a href={BYOC_URL}>Dex BYOC</a>
-        <GitHubStarNavbarItem />
+        <a href={GITHUB_URL} target="_blank" rel="noreferrer">
+          GitHub <span className="external-arrow" aria-hidden="true">↗</span>
+        </a>
       </nav>
       <div className="header-actions">
         <LocaleSwitcher />
