@@ -584,16 +584,6 @@ impl Step for EvaluateDealTransition {
   />
 </a>
 
-点击图片可以查看 3200 × 3600 的原始 PNG。图片以 2× device scale 直接截取，没有在截图后放大。
-
-在 **examples/go** 目录运行完整本地 Demo：
-
-```bash
-KEEP_DEAL_DSL_DEMO=1 make dealDSLDemo
-```
-
-Demo 会启动 PostgreSQL、Dex、Deal DSL Worker 和 Deal UI，并执行完整购买、退款，以及等待买家输入的三条路径。Python、Go、Java、TypeScript 和 Rust 也都有端到端自动化测试：启动 Flow、发送 buyer-decision Channel 消息，并验证最终商品交付状态。
-
 ## 相关内容
 
 - [设计模式](/design-patterns)
