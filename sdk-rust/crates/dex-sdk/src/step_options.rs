@@ -110,10 +110,11 @@ impl<Input: Value> StepOptions<Input> {
         self
     }
 
-    /// Enables cooperative cancellation heartbeats for regular `wait_for` and `execute` activities.
+    /// Sets the heartbeat timeout for regular `wait_for` and `execute` activities.
     ///
-    /// Zero disables heartbeats. Positive values must be whole seconds within the int32 range.
-    /// Local activities ignore this option; an asynchronous fallback to regular activity uses it.
+    /// Zero selects the server default of one minute. Positive values must be whole seconds and at
+    /// least the server-configured minimum, which defaults to ten seconds. Local activities ignore
+    /// this option; an asynchronous fallback to a regular activity uses it.
     pub fn heartbeat_timeout(mut self, value: Duration) -> Self {
         self.heartbeat_timeout = Some(value);
         self

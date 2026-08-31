@@ -13,15 +13,13 @@ use std::time::{Duration, SystemTime};
 
 use dex_protocol::dex::{
     AttributeWrite, ChannelInfo, ChannelMessage, ConditionResults, ConditionStatus,
-    Context as ProtoContext, Kv, Value as ProtoValue, WriteStreamRequest,
-    flow_service_client::FlowServiceClient, value,
+    Context as ProtoContext, Kv, StepStreamWrite, Value as ProtoValue, value,
 };
-use tokio::runtime::Handle;
-use tonic::transport::Channel as TransportChannel;
 
 use crate::persistence::PersistenceKind;
 use crate::registry::{RegisteredFlow, decode_instance, physical_name};
 use crate::value_mapper;
+use crate::worker_output::StepOutputEmitter;
 use crate::{
     Attribute, AttributeMap, Channel, ChannelMap, FlowResult, HandlerError, HandlerResult, Stream,
     Value,
@@ -52,8 +50,7 @@ pub(crate) struct ContextInput {
 pub struct Context {
     method: InvocationMethod,
     flow: RegisteredFlow,
-    runtime_handle: Handle,
-    flow_service: FlowServiceClient<TransportChannel>,
+    output_emitter: Option<StepOutputEmitter>,
     metadata: ProtoContext,
     attributes: HashMap<String, ProtoValue>,
     locals: HashMap<String, ProtoValue>,
@@ -64,21 +61,19 @@ pub struct Context {
     events: Vec<Kv>,
     event_names: HashSet<String>,
     publications: Vec<ChannelMessage>,
-    stream_writes: HashSet<usize>,
     cancellation: InvocationCancellation,
 }
 
 impl Context {
     pub(crate) fn new(
         input: ContextInput,
-        runtime_handle: Handle,
-        flow_service: FlowServiceClient<TransportChannel>,
+        output_emitter: Option<StepOutputEmitter>,
+        cancellation: InvocationCancellation,
     ) -> HandlerResult<Self> {
         Ok(Self {
             method: input.method,
             flow: input.flow,
-            runtime_handle,
-            flow_service,
+            output_emitter,
             metadata: input.metadata,
             attributes: map_values("Attribute", input.attributes)?,
             locals: map_values("step-execution local", input.locals)?,
@@ -89,8 +84,7 @@ impl Context {
             events: Vec::new(),
             event_names: HashSet::new(),
             publications: Vec::new(),
-            stream_writes: HashSet::new(),
-            cancellation: InvocationCancellation::new(),
+            cancellation,
         })
     }
 
@@ -127,6 +121,76 @@ impl Context {
     /// Returns the one-based handler attempt number.
     pub fn attempt(&self) -> u32 {
         u32::try_from(self.metadata.attempt).unwrap_or_default()
+    }
+
+    /// Records a heartbeat without a Value and clears persisted heartbeat details.
+    ///
+    /// The call blocks only while the Worker's one-frame output buffer is full. It does not wait
+    /// for Dex to process the heartbeat. Flow RPC Contexts reject this operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandlerError`] for an RPC Context, cancellation, or a closed Worker response
+    /// stream.
+    pub fn record_heartbeat(&mut self) -> HandlerResult<()> {
+        self.step_output_emitter()?.send_heartbeat(None)
+    }
+
+    /// Records a heartbeat carrying a typed checkpoint Value.
+    ///
+    /// A later regular attempt can decode the most recently accepted checkpoint with
+    /// [`Self::last_heartbeat_value`]. Local activities accept the frame but do not persist it.
+    /// The call uses the same bounded local buffering as [`Self::record_heartbeat`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use dex_sdk::{Context, HandlerResult};
+    /// use serde::{Deserialize, Serialize};
+    ///
+    /// #[derive(Deserialize, Serialize)]
+    /// struct Checkpoint {
+    ///     offset: u64,
+    /// }
+    ///
+    /// fn import_batch(context: &mut Context, next_offset: u64) -> HandlerResult<()> {
+    ///     let previous = context.last_heartbeat_value::<Checkpoint>()?;
+    ///     let offset = previous.map_or(next_offset, |checkpoint| checkpoint.offset);
+    ///     context.record_heartbeat_value(Checkpoint { offset })
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandlerError`] for an RPC Context, encoding failure, cancellation, or a closed
+    /// Worker response stream.
+    pub fn record_heartbeat_value<T: Value>(&mut self, value: T) -> HandlerResult<()> {
+        let value = value_mapper::encode_handler(&value)?;
+        self.step_output_emitter()?.send_heartbeat(Some(value))
+    }
+
+    /// Decodes the checkpoint persisted by the previous regular attempt.
+    ///
+    /// `None` means no heartbeat Value is present. To distinguish an encoded JSON null, request an
+    /// optional application type: `last_heartbeat_value::<Option<T>>()` returns `Some(None)` for a
+    /// present null Value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HandlerError`] for an RPC Context or when the persisted Value cannot be decoded
+    /// as `T`.
+    pub fn last_heartbeat_value<T: Value>(&self) -> HandlerResult<Option<T>> {
+        if self.method == InvocationMethod::Rpc {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "Heartbeat values require a Step Context",
+            ));
+        }
+        self.metadata
+            .last_heartbeat_value
+            .as_ref()
+            .map(value_mapper::decode_handler)
+            .transpose()
     }
 
     /// Returns whether any timer condition completed for this `execute` invocation.
@@ -447,19 +511,18 @@ impl Context {
         self.channel_results_value(channel.name(), PersistenceKind::ChannelMap, Some(instance))
     }
 
-    /// Appends one immediate best-effort Stream message from a Step invocation.
+    /// Appends one best-effort Stream message to the current Worker response stream.
+    ///
+    /// The call returns after the Worker's bounded output buffer accepts the frame. It does not
+    /// wait for Dex or the Stream Store, and a later server-side write failure is not returned to
+    /// the handler. One invocation may append any number of messages to the same Stream.
     ///
     /// # Errors
     ///
-    /// Returns [`HandlerError`] for RPC Contexts, unregistered or duplicate Streams, encoding
-    /// failures, or a failed FlowService write.
+    /// Returns [`HandlerError`] for an RPC Context, an unregistered Stream, a capacity mismatch,
+    /// encoding failure, cancellation, or a closed Worker response stream.
     pub fn write_stream<T: Value>(&mut self, stream: &Stream<T>, value: T) -> HandlerResult<()> {
-        if self.method == InvocationMethod::Rpc {
-            return Err(HandlerError::new(
-                "dex_sdk::HandlerError",
-                "Stream writes require a Step Context",
-            ));
-        }
+        let output_emitter = self.step_output_emitter()?.clone();
         let definition = self
             .flow
             .persistence
@@ -483,31 +546,11 @@ impl Context {
                 ),
             ));
         }
-        if self.stream_writes.contains(&stream.identity()) {
-            return Err(HandlerError::new(
-                "dex_sdk::HandlerError",
-                format!(
-                    "Stream {} was already written by this Step execution",
-                    stream.name()
-                ),
-            ));
-        }
-        let request = WriteStreamRequest {
-            flow_id: self.flow_id().to_string(),
-            flow_type: self.flow.name.to_string(),
+        output_emitter.send_stream_write(StepStreamWrite {
             stream_name: stream.name().to_string(),
             stream_capacity_bytes: stream.stream_capacity_bytes(),
             value: Some(value_mapper::encode_handler(&value)?),
-            idempotency_key: format!("{}#{}", self.run_id(), self.step_execution_id()),
-        };
-        let mut service = self.flow_service.clone();
-        self.runtime_handle
-            .block_on(async move { service.write_stream(request).await })
-            .map_err(|status| {
-                HandlerError::new("tonic::Status", format!("WriteStream failed: {status}"))
-            })?;
-        self.stream_writes.insert(stream.identity());
-        Ok(())
+        })
     }
 
     pub(crate) fn cancellation(&self) -> InvocationCancellation {
@@ -523,6 +566,24 @@ impl Context {
             self.events,
             self.publications,
         )
+    }
+
+    fn step_output_emitter(&self) -> HandlerResult<&StepOutputEmitter> {
+        if self.method == InvocationMethod::Rpc {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "Step progress requires a Step Context",
+            ));
+        }
+        if self.cancellation.is_cancelled() {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "Step invocation is canceled",
+            ));
+        }
+        self.output_emitter.as_ref().ok_or_else(|| {
+            HandlerError::new("dex_sdk::HandlerError", "Step output stream is unavailable")
+        })
     }
 
     fn get_attribute_value<T: Value>(
@@ -694,7 +755,7 @@ struct InvocationCancellationInner {
 }
 
 impl InvocationCancellation {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             inner: Arc::new(InvocationCancellationInner {
                 cancelled: AtomicBool::new(false),
@@ -711,7 +772,7 @@ impl InvocationCancellation {
         }
     }
 
-    fn is_cancelled(&self) -> bool {
+    pub(crate) fn is_cancelled(&self) -> bool {
         self.inner.cancelled.load(Ordering::Acquire)
     }
 
@@ -763,17 +824,13 @@ fn require_name(value: &str, kind: &str) -> HandlerResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Context, ContextInput, InvocationMethod};
+    use super::{Context, ContextInput, InvocationCancellation, InvocationMethod};
     use crate::{
         AttributeMap, ChannelMap, Flow, PersistenceSchema, Registry, registry::physical_name,
         value_mapper,
     };
-    use dex_protocol::dex::{
-        ChannelInfo, Context as ProtoContext, Kv, flow_service_client::FlowServiceClient,
-    };
+    use dex_protocol::dex::{ChannelInfo, Context as ProtoContext, Kv};
     use std::collections::HashMap;
-    use tokio::runtime::Runtime;
-    use tonic::transport::Endpoint;
 
     struct MapFlow {
         attributes: AttributeMap<String>,
@@ -801,11 +858,6 @@ mod tests {
         let attributes = AttributeMap::<String>::new("items");
         let channels = ChannelMap::<String>::new("messages");
         let special = "special / key";
-        let runtime = Runtime::new().expect("create test runtime");
-        let flow_service = {
-            let _runtime_guard = runtime.enter();
-            FlowServiceClient::new(Endpoint::from_static("http://127.0.0.1:1").connect_lazy())
-        };
         let mut context = Context::new(
             ContextInput {
                 method: InvocationMethod::Rpc,
@@ -828,8 +880,8 @@ mod tests {
                     (physical_name("messages", "empty"), ChannelInfo { size: 0 }),
                 ]),
             },
-            runtime.handle().clone(),
-            flow_service,
+            None,
+            InvocationCancellation::new(),
         )
         .expect("create RPC Context");
 
@@ -859,5 +911,12 @@ mod tests {
             channels.all_instance_keys(&context).unwrap()
         );
         assert_eq!(2, channels.map_size(&context).unwrap());
+        assert!(context.record_heartbeat().is_err());
+        assert!(
+            context
+                .record_heartbeat_value("checkpoint".to_string())
+                .is_err()
+        );
+        assert!(context.last_heartbeat_value::<String>().is_err());
     }
 }

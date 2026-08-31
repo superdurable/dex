@@ -45,6 +45,7 @@ mod wait;
 mod worker;
 mod worker_dispatcher;
 mod worker_options;
+mod worker_output;
 
 pub use attribute::{Attribute, AttributeIndex, AttributeMap};
 pub use channel::{Channel, ChannelGuard, ChannelMap};

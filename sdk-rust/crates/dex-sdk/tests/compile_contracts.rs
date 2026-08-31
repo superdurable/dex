@@ -31,10 +31,16 @@ fn stream_definitions_and_client_calls_compile() {
         context: &mut dex_sdk::Context,
         stream: &dex_sdk::Stream<String>,
     ) -> dex_sdk::SdkResult<()> {
+        let _heartbeat: dex_sdk::HandlerResult<()> = context.record_heartbeat();
+        let _heartbeat_value: dex_sdk::HandlerResult<()> =
+            context.record_heartbeat_value(Some("checkpoint".to_owned()));
+        let _last_heartbeat: dex_sdk::HandlerResult<Option<Option<String>>> =
+            context.last_heartbeat_value::<Option<String>>();
         let _stream_write: dex_sdk::HandlerResult<()> =
             stream.write(context, "checking".to_owned());
-        client.write_stream("flow-1", stream, "client-1", "starting".to_owned())?;
+        client.write_stream("flow-1", stream, "client#source", "starting".to_owned())?;
         let message = client.read_stream("flow-1", stream, "")?;
+        let _source: &str = &message.source;
         let _next = client.read_stream_with_timeout(
             "flow-1",
             stream,

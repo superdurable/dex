@@ -15,8 +15,8 @@ use dex_protocol::dex::WorkerErrorResponse;
 use dex_protocol::dex::flow_service_client::FlowServiceClient;
 use dex_protocol::dex::worker_service_server::{WorkerService, WorkerServiceServer};
 use dex_protocol::dex::{
-    InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, InvokeWaitForMethodRequest,
-    InvokeWaitForMethodResponse, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse,
+    InvokeExecuteMethodOutput, InvokeExecuteMethodRequest, InvokeWaitForMethodOutput,
+    InvokeWaitForMethodRequest, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse,
     SyncAttributeIndexRequest,
 };
 use prost::Message;
@@ -28,6 +28,7 @@ use tonic::{Code, Request, Response, Status};
 
 use crate::value_hydrator::ValueHydrator;
 use crate::worker_dispatcher::WorkerDispatcher;
+use crate::worker_output::WorkerResponseStream;
 use crate::{BlobCache, HandlerError, Registry, SdkError, SdkResult, WorkerOptions, WorkerTarget};
 
 // Keep worker error status small enough for default gRPC trailer limits after
@@ -122,12 +123,7 @@ impl Worker {
         };
         let attribute_indexes = registry.attribute_indexes().clone();
         let hydrator = ValueHydrator::new(flow_service.clone(), blob_cache);
-        let dispatcher = WorkerDispatcher::new(
-            registry,
-            hydrator,
-            flow_service.clone(),
-            runtime.handle().clone(),
-        );
+        let dispatcher = WorkerDispatcher::new(registry, hydrator);
         let (shutdown, _) = watch::channel(false);
         Ok(Self {
             runtime,
@@ -207,26 +203,30 @@ struct RustWorkerService {
 
 #[tonic::async_trait]
 impl WorkerService for RustWorkerService {
+    type InvokeWaitForMethodStream = WorkerResponseStream<InvokeWaitForMethodOutput>;
+
     async fn invoke_wait_for_method(
         &self,
         request: Request<InvokeWaitForMethodRequest>,
-    ) -> Result<Response<InvokeWaitForMethodResponse>, Status> {
-        self.dispatcher
-            .invoke_wait_for(request.into_inner())
-            .await
-            .map(Response::new)
-            .map_err(worker_status)
+    ) -> Result<Response<Self::InvokeWaitForMethodStream>, Status> {
+        Ok(Response::new(
+            self.dispatcher
+                .invoke_wait_for(request.into_inner())
+                .into_stream(worker_status),
+        ))
     }
+
+    type InvokeExecuteMethodStream = WorkerResponseStream<InvokeExecuteMethodOutput>;
 
     async fn invoke_execute_method(
         &self,
         request: Request<InvokeExecuteMethodRequest>,
-    ) -> Result<Response<InvokeExecuteMethodResponse>, Status> {
-        self.dispatcher
-            .invoke_execute(request.into_inner())
-            .await
-            .map(Response::new)
-            .map_err(worker_status)
+    ) -> Result<Response<Self::InvokeExecuteMethodStream>, Status> {
+        Ok(Response::new(
+            self.dispatcher
+                .invoke_execute(request.into_inner())
+                .into_stream(worker_status),
+        ))
     }
 
     async fn invoke_worker_rpc(

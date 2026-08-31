@@ -14,7 +14,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use dex_sdk::{
-    BlobCache, BlobCacheConfig, Client, ClientOptions, Registry, SdkResult, Worker, WorkerOptions,
+    BlobCache, BlobCacheConfig, Client, ClientOptions, GrpcCode, Registry, SdkResult,
+    StepExecutionId, TimerId, Worker, WorkerOptions,
 };
 use tempfile::TempDir;
 
@@ -100,6 +101,32 @@ impl Drop for DexDevTestEnvironment {
 
 pub(crate) fn flow_id(prefix: &str) -> String {
     format!("{prefix}-{}", uuid::Uuid::new_v4())
+}
+
+#[allow(dead_code)]
+pub(crate) fn skip_timer_when_pending(
+    client: &Client,
+    flow_id: &str,
+    step_execution: StepExecutionId,
+    timer: TimerId,
+) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        match client.skip_timer(flow_id, step_execution.clone(), timer.clone()) {
+            Ok(()) => return,
+            Err(error)
+                if Instant::now() < deadline
+                    && error.service_error().is_some_and(|service| {
+                        service.code() == GrpcCode::InvalidArgument
+                            && service.detail()
+                                == "requested timer condition does not exist or is not pending"
+                    }) =>
+            {
+                thread::yield_now();
+            }
+            Err(error) => panic!("timer did not become pending: {error}"),
+        }
+    }
 }
 
 fn available_port() -> u16 {
