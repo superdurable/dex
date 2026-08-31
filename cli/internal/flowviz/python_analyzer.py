@@ -1,0 +1,701 @@
+# Copyright (c) 2026 Super Durable, Inc.
+#
+# Licensed under the Super Durable Source License 1.0.
+# You may not use this file except in compliance with the License.
+# See the LICENSE file in the repository root.
+#
+# SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
+import ast
+import json
+import sys
+
+
+class Analyzer:
+    def __init__(self, path, source):
+        self.path = path
+        self.source = source
+        self.graph = {
+            "schemaVersion": "1.0",
+            "valid": True,
+            "source": {"language": "python", "path": path},
+            "flow": {"name": ""},
+            "nodes": [],
+            "edges": [],
+            "diagnostics": [],
+        }
+        self.imports = {}
+        self.module_aliases = set()
+        self.classes = {}
+        self.step_classes = {}
+        self.flow_classes = {}
+        self.flow_fields = {}
+        self.registered = {}
+        self.resources = {}
+        self.step_resources = {}
+        self.node_ids = set()
+
+    def analyze(self):
+        if sys.version_info < (3, 11):
+            self.error("python_version", "Python analysis requires Python 3.11 or newer")
+            return self.graph
+        try:
+            self.tree = ast.parse(self.source, filename=self.path, type_comments=True)
+        except SyntaxError as error:
+            self.error("python_parse_failed", error.msg, self.syntax_span(error))
+            return self.graph
+        self.index_imports()
+        self.index_classes()
+        self.validate_dynamic_constructs()
+        self.index_resources()
+        if len(self.flow_classes) != 1:
+            code = "flow_not_found" if not self.flow_classes else "multiple_flows"
+            message = "source must define exactly one Flow"
+            self.error(code, message)
+            for name, node in self.flow_classes.items():
+                self.add_node({"id": f"unknown:flow:{name}", "kind": "unknown", "name": name, "span": self.span(node)})
+            return self.graph
+        flow_name, flow_class = next(iter(self.flow_classes.items()))
+        self.graph["flow"] = {"name": self.custom_type_name(flow_class, "get_flow_type", flow_name), "span": self.span(flow_class)}
+        self.index_flow_fields(flow_class)
+        self.analyze_registration(flow_class)
+        for step_name, node_id in list(self.registered.items()):
+            self.analyze_step(step_name, node_id)
+        self.analyze_flow_handlers(flow_class)
+        return self.graph
+
+    def index_imports(self):
+        for node in self.tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module == "dex":
+                for imported in node.names:
+                    if imported.name == "*":
+                        self.error("wildcard_import", "from dex import * is not supported", self.span(node))
+                        continue
+                    self.imports[imported.asname or imported.name] = imported.name
+            elif isinstance(node, ast.Import):
+                for imported in node.names:
+                    if imported.name == "dex":
+                        self.module_aliases.add(imported.asname or imported.name)
+
+    def index_classes(self):
+        for node in self.tree.body:
+            if not isinstance(node, ast.ClassDef):
+                continue
+            self.classes[node.name] = node
+            if any(self.is_dex_reference(base, "Step") for base in node.bases):
+                self.step_classes[node.name] = node
+            if any(self.is_dex_reference(base, "Flow") for base in node.bases):
+                self.flow_classes[node.name] = node
+
+    def validate_dynamic_constructs(self):
+        imported_names = set(self.imports)
+        for node in ast.walk(self.tree):
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id in imported_names:
+                        self.error("dex_alias_rebinding", f"Dex import alias {target.id} must not be rebound", self.span(target))
+            if isinstance(node, ast.Call) and self.symbol(node.func) in {"getattr", "setattr", "__import__", "import_module"}:
+                self.error("dynamic_python", f"{self.symbol(node.func)} is not supported in Flow source", self.span(node))
+                self.add_node({"id": f"unknown:python:{node.lineno}", "kind": "unknown", "name": "Dynamic Python", "span": self.span(node)})
+            if isinstance(node, ast.ClassDef) and any(keyword.arg == "metaclass" for keyword in node.keywords):
+                self.error("dynamic_class", f"class {node.name} uses a metaclass", self.span(node))
+
+    def index_resources(self):
+        self.index_resource_statements(self.tree.body, "")
+        for flow_name, flow_class in self.flow_classes.items():
+            self.index_resource_statements(flow_class.body, flow_name)
+
+    def index_resource_statements(self, statements, owner):
+        for statement in statements:
+            target = None
+            value = None
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+                target, value = statement.targets[0], statement.value
+            elif isinstance(statement, ast.AnnAssign):
+                target, value = statement.target, statement.value
+            if not isinstance(target, ast.Name) or not isinstance(value, ast.Call):
+                continue
+            kind = self.resource_kind(self.symbol(value.func))
+            if not kind or not self.is_dex_reference(value.func, self.symbol(value.func).rsplit(".", 1)[-1]):
+                continue
+            resource_name = target.id
+            if value.args:
+                if isinstance(value.args[0], ast.Constant) and isinstance(value.args[0].value, str):
+                    resource_name = value.args[0].value
+                elif isinstance(value.args[0], ast.Name):
+                    constant = self.module_constant(value.args[0].id)
+                    if constant is None and owner:
+                        constant = self.class_constant(owner, value.args[0].id)
+                    if constant is not None:
+                        resource_name = constant
+                    else:
+                        self.error("dynamic_resource_name", f"resource {target.id} must use a static name", self.span(value.args[0]))
+                else:
+                    self.error("dynamic_resource_name", f"resource {target.id} must use a static name", self.span(value.args[0]))
+            key = f"{owner}.{target.id}" if owner else target.id
+            node_id = f"resource:{kind}:{key}"
+            self.resources[key] = node_id
+            self.resources[target.id] = node_id
+            self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(statement)})
+
+    def index_flow_fields(self, flow_class):
+        initializer = self.method(flow_class, "__init__")
+        if initializer is None:
+            return
+        local_resources = {}
+        for statement in initializer.body:
+            target = None
+            value = None
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+                target, value = statement.targets[0], statement.value
+            elif isinstance(statement, ast.AnnAssign):
+                target, value = statement.target, statement.value
+            if not isinstance(value, ast.Call):
+                continue
+            kind = self.resource_kind(self.symbol(value.func))
+            if not kind or not self.is_dex_reference(value.func, self.symbol(value.func).rsplit(".", 1)[-1]):
+                continue
+            target_name = target.id if isinstance(target, ast.Name) else self.target_attribute(target)
+            if not target_name:
+                continue
+            node_id = self.add_resource(kind, target_name, value, flow_class.name, statement)
+            local_resources[target_name] = node_id
+        for node in ast.walk(initializer):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            value = node.value
+            if not isinstance(value, ast.Call):
+                continue
+            target_name = self.target_attribute(targets[0]) if targets else None
+            class_name = self.symbol(value.func)
+            if target_name and class_name in self.step_classes:
+                self.flow_fields[target_name] = class_name
+                self.index_step_resource_wiring(class_name, value, flow_class.name, local_resources)
+
+    def index_step_resource_wiring(self, step_name, constructor, flow_name, local_resources):
+        initializer = self.method(self.step_classes[step_name], "__init__")
+        if initializer is None:
+            return
+        parameters = [argument.arg for argument in initializer.args.args if argument.arg != "self"]
+        arguments = {}
+        for index, argument in enumerate(constructor.args):
+            if index < len(parameters):
+                arguments[parameters[index]] = argument
+        for keyword in constructor.keywords:
+            if keyword.arg:
+                arguments[keyword.arg] = keyword.value
+        parameter_resources = {}
+        for parameter, argument in arguments.items():
+            resource_id = self.flow_resource_for(argument, flow_name, local_resources)
+            if resource_id:
+                parameter_resources[parameter] = resource_id
+        for node in ast.walk(initializer):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if not targets or not isinstance(node.value, ast.Name):
+                continue
+            field = self.target_attribute(targets[0])
+            resource_id = parameter_resources.get(node.value.id)
+            if field and resource_id:
+                self.step_resources.setdefault(step_name, {})[field] = resource_id
+
+    def flow_resource_for(self, expression, flow_name, local_resources):
+        if isinstance(expression, ast.Name):
+            return local_resources.get(expression.id) or self.resources.get(expression.id)
+        if isinstance(expression, ast.Attribute):
+            return self.resources.get(f"{flow_name}.{expression.attr}") or self.resources.get(expression.attr)
+        return None
+
+    def add_resource(self, kind, target_name, call, owner, source_node):
+        resource_name = target_name
+        if call.args:
+            if isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str):
+                resource_name = call.args[0].value
+            elif isinstance(call.args[0], ast.Name):
+                constant = self.module_constant(call.args[0].id)
+                if constant is None and owner:
+                    constant = self.class_constant(owner, call.args[0].id)
+                if constant is not None:
+                    resource_name = constant
+                else:
+                    self.error("dynamic_resource_name", f"resource {target_name} must use a static name", self.span(call.args[0]))
+            else:
+                self.error("dynamic_resource_name", f"resource {target_name} must use a static name", self.span(call.args[0]))
+        key = f"{owner}.{target_name}" if owner else target_name
+        node_id = f"resource:{kind}:{key}"
+        self.resources[key] = node_id
+        self.resources[target_name] = node_id
+        self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(source_node)})
+        return node_id
+
+    def analyze_registration(self, flow_class):
+        method = self.method(flow_class, "get_steps")
+        if method is None:
+            self.error("step_registration_missing", "Flow must define get_steps in the source file", self.span(flow_class))
+            return
+        registrations = []
+        for node in ast.walk(method):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr not in {"start_step", "other_steps"}:
+                continue
+            for index, argument in enumerate(node.args):
+                step_name = self.step_target(argument)
+                is_start = node.func.attr == "start_step" and index == 0
+                registrations.append((step_name, is_start, argument))
+        starts = 0
+        seen = set()
+        for step_name, is_start, expression in registrations:
+            if not step_name:
+                self.dynamic_target("registered Step type must be static", expression)
+                continue
+            if step_name in seen:
+                continue
+            seen.add(step_name)
+            if step_name not in self.step_classes:
+                self.dynamic_target(f"Step {step_name} must be defined in the source file", expression)
+                continue
+            step_class = self.step_classes[step_name]
+            node_id = f"step:{step_name}"
+            self.registered[step_name] = node_id
+            self.add_node({
+                "id": node_id,
+                "kind": "step",
+                "name": self.custom_type_name(step_class, "get_step_type", step_name),
+                "phase": "wait_for+execute" if self.method(step_class, "wait_for") else "execute",
+                "start": is_start,
+                "span": self.span(expression),
+            })
+            if is_start:
+                starts += 1
+                self.graph["flow"]["startStepId"] = node_id
+                self.add_node({"id": "start", "kind": "start", "name": "Start"})
+                self.add_edge("start", "start", node_id, span=self.span(expression))
+        if starts > 1:
+            self.error("multiple_start_steps", "Flow defines more than one start Step", self.span(method))
+        if not registrations:
+            self.error("dynamic_step_registration", "get_steps must directly call StepList.start_step or other_steps", self.span(method))
+
+    def analyze_step(self, step_name, node_id):
+        step_class = self.step_classes[step_name]
+        execute = self.method(step_class, "execute")
+        if execute is None:
+            self.error("step_handler_not_in_file", f"Step {step_name} execute must be defined in the source file", self.span(step_class))
+            return
+        self.analyze_decisions(node_id, execute, rpc=False)
+        self.analyze_resources(node_id, execute, "execute")
+        wait_for = self.method(step_class, "wait_for")
+        if wait_for is not None:
+            self.analyze_wait(node_id, step_name, wait_for)
+        options = self.method(step_class, "get_step_options")
+        if options is not None:
+            self.analyze_failure(node_id, options)
+
+    def analyze_flow_handlers(self, flow_class):
+        ignored = {"__init__", "get_steps", "get_persistence_schema", "get_flow_type", "get_flow_options", "get_flow_config"}
+        for statement in flow_class.body:
+            if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)) or statement.name in ignored:
+                continue
+            if statement.name == "handle_timeout":
+                node_id = f"timeout_handler:{flow_class.name}"
+                self.add_node({"id": node_id, "kind": "timeout_handler", "name": "Flow timeout", "span": self.span(statement)})
+                self.analyze_decisions(node_id, statement, rpc=False)
+                self.analyze_resources(node_id, statement, "timeout")
+            elif any(self.is_dex_reference(decorator.func if isinstance(decorator, ast.Call) else decorator, "rpc") for decorator in statement.decorator_list):
+                node_id = f"rpc:{statement.name}"
+                self.add_node({"id": node_id, "kind": "rpc", "name": statement.name, "span": self.span(statement)})
+                self.analyze_decisions(node_id, statement, rpc=True)
+                self.analyze_resources(node_id, statement, "rpc")
+
+    def analyze_decisions(self, owner_id, method, rpc):
+        locals_map = self.local_movements(method)
+        transitions = []
+        self.walk_statements(method.body, "", lambda expression, condition: transitions.extend(self.parse_decision(expression, condition, rpc, locals_map)))
+        if any(transition.get("condition") for transition in transitions) and len(transitions) > 1:
+            for transition in transitions:
+                if not transition.get("condition"):
+                    transition["condition"] = "otherwise"
+        if not transitions and self.has_hidden_decision(method):
+            node_id = f"unknown:{owner_id}:{method.lineno}"
+            self.add_node({"id": node_id, "kind": "unknown", "name": "Dynamic Dex decision", "span": self.span(method)})
+            self.add_edge("transition", owner_id, node_id, label="dynamic", span=self.span(method))
+            self.error("hidden_dex_decision", f"{method.name} hides its Dex decision in a helper", self.span(method))
+        for transition in transitions:
+            if transition["kind"] == "terminal":
+                target_id = f"terminal:{transition['target']}"
+                self.add_node({"id": target_id, "kind": "terminal", "name": transition["label"], "span": transition["span"]})
+            else:
+                target_id = self.resolve_target(transition["target"], transition["span"])
+            self.add_edge(
+                transition["kind"], owner_id, target_id,
+                label=transition.get("label", ""), condition=transition.get("condition", ""),
+                multiplicity=transition.get("multiplicity", ""), span=transition.get("span"),
+                metadata=transition.get("metadata"),
+            )
+
+    def analyze_wait(self, owner_id, step_name, method):
+        wait_kind = "WaitFor"
+        calls = [node for node in ast.walk(method) if isinstance(node, ast.Call)]
+        wait_names = {"skip_immediately": "Skip immediately", "until": "Until", "all_of": "AllOf", "any_of": "AnyOf", "any_combination_of": "AnyCombinationOf"}
+        for call in calls:
+            symbol = self.symbol(call.func)
+            short = symbol.rsplit(".", 1)[-1]
+            if short in wait_names and isinstance(call.func, ast.Attribute) and self.is_dex_reference(call.func.value, "Wait"):
+                wait_kind = wait_names[short]
+                break
+        wait_id = f"wait:{step_name}"
+        self.add_node({"id": wait_id, "kind": "wait", "name": wait_kind, "phase": "wait_for", "span": self.span(method)})
+        self.add_edge("wait", owner_id, wait_id, label=wait_kind, span=self.span(method))
+        self.analyze_resources(wait_id, method, "wait_for")
+        for call in calls:
+            symbol = self.symbol(call.func)
+            if isinstance(call.func, ast.Attribute) and call.func.attr == "by_duration" and self.is_dex_reference(call.func.value, "Timer"):
+                node_id = f"timer:{step_name}:{call.lineno}"
+                self.add_node({"id": node_id, "kind": "timer", "name": "Timer", "external": True, "span": self.span(call)})
+                self.add_edge("wait_condition", wait_id, node_id, label="timer", span=self.span(call))
+            if isinstance(call.func, ast.Attribute) and call.func.attr == "run" and self.is_dex_reference(call.func.value, "SubFlow"):
+                name = "SubFlow"
+                if call.args:
+                    name = self.step_target(call.args[0]) or self.symbol(call.args[0]) or name
+                node_id = f"subflow:{name}:{call.lineno}"
+                self.add_node({"id": node_id, "kind": "subflow", "name": name, "external": True, "span": self.span(call)})
+                self.add_edge("subflow", wait_id, node_id, label="wait", span=self.span(call))
+
+    def analyze_failure(self, owner_id, method):
+        for call in [node for node in ast.walk(method) if isinstance(node, ast.Call)]:
+            if not isinstance(call.func, ast.Attribute) or call.func.attr != "on_execute_failure_proceed_to":
+                continue
+            if not call.args:
+                self.dynamic_target("execute failure recovery target must be static", call)
+                continue
+            target = self.step_target(call.args[0])
+            target_id = self.resolve_target(target, self.span(call.args[0]))
+            metadata = {}
+            if target in self.step_classes:
+                metadata["skipWaitFor"] = self.method(self.step_classes[target], "wait_for") is None
+            self.add_edge("failure_transition", owner_id, target_id, label="Execute failure", span=self.span(call), metadata=metadata)
+
+    def analyze_resources(self, owner_id, method, phase):
+        seen = set()
+        for call in [node for node in ast.walk(method) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)]:
+            resource_id = self.resource_for(call.func.value, owner_id)
+            if not resource_id:
+                continue
+            edge_kind = self.resource_edge_kind(call.func.attr, phase)
+            if not edge_kind:
+                continue
+            key = (edge_kind, resource_id, call.func.attr)
+            if key in seen:
+                continue
+            seen.add(key)
+            self.add_edge(edge_kind, owner_id, resource_id, label=call.func.attr, span=self.span(call), metadata={"phase": phase})
+
+    def parse_decision(self, expression, condition, rpc, locals_map):
+        if isinstance(expression, ast.IfExp):
+            branch = self.unparse(expression.test)
+            return self.parse_decision(expression.body, self.combine(condition, branch), rpc, locals_map) + self.parse_decision(expression.orelse, self.combine(condition, "otherwise"), rpc, locals_map)
+        if not isinstance(expression, ast.Call):
+            return []
+        if isinstance(expression.func, ast.Attribute) and expression.func.attr in {"with_canceling_steps", "with_canceling_sibling_steps"}:
+            transitions = self.parse_decision(expression.func.value, condition, rpc, locals_map)
+            for argument in expression.args:
+                transitions.append({"kind": "cancel", "target": self.step_target(argument), "label": expression.func.attr, "condition": condition, "span": self.span(argument)})
+            return transitions
+        symbol = self.symbol(expression.func)
+        short = symbol.rsplit(".", 1)[-1]
+        if short == "go_to" and self.is_dex_reference(expression.func, "go_to"):
+            target = self.step_target(expression.args[0]) if expression.args else None
+            return [{"kind": "transition", "target": target, "label": "go_to", "condition": condition, "span": self.span(expression)}]
+        if short == "go_to_many" and self.is_dex_reference(expression.func, "go_to_many"):
+            result = []
+            for argument in expression.args:
+                if isinstance(argument, ast.Starred) and isinstance(argument.value, ast.Name):
+                    for movement in locals_map.get(argument.value.id, []):
+                        result.append({**movement, "condition": condition, "multiplicity": movement.get("multiplicity") or "×N"})
+                elif isinstance(argument, ast.Starred) and isinstance(argument.value, (ast.GeneratorExp, ast.ListComp)):
+                    movement = self.parse_movement(argument.value.elt, condition)
+                    if movement:
+                        movement["multiplicity"] = "×N"
+                        result.append(movement)
+                elif isinstance(argument, ast.Name):
+                    for movement in locals_map.get(argument.id, []):
+                        result.append({**movement, "condition": condition})
+                else:
+                    movement = self.parse_movement(argument, condition)
+                    if movement:
+                        result.append(movement)
+                    else:
+                        self.dynamic_target("fan-out movements must be built directly in the handler", argument)
+            if not expression.args:
+                self.dynamic_target("go_to_many must contain a statically analyzable movement", expression)
+            return result
+        if short in {"graceful_complete", "force_complete", "force_fail", "dead_end", "force_complete_if_channels_empty"} and self.is_dex_reference(expression.func, short):
+            labels = {
+                "graceful_complete": "Graceful complete", "force_complete": "Force complete",
+                "force_fail": "Force fail", "dead_end": "Dead end",
+                "force_complete_if_channels_empty": "Complete if channels empty",
+            }
+            return [{"kind": "terminal", "target": short, "label": labels[short], "condition": condition, "span": self.span(expression)}]
+        if rpc and short == "RPCResult" and self.is_dex_reference(expression.func, "RPCResult"):
+            result = []
+            for node in ast.walk(expression):
+                movement = self.parse_movement(node, condition)
+                if movement:
+                    result.append(movement)
+            return result
+        if rpc:
+            movement = self.parse_movement(expression, condition)
+            return [movement] if movement else []
+        return []
+
+    def parse_movement(self, expression, condition):
+        if not isinstance(expression, ast.Call) or not isinstance(expression.func, ast.Attribute) or expression.func.attr != "of" or not self.is_dex_reference(expression.func.value, "StepMovement"):
+            return None
+        if not expression.args:
+            return None
+        return {"kind": "transition", "target": self.step_target(expression.args[0]), "label": "fan-out", "condition": condition, "span": self.span(expression)}
+
+    def local_movements(self, method):
+        result = {}
+        for node in ast.walk(method):
+            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                value = node.value
+                if not targets or not isinstance(targets[0], ast.Name):
+                    continue
+                name = targets[0].id
+                if isinstance(value, (ast.List, ast.Tuple)):
+                    result[name] = [movement for element in value.elts if (movement := self.parse_movement(element, ""))]
+                elif isinstance(value, ast.ListComp):
+                    movement = self.parse_movement(value.elt, "")
+                    if movement:
+                        movement["multiplicity"] = "×N"
+                        result[name] = [movement]
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "append" and isinstance(node.func.value, ast.Name) and node.args:
+                movement = self.parse_movement(node.args[0], "")
+                if movement:
+                    movement["multiplicity"] = "×N"
+                    result.setdefault(node.func.value.id, []).append(movement)
+        return result
+
+    def walk_statements(self, statements, condition, visit):
+        for statement in statements:
+            if isinstance(statement, ast.Return) and statement.value is not None:
+                visit(statement.value, condition)
+            elif isinstance(statement, ast.If):
+                branch = self.unparse(statement.test)
+                self.walk_statements(statement.body, self.combine(condition, branch), visit)
+                self.walk_statements(statement.orelse, self.combine(condition, "otherwise"), visit)
+            elif isinstance(statement, ast.Match):
+                for case in statement.cases:
+                    self.walk_statements(case.body, self.combine(condition, self.unparse(case.pattern)), visit)
+            elif isinstance(statement, (ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)):
+                self.walk_statements(statement.body, condition, visit)
+                self.walk_statements(getattr(statement, "orelse", []), condition, visit)
+            elif isinstance(statement, ast.Try):
+                self.walk_statements(statement.body, condition, visit)
+                for handler in statement.handlers:
+                    self.walk_statements(handler.body, self.combine(condition, "exception"), visit)
+                self.walk_statements(statement.orelse, condition, visit)
+                self.walk_statements(statement.finalbody, condition, visit)
+
+    def resolve_target(self, target, span):
+        if target in self.registered:
+            return self.registered[target]
+        target_name = target or "Dynamic Step"
+        node_id = f"unknown:step:{target_name}"
+        self.add_node({"id": node_id, "kind": "unknown", "name": target_name, "span": span})
+        message = f"Step {target} is not registered in this Flow" if target else "Dex transition target must be a registered static Step"
+        self.error("unknown_step_target", message, span)
+        return node_id
+
+    def dynamic_target(self, message, node):
+        span = self.span(node)
+        self.add_node({"id": f"unknown:step:{span['startLine']}", "kind": "unknown", "name": "Dynamic Step", "span": span})
+        self.error("dynamic_step_target", message, span)
+
+    def resource_for(self, expression, owner_id):
+        if isinstance(expression, ast.Name):
+            return self.resources.get(expression.id)
+        if isinstance(expression, ast.Attribute):
+            if isinstance(expression.value, ast.Name) and expression.value.id == "self":
+                owner_step = owner_id.split(":", 1)[1] if ":" in owner_id else ""
+                if owner_step.startswith("wait:"):
+                    owner_step = owner_step.split(":", 1)[1]
+                wired = self.step_resources.get(owner_step, {}).get(expression.attr)
+                if wired:
+                    return wired
+                return self.resources.get(expression.attr) or self.resources.get(f"{next(iter(self.flow_classes), '')}.{expression.attr}")
+            return self.resources.get(expression.attr)
+        return None
+
+    def step_target(self, expression):
+        if isinstance(expression, ast.Name):
+            return expression.id if expression.id in self.step_classes else None
+        if isinstance(expression, ast.Attribute):
+            if isinstance(expression.value, ast.Name) and expression.value.id == "self":
+                return self.flow_fields.get(expression.attr)
+            if expression.attr in self.flow_fields:
+                return self.flow_fields[expression.attr]
+            return expression.attr if expression.attr in self.step_classes else None
+        if isinstance(expression, ast.Call):
+            name = self.symbol(expression.func)
+            return name if name in self.step_classes else None
+        return None
+
+    def custom_type_name(self, class_node, method_name, fallback):
+        method = self.method(class_node, method_name)
+        if method:
+            for statement in method.body:
+                if isinstance(statement, ast.Return) and isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str):
+                    return statement.value.value or fallback
+            self.error("dynamic_type_name", f"{method_name} must return a static string", self.span(method))
+        return fallback
+
+    def has_hidden_decision(self, method):
+        annotation = self.unparse(method.returns) if method.returns else ""
+        if "StepDecision" not in annotation:
+            return False
+        known = {"go_to", "go_to_many", "graceful_complete", "force_complete", "force_fail", "dead_end", "force_complete_if_channels_empty", "RPCResult"}
+        for node in ast.walk(method):
+            if isinstance(node, ast.Return) and isinstance(node.value, ast.Call):
+                short = self.symbol(node.value.func).rsplit(".", 1)[-1]
+                if short not in known or not self.is_dex_reference(node.value.func, short):
+                    return True
+        return False
+
+    def target_attribute(self, expression):
+        if isinstance(expression, ast.Attribute) and isinstance(expression.value, ast.Name) and expression.value.id == "self":
+            return expression.attr
+        return None
+
+    def method(self, class_node, name):
+        for statement in class_node.body:
+            if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)) and statement.name == name:
+                return statement
+        return None
+
+    def module_constant(self, name):
+        for statement in self.tree.body:
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name) and statement.targets[0].id == name:
+                if isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str):
+                    return statement.value.value
+        return None
+
+    def class_constant(self, class_name, name):
+        class_node = self.classes.get(class_name)
+        if class_node is None:
+            return None
+        for statement in class_node.body:
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name) and statement.targets[0].id == name:
+                if isinstance(statement.value, ast.Constant) and isinstance(statement.value.value, str):
+                    return statement.value.value
+        return None
+
+    def symbol(self, expression):
+        if isinstance(expression, ast.Name):
+            return self.imports.get(expression.id, expression.id)
+        if isinstance(expression, ast.Attribute):
+            prefix = self.symbol(expression.value)
+            if prefix in self.module_aliases:
+                return expression.attr
+            return f"{prefix}.{expression.attr}" if prefix else expression.attr
+        if isinstance(expression, ast.Subscript):
+            return self.symbol(expression.value)
+        return ""
+
+    def is_dex_reference(self, expression, expected):
+        if isinstance(expression, ast.Subscript):
+            return self.is_dex_reference(expression.value, expected)
+        if isinstance(expression, ast.Name):
+            return self.imports.get(expression.id) == expected
+        if isinstance(expression, ast.Attribute) and isinstance(expression.value, ast.Name):
+            return expression.value.id in self.module_aliases and expression.attr == expected
+        return False
+
+    def resource_kind(self, name):
+        short = name.rsplit(".", 1)[-1]
+        if short in {"Attribute", "AttributeMap"}:
+            return "attribute"
+        if short in {"Channel", "ChannelMap"}:
+            return "channel"
+        if short == "Stream":
+            return "stream"
+        return None
+
+    def resource_edge_kind(self, method, phase):
+        if phase == "wait_for" and method in {"for_one", "for_n", "at_least", "at_most", "for_range"}:
+            return "wait_condition"
+        if method in {"get", "size", "map_size", "all_instance_keys", "get_map_size", "get_all_instance_keys", "results"}:
+            return "resource_read"
+        if method in {"set", "delete", "write"}:
+            return "resource_write"
+        if method == "publish":
+            return "resource_publish"
+        return None
+
+    def add_node(self, node):
+        if node["id"] in self.node_ids:
+            return
+        self.node_ids.add(node["id"])
+        self.graph["nodes"].append(node)
+
+    def add_edge(self, kind, source, target, label="", condition="", multiplicity="", span=None, metadata=None):
+        edge = {"kind": kind, "from": source, "to": target}
+        if label:
+            edge["label"] = label
+        if condition:
+            edge["condition"] = condition
+        if multiplicity:
+            edge["multiplicity"] = multiplicity
+        if span:
+            edge["span"] = span
+        if metadata:
+            edge["metadata"] = metadata
+        self.graph["edges"].append(edge)
+
+    def error(self, code, message, span=None):
+        diagnostic = {"severity": "error", "code": code, "message": message}
+        if span:
+            diagnostic["span"] = span
+        self.graph["diagnostics"].append(diagnostic)
+        self.graph["valid"] = False
+
+    def span(self, node):
+        return {
+            "startLine": getattr(node, "lineno", 1),
+            "startColumn": getattr(node, "col_offset", 0) + 1,
+            "endLine": getattr(node, "end_lineno", getattr(node, "lineno", 1)),
+            "endColumn": getattr(node, "end_col_offset", getattr(node, "col_offset", 0)) + 1,
+        }
+
+    def syntax_span(self, error):
+        return {
+            "startLine": error.lineno or 1,
+            "startColumn": error.offset or 1,
+            "endLine": error.end_lineno or error.lineno or 1,
+            "endColumn": error.end_offset or error.offset or 1,
+        }
+
+    def unparse(self, node):
+        if node is None:
+            return ""
+        try:
+            return ast.unparse(node)
+        except Exception:
+            return "condition"
+
+    def combine(self, parent, child):
+        return child if not parent else f"{parent} and {child}"
+
+
+def main():
+    request = json.load(sys.stdin)
+    graph = Analyzer(request["path"], request["source"]).analyze()
+    json.dump(graph, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+
+
+main()

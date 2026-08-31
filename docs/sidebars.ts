@@ -157,7 +157,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'References',
       link: {type: 'doc', id: 'references/index'},
-      items: ['references/cli'],
+      items: ['references/cli', 'references/flow-visualization'],
     },
     'glossary',
   ],

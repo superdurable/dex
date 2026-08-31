@@ -1,0 +1,75 @@
+---
+title: Flow source visualization
+sidebar_label: Flow visualization
+---
+
+# Flow source visualization
+
+**dexcli visualize** turns one Go or Python Flow source file into a static Step graph. The graph shows every possible path that can be determined from the source. It does not represent one Flow run or its history.
+
+The command writes two artifacts by default:
+
+- JSON for agents, editors, and other tools
+- SVG for people to review in a browser or documentation
+
+```bash
+dexcli visualize ./order_flow.go
+```
+
+This creates **order_flow.flow.json** and **order_flow.flow.svg** next to the source file. Use **--out** to choose a different prefix:
+
+```bash
+dexcli visualize ./order_flow.py --out ./build/order-flow
+```
+
+Use **--format json** or **--format svg** to create one artifact. A single format can be written to stdout:
+
+```bash
+dexcli visualize ./order_flow.py --format json --out -
+```
+
+## What the graph contains
+
+The JSON and SVG share the same definition graph. It includes:
+
+- the Flow and start Step
+- registered Steps and statically known transitions
+- condition labels and static or runtime-sized fan-out
+- WaitFor conditions, Timers, and external SubFlows
+- RPCs and their next Steps
+- Attribute, Channel, and Stream access
+- terminal decisions and cancellation relations
+- Execute failure recovery paths
+
+An error return or raised exception does not identify another Step. It therefore does not create a transition. An explicit **ProceedToOnExecuteFailure** or **on_execute_failure_proceed_to** policy creates a red dashed edge to the recovery Step.
+
+## Supported source profile
+
+Version 1 supports one Flow per source file. The file must directly contain:
+
+- static Step registration
+- each registered Step handler
+- Dex transitions and WaitFor definitions
+- RPC next Steps
+- execute-failure recovery targets
+- persistence resource definitions and access
+
+Ordinary business helpers and imported models are allowed. A helper must not hide a Dex transition, WaitFor definition, resource definition, or recovery target. Step types, Flow types, and resource names must be statically known.
+
+Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST in isolated mode. It never imports or executes the application module.
+
+Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard Dex imports, getattr-based targets, monkeypatching, or movement collections that escape the handler. TypeScript, Java, Rust, and recursive multi-file analysis are not included.
+
+## Unknown nodes and diagnostics
+
+Unsupported dynamic control flow is never omitted silently. The output contains an Unknown node and an error diagnostic. Both partial artifacts are still written, and the command exits with status 1.
+
+Warnings do not invalidate the graph. For example, a registered Step that cannot be reached from the start Step or an RPC produces a warning. Invalid command arguments exit with status 2.
+
+The JSON **valid** field is false when any blocking diagnostic is present. Consumers should reject editing or deployment based on an invalid graph while still using its known nodes and edges for explanation.
+
+## JSON contract
+
+The [Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) defines source spans, nodes, edges, metadata, and diagnostics. The schema is the integration boundary for future visual editors and additional language analyzers.
+
+See [Dex CLI](/references/cli) for commands that operate on running Flows.

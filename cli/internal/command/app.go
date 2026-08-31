@@ -56,6 +56,9 @@ func (a *App) Execute(ctx context.Context, args []string) error {
 		a.printUsage()
 		return nil
 	}
+	if remaining[0] == "visualize" {
+		return a.executeVisualize(ctx, remaining[1:])
+	}
 	if err := options.validate(); err != nil {
 		return newUsageError("dexcli", err)
 	}
@@ -109,6 +112,7 @@ func (a *App) printUsage() {
 	fmt.Fprintln(a.stdout)
 	fmt.Fprintln(a.stdout, "Commands:")
 	fmt.Fprintln(a.stdout, "  health    Check Dex FlowService health")
+	fmt.Fprintln(a.stdout, "  visualize Generate a static Flow graph from Go or Python source")
 	fmt.Fprintln(a.stdout, "  flow      Start, operate, inspect, or watch Flows")
 	fmt.Fprintln(a.stdout, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(a.stdout)

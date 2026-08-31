@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://superdurable.com/schemas/flow-definition-graph.v1.schema.json",
+  "title": "Dex Flow Definition Graph v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "valid", "source", "flow", "nodes", "edges", "diagnostics"],
+  "properties": {
+    "schemaVersion": {"const": "1.0"},
+    "valid": {"type": "boolean"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "path"],
+      "properties": {
+        "language": {"enum": ["go", "python"]},
+        "path": {"type": "string"}
+      }
+    },
+    "flow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "startStepId": {"type": "string"},
+        "span": {"$ref": "#/$defs/span"}
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "name"],
+        "properties": {
+          "id": {"type": "string"},
+          "kind": {"enum": ["start", "step", "rpc", "timeout_handler", "wait", "timer", "attribute", "channel", "stream", "subflow", "decision", "terminal", "unknown"]},
+          "name": {"type": "string"},
+          "phase": {"type": "string"},
+          "start": {"type": "boolean"},
+          "external": {"type": "boolean"},
+          "span": {"$ref": "#/$defs/span"},
+          "metadata": {"type": "object"}
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "from", "to"],
+        "properties": {
+          "id": {"type": "string"},
+          "kind": {"enum": ["start", "transition", "failure_transition", "decision", "terminal", "wait", "wait_condition", "resource_read", "resource_write", "resource_publish", "cancel", "subflow"]},
+          "from": {"type": "string"},
+          "to": {"type": "string"},
+          "label": {"type": "string"},
+          "condition": {"type": "string"},
+          "multiplicity": {"type": "string"},
+          "span": {"$ref": "#/$defs/span"},
+          "metadata": {"type": "object"}
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["severity", "code", "message"],
+        "properties": {
+          "severity": {"enum": ["warning", "error"]},
+          "code": {"type": "string"},
+          "message": {"type": "string"},
+          "span": {"$ref": "#/$defs/span"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startLine", "startColumn", "endLine", "endColumn"],
+      "properties": {
+        "startLine": {"type": "integer", "minimum": 1},
+        "startColumn": {"type": "integer", "minimum": 1},
+        "endLine": {"type": "integer", "minimum": 1},
+        "endColumn": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

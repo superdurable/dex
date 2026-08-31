@@ -146,6 +146,46 @@ dexcli flow history order-123 --no-hydrate
 RPC input and output use the same Blob Store hydration as other history values.
 Pass `--no-hydrate` to retain their references.
 
+## Visualize Flow source
+
+Generate a static possible-path graph from one Go or Python Flow source file:
+
+```bash
+dexcli visualize ./order_flow.go
+```
+
+The default writes `order_flow.flow.json` and `order_flow.flow.svg` next to the
+source. JSON is the versioned machine-readable Flow Definition Graph; SVG is a
+responsive diagram for people. Select one artifact or choose another prefix:
+
+```bash
+dexcli visualize ./order_flow.py --format json --out -
+dexcli visualize ./order_flow.go --out ./build/order-flow
+```
+
+Python analysis requires Python 3.11 or newer. Pass `--python /path/to/python`
+to select an interpreter. The analyzer parses Python with the standard-library
+AST and never imports or executes the application module.
+
+Go analysis requires a local Go toolchain and a module/package that passes type
+checking. Version 1 accepts one Flow per file. Step registration, transitions,
+waits, RPC next Steps, execute-failure recovery targets, and persistence
+resource access must be directly visible in that file. Business helpers may
+remain in other files, but they must not hide Dex control flow. Dynamic targets
+produce an Unknown node and a blocking diagnostic. Partial JSON and SVG
+artifacts are still written, and the command exits with status 1.
+
+```text
+dexcli visualize SOURCE [--language auto|go|python]
+                         [--format both|json|svg]
+                         [--out PATH_PREFIX|-]
+                         [--python PYTHON_PATH]
+```
+
+`--out -` is valid only with one selected format. Invalid command usage exits
+with status 2. The JSON contract is documented by
+[`schema/flow-definition-graph.v1.schema.json`](schema/flow-definition-graph.v1.schema.json).
+
 The friendly Flow commands are:
 
 ```text

@@ -4,9 +4,11 @@ go 1.26.0
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex v0.0.0
 	github.com/superdurable/dex/web v0.0.0
 	go.temporal.io/sdk v1.47.1-superdurable.2
+	golang.org/x/tools v0.44.0
 	google.golang.org/grpc v1.82.1
 	google.golang.org/protobuf v1.36.11
 )
@@ -70,7 +72,6 @@ require (
 	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/robfig/cron v1.2.0 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/superdurable/dex/blob-cache-go v0.1.0 // indirect
 	github.com/twmb/murmur3 v1.1.5 // indirect
 	github.com/uber-go/mapdecode v1.0.0 // indirect
@@ -101,7 +102,6 @@ require (
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
-	golang.org/x/tools v0.44.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect

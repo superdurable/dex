@@ -1,0 +1,75 @@
+---
+title: Flow 源码可视化
+sidebar_label: Flow 可视化
+---
+
+# Flow 源码可视化
+
+**dexcli visualize** 可以把一个 Go 或 Python Flow 源文件转换为静态 Step 图。图中包含能够从源码确定的所有可能路径，而不是某一次 Flow 运行及其历史。
+
+命令默认写出两种产物：
+
+- 供智能体、编辑器和其他工具使用的 JSON
+- 供人在浏览器或文档中查看的 SVG
+
+```bash
+dexcli visualize ./order_flow.go
+```
+
+该命令会在源文件旁生成 **order_flow.flow.json** 和 **order_flow.flow.svg**。使用 **--out** 可以选择其他输出前缀：
+
+```bash
+dexcli visualize ./order_flow.py --out ./build/order-flow
+```
+
+使用 **--format json** 或 **--format svg** 可以只生成一种产物。选择单一格式时可以写入标准输出：
+
+```bash
+dexcli visualize ./order_flow.py --format json --out -
+```
+
+## 图中包含的内容
+
+JSON 和 SVG 使用同一个定义图，其中包括：
+
+- Flow 和起始 Step
+- 已注册的 Step 和静态可知的跳转
+- 条件标签，以及固定数量或运行时数量的并行分支
+- WaitFor 条件、Timer 和外部 SubFlow
+- RPC 及其后续 Step
+- Attribute、Channel 和 Stream 的访问关系
+- 终止决策和取消关系
+- Execute 失败后的恢复路径
+
+错误返回或抛出的异常并不能确定另一个 Step，因此不会产生跳转。显式的 **ProceedToOnExecuteFailure** 或 **on_execute_failure_proceed_to** 策略会生成一条指向恢复 Step 的红色虚线。
+
+## 支持的源码约束
+
+首版要求每个源文件只包含一个 Flow。以下内容必须直接出现在该文件中：
+
+- 静态 Step 注册
+- 每个已注册 Step 的处理方法
+- Dex 跳转和 WaitFor 定义
+- RPC 的后续 Step
+- Execute 失败后的恢复目标
+- 持久化资源定义及其访问
+
+可以使用普通业务辅助函数和导入的数据模型，但辅助函数不能隐藏 Dex 跳转、WaitFor 定义、资源定义或恢复目标。Step 类型、Flow 类型和资源名称必须能够静态确定。
+
+Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查的 module 和 package。Python 分析要求 Python 3.11 或更高版本。Python analyzer 在隔离模式下使用标准库 AST，绝不会导入或执行应用模块。
+
+首版不支持单文件中的多个 Flow、反射、动态 class、Dex 通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。TypeScript、Java、Rust 和递归多文件分析也不在首版范围内。
+
+## Unknown 节点和诊断
+
+不支持的动态控制流不会被静默省略。输出会包含 Unknown 节点和错误诊断。命令仍然写出两份部分产物，并以状态码 1 退出。
+
+warning 不会使图失效。例如，从起始 Step 或 RPC 都无法到达的已注册 Step 会产生 warning。无效命令参数以状态码 2 退出。
+
+存在任何阻断诊断时，JSON 中的 **valid** 字段为 false。消费方应阻止基于无效图的编辑或部署，但仍可使用其中已知的节点和边解释问题。
+
+## JSON 合约
+
+[Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) 定义了源码位置、节点、边、metadata 和诊断。该 schema 是未来可视化编辑器及其他语言 analyzer 的集成边界。
+
+运行中 Flow 的操作命令请参阅 [Dex CLI](/references/cli)。
