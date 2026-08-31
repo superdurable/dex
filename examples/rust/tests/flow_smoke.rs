@@ -166,12 +166,6 @@ fn flow_smoke_catalog(client: &mut FlowSmokeHttpClient) -> Vec<FlowSmokeEntry> {
             flags: FlowSmokeFlags::NONE,
         },
         FlowSmokeEntry {
-            name: "products/shortlist-candidates",
-            path: "/products/shortlist-candidates/start",
-            query: HashMap::new(),
-            flags: FlowSmokeFlags::NONE,
-        },
-        FlowSmokeEntry {
             name: "patterns/polling/timer",
             path: "/patterns/polling/start/timer",
             query: query(&client.new_flow_id("pattern-polling-timer")),

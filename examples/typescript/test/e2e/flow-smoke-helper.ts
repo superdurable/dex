@@ -401,11 +401,3 @@ function sleep(ms: number): Promise<void> {
 export function newFlowId(prefix: string): string {
   return `${prefix}-${randomUUID()}`;
 }
-
-export function employerOptInFlowId(employerId: string): string {
-  return `shortlist_candidates_opt_in_${employerId}`;
-}
-
-export function shortlistFlowId(employerId: string, candidateId: string): string {
-  return `shortlist_candidates_shortlist_${employerId}_${candidateId}`;
-}

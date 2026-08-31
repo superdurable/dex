@@ -241,38 +241,6 @@ test("product jobpost create read update delete search", async () => {
   requireOk(await get("/products/job-post/delete", { workflowId }), "jobpost/delete");
 });
 
-test("product shortlist opt_in is_opted_in shortlist revoke opt_out email", async () => {
-  const employerId = id("employer");
-  const candidateId = id("candidate");
-  requireOk(
-    await post("/products/shortlist-candidates/opt_in", { employerId }),
-    "shortlist opt_in",
-  );
-  requireOk(
-    await get("/products/shortlist-candidates/is_opted_in", { employerId }),
-    "shortlist is_opted_in",
-  );
-  requireOk(
-    await post("/products/shortlist-candidates/shortlist", { employerId, candidateId }),
-    "shortlist shortlist",
-  );
-  requireOk(
-    await get("/products/shortlist-candidates/email_sent_timestamp", {
-      employerId,
-      candidateId,
-    }),
-    "shortlist email_sent_timestamp",
-  );
-  requireOk(
-    await post("/products/shortlist-candidates/revoke_shortlist", { employerId, candidateId }),
-    "shortlist revoke",
-  );
-  requireOk(
-    await post("/products/shortlist-candidates/opt_out", { employerId }),
-    "shortlist opt_out",
-  );
-});
-
 test("design-pattern waitforstepcompletion start", async () => {
   requireOk(
     await get("/patterns/wait-for-step-completion/start", {

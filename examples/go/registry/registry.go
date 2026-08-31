@@ -58,7 +58,6 @@ import (
 	"github.com/superdurable/dex/examples/go/products/microservices"
 	"github.com/superdurable/dex/examples/go/products/money-transfer"
 	"github.com/superdurable/dex/examples/go/products/order-processing"
-	"github.com/superdurable/dex/examples/go/products/shortlist-candidates"
 	"github.com/superdurable/dex/examples/go/products/signup"
 	"github.com/superdurable/dex/examples/go/products/subscription"
 	"github.com/superdurable/dex/examples/go/shared/service"
@@ -79,8 +78,6 @@ var (
 	Subscription    *subscription.SubscriptionFlow
 	UserOnboarding  *signup.UserOnboardingFlow
 	JobPosting      *jobpost.JobPostingFlow
-	EmployerOptIn   *shortlistcandidates.EmployerOptInFlow
-	Shortlist       *shortlistcandidates.ShortlistFlow
 
 	CronSchedule          *cron.CronScheduleFlow
 	PollingWithTimer      *patternspolling.PollingWithTimerFlow
@@ -146,12 +143,6 @@ func New(applicationSvc service.MyService, getClient ClientProvider) []dex.Flow 
 	Subscription = subscription.NewSubscriptionFlow(applicationService)
 	UserOnboarding = signup.NewUserOnboardingFlow(applicationService)
 	JobPosting = jobpost.NewJobPostingFlow(applicationService)
-	EmployerOptIn = shortlistcandidates.NewEmployerOptInFlow()
-	Shortlist = shortlistcandidates.NewShortlistFlow(
-		applicationService,
-		getClient,
-		EmployerOptIn,
-	)
 
 	CronSchedule = cron.NewCronScheduleFlow()
 	PollingWithTimer = patternspolling.NewPollingWithTimerFlow()
@@ -210,8 +201,6 @@ func Flows(additional ...dex.Flow) []dex.Flow {
 		Subscription,
 		UserOnboarding,
 		JobPosting,
-		EmployerOptIn,
-		Shortlist,
 		CronSchedule,
 		PollingWithTimer,
 		BackoffPolling,

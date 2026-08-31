@@ -83,7 +83,6 @@ from dex_examples.products.money_transfer.controller import create_money_transfe
 from dex_examples.products.order_processing.controller import (
     create_order_processing_blueprint,
 )
-from dex_examples.products.shortlist_candidates.controller import create_shortlist_blueprint
 from dex_examples.products.signup.controller import create_signup_blueprint
 from dex_examples.products.subscription.controller import create_subscription_blueprint
 
@@ -110,7 +109,6 @@ def create_app(app_state: ExampleApp) -> Quart:
     quart_app.register_blueprint(create_subscription_blueprint(app_state))
     quart_app.register_blueprint(create_signup_blueprint(app_state))
     quart_app.register_blueprint(create_job_post_blueprint(app_state))
-    quart_app.register_blueprint(create_shortlist_blueprint(app_state))
     quart_app.register_blueprint(create_ai_agent_blueprint(app_state))
 
     quart_app.register_blueprint(create_polling_pattern_blueprint(app_state))

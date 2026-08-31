@@ -58,7 +58,6 @@ after E2E tests for manual HTTP exploration.
 - [Subscription](./dex_examples/products/subscription)
 - [User onboarding process](./dex_examples/products/signup)
 - [Job posting](./dex_examples/products/job-post)
-- [Shortlist candidates](./dex_examples/products/shortlist-candidates)
 - [AI agent email](./ai-agent-email/) (Python only; UI assets in [`ai-agent-email/`](./ai-agent-email))
 
 ## Patterns

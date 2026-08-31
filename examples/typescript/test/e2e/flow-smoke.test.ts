@@ -26,11 +26,9 @@ import {
   defaultFlags,
   stepStartMayFailFlags,
   noStartStepFlags,
-  employerOptInFlowId,
   type FlowSmokeContext,
   type FlowSmokeEntry,
   newFlowId,
-  shortlistFlowId,
   triggerGet,
   triggerPost,
 } from "./flow-smoke-helper.js";
@@ -110,31 +108,6 @@ function flowSmokeCatalog(): FlowSmokeEntry[] {
           description: "Smoke test description",
         }),
       flags: noStartStepFlags(),
-    },
-    {
-      name: "products/shortlist-candidates/employer-opt-in",
-      trigger: async () => {
-        const employerId = newFlowId("employer");
-        await triggerPost(context, "/products/shortlist-candidates/opt_in", {
-          employerId,
-        });
-        return { flowId: employerOptInFlowId(employerId), runId: "" };
-      },
-      flags: defaultFlags(),
-    },
-    {
-      name: "products/shortlist-candidates/shortlist",
-      trigger: async () => {
-        const employerId = newFlowId("shortlist-employer");
-        const candidateId = newFlowId("candidate");
-        await triggerPost(context, "/products/shortlist-candidates/opt_in", { employerId });
-        await triggerPost(context, "/products/shortlist-candidates/shortlist", {
-          employerId,
-          candidateId,
-        });
-        return { flowId: shortlistFlowId(employerId, candidateId), runId: "" };
-      },
-      flags: defaultFlags(),
     },
     {
       name: "patterns/polling/timer",
