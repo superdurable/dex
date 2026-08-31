@@ -102,7 +102,7 @@ Successful Temporal RPC Updates appear as the same RPC events as result signals.
 Blob-backed RPC input and output hydrate through the existing selected-event loader.
 The Streams tab accepts a Stream name, reads its retained messages from the beginning,
 and then continuously long-polls for the next message. Each message displays its creation
-time and idempotency key. Stream retention is best effort, so older messages can be trimmed.
+time and source. Stream retention is best effort, so older messages can be trimmed.
 External attribute writes appear as Attributes updated events, with a
 SetAttributes type label and the changed values in the event details.
 Raw JSON shows hydrated values; missing retained data is labeled unavailable.

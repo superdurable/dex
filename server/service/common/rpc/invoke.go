@@ -13,6 +13,7 @@ package rpc
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/superdurable/dex/config"
 	"github.com/superdurable/dex/gen/dexpb"
@@ -28,11 +29,15 @@ func InvokeWorkerRpc(
 	pool *workerclient.WorkerClientPool,
 	rpcPrep *dexpb.PrepareRpcQueryResponse,
 	req *dexpb.InvokeRPCRequest,
-	apiMaxSeconds int64,
+	apiCfg *config.ApiConfig,
+	interpreterActivityCfg *config.InterpreterActivityConfig,
 	blobStore blobstore.BlobStore,
 	invocationId string,
 	blobStoreCfg *config.BlobStoreConfig,
 ) (*dexpb.InvokeWorkerRPCResponse, error) {
+	if apiCfg == nil || interpreterActivityCfg == nil {
+		panic("InvokeWorkerRpc requires non-nil config sections")
+	}
 
 	workerInput := req.GetInput()
 	if !blobStoreCfg.EffectiveLazyLoading() {
@@ -56,7 +61,11 @@ func InvokeWorkerRpc(
 	if timeoutSeconds > 0 {
 		timeoutPtr = &timeoutSeconds
 	}
-	rpcCtx, cancel := utils.TrimContextByTimeoutWithCappedDDL(ctx, timeoutPtr, apiMaxSeconds)
+	rpcCtx, cancel := utils.TrimContextByTimeoutWithCappedDDL(
+		ctx,
+		timeoutPtr,
+		apiCfg.EffectiveMaxWaitSeconds(),
+	)
 	defer cancel()
 
 	client, callCtx, release, err := pool.Acquire(
@@ -92,7 +101,10 @@ func InvokeWorkerRpc(
 		return nil, err
 	}
 
-	if err := validateWorkerRpcResponse(resp); err != nil {
+	if err := validateWorkerRpcResponse(
+		resp,
+		interpreterActivityCfg.EffectiveMinimumStepHeartbeatTimeout(),
+	); err != nil {
 		return nil, err
 	}
 	service.SetFromStepExecutionIDForStepDecision(
@@ -162,7 +174,10 @@ func offloadRPCSideEffects(
 	)
 }
 
-func validateWorkerRpcResponse(resp *dexpb.InvokeWorkerRPCResponse) error {
+func validateWorkerRpcResponse(
+	resp *dexpb.InvokeWorkerRPCResponse,
+	minimumHeartbeatTimeout time.Duration,
+) error {
 	if resp == nil {
 		return fmt.Errorf("nil InvokeWorkerRPCResponse")
 	}
@@ -189,7 +204,10 @@ func validateWorkerRpcResponse(resp *dexpb.InvokeWorkerRPCResponse) error {
 		if err := service.ValidateStepType(movement.GetStepType()); err != nil {
 			return fmt.Errorf("next step at index %d: %w", index, err)
 		}
-		if err := service.ValidateStepOptions(movement.GetStepOptions()); err != nil {
+		if err := service.ValidateStepOptions(
+			movement.GetStepOptions(),
+			minimumHeartbeatTimeout,
+		); err != nil {
 			return fmt.Errorf("next step at index %d: %w", index, err)
 		}
 	}

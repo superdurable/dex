@@ -123,22 +123,6 @@ decision are not in that snapshot. Dex immediately applies the next or close
 action without waiting for target handlers; late decisions, writes, retries,
 and recovery Steps are discarded.
 
-Configure `StepOptions.HeartbeatTimeout` on long-running regular Steps so
-cancellation reaches the Worker promptly. The same setting applies to WaitFor
-and Execute; local activities ignore it, while an ASYNC fallback uses it. Zero
-disables heartbeats, and positive values must be whole seconds within the
-signed int32 range. Go handlers receive cancellation through the standard
-`Context.Done()` channel:
-
-```go
-select {
-case <-ctx.Done():
-	return nil, ctx.Err()
-case result := <-work:
-	return dex.GracefulComplete(result), nil
-}
-```
-
 An RPC may call `RPCResult.CancelSteps` for Flow-wide selection while also
 returning output and scheduling Next Steps. RPCs do not support sibling
 selection because an RPC invocation has no Step execution lineage.
@@ -196,27 +180,6 @@ Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
 include buffered publishes, but omit empty instances. Keys are decoded and
 sorted. Use `ForceCompleteIfChannelsEmpty` for atomic conditional completion.
-
-## Resumable Streams
-
-Streams carry best-effort progress messages without adding durable Flow history.
-The byte budget is approximate and shared by every Flow instance with the same
-Flow type and Stream name. Register one definition in exactly one Flow schema.
-
-```go
-if err := client.WriteStream(ctx, flowID, Progress, "frontend/1", "starting"); err != nil {
-	return err
-}
-
-var progress string
-message, err := client.ReadStream(ctx, flowID, Progress, resumeToken, &progress)
-```
-
-Client idempotency keys cannot contain `#`. Step writes generate
-`runID#stepExecutionID` and allow one write per Stream per invocation. Reads
-return `ResumeToken`, `CreatedTime`, and `IdempotencyKey`. An empty token starts
-at the retained head. Use `context.WithTimeout` or `context.WithDeadline` to
-bound a read; Go wait APIs do not expose a second timeout option.
 
 SubFlows are normal, independently addressable Flows used as durable Conditions:
 

@@ -35,7 +35,7 @@ Full integration verification:
   `mixed_sync_async_flow.ts` exercise both styles on one Worker.
 - Persistence integration covers singleton Attribute equality waits; local
   contracts cover Condition IDs and buffered map introspection.
-- Stream integration covers Step/client writes, idempotency, resume tokens, and message metadata.
+- Stream integration is pending the server-streaming Worker API update.
 
 ## Error coverage
 

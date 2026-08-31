@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/superdurable/dex/config"
+	"github.com/superdurable/dex/gen/dexpb"
 )
 
 func TestServiceBackoffDefaults(t *testing.T) {
@@ -39,7 +40,7 @@ func TestConvertCadenceActivityRetryPolicyNilMatchesTemporalDefaults(t *testing.
 	require.Equal(t, time.Second*100, policy.MaximumInterval)
 	require.Equal(t, int32(0), policy.MaximumAttempts)
 	require.Equal(t, 2.0, policy.BackoffCoefficient)
-	require.Equal(t, time.Hour*24*365, policy.ExpirationInterval)
+	require.Equal(t, 4*time.Hour, policy.ExpirationInterval)
 }
 
 func TestConvertCadenceActivityRetryPolicyHonorsExplicitMaximumAttempts(t *testing.T) {
@@ -67,6 +68,14 @@ func TestActivityRetryPolicyFromProtoUsesPublicDefaults(t *testing.T) {
 	require.Equal(t, time.Second, policy.InitialInterval)
 	require.Equal(t, 2.0, policy.BackoffCoefficient)
 	require.Equal(t, 100*time.Second, policy.MaximumInterval)
+	require.Equal(t, 4*time.Hour, policy.TotalDuration)
+}
+
+func TestActivityRetryPolicyFromProtoHonorsTotalDuration(t *testing.T) {
+	shortPolicy := ActivityRetryPolicyFromProto(&dexpb.RetryPolicy{TotalDurationSeconds: 60})
+	longPolicy := ActivityRetryPolicyFromProto(&dexpb.RetryPolicy{TotalDurationSeconds: 8 * 60 * 60})
+	require.Equal(t, time.Minute, shortPolicy.TotalDuration)
+	require.Equal(t, 8*time.Hour, longPolicy.TotalDuration)
 }
 
 func TestLocalActivityRetryPolicyCapsAttemptsByBackoffWindow(t *testing.T) {
@@ -82,8 +91,19 @@ func TestLocalActivityRetryPolicyCapsAttemptsByBackoffWindow(t *testing.T) {
 
 func TestLocalActivityRetryPolicyUsesDefaultBackoffWindow(t *testing.T) {
 	policy := LocalActivityRetryPolicy(nil, 7*time.Second)
-	require.Equal(t, int32(7), policy.MaximumAttempts)
+	require.Equal(t, int32(3), policy.MaximumAttempts)
 	require.Equal(t, 7*time.Second, policy.TotalDuration)
+}
+
+func TestLocalActivityRetryPolicyHonorsSmallerAttemptLimit(t *testing.T) {
+	policy := LocalActivityRetryPolicy(&config.RetryPolicy{
+		InitialInterval:    time.Second,
+		BackoffCoefficient: 2,
+		MaximumInterval:    100 * time.Second,
+		MaximumAttempts:    2,
+		TotalDuration:      4 * time.Hour,
+	}, 7*time.Second)
+	require.Equal(t, int32(2), policy.MaximumAttempts)
 }
 
 func TestRemainingActivityRetryPolicySubtractsAttemptsAndDuration(t *testing.T) {

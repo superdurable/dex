@@ -110,4 +110,19 @@ public interface ContextOrBuilder extends
    * <code>.dex.RecoveryErrorInfo recovery_error = 8;</code>
    */
   io.superdurable.gen.RecoveryErrorInfoOrBuilder getRecoveryErrorOrBuilder();
+
+  /**
+   * <code>.dex.Value last_heartbeat_value = 9;</code>
+   * @return Whether the lastHeartbeatValue field is set.
+   */
+  boolean hasLastHeartbeatValue();
+  /**
+   * <code>.dex.Value last_heartbeat_value = 9;</code>
+   * @return The lastHeartbeatValue.
+   */
+  io.superdurable.gen.Value getLastHeartbeatValue();
+  /**
+   * <code>.dex.Value last_heartbeat_value = 9;</code>
+   */
+  io.superdurable.gen.ValueOrBuilder getLastHeartbeatValueOrBuilder();
 }

@@ -53,14 +53,14 @@ public interface StreamMessageOrBuilder extends
   com.google.protobuf.TimestampOrBuilder getCreatedTimeOrBuilder();
 
   /**
-   * <code>string idempotency_key = 4;</code>
-   * @return The idempotencyKey.
+   * <code>string source = 4;</code>
+   * @return The source.
    */
-  java.lang.String getIdempotencyKey();
+  java.lang.String getSource();
   /**
-   * <code>string idempotency_key = 4;</code>
-   * @return The bytes for idempotencyKey.
+   * <code>string source = 4;</code>
+   * @return The bytes for source.
    */
   com.google.protobuf.ByteString
-      getIdempotencyKeyBytes();
+      getSourceBytes();
 }

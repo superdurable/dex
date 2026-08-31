@@ -25,25 +25,6 @@ modules. Client, Worker, Registry, and each options family are separated as
 their own entry points instead of being collected into infrastructure-oriented
 files. Handler failures and SDK/service failures are also separate modules.
 
-Streams carry best-effort resumable progress messages. Register a cloned
-definition in exactly one Flow schema; clones retain identity, and the
-approximate byte budget is shared across all instances of that Flow type.
-
-```rust
-let progress = Stream::<String>::new("progress", 10 * 1024 * 1024);
-let schema = PersistenceSchema::new().stream(&progress);
-
-progress.write(context, "running".to_owned())?;
-client.write_stream(flow_id, &progress, "frontend/1", "starting".to_owned())?;
-let message = client.read_stream_with_timeout(
-    flow_id, &progress, resume_token, Duration::from_secs(30)
-)?;
-```
-
-Step writes are immediate, use `runID#stepExecutionID`, and allow one write per
-Stream per invocation. Client keys cannot contain `#`. Reads return the decoded
-value, resume token, creation time, and idempotency key.
-
 Single-condition waits read as `Wait::until(condition)`. `Wait::all_of` and
 `Wait::any_of` remain available for aggregate conditions. Client failures use
 domain-specific `SdkError` variants such as `FlowNotFound`, `FlowNotActive`,
@@ -213,13 +194,6 @@ Dex resolves one snapshot after the current execution succeeds. Completed,
 already-canceled, and absent targets are no-ops. Next Steps created by that
 decision are outside the snapshot. Dex immediately applies the next or close
 action; late decisions, writes, retries, and recovery Steps are discarded.
-
-Set `StepOptions::heartbeat_timeout` on long-running regular Steps so
-cancellation reaches the Worker promptly. Zero disables heartbeats, and
-positive values must be whole seconds in the signed int32 range. Local
-activities ignore the setting, while an ASYNC fallback uses it. Blocking
-handlers can call `Context::wait_for_cancellation`; batch handlers may check
-`Context::is_cancelled()` at natural boundaries.
 
 `RpcResult::cancel_step` provides Flow-wide selection for RPCs. RPCs do not
 support sibling selection because they have no Step execution lineage.

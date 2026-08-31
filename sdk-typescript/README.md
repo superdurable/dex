@@ -50,23 +50,6 @@ const orders = new Orders();
 const registry = new Registry([orders]);
 ```
 
-Streams provide best-effort resumable progress messages. Register the exact
-definition in one Flow schema; its approximate byte budget is shared by all
-instances of that Flow type. Step writes are immediate and use the generated
-`runID#stepExecutionID` idempotency key.
-
-```typescript
-const progress = new Stream("progress", stringCodec, 10 * 1024 * 1024);
-
-await progress.write(context, "running");
-await client.writeStream(flowId, progress, "frontend/1", "starting");
-const message = await client.readStream(flowId, progress, resumeToken, 30_000);
-resumeToken = message.resumeToken;
-```
-
-A Step invocation may write once per Stream. Client keys cannot contain `#`.
-Reads return the decoded value, resume token, creation time, and idempotency key.
-
 Flows return all Steps once. Start with `StepList.startStep(step)` and append
 heterogeneous Steps with `.otherSteps(...)`. Use
 `StepList.withoutStartStep<void>(...)` for RPC-triggered Steps, or
@@ -110,16 +93,6 @@ Dex resolves one snapshot after the current execution succeeds. Completed,
 already-canceled, and absent targets are no-ops. Next Steps created by that
 decision are outside the snapshot. Dex immediately applies the next or close
 action; late decisions, writes, retries, and recovery Steps are discarded.
-
-Set `StepOptions.heartbeatTimeoutMs` on long-running regular Steps so
-cancellation reaches the Worker promptly. The value is milliseconds but must
-represent whole seconds in the signed int32 range. Zero disables heartbeats.
-Local activities ignore the setting, while an ASYNC fallback uses it. The
-Worker aborts `Context.cancellationSignal`; pass it to abort-aware APIs:
-
-```typescript
-const response = await fetch(url, { signal: context.cancellationSignal });
-```
 
 An RPC result may set `cancelingSteps` for Flow-wide selection. RPCs do not
 support sibling selection because they have no Step execution lineage.

@@ -46,8 +46,8 @@ func TestFlowConfiger_ZeroDefaults(t *testing.T) {
 	assert.Equal(t,
 		dexpb.ActiveStepSearchMode_ACTIVE_STEP_SEARCH_MODE_ENABLED_FOR_STEPS_WITH_WAIT_FOR,
 		flowConfiger.EffectiveActiveStepSearchMode())
-	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveWaitForDurability(nil))
-	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(nil))
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveWaitForDurability(nil))
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveExecuteDurability(nil))
 }
 
 func TestFlowConfiger_DurabilityPrecedence(t *testing.T) {
@@ -69,7 +69,7 @@ func TestFlowConfiger_DurabilityPrecedence(t *testing.T) {
 	waitRecovery := &dexpb.StepOptions{
 		WaitForFailurePolicy: dexpb.WaitForMethodFailurePolicy_WAIT_FOR_METHOD_FAILURE_POLICY_PROCEED_ON_FAILURE,
 	}
-	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveWaitForDurability(waitRecovery))
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveWaitForDurability(waitRecovery))
 	waitRecovery.WaitForDurabilityOverride = dexpb.StepDurability_STEP_DURABILITY_ASYNC
 	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveWaitForDurability(waitRecovery))
 
@@ -77,7 +77,7 @@ func TestFlowConfiger_DurabilityPrecedence(t *testing.T) {
 		ExecuteFailurePolicy:          dexpb.ExecuteMethodFailurePolicy_EXECUTE_METHOD_FAILURE_POLICY_PROCEED_TO_CONFIGURED_STEP,
 		ExecuteFailureProceedStepType: "recovery",
 	}
-	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_SYNC, flowConfiger.ResolveExecuteDurability(executeRecovery))
+	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(executeRecovery))
 	executeRecovery.ExecuteDurabilityOverride = dexpb.StepDurability_STEP_DURABILITY_ASYNC
 	assert.Equal(t, dexpb.StepDurability_STEP_DURABILITY_ASYNC, flowConfiger.ResolveExecuteDurability(executeRecovery))
 }

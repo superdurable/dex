@@ -149,16 +149,16 @@ func TestWebServerReadsStream(t *testing.T) {
 		t.Fatalf("read stream status = %d body=%q", response.StatusCode, readBody(t, response))
 	}
 	var result struct {
-		Value          string `json:"value"`
-		ResumeToken    string `json:"resumeToken"`
-		CreatedTime    string `json:"createdTime"`
-		IdempotencyKey string `json:"idempotencyKey"`
+		Value       string `json:"value"`
+		ResumeToken string `json:"resumeToken"`
+		CreatedTime string `json:"createdTime"`
+		Source      string `json:"source"`
 	}
 	decodeResponse(t, response, &result)
 	if result.Value != "reasoning token" ||
 		result.ResumeToken != "next-token" ||
 		result.CreatedTime != "2026-08-27T12:34:56Z" ||
-		result.IdempotencyKey != "run-1#Step-1" {
+		result.Source != "run-1#Step-1" {
 		t.Fatalf("unexpected Stream message: %+v", result)
 	}
 	streamRequest := <-service.streamRequests
@@ -405,10 +405,10 @@ func (s *flowService) ReadStream(
 		return nil, status.Error(codes.DeadlineExceeded, "stream read timed out")
 	}
 	return &dexpb.ReadStreamResponse{Message: &dexpb.StreamMessage{
-		Value:          &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "reasoning token"}},
-		ResumeToken:    "next-token",
-		CreatedTime:    timestamppb.New(time.Date(2026, time.August, 27, 12, 34, 56, 0, time.UTC)),
-		IdempotencyKey: "run-1#Step-1",
+		Value:       &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "reasoning token"}},
+		ResumeToken: "next-token",
+		CreatedTime: timestamppb.New(time.Date(2026, time.August, 27, 12, 34, 56, 0, time.UTC)),
+		Source:      "run-1#Step-1",
 	}}, nil
 }
 

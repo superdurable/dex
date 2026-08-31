@@ -27,8 +27,7 @@ const (
 
 type writeScriptInput struct {
 	keys                   redisKeys
-	internalIdentity       string
-	publicIdempotencyKey   string
+	source                 string
 	payload                []byte
 	chargedBytes           int64
 	capacityBytes          int64
@@ -38,8 +37,6 @@ type writeScriptInput struct {
 }
 
 type writeScriptOutput struct {
-	redisID         string
-	isDuplicate     bool
 	totalBytes      int64
 	needsTrim       bool
 	trimTargetBytes int64
@@ -81,11 +78,9 @@ func runWriteScript(
 	result, err := writeRedisScript.Run(ctx, client, []string{
 		input.keys.fifo,
 		input.keys.chargedBytes,
-		input.keys.idempotency,
 		input.keys.instance,
 	},
-		input.internalIdentity,
-		input.publicIdempotencyKey,
+		input.source,
 		input.payload,
 		input.chargedBytes,
 		input.capacityBytes,
@@ -103,31 +98,23 @@ func runWriteScript(
 }
 
 func decodeWriteScriptOutput(result any) (writeScriptOutput, error) {
-	values, err := scriptValues(result, 6)
+	values, err := scriptValues(result, 4)
 	if err != nil {
 		return writeScriptOutput{}, fmt.Errorf("decode Stream write result: %w", err)
 	}
-	redisID, err := scriptString(values[0])
-	if err != nil {
-		return writeScriptOutput{}, fmt.Errorf("decode Stream message ID: %w", err)
-	}
-	isDuplicate, err := scriptBool(values[1])
-	if err != nil {
-		return writeScriptOutput{}, fmt.Errorf("decode Stream duplicate result: %w", err)
-	}
-	totalBytes, err := scriptInt64(values[2])
+	totalBytes, err := scriptInt64(values[0])
 	if err != nil {
 		return writeScriptOutput{}, fmt.Errorf("decode Stream total bytes: %w", err)
 	}
-	needsTrim, err := scriptBool(values[3])
+	needsTrim, err := scriptBool(values[1])
 	if err != nil {
 		return writeScriptOutput{}, fmt.Errorf("decode Stream trim result: %w", err)
 	}
-	trimTargetBytes, err := scriptInt64(values[4])
+	trimTargetBytes, err := scriptInt64(values[2])
 	if err != nil {
 		return writeScriptOutput{}, fmt.Errorf("decode Stream trim target: %w", err)
 	}
-	statusCode, err := scriptInt64(values[5])
+	statusCode, err := scriptInt64(values[3])
 	if err != nil {
 		return writeScriptOutput{}, fmt.Errorf("decode Stream write status: %w", err)
 	}
@@ -139,8 +126,6 @@ func decodeWriteScriptOutput(result any) (writeScriptOutput, error) {
 		return writeScriptOutput{}, fmt.Errorf("unexpected Stream write status %d", statusCode)
 	}
 	return writeScriptOutput{
-		redisID:         redisID,
-		isDuplicate:     isDuplicate,
 		totalBytes:      totalBytes,
 		needsTrim:       needsTrim,
 		trimTargetBytes: trimTargetBytes,
@@ -156,7 +141,6 @@ func runTrimScript(
 	result, err := trimRedisScript.Run(ctx, client, []string{
 		input.keys.fifo,
 		input.keys.chargedBytes,
-		input.keys.idempotency,
 		input.keys.lease,
 	}, input.targetBytes, input.batchSize, input.leaseOwner).Result()
 	if err != nil {
@@ -230,17 +214,6 @@ func scriptValues(result any, expected int) ([]any, error) {
 	return values, nil
 }
 
-func scriptString(value any) (string, error) {
-	switch typed := value.(type) {
-	case string:
-		return typed, nil
-	case []byte:
-		return string(typed), nil
-	default:
-		return "", fmt.Errorf("unexpected string type %T", value)
-	}
-}
-
 func scriptInt64(value any) (int64, error) {
 	switch typed := value.(type) {
 	case int64:
@@ -272,41 +245,32 @@ func scriptBool(value any) (bool, error) {
 var writeRedisScript = redis.NewScript(`
 local fifoKey = KEYS[1]
 local chargedKey = KEYS[2]
-local idemKey = KEYS[3]
-local instanceKey = KEYS[4]
-local identity = ARGV[1]
-local publicKey = ARGV[2]
-local payload = ARGV[3]
-local charge = tonumber(ARGV[4])
-local capacity = tonumber(ARGV[5])
-local trigger = tonumber(ARGV[6])
-local baseTarget = tonumber(ARGV[7])
-local messageTarget = tonumber(ARGV[8])
-
-local existingID = redis.call('HGET', idemKey, identity)
-if existingID then
-  return {existingID, 1, 0, 0, 0, 0}
-end
+local instanceKey = KEYS[3]
+local source = ARGV[1]
+local payload = ARGV[2]
+local charge = tonumber(ARGV[3])
+local capacity = tonumber(ARGV[4])
+local trigger = tonumber(ARGV[5])
+local baseTarget = tonumber(ARGV[6])
+local messageTarget = tonumber(ARGV[7])
 
 local currentTotal = tonumber(redis.call('GET', chargedKey) or '0')
 if currentTotal + charge > capacity then
-  return {'', 0, currentTotal, 1, baseTarget, 1}
+  return {currentTotal, 1, baseTarget, 1}
 end
 
-local entryID = redis.call('XADD', fifoKey, '*', 'i', instanceKey, 'd', identity, 'c', charge)
-redis.call('XADD', instanceKey, entryID, 'v', payload, 'k', publicKey)
-redis.call('HSET', idemKey, identity, entryID)
+local entryID = redis.call('XADD', fifoKey, '*', 'i', instanceKey, 'c', charge)
+redis.call('XADD', instanceKey, entryID, 'v', payload, 's', source)
 local total = redis.call('INCRBY', chargedKey, charge)
 local needsTrim = 0
 if total >= trigger then needsTrim = 1 end
-return {entryID, 0, total, needsTrim, messageTarget, 0}
+return {total, needsTrim, messageTarget, 0}
 `)
 
 var trimRedisScript = redis.NewScript(`
 local fifoKey = KEYS[1]
 local chargedKey = KEYS[2]
-local idemKey = KEYS[3]
-local leaseKey = KEYS[4]
+local leaseKey = KEYS[3]
 local target = tonumber(ARGV[1])
 local trimLimit = tonumber(ARGV[2])
 local owner = ARGV[3]
@@ -322,25 +286,20 @@ while total > target and trimmed < trimLimit do
   local oldID = entries[1][1]
   local fields = entries[1][2]
   local oldInstance = nil
-  local oldIdentity = nil
   local oldCharge = 0
   for index = 1, #fields, 2 do
     if fields[index] == 'i' then oldInstance = fields[index + 1] end
-    if fields[index] == 'd' then oldIdentity = fields[index + 1] end
     if fields[index] == 'c' then oldCharge = tonumber(fields[index + 1]) end
   end
   if oldInstance then
     redis.call('XDEL', oldInstance, oldID)
     if redis.call('XLEN', oldInstance) == 0 then redis.call('DEL', oldInstance) end
   end
-  if oldIdentity then
-    redis.call('HDEL', idemKey, oldIdentity)
-  end
   redis.call('XDEL', fifoKey, oldID)
   total = redis.call('DECRBY', chargedKey, oldCharge)
   if total < 0 then
     total = 0
-    redis.call('DEL', fifoKey, chargedKey, idemKey)
+    redis.call('DEL', fifoKey, chargedKey)
   end
   trimmed = trimmed + 1
 end

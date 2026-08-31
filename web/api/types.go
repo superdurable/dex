@@ -88,10 +88,10 @@ type flowState struct {
 }
 
 type streamMessage struct {
-	Value          interface{} `json:"value"`
-	ResumeToken    string      `json:"resumeToken"`
-	CreatedTime    *string     `json:"createdTime"`
-	IdempotencyKey string      `json:"idempotencyKey"`
+	Value       interface{} `json:"value"`
+	ResumeToken string      `json:"resumeToken"`
+	CreatedTime *string     `json:"createdTime"`
+	Source      string      `json:"source"`
 }
 
 type activeStepExecution struct {

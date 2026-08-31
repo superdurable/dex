@@ -59,6 +59,9 @@ Canonical naming for the protobuf rewrite. Old OpenAPI names are not kept as ali
 | workflowState/decide (Execute) | **InvokeExecuteMethod** |
 | workflowWorker/rpc | **InvokeWorkerRPC** |
 
+**InvokeWaitForMethod** and **InvokeExecuteMethod** now return server streams of
+heartbeat, Stream write, and final result frames. **InvokeWorkerRPC** stays unary.
+
 ## Types / messages
 
 | Old | New |
@@ -113,6 +116,7 @@ Canonical naming for the protobuf rewrite. Old OpenAPI names are not kept as ali
 | skipSignalReapply / skipUpdateReapply | skip_writes_reapply |
 | waitForKey / wait_for_key | **deleted** |
 | upsert_step_exe_locals on InvokeWorkerRPCResponse | **deleted** (RPC is not a step execution) |
+| Stream idempotency_key | **source** (metadata only; repeated values append) |
 
 ## Internal serializable types
 

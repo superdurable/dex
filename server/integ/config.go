@@ -68,6 +68,9 @@ func createTestConfig(t *testing.T, testCfg DexServiceTestConfig) config.Config 
 		Interpreter: config.Interpreter{
 			DefaultWorkflowConfig: syncDurabilityConfig(),
 			VerboseDebug:          false,
+			InterpreterActivityConfig: config.InterpreterActivityConfig{
+				MinimumStepHeartbeatTimeout: 2 * time.Second,
+			},
 		},
 	}
 	cfg.AttributeStore = testCfg.AttributeStore

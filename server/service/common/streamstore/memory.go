@@ -36,7 +36,6 @@ type memoryBackend struct {
 type memoryScope struct {
 	totalBytes       int64
 	fifo             []*memoryEntry
-	idempotency      map[string]*memoryEntry
 	instances        map[string]*memoryInstance
 	lastMilliseconds int64
 	lastSequence     uint64
@@ -53,8 +52,7 @@ type memoryEntry struct {
 	milliseconds int64
 	sequence     uint64
 	flowID       string
-	identity     string
-	publicKey    string
+	source       string
 	payload      []byte
 	chargedBytes int64
 }
@@ -126,9 +124,6 @@ func (b *memoryBackend) Write(ctx context.Context, input backendWriteInput) erro
 		streamName: input.input.StreamName,
 	}
 	scope := b.scopeLocked(scopeID)
-	if scope.idempotency[input.input.InternalIdentity] != nil {
-		return nil
-	}
 	if scope.totalBytes >= input.capacityBytes ||
 		input.chargedBytes > input.capacityBytes-scope.totalBytes {
 		b.scheduleTrimLocked(scopeID, input.baseTrimTargetBytes)
@@ -136,8 +131,7 @@ func (b *memoryBackend) Write(ctx context.Context, input backendWriteInput) erro
 	}
 	entry := scope.append(
 		input.input.FlowID,
-		input.input.InternalIdentity,
-		input.input.PublicIdempotencyKey,
+		input.input.Source,
 		input.payload,
 		input.chargedBytes,
 	)
@@ -295,8 +289,7 @@ func (b *memoryBackend) scopeLocked(scopeID streamScope) *memoryScope {
 	scope := b.scopes[scopeID]
 	if scope == nil {
 		scope = &memoryScope{
-			idempotency: make(map[string]*memoryEntry),
-			instances:   make(map[string]*memoryInstance),
+			instances: make(map[string]*memoryInstance),
 		}
 		b.scopes[scopeID] = scope
 	}
@@ -319,8 +312,7 @@ func (b *memoryBackend) scheduleTrimLocked(scopeID streamScope, targetBytes int6
 
 func (s *memoryScope) append(
 	flowID string,
-	identity string,
-	publicKey string,
+	source string,
 	payload []byte,
 	chargedBytes int64,
 ) *memoryEntry {
@@ -330,13 +322,11 @@ func (s *memoryScope) append(
 		milliseconds: milliseconds,
 		sequence:     sequence,
 		flowID:       flowID,
-		identity:     identity,
-		publicKey:    publicKey,
+		source:       source,
 		payload:      payload,
 		chargedBytes: chargedBytes,
 	}
 	s.fifo = append(s.fifo, entry)
-	s.idempotency[identity] = entry
 	s.totalBytes += chargedBytes
 	return entry
 }
@@ -381,7 +371,6 @@ func (s *memoryScope) trim(targetBytes int64, batchSize int) bool {
 		if len(instance.messages) == 0 && instance.waiters == 0 {
 			delete(s.instances, entry.flowID)
 		}
-		delete(s.idempotency, entry.identity)
 		s.totalBytes -= entry.chargedBytes
 		if s.totalBytes < 0 {
 			panic("Memory Stream Store charged bytes became negative")
@@ -392,7 +381,7 @@ func (s *memoryScope) trim(targetBytes int64, batchSize int) bool {
 }
 
 func (s *memoryScope) isEmpty() bool {
-	return len(s.fifo) == 0 && len(s.idempotency) == 0 && len(s.instances) == 0
+	return len(s.fifo) == 0 && len(s.instances) == 0
 }
 
 func (i *memoryInstance) after(milliseconds int64, sequence uint64) *memoryEntry {
@@ -413,9 +402,9 @@ func (e *memoryEntry) message() (*Message, error) {
 		return nil, fmt.Errorf("unmarshal retained Stream Value: %w", err)
 	}
 	return &Message{
-		Value:          value,
-		MessageID:      e.messageID,
-		CreatedTime:    time.UnixMilli(e.milliseconds),
-		IdempotencyKey: e.publicKey,
+		Value:       value,
+		MessageID:   e.messageID,
+		CreatedTime: time.UnixMilli(e.milliseconds),
+		Source:      e.source,
 	}, nil
 }

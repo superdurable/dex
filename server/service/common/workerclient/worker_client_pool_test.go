@@ -13,6 +13,7 @@ package workerclient
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"testing"
@@ -61,6 +62,51 @@ type testWorkerHandler struct {
 	failuresLeft    int
 	failureStatus   codes.Code
 	permanentStatus codes.Code
+}
+
+type testStreamingWorkerHandler struct {
+	dexpb.UnimplementedWorkerServiceServer
+
+	mu                  sync.Mutex
+	calls               int
+	failuresBeforeFrame int
+	failAfterFrame      bool
+}
+
+func (h *testStreamingWorkerHandler) InvokeExecuteMethod(
+	_ *dexpb.InvokeExecuteMethodRequest,
+	stream grpc.ServerStreamingServer[dexpb.InvokeExecuteMethodOutput],
+) error {
+	h.mu.Lock()
+	h.calls++
+	if h.failuresBeforeFrame > 0 {
+		h.failuresBeforeFrame--
+		h.mu.Unlock()
+		return status.Error(codes.Unavailable, "before first frame")
+	}
+	failAfterFrame := h.failAfterFrame
+	h.mu.Unlock()
+	if failAfterFrame {
+		if err := stream.Send(&dexpb.InvokeExecuteMethodOutput{
+			Output: &dexpb.InvokeExecuteMethodOutput_Heartbeat{
+				Heartbeat: &dexpb.StepMethodHeartbeat{},
+			},
+		}); err != nil {
+			return err
+		}
+		return status.Error(codes.Unavailable, "after first frame")
+	}
+	return stream.Send(&dexpb.InvokeExecuteMethodOutput{
+		Output: &dexpb.InvokeExecuteMethodOutput_Result{
+			Result: &dexpb.InvokeExecuteMethodResponse{},
+		},
+	})
+}
+
+func (h *testStreamingWorkerHandler) callCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.calls
 }
 
 func (h *testWorkerHandler) InvokeWorkerRPC(
@@ -235,6 +281,60 @@ func TestWorkerClientPoolFailsOverOnServerDeadlineExceeded(t *testing.T) {
 		"flow-one",
 	)
 	require.Equal(t, 2, handler.callCount())
+}
+
+func TestWorkerClientPoolStreamingFailsOverBeforeFirstFrame(t *testing.T) {
+	handler := &testStreamingWorkerHandler{failuresBeforeFrame: 1}
+	server := newTestWorkerServer(t, "127.0.0.1:0", handler)
+	cfg := testPoolConfig()
+	cfg.Worker.WorkerServiceRequestMaxAttempts = 2
+	pool, err := newWorkerClientPool(
+		cfg,
+		&fakeHostResolver{addresses: []string{"127.0.0.1"}},
+	)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	client, callCtx, release, err := pool.Acquire(context.Background(), &dexpb.WorkerTarget{
+		Address:           net.JoinHostPort("workers.test", server.port()),
+		IsHeadlessAddress: true,
+	}, "flow-one")
+	require.NoError(t, err)
+	defer release()
+	stream, err := client.InvokeExecuteMethod(callCtx, &dexpb.InvokeExecuteMethodRequest{})
+	require.NoError(t, err)
+	output, err := stream.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, output.GetResult())
+	_, err = stream.Recv()
+	require.ErrorIs(t, err, io.EOF)
+	require.Equal(t, 2, handler.callCount())
+}
+
+func TestWorkerClientPoolStreamingDoesNotFailOverAfterFirstFrame(t *testing.T) {
+	handler := &testStreamingWorkerHandler{failAfterFrame: true}
+	server := newTestWorkerServer(t, "127.0.0.1:0", handler)
+	cfg := testPoolConfig()
+	cfg.Worker.WorkerServiceRequestMaxAttempts = 3
+	pool, err := newWorkerClientPool(
+		cfg,
+		&fakeHostResolver{addresses: []string{"127.0.0.1"}},
+	)
+	require.NoError(t, err)
+	t.Cleanup(pool.Close)
+	client, callCtx, release, err := pool.Acquire(context.Background(), &dexpb.WorkerTarget{
+		Address:           net.JoinHostPort("workers.test", server.port()),
+		IsHeadlessAddress: true,
+	}, "flow-one")
+	require.NoError(t, err)
+	defer release()
+	stream, err := client.InvokeExecuteMethod(callCtx, &dexpb.InvokeExecuteMethodRequest{})
+	require.NoError(t, err)
+	output, err := stream.Recv()
+	require.NoError(t, err)
+	require.NotNil(t, output.GetHeartbeat())
+	_, err = stream.Recv()
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	require.Equal(t, 1, handler.callCount())
 }
 
 func TestWorkerClientPoolDoesNotRetryNonHeadlessTarget(t *testing.T) {

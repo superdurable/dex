@@ -20,6 +20,7 @@ import (
 	"github.com/superdurable/dex/service/common/attributestore"
 	"github.com/superdurable/dex/service/common/blobstore"
 	"github.com/superdurable/dex/service/common/event"
+	"github.com/superdurable/dex/service/common/streamstore"
 	"github.com/superdurable/dex/service/common/workerclient"
 	"github.com/superdurable/dex/service/interpreter"
 	"go.temporal.io/sdk/activity"
@@ -50,12 +51,14 @@ func NewInterpreterWorker(
 	store blobstore.BlobStore,
 	attributeStore *attributestore.Manager,
 	workerPool *workerclient.WorkerClientPool,
+	streamStore *streamstore.Store,
+	metrics client.MetricsHandler,
 ) *InterpreterWorker {
 	if cfg == nil {
 		panic("Temporal InterpreterWorker requires non-nil config sections")
 	}
 	if temporalClient == nil || dataConverter == nil || unifiedClient == nil ||
-		workerPool == nil || taskQueue == "" {
+		workerPool == nil || streamStore == nil || metrics == nil || taskQueue == "" {
 		panic("Temporal InterpreterWorker requires non-nil dependencies and task queue")
 	}
 	internal := interpreter.NewInternalServiceClient(cfg)
@@ -69,6 +72,8 @@ func NewInterpreterWorker(
 		attributeStore,
 		eventHandler,
 		cfg,
+		streamStore,
+		metrics,
 	)
 	workflowInterpreter := interpreter.NewInterpreter(cfg, activities)
 

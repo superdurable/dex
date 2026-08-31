@@ -57,23 +57,7 @@ supported. Steps, attributes, and channels declare Java classes, not codecs:
 ```java
 Attribute<String> status = Attribute.define("status", String.class);
 Channel<Void> wakeup = Channel.define("wakeup", Void.class);
-Stream<String> progress = Stream.define("progress", String.class, 10L * 1024L * 1024L);
 ```
-
-Register a Stream in exactly one Flow persistence schema. Its approximate byte
-budget is shared by all instances of that Flow type. Step writes are immediate,
-generate `runID#stepExecutionID`, and allow one write per Stream per invocation.
-
-```java
-progress.write(context, "running");
-client.writeStream(flowId, progress, "frontend/1", "starting");
-StreamMessage<String> message = client.readStream(
-        flowId, progress, resumeToken, Duration.ofSeconds(30));
-resumeToken = message.getResumeToken();
-```
-
-Client keys cannot contain `#`. Reads return the decoded value, resume token,
-creation time, and idempotency key.
 
 Wait factories read from the domain nouns they create:
 
@@ -145,40 +129,6 @@ next or close action; it does not wait for selected Java handlers to return.
 Their late decisions, Attribute and Channel writes, outputs, retry paths, and configured
 failure-proceed Steps are discarded.
 
-For a long-running regular Step, configure a heartbeat timeout so cancellation
-reaches the Java Worker promptly. Dex then cancels the handler task with
-`Future.cancel(true)`, which interrupts the handler thread. Blocking handlers
-should return when interrupted:
-
-```java
-private final StepOptions options = StepOptions.newBuilder()
-        .heartbeatTimeout(Duration.ofSeconds(10))
-        .build();
-
-@Override
-public StepOptions getStepOptions() {
-    return options;
-}
-
-@Override
-public StepDecision execute(Context context, Work input) {
-    try {
-        while (hasNextBatch(input)) {
-            processNextBatch(input);
-        }
-    } catch (InterruptedException canceled) {
-        Thread.currentThread().interrupt();
-    }
-    return StepDecision.deadEnd();
-}
-```
-
-CPU-bound or batch-oriented handlers may also check
-`Context.isCancellationRequested()` at natural work boundaries. Continuous
-polling is not required. Neither thread interruption nor the cancellation flag
-makes an external API call or database transaction atomic. Use timeouts,
-idempotency, or compensation for side effects that require cancellation safety.
-
 An RPC can apply a Flow-wide Step type selector while returning its output and
 scheduling next Steps atomically:
 
@@ -196,15 +146,6 @@ public RPCResult<QuoteStatus> acceptQuote(Context context, Quote quote) {
 the same RPC name do not share an invocation-scoped Step execution lineage.
 Attribute and Channel writes from the RPC commit before the cancellation
 snapshot, while next Steps in the same result remain outside it.
-
-The heartbeat setting applies to regular wait-for and execute activities. A
-local activity ignores it, but an ASYNC fallback to a regular activity uses it.
-`null` and `Duration.ZERO` disable heartbeats; positive values must be whole
-seconds in the signed int32 range. Dex calls the backend SDK heartbeat API once
-per second while the regular Step activity is active; the SDK throttles network heartbeat
-requests. Without a heartbeat, the Flow still cancels logically and proceeds,
-but the Java handler may run until its RPC or activity timeout and its response
-is ignored.
 
 An ASYNC local activity keeps the current backend Workflow Task open until it
 returns or reaches Dex's seven-second local optimization timeout. This can delay

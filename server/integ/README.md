@@ -28,7 +28,7 @@ delivery; RPC sibling-selector rejection; snapshot exclusion of RPC next Steps;
 and clean active state.
 
 Resumable Stream integration covers per-message size limits, Flow-type scope
-isolation, global FIFO trim, resume, idempotency, and multi-server trim
+isolation, global FIFO trim, resume, repeated sources, and multi-server trim
 coordination. It requires Redis 7 on `127.0.0.1:6379`. The standard dependency
 Compose files provide it with the `noeviction` policy. Run the focused server
 and Redis coverage with:
@@ -39,6 +39,9 @@ make streamIntegTests
 ```
 
 The focused suite covers cross-Flow global FIFO, independent trim-trigger and
-trim-target watermarks, hard-capacity rejection and retry, idempotency, resume
-behavior, long polling, concurrent writers, concurrent trigger lease contention
-and recovery, disabled configuration, and Redis failure isolation.
+trim-target watermarks, hard-capacity rejection and retry, repeated and
+concurrent source values, resume behavior, long polling, concurrent writers,
+concurrent trigger lease contention and recovery, disabled configuration, and
+Redis failure isolation. Worker coverage includes multiple heartbeat and Stream
+frames, heartbeat detail recovery, protocol termination, and pre-frame
+headless failover.

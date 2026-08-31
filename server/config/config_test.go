@@ -63,6 +63,29 @@ api:
 	require.ErrorContains(t, err, "maximumInterval must not be less than initialInterval")
 }
 
+func TestMinimumStepHeartbeatTimeoutConfig(t *testing.T) {
+	require.Equal(t, 10*time.Second,
+		(InterpreterActivityConfig{}).EffectiveMinimumStepHeartbeatTimeout())
+
+	path := writeTestConfig(t, `
+interpreter:
+  interpreterActivityConfig:
+    minimumStepHeartbeatTimeout: 2s
+`)
+	cfg, err := NewConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, 2*time.Second,
+		cfg.Interpreter.InterpreterActivityConfig.EffectiveMinimumStepHeartbeatTimeout())
+
+	path = writeTestConfig(t, `
+interpreter:
+  interpreterActivityConfig:
+    minimumStepHeartbeatTimeout: -1s
+`)
+	_, err = NewConfig(path)
+	require.ErrorContains(t, err, "minimumStepHeartbeatTimeout must be non-negative")
+}
+
 func TestCleanupStrategyCronSchedule(t *testing.T) {
 	testCases := []struct {
 		name             string

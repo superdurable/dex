@@ -29,6 +29,8 @@ api:
     totalDuration: 5s
 interpreter:
   attributeIndexSyncTimeout: 2m
+  interpreterActivityConfig:
+    minimumStepHeartbeatTimeout: 10s
   temporal:
     hostPort: localhost:7233
     namespace: default

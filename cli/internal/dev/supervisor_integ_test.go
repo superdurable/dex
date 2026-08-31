@@ -115,7 +115,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		context.Background(),
 		[]string{
 			"api", "call", "WriteStream",
-			"--data", `{"flowId":"cli-flow","flowType":"CliFlow","streamName":"progress","streamCapacityBytes":"1048576","value":{"stringValue":"thinking"},"idempotencyKey":"cli-key"}`,
+			"--data", `{"flowId":"cli-flow","flowType":"CliFlow","streamName":"progress","streamCapacityBytes":"1048576","value":{"stringValue":"thinking"},"source":"cli"}`,
 			"--yes", "--server", dexAddress,
 		},
 	); err != nil {
@@ -135,7 +135,7 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		t.Fatalf("CLI Stream read failed: %v stderr=%s", err, cliErrors.String())
 	}
 	if !bytes.Contains(cliOutput.Bytes(), []byte(`"stringValue":"thinking"`)) ||
-		!bytes.Contains(cliOutput.Bytes(), []byte(`"idempotencyKey":"cli-key"`)) {
+		!bytes.Contains(cliOutput.Bytes(), []byte(`"source":"cli"`)) {
 		cancel()
 		t.Fatalf("unexpected CLI Stream response: %s", cliOutput.String())
 	}

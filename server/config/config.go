@@ -76,6 +76,8 @@ const (
 	DefaultAttributeStoreSyncTotalDuration = time.Hour
 	// DefaultAttributeIndexSyncTimeout bounds backend index registration and propagation checks.
 	DefaultAttributeIndexSyncTimeout = 2 * time.Minute
+	// DefaultMinimumStepHeartbeatTimeout is the minimum explicit Step heartbeat timeout.
+	DefaultMinimumStepHeartbeatTimeout = 10 * time.Second
 	// DefaultStreamMaxMessageBytes limits each serialized Stream Value to 100 KiB.
 	DefaultStreamMaxMessageBytes int64 = 100 * 1024
 	// DefaultStreamEstimatedMessageOverheadBytes approximates backend bookkeeping per message.
@@ -353,6 +355,8 @@ type (
 	InterpreterActivityConfig struct {
 		// InternalServiceTarget is the plaintext gRPC dial target for InternalService (CAN dump). Empty defaults to localhost:<Api.Port>. YAML key internalServiceTarget.
 		InternalServiceTarget string `yaml:"internalServiceTarget"`
+		// MinimumStepHeartbeatTimeout rejects smaller explicit Step heartbeat timeouts. Default 10s. Zero uses the default; negative values are invalid.
+		MinimumStepHeartbeatTimeout time.Duration `yaml:"minimumStepHeartbeatTimeout"`
 		// DumpWorkflowInternalActivityConfig tunes the CAN dump activity timeouts/retries. Nil uses activity defaults.
 		DumpWorkflowInternalActivityConfig *DumpWorkflowInternalActivityConfig `yaml:"dumpWorkflowInternalActivityConfig"`
 		// LogLocalActivityThresholdBytes logs local-activity I/O at warn when serialized size >= this. Zero disables. Default 0.
@@ -407,7 +411,7 @@ func RetryPolicyWithDefaults(policy *RetryPolicy, defaults RetryPolicy) RetryPol
 // DefaultWorkflowConfig is used when Interpreter.DefaultWorkflowConfig is nil.
 var DefaultWorkflowConfig = &dexpb.FlowConfig{
 	ContinueAsNewThreshold: ptr.Any(int32(100)),
-	StepDurability:         ptr.Any(dexpb.StepDurability_STEP_DURABILITY_ASYNC),
+	StepDurability:         ptr.Any(dexpb.StepDurability_STEP_DURABILITY_SYNC),
 }
 
 // NewConfig returns a new decoded Config struct.
@@ -430,6 +434,9 @@ func NewConfig(configPath string) (*Config, error) {
 	}
 	if err := cfg.validateRetryPolicies(); err != nil {
 		return nil, err
+	}
+	if cfg.Interpreter.InterpreterActivityConfig.MinimumStepHeartbeatTimeout < 0 {
+		return nil, fmt.Errorf("interpreter.interpreterActivityConfig.minimumStepHeartbeatTimeout must be non-negative")
 	}
 
 	return cfg, nil
@@ -829,4 +836,12 @@ func (c Interpreter) EffectiveAttributeIndexSyncTimeout() time.Duration {
 		return DefaultAttributeIndexSyncTimeout
 	}
 	return c.AttributeIndexSyncTimeout
+}
+
+// EffectiveMinimumStepHeartbeatTimeout returns the configured minimum or ten seconds.
+func (c InterpreterActivityConfig) EffectiveMinimumStepHeartbeatTimeout() time.Duration {
+	if c.MinimumStepHeartbeatTimeout == 0 {
+		return DefaultMinimumStepHeartbeatTimeout
+	}
+	return c.MinimumStepHeartbeatTimeout
 }

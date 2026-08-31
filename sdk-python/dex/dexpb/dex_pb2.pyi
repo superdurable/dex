@@ -344,7 +344,7 @@ class IndexConfig(_message.Message):
     def __init__(self, enable: _Optional[bool] = ..., type: _Optional[_Union[IndexType, str]] = ..., index_key: _Optional[str] = ...) -> None: ...
 
 class Context(_message.Message):
-    __slots__ = ("flow_id", "run_id", "flow_started_timestamp", "step_execution_id", "first_attempt_timestamp", "attempt", "from_step_execution_id", "recovery_error")
+    __slots__ = ("flow_id", "run_id", "flow_started_timestamp", "step_execution_id", "first_attempt_timestamp", "attempt", "from_step_execution_id", "recovery_error", "last_heartbeat_value")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     RUN_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_STARTED_TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
@@ -353,6 +353,7 @@ class Context(_message.Message):
     ATTEMPT_FIELD_NUMBER: _ClassVar[int]
     FROM_STEP_EXECUTION_ID_FIELD_NUMBER: _ClassVar[int]
     RECOVERY_ERROR_FIELD_NUMBER: _ClassVar[int]
+    LAST_HEARTBEAT_VALUE_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     run_id: str
     flow_started_timestamp: int
@@ -361,7 +362,8 @@ class Context(_message.Message):
     attempt: int
     from_step_execution_id: str
     recovery_error: RecoveryErrorInfo
-    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., step_execution_id: _Optional[str] = ..., first_attempt_timestamp: _Optional[int] = ..., attempt: _Optional[int] = ..., from_step_execution_id: _Optional[str] = ..., recovery_error: _Optional[_Union[RecoveryErrorInfo, _Mapping]] = ...) -> None: ...
+    last_heartbeat_value: Value
+    def __init__(self, flow_id: _Optional[str] = ..., run_id: _Optional[str] = ..., flow_started_timestamp: _Optional[int] = ..., step_execution_id: _Optional[str] = ..., first_attempt_timestamp: _Optional[int] = ..., attempt: _Optional[int] = ..., from_step_execution_id: _Optional[str] = ..., recovery_error: _Optional[_Union[RecoveryErrorInfo, _Mapping]] = ..., last_heartbeat_value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class LocalActivityMetadata(_message.Message):
     __slots__ = ("current_step_execution_id", "from_step_execution_id")
@@ -528,20 +530,20 @@ class ChannelMessage(_message.Message):
     def __init__(self, channel_name: _Optional[str] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
 
 class WriteStreamRequest(_message.Message):
-    __slots__ = ("flow_id", "flow_type", "stream_name", "stream_capacity_bytes", "value", "idempotency_key")
+    __slots__ = ("flow_id", "flow_type", "stream_name", "stream_capacity_bytes", "value", "source")
     FLOW_ID_FIELD_NUMBER: _ClassVar[int]
     FLOW_TYPE_FIELD_NUMBER: _ClassVar[int]
     STREAM_NAME_FIELD_NUMBER: _ClassVar[int]
     STREAM_CAPACITY_BYTES_FIELD_NUMBER: _ClassVar[int]
     VALUE_FIELD_NUMBER: _ClassVar[int]
-    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
     flow_id: str
     flow_type: str
     stream_name: str
     stream_capacity_bytes: int
     value: Value
-    idempotency_key: str
-    def __init__(self, flow_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., stream_name: _Optional[str] = ..., stream_capacity_bytes: _Optional[int] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., idempotency_key: _Optional[str] = ...) -> None: ...
+    source: str
+    def __init__(self, flow_id: _Optional[str] = ..., flow_type: _Optional[str] = ..., stream_name: _Optional[str] = ..., stream_capacity_bytes: _Optional[int] = ..., value: _Optional[_Union[Value, _Mapping]] = ..., source: _Optional[str] = ...) -> None: ...
 
 class ReadStreamRequest(_message.Message):
     __slots__ = ("flow_id", "flow_type", "stream_name", "resume_token", "wait_time_seconds")
@@ -564,16 +566,16 @@ class ReadStreamResponse(_message.Message):
     def __init__(self, message: _Optional[_Union[StreamMessage, _Mapping]] = ...) -> None: ...
 
 class StreamMessage(_message.Message):
-    __slots__ = ("value", "resume_token", "created_time", "idempotency_key")
+    __slots__ = ("value", "resume_token", "created_time", "source")
     VALUE_FIELD_NUMBER: _ClassVar[int]
     RESUME_TOKEN_FIELD_NUMBER: _ClassVar[int]
     CREATED_TIME_FIELD_NUMBER: _ClassVar[int]
-    IDEMPOTENCY_KEY_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_FIELD_NUMBER: _ClassVar[int]
     value: Value
     resume_token: str
     created_time: _timestamp_pb2.Timestamp
-    idempotency_key: str
-    def __init__(self, value: _Optional[_Union[Value, _Mapping]] = ..., resume_token: _Optional[str] = ..., created_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., idempotency_key: _Optional[str] = ...) -> None: ...
+    source: str
+    def __init__(self, value: _Optional[_Union[Value, _Mapping]] = ..., resume_token: _Optional[str] = ..., created_time: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., source: _Optional[str] = ...) -> None: ...
 
 class StopFlowRequest(_message.Message):
     __slots__ = ("flow_id", "run_id", "reason", "stop_type")
@@ -1375,6 +1377,32 @@ class InvokeWaitForMethodResponse(_message.Message):
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., waiting_condition: _Optional[_Union[WaitingCondition, _Mapping]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
 
+class StepMethodHeartbeat(_message.Message):
+    __slots__ = ("value",)
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    value: Value
+    def __init__(self, value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
+
+class StepStreamWrite(_message.Message):
+    __slots__ = ("stream_name", "stream_capacity_bytes", "value")
+    STREAM_NAME_FIELD_NUMBER: _ClassVar[int]
+    STREAM_CAPACITY_BYTES_FIELD_NUMBER: _ClassVar[int]
+    VALUE_FIELD_NUMBER: _ClassVar[int]
+    stream_name: str
+    stream_capacity_bytes: int
+    value: Value
+    def __init__(self, stream_name: _Optional[str] = ..., stream_capacity_bytes: _Optional[int] = ..., value: _Optional[_Union[Value, _Mapping]] = ...) -> None: ...
+
+class InvokeWaitForMethodOutput(_message.Message):
+    __slots__ = ("heartbeat", "stream_write", "result")
+    HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
+    STREAM_WRITE_FIELD_NUMBER: _ClassVar[int]
+    RESULT_FIELD_NUMBER: _ClassVar[int]
+    heartbeat: StepMethodHeartbeat
+    stream_write: StepStreamWrite
+    result: InvokeWaitForMethodResponse
+    def __init__(self, heartbeat: _Optional[_Union[StepMethodHeartbeat, _Mapping]] = ..., stream_write: _Optional[_Union[StepStreamWrite, _Mapping]] = ..., result: _Optional[_Union[InvokeWaitForMethodResponse, _Mapping]] = ...) -> None: ...
+
 class InvokeExecuteMethodRequest(_message.Message):
     __slots__ = ("context", "flow_type", "step_type", "step_input", "attributes", "step_exe_locals", "condition_results")
     CONTEXT_FIELD_NUMBER: _ClassVar[int]
@@ -1408,6 +1436,16 @@ class InvokeExecuteMethodResponse(_message.Message):
     upsert_step_exe_locals: _containers.RepeatedCompositeFieldContainer[KV]
     publish_to_channel: _containers.RepeatedCompositeFieldContainer[ChannelMessage]
     def __init__(self, local_activity_metadata: _Optional[_Union[LocalActivityMetadata, _Mapping]] = ..., step_decision: _Optional[_Union[StepDecision, _Mapping]] = ..., upsert_attributes: _Optional[_Iterable[_Union[AttributeWrite, _Mapping]]] = ..., record_events: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., upsert_step_exe_locals: _Optional[_Iterable[_Union[KV, _Mapping]]] = ..., publish_to_channel: _Optional[_Iterable[_Union[ChannelMessage, _Mapping]]] = ...) -> None: ...
+
+class InvokeExecuteMethodOutput(_message.Message):
+    __slots__ = ("heartbeat", "stream_write", "result")
+    HEARTBEAT_FIELD_NUMBER: _ClassVar[int]
+    STREAM_WRITE_FIELD_NUMBER: _ClassVar[int]
+    RESULT_FIELD_NUMBER: _ClassVar[int]
+    heartbeat: StepMethodHeartbeat
+    stream_write: StepStreamWrite
+    result: InvokeExecuteMethodResponse
+    def __init__(self, heartbeat: _Optional[_Union[StepMethodHeartbeat, _Mapping]] = ..., stream_write: _Optional[_Union[StepStreamWrite, _Mapping]] = ..., result: _Optional[_Union[InvokeExecuteMethodResponse, _Mapping]] = ...) -> None: ...
 
 class InvokeWorkerRPCRequest(_message.Message):
     __slots__ = ("context", "flow_type", "rpc_name", "input", "attributes", "channel_infos")

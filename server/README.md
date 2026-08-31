@@ -29,7 +29,7 @@ Integration and replay test instructions are available in
 The optional `streamStore` configuration enables best-effort resumable Streams.
 `backend` accepts `memory` for one Dex Server process or `redis` for Redis 7+
 Standalone shared by multiple servers. It defaults to `disabled`. The memory
-backend loses messages and idempotency records when the process stops. The Redis
+backend loses messages when the process stops. The Redis
 backend requires `redisURL`; Redis is intentionally excluded from server
 readiness, so only Stream RPCs fail when it is unavailable. Configure dedicated
 Redis memory with `maxmemory` and `noeviction` so memory pressure becomes a
@@ -42,9 +42,10 @@ apply only to the Redis backend. The checked-in development config uses memory.
 
 Capacity is not persisted by either backend. Each write supplies the limit
 shared by all Flow instances with the same Flow type and Stream name. Charged
-bytes approximate the serialized Value, Flow ID, public and internal
-idempotency identities, and configured overhead. Client idempotency keys cannot
-contain `#`; Step SDKs use `<runID>#<stepExecutionID>`. Reaching the default 90%
+bytes approximate the serialized Value, Flow ID, source, and configured
+overhead. A source is required, may contain `#`, and may repeat. Every write is
+appended. Step output uses `#<stepExecutionID>` as source metadata.
+Reaching the default 90%
 trigger starts singleton background FIFO trimming toward the 80% target. A
 write that would exceed 100% is not appended; it returns `ResourceExhausted`
 after scheduling trim and can be retried later.

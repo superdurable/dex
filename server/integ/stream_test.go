@@ -26,6 +26,7 @@ import (
 	"github.com/superdurable/dex/service"
 	"github.com/superdurable/dex/service/common/log"
 	"github.com/superdurable/dex/service/common/streamstore"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -37,7 +38,7 @@ const (
 	streamTestRedisURL = "redis://127.0.0.1:6379/15"
 )
 
-func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
+func TestStreamStoreGlobalFIFOResumeAndRepeatedSource(t *testing.T) {
 	store, redisClient := newStreamTestStore(t)
 	streamName := "global-fifo-" + newRequestID()
 	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
@@ -80,21 +81,21 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 	)
 	require.NoError(t, err)
 	nextMessage := readOneMessage(t, store, "flow-a", streamName, firstToken)
-	require.Equal(t, "public-04", nextMessage.IdempotencyKey)
+	require.Equal(t, "public-04", nextMessage.Source)
 
 	duplicate := inputs[8]
 	duplicate.Value = &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "different"}}
 	require.NoError(t, store.Write(context.Background(), duplicate))
-	require.Equal(t, int64(8), streamLength(t, redisClient, streamName))
-	beforeLastToken, err := streamstore.EncodeResumeToken(
-		streamTestFlowType,
-		"flow-a",
-		streamName,
-		flowAMessages[2].MessageID,
+	require.Equal(t, int64(9), streamLength(t, redisClient, streamName))
+	flowAMessages = readAvailableMessages(t, store, "flow-a", streamName)
+	require.Equal(
+		t,
+		[]string{"public-02", "public-04", "public-06", "public-08", "public-08"},
+		messageKeys(flowAMessages),
 	)
-	require.NoError(t, err)
-	retainedOriginal := readOneMessage(t, store, "flow-a", streamName, beforeLastToken)
-	require.Equal(t, "value-0000", retainedOriginal.Value.GetStringValue())
+	require.Equal(t, "value-0000", flowAMessages[3].Value.GetStringValue())
+	require.Equal(t, "different", flowAMessages[4].Value.GetStringValue())
+	require.Zero(t, redisClient.Exists(context.Background(), streamTestBaseKey(streamName)+":idem").Val())
 
 	trimTrigger := inputs[10]
 	trimTrigger.StreamCapacityBytes = charge * 3
@@ -108,7 +109,16 @@ func TestStreamStoreGlobalFIFOResumeAndIdempotency(t *testing.T) {
 	}, 3*time.Second, 10*time.Millisecond)
 	requireStreamAccountingConsistent(t, redisClient, streamName)
 	oldTokenMessage := readOneMessage(t, store, "flow-a", streamName, firstToken)
-	require.Equal(t, "public-10", oldTokenMessage.IdempotencyKey)
+	require.Equal(t, "public-08", oldTokenMessage.Source)
+	require.Equal(t, "different", oldTokenMessage.Value.GetStringValue())
+	duplicateToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType,
+		"flow-a",
+		streamName,
+		oldTokenMessage.MessageID,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "public-10", readOneMessage(t, store, "flow-a", streamName, duplicateToken).Source)
 
 	wrongScopeToken, err := streamstore.EncodeResumeToken(
 		streamTestFlowType,
@@ -217,7 +227,7 @@ func TestStreamStoreTrimWatermarks(t *testing.T) {
 	requireStreamAccountingConsistent(t, redisClient, streamName)
 }
 
-func TestStreamStoreTrimmedIdentityCanWriteAgain(t *testing.T) {
+func TestStreamStoreTrimmedSourceCanWriteAgain(t *testing.T) {
 	store, redisClient := newStreamTestStore(t)
 	streamName := "trimmed-idem-" + newRequestID()
 	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
@@ -248,7 +258,7 @@ func TestStreamStoreTrimmedIdentityCanWriteAgain(t *testing.T) {
 	messages := readAvailableMessages(t, store, "flow-a", streamName)
 	foundRewritten := false
 	for _, message := range messages {
-		if message.IdempotencyKey == original.PublicIdempotencyKey {
+		if message.Source == original.Source {
 			foundRewritten = message.Value.GetStringValue() == "rewritten-0"
 		}
 	}
@@ -262,6 +272,7 @@ func TestStreamStoreConcurrentTriggersUseSingletonTrimLease(t *testing.T) {
 	t.Cleanup(func() { deleteStreamTestKeys(t, redisClient, streamName) })
 
 	baseInput := streamInput("flow-a", streamName, 0, "payload-0000")
+	baseInput.Source = "run#shared-step"
 	charge := estimatedCharge(baseInput, 1)
 	var writers sync.WaitGroup
 	writeErrors := make(chan error, 80)
@@ -270,6 +281,7 @@ func TestStreamStoreConcurrentTriggersUseSingletonTrimLease(t *testing.T) {
 		go func(messageIndex int) {
 			defer writers.Done()
 			input := streamInput("flow-a", streamName, messageIndex, "payload-0000")
+			input.Source = "run#shared-step"
 			input.StreamCapacityBytes = charge * 100
 			selectedStore := firstStore
 			if messageIndex%2 == 1 {
@@ -284,12 +296,17 @@ func TestStreamStoreConcurrentTriggersUseSingletonTrimLease(t *testing.T) {
 		require.NoError(t, writeErr)
 	}
 	require.Equal(t, int64(80), streamLength(t, redisClient, streamName))
+	for _, message := range readAvailableMessages(t, firstStore, "flow-a", streamName) {
+		require.Equal(t, "run#shared-step", message.Source)
+	}
 
 	leaseKey := streamTestBaseKey(streamName) + ":trim-lease"
 	require.NoError(t, redisClient.Set(context.Background(), leaseKey, "failed-owner", 250*time.Millisecond).Err())
 	firstTrigger := streamInput("flow-a", streamName, 80, "payload-0000")
+	firstTrigger.Source = "run#shared-step"
 	firstTrigger.StreamCapacityBytes = charge * 10
 	secondTrigger := streamInput("flow-a", streamName, 81, "payload-0000")
+	secondTrigger.Source = "run#shared-step"
 	secondTrigger.StreamCapacityBytes = charge * 10
 	triggerStart := make(chan struct{})
 	triggerErrors := make(chan error, 2)
@@ -351,16 +368,17 @@ func TestStreamStoreMessageSizeLimit(t *testing.T) {
 	require.Equal(t, int64(0), streamLength(t, redisClient, defaultStreamName))
 }
 
-func TestStreamStoreMemoryResumeIdempotencyAndBlockingRead(t *testing.T) {
+func TestStreamStoreMemoryResumeRepeatedSourceAndBlockingRead(t *testing.T) {
 	store := newMemoryStreamTestStore(t)
 	streamName := "memory-resume-" + newRequestID()
 	firstInput := streamInput("flow-a", streamName, 0, "first")
+	firstInput.Source = "run#step"
 	firstInput.StreamCapacityBytes = 1 << 20
 	require.NoError(t, store.Write(context.Background(), firstInput))
 
 	firstMessage := readOneMessage(t, store, "flow-a", streamName, "")
 	require.Equal(t, "first", firstMessage.Value.GetStringValue())
-	require.Equal(t, firstInput.PublicIdempotencyKey, firstMessage.IdempotencyKey)
+	require.Equal(t, firstInput.Source, firstMessage.Source)
 	firstToken, err := streamstore.EncodeResumeToken(
 		streamTestFlowType,
 		"flow-a",
@@ -372,14 +390,24 @@ func TestStreamStoreMemoryResumeIdempotencyAndBlockingRead(t *testing.T) {
 	duplicate := firstInput
 	duplicate.Value = stringValue("duplicate")
 	require.NoError(t, store.Write(context.Background(), duplicate))
-	require.Len(t, readAvailableMessages(t, store, "flow-a", streamName), 1)
+	require.Len(t, readAvailableMessages(t, store, "flow-a", streamName), 2)
+	duplicateMessage := readOneMessage(t, store, "flow-a", streamName, firstToken)
+	require.Equal(t, "duplicate", duplicateMessage.Value.GetStringValue())
+	require.Equal(t, "run#step", duplicateMessage.Source)
+	duplicateToken, err := streamstore.EncodeResumeToken(
+		streamTestFlowType,
+		"flow-a",
+		streamName,
+		duplicateMessage.MessageID,
+	)
+	require.NoError(t, err)
 
 	readResult := make(chan *streamstore.Message, 1)
 	readErrors := make(chan error, 1)
 	readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancelRead()
 	go func() {
-		message, readErr := store.Read(readCtx, streamTestFlowType, "flow-a", streamName, firstToken)
+		message, readErr := store.Read(readCtx, streamTestFlowType, "flow-a", streamName, duplicateToken)
 		if readErr != nil {
 			readErrors <- readErr
 			return
@@ -425,7 +453,7 @@ func TestStreamStoreMemoryTrimWatermarks(t *testing.T) {
 		readCtx, cancelRead := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		message, readErr := store.Read(readCtx, streamTestFlowType, "flow-a", streamName, "")
 		cancelRead()
-		return readErr == nil && message.IdempotencyKey == "public-01"
+		return readErr == nil && message.Source == "public-01"
 	}, 3*time.Second, 10*time.Millisecond)
 	require.Equal(t, []string{
 		"public-01",
@@ -443,12 +471,15 @@ func TestStreamStoreMemoryConcurrentCapacityTriggersDoNotOverTrim(t *testing.T) 
 	store := newMemoryStreamTestStore(t)
 	streamName := "memory-trim-" + newRequestID()
 	baseInput := streamInput("flow-a", streamName, 0, "payload-0000")
+	baseInput.Source = "run#shared-step"
 	charge := estimatedCharge(baseInput, 1)
 	for index := 0; index < 80; index++ {
 		input := streamInput("flow-a", streamName, index, "payload-0000")
+		input.Source = "run#shared-step"
 		input.StreamCapacityBytes = charge * 100
 		require.NoError(t, store.Write(context.Background(), input))
 	}
+	require.Len(t, readAvailableMessages(t, store, "flow-a", streamName), 80)
 
 	triggerStart := make(chan struct{})
 	triggerErrors := make(chan error, 20)
@@ -459,6 +490,7 @@ func TestStreamStoreMemoryConcurrentCapacityTriggersDoNotOverTrim(t *testing.T) 
 			defer writers.Done()
 			<-triggerStart
 			input := streamInput("flow-a", streamName, messageIndex, "payload-0000")
+			input.Source = "run#shared-step"
 			input.StreamCapacityBytes = charge * 10
 			triggerErrors <- store.Write(context.Background(), input)
 		}(index)
@@ -547,6 +579,215 @@ func TestStreamStoreBackendConfiguration(t *testing.T) {
 	require.ErrorContains(t, err, "unsupported stream store backend")
 }
 
+type streamingStepWorker struct {
+	dexpb.UnimplementedWorkerServiceServer
+	executeCalls       atomic.Int32
+	restoredHeartbeats chan string
+}
+
+func (worker *streamingStepWorker) InvokeWaitForMethod(
+	_ *dexpb.InvokeWaitForMethodRequest,
+	stream grpc.ServerStreamingServer[dexpb.InvokeWaitForMethodOutput],
+) error {
+	outputs := []*dexpb.InvokeWaitForMethodOutput{
+		{Output: &dexpb.InvokeWaitForMethodOutput_Heartbeat{
+			Heartbeat: &dexpb.StepMethodHeartbeat{Value: stringValue("wait-checkpoint")},
+		}},
+		waitForStreamOutput("progress", "wait-1"),
+		waitForStreamOutput("progress", "wait-2"),
+		waitForStreamOutput("other", "wait-other"),
+		{Output: &dexpb.InvokeWaitForMethodOutput_Result{
+			Result: &dexpb.InvokeWaitForMethodResponse{},
+		}},
+	}
+	for _, output := range outputs {
+		if err := stream.Send(output); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (worker *streamingStepWorker) InvokeExecuteMethod(
+	request *dexpb.InvokeExecuteMethodRequest,
+	stream grpc.ServerStreamingServer[dexpb.InvokeExecuteMethodOutput],
+) error {
+	attempt := worker.executeCalls.Add(1)
+	if attempt > 1 {
+		worker.restoredHeartbeats <- request.GetContext().GetLastHeartbeatValue().GetStringValue()
+	}
+	if attempt == 1 {
+		if err := stream.Send(&dexpb.InvokeExecuteMethodOutput{
+			Output: &dexpb.InvokeExecuteMethodOutput_Heartbeat{
+				Heartbeat: &dexpb.StepMethodHeartbeat{Value: stringValue("execute-checkpoint")},
+			},
+		}); err != nil {
+			return err
+		}
+	} else if attempt == 2 {
+		if err := stream.Send(&dexpb.InvokeExecuteMethodOutput{
+			Output: &dexpb.InvokeExecuteMethodOutput_Heartbeat{
+				Heartbeat: &dexpb.StepMethodHeartbeat{},
+			},
+		}); err != nil {
+			return err
+		}
+	}
+	if err := stream.Send(executeStreamOutput("progress", fmt.Sprintf("execute-%d", attempt))); err != nil {
+		return err
+	}
+	if attempt < 3 {
+		return status.Error(codes.Unavailable, "retry after streamed progress")
+	}
+	if err := stream.Send(executeStreamOutput("other", "execute-other")); err != nil {
+		return err
+	}
+	return stream.Send(&dexpb.InvokeExecuteMethodOutput{
+		Output: &dexpb.InvokeExecuteMethodOutput_Result{
+			Result: &dexpb.InvokeExecuteMethodResponse{
+				StepDecision: &dexpb.StepDecision{CloseDecision: &dexpb.CloseDecision{
+					CloseDecisionType: dexpb.CloseDecisionType_CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
+				}},
+			},
+		},
+	})
+}
+
+func waitForStreamOutput(streamName string, value string) *dexpb.InvokeWaitForMethodOutput {
+	return &dexpb.InvokeWaitForMethodOutput{
+		Output: &dexpb.InvokeWaitForMethodOutput_StreamWrite{
+			StreamWrite: &dexpb.StepStreamWrite{
+				StreamName:          streamName,
+				StreamCapacityBytes: 1 << 20,
+				Value:               stringValue(value),
+			},
+		},
+	}
+}
+
+func executeStreamOutput(streamName string, value string) *dexpb.InvokeExecuteMethodOutput {
+	return &dexpb.InvokeExecuteMethodOutput{
+		Output: &dexpb.InvokeExecuteMethodOutput_StreamWrite{
+			StreamWrite: &dexpb.StepStreamWrite{
+				StreamName:          streamName,
+				StreamCapacityBytes: 1 << 20,
+				Value:               stringValue(value),
+			},
+		},
+	}
+}
+
+func TestStreamStepWorkerStreamingTemporal(t *testing.T) {
+	if !*temporalIntegTest {
+		t.Skip()
+	}
+	testStepWorkerStreaming(t, service.BackendTypeTemporal)
+}
+
+func TestStreamStepWorkerStreamingCadence(t *testing.T) {
+	if !*cadenceIntegTest {
+		t.Skip()
+	}
+	testStepWorkerStreaming(t, service.BackendTypeCadence)
+}
+
+func testStepWorkerStreaming(t *testing.T, backendType service.BackendType) {
+	worker := &streamingStepWorker{restoredHeartbeats: make(chan string, 2)}
+	workerTarget := startStreamingWorker(t, worker)
+	runtime := startDexService(t, DexServiceTestConfig{
+		BackendType: backendType,
+		StreamStore: config.StreamStoreConfig{Backend: config.StreamStoreBackendMemory},
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	flowID := "step-streaming-" + newRequestID()
+	_, err := runtime.FlowClient.StartFlow(ctx, &dexpb.StartFlowRequest{
+		RequestId:          newRequestID(),
+		FlowId:             flowID,
+		FlowType:           "step-streaming-flow",
+		FlowTimeoutSeconds: 25,
+		StartStepType:      "stream-step",
+		FlowStartOptions:   withWorkerTarget(nil, workerTarget),
+		StepOptions: &dexpb.StepOptions{ExecuteRetryPolicy: &dexpb.RetryPolicy{
+			InitialIntervalSeconds: 1,
+			MaximumIntervalSeconds: 1,
+			BackoffCoefficient:     1,
+			MaximumAttempts:        3,
+			TotalDurationSeconds:   20,
+		}},
+	})
+	require.NoError(t, err)
+	result, err := runtime.FlowClient.WaitForFlow(ctx, &dexpb.WaitForFlowRequest{
+		FlowId:          flowID,
+		WaitTimeSeconds: 25,
+	})
+	require.NoError(t, err)
+	require.Equal(t, dexpb.FlowStatus_FLOW_STATUS_COMPLETED, result.GetFlowStatus())
+	require.Equal(t, int32(3), worker.executeCalls.Load())
+	require.Equal(t, "execute-checkpoint", <-worker.restoredHeartbeats)
+	require.Empty(t, <-worker.restoredHeartbeats)
+
+	progressMessages := readFlowStreamMessages(t, ctx, runtime.FlowClient, flowID, "progress", 5)
+	require.Equal(t, []string{
+		"wait-1",
+		"wait-2",
+		"execute-1",
+		"execute-2",
+		"execute-3",
+	}, protoStreamValues(progressMessages))
+	require.Equal(t, []string{
+		"#stream-step-1",
+		"#stream-step-1",
+		"#stream-step-1",
+		"#stream-step-1",
+		"#stream-step-1",
+	}, protoStreamSources(progressMessages))
+	otherMessages := readFlowStreamMessages(t, ctx, runtime.FlowClient, flowID, "other", 2)
+	require.Equal(t, []string{"wait-other", "execute-other"}, protoStreamValues(otherMessages))
+}
+
+func readFlowStreamMessages(
+	t *testing.T,
+	ctx context.Context,
+	flowClient dexpb.FlowServiceClient,
+	flowID string,
+	streamName string,
+	count int,
+) []*dexpb.StreamMessage {
+	t.Helper()
+	messages := make([]*dexpb.StreamMessage, 0, count)
+	resumeToken := ""
+	for len(messages) < count {
+		response, err := flowClient.ReadStream(ctx, &dexpb.ReadStreamRequest{
+			FlowId:          flowID,
+			FlowType:        "step-streaming-flow",
+			StreamName:      streamName,
+			ResumeToken:     resumeToken,
+			WaitTimeSeconds: 2,
+		})
+		require.NoError(t, err)
+		messages = append(messages, response.GetMessage())
+		resumeToken = response.GetMessage().GetResumeToken()
+	}
+	return messages
+}
+
+func protoStreamValues(messages []*dexpb.StreamMessage) []string {
+	values := make([]string, len(messages))
+	for index, message := range messages {
+		values[index] = message.GetValue().GetStringValue()
+	}
+	return values
+}
+
+func protoStreamSources(messages []*dexpb.StreamMessage) []string {
+	sources := make([]string, len(messages))
+	for index, message := range messages {
+		sources[index] = message.GetSource()
+	}
+	return sources
+}
+
 func TestStreamAPITemporal(t *testing.T) {
 	if !*temporalIntegTest {
 		t.Skip()
@@ -581,7 +822,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:          streamName,
 		StreamCapacityBytes: 1 << 20,
 		Value:               stringValue("first"),
-		IdempotencyKey:      "client-key",
+		Source:              "client-key",
 	})
 	require.NoError(t, err)
 	response, err := flowClient.ReadStream(ctx, &dexpb.ReadStreamRequest{
@@ -592,7 +833,7 @@ func TestStreamAPITemporal(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, "first", response.GetMessage().GetValue().GetStringValue())
-	require.Equal(t, "client-key", response.GetMessage().GetIdempotencyKey())
+	require.Equal(t, "client-key", response.GetMessage().GetSource())
 	require.NotEmpty(t, response.GetMessage().GetResumeToken())
 	require.WithinDuration(t, time.Now(), response.GetMessage().GetCreatedTime().AsTime(), 5*time.Second)
 	chargedBytes, err := redisClient.Get(context.Background(), streamTestBaseKey(streamName)+":charged").Int64()
@@ -603,7 +844,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:          streamName,
 		StreamCapacityBytes: chargedBytes*2 - 1,
 		Value:               stringValue("first"),
-		IdempotencyKey:      "second-key",
+		Source:              "second-key",
 	})
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 	require.Equal(t, int64(1), streamLength(t, redisClient, streamName))
@@ -613,7 +854,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:          streamName,
 		StreamCapacityBytes: 1 << 20,
 		Value:               stringValue(string(make([]byte, 64))),
-		IdempotencyKey:      "message-too-large",
+		Source:              "message-too-large",
 	})
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 	require.Equal(t, int64(1), streamLength(t, redisClient, streamName))
@@ -623,7 +864,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:          streamName,
 		StreamCapacityBytes: 1,
 		Value:               stringValue("too-large"),
-		IdempotencyKey:      "too-large",
+		Source:              "too-large",
 	})
 	require.Equal(t, codes.ResourceExhausted, status.Code(err))
 
@@ -660,7 +901,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:          streamName,
 		StreamCapacityBytes: 1 << 20,
 		Value:               stringValue("other"),
-		IdempotencyKey:      "other-key",
+		Source:              "other-key",
 	})
 	require.NoError(t, err)
 	require.Never(t, readFinished.Load, 200*time.Millisecond, 10*time.Millisecond)
@@ -670,7 +911,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		StreamName:          streamName,
 		StreamCapacityBytes: 1 << 20,
 		Value:               stringValue("second"),
-		IdempotencyKey:      "run-id#step-id",
+		Source:              "run-id#step-id",
 	})
 	require.NoError(t, err)
 	latestToken := ""
@@ -679,7 +920,7 @@ func TestStreamAPITemporal(t *testing.T) {
 		require.NoError(t, readErr)
 	case blockingResponse := <-readResult:
 		require.Equal(t, "second", blockingResponse.GetMessage().GetValue().GetStringValue())
-		require.Equal(t, "run-id#step-id", blockingResponse.GetMessage().GetIdempotencyKey())
+		require.Equal(t, "run-id#step-id", blockingResponse.GetMessage().GetSource())
 		latestToken = blockingResponse.GetMessage().GetResumeToken()
 	case <-ctx.Done():
 		require.FailNow(t, "blocking ReadStream did not finish", ctx.Err())
@@ -718,7 +959,7 @@ func TestStreamFailureIsolationTemporal(t *testing.T) {
 		StreamName:          "unavailable",
 		StreamCapacityBytes: 1024,
 		Value:               stringValue("value"),
-		IdempotencyKey:      "key",
+		Source:              "key",
 	})
 	require.Equal(t, codes.Unavailable, status.Code(err))
 	health, err := runtime.FlowClient.HealthCheck(ctx, &emptypb.Empty{})
@@ -739,7 +980,7 @@ func TestStreamDisabledTemporal(t *testing.T) {
 		StreamName:          "disabled",
 		StreamCapacityBytes: 1024,
 		Value:               stringValue("value"),
-		IdempotencyKey:      "key",
+		Source:              "key",
 	})
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 }
@@ -825,17 +1066,16 @@ func newStreamRedisClient(t testing.TB) *redis.Client {
 
 func streamInput(flowID string, streamName string, index int, value string) streamstore.WriteInput {
 	return streamstore.WriteInput{
-		FlowID:               flowID,
-		FlowType:             streamTestFlowType,
-		StreamName:           streamName,
-		Value:                &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value}},
-		InternalIdentity:     fmt.Sprintf("internal-%02d", index),
-		PublicIdempotencyKey: fmt.Sprintf("public-%02d", index),
+		FlowID:     flowID,
+		FlowType:   streamTestFlowType,
+		StreamName: streamName,
+		Value:      &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: value}},
+		Source:     fmt.Sprintf("public-%02d", index),
 	}
 }
 
 func estimatedCharge(input streamstore.WriteInput, overhead int64) int64 {
-	return int64(proto.Size(input.Value)+len(input.FlowID)+len(input.InternalIdentity)+len(input.PublicIdempotencyKey)) + overhead
+	return int64(proto.Size(input.Value)+len(input.FlowID)+len(input.Source)) + overhead
 }
 
 func readAvailableMessages(
@@ -927,7 +1167,7 @@ func readOneMessage(
 func messageKeys(messages []*streamstore.Message) []string {
 	keys := make([]string, len(messages))
 	for index, message := range messages {
-		keys[index] = message.IdempotencyKey
+		keys[index] = message.Source
 	}
 	return keys
 }

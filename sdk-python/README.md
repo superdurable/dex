@@ -62,23 +62,6 @@ explicit codec only for a custom encoding or a type Registry cannot derive.
 `PersistenceSchema.of(...)` accepts attributes, channels, and streams together and
 partitions them by definition type.
 
-Streams provide best-effort resumable progress messages. Their approximate byte
-budget is shared by all instances of the owning Flow type. Client keys cannot
-contain `#`; Step writes generate `runID#stepExecutionID` and allow one write per
-Stream per invocation.
-
-```python
-client.write_stream(flow_id, progress, "frontend/1", "starting")
-message = client.read_stream(
-    flow_id, progress, resume_token, timeout=timedelta(seconds=30)
-)
-resume_token = message.resume_token
-```
-
-Async Step handlers await **Stream.write**, and **AsyncClient** exposes matching
-async methods. Reads return the decoded value, resume token, creation time, and
-idempotency key.
-
 `Worker` and `AsyncWorker` synchronize all registered Indexed Attributes with
 Dex Server before opening their listener. Existing indexes return immediately;
 failure or the default two-minute deadline aborts startup. An indexed
@@ -164,14 +147,6 @@ Dex resolves one snapshot after the current execution succeeds. Completed,
 already-canceled, and absent targets are no-ops. Next Steps created by the same
 decision are outside the snapshot. Dex immediately applies the next or close
 action; late decisions, writes, retries, and recovery Steps are discarded.
-
-Set `StepOptions.heartbeat_timeout` on long-running regular Steps so
-cancellation reaches the Worker promptly. It applies to `wait_for` and
-`execute`; local activities ignore it, while an ASYNC fallback uses it. `None`
-and zero disable heartbeats, and positive values must be whole seconds in the
-signed int32 range. `AsyncWorker` cancels the handler's asyncio task. A handler
-may catch `asyncio.CancelledError` for cleanup; synchronous CPU-bound handlers
-may check `Context.is_cancellation_requested()` at natural boundaries.
 
 `RPCResult.with_canceling_steps` provides the Flow-wide selector for RPCs.
 RPCs do not support sibling selection because they have no Step execution

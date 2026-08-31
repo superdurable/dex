@@ -35,7 +35,10 @@ var defaultStepActivityRetryPolicy = config.RetryPolicy{
 	InitialInterval:    time.Second,
 	BackoffCoefficient: 2,
 	MaximumInterval:    100 * time.Second,
+	TotalDuration:      4 * time.Hour,
 }
+
+const maximumLocalStepActivityAttempts int32 = 3
 
 func NewQueryWorkflowBackoff(policy *config.RetryPolicy) *Backoff {
 	return newBackoff(config.RetryPolicyWithDefaults(
@@ -227,7 +230,8 @@ func maximumLocalActivityAttempts(policy *config.RetryPolicy, timeout time.Durat
 	maximumAttempts := int32(1)
 	elapsed := time.Duration(0)
 	nextInterval := policy.InitialInterval
-	for policy.MaximumAttempts == 0 || maximumAttempts < policy.MaximumAttempts {
+	for maximumAttempts < maximumLocalStepActivityAttempts &&
+		(policy.MaximumAttempts == 0 || maximumAttempts < policy.MaximumAttempts) {
 		if nextInterval <= 0 || elapsed+nextInterval >= timeout {
 			break
 		}

@@ -981,8 +981,8 @@ const (
 //
 // Hosted by Dex worker; server calls these RPCs.
 type WorkerServiceClient interface {
-	InvokeWaitForMethod(ctx context.Context, in *InvokeWaitForMethodRequest, opts ...grpc.CallOption) (*InvokeWaitForMethodResponse, error)
-	InvokeExecuteMethod(ctx context.Context, in *InvokeExecuteMethodRequest, opts ...grpc.CallOption) (*InvokeExecuteMethodResponse, error)
+	InvokeWaitForMethod(ctx context.Context, in *InvokeWaitForMethodRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[InvokeWaitForMethodOutput], error)
+	InvokeExecuteMethod(ctx context.Context, in *InvokeExecuteMethodRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[InvokeExecuteMethodOutput], error)
 	InvokeWorkerRPC(ctx context.Context, in *InvokeWorkerRPCRequest, opts ...grpc.CallOption) (*InvokeWorkerRPCResponse, error)
 }
 
@@ -994,25 +994,43 @@ func NewWorkerServiceClient(cc grpc.ClientConnInterface) WorkerServiceClient {
 	return &workerServiceClient{cc}
 }
 
-func (c *workerServiceClient) InvokeWaitForMethod(ctx context.Context, in *InvokeWaitForMethodRequest, opts ...grpc.CallOption) (*InvokeWaitForMethodResponse, error) {
+func (c *workerServiceClient) InvokeWaitForMethod(ctx context.Context, in *InvokeWaitForMethodRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[InvokeWaitForMethodOutput], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(InvokeWaitForMethodResponse)
-	err := c.cc.Invoke(ctx, WorkerService_InvokeWaitForMethod_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &WorkerService_ServiceDesc.Streams[0], WorkerService_InvokeWaitForMethod_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[InvokeWaitForMethodRequest, InvokeWaitForMethodOutput]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
 
-func (c *workerServiceClient) InvokeExecuteMethod(ctx context.Context, in *InvokeExecuteMethodRequest, opts ...grpc.CallOption) (*InvokeExecuteMethodResponse, error) {
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type WorkerService_InvokeWaitForMethodClient = grpc.ServerStreamingClient[InvokeWaitForMethodOutput]
+
+func (c *workerServiceClient) InvokeExecuteMethod(ctx context.Context, in *InvokeExecuteMethodRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[InvokeExecuteMethodOutput], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(InvokeExecuteMethodResponse)
-	err := c.cc.Invoke(ctx, WorkerService_InvokeExecuteMethod_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &WorkerService_ServiceDesc.Streams[1], WorkerService_InvokeExecuteMethod_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[InvokeExecuteMethodRequest, InvokeExecuteMethodOutput]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type WorkerService_InvokeExecuteMethodClient = grpc.ServerStreamingClient[InvokeExecuteMethodOutput]
 
 func (c *workerServiceClient) InvokeWorkerRPC(ctx context.Context, in *InvokeWorkerRPCRequest, opts ...grpc.CallOption) (*InvokeWorkerRPCResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -1030,8 +1048,8 @@ func (c *workerServiceClient) InvokeWorkerRPC(ctx context.Context, in *InvokeWor
 //
 // Hosted by Dex worker; server calls these RPCs.
 type WorkerServiceServer interface {
-	InvokeWaitForMethod(context.Context, *InvokeWaitForMethodRequest) (*InvokeWaitForMethodResponse, error)
-	InvokeExecuteMethod(context.Context, *InvokeExecuteMethodRequest) (*InvokeExecuteMethodResponse, error)
+	InvokeWaitForMethod(*InvokeWaitForMethodRequest, grpc.ServerStreamingServer[InvokeWaitForMethodOutput]) error
+	InvokeExecuteMethod(*InvokeExecuteMethodRequest, grpc.ServerStreamingServer[InvokeExecuteMethodOutput]) error
 	InvokeWorkerRPC(context.Context, *InvokeWorkerRPCRequest) (*InvokeWorkerRPCResponse, error)
 	mustEmbedUnimplementedWorkerServiceServer()
 }
@@ -1043,11 +1061,11 @@ type WorkerServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedWorkerServiceServer struct{}
 
-func (UnimplementedWorkerServiceServer) InvokeWaitForMethod(context.Context, *InvokeWaitForMethodRequest) (*InvokeWaitForMethodResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method InvokeWaitForMethod not implemented")
+func (UnimplementedWorkerServiceServer) InvokeWaitForMethod(*InvokeWaitForMethodRequest, grpc.ServerStreamingServer[InvokeWaitForMethodOutput]) error {
+	return status.Error(codes.Unimplemented, "method InvokeWaitForMethod not implemented")
 }
-func (UnimplementedWorkerServiceServer) InvokeExecuteMethod(context.Context, *InvokeExecuteMethodRequest) (*InvokeExecuteMethodResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method InvokeExecuteMethod not implemented")
+func (UnimplementedWorkerServiceServer) InvokeExecuteMethod(*InvokeExecuteMethodRequest, grpc.ServerStreamingServer[InvokeExecuteMethodOutput]) error {
+	return status.Error(codes.Unimplemented, "method InvokeExecuteMethod not implemented")
 }
 func (UnimplementedWorkerServiceServer) InvokeWorkerRPC(context.Context, *InvokeWorkerRPCRequest) (*InvokeWorkerRPCResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InvokeWorkerRPC not implemented")
@@ -1073,41 +1091,27 @@ func RegisterWorkerServiceServer(s grpc.ServiceRegistrar, srv WorkerServiceServe
 	s.RegisterService(&WorkerService_ServiceDesc, srv)
 }
 
-func _WorkerService_InvokeWaitForMethod_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(InvokeWaitForMethodRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+func _WorkerService_InvokeWaitForMethod_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(InvokeWaitForMethodRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(WorkerServiceServer).InvokeWaitForMethod(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: WorkerService_InvokeWaitForMethod_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WorkerServiceServer).InvokeWaitForMethod(ctx, req.(*InvokeWaitForMethodRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(WorkerServiceServer).InvokeWaitForMethod(m, &grpc.GenericServerStream[InvokeWaitForMethodRequest, InvokeWaitForMethodOutput]{ServerStream: stream})
 }
 
-func _WorkerService_InvokeExecuteMethod_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(InvokeExecuteMethodRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type WorkerService_InvokeWaitForMethodServer = grpc.ServerStreamingServer[InvokeWaitForMethodOutput]
+
+func _WorkerService_InvokeExecuteMethod_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(InvokeExecuteMethodRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(WorkerServiceServer).InvokeExecuteMethod(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: WorkerService_InvokeExecuteMethod_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(WorkerServiceServer).InvokeExecuteMethod(ctx, req.(*InvokeExecuteMethodRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(WorkerServiceServer).InvokeExecuteMethod(m, &grpc.GenericServerStream[InvokeExecuteMethodRequest, InvokeExecuteMethodOutput]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type WorkerService_InvokeExecuteMethodServer = grpc.ServerStreamingServer[InvokeExecuteMethodOutput]
 
 func _WorkerService_InvokeWorkerRPC_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InvokeWorkerRPCRequest)
@@ -1135,19 +1139,22 @@ var WorkerService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*WorkerServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "InvokeWaitForMethod",
-			Handler:    _WorkerService_InvokeWaitForMethod_Handler,
-		},
-		{
-			MethodName: "InvokeExecuteMethod",
-			Handler:    _WorkerService_InvokeExecuteMethod_Handler,
-		},
-		{
 			MethodName: "InvokeWorkerRPC",
 			Handler:    _WorkerService_InvokeWorkerRPC_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "InvokeWaitForMethod",
+			Handler:       _WorkerService_InvokeWaitForMethod_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "InvokeExecuteMethod",
+			Handler:       _WorkerService_InvokeExecuteMethod_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "dex.proto",
 }
 

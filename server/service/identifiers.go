@@ -11,6 +11,7 @@ package service
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/superdurable/dex/gen/dexpb"
 )
@@ -41,11 +42,16 @@ func ValidateStepType(stepType string) error {
 	return validateIdentifierCharacters("step type", stepType)
 }
 
-// ValidateStepOptions validates every Step type reachable through failure-proceed options.
-func ValidateStepOptions(options *dexpb.StepOptions) error {
+// ValidateStepOptions validates reachable Step options against the heartbeat minimum.
+func ValidateStepOptions(options *dexpb.StepOptions, minimumHeartbeatTimeout time.Duration) error {
 	for current := options; current != nil; current = current.GetExecuteFailureProceedStepOptions() {
 		if err := ValidateStepType(current.GetExecuteFailureProceedStepType()); err != nil {
 			return err
+		}
+		heartbeatTimeout := current.GetHeartbeatTimeoutSeconds()
+		if heartbeatTimeout < 0 || heartbeatTimeout > 0 &&
+			time.Duration(heartbeatTimeout)*time.Second < minimumHeartbeatTimeout {
+			return fmt.Errorf("heartbeat timeout must be zero or at least %s", minimumHeartbeatTimeout)
 		}
 	}
 	return nil
