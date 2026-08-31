@@ -75,10 +75,16 @@ class ValueHydrator:
     ) -> pb.InvokeWaitForMethodRequest:
         result = pb.InvokeWaitForMethodRequest()
         result.CopyFrom(request)
-        values = [request.step_input, *(entry.value for entry in request.attributes)]
-        hydrated = self.hydrate_all(values)
-        result.step_input.CopyFrom(hydrated[0])
-        for entry, value in zip(result.attributes, hydrated[1:]):
+        has_heartbeat = request.context.HasField("last_heartbeat_value")
+        values = [request.step_input]
+        if has_heartbeat:
+            values.append(request.context.last_heartbeat_value)
+        values.extend(entry.value for entry in request.attributes)
+        hydrated = iter(self.hydrate_all(values))
+        result.step_input.CopyFrom(next(hydrated))
+        if has_heartbeat:
+            result.context.last_heartbeat_value.CopyFrom(next(hydrated))
+        for entry, value in zip(result.attributes, hydrated):
             entry.value.CopyFrom(value)
         return result
 
@@ -89,7 +95,10 @@ class ValueHydrator:
         result = pb.InvokeExecuteMethodRequest()
         result.CopyFrom(request)
         has_step_input = request.HasField("step_input")
+        has_heartbeat = request.context.HasField("last_heartbeat_value")
         values = [request.step_input] if has_step_input else []
+        if has_heartbeat:
+            values.append(request.context.last_heartbeat_value)
         values.extend(entry.value for entry in request.attributes)
         values.extend(entry.value for entry in request.step_exe_locals)
         for channel_result in request.condition_results.channel_results:
@@ -101,6 +110,8 @@ class ValueHydrator:
         hydrated = iter(self.hydrate_all(values))
         if has_step_input:
             result.step_input.CopyFrom(next(hydrated))
+        if has_heartbeat:
+            result.context.last_heartbeat_value.CopyFrom(next(hydrated))
         for entry in result.attributes:
             entry.value.CopyFrom(next(hydrated))
         for entry in result.step_exe_locals:

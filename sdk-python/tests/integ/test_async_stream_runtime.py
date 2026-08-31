@@ -27,7 +27,7 @@ async def _async_stream_round_trip() -> None:
         allow_async_handlers=True,
     ) as environment:
         flow_id = unique_id("async-stream")
-        run_id = await environment.client.start_flow(flow, flow_id, None)
+        await environment.client.start_flow(flow, flow_id, None)
         await environment.client.wait_for_flow(flow_id, timedelta(seconds=30))
 
         await environment.client.write_stream(
@@ -37,23 +37,41 @@ async def _async_stream_round_trip() -> None:
             "async-client-progress",
         )
 
-        step = await environment.client.read_stream(
+        wait = await environment.client.read_stream(
             flow_id,
             flow.progress,
             timeout=timedelta(seconds=30),
         )
-        assert step.value == "async-step-progress"
-        assert step.resume_token
-        assert step.created_time > datetime(1970, 1, 1, tzinfo=timezone.utc)
-        assert step.idempotency_key.startswith(f"{run_id}#")
+        assert wait.value == "async-wait"
+        assert wait.resume_token
+        assert wait.created_time > datetime(1970, 1, 1, tzinfo=timezone.utc)
+        assert wait.source.startswith("#AsyncStreamTestStep-")
+
+        first = await environment.client.read_stream(
+            flow_id,
+            flow.progress,
+            wait.resume_token,
+            timeout=timedelta(seconds=30),
+        )
+        assert first.value == "async-step-first"
+        assert first.source == wait.source
+
+        second = await environment.client.read_stream(
+            flow_id,
+            flow.progress,
+            first.resume_token,
+            timeout=timedelta(seconds=30),
+        )
+        assert second.value == "async-step-second"
+        assert second.source == wait.source
 
         client = await environment.client.read_stream(
             flow_id,
             flow.progress,
-            step.resume_token,
+            second.resume_token,
             timeout=timedelta(seconds=30),
         )
         assert client.value == "async-client-progress"
-        assert client.resume_token != step.resume_token
+        assert client.resume_token != wait.resume_token
         assert client.created_time > datetime(1970, 1, 1, tzinfo=timezone.utc)
-        assert client.idempotency_key == "async-client-write"
+        assert client.source == "async-client-write"

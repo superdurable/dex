@@ -790,7 +790,7 @@ fire-and-forget frame on the current Worker response stream, so it does not make
 a Worker-to-server FlowService call. One invocation may emit any number of
 messages to the same or different Streams. The server attempts them in order;
 write failures are observable only through server logs and metrics. Step frames
-use `runID#stepExecutionID` as source metadata. RPC writes are rejected.
+use `#stepExecutionID` as source metadata. RPC writes are rejected.
 
 `Client.WriteStream` accepts the exact registered Stream, Flow ID, non-empty
 source, and typed value. Sources may repeat and may contain `#`.

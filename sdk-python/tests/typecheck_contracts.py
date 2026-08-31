@@ -7,9 +7,10 @@
 # SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 from dataclasses import dataclass
-from typing import cast
+from typing import Generator, cast
 
 from dex import (
+    AsyncContext,
     Attribute,
     AttributeMap,
     BlobCache,
@@ -24,10 +25,12 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    StepOutput,
     Stream,
     StreamMessage,
     Worker,
     graceful_complete,
+    heartbeat,
     rpc,
 )
 
@@ -45,6 +48,28 @@ class Output:
 class TypedStep(Step[Input]):
     def execute(self, context: Context, input: Input) -> StepDecision:
         del context, input
+        return graceful_complete()
+
+
+class StreamingStep(Step[Input]):
+    def execute(
+        self,
+        context: Context,
+        input: Input,
+    ) -> Generator[StepOutput, None, StepDecision]:
+        yield heartbeat({"input": input.value})
+        yield progress.write(context, "working")
+        return graceful_complete()
+
+
+class AsyncTypedStep(Step[Input]):
+    async def execute(  # type: ignore[override]
+        self,
+        context: AsyncContext,
+        input: Input,
+    ) -> StepDecision:
+        progress.write(context, input.value)
+        await context.heartbeat(input.value)
         return graceful_complete()
 
 
@@ -77,6 +102,7 @@ output: Output = client.invoke_rpc(
 )
 client.write_stream("flow-id", progress, "frontend/1", "starting")
 stream_message: StreamMessage[str] = client.read_stream("flow-id", progress)
+stream_source: str = stream_message.source
 
 status = Attribute("status", str, sync_to_attribute_store=True)
 items = AttributeMap("items", int, sync_to_attribute_store=True)

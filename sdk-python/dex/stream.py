@@ -10,12 +10,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar, overload
 
 from dex._utils import require_name
+from dex.step import StepOutput
 
 if TYPE_CHECKING:
-    from dex.context import Context
+    from dex.context import AsyncContext, Context
 
 ValueT = TypeVar("ValueT")
 
@@ -47,18 +48,43 @@ class Stream(Generic[ValueT]):
         if self.stream_capacity_bytes <= 0:
             raise ValueError("Stream stream_capacity_bytes must be positive")
 
-    def write(self, context: Context, value: ValueT) -> Any:
-        """Append one message immediately from the current Step execution.
+    @overload
+    def write(  # type: ignore[overload-overlap]
+        self,
+        context: AsyncContext,
+        value: ValueT,
+    ) -> None:
+        """Enqueue one message from an asynchronous Step handler."""
+        ...
 
-        Synchronous handlers call this method directly. Async handlers must await its
-        result. One Step execution may write once per Stream, and RPC Contexts reject it.
+    @overload
+    def write(self, context: Context, value: ValueT) -> StepOutput:
+        """Create one message output for a synchronous Step generator."""
+        ...
+
+    def write(
+        self,
+        context: Context,
+        value: ValueT,
+    ) -> StepOutput | None:
+        """Emit one best-effort message from the current Step execution.
+
+        A synchronous generator must yield the returned StepOutput. An asynchronous
+        Step calls this method without ``await``; the message enters the invocation's
+        ordered output queue immediately. Neither form waits for Dex Stream Store
+        persistence. Calls may write the same Stream any number of times. RPC and
+        Flow-timeout Contexts reject Stream writes.
 
         Args:
             context: Current synchronous or asynchronous Step Context.
             value: Typed message to append.
 
         Returns:
-            ``None`` for a synchronous Worker or an awaitable for an AsyncWorker.
+            A StepOutput for a synchronous Context, or ``None`` for AsyncContext.
+
+        Raises:
+            ValueError: If the Stream is unregistered or the Context is not a Step.
+            ValueMappingError: If ``value`` cannot be encoded.
         """
         return context._write_stream(self, value)
 
@@ -71,10 +97,10 @@ class StreamMessage(Generic[ValueT]):
         value: Decoded application message.
         resume_token: Opaque token for the next read.
         created_time: Server-assigned UTC creation time.
-        idempotency_key: Client key or Step-generated runID#stepExecutionID key.
+        source: Informational client source or Step-generated ``#stepExecutionID``.
     """
 
     value: ValueT
     resume_token: str
     created_time: datetime
-    idempotency_key: str
+    source: str

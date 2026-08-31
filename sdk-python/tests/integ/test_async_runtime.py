@@ -16,13 +16,14 @@ from typing import Callable
 
 from dex import (
     AsyncClient,
+    AsyncContext,
     Context,
     Flow,
     PersistenceSchema,
+    StartFlowOptions,
     Step,
     StepDecision,
     StepList,
-    StartFlowOptions,
     force_complete,
     go_to,
     graceful_complete,
@@ -138,7 +139,7 @@ class StartChild(Step[int]):
         self._finish = finish
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: int
+        self, context: AsyncContext, input: int
     ) -> StepDecision:
         del context
         client = self._client_provider()

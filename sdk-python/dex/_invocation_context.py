@@ -9,8 +9,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from inspect import isawaitable
-from typing import Any, Callable, Sequence, TypeVar, cast
+from typing import Any, Callable, Protocol, Sequence, TypeVar, cast
 from urllib.parse import unquote
 
 from dex._utils import require_name
@@ -21,6 +20,12 @@ from dex.codec import Codec
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, _RegisteredFlow
 from dex.flow_result import FlowResult, flow_result_from_proto
+from dex.step import (
+    _NO_HEARTBEAT_VALUE,
+    StepOutput,
+    _HeartbeatStepOutput,
+    _StreamStepOutput,
+)
 from dex.stream import Stream
 
 ValueT = TypeVar("ValueT")
@@ -33,6 +38,13 @@ class InvocationMethod(Enum):
     WAIT_FOR = "wait_for"
     EXECUTE = "execute"
     RPC = "rpc"
+    TIMEOUT = "timeout"
+
+
+class _StepOutputEmitter(Protocol):
+    def emit_nowait(self, output: StepOutput) -> None: ...
+
+    async def emit(self, output: StepOutput) -> None: ...
 
 
 class InvocationContext:
@@ -42,29 +54,28 @@ class InvocationContext:
         flow: _RegisteredFlow,
         metadata: pb.Context,
         values: ValueMapper,
-        stream_writer: Callable[[pb.WriteStreamRequest], Any],
         attributes: Sequence[pb.KV],
         locals: Sequence[pb.KV] = (),
         condition_results: pb.ConditionResults | None = None,
         channel_infos: dict[str, pb.ChannelInfo] | None = None,
         is_active: Callable[[], bool] | None = None,
+        output_emitter: _StepOutputEmitter | None = None,
     ) -> None:
         self._method = method
         self._flow = flow
         self._metadata = metadata
         self._values = values
-        self._stream_writer = stream_writer
         self._attributes = self._map_values("Attribute", attributes)
         self._locals = self._map_values("step-execution local", locals)
         self._condition_results = condition_results
         self._channel_infos = dict(channel_infos or {})
         self._is_active = is_active or _always_active
+        self._output_emitter = output_emitter
         self.attribute_writes: dict[str, pb.AttributeWrite] = {}
         self.local_writes: dict[str, pb.KV] = {}
         self.events: list[pb.KV] = []
         self.publications: list[pb.ChannelMessage] = []
         self._event_names: set[str] = set()
-        self._stream_writes: set[int] = set()
 
     @property
     def flow_id(self) -> str:
@@ -85,6 +96,35 @@ class InvocationContext:
     @property
     def attempt(self) -> int:
         return self._metadata.attempt
+
+    def has_last_heartbeat_value(self) -> bool:
+        return self._metadata.HasField("last_heartbeat_value")
+
+    def get_last_heartbeat_value(
+        self,
+        value_type: type[ValueT],
+    ) -> ValueT | None:
+        if not self.has_last_heartbeat_value():
+            return None
+        return cast(
+            ValueT,
+            self._values.decode(
+                self._metadata.last_heartbeat_value,
+                self._flow_codec(value_type),
+            ),
+        )
+
+    async def heartbeat(self, value: object = _NO_HEARTBEAT_VALUE) -> None:
+        if (
+            self._method not in (InvocationMethod.WAIT_FOR, InvocationMethod.EXECUTE)
+            or self._output_emitter is None
+        ):
+            raise ValueError("heartbeat requires an asynchronous Step Context")
+        has_value = value is not _NO_HEARTBEAT_VALUE
+        encoded_value = self._values.encode_dynamic(value) if has_value else None
+        await self._output_emitter.emit(
+            _HeartbeatStepOutput(has_value, value, encoded_value)
+        )
 
     def has_timer_fired(self, index: int | None = None) -> bool:
         if self._condition_results is None:
@@ -162,43 +202,24 @@ class InvocationContext:
         self,
         definition: Stream[ValueT],
         value: ValueT,
-    ) -> Any:
-        if self._method is InvocationMethod.RPC:
+    ) -> StepOutput | None:
+        if self._method not in (InvocationMethod.WAIT_FOR, InvocationMethod.EXECUTE):
             raise ValueError("Stream writes require a Step Context")
         self._require_registered(definition)
-        identity = id(definition)
-        if identity in self._stream_writes:
-            raise ValueError(
-                f"Stream {definition.name} was already written by this Step execution"
+        output = _StreamStepOutput(
+            pb.StepStreamWrite(
+                stream_name=definition.name,
+                stream_capacity_bytes=definition.stream_capacity_bytes,
+                value=self._values.encode(
+                    value,
+                    self._values.codec(definition.value_type),
+                ),
             )
-        request = pb.WriteStreamRequest(
-            flow_id=self.flow_id,
-            flow_type=self._flow.name,
-            stream_name=definition.name,
-            stream_capacity_bytes=definition.stream_capacity_bytes,
-            value=self._values.encode(
-                value,
-                self._values.codec(definition.value_type),
-            ),
-            idempotency_key=f"{self.run_id}#{self.step_execution_id}",
         )
-        result = self._stream_writer(request)
-        if isawaitable(result):
-            self._stream_writes.add(identity)
-            return self._finish_async_stream_write(result, identity)
-        self._stream_writes.add(identity)
+        if self._output_emitter is None:
+            return output
+        self._output_emitter.emit_nowait(output)
         return None
-
-    async def _finish_async_stream_write(
-        self,
-        result: Any,
-        identity: int,
-    ) -> None:
-        try:
-            await result
-        except BaseException:
-            self._stream_writes.remove(identity)
-            raise
 
     def _get_attribute(
         self,

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from asyncio import CancelledError, current_task
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, TypeVar
 
 import grpc
@@ -33,30 +33,32 @@ class AsyncWorkerService(dex_pb2_grpc.WorkerServiceServicer):
         request: pb.InvokeWaitForMethodRequest,
         context: grpc.aio.ServicerContext[
             pb.InvokeWaitForMethodRequest,
-            pb.InvokeWaitForMethodResponse,
+            pb.InvokeWaitForMethodOutput,
         ],
-    ) -> pb.InvokeWaitForMethodResponse:
-        return await self._invoke(
+    ) -> AsyncIterator[pb.InvokeWaitForMethodOutput]:
+        async for output in self._invoke_stream(
             context,
             lambda: self._dispatcher.invoke_wait_for(
                 request, lambda: self._is_active(context)
             ),
-        )
+        ):
+            yield output
 
     async def InvokeExecuteMethod(
         self,
         request: pb.InvokeExecuteMethodRequest,
         context: grpc.aio.ServicerContext[
             pb.InvokeExecuteMethodRequest,
-            pb.InvokeExecuteMethodResponse,
+            pb.InvokeExecuteMethodOutput,
         ],
-    ) -> pb.InvokeExecuteMethodResponse:
-        return await self._invoke(
+    ) -> AsyncIterator[pb.InvokeExecuteMethodOutput]:
+        async for output in self._invoke_stream(
             context,
             lambda: self._dispatcher.invoke_execute(
                 request, lambda: self._is_active(context)
             ),
-        )
+        ):
+            yield output
 
     async def InvokeWorkerRPC(
         self,
@@ -85,6 +87,28 @@ class AsyncWorkerService(dex_pb2_grpc.WorkerServiceServicer):
     ) -> ResponseT:
         try:
             return await invocation()
+        except CancelledError:
+            raise
+        except BaseException as error:
+            if not AsyncWorkerService._is_active(context):
+                await context.abort(
+                    grpc.StatusCode.CANCELLED,
+                    "Python AsyncWorker invocation canceled",
+                )
+            _LOGGER.exception("Python AsyncWorker invocation failed")
+            await async_abort_worker_error(context, error)
+            raise RuntimeError("gRPC abort returned unexpectedly") from error
+
+    @staticmethod
+    async def _invoke_stream(
+        context: grpc.aio.ServicerContext[Any, Any],
+        invocation: Callable[[], AsyncIterator[ResponseT]],
+    ) -> AsyncIterator[ResponseT]:
+        try:
+            async for response in invocation():
+                yield response
+        except GeneratorExit:
+            raise
         except CancelledError:
             raise
         except BaseException as error:

@@ -9,13 +9,16 @@
 # See LICENSE and LEGACY_NOTICES.md.
 
 from dex import (
-    Context,
+    AsyncContext,
     Flow,
     PersistenceSchema,
     Step,
     StepDecision,
+    StepDurability,
     StepList,
+    StepOptions,
     Stream,
+    Wait,
     graceful_complete,
 )
 
@@ -24,14 +27,33 @@ class AsyncStreamTestStep(Step[None]):
     def __init__(self, progress: Stream[str]) -> None:
         self.progress = progress
 
+    async def wait_for(  # type: ignore[override]
+        self,
+        context: AsyncContext,
+        input: None,
+    ) -> Wait:
+        del input
+        self.progress.write(context, "async-wait")
+        await context.heartbeat("async-wait-checkpoint")
+        return Wait.skip_immediately()
+
     async def execute(  # type: ignore[override]
         self,
-        context: Context,
+        context: AsyncContext,
         input: None,
     ) -> StepDecision:
         del input
-        await self.progress.write(context, "async-step-progress")
+        self.progress.write(context, "async-step-first")
+        await context.heartbeat("async-checkpoint")
+        self.progress.write(context, "async-step-second")
+        await context.heartbeat()
         return graceful_complete()
+
+    def get_step_options(self) -> StepOptions:
+        return StepOptions(
+            wait_for_durability=StepDurability.ASYNC,
+            execute_durability=StepDurability.ASYNC,
+        )
 
 
 class AsyncStreamTestFlow(Flow[None]):

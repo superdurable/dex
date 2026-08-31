@@ -69,7 +69,6 @@ class AsyncWorker:
             registry,
             values,
             AsyncValueHydrator(self._flow_service, blob_cache),
-            self._flow_service.WriteStream,
         )
         self._server = grpc.aio.server()
         dex_pb2_grpc.add_WorkerServiceServicer_to_server(  # type: ignore[no-untyped-call]
