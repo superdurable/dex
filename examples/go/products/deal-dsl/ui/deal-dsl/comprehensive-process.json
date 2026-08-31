@@ -1,12 +1,14 @@
 {
-  "processID": "comprehensive-dataset-deal",
+  "processID": "comprehensive-deal-dsl",
+  "itemID": "item-42",
+  "itemName": "Premium research package",
   "initialState": "buyer-negotiation",
   "initialStateData": {
     "acceptedProposedPrice": "false",
-    "proceedToFullDataset": "false",
-    "proposedFullPrice": "",
-    "proposedSamplePrice": "",
-    "proposedSampleRefundPrice": ""
+    "proceedWithItem": "false",
+    "proposedItemPrice": "",
+    "proposedItemSamplePrice": "",
+    "proposedItemSampleRefund": ""
   },
   "states": [
     {
@@ -23,37 +25,37 @@
         "decision": {
           "key": "acceptedProposedPrice",
           "cases": [
-            {"equals": "true", "goToState": "process-sample-order"}
+            {"equals": "true", "goToState": "process-item-sample"}
           ],
           "elseState": "buyer-negotiation"
         }
       }
     },
     {
-      "name": "process-sample-order",
+      "name": "process-item-sample",
       "preActions": ["transferMoneyFromBuyerToSeller"],
-      "postActions": ["transportSampleDatasetToBuyer"],
+      "postActions": ["deliverItemSampleToBuyer"],
       "postCondition": {
-        "decision": {"elseState": "wait-sample-feedback"}
+        "decision": {"elseState": "wait-item-sample-feedback"}
       }
     },
     {
-      "name": "wait-sample-feedback",
-      "preCondition": {"name": "sample-feedback"},
+      "name": "wait-item-sample-feedback",
+      "preCondition": {"name": "item-sample-feedback"},
       "postCondition": {
         "decision": {
-          "key": "proceedToFullDataset",
+          "key": "proceedWithItem",
           "cases": [
-            {"equals": "true", "goToState": "process-full-order"}
+            {"equals": "true", "goToState": "process-item-order"}
           ],
           "elseState": "process-refund"
         }
       }
     },
     {
-      "name": "process-full-order",
+      "name": "process-item-order",
       "preActions": ["transferMoneyFromBuyerToSeller"],
-      "postActions": ["transportFullDatasetToBuyer"]
+      "postActions": ["deliverItemToBuyer"]
     },
     {
       "name": "process-refund",

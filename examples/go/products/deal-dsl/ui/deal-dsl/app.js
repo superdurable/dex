@@ -39,18 +39,18 @@ const toast = document.querySelector('#toast');
 
 async function initialize() {
   bindNavigation();
-  const actionResponse = await api('/products/dataset-deal/api/actions');
+  const actionResponse = await api('/products/deal-dsl/api/actions');
   state.actions = actionResponse.actions;
   await renderRoute();
 }
 
 function bindNavigation() {
   document.querySelectorAll('.role').forEach((button) => {
-    button.addEventListener('click', () => navigate('/products/dataset-deal', button.dataset.role));
+    button.addEventListener('click', () => navigate('/products/deal-dsl', button.dataset.role));
   });
   document.querySelector('.brand').addEventListener('click', (event) => {
     event.preventDefault();
-    navigate('/products/dataset-deal');
+    navigate('/products/deal-dsl');
   });
   window.addEventListener('popstate', () => renderRoute());
 }
@@ -59,7 +59,7 @@ async function renderRoute() {
   const role = new URLSearchParams(window.location.search).get('role');
   if (role) state.role = role;
   updateRoleSwitcher();
-  app.innerHTML = '<div class="loading">Loading Dataset Deal…</div>';
+  app.innerHTML = '<div class="loading">Loading Deal DSL…</div>';
   const route = currentRoute();
   try {
     if (route.kind === 'process') {
@@ -78,7 +78,7 @@ async function renderRoute() {
 
 function currentRoute() {
   const parts = window.location.pathname.split('/').filter(Boolean);
-  if (parts[0] !== 'products' || parts[1] !== 'dataset-deal') {
+  if (parts[0] !== 'products' || parts[1] !== 'deal-dsl') {
     return { kind: 'dashboard' };
   }
   if (parts[2] === 'processes' && parts[3]) {
@@ -109,7 +109,7 @@ async function loadDashboard() {
   state.process = null;
   state.execution = null;
   const [processResponse, executionResponse] = await Promise.all([
-    api('/products/dataset-deal/api/processes'),
+    api('/products/deal-dsl/api/processes'),
     api(executionListURL()),
   ]);
   state.processes = processResponse.processes;
@@ -122,7 +122,7 @@ function executionListURL() {
   if (state.role !== 'seller') parameters.set('buyerID', state.role);
   if (state.filterProcessID) parameters.set('processID', state.filterProcessID);
   const query = parameters.toString();
-  return `/products/dataset-deal/api/executions${query ? `?${query}` : ''}`;
+  return `/products/deal-dsl/api/executions${query ? `?${query}` : ''}`;
 }
 
 function renderDashboard() {
@@ -135,7 +135,7 @@ function renderDashboard() {
           <h1>${seller ? 'Processes & executions' : 'My deal executions'}</h1>
           <p>${seller
             ? 'Choose a process to edit its state machine, or inspect any durable execution.'
-            : 'Start and inspect your dataset deals. Execution filters run directly against Dex visibility.'}</p>
+            : 'Start and inspect your deal DSLs. Execution filters run directly against Dex visibility.'}</p>
         </div>
         ${seller ? '<button id="new-process" class="primary">+ New process</button>' : ''}
       </header>
@@ -153,7 +153,7 @@ function processListPanelHTML() {
     : state.processes.map((process) => `
       <button class="list-card process-card" data-process-id="${escapeHTML(process.processID)}">
         <strong>${escapeHTML(process.processID)}</strong>
-        <small>${process.states.length} states · starts at ${escapeHTML(process.initialState)}</small>
+        <small>${escapeHTML(process.itemName)} · ${process.states.length} states</small>
       </button>`).join('');
   return `
     <section class="panel">
@@ -196,7 +196,7 @@ function executionCardHTML(execution) {
 }
 
 function bindDashboard() {
-  document.querySelector('#new-process')?.addEventListener('click', () => navigate('/products/dataset-deal/processes/new'));
+  document.querySelector('#new-process')?.addEventListener('click', () => navigate('/products/deal-dsl/processes/new'));
   document.querySelector('#process-filter').addEventListener('change', async (event) => {
     state.filterProcessID = event.target.value;
     await refreshDashboardExecutions();
@@ -204,10 +204,10 @@ function bindDashboard() {
   document.querySelector('#refresh-executions').addEventListener('click', refreshDashboardExecutions);
   document.querySelector('#start-execution')?.addEventListener('click', startExecution);
   document.querySelectorAll('.process-card').forEach((button) => {
-    button.addEventListener('click', () => navigate(`/products/dataset-deal/processes/${encodeURIComponent(button.dataset.processId)}`));
+    button.addEventListener('click', () => navigate(`/products/deal-dsl/processes/${encodeURIComponent(button.dataset.processId)}`));
   });
   document.querySelectorAll('.execution-card').forEach((button) => {
-    button.addEventListener('click', () => navigate(`/products/dataset-deal/executions/${encodeURIComponent(button.dataset.flowId)}`));
+    button.addEventListener('click', () => navigate(`/products/deal-dsl/executions/${encodeURIComponent(button.dataset.flowId)}`));
   });
 }
 
@@ -224,12 +224,12 @@ async function refreshDashboardExecutions() {
 async function startExecution() {
   if (!state.filterProcessID) return showToast('Select a ProcessID first.', true);
   try {
-    const response = await api('/products/dataset-deal/api/executions', {
+    const response = await api('/products/deal-dsl/api/executions', {
       method: 'POST',
       body: JSON.stringify({ processID: state.filterProcessID, buyerID: state.role }),
     });
     showToast(`Started ${response.flowID}.`);
-    navigate(`/products/dataset-deal/executions/${encodeURIComponent(response.flowID)}`);
+    navigate(`/products/deal-dsl/executions/${encodeURIComponent(response.flowID)}`);
   } catch (error) {
     showToast(error.message, true);
   }
@@ -239,8 +239,8 @@ async function loadProcessPage(processID) {
   state.execution = null;
   state.processIsNew = processID === 'new';
   const process = state.processIsNew
-    ? await api('/products/dataset-deal/comprehensive-process.json')
-    : await api(`/products/dataset-deal/api/processes/${encodeURIComponent(processID)}`);
+    ? await api('/products/deal-dsl/comprehensive-process.json')
+    : await api(`/products/deal-dsl/api/processes/${encodeURIComponent(processID)}`);
   state.process = normalizeProcess(structuredClone(process));
   state.selectedStateName = state.process.initialState;
   renderProcessPage();
@@ -280,6 +280,8 @@ function processMetaHTML() {
     <section class="editor-section stack">
       <h3>Process settings</h3>
       <label>Process ID<input id="process-id" value="${escapeHTML(state.process.processID)}" ${state.processIsNew ? '' : 'disabled'} /></label>
+      <label>Item ID<input id="item-id" value="${escapeHTML(state.process.itemID)}" /></label>
+      <label>Item name<input id="item-name" value="${escapeHTML(state.process.itemName)}" /></label>
       <label>Initial state<select id="initial-state">${stateOptions(state.process.initialState)}</select></label>
       <div>
         <div class="section-title"><h4>Initial stateData</h4><button id="add-initial-data" class="ghost small">+ key/value</button></div>
@@ -346,6 +348,12 @@ function bindProcessEditor(dealState) {
   document.querySelector('#add-state').addEventListener('click', addState);
   document.querySelector('#process-id').addEventListener('input', (event) => {
     state.process.processID = event.target.value.trim();
+  });
+  document.querySelector('#item-id').addEventListener('input', (event) => {
+    state.process.itemID = event.target.value.trim();
+  });
+  document.querySelector('#item-name').addEventListener('input', (event) => {
+    state.process.itemName = event.target.value;
   });
   document.querySelector('#initial-state').addEventListener('change', (event) => {
     state.process.initialState = event.target.value;
@@ -431,8 +439,8 @@ async function saveProcess() {
   try {
     const wasNew = state.processIsNew;
     const path = wasNew
-      ? '/products/dataset-deal/api/processes'
-      : `/products/dataset-deal/api/processes/${encodeURIComponent(state.process.processID)}`;
+      ? '/products/deal-dsl/api/processes'
+      : `/products/deal-dsl/api/processes/${encodeURIComponent(state.process.processID)}`;
     await api(path, { method: wasNew ? 'POST' : 'PUT', body: JSON.stringify(state.process) });
     state.processIsNew = false;
     window.history.replaceState({}, '', detailURL('processes', state.process.processID));
@@ -494,7 +502,7 @@ function moveItem(items, from, to) {
 }
 
 async function loadExecutionPage(flowID) {
-  state.execution = await api(`/products/dataset-deal/api/executions/${encodeURIComponent(flowID)}`);
+  state.execution = await api(`/products/deal-dsl/api/executions/${encodeURIComponent(flowID)}`);
   state.process = normalizeProcess(structuredClone(state.execution.processDefinition));
   state.selectedStateName = state.execution.currentState || state.process.initialState;
   state.messageCondition = suggestedCondition(state.execution, state.process);
@@ -605,7 +613,7 @@ function bindConditionMessage(execution) {
   bindKeyValueRows('#message-data', state.messageData, renderExecutionPage);
   document.querySelector('#send-message').addEventListener('click', async () => {
     try {
-      await api(`/products/dataset-deal/api/executions/${encodeURIComponent(execution.flowID)}/channels/${encodeURIComponent(state.messageCondition)}`, {
+      await api(`/products/deal-dsl/api/executions/${encodeURIComponent(execution.flowID)}/channels/${encodeURIComponent(state.messageCondition)}`, {
         method: 'POST',
         body: JSON.stringify({ data: state.messageData }),
       });
@@ -806,6 +814,8 @@ function graphNodeHTML(dealState, position, width, height, selectedState, curren
 }
 
 function normalizeProcess(process) {
+  process.itemID ??= '';
+  process.itemName ??= '';
   process.initialStateData ??= {};
   process.states ??= [];
   process.states.forEach((dealState) => {
@@ -841,11 +851,11 @@ function suggestedCondition(execution, process) {
 function messageDefaults(conditionName) {
   switch (conditionName) {
     case 'buyer-proposal':
-      return { proposedSamplePrice: '10', proposedFullPrice: '100', proposedSampleRefundPrice: '5' };
+      return { proposedItemSamplePrice: '10', proposedItemPrice: '100', proposedItemSampleRefund: '5' };
     case 'seller-price-response':
       return { acceptedProposedPrice: 'true' };
-    case 'sample-feedback':
-      return { proceedToFullDataset: 'true' };
+    case 'item-sample-feedback':
+      return { proceedWithItem: 'true' };
     default:
       return {};
   }
@@ -902,16 +912,16 @@ function addUniqueKey(target, base, value) {
 function bindBackLink() {
   document.querySelector('[data-back]').addEventListener('click', (event) => {
     event.preventDefault();
-    navigate('/products/dataset-deal');
+    navigate('/products/deal-dsl');
   });
 }
 
 function dashboardURL() {
-  return `/products/dataset-deal?role=${encodeURIComponent(state.role)}`;
+  return `/products/deal-dsl?role=${encodeURIComponent(state.role)}`;
 }
 
 function detailURL(kind, id) {
-  return `/products/dataset-deal/${kind}/${encodeURIComponent(id)}?role=${encodeURIComponent(state.role)}`;
+  return `/products/deal-dsl/${kind}/${encodeURIComponent(id)}?role=${encodeURIComponent(state.role)}`;
 }
 
 function buyerLabel(role) {

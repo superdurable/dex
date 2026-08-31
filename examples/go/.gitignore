@@ -5,7 +5,7 @@
 *.so
 *.dylib
 /dex-samples
-/dex-dataset-deal
+/dex-deal-dsl
 /deepverify
 /dvdiag
 

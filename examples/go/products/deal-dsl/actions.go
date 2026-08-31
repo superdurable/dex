@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package datasetdeal
+package dealdsl
 
 import (
 	"fmt"
@@ -31,13 +31,15 @@ import (
 const (
 	TransferMoneyFromBuyerToSeller = "transferMoneyFromBuyerToSeller"
 	TransferMoneyFromSellerToBuyer = "transferMoneyFromSellerToBuyer"
-	TransportFullDatasetToBuyer    = "transportFullDatasetToBuyer"
-	TransportSampleDatasetToBuyer  = "transportSampleDatasetToBuyer"
+	DeliverItemToBuyer             = "deliverItemToBuyer"
+	DeliverItemSampleToBuyer       = "deliverItemSampleToBuyer"
 )
 
 type ActionInput struct {
 	FlowID      string
 	ProcessID   string
+	ItemID      string
+	ItemName    string
 	BuyerID     string
 	TargetState string
 	StateData   map[string]string
@@ -56,8 +58,8 @@ func newActionRegistry(logger dex.Logger) *actionRegistry {
 		handlers: map[string]actionHandler{
 			TransferMoneyFromBuyerToSeller: transferMoneyFromBuyerToSeller,
 			TransferMoneyFromSellerToBuyer: transferMoneyFromSellerToBuyer,
-			TransportFullDatasetToBuyer:    transportFullDatasetToBuyer,
-			TransportSampleDatasetToBuyer:  transportSampleDatasetToBuyer,
+			DeliverItemToBuyer:             deliverItemToBuyer,
+			DeliverItemSampleToBuyer:       deliverItemSampleToBuyer,
 		},
 	}
 }
@@ -68,7 +70,7 @@ func (registry *actionRegistry) execute(
 ) (map[string]string, error) {
 	handler, found := registry.handlers[name]
 	if !found {
-		return nil, fmt.Errorf("dataset deal action %q is not registered", name)
+		return nil, fmt.Errorf("deal DSL action %q is not registered", name)
 	}
 	updates, err := handler(registry.logger, input)
 	if err != nil {
@@ -86,8 +88,8 @@ func AvailableActionNames() []string {
 	names := []string{
 		TransferMoneyFromBuyerToSeller,
 		TransferMoneyFromSellerToBuyer,
-		TransportFullDatasetToBuyer,
-		TransportSampleDatasetToBuyer,
+		DeliverItemToBuyer,
+		DeliverItemSampleToBuyer,
 	}
 	sort.Strings(names)
 	return names
@@ -98,12 +100,14 @@ func transferMoneyFromBuyerToSeller(
 	input ActionInput,
 ) (map[string]string, error) {
 	logger.Info(
-		"dataset deal transferred money from buyer to seller",
+		"deal DSL transferred money from buyer to seller",
 		"flow_id", input.FlowID,
+		"item_id", input.ItemID,
+		"item_name", input.ItemName,
 		"buyer_id", input.BuyerID,
 		"target_state", input.TargetState,
-		"sample_price", input.StateData["proposedSamplePrice"],
-		"full_price", input.StateData["proposedFullPrice"],
+		"sample_price", input.StateData["proposedItemSamplePrice"],
+		"full_price", input.StateData["proposedItemPrice"],
 	)
 	return nil, nil
 }
@@ -113,34 +117,39 @@ func transferMoneyFromSellerToBuyer(
 	input ActionInput,
 ) (map[string]string, error) {
 	logger.Info(
-		"dataset deal transferred refund from seller to buyer",
+		"deal DSL transferred refund from seller to buyer",
 		"flow_id", input.FlowID,
+		"item_id", input.ItemID,
 		"buyer_id", input.BuyerID,
-		"refund_price", input.StateData["proposedSampleRefundPrice"],
+		"refund_price", input.StateData["proposedItemSampleRefund"],
 	)
 	return nil, nil
 }
 
-func transportFullDatasetToBuyer(
+func deliverItemToBuyer(
 	logger dex.Logger,
 	input ActionInput,
 ) (map[string]string, error) {
 	logger.Info(
-		"dataset deal transported full dataset to buyer",
+		"deal DSL delivered item to buyer",
 		"flow_id", input.FlowID,
+		"item_id", input.ItemID,
+		"item_name", input.ItemName,
 		"buyer_id", input.BuyerID,
 	)
-	return map[string]string{"deliveredDataset": "full"}, nil
+	return map[string]string{"itemDeliveryStatus": "delivered"}, nil
 }
 
-func transportSampleDatasetToBuyer(
+func deliverItemSampleToBuyer(
 	logger dex.Logger,
 	input ActionInput,
 ) (map[string]string, error) {
 	logger.Info(
-		"dataset deal transported sample dataset to buyer",
+		"deal DSL delivered item sample to buyer",
 		"flow_id", input.FlowID,
+		"item_id", input.ItemID,
+		"item_name", input.ItemName,
 		"buyer_id", input.BuyerID,
 	)
-	return map[string]string{"deliveredDataset": "sample"}, nil
+	return map[string]string{"itemSampleDeliveryStatus": "delivered"}, nil
 }

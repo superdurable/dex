@@ -3,9 +3,10 @@
 A single static page that calls every example HTTP controller (products,
 patterns, and primitives) without hand-building GET/POST URLs.
 
-Dataset Deal (Go) is a separate `dex-dataset-deal` binary with its own UI and
-PostgreSQL. AI Agent Email (Python) already has its own UI. Neither is included
-here.
+The Go Deal DSL application is a separate `dex-deal-dsl` binary with its own UI
+and PostgreSQL catalog. AI Agent Email (Python) also has its own UI. Neither UI
+is included here; Deal DSL Flow implementations still run in all five SDK
+examples.
 
 Start Dex, then one language example server, then this page. Commands and
 example-server ports (HTTP `8080` / Worker `8803`, Python sync `8081` /

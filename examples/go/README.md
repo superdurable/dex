@@ -18,7 +18,7 @@ registry/            # shared Flow registry
 server/              # HTTP helpers
 shared/              # mock services
 cmd/server/          # default Worker and HTTP entrypoint (`dex-samples`)
-cmd/dataset-deal/    # Dataset Deal Worker and HTTP entrypoint (`dex-dataset-deal`)
+cmd/deal-dsl/    # Deal DSL Worker and HTTP entrypoint (`dex-deal-dsl`)
 ```
 
 HTTP routes use category prefixes:
@@ -51,25 +51,25 @@ The defaults connect to Dex at `localhost:8801`. These environment variables ove
 
 When Dex runs in Docker, set `DEX_WORKER_TARGET=host.docker.internal:8803`.
 
-`make bins` also builds `./dex-dataset-deal`. That binary is not required for
+`make bins` also builds `./dex-deal-dsl`. That binary is not required for
 the default samples server.
 
-## Dataset Deal
+## Deal DSL
 
-[Dataset Deal](./products/dataset-deal) is a separate process. It uses the same
+[Deal DSL](./products/deal-dsl) is a separate process. It uses the same
 default HTTP (`127.0.0.1:8080`) and Worker (`127.0.0.1:8803`) ports as
 `dex-samples`, and it requires PostgreSQL:
 
 ```bash
-docker compose -f dataset-deal/docker-compose.yml up -d --wait
+docker compose -f deal-dsl/docker-compose.yml up -d --wait
 dexcli dev
 make bins
-./dex-dataset-deal
+./dex-deal-dsl
 ```
 
-Override `DATASET_DEAL_POSTGRES_URL` when Postgres is not on
+Override `DEAL_DSL_POSTGRES_URL` when Postgres is not on
 `127.0.0.1:15432`. The demo script uses different HTTP/Worker ports; see
-[products/dataset-deal/README.md](./products/dataset-deal/README.md).
+[products/deal-dsl/README.md](./products/deal-dsl/README.md).
 
 ## Error handling
 
@@ -96,27 +96,27 @@ Web running after tests for manual exploration:
 ./run-e2e-tests.sh --keep-running
 ```
 
-`make e2eTests` also runs Dataset Deal against its own binary-equivalent Worker
+`make e2eTests` also runs Deal DSL against its own binary-equivalent Worker
 and PostgreSQL. That Postgres is started only for those tests.
 
-Run only the interactive Dataset Deal scenario and its full API verification:
+Run only the interactive Deal DSL scenario and its full API verification:
 
 ```bash
-make datasetDealDemo
+make dealDSLDemo
 ```
 
-When PostgreSQL, Dex, and `dex-dataset-deal` are already running, trigger the three
+When PostgreSQL, Dex, and `dex-deal-dsl` are already running, trigger the three
 demo executions without starting or stopping services:
 
 ```bash
-DATASET_DEAL_API_URL=http://127.0.0.1:20804 make triggerDatasetDealDemo
+DEAL_DSL_API_URL=http://127.0.0.1:20804 make triggerDealDSLDemo
 ```
 
-`DATASET_DEAL_PROCESS_ID` optionally changes the created process ID. Repeated
+`DEAL_DSL_PROCESS_ID` optionally changes the created process ID. Repeated
 runs update that process definition and create new full, refund, and pending
 executions.
 
-Set `KEEP_DATASET_DEAL_DEMO=1` to leave PostgreSQL, Dex, Temporal, the worker,
+Set `KEEP_DEAL_DSL_DEMO=1` to leave PostgreSQL, Dex, Temporal, the worker,
 and the REST/UI server running. The script prints all UI URLs and shutdown
 details.
 
@@ -129,7 +129,7 @@ details.
 - [Subscription](./products/subscription)
 - [User onboarding process](./products/signup)
 - [Job posting](./products/job-post)
-- [Dataset Deal DSL](./products/dataset-deal) (Go only; separate `dex-dataset-deal` binary)
+- [Deal DSL](./products/deal-dsl) (separate UI and `dex-deal-dsl` binary)
 
 ## Patterns
 

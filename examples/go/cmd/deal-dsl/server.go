@@ -33,20 +33,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
-	"github.com/superdurable/dex/examples/go/products/dataset-deal"
+	"github.com/superdurable/dex/examples/go/products/deal-dsl"
 	"github.com/superdurable/dex/examples/go/server/httputil"
 	sdk "github.com/superdurable/dex/sdk-go/dex"
 )
 
-const defaultDatasetDealPostgresURL = "postgres://dataset_deal:dataset_deal@127.0.0.1:15432/dataset_deal?sslmode=disable"
+const defaultDealDSLPostgresURL = "postgres://deal_dsl:deal_dsl@127.0.0.1:15432/deal_dsl?sslmode=disable"
 
-type datasetDealServer struct {
+type dealDSLServer struct {
 	client         *sdk.Client
 	worker         *sdk.Worker
 	cache          *blobcache.Cache
 	database       *pgxpool.Pool
-	dealFlow       *datasetdeal.DealFlow
-	dealRepository datasetdeal.Repository
+	dealFlow       *dealdsl.DealDSLFlow
+	dealRepository dealdsl.Repository
 	httpServer     *http.Server
 	workerAddress  string
 	workerResult   chan error
@@ -54,30 +54,30 @@ type datasetDealServer struct {
 }
 
 func run(ctx context.Context) error {
-	server, err := newDatasetDealServer(ctx)
+	server, err := newDealDSLServer(ctx)
 	if err != nil {
 		return err
 	}
 	return server.serve(ctx)
 }
 
-func newDatasetDealServer(ctx context.Context) (*datasetDealServer, error) {
+func newDealDSLServer(ctx context.Context) (*dealDSLServer, error) {
 	cache, err := blobcache.New(&blobcache.Config{
-		Dir:      environmentOr("DEX_BLOB_CACHE_DIR", filepath.Join(os.TempDir(), "dex-dataset-deal-blobs")),
+		Dir:      environmentOr("DEX_BLOB_CACHE_DIR", filepath.Join(os.TempDir(), "dex-deal-dsl-blobs")),
 		MaxBytes: 1 << 30,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create blob cache: %w", err)
 	}
-	database, dealRepository, err := newDatasetDealRepository(ctx)
+	database, dealRepository, err := newDealDSLRepository(ctx)
 	if err != nil {
 		return nil, errors.Join(err, cache.Close())
 	}
-	dealFlow := datasetdeal.NewDealFlow(dealRepository, cache.Logger())
+	dealFlow := dealdsl.NewDealDSLFlow(cache.Logger())
 	flowRegistry, err := sdk.NewRegistry([]sdk.Flow{dealFlow})
 	if err != nil {
 		database.Close()
-		return nil, errors.Join(fmt.Errorf("register Dataset Deal flow: %w", err), cache.Close())
+		return nil, errors.Join(fmt.Errorf("register Deal DSL flow: %w", err), cache.Close())
 	}
 	workerOptions := sdk.WorkerOptions{
 		BindAddress:        environmentOr("DEX_WORKER_BIND_ADDRESS", "127.0.0.1:8803"),
@@ -101,7 +101,7 @@ func newDatasetDealServer(ctx context.Context) (*datasetDealServer, error) {
 		database.Close()
 		return nil, errors.Join(err, worker.Stop(stopCtx), cache.Close())
 	}
-	server := &datasetDealServer{
+	server := &dealDSLServer{
 		client:         client,
 		worker:         worker,
 		cache:          cache,
@@ -119,21 +119,21 @@ func newDatasetDealServer(ctx context.Context) (*datasetDealServer, error) {
 	return server, nil
 }
 
-func newDatasetDealRepository(
+func newDealDSLRepository(
 	ctx context.Context,
-) (*pgxpool.Pool, *datasetdeal.PostgresRepository, error) {
+) (*pgxpool.Pool, *dealdsl.PostgresRepository, error) {
 	database, err := pgxpool.New(
 		ctx,
-		environmentOr("DATASET_DEAL_POSTGRES_URL", defaultDatasetDealPostgresURL),
+		environmentOr("DEAL_DSL_POSTGRES_URL", defaultDealDSLPostgresURL),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("configure Dataset Deal PostgreSQL: %w", err)
+		return nil, nil, fmt.Errorf("configure Deal DSL PostgreSQL: %w", err)
 	}
 	if err := database.Ping(ctx); err != nil {
 		database.Close()
-		return nil, nil, fmt.Errorf("connect to Dataset Deal PostgreSQL: %w", err)
+		return nil, nil, fmt.Errorf("connect to Deal DSL PostgreSQL: %w", err)
 	}
-	repository := datasetdeal.NewPostgresRepository(database)
+	repository := dealdsl.NewPostgresRepository(database)
 	if err := repository.EnsureSchema(ctx); err != nil {
 		database.Close()
 		return nil, nil, err
@@ -141,14 +141,14 @@ func newDatasetDealRepository(
 	return database, repository, nil
 }
 
-func (server *datasetDealServer) router() http.Handler {
+func (server *dealDSLServer) router() http.Handler {
 	router := gin.Default()
 	router.Use(httputil.AllowCORS())
-	datasetdeal.RegisterRoutes(router, server.client, server.dealFlow, server.dealRepository)
+	dealdsl.RegisterRoutes(router, server.client, server.dealFlow, server.dealRepository)
 	return router
 }
 
-func (server *datasetDealServer) serve(ctx context.Context) error {
+func (server *dealDSLServer) serve(ctx context.Context) error {
 	go func() {
 		server.workerResult <- server.worker.Start()
 	}()
@@ -174,7 +174,7 @@ func (server *datasetDealServer) serve(ctx context.Context) error {
 	return errors.Join(runErr, server.close())
 }
 
-func (server *datasetDealServer) waitForWorker(ctx context.Context) error {
+func (server *dealDSLServer) waitForWorker(ctx context.Context) error {
 	address, err := localWorkerAddress(server.workerAddress)
 	if err != nil {
 		return err
@@ -216,7 +216,7 @@ func localWorkerAddress(bindAddress string) (string, error) {
 	return net.JoinHostPort(host, port), nil
 }
 
-func (server *datasetDealServer) close() error {
+func (server *dealDSLServer) close() error {
 	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	httpErr := server.httpServer.Shutdown(stopCtx)

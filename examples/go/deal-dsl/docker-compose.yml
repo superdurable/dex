@@ -22,15 +22,15 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: dataset_deal
-      POSTGRES_USER: dataset_deal
-      POSTGRES_PASSWORD: dataset_deal
+      POSTGRES_DB: deal_dsl
+      POSTGRES_USER: deal_dsl
+      POSTGRES_PASSWORD: deal_dsl
     ports:
-      - "${DATASET_DEAL_POSTGRES_PORT:-15432}:5432"
+      - "${DEAL_DSL_POSTGRES_PORT:-15432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U dataset_deal -d dataset_deal"]
+      test: ["CMD-SHELL", "pg_isready -U deal_dsl -d deal_dsl"]
       interval: 1s
       timeout: 3s
       retries: 30
     volumes:
-      - ../products/dataset-deal/schema.sql:/docker-entrypoint-initdb.d/001-dataset-deal.sql:ro
+      - ../products/deal-dsl/schema.sql:/docker-entrypoint-initdb.d/001-deal-dsl.sql:ro

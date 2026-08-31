@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package datasetdeal_test
+package dealdsl_test
 
 import (
 	"context"
@@ -35,16 +35,16 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/superdurable/dex/blob-cache-go/blobcache"
-	"github.com/superdurable/dex/examples/go/products/dataset-deal"
+	"github.com/superdurable/dex/examples/go/products/deal-dsl"
 	"github.com/superdurable/dex/examples/go/server/httputil"
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
 var (
-	integClient       *dex.Client
-	datasetDealAPIURL string
-	datasetDealDB     *pgxpool.Pool
-	flowCounter       atomic.Int64
+	integClient   *dex.Client
+	dealDSLAPIURL string
+	dealDSLDB     *pgxpool.Pool
+	flowCounter   atomic.Int64
 )
 
 type integrationEnvironment struct {
@@ -59,17 +59,17 @@ type integrationEnvironment struct {
 }
 
 func newIntegrationEnvironment() (*integrationEnvironment, error) {
-	database, dealRepository, err := newIntegrationDatasetDealRepository()
+	database, dealRepository, err := newIntegrationDealDSLRepository()
 	if err != nil {
 		return nil, err
 	}
-	dealFlow := datasetdeal.NewDealFlow(dealRepository, nil)
+	dealFlow := dealdsl.NewDealDSLFlow(nil)
 	flowRegistry, err := dex.NewRegistry([]dex.Flow{dealFlow})
 	if err != nil {
 		database.Close()
 		return nil, err
 	}
-	cacheDir, err := os.MkdirTemp("", "dex-dataset-deal-integ-")
+	cacheDir, err := os.MkdirTemp("", "dex-deal-dsl-integ-")
 	if err != nil {
 		database.Close()
 		return nil, err
@@ -111,7 +111,7 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	}
 	router := gin.Default()
 	router.Use(httputil.AllowCORS())
-	datasetdeal.RegisterRoutes(router, client, dealFlow, dealRepository)
+	dealdsl.RegisterRoutes(router, client, dealFlow, dealRepository)
 	apiServer := httptest.NewServer(router)
 	environment := &integrationEnvironment{
 		cache:         cache,
@@ -129,22 +129,22 @@ func newIntegrationEnvironment() (*integrationEnvironment, error) {
 	return environment, nil
 }
 
-func newIntegrationDatasetDealRepository() (*pgxpool.Pool, *datasetdeal.PostgresRepository, error) {
-	postgresURL := os.Getenv("DATASET_DEAL_POSTGRES_URL")
+func newIntegrationDealDSLRepository() (*pgxpool.Pool, *dealdsl.PostgresRepository, error) {
+	postgresURL := os.Getenv("DEAL_DSL_POSTGRES_URL")
 	if postgresURL == "" {
-		return nil, nil, fmt.Errorf("DATASET_DEAL_POSTGRES_URL is required")
+		return nil, nil, fmt.Errorf("DEAL_DSL_POSTGRES_URL is required")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	database, err := pgxpool.New(ctx, postgresURL)
 	if err != nil {
-		return nil, nil, fmt.Errorf("configure Dataset Deal PostgreSQL: %w", err)
+		return nil, nil, fmt.Errorf("configure Deal DSL PostgreSQL: %w", err)
 	}
 	if err := database.Ping(ctx); err != nil {
 		database.Close()
-		return nil, nil, fmt.Errorf("connect to Dataset Deal PostgreSQL: %w", err)
+		return nil, nil, fmt.Errorf("connect to Deal DSL PostgreSQL: %w", err)
 	}
-	repository := datasetdeal.NewPostgresRepository(database)
+	repository := dealdsl.NewPostgresRepository(database)
 	if err := repository.EnsureSchema(ctx); err != nil {
 		database.Close()
 		return nil, nil, err
@@ -193,8 +193,8 @@ func TestMain(tests *testing.M) {
 		os.Exit(1)
 	}
 	integClient = environment.client
-	datasetDealAPIURL = environment.apiServer.URL
-	datasetDealDB = environment.database
+	dealDSLAPIURL = environment.apiServer.URL
+	dealDSLDB = environment.database
 	exitCode := tests.Run()
 	if err := environment.Close(); err != nil {
 		fmt.Fprintln(os.Stderr, err)

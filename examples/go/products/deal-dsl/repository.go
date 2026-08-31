@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package datasetdeal
+package dealdsl
 
 import (
 	"context"
@@ -33,9 +33,9 @@ import (
 )
 
 var (
-	ErrProcessExists     = errors.New("dataset deal process already exists")
-	ErrProcessNotFound   = errors.New("dataset deal process not found")
-	ErrExecutionNotFound = errors.New("dataset deal execution not found")
+	ErrProcessExists     = errors.New("deal DSL process already exists")
+	ErrProcessNotFound   = errors.New("deal DSL process not found")
+	ErrExecutionNotFound = errors.New("deal DSL execution not found")
 )
 
 //go:embed schema.sql
@@ -54,14 +54,14 @@ type PostgresRepository struct {
 
 func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
 	if pool == nil {
-		panic("datasetdeal.NewPostgresRepository requires pgxpool.Pool")
+		panic("dealdsl.NewPostgresRepository requires pgxpool.Pool")
 	}
 	return &PostgresRepository{pool: pool}
 }
 
 func (repository *PostgresRepository) EnsureSchema(ctx context.Context) error {
 	if _, err := repository.pool.Exec(ctx, schemaSQL); err != nil {
-		return fmt.Errorf("initialize dataset deal schema: %w", err)
+		return fmt.Errorf("initialize deal DSL schema: %w", err)
 	}
 	return nil
 }
@@ -76,7 +76,7 @@ func (repository *PostgresRepository) CreateProcess(
 	}
 	_, err = repository.pool.Exec(
 		ctx,
-		`INSERT INTO dataset_deal_processes (process_id, definition)
+		`INSERT INTO deal_dsl_processes (process_id, definition)
 		 VALUES ($1, $2::jsonb)`,
 		process.ProcessID,
 		definition,
@@ -88,7 +88,7 @@ func (repository *PostgresRepository) CreateProcess(
 	if errors.As(err, &postgresError) && postgresError.Code == "23505" {
 		return ErrProcessExists
 	}
-	return fmt.Errorf("insert dataset deal process: %w", err)
+	return fmt.Errorf("insert deal DSL process: %w", err)
 }
 
 func (repository *PostgresRepository) ListProcesses(
@@ -96,17 +96,17 @@ func (repository *PostgresRepository) ListProcesses(
 ) ([]DealProcess, error) {
 	rows, err := repository.pool.Query(
 		ctx,
-		`SELECT definition FROM dataset_deal_processes ORDER BY created_at DESC, process_id`,
+		`SELECT definition FROM deal_dsl_processes ORDER BY created_at DESC, process_id`,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("list dataset deal processes: %w", err)
+		return nil, fmt.Errorf("list deal DSL processes: %w", err)
 	}
 	defer rows.Close()
 	processes := make([]DealProcess, 0)
 	for rows.Next() {
 		var definition []byte
 		if err := rows.Scan(&definition); err != nil {
-			return nil, fmt.Errorf("scan dataset deal process: %w", err)
+			return nil, fmt.Errorf("scan deal DSL process: %w", err)
 		}
 		process, err := decodeProcess(definition)
 		if err != nil {
@@ -115,7 +115,7 @@ func (repository *PostgresRepository) ListProcesses(
 		processes = append(processes, process)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate dataset deal processes: %w", err)
+		return nil, fmt.Errorf("iterate deal DSL processes: %w", err)
 	}
 	return processes, nil
 }
@@ -127,14 +127,14 @@ func (repository *PostgresRepository) GetProcess(
 	var definition []byte
 	err := repository.pool.QueryRow(
 		ctx,
-		`SELECT definition FROM dataset_deal_processes WHERE process_id = $1`,
+		`SELECT definition FROM deal_dsl_processes WHERE process_id = $1`,
 		processID,
 	).Scan(&definition)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DealProcess{}, ErrProcessNotFound
 	}
 	if err != nil {
-		return DealProcess{}, fmt.Errorf("read dataset deal process: %w", err)
+		return DealProcess{}, fmt.Errorf("read deal DSL process: %w", err)
 	}
 	return decodeProcess(definition)
 }
@@ -149,14 +149,14 @@ func (repository *PostgresRepository) UpdateProcess(
 	}
 	result, err := repository.pool.Exec(
 		ctx,
-		`UPDATE dataset_deal_processes
+		`UPDATE deal_dsl_processes
 		 SET definition = $2::jsonb
 		 WHERE process_id = $1`,
 		process.ProcessID,
 		definition,
 	)
 	if err != nil {
-		return fmt.Errorf("update dataset deal process: %w", err)
+		return fmt.Errorf("update deal DSL process: %w", err)
 	}
 	if result.RowsAffected() == 0 {
 		return ErrProcessNotFound
@@ -167,7 +167,7 @@ func (repository *PostgresRepository) UpdateProcess(
 func encodeProcess(process DealProcess) ([]byte, error) {
 	definition, err := json.Marshal(process)
 	if err != nil {
-		return nil, fmt.Errorf("encode dataset deal process: %w", err)
+		return nil, fmt.Errorf("encode deal DSL process: %w", err)
 	}
 	return definition, nil
 }
@@ -175,7 +175,7 @@ func encodeProcess(process DealProcess) ([]byte, error) {
 func decodeProcess(definition []byte) (DealProcess, error) {
 	var process DealProcess
 	if err := json.Unmarshal(definition, &process); err != nil {
-		return DealProcess{}, fmt.Errorf("decode dataset deal process: %w", err)
+		return DealProcess{}, fmt.Errorf("decode deal DSL process: %w", err)
 	}
 	return process, nil
 }

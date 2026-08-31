@@ -95,9 +95,10 @@ with the printed port.
 The script opens a browser tab to [http://127.0.0.1:3333](http://127.0.0.1:3333).
 You can also change the example server and Dex web UI URLs in the page header.
 
-Go-only [Dataset Deal](go/products/dataset-deal/) and Python-only
+The Go [Deal DSL](go/products/deal-dsl/) application and Python-only
 [AI Agent Email](python/ai-agent-email/) have their own UIs; they are not on
-the shared playground.
+the shared playground. Deal DSL Flow implementations also run in Java, Python,
+TypeScript, and Rust.
 
 # Directory organization
 
@@ -124,10 +125,11 @@ client-apis.
 | [playground/](playground/) | Shared static UI for the HTTP controllers |
 | [entity-store/](entity-store/) | PostgreSQL + Attribute Store YAML for the user-profile pattern |
 
-Language-specific extras live next to those trees: Go
-[Dataset Deal](go/products/dataset-deal/) (own UI, PostgreSQL, and
-`dex-dataset-deal` binary), Python
-[AI Agent Email](python/ai-agent-email/) (own UI).
+Language-specific extras live next to those trees: the Go
+[Deal DSL](go/products/deal-dsl/) UI, PostgreSQL catalog, and
+`dex-deal-dsl` binary; and the Python
+[AI Agent Email](python/ai-agent-email/) UI. The Deal DSL interpreter itself is
+implemented across all five language SDK examples.
 
 Each language README has setup, env overrides, and verify steps. CI workflows
 are `.github/workflows/examples-*-ci.yml`.

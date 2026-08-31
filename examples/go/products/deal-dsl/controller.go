@@ -18,7 +18,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
-package datasetdeal
+package dealdsl
 
 import (
 	"context"
@@ -36,18 +36,18 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex/ptr"
 )
 
-//go:embed ui/dataset-deal/*
-var datasetDealUI embed.FS
+//go:embed ui/deal-dsl/*
+var dealDSLUI embed.FS
 
 const (
 	allExecutionsQuery = "ProcessID IS NOT NULL"
-	initializeStepType = "datasetdeal.initializeStep"
+	initializeStepType = "InitializeDeal"
 	searchPageSize     = int32(1000)
 )
 
 type controller struct {
 	client     *sdk.Client
-	flow       *DealFlow
+	flow       *DealDSLFlow
 	repository Repository
 }
 
@@ -68,14 +68,14 @@ type channelMessageRequest struct {
 func RegisterRoutes(
 	router gin.IRouter,
 	client *sdk.Client,
-	flow *DealFlow,
+	flow *DealDSLFlow,
 	repository Repository,
 ) {
 	if client == nil {
 		panic("RegisterRoutes requires Client")
 	}
 	if flow == nil {
-		panic("RegisterRoutes requires DealFlow")
+		panic("RegisterRoutes requires DealDSLFlow")
 	}
 	if repository == nil {
 		panic("RegisterRoutes requires Repository")
@@ -85,7 +85,7 @@ func RegisterRoutes(
 		flow:       flow,
 		repository: repository,
 	}
-	group := router.Group("/products/dataset-deal")
+	group := router.Group("/products/deal-dsl")
 	group.GET("", controller.index)
 	group.GET("/processes/:processID", controller.index)
 	group.GET("/executions/:flowID", controller.index)
@@ -199,11 +199,7 @@ func (controller *controller) startDealExecution(request *gin.Context) {
 		return
 	}
 	requestContext := request.Request.Context()
-	if _, err := controller.repository.GetProcess(requestContext, input.ProcessID); err != nil {
-		controller.respondError(request, err)
-		return
-	}
-	initialBuyerID, err := sdk.InitialAttribute(BuyerID, input.BuyerID)
+	process, err := controller.repository.GetProcess(requestContext, input.ProcessID)
 	if err != nil {
 		controller.respondError(request, err)
 		return
@@ -213,10 +209,9 @@ func (controller *controller) startDealExecution(request *gin.Context) {
 		requestContext,
 		controller.flow,
 		flowID,
-		input.ProcessID,
+		DealStart{Process: process, BuyerID: input.BuyerID},
 		sdk.StartFlowOptions{
-			Attributes: []sdk.InitialAttributeDef{initialBuyerID},
-			RequestID:  ptr.Any(flowID),
+			RequestID: ptr.Any(flowID),
 		},
 	)
 	if err != nil {
@@ -336,6 +331,7 @@ func (controller *controller) projectDealExecution(
 		ctx,
 		entry.FlowID,
 		ProcessID,
+		ItemID,
 		ProcessDefinition,
 		BuyerID,
 		CurrentState,
@@ -394,6 +390,8 @@ func (controller *controller) projectDealExecution(
 		FlowID:                   entry.FlowID,
 		RunID:                    entry.RunID,
 		ProcessID:                processID,
+		ItemID:                   processDefinition.ItemID,
+		ItemName:                 processDefinition.ItemName,
 		ProcessDefinition:        processDefinition,
 		BuyerID:                  buyerID,
 		CurrentState:             currentState,
@@ -526,7 +524,7 @@ func flowStatus(status sdk.FlowStatus) (string, error) {
 	case sdk.FlowContinuedAsNew:
 		return "CONTINUED_AS_NEW", nil
 	default:
-		return "", fmt.Errorf("unknown dataset deal flow status %d", status)
+		return "", fmt.Errorf("unknown deal DSL flow status %d", status)
 	}
 }
 
@@ -535,7 +533,7 @@ func (*controller) serveUIFile(
 	name string,
 	contentType string,
 ) {
-	contents, err := datasetDealUI.ReadFile("ui/dataset-deal/" + name)
+	contents, err := dealDSLUI.ReadFile("ui/deal-dsl/" + name)
 	if err != nil {
 		request.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

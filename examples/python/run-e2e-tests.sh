@@ -35,6 +35,7 @@ dex_address="127.0.0.1:${dex_port}"
 log_file="/tmp/test-python-examples-e2e-services.log"
 test_log="/tmp/test-python-examples-e2e.log"
 test_dir=$(mktemp -d)
+binary_dir=$(mktemp -d)
 dexcli_pid=""
 script_dir=$(cd "$(dirname "$0")" && pwd)
 repo_root=$(cd "$script_dir/../.." && pwd)
@@ -60,17 +61,20 @@ cleanup() {
       echo "failed to stop the Python examples entity store" >&2
     fi
   fi
-  rm -r "$test_dir"
+  rm -r "$test_dir" "$binary_dir"
   exit "$status"
 }
 trap cleanup EXIT
 
-make -C "$script_dir/../../cli" build
+(
+  cd "$script_dir/../../cli"
+  GOWORK=off go build -trimpath -o "$binary_dir/dexcli" ./cmd/dexcli
+)
 : >"$log_file"
 docker compose -p "$compose_project" \
   -f "$entity_store_dir/docker-compose.yml" up --detach --wait
 entity_store_started=true
-"$script_dir/../../cli/dexcli" dev \
+"$binary_dir/dexcli" dev \
   -attribute-store-config "$entity_store_dir/attribute-store.yaml" \
   -bind-address 127.0.0.1 \
   -dex-port "$dex_port" \
@@ -80,9 +84,26 @@ entity_store_started=true
   >>"$log_file" 2>&1 &
 dexcli_pid=$!
 
+dex_ready=false
+for _ in {1..240}; do
+  if nc -z 127.0.0.1 "$dex_port"; then
+    dex_ready=true
+    break
+  fi
+  if ! kill -0 "$dexcli_pid" 2>/dev/null; then
+    echo "dexcli exited before Dex became ready" >&2
+    exit 1
+  fi
+  sleep 0.25
+done
+if ! $dex_ready; then
+  echo "Dex did not become ready" >&2
+  exit 1
+fi
+
 cd "$script_dir"
 uv sync --locked
-export DEXCLI_PATH="$script_dir/../../cli/dexcli"
+export DEXCLI_PATH="$binary_dir/dexcli"
 if ((${#test_args[@]})); then
   DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
     uv run --frozen pytest tests/unit tests/integ sync-python/sync_tests/integ -v "${test_args[@]}" 2>&1 | tee "$test_log"

@@ -22,10 +22,11 @@ use std::sync::Arc;
 
 use dex_sdk::{Client, Registry, SdkResult};
 
-pub const PRODUCT_FLOW_TYPES: [&str; 7] = [
+pub const PRODUCT_FLOW_TYPES: [&str; 8] = [
     "MoneyTransferFlow",
     "OrderProcessingFlow",
     "OrchestrationFlow",
+    "DealDSLFlow",
     "EngagementFlow",
     "SubscriptionFlow",
     "UserOnboardingFlow",
