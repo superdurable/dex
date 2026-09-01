@@ -56,7 +56,9 @@ Use a Stream for low-latency, best-effort, resumable updates such as progress di
 
 A Step may append any number of messages to the same or different Streams before its final result. A Step Stream write is fire-and-forget: local encoding or registration can fail immediately, but Dex Server does not acknowledge Stream Store persistence and a Store failure does not fail the Step.
 
-Use the invocation-managed buffered text writer for LLM deltas or other small chunks whose exact concatenation is the intended value. Create it once and pass its write method as the producer callback. The default one-second timer and 16 KiB soft UTF-8 threshold reduce message volume, and the invocation flushes the tail before its result or error. An empty buffer does not heartbeat. Python sync generators are cooperative and must yield from an explicit final flush. Retry does not restore unsent text and may repeat batches already sent.
+When a Step calls a streaming LLM API, create one invocation-managed buffered text writer before starting the request and pass its bound write method as the token or delta callback. Do not call direct Stream write for each LLM token or delta. The default one-second timer and 16 KiB soft UTF-8 threshold reduce message volume, and the invocation flushes the tail before its result or error. An empty buffer does not heartbeat. Python sync generators are cooperative and must yield from an explicit final flush. Retry does not restore unsent text and may repeat batches already sent.
+
+Use the text-specific API for the installed SDK version: **NewBufferedTextStream** in Go, **BufferedTextStream.create** in Java, **buffered_text** in Python, **bufferedText** in TypeScript, or **buffered_text** in Rust. For example, a Python async Step should create **progress = thinking.buffered_text(context)** and pass **progress.write** to the LLM helper.
 
 Continue using direct Stream writes for semantically complete, independent messages. Do not buffer events merely because they arrive quickly; batching changes the message boundaries observed by readers.
 

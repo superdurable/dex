@@ -47,7 +47,7 @@ impl Step for RenderPreview {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        let progress = PROGRESS.buffered_with_options(
+        let progress = PROGRESS.buffered_text_with_options(
             context,
             BufferedTextStreamOptions::new(Duration::from_millis(500), 16 * 1024),
         )?;

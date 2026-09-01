@@ -46,6 +46,8 @@ Treat each **WaitFor**, **Execute**, and RPC invocation as its own commit bounda
 
 Heartbeat and Stream progress frames precede the final Step result and are outside that commit. Stream persistence is best-effort and unacknowledged.
 
+When a Step forwards streaming LLM text to a Stream, create one buffered text writer and pass its bound write method to the LLM helper. Do not send each token or delta with direct Stream writes. Read [primitives.md](references/primitives.md) for the language-specific APIs and lifecycle.
+
 When a status Attribute means “waiting for X,” write it in the target Step's **WaitFor** beside the wait for X. Do not write it in the previous Step's **Execute**: the transition may fail before the target wait becomes active. A reminder self-loop may idempotently write the same status when it re-enters **WaitFor**.
 
 Read [modeling.md](references/modeling.md) for design rules and [primitives.md](references/primitives.md) when choosing or combining primitives.

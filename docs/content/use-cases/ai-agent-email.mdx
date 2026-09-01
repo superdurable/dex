@@ -29,7 +29,7 @@ The OpenAI call requests a user-visible reasoning summary. It does not expose pr
 <SdkSnippet lang="python">
 
 ```python
-        progress = self.flow.thinking.buffered(context)
+        progress = self.flow.thinking.buffered_text(context)
         reply = await request_email_fields(
             user_request,
             self.flow.previous_response_id.get(context),

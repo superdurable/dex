@@ -51,10 +51,10 @@ tail before returning.
 - Go: NewBufferedTextStream with BufferedTextStreamFlushInterval and
   BufferedTextStreamMaxBytes options.
 - Java: BufferedTextStream.create with the default or explicit Duration and byte threshold.
-- Python async: Stream.buffered returns a writer with synchronous write and flush methods.
-- Python sync: Stream.buffered returns a cooperative writer whose outputs are used with yield from.
-- TypeScript: Stream.buffered accepts optional flushIntervalMs and maxBufferedBytes settings.
-- Rust: Stream<String>::buffered or buffered_with_options returns a cloneable writer.
+- Python async: Stream.buffered_text returns a writer with synchronous write and flush methods.
+- Python sync: Stream.buffered_text returns a cooperative writer whose outputs are used with yield from.
+- TypeScript: Stream.bufferedText accepts optional flushIntervalMs and maxBufferedBytes settings.
+- Rust: Stream<String>::buffered_text or buffered_text_with_options returns a cloneable writer.
 
 Multiple writers may exist in one invocation and finalize in creation order. Writers for the same
 Stream remain independent, so applications should reuse one writer when batch boundaries matter.

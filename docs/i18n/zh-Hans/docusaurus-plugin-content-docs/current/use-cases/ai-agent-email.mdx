@@ -30,7 +30,7 @@ OpenAI call 请求的是可以展示给用户的 reasoning summary，而不是 p
 <SdkSnippet lang="python">
 
 ```python
-        progress = self.flow.thinking.buffered(context)
+        progress = self.flow.thinking.buffered_text(context)
         reply = await request_email_fields(
             user_request,
             self.flow.previous_response_id.get(context),

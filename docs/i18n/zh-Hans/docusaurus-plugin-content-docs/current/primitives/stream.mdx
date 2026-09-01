@@ -37,7 +37,7 @@ class RenderPreview(Step[str]):
         self.progress = progress
 
     async def execute(self, context: AsyncContext, input: str) -> StepDecision:
-        progress = self.progress.buffered(context)
+        progress = self.progress.buffered_text(context)
         progress.write(f"Rendering preview for {input}")
         progress.flush()
         progress.write(f"Preview ready for {input}")
@@ -113,7 +113,7 @@ export const progress = new Stream("Progress", stringCodec, 10 * 1024 * 1024);
 
 class RenderPreview implements Step<string> {
   public async execute(context: Context, input: string): Promise<StepDecision> {
-    const writer = progress.buffered(context, { flushIntervalMs: 500 });
+    const writer = progress.bufferedText(context, { flushIntervalMs: 500 });
     writer.write(`Rendering preview for ${input}`);
     writer.flush();
     writer.write(`Preview ready for ${input}`);
@@ -151,7 +151,7 @@ impl Step for RenderPreview {
         context: &mut Context,
         input: Self::Input,
     ) -> HandlerResult<StepDecision> {
-        let progress = PROGRESS.buffered_with_options(
+        let progress = PROGRESS.buffered_text_with_options(
             context,
             BufferedTextStreamOptions::new(Duration::from_millis(500), 16 * 1024),
         )?;

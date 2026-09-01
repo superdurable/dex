@@ -7,7 +7,7 @@ license = "Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "dex-python-sdk==0.2.6",
+    "dex-python-sdk==0.2.7",
     "flask>=3.0,<4",
     "openai>=1.66.2,<2",
     "openai-agents>=0.0.4,<0.0.5",
