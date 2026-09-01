@@ -21,6 +21,13 @@ from pathlib import Path
 
 from dex import StartFlowOptions
 
+from dex_examples.products.ai_agent.models import (
+    DEFAULT_CONTEXT_TOKENS,
+    DEFAULT_MESSAGE_RETENTION,
+    DEFAULT_MODEL,
+    DEFAULT_SYSTEM_PROMPT,
+)
+
 DEFAULT_TIMEOUT = timedelta(hours=1)
 
 
@@ -31,6 +38,11 @@ class ExamplesConfig:
     worker_target: str | None
     http_address: str
     blob_cache_dir: Path
+    agent_model: str = DEFAULT_MODEL
+    agent_system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    agent_context_tokens: int = DEFAULT_CONTEXT_TOKENS
+    agent_message_retention: int = DEFAULT_MESSAGE_RETENTION
+    agent_mcp_config: Path | None = None
 
     @staticmethod
     def from_env() -> ExamplesConfig:
@@ -48,6 +60,25 @@ class ExamplesConfig:
                     "DEX_BLOB_CACHE_DIR",
                     "/tmp/dex-examples-python-blob-cache",
                 )
+            ),
+            agent_model=os.environ.get("DEX_AGENT_MODEL", DEFAULT_MODEL),
+            agent_system_prompt=os.environ.get(
+                "DEX_AGENT_SYSTEM_PROMPT",
+                DEFAULT_SYSTEM_PROMPT,
+            ),
+            agent_context_tokens=int(
+                os.environ.get("DEX_AGENT_CONTEXT_TOKENS", DEFAULT_CONTEXT_TOKENS)
+            ),
+            agent_message_retention=int(
+                os.environ.get(
+                    "DEX_AGENT_MESSAGE_RETENTION",
+                    DEFAULT_MESSAGE_RETENTION,
+                )
+            ),
+            agent_mcp_config=(
+                Path(config_path)
+                if (config_path := os.environ.get("DEX_AGENT_MCP_CONFIG"))
+                else None
             ),
         )
 

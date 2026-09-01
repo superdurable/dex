@@ -1,7 +1,7 @@
 {
-  "name": "ai-agent-email",
+  "name": "ai-agent",
   "version": "1.0.0",
-  "description": "AI Agent Email Frontend",
+  "description": "Dex AI Agent frontend",
   "main": "index.js",
   "scripts": {
     "start": "webpack --mode development --watch",

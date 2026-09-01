@@ -112,10 +112,10 @@ def flow_smoke_catalog(client: FlowSmokeHttpClient) -> list[FlowSmokeEntry]:
             flags=FlowSmokeFlags(no_start_step=True),
         ),
         FlowSmokeEntry(
-            "products/ai-agent-email",
-            lambda c: trigger_get(
-                "/products/ai-agent-email/start",
-                {"workflowId": new_id("ai-agent")},
+            "products/ai-agent",
+            lambda c: _ai_agent_trigger(
+                c,
+                new_id("ai-agent"),
             ),
         ),
         FlowSmokeEntry(
@@ -390,6 +390,17 @@ async def _signup_trigger(
     return parsed_flow_id or flow_id or username, parsed_run_id or run_id
 
 
+async def _ai_agent_trigger(
+    client: FlowSmokeHttpClient,
+    flow_id: str,
+) -> tuple[str, str]:
+    await client.post(
+        "/products/ai-agent/start",
+        {"workflowId": flow_id},
+    )
+    return flow_id, ""
+
+
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:
     _, _, body = await client.get("/patterns/reminders/start", {})
     return parse_flow_trigger_response(body, "")
@@ -452,3 +463,10 @@ async def test_flow_smoke_all_registered_flows_via_controller(
         assert flow_id, f"{entry.name}: controller response did not include flowID"
         await assert_flow_smoke_start_step(entry, flow_id, run_id)
         await assert_flow_smoke_no_unexpected_failures(entry, flow_id, run_id)
+
+
+@pytest.mark.integ
+def test_legacy_agent_route_is_not_registered(example_app: ExampleApp) -> None:
+    paths = {rule.rule for rule in create_app(example_app).url_map.iter_rules()}
+    legacy_path = "/products/" + "ai-agent-" + "email"
+    assert not any(path.startswith(legacy_path) for path in paths)

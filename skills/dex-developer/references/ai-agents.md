@@ -1,0 +1,47 @@
+# Durable AI Agents
+
+Use this guide when Dex owns an Agent's conversation, model calls, tools, approvals, and long waits.
+
+## Own the model context in Dex
+
+Persist provider-neutral user, assistant, tool-call, and tool-result messages. Rebuild the model input for every call from a configured system prompt, a cumulative summary, and recent messages. Do not depend on a provider conversation ID when the application must support multiple LLM APIs.
+
+Use an AttributeMap with monotonic sequence keys for independently stored messages. Keep the next sequence, retained range, summarized range, pending calls, and active status in a small Attribute. Do not enumerate an unbounded AttributeMap to paginate history; track the sequence range and read known keys.
+
+Compaction changes the model context, not the durable truth. Commit a summary that covers an explicit sequence range before deleting any covered message instances. If old messages only need Flow-history retention, bound the current AttributeMap and document that they are unavailable through the application after deletion.
+
+## Separate durable and live output
+
+Commit the completed assistant message and tool result to Attributes. Use a Stream for token deltas, tool progress, and UI status. A retry may repeat Stream messages, so the UI must recover from durable message state.
+
+For streaming LLM text, create one buffered text writer per model invocation and pass its bound write method as the delta callback. Keep structured tool and lifecycle events on a separate Stream.
+
+Never expose hidden chain-of-thought. Stream user-visible response text or concise application progress.
+
+## Route tools through Steps
+
+Persist the assistant tool call before executing it. Give every call a stable ID and execute calls in an intentional order with bounded concurrency.
+
+Classify external operations before choosing retry behavior:
+
+- read-only or idempotent calls may use bounded retries
+- non-idempotent writes default to one attempt unless the application accepts duplicate effects
+- exhausted retries become an explicit failure result or recovery Step
+
+Dex commits the tool result separately from the external effect. Pass a stable call ID to integrations that support idempotency, and surface an unknown outcome when a timeout cannot prove whether the effect happened.
+
+## Make approval durable
+
+Use a ChannelMap keyed by tool-call ID for approvals. Store the pending request in an Attribute so the UI can reload it. Unknown, destructive, or write tools should wait for approval unless trusted application policy classifies them otherwise.
+
+Do not accept executable MCP commands, remote URLs, or credentials from an untrusted Flow input. Register trusted servers in Worker configuration and let a Flow select only from that registry.
+
+## Model long waits as Timer tools
+
+A durable wait tool should transition to a Step whose **WaitFor** returns a Timer condition. Do not keep a model call, MCP call, coroutine, or worker process blocked for the delay.
+
+To support interruption, race the Timer against a user-message Channel. If the user message wins, persist an interrupted tool result, consume the message, clear stale pending calls, and ask the model to replan.
+
+## Verification
+
+Integration-test context reconstruction after Worker replacement, compaction before deletion, approval after page reload, retry exhaustion, Stream loss recovery, Timer firing, and user interruption.

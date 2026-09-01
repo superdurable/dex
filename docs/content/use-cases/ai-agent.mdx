@@ -1,0 +1,67 @@
+---
+title: AI Agent
+---
+
+# AI Agent
+
+This Python application is a general, long-running AI Agent. It can chat with a user, call trusted MCP tools, wait for approval before external writes, and suspend itself with a durable timer.
+
+Dex owns the conversation state. The Agent rebuilds the model input from durable state for every call, so it does not depend on an LLM provider's conversation API.
+
+## Durable context
+
+The application stores each user, assistant, and tool message as a separate [AttributeMap](/primitives/attribute) instance. A small Attribute tracks sequence ranges, pending tools, and the active context summary.
+
+When the model context reaches 85 percent of its configured window, a Step summarizes older messages. The model receives the system prompt, the cumulative summary, and the recent unsummarized messages. The current AttributeMap keeps the latest 2,000 messages by default.
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/ai_agent_flow.py'}}>
+<SdkSnippet lang="python">
+
+```python
+    config = Attribute("AgentConfig", AgentConfig)
+    state = Attribute("AgentState", AgentState)
+    summary = Attribute("ContextSummary", ContextSummary)
+    messages = AttributeMap("AgentMessages", AgentMessage)
+    pending_approval = Attribute("PendingApproval", PendingApproval)
+    pending_timer = Attribute("PendingTimer", PendingTimer)
+    user_messages = Channel("UserMessages", UserMessage)
+    tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
+    assistant_text = Stream("AssistantText", str, 10 * 1024 * 1024)
+    events = Stream("AgentEvents", AgentEvent, 10 * 1024 * 1024)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Each map instance can be loaded and updated independently. This avoids rewriting one ever-growing conversation value. Dex blob storage and the Worker BlobCache handle large messages and MCP results.
+
+## MCP tools and approvals
+
+The Worker loads trusted stdio or Streamable HTTP MCP servers from local configuration. A Flow may select from those registered servers, but the browser cannot register a command, URL, or credential.
+
+Read-only tools can run immediately. Write, destructive, and unclassified tools wait on a durable approval Channel. Tool timeout and retry policies are configurable per server and per tool. A final failure becomes a tool result so the model and user can decide what to do next.
+
+The example supports tools, resources, resource templates, prompts, progress, and logging. Server-initiated sampling, elicitation, and roots are not enabled.
+
+## Durable waits
+
+The built-in **durable_wait** tool moves the Flow to a Step that waits on both a [Timer](/primitives/timer) and the user-message Channel. The timer can survive Worker restarts. A new user message interrupts it and lets the Agent replan.
+
+## Live events
+
+Assistant text uses a buffered [Stream](/primitives/stream). The Step passes the buffered writer directly to the LiteLLM delta callback. The SDK combines small chunks for up to one second or 16 KiB and flushes the tail before the Step result or error.
+
+Tool progress, timer state, and compaction status use a separate Stream. Stream delivery is best effort. Durable chat history always comes from Attributes, so refreshing the browser does not depend on replaying every progress event.
+
+## Run the example
+
+The Flow and HTTP routes are under [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent). The React UI and MCP configuration example are under [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent).
+
+The application uses a local demonstration model by default. Configure a LiteLLM model and provider credentials to use a hosted model.
+
+## Related
+
+- [Attribute](/primitives/attribute)
+- [Channel](/primitives/channel)
+- [Stream](/primitives/stream)
+- [Timer](/primitives/timer)

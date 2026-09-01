@@ -21,7 +21,12 @@ from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.patterns.resource_control.controller_flow import SPOT_INSTANCE_IDS
 from dex_examples.patterns.resource_control.request import Request
-from dex_examples.products.ai_agent_email.ai_agent_flow import STATUS_WAITING
+from dex_examples.products.ai_agent.ai_agent_flow import STATUS_WAITING
+from dex_examples.products.ai_agent.models import (
+    AgentConfig,
+    HistoryRequest,
+    UserMessage,
+)
 from tests.integ.conftest import LONG_WAIT_TIMEOUT, WAIT_TIMEOUT, wait_until
 
 from dex import AsyncClient
@@ -102,29 +107,56 @@ async def test_resourcecontrol_enqueue(
     )
 
 
-async def test_ai_agent_email_without_openai(
+async def test_ai_agent_conversation_and_durable_wait(
     app: ExampleApp,
     client: AsyncClient,
     new_flow_id: Callable[[str], str],
 ) -> None:
     flow_id = new_flow_id("ai-agent")
-    await client.start_flow(app.email_agent, flow_id, None, start_options())
+    await client.start_flow(app.ai_agent, flow_id, AgentConfig(), start_options())
 
     async def waiting() -> bool:
-        details = await client.invoke_rpc(app.email_agent.describe, flow_id)
+        details = await client.invoke_rpc(app.ai_agent.describe, flow_id)
         return details.status == STATUS_WAITING
 
-    await wait_until("email agent waiting", waiting, WAIT_TIMEOUT)
+    await wait_until("AI Agent waiting", waiting, WAIT_TIMEOUT)
     assert await client.invoke_rpc(
-        app.email_agent.send_request,
+        app.ai_agent.send_message,
         flow_id,
-        "Draft a short intro email",
+        UserMessage("Hello durable agent"),
     )
-    thinking = await client.read_stream(
+    assistant_text = await client.read_stream(
         flow_id,
-        app.email_agent.thinking,
+        app.ai_agent.assistant_text,
         timeout=WAIT_TIMEOUT,
     )
-    assert thinking.value == "Analyzing the request. Preparing a local email draft. "
-    details = await client.invoke_rpc(app.email_agent.describe, flow_id)
-    assert details.current_request
+    assert assistant_text.value == "Local demo response: Hello durable agent"
+
+    async def has_reply() -> bool:
+        history = await client.invoke_rpc(
+            app.ai_agent.history,
+            flow_id,
+            HistoryRequest(limit=10),
+        )
+        return any(message.message.role == "assistant" for message in history.messages)
+
+    await wait_until("AI Agent reply", has_reply, WAIT_TIMEOUT)
+    assert await client.invoke_rpc(
+        app.ai_agent.send_message,
+        flow_id,
+        UserMessage("/wait 1 integration timer"),
+    )
+
+    async def timer_completed() -> bool:
+        history = await client.invoke_rpc(
+            app.ai_agent.history,
+            flow_id,
+            HistoryRequest(limit=20),
+        )
+        return any(
+            message.message.role == "tool"
+            and '"status": "completed"' in message.message.content
+            for message in history.messages
+        )
+
+    await wait_until("durable timer completion", timer_completed, WAIT_TIMEOUT)

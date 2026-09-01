@@ -54,6 +54,8 @@ Read [modeling.md](references/modeling.md) for design rules and [primitives.md](
 
 Read [large-attributes-and-locality.md](references/large-attributes-and-locality.md) when a Flow keeps large documents, conversation history, or API/MCP results in Attributes; when choosing AttributeMap instances or external projections for a growing collection; or when deploying replicated Workers. Do not add an application-managed blob store, cache, or dual-write path solely because an Attribute is large; first evaluate Dex blob hydration, the SDK BlobCache, headless Worker locality, and Attribute Store synchronization.
 
+Read [ai-agents.md](references/ai-agents.md) when an Agent owns model context, calls MCP or other tools, waits for approval, compacts conversation history, or exposes a durable wait tool.
+
 ## Choose proven Flow shapes
 
 Prefer an existing Dex pattern over an ad hoc coordination loop. Read [patterns.md](references/patterns.md) when the request involves retries with compensation, polling, reminders, inactivity, parallel work, fan-out, back pressure, interruption, external publishing, responsive updates, or durable entity state.

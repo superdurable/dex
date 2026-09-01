@@ -1,0 +1,68 @@
+---
+title: AI Agent
+sidebar_label: AI Agent
+---
+
+# AI Agent
+
+这个 Python application 是一个长期运行的通用 AI Agent。它可以与用户聊天、调用受信任的 MCP tool、在修改外部系统前等待审批，并通过 durable Timer 暂停。
+
+会话状态由 Dex 管理。Agent 每次调用模型时都会从 durable state 重新构造输入，因此不依赖 LLM provider 的 conversation API。
+
+## Durable context
+
+Application 会把每条 user、assistant 与 tool message 分别保存在 [AttributeMap](/primitives/attribute) instance 中。一个较小的 Attribute 保存 sequence range、pending tool 与当前 context summary。
+
+当模型 context 达到配置窗口的 85% 时，Step 会摘要较早的 message。模型收到 system prompt、累计 summary 和最近尚未摘要的 message。默认情况下，当前 AttributeMap 保留最近 2,000 条 message。
+
+<SdkTabs examples={{python: 'examples/python/dex_examples/products/ai-agent/ai_agent_flow.py'}}>
+<SdkSnippet lang="python">
+
+```python
+    config = Attribute("AgentConfig", AgentConfig)
+    state = Attribute("AgentState", AgentState)
+    summary = Attribute("ContextSummary", ContextSummary)
+    messages = AttributeMap("AgentMessages", AgentMessage)
+    pending_approval = Attribute("PendingApproval", PendingApproval)
+    pending_timer = Attribute("PendingTimer", PendingTimer)
+    user_messages = Channel("UserMessages", UserMessage)
+    tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
+    assistant_text = Stream("AssistantText", str, 10 * 1024 * 1024)
+    events = Stream("AgentEvents", AgentEvent, 10 * 1024 * 1024)
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+每个 map instance 都可以独立加载和更新，避免每次追加消息时重写不断增长的 conversation value。Dex blob storage 与 Worker BlobCache 会处理较大的 message 和 MCP result。
+
+## MCP tool 与审批
+
+Worker 从本地配置加载受信任的 stdio 或 Streamable HTTP MCP server。Flow 可以从已注册的 server 中选择，但浏览器不能注册 command、URL 或 credential。
+
+Read-only tool 可以直接运行。Write、destructive 和未分类 tool 会等待 durable approval Channel。Tool timeout 与 retry policy 可以按 server 和 tool 配置。最终失败会成为 tool result，让模型和用户决定下一步。
+
+Example 支持 tool、resource、resource template、prompt、progress 与 logging。暂不启用 server-initiated sampling、elicitation 和 roots。
+
+## Durable wait
+
+内置 **durable_wait** tool 会把 Flow 移动到同时等待 [Timer](/primitives/timer) 与 user-message Channel 的 Step。Timer 可以跨 Worker restart 继续等待。新的用户消息会中断 Timer，并让 Agent 重新规划。
+
+## 实时 event
+
+Assistant text 使用 buffered [Stream](/primitives/stream)。Step 把 buffered writer 直接传给 LiteLLM delta callback。SDK 会在一秒或 16 KiB 内合并较小的 chunk，并在 Step 返回 result 或 error 前 flush 最后的内容。
+
+Tool progress、timer state 与 compaction status 使用另一个 Stream。Stream delivery 是 best effort。Durable chat history 始终来自 Attribute，因此浏览器刷新不依赖重放每条 progress event。
+
+## 运行 example
+
+Flow 与 HTTP route 位于 [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent)。React UI 与 MCP 配置示例位于 [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent)。
+
+Application 默认使用 local demonstration model。配置 LiteLLM model 与 provider credential 后即可使用 hosted model。
+
+## 相关内容
+
+- [Attribute](/primitives/attribute)
+- [Channel](/primitives/channel)
+- [Stream](/primitives/stream)
+- [Timer](/primitives/timer)

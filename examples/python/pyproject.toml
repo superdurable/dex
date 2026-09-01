@@ -9,9 +9,10 @@ requires-python = ">=3.11"
 dependencies = [
     "dex-python-sdk==0.2.8",
     "flask>=3.0,<4",
-    "openai>=1.66.2,<2",
-    "openai-agents>=0.0.4,<0.0.5",
+    "litellm>=1.75,<2",
+    "mcp>=2.1,<3",
     "pydantic>=2.10.6,<3",
+    "pyyaml>=6.0,<7",
     "quart>=0.20.0,<0.21",
 ]
 
