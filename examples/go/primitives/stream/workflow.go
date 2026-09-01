@@ -52,9 +52,6 @@ func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, 
 	if err := progress.Write("Rendering preview for " + input); err != nil {
 		return nil, err
 	}
-	if err := progress.Flush(); err != nil {
-		return nil, err
-	}
 	if err := progress.Write("Preview ready for " + input); err != nil {
 		return nil, err
 	}

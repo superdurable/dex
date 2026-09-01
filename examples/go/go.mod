@@ -8,7 +8,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/stretchr/testify v1.11.1
 	github.com/superdurable/dex/blob-cache-go v0.1.0
-	github.com/superdurable/dex/sdk-go v0.2.7
+	github.com/superdurable/dex/sdk-go v0.2.8
 )
 
 require (

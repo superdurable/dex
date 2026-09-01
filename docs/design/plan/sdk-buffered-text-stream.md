@@ -18,7 +18,6 @@ data. A batch is emitted by the first of these events:
 
 - the one-shot timer expires;
 - the soft byte threshold is reached or crossed;
-- the application calls flush;
 - the invocation finishes.
 
 Crossing the size threshold does not split the final chunk. Every emitted batch is an ordinary
@@ -32,7 +31,7 @@ creation order. When the handler succeeds or fails, the invocation prevents new 
 the timer, waits for a flush already in progress, emits the nonempty tail, closes the writer, and
 only then sends the final result or error.
 
-Timer and user writes share the writer's serialization boundary. Each flush invalidates the prior
+Timer and user writes share the writer's serialization boundary. Each emission invalidates the prior
 timer generation. A canceled callback cannot flush text written for a later generation. Canceling
 the Worker invocation stops timers, discards unsent text, and rejects later writes.
 
@@ -51,7 +50,7 @@ tail before returning.
 - Go: NewBufferedTextStream with BufferedTextStreamFlushInterval and
   BufferedTextStreamMaxBytes options.
 - Java: BufferedTextStream.create with the default or explicit Duration and byte threshold.
-- Python async: Stream.buffered_text returns a writer with synchronous write and flush methods.
+- Python async: Stream.buffered_text returns a writer with a synchronous write method.
 - Python sync: Stream.buffered_text returns a cooperative writer whose outputs are used with yield from.
 - TypeScript: Stream.bufferedText accepts optional flushIntervalMs and maxBufferedBytes settings.
 - Rust: Stream<String>::buffered_text or buffered_text_with_options returns a cloneable writer.

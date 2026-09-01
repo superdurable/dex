@@ -52,7 +52,6 @@ public final class StreamFlow implements Flow<String> {
         public StepDecision execute(final Context context, final String input) {
             final BufferedTextStream writer = BufferedTextStream.create(context, progress);
             writer.write("Rendering preview for " + input);
-            writer.flush();
             writer.write("Preview ready for " + input);
             return StepDecision.gracefulComplete("Rendered " + input);
         }

@@ -52,7 +52,6 @@ impl Step for RenderPreview {
             BufferedTextStreamOptions::new(Duration::from_millis(500), 16 * 1024),
         )?;
         progress.write(format!("Rendering preview for {input}"))?;
-        progress.flush()?;
         progress.write(format!("Preview ready for {input}"))?;
         Ok(StepDecision::graceful_complete(format!("Rendered {input}")))
     }
