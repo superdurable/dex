@@ -20,7 +20,7 @@ Stream 只提供 best-effort durability，底层使用 Redis 等内存存储。�
 
 Stream 包含稳定名称、消息类型和 **streamCapacityBytes**。streamCapacityBytes 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
 
-下面的 Step 在返回前写入两条 progress message。每次写入都会立即进入 Worker output stream；handler 不会等待 Stream Store acknowledgement。
+下面的 Step 使用 buffered text writer。它显式 flush 第一条 progress message，Dex 在 Step result 之前 flush 第二条。Handler 不会等待 Stream Store acknowledgement。
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
@@ -37,8 +37,10 @@ class RenderPreview(Step[str]):
         self.progress = progress
 
     async def execute(self, context: AsyncContext, input: str) -> StepDecision:
-        self.progress.write(context, f"Rendering preview for {input}")
-        self.progress.write(context, f"Preview ready for {input}")
+        progress = self.progress.buffered(context)
+        progress.write(f"Rendering preview for {input}")
+        progress.flush()
+        progress.write(f"Preview ready for {input}")
         return graceful_complete(f"Rendered {input}")
 
 
@@ -60,10 +62,17 @@ func (*StreamFlow) GetPersistenceSchema() dex.PersistenceSchema {
 }
 
 func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
-	if err := Progress.Write(ctx, "Rendering preview for "+input); err != nil {
+	progress, err := dex.NewBufferedTextStream(ctx, Progress)
+	if err != nil {
 		return nil, err
 	}
-	if err := Progress.Write(ctx, "Preview ready for "+input); err != nil {
+	if err := progress.Write("Rendering preview for " + input); err != nil {
+		return nil, err
+	}
+	if err := progress.Flush(); err != nil {
+		return nil, err
+	}
+	if err := progress.Write("Preview ready for " + input); err != nil {
 		return nil, err
 	}
 	return dex.GracefulComplete("Rendered " + input), nil
@@ -86,8 +95,10 @@ public final class StreamFlow implements Flow<String> {
     final class RenderPreview implements Step<String> {
         @Override
         public StepDecision execute(final Context context, final String input) {
-            progress.write(context, "Rendering preview for " + input);
-            progress.write(context, "Preview ready for " + input);
+            final BufferedTextStream writer = BufferedTextStream.create(context, progress);
+            writer.write("Rendering preview for " + input);
+            writer.flush();
+            writer.write("Preview ready for " + input);
             return StepDecision.gracefulComplete("Rendered " + input);
         }
     }
@@ -102,8 +113,10 @@ export const progress = new Stream("Progress", stringCodec, 10 * 1024 * 1024);
 
 class RenderPreview implements Step<string> {
   public async execute(context: Context, input: string): Promise<StepDecision> {
-    progress.write(context, `Rendering preview for ${input}`);
-    progress.write(context, `Preview ready for ${input}`);
+    const writer = progress.buffered(context, { flushIntervalMs: 500 });
+    writer.write(`Rendering preview for ${input}`);
+    writer.flush();
+    writer.write(`Preview ready for ${input}`);
     return gracefulComplete(`Rendered ${input}`);
   }
 }
@@ -138,8 +151,13 @@ impl Step for RenderPreview {
         context: &mut Context,
         input: Self::Input,
     ) -> HandlerResult<StepDecision> {
-        PROGRESS.write(context, format!("Rendering preview for {input}"))?;
-        PROGRESS.write(context, format!("Preview ready for {input}"))?;
+        let progress = PROGRESS.buffered_with_options(
+            context,
+            BufferedTextStreamOptions::new(Duration::from_millis(500), 16 * 1024),
+        )?;
+        progress.write(format!("Rendering preview for {input}"))?;
+        progress.flush()?;
+        progress.write(format!("Preview ready for {input}"))?;
         Ok(StepDecision::graceful_complete(format!(
             "Rendered {input}"
         )))
@@ -165,6 +183,12 @@ Step 直接写入 Stream 时：
 即使 Flow instance 不存在或已经结束，Client 仍可以写入。每次写入都要提供非空 source。Source 可以重复，也可以包含 **#**；每次调用都会追加一条消息。RPC handler 不能通过自己的 Context 写入，但可以通过注入的 Client dependency 发送 Stream message。
 
 Python coroutine Step 调用 **Stream.write** 时不使用 **await**。Python synchronous Step 必须从 generator yield 返回的 **StepOutput**。其他 SDK 通过 Step Context 发送 frame，并在本地 enqueue 后返回。
+
+### Buffer text chunk
+
+当许多小 chunk 共同组成一段文本时，例如 LLM delta，请使用 buffered text writer。默认 flush interval 是一秒，soft threshold 是 16 KiB UTF-8 数据。Timer、size threshold、手动 flush 或 invocation 完成时，都会发送当前非空 batch。Helper 会原样保留文本，不拆分单个 chunk，并忽略空 chunk。
+
+Go、Java、Python async、TypeScript 和 Rust 会在发送最终 result 或 error 前停止 timer 并 flush 尾部。Python sync generator 使用 cooperative elapsed-time check，必须从显式的最终 flush yield output。空 buffer 不会产生 Stream message 或 implicit heartbeat。Retry 不会恢复尚未发送的文本；retry 前已经发送的 batch 可能再次出现。
 
 ### 可续读
 

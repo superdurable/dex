@@ -45,10 +45,17 @@ type renderPreview struct {
 }
 
 func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
-	if err := Progress.Write(ctx, "Rendering preview for "+input); err != nil {
+	progress, err := dex.NewBufferedTextStream(ctx, Progress)
+	if err != nil {
 		return nil, err
 	}
-	if err := Progress.Write(ctx, "Preview ready for "+input); err != nil {
+	if err := progress.Write("Rendering preview for " + input); err != nil {
+		return nil, err
+	}
+	if err := progress.Flush(); err != nil {
+		return nil, err
+	}
+	if err := progress.Write("Preview ready for " + input); err != nil {
 		return nil, err
 	}
 	return dex.GracefulComplete("Rendered " + input), nil

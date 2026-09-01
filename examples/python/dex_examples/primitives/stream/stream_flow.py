@@ -25,8 +25,10 @@ class RenderPreview(Step[str]):
         self.progress = progress
 
     async def execute(self, context: AsyncContext, input: str) -> StepDecision:
-        self.progress.write(context, f"Rendering preview for {input}")
-        self.progress.write(context, f"Preview ready for {input}")
+        progress = self.progress.buffered(context)
+        progress.write(f"Rendering preview for {input}")
+        progress.flush()
+        progress.write(f"Preview ready for {input}")
         return graceful_complete(f"Rendered {input}")
 
 

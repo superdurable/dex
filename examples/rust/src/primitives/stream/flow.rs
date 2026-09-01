@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use dex_sdk::{
-    Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Stream,
+    BufferedTextStreamOptions, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision,
+    StepList, Stream,
 };
 
 pub static PROGRESS: LazyLock<Stream<String>> =
@@ -45,8 +47,13 @@ impl Step for RenderPreview {
     type Input = String;
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
-        PROGRESS.write(context, format!("Rendering preview for {input}"))?;
-        PROGRESS.write(context, format!("Preview ready for {input}"))?;
+        let progress = PROGRESS.buffered_with_options(
+            context,
+            BufferedTextStreamOptions::new(Duration::from_millis(500), 16 * 1024),
+        )?;
+        progress.write(format!("Rendering preview for {input}"))?;
+        progress.flush()?;
+        progress.write(format!("Preview ready for {input}"))?;
         Ok(StepDecision::graceful_complete(format!("Rendered {input}")))
     }
 }

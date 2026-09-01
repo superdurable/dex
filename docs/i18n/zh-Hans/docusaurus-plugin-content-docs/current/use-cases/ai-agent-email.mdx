@@ -20,7 +20,7 @@ sidebar_label: AI agent email
 
 ## 从 Agent Step streaming
 
-Agent Step 会把每个 LLM progress chunk 直接写入 Stream。在 async handler 中，**Stream.write** 会把每条消息放入本地队列，然后直接返回，不会等待 Stream Store acknowledgement。Stream Store 写入失败不会让 Step 失败。
+Agent Step 会把一个 buffered writer 直接传给 LLM helper。小 delta 最多合并一秒，然后作为普通 Stream message 发送。SDK 会在 Step result 或 error 前 flush 尾部。它不会等待 Stream Store acknowledgement，Stream Store 写入失败也不会让 Step 失败。
 
 Step message 使用 **#StepExecutionID** 作为 source。Source 只说明消息来自哪里，不是 idempotency key。每次写入都会 append，因此 retry 可能产生重复 progress chunk。这对展示用 feed 没有影响，最终 draft 仍保存在 durable Attribute 中。
 
@@ -30,15 +30,11 @@ OpenAI call 请求的是可以展示给用户的 reasoning summary，而不是 p
 <SdkSnippet lang="python">
 
 ```python
-        async def write_progress(chunk: str) -> None:
-            if not chunk:
-                return
-            self.flow.thinking.write(context, chunk)
-
+        progress = self.flow.thinking.buffered(context)
         reply = await request_email_fields(
             user_request,
             self.flow.previous_response_id.get(context),
-            write_progress,
+            progress.write,
         )
 ```
 

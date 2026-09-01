@@ -36,8 +36,10 @@ class RenderPreview implements Step<string> {
   }
 
   public async execute(context: Context, input: string): Promise<StepDecision> {
-    progress.write(context, `Rendering preview for ${input}`);
-    progress.write(context, `Preview ready for ${input}`);
+    const writer = progress.buffered(context, { flushIntervalMs: 500 });
+    writer.write(`Rendering preview for ${input}`);
+    writer.flush();
+    writer.write(`Preview ready for ${input}`);
     return gracefulComplete(`Rendered ${input}`);
   }
 }

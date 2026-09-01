@@ -19,7 +19,7 @@ Losing a progress chunk does not change the email draft or send decision. That m
 
 ## Streaming from the Agent Step
 
-The Agent Step writes every LLM progress chunk directly to its Stream. In an async handler, **Stream.write** queues each message locally and returns without waiting for a Stream Store acknowledgement. A Stream Store failure does not fail the Step.
+The Agent Step passes one buffered writer directly to the LLM helper. Small deltas are combined for up to one second and emitted as normal Stream messages. The SDK flushes the tail before the Step result or error. It never waits for a Stream Store acknowledgement, and a Stream Store failure does not fail the Step.
 
 Step messages use **#StepExecutionID** as their source. The source describes where a message came from; it is not an idempotency key. All writes append, so a retry can produce duplicate progress chunks. That is acceptable because the feed is presentational and the final draft remains in durable Attributes.
 
@@ -29,15 +29,11 @@ The OpenAI call requests a user-visible reasoning summary. It does not expose pr
 <SdkSnippet lang="python">
 
 ```python
-        async def write_progress(chunk: str) -> None:
-            if not chunk:
-                return
-            self.flow.thinking.write(context, chunk)
-
+        progress = self.flow.thinking.buffered(context)
         reply = await request_email_fields(
             user_request,
             self.flow.previous_response_id.get(context),
-            write_progress,
+            progress.write,
         )
 ```
 

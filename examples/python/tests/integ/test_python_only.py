@@ -134,6 +134,6 @@ async def test_ai_agent_email_without_openai(
         app.email_agent.thinking,
         timeout=WAIT_TIMEOUT,
     )
-    assert "Analyzing" in thinking.value
+    assert thinking.value == "Analyzing the request. Preparing a local email draft. "
     details = await client.invoke_rpc(app.email_agent.describe, flow_id)
     assert details.current_request

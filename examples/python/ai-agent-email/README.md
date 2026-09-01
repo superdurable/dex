@@ -42,6 +42,7 @@ article: [Build Reliable AI Agents with Dex on Temporal](https://medium.com/@qlo
 - **Server-Side Backoff Retry**: Built-in retry mechanism orchestrated on the server side as distributed system, not
   dependent on a single machine.
 - **Stateful API Integration**: Seamless integration with OpenAI's GPT models with context retention
+- **Buffered Live Progress**: Combines token-sized LLM deltas into exact text batches before streaming them to the UI
 - **Durable Drafting System**: Preserves user input across page refreshes and browser sessions
 
 ### Demo Videos

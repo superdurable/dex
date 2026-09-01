@@ -56,6 +56,10 @@ Use a Stream for low-latency, best-effort, resumable updates such as progress di
 
 A Step may append any number of messages to the same or different Streams before its final result. A Step Stream write is fire-and-forget: local encoding or registration can fail immediately, but Dex Server does not acknowledge Stream Store persistence and a Store failure does not fail the Step.
 
+Use the invocation-managed buffered text writer for LLM deltas or other small chunks whose exact concatenation is the intended value. Create it once and pass its write method as the producer callback. The default one-second timer and 16 KiB soft UTF-8 threshold reduce message volume, and the invocation flushes the tail before its result or error. An empty buffer does not heartbeat. Python sync generators are cooperative and must yield from an explicit final flush. Retry does not restore unsent text and may repeat batches already sent.
+
+Continue using direct Stream writes for semantically complete, independent messages. Do not buffer events merely because they arrive quickly; batching changes the message boundaries observed by readers.
+
 Step messages use **#StepExecutionID** as source metadata. The source is not an idempotency key: attempts and messages may share it, and every write appends. Client Stream writes require a nonempty source, which may repeat or contain **#**.
 
 Docs: https://docs.superdurable.io/primitives/stream

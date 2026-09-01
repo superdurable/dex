@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
@@ -34,7 +34,7 @@ async def test_request_email_fields_uses_aggregated_output_text(
     async def create_response(
         request: str,
         previous_response_id: str | None,
-        write_progress: Callable[[str], Awaitable[None]],
+        write_progress: Callable[[str], None],
     ) -> Any:
         return SimpleNamespace(
             id="response-123",
@@ -63,7 +63,7 @@ async def test_request_email_fields_falls_back_when_output_cannot_be_parsed(
     async def create_response(
         request: str,
         previous_response_id: str | None,
-        write_progress: Callable[[str], Awaitable[None]],
+        write_progress: Callable[[str], None],
     ) -> Any:
         return SimpleNamespace(id="response-123", output_text="not valid JSON")
 
@@ -106,7 +106,7 @@ def test_send_email_supports_unicode_subject_and_body(
     assert smtp_server.has_quit is True
 
 
-async def _write_progress(progress: str) -> None:
+def _write_progress(progress: str) -> None:
     pass
 
 
