@@ -33,10 +33,12 @@ class AsyncStreamTestStep(Step[None]):
         input: None,
     ) -> Wait:
         del input
-        progress = self.progress.buffered_text(context)
+        progress = self.progress.buffered_text(
+            context,
+            max_buffered_bytes=len("async-wait"),
+        )
         progress.write("async-")
         progress.write("wait")
-        progress.flush()
         await context.heartbeat("async-wait-checkpoint")
         return Wait.skip_immediately()
 
@@ -46,10 +48,12 @@ class AsyncStreamTestStep(Step[None]):
         input: None,
     ) -> StepDecision:
         del input
-        progress = self.progress.buffered_text(context)
+        progress = self.progress.buffered_text(
+            context,
+            max_buffered_bytes=len("async-step-first"),
+        )
         progress.write("async-step-")
         progress.write("first")
-        progress.flush()
         await context.heartbeat("async-checkpoint")
         progress.write("async-step-")
         progress.write("second")

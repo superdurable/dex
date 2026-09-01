@@ -40,10 +40,11 @@ class StreamTestStep implements Step<void> {
 
   public async waitFor(context: AsyncContext, _input: void): Promise<Wait> {
     await context.recordHeartbeat("wait-for", stringCodec);
-    const progress = this.progress.bufferedText(context);
+    const progress = this.progress.bufferedText(context, {
+      maxBufferedBytes: "wait-progress-1".length,
+    });
     progress.write("wait-progress-");
     progress.write("1");
-    progress.flush();
     progress.write("wait-progress-");
     progress.write("2");
     this.details.write(context, "wait-details");
@@ -52,10 +53,12 @@ class StreamTestStep implements Step<void> {
 
   public async execute(context: AsyncContext, _input: void): Promise<StepDecision> {
     await context.recordHeartbeat({ phase: "execute" });
-    const progress = this.progress.bufferedText(context, { flushIntervalMs: 500 });
+    const progress = this.progress.bufferedText(context, {
+      flushIntervalMs: 500,
+      maxBufferedBytes: "execute-progress-1".length,
+    });
     progress.write("execute-progress-");
     progress.write("1");
-    progress.flush();
     this.details.write(context, "execute-details");
     progress.write("execute-progress-");
     progress.write("2");

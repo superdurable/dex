@@ -163,10 +163,10 @@ async def execute(
     return dex.graceful_complete(input)
 ```
 
-The async buffered writer has synchronous `write` and `flush` methods, so
-`writer.write` can be passed directly as an LLM delta callback. It flushes after
-one second, at a soft 16 KiB UTF-8 threshold, or before the final result or
-error. It concatenates chunks exactly and ignores empty chunks.
+The async buffered writer has a synchronous `write` method, so `writer.write`
+can be passed directly as an LLM delta callback. It flushes after one second, at
+a soft 16 KiB UTF-8 threshold, or before the final result or error. It
+concatenates chunks exactly and ignores empty chunks.
 
 A synchronous generator uses the cooperative form because only yielded
 `StepOutput` values can reach gRPC:

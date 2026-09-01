@@ -216,10 +216,10 @@ const progress = thinking.bufferedText(context, { flushIntervalMs: 500 });
 await generateText(input, progress.write);
 ```
 
-The defaults are one second and a soft 16 KiB UTF-8 threshold. `flush()` sends
-the current nonempty batch, and invocation completion sends the tail before the
-final result or error. Chunks are concatenated exactly. Retry does not restore
-unsent text or deduplicate emitted batches.
+The defaults are one second and a soft 16 KiB UTF-8 threshold. Invocation
+completion sends the tail before the final result or error. Chunks are
+concatenated exactly. Retry does not restore unsent text or deduplicate emitted
+batches.
 
 External writes use `client.writeStream(flowId, stream, source, value)`. Source
 must be non-empty, may contain `#`, and may repeat; every write appends a new

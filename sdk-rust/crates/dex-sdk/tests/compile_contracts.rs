@@ -48,7 +48,6 @@ fn stream_definitions_and_client_calls_compile() {
             );
         if let Ok(buffered) = buffered {
             let _buffered_write: dex_sdk::HandlerResult<()> = buffered.write("thinking ");
-            let _buffered_flush: dex_sdk::HandlerResult<()> = buffered.flush();
         }
         client.write_stream("flow-1", stream, "client#source", "starting".to_owned())?;
         let message = client.read_stream("flow-1", stream, "")?;

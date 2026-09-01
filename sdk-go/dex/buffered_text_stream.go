@@ -65,8 +65,8 @@ type BufferedTextStreamOption interface {
 // text. The Context must belong to an active WaitFor or Execute invocation. The SDK automatically
 // flushes remaining text and stops the timer before sending that invocation's final result or error.
 //
-// The returned writer is safe for concurrent Write and Flush calls. Reuse it for the entire logical
-// feed; creating multiple writers gives each writer an independent buffer and timer.
+// The returned writer is safe for concurrent Write calls. Reuse it for the entire logical feed;
+// creating multiple writers gives each writer an independent buffer and timer.
 //
 // Returns an error for an inactive, RPC, or Flow-timeout Context, an unregistered Stream, or invalid
 // options.
@@ -131,7 +131,7 @@ func BufferedTextStreamMaxBytes(value int) BufferedTextStreamOption {
 //
 // Empty chunks are ignored. Write flushes immediately when the soft size threshold is reached. It
 // otherwise returns after buffering locally; it does not wait for the interval or Stream Store.
-// A timer or transport failure is returned by the next Write or Flush call.
+// A timer or transport failure is returned by the next Write or invocation finalization.
 func (writer *BufferedTextStream) Write(chunk string) error {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
@@ -149,20 +149,6 @@ func (writer *BufferedTextStream) Write(chunk string) error {
 	}
 	if writer.bufferedBytes < writer.maxBufferedBytes {
 		return nil
-	}
-	writer.stopTimerLocked()
-	return writer.flushLocked()
-}
-
-// Flush immediately appends the current non-empty batch.
-//
-// An empty flush is a no-op. A later Write starts a new timer. Flush returns local validation,
-// encoding, and gRPC transport failures but never waits for Stream Store acknowledgement.
-func (writer *BufferedTextStream) Flush() error {
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-	if err := writer.requireOpenLocked(); err != nil {
-		return err
 	}
 	writer.stopTimerLocked()
 	return writer.flushLocked()

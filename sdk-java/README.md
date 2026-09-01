@@ -123,11 +123,10 @@ BufferedTextStream progress = BufferedTextStream.create(context, thinking);
 progress.write(delta);
 ```
 
-It flushes after one second, at a soft 16 KiB UTF-8 threshold, on `flush()`, or
-before the final result or error. The configuration overload accepts a
-`Duration` and byte threshold. It preserves chunks exactly, and an empty buffer
-does not emit a message or heartbeat. Retry does not restore unsent text or
-deduplicate batches.
+It flushes after one second, at a soft 16 KiB UTF-8 threshold, or before the
+final result or error. The configuration overload accepts a `Duration` and byte
+threshold. It preserves chunks exactly, and an empty buffer does not emit a
+message or heartbeat. Retry does not restore unsent text or deduplicate batches.
 
 Flow timeout handlers and RPCs cannot send heartbeat or Stream progress.
 

@@ -63,9 +63,9 @@ export class Stream<T> {
   /**
    * Creates an invocation-managed text writer for an asynchronous Step.
    *
-   * The writer concatenates chunks exactly and flushes on its timer, soft UTF-8 size threshold,
-   * an explicit {@link BufferedTextStream.flush}, or handler completion. The Worker flushes every
-   * remaining batch before the final result or error. Empty chunks are ignored.
+   * The writer concatenates chunks exactly and flushes on its timer, soft UTF-8 size threshold, or
+   * handler completion. The Worker flushes every remaining batch before the final result or error.
+   * Empty chunks are ignored.
    *
    * @param context - Current asynchronous Step Context.
    * @param options - Optional flush interval and soft byte threshold.
@@ -125,7 +125,6 @@ export class BufferedTextStream implements StepOutputFinalizer {
     private readonly maxBufferedBytes: number,
   ) {
     this.write = this.write.bind(this);
-    this.flush = this.flush.bind(this);
   }
 
   /**
@@ -148,18 +147,9 @@ export class BufferedTextStream implements StepOutputFinalizer {
       this.startTimer();
     }
     if (this.bufferedBytes >= this.maxBufferedBytes) {
-      this.flush();
+      this.stopTimer();
+      this.flushBuffer();
     }
-  }
-
-  /**
-   * Immediately emits the current non-empty batch and restarts timing with the next write.
-   * @throws {@link Error} if the invocation finished or an earlier flush failed.
-   */
-  public flush(): void {
-    this.requireOpen();
-    this.stopTimer();
-    this.flushBuffer();
   }
 
   /** Flushes the tail and closes this writer during invocation finalization. */
