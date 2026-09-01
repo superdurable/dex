@@ -21,6 +21,7 @@ import smtplib
 import time
 from dataclasses import dataclass
 from datetime import timedelta
+from email.message import EmailMessage
 
 from dex import (
     AsyncContext,
@@ -108,16 +109,31 @@ class Sending(Step[None]):
             return graceful_complete(STATUS_SKIPPED)
 
         sender, app_password = credentials
-        smtp_server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
-        try:
-            smtp_server.ehlo()
-            smtp_server.login(sender, app_password)
-            smtp_server.sendmail(sender, recipient, f"Subject: {subject}\n\n{body}")
-        finally:
-            smtp_server.quit()
+        _send_email(sender, app_password, recipient, subject, body)
 
         self.flow.status.set(context, STATUS_SENT)
         return graceful_complete(STATUS_SENT)
+
+
+def _send_email(
+    sender: str,
+    app_password: str,
+    recipient: str,
+    subject: str,
+    body: str,
+) -> None:
+    smtp_server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+    try:
+        smtp_server.ehlo()
+        smtp_server.login(sender, app_password)
+        message = EmailMessage()
+        message["From"] = sender
+        message["To"] = recipient
+        message["Subject"] = subject
+        message.set_content(body)
+        smtp_server.send_message(message, from_addr=sender, to_addrs=[recipient])
+    finally:
+        smtp_server.quit()
 
 
 class Schedule(Step[None]):
