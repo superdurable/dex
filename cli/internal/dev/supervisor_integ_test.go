@@ -15,6 +15,7 @@ package dev
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -110,17 +111,23 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		cancel()
 		t.Fatalf("unexpected CLI API response: %s", cliOutput.String())
 	}
-	cliOutput.Reset()
-	if err := cliApp.Execute(
-		context.Background(),
-		[]string{
-			"api", "call", "WriteStream",
-			"--data", `{"flowId":"cli-flow","flowType":"CliFlow","streamName":"progress","streamCapacityBytes":"1048576","value":{"stringValue":"thinking"},"source":"cli"}`,
-			"--yes", "--server", dexAddress,
-		},
-	); err != nil {
-		cancel()
-		t.Fatalf("CLI Stream write failed: %v stderr=%s", err, cliErrors.String())
+	for _, value := range []string{"thinking", "still-thinking"} {
+		cliOutput.Reset()
+		requestJSON := fmt.Sprintf(
+			`{"flowId":"cli-flow","flowType":"CliFlow","streamName":"progress","streamCapacityBytes":"1048576","value":{"stringValue":%q},"source":"cli#writer"}`,
+			value,
+		)
+		if err := cliApp.Execute(
+			context.Background(),
+			[]string{
+				"api", "call", "WriteStream",
+				"--data", requestJSON,
+				"--yes", "--server", dexAddress,
+			},
+		); err != nil {
+			cancel()
+			t.Fatalf("CLI Stream write failed: %v stderr=%s", err, cliErrors.String())
+		}
 	}
 	cliOutput.Reset()
 	if err := cliApp.Execute(
@@ -134,10 +141,44 @@ func TestLocalStackStartsAndReleasesPorts(t *testing.T) {
 		cancel()
 		t.Fatalf("CLI Stream read failed: %v stderr=%s", err, cliErrors.String())
 	}
-	if !bytes.Contains(cliOutput.Bytes(), []byte(`"stringValue":"thinking"`)) ||
-		!bytes.Contains(cliOutput.Bytes(), []byte(`"source":"cli"`)) {
+	var firstRead struct {
+		Message struct {
+			Value struct {
+				StringValue string `json:"stringValue"`
+			} `json:"value"`
+			ResumeToken string `json:"resumeToken"`
+			Source      string `json:"source"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(cliOutput.Bytes(), &firstRead); err != nil {
+		cancel()
+		t.Fatalf("decode first CLI Stream response: %v output=%s", err, cliOutput.String())
+	}
+	if firstRead.Message.Value.StringValue != "thinking" ||
+		firstRead.Message.Source != "cli#writer" || firstRead.Message.ResumeToken == "" {
 		cancel()
 		t.Fatalf("unexpected CLI Stream response: %s", cliOutput.String())
+	}
+	cliOutput.Reset()
+	secondReadRequest := fmt.Sprintf(
+		`{"flowId":"cli-flow","flowType":"CliFlow","streamName":"progress","resumeToken":%q,"waitTimeSeconds":1}`,
+		firstRead.Message.ResumeToken,
+	)
+	if err := cliApp.Execute(
+		context.Background(),
+		[]string{
+			"api", "call", "ReadStream",
+			"--data", secondReadRequest,
+			"--server", dexAddress,
+		},
+	); err != nil {
+		cancel()
+		t.Fatalf("CLI second Stream read failed: %v stderr=%s", err, cliErrors.String())
+	}
+	if !bytes.Contains(cliOutput.Bytes(), []byte(`"stringValue":"still-thinking"`)) ||
+		!bytes.Contains(cliOutput.Bytes(), []byte(`"source":"cli#writer"`)) {
+		cancel()
+		t.Fatalf("unexpected second CLI Stream response: %s", cliOutput.String())
 	}
 
 	cancel()

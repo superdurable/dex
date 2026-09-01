@@ -82,7 +82,7 @@ export interface StreamMessage {
   value: unknown;
   resumeToken: string;
   createdTime: string | null;
-  idempotencyKey: string;
+  source: string;
 }
 
 export interface ActiveStepExecution {

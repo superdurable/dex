@@ -162,7 +162,7 @@ export function StreamPanel({ flowId, flowType }: StreamPanelProps) {
             <article className="stream-message" key={message.resumeToken}>
               <div className="stream-message-meta">
                 <span>{formatDate(message.createdTime, timezone)}</span>
-                {message.idempotencyKey && <code>{message.idempotencyKey}</code>}
+                {message.source && <code>{message.source}</code>}
               </div>
               <StructuredValue value={message.value} />
             </article>

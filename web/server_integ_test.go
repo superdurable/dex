@@ -158,7 +158,7 @@ func TestWebServerReadsStream(t *testing.T) {
 	if result.Value != "reasoning token" ||
 		result.ResumeToken != "next-token" ||
 		result.CreatedTime != "2026-08-27T12:34:56Z" ||
-		result.Source != "run-1#Step-1" {
+		result.Source != "#Step-1" {
 		t.Fatalf("unexpected Stream message: %+v", result)
 	}
 	streamRequest := <-service.streamRequests
@@ -408,7 +408,7 @@ func (s *flowService) ReadStream(
 		Value:       &dexpb.Value{Kind: &dexpb.Value_StringValue{StringValue: "reasoning token"}},
 		ResumeToken: "next-token",
 		CreatedTime: timestamppb.New(time.Date(2026, time.August, 27, 12, 34, 56, 0, time.UTC)),
-		Source:      "run-1#Step-1",
+		Source:      "#Step-1",
 	}}, nil
 }
 
