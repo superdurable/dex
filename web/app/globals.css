@@ -467,6 +467,10 @@ a {
   filter: drop-shadow(0 0 5px rgba(85, 62, 143, 0.52));
 }
 
+.flow-definition-canvas .react-flow__edge-interaction {
+  cursor: pointer;
+}
+
 .definition-flow-frame,
 .definition-step-frame,
 .definition-wait-shape,
@@ -474,6 +478,7 @@ a {
 .definition-channel-pipe,
 .definition-attributes-box,
 .definition-rpc-hexagon,
+.definition-timeout-handler,
 .definition-subflow-frame,
 .definition-stream-node,
 .definition-unknown-node {
@@ -495,13 +500,12 @@ a {
   top: 20px;
   left: 50%;
   max-width: calc(100% - 96px);
-  overflow: hidden;
   color: #241a3a;
   font-size: 23px;
   letter-spacing: -0.025em;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  text-align: center;
   transform: translateX(-50%);
-  white-space: nowrap;
 }
 
 .definition-step-frame {
@@ -517,7 +521,7 @@ a {
   left: 0;
   display: flex;
   width: 100%;
-  height: 42px;
+  min-height: 46px;
   padding: 7px 14px 5px;
   align-items: center;
   justify-content: center;
@@ -526,12 +530,12 @@ a {
 
 .definition-step-title strong {
   max-width: calc(100% - 60px);
-  overflow: hidden;
   color: #1e2c3f;
   font-size: 17px;
   font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .definition-step-title span {
@@ -588,13 +592,12 @@ a {
 
 .definition-shape-rows > span {
   display: block;
-  overflow: hidden;
   color: #4b5563;
   font-size: 11px;
   line-height: 20px;
   text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .definition-dispatch-diamond {
@@ -681,7 +684,7 @@ a {
   top: -2px;
   right: -2px;
   width: 24px;
-  height: 56px;
+  height: calc(100% + 4px);
   border: 2px solid #4f8865;
   border-radius: 50%;
   box-sizing: border-box;
@@ -691,12 +694,12 @@ a {
 
 .definition-channel-pipe strong {
   z-index: 1;
-  max-width: 166px;
-  overflow: hidden;
+  max-width: calc(100% - 58px);
   color: #234c31;
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .definition-attributes-box {
@@ -718,13 +721,12 @@ a {
 }
 
 .definition-attributes-box span {
-  overflow: hidden;
   color: #374151;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10px;
-  line-height: 22px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .definition-rpc-hexagon {
@@ -746,12 +748,55 @@ a {
 
 .definition-rpc-hexagon strong {
   z-index: 1;
-  max-width: 160px;
-  overflow: hidden;
+  max-width: calc(100% - 64px);
   color: #3f2b68;
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+.definition-timeout-handler {
+  display: flex;
+  padding: 12px 22px 14px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #6c83aa;
+  border-left: 8px solid #d58b20;
+  border-radius: 9px;
+  color: #263b59;
+  background: #edf4fd;
+  box-shadow: 0 7px 16px rgba(48, 73, 107, 0.16);
+  text-align: center;
+}
+
+.definition-timeout-kicker {
+  margin-bottom: 3px;
+  color: #985f0d;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.definition-timeout-handler > strong {
+  color: #253c5d;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.definition-timeout-decisions {
+  display: grid;
+  width: 100%;
+  margin-top: 7px;
+  gap: 4px;
+}
+
+.definition-timeout-decisions span {
+  color: #52657f;
+  font-size: 10px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
 }
 
 .definition-subflow-frame {
@@ -767,9 +812,8 @@ a {
 
 .definition-subflow-frame strong {
   max-width: 184px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .definition-stream-node {
@@ -796,28 +840,8 @@ a {
 
 .definition-unknown-node span {
   max-width: 100%;
-  overflow: hidden;
   font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.definition-edge-label {
-  position: absolute;
-  z-index: 20;
-  max-width: 220px;
-  padding: 3px 6px;
-  overflow: hidden;
-  border: 1px solid #e2e8f0;
-  border-radius: 5px;
-  color: #475569;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.08);
-  font-size: 9px;
-  font-weight: 650;
-  pointer-events: all;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .flow-definition-selection {
@@ -834,6 +858,16 @@ a {
 .flow-definition-selection code {
   color: var(--muted);
   font-size: 11px;
+}
+
+.flow-definition-edge-selection {
+  border-color: #9cb7e8;
+  background: #f3f7ff;
+}
+
+.flow-definition-edge-selection > span:last-child {
+  max-width: 44rem;
+  overflow-wrap: anywhere;
 }
 
 .flow-definition-diagnostics {
@@ -2885,7 +2919,8 @@ pre {
   pointer-events: auto;
 }
 
-.graph-canvas .react-flow__minimap.graph-minimap {
+.graph-canvas .react-flow__minimap.graph-minimap,
+.flow-definition-canvas .react-flow__minimap.graph-minimap {
   top: 0;
   left: 0;
   margin: 0;

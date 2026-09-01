@@ -25,8 +25,15 @@ describe('Flow Definition Graph renderer', () => {
     expect(markup).toContain('definition-channel-pipe');
     expect(markup).toContain('definition-attributes-box');
     expect(markup).toContain('definition-rpc-hexagon');
+    expect(markup).toContain('definition-timeout-handler');
+    expect(markup).toContain('TIMEOUT HANDLER');
+    expect(markup).toContain('handleTimeout');
     expect(markup).toContain('definition-subflow-frame');
     expect(markup).toContain('Needs attention');
+    expect(markup).toContain('aria-label="Expand Mini Map"');
+    expect(markup).not.toContain('aria-label="Flow rendering Mini Map"');
+    expect(markup).not.toContain('definition-edge-label');
+    expect(markup).not.toContain('title="lines ');
   });
 
   it('keeps Streams hidden by default while resources remain visible', () => {
@@ -64,6 +71,11 @@ const graph: FlowDefinitionGraph = {
     { id: 'resource:attribute:status', kind: 'attribute', name: 'status', resource: { valueType: 'str' } },
     { id: 'resource:stream:progress', kind: 'stream', name: 'progress', resource: { valueType: 'str' } },
     { id: 'rpc:approve', kind: 'rpc', name: 'approve' },
+    { id: 'timeout_handler:ExampleFlow', kind: 'timeout_handler', name: 'handleTimeout' },
+    {
+      id: 'decision:timeout:30:1', kind: 'decision', name: 'gracefulComplete', parentId: 'timeout_handler:ExampleFlow', phase: 'timeout',
+      decision: { type: 'gracefulComplete' },
+    },
     { id: 'subflow:ChildFlow:12', kind: 'subflow', name: 'ChildFlow', external: true },
   ],
   edges: [

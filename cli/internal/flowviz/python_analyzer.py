@@ -305,7 +305,7 @@ class Analyzer:
                 continue
             if statement.name == "handle_timeout":
                 node_id = f"timeout_handler:{flow_class.name}"
-                self.add_node({"id": node_id, "kind": "timeout_handler", "name": "Flow timeout", "span": self.span(statement)})
+                self.add_node({"id": node_id, "kind": "timeout_handler", "name": "handleTimeout", "span": self.span(statement)})
                 self.analyze_decisions(node_id, statement, rpc=False)
                 self.analyze_resources(node_id, statement, "timeout")
             elif any(self.is_dex_reference(decorator.func if isinstance(decorator, ast.Call) else decorator, "rpc") for decorator in statement.decorator_list):

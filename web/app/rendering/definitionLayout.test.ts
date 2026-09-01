@@ -31,6 +31,7 @@ describe('Flow Definition Graph layout', () => {
     const secondChannel = requiredNode(scene, 'resource:channel:second');
     const attributes = requiredNode(scene, 'definition:attributes');
     const rpc = requiredNode(scene, 'rpc:approve');
+    const timeout = requiredNode(scene, 'timeout_handler:ExampleFlow');
     const subflow = requiredNode(scene, 'subflow:Child:11');
 
     expect(start.parentId).toBe(flow.id);
@@ -41,8 +42,11 @@ describe('Flow Definition Graph layout', () => {
     expect(firstChannel.position.y).toBeLessThan(secondChannel.position.y);
     expect(attributes.data.definitions).toHaveLength(2);
     expect(rpc.position.x).toBeLessThan(0);
+    expect(timeout.type).toBe('definitionTimeout');
+    expect(timeout.data.kind).toBe('timeout');
     expect(overlaps(rpc, firstChannel)).toBe(false);
     expect(overlaps(rpc, attributes)).toBe(false);
+    expect(firstChannel.position.x - (rpc.position.x + Number(rpc.style?.width))).toBeGreaterThanOrEqual(40);
     expect(subflow.parentId).toBe(flow.id);
   });
 
@@ -72,6 +76,22 @@ describe('Flow Definition Graph layout', () => {
         expect(overlaps(steps[left], steps[right])).toBe(false);
       }
     }
+    const start = requiredNode(first, 'step:start');
+    const next = requiredNode(first, 'step:next');
+    expect(next.position.y - (start.position.y + Number(start.style?.height))).toBeGreaterThanOrEqual(140);
+  });
+
+  it('routes self transitions through a selectable outer lane and keeps full branch text', () => {
+    const scene = buildDefinitionScene(graph, visible);
+    const selfTransition = scene.edges.find((edge) => edge.id === 'self-transition')!;
+    const branch = scene.edges.find((edge) => edge.id.startsWith('branch:'))!;
+
+    expect(selfTransition.source).toBe('step:start');
+    expect(selfTransition.sourceHandle).toBe('step-control-outer-source');
+    expect(selfTransition.targetHandle).toBe('step-control-outer-target');
+    expect(selfTransition.data?.route).toBe('outer-right');
+    expect(selfTransition.interactionWidth).toBeGreaterThanOrEqual(24);
+    expect(branch.data?.displayLabel).toBe('input.HasAnExtremelyLongConditionThatMustRemainComplete()');
   });
 });
 
@@ -116,7 +136,12 @@ const graph: FlowDefinitionGraph = {
     },
     {
       id: 'decision:step:start:20:1', kind: 'decision', name: 'goTo', parentId: 'step:start',
+      condition: 'input.HasAnExtremelyLongConditionThatMustRemainComplete()',
       decision: { type: 'goTo', checkedChannels: ['resource:channel:second'] },
+    },
+    {
+      id: 'decision:step:start:21:1', kind: 'decision', name: 'forceFail', parentId: 'step:start',
+      condition: 'otherwise', decision: { type: 'forceFail' },
     },
     {
       id: 'decision:step:next:30:1', kind: 'decision', name: 'gracefulComplete', parentId: 'step:next',
@@ -127,10 +152,17 @@ const graph: FlowDefinitionGraph = {
     { id: 'resource:attribute:name', kind: 'attribute', name: 'name', resource: { valueType: 'string' } },
     { id: 'resource:attribute:count', kind: 'attribute', name: 'count', resource: { valueType: 'int' } },
     { id: 'rpc:approve', kind: 'rpc', name: 'Approve' },
+    { id: 'timeout_handler:ExampleFlow', kind: 'timeout_handler', name: 'handleTimeout' },
+    {
+      id: 'decision:timeout:40:1', kind: 'decision', name: 'goTo', parentId: 'timeout_handler:ExampleFlow', phase: 'timeout',
+      decision: { type: 'goTo' },
+    },
     { id: 'subflow:Child:11', kind: 'subflow', name: 'Child', external: true },
   ],
   edges: [
     { id: 'transition', kind: 'transition', from: 'decision:step:start:20:1', to: 'step:next' },
+    { id: 'self-transition', kind: 'transition', from: 'decision:step:start:20:1', to: 'step:start' },
+    { id: 'timeout-transition', kind: 'transition', from: 'decision:timeout:40:1', to: 'step:next' },
     { id: 'recovery', kind: 'failure_transition', from: 'step:start', to: 'step:next', metadata: { skipWaitFor: true } },
     { id: 'publish', kind: 'resource_publish', from: 'rpc:approve', to: 'resource:channel:first' },
     { id: 'consume', kind: 'wait_condition', from: 'resource:channel:first', to: 'wait:start:10:1' },

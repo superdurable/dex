@@ -312,7 +312,7 @@ func (analyzer *goAnalyzer) analyzeFlowHandlers(flowType string) {
 			continue
 		case "HandleTimeout":
 			nodeID := "timeout_handler:" + flowType
-			analyzer.graph.AddNode(Node{ID: nodeID, Kind: "timeout_handler", Name: "Flow timeout", Span: analyzer.span(method)})
+			analyzer.graph.AddNode(Node{ID: nodeID, Kind: "timeout_handler", Name: "handleTimeout", Span: analyzer.span(method)})
 			analyzer.analyzeDecisionHandler(nodeID, method, "timeout")
 			analyzer.analyzeResourceAccess(nodeID, method, "timeout")
 		default:

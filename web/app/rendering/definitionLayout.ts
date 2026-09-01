@@ -27,7 +27,7 @@ export type DefinitionLayer =
 export type DefinitionVisibility = Record<DefinitionLayer, boolean>;
 
 export interface DefinitionNodeData extends Record<string, unknown> {
-  kind: 'flow' | 'step' | 'wait' | 'dispatch' | 'decision' | 'channel' | 'attributes' | 'rpc' | 'subflow' | 'stream' | 'unknown';
+  kind: 'flow' | 'step' | 'wait' | 'dispatch' | 'decision' | 'channel' | 'attributes' | 'rpc' | 'timeout' | 'subflow' | 'stream' | 'unknown';
   definition?: FlowDefinitionNode;
   definitions?: FlowDefinitionNode[];
   displayName?: string;
@@ -37,6 +37,9 @@ export interface DefinitionNodeData extends Record<string, unknown> {
 }
 
 export interface DefinitionEdgeData extends Record<string, unknown> {
+  displayLabel?: string;
+  kind?: string;
+  route?: 'forward' | 'outer-right';
   title?: string;
 }
 
@@ -59,10 +62,10 @@ const flowID = 'definition:flow';
 const attributeGroupID = 'definition:attributes';
 const flowOrigin = { x: 150, y: 42 };
 const flowHeaderHeight = 72;
-const resourceRailWidth = 300;
-const stepGap = 28;
-const branchGap = 22;
-const cardWidth = 260;
+const resourceRailWidth = 400;
+const stepGap = 32;
+const branchGap = 42;
+const cardWidth = 288;
 const dispatchSize = 58;
 
 export function buildDefinitionScene(
@@ -162,7 +165,7 @@ export function buildDefinitionScene(
   }
   const edges = graph.edges
     .filter((edge) => edge.kind !== 'cancel')
-    .map((edge) => definitionEdge(edge, endpointMap, definitionsByID))
+    .map((edge) => definitionEdge(edge, endpointMap, definitionsByID, stepNodes))
     .filter((edge) => visibleIDs.has(edge.source) && visibleIDs.has(edge.target));
   edges.push(...internalStepEdges(graph, stepLayouts, visibleIDs));
   return { nodes, edges };
@@ -182,25 +185,26 @@ function layoutStep(
   const unknownDefinitions = visibility.control
     ? graph.nodes.filter((node) => node.kind === 'unknown' && node.parentId === step.id).sort(bySpanThenID)
     : [];
+  const nameByID = Object.fromEntries(graph.nodes.map((node) => [node.id, node.name]));
   const waitSection = sectionDimensions(waitDefinitions, waitDimensions);
   const decisionSection = sectionDimensions(
     decisionDefinitions,
-    (definition) => decisionDimensions(definition, graph.edges),
+    (definition) => decisionDimensions(definition, graph.edges, nameByID),
   );
   const unknownSection = { height: unknownDefinitions.length * 82, width: 224 };
   const contentWidth = Math.max(268, waitSection.width, decisionSection.width, unknownSection.width);
   const width = contentWidth + stepGap * 2;
-  let cursorTop = 48;
+  let cursorTop = stepHeaderHeight(step.name, width);
   const children: Array<Node<DefinitionNodeData>> = [];
   if (waitDefinitions.length > 0) {
     const placed = placeSection(step.id, waitDefinitions, cursorTop, contentWidth, 'wait');
     children.push(...placed.nodes);
-    cursorTop += placed.height + 24;
+    cursorTop += placed.height + 38;
   }
   if (decisionDefinitions.length > 0) {
     const placed = placeSection(step.id, decisionDefinitions, cursorTop, contentWidth, 'decision', graph.edges, graph.nodes);
     children.push(...placed.nodes);
-    cursorTop += placed.height + 24;
+    cursorTop += placed.height + 32;
   }
   for (const unknown of unknownDefinitions) {
     children.push({
@@ -215,7 +219,7 @@ function layoutStep(
   }
   return {
     children,
-    dimensions: { height: Math.max(142, cursorTop), width },
+    dimensions: { height: Math.max(154, cursorTop), width },
   };
 }
 
@@ -250,7 +254,11 @@ function placeSection(
 ): { height: number; nodes: Array<Node<DefinitionNodeData>> } {
   const dimensionsFor = kind === 'wait'
     ? waitDimensions
-    : (definition: FlowDefinitionNode) => decisionDimensions(definition, graphEdges);
+    : (definition: FlowDefinitionNode) => decisionDimensions(
+      definition,
+      graphEdges,
+      Object.fromEntries(graphDefinitions.map((item) => [item.id, item.name])),
+    );
   const measured = sectionDimensions(definitions, dimensionsFor);
   const nodes: Array<Node<DefinitionNodeData>> = [];
   let gridTop = top;
@@ -302,18 +310,37 @@ function placeSection(
 }
 
 function waitDimensions(definition: FlowDefinitionNode): Dimensions {
-  const rows = definition.wait?.conditions.length ?? 0;
-  return { height: Math.max(96, 62 + rows * 25), width: cardWidth };
+  const headerLines = wrappedLineCount(`WaitFor ${definition.wait?.type ?? definition.name}`, 30);
+  const conditionLines = (definition.wait?.conditions ?? []).reduce(
+    (total, condition) => total + wrappedLineCount(`${waitIconPrefix(condition.kind)} ${condition.label}`, 34),
+    0,
+  );
+  return { height: Math.max(108, 54 + headerLines * 18 + conditionLines * 20), width: cardWidth };
 }
 
 function decisionDimensions(
   definition: FlowDefinitionNode,
   graphEdges: FlowDefinitionEdge[] = [],
+  nameByID: Record<string, string> = {},
 ): Dimensions {
-  const relatedRows = graphEdges.filter((edge) => edge.from === definition.id && edge.kind === 'transition').length
-    + (definition.decision?.checkedChannels?.length ?? 0)
-    + (definition.decision?.cancellations?.length ?? 0);
-  return { height: Math.max(94, 66 + relatedRows * 25), width: cardWidth };
+  const headerLines = wrappedLineCount(definition.decision?.type ?? definition.name, 30);
+  const transitionLines = graphEdges
+    .filter((edge) => edge.from === definition.id && edge.kind === 'transition')
+    .reduce((total, edge) => total + wrappedLineCount(
+      `Step ${nameByID[edge.to] ?? shortID(edge.to)} ${edge.multiplicity ?? ''}`,
+      34,
+    ), 0);
+  const channelLines = (definition.decision?.checkedChannels ?? []).reduce(
+    (total, channelID) => total + wrappedLineCount(`Channel ${nameByID[channelID] ?? shortID(channelID)}`, 34),
+    0,
+  );
+  const cancellationLines = (definition.decision?.cancellations ?? []).reduce(
+    (total, cancellation) => total + wrappedLineCount(
+      `Cancel ${nameByID[cancellation.stepId] ?? shortID(cancellation.stepId)} ${cancellation.scope === 'siblings' ? 'siblings' : ''}`,
+      31,
+    ), 0);
+  const rowLines = transitionLines + channelLines + cancellationLines;
+  return { height: Math.max(102, 48 + headerLines * 18 + rowLines * 22), width: cardWidth };
 }
 
 function layoutStepTopology(
@@ -325,7 +352,7 @@ function layoutStepTopology(
   if (steps.length === 0) return new Map();
   const dagreGraph = new dagre.graphlib.Graph();
   dagreGraph.setDefaultEdgeLabel(() => ({}));
-  dagreGraph.setGraph({ rankdir: 'TB', ranksep: 104, nodesep: 72, marginx: 0, marginy: 0 });
+  dagreGraph.setGraph({ rankdir: 'TB', ranksep: 168, nodesep: 104, marginx: 0, marginy: 0 });
   const stepIDs = new Set(steps.map((step) => step.id));
   for (const step of steps) {
     const dimensions = stepLayouts.get(step.id)!.dimensions;
@@ -380,15 +407,16 @@ function layoutResources(
   let top = flowHeaderHeight + 34;
   if (visibility.channels) {
     for (const channel of graph.nodes.filter((node) => node.kind === 'channel').sort(byNameThenID)) {
+      const height = Math.max(60, 38 + wrappedLineCount(channel.name, 30) * 18);
       nodes.push({
         id: channel.id,
         type: 'definitionChannel',
         parentId: flowID,
-        position: { x: 124, y: top },
-        style: { height: 56, width: 224 },
+        position: { x: 180, y: top },
+        style: { height, width: 258 },
         data: { kind: 'channel', definition: channel, sourceTitle: sourceTitle(channel.span) },
       });
-      top += 72;
+      top += height + 18;
     }
   }
   const attributes = visibility.attributes
@@ -396,27 +424,33 @@ function layoutResources(
     : [];
   if (attributes.length > 0) {
     top += 12;
+    const rowLines = attributes.reduce((total, attribute) => total + wrappedLineCount(
+      `- ${attribute.name}:${attribute.resource?.valueType ?? 'unknown'}${attribute.resource?.map ? ' map' : ''}`,
+      35,
+    ), 0);
+    const height = 48 + rowLines * 19;
     nodes.push({
       id: attributeGroupID,
       type: 'definitionAttributes',
       parentId: flowID,
-      position: { x: 116, y: top },
-      style: { height: 52 + attributes.length * 27, width: 232 },
+      position: { x: 168, y: top },
+      style: { height, width: 270 },
       data: { kind: 'attributes', definitions: attributes },
     });
-    top += 68 + attributes.length * 27;
+    top += height + 20;
   }
   if (visibility.streams) {
     for (const stream of graph.nodes.filter((node) => node.kind === 'stream').sort(byNameThenID)) {
+      const height = Math.max(60, 38 + wrappedLineCount(stream.name, 30) * 18);
       nodes.push({
         id: stream.id,
         type: 'definitionStream',
         parentId: flowID,
-        position: { x: 124, y: top },
-        style: { height: 58, width: 224 },
+        position: { x: 180, y: top },
+        style: { height, width: 258 },
         data: { kind: 'stream', definition: stream, sourceTitle: sourceTitle(stream.span) },
       });
-      top += 74;
+      top += height + 18;
     }
   }
   return nodes;
@@ -427,17 +461,42 @@ function layoutHandlers(
   visibility: DefinitionVisibility,
 ): Array<Node<DefinitionNodeData>> {
   if (!visibility.handlers) return [];
+  const nameByID = Object.fromEntries(graph.nodes.map((node) => [node.id, node.name]));
+  let top = flowHeaderHeight + 36;
   return graph.nodes
     .filter((node) => node.kind === 'rpc' || node.kind === 'timeout_handler')
     .sort(byNameThenID)
-    .map((handler, index) => ({
-      id: handler.id,
-      type: 'definitionRPC',
-      parentId: flowID,
-      position: { x: -108, y: flowHeaderHeight + 36 + index * 88 },
-      style: { height: 62, width: 220 },
-      data: { kind: 'rpc' as const, definition: handler, sourceTitle: sourceTitle(handler.span) },
-    }));
+    .map((handler) => {
+      const decisions = graph.nodes.filter((node) => node.kind === 'decision' && node.parentId === handler.id);
+      const relatedEdges = decisions.flatMap((decision) => graph.edges.filter((edge) => edge.from === decision.id));
+      const isTimeout = handler.kind === 'timeout_handler';
+      const decisionLines = decisions.reduce((total, decision) => {
+        const movementLines = relatedEdges
+          .filter((edge) => edge.from === decision.id && edge.kind === 'transition')
+          .reduce((count, edge) => count + wrappedLineCount(nameByID[edge.to] ?? shortID(edge.to), 24), 0);
+        return total + wrappedLineCount(decision.decision?.type ?? decision.name, 24) + movementLines;
+      }, 0);
+      const height = isTimeout
+        ? Math.max(104, 62 + decisionLines * 19)
+        : Math.max(68, 42 + wrappedLineCount(handler.name, 28) * 18);
+      const node: Node<DefinitionNodeData> = {
+        id: handler.id,
+        type: isTimeout ? 'definitionTimeout' : 'definitionRPC',
+        parentId: flowID,
+        position: { x: -132, y: top },
+        style: { height, width: 260 },
+        data: {
+          kind: isTimeout ? 'timeout' : 'rpc',
+          definition: handler,
+          definitions: decisions,
+          relatedEdges,
+          nameByID,
+          sourceTitle: sourceTitle(handler.span),
+        },
+      };
+      top += height + 30;
+      return node;
+    });
 }
 
 function layoutSubFlows(
@@ -456,13 +515,14 @@ function layoutSubFlows(
     const stepID = wait?.parentId ?? '';
     const stepTop = stepPositions.get(stepID)?.y ?? flowHeaderHeight + 40 + index * 94;
     const top = nextTopByStep.get(stepID) ?? stepTop;
-    nextTopByStep.set(stepID, top + 92);
+    const height = Math.max(72, 42 + wrappedLineCount(subflow.name, 28) * 19);
+    nextTopByStep.set(stepID, top + height + 26);
     return {
       id: subflow.id,
       type: 'definitionSubFlow',
       parentId: flowID,
       position: { x: left, y: top },
-      style: { height: 68, width: 224 },
+      style: { height, width: 238 },
       data: { kind: 'subflow' as const, definition: subflow, sourceTitle: sourceTitle(subflow.span) },
     };
   });
@@ -476,20 +536,27 @@ function layoutUnknownNodes(
 ): Array<Node<DefinitionNodeData>> {
   if (!visibility.control) return [];
   const top = Math.max(flowHeaderHeight + 44, ...subflows.map((node) => node.position.y + numericStyle(node, 'height') + 24));
-  return graph.nodes.filter((node) => node.kind === 'unknown' && !node.parentId).sort(byNameThenID).map((unknown, index) => ({
-    id: unknown.id,
-    type: 'definitionUnknown',
-    parentId: flowID,
-    position: { x: left, y: top + index * 90 },
-    style: { height: 64, width: 224 },
-    data: { kind: 'unknown' as const, definition: unknown, sourceTitle: sourceTitle(unknown.span) },
-  }));
+  let nextTop = top;
+  return graph.nodes.filter((node) => node.kind === 'unknown' && !node.parentId).sort(byNameThenID).map((unknown) => {
+    const height = Math.max(68, 44 + wrappedLineCount(unknown.name, 30) * 18);
+    const node: Node<DefinitionNodeData> = {
+      id: unknown.id,
+      type: 'definitionUnknown',
+      parentId: flowID,
+      position: { x: left, y: nextTop },
+      style: { height, width: 238 },
+      data: { kind: 'unknown' as const, definition: unknown, sourceTitle: sourceTitle(unknown.span) },
+    };
+    nextTop += height + 26;
+    return node;
+  });
 }
 
 function definitionEdge(
   definition: FlowDefinitionEdge,
   endpointMap: Map<string, string>,
   definitionsByID: Map<string, FlowDefinitionNode>,
+  stepNodes: Array<Node<DefinitionNodeData>>,
 ): Edge<DefinitionEdgeData> {
   const source = endpointMap.get(definition.from) ?? definition.from;
   const target = endpointMap.get(definition.to) ?? definition.to;
@@ -497,36 +564,76 @@ function definitionEdge(
   const targetDefinition = definitionsByID.get(definition.to);
   const color = edgeColor(definition.kind);
   const label = edgeLabel(definition);
+  const isOuterRight = usesOuterRightRoute(definition, sourceDefinition, targetDefinition, stepNodes);
+  const routedSource = isOuterRight && sourceDefinition?.kind === 'decision' && sourceDefinition.parentId
+    ? sourceDefinition.parentId
+    : source;
   return {
     id: definition.id,
-    source,
-    sourceHandle: sourceHandle(definition.kind, sourceDefinition),
+    source: routedSource,
+    sourceHandle: sourceHandle(definition.kind, sourceDefinition, isOuterRight),
     target,
-    targetHandle: targetHandle(definition.kind, targetDefinition),
+    targetHandle: targetHandle(definition.kind, targetDefinition, isOuterRight),
     label,
     type: 'definitionEdge',
+    interactionWidth: 28,
     markerEnd: { type: MarkerType.ArrowClosed, width: 17, height: 17, color },
     style: {
       stroke: color,
       strokeDasharray: isDashed(definition.kind) ? '6 5' : undefined,
       strokeWidth: definition.kind === 'failure_transition' ? 2.8 : definition.kind === 'transition' ? 2 : 1.6,
     },
-    data: { title: [definition.condition, definition.label, sourceTitle(definition.span)].filter(Boolean).join(' · ') },
+    data: {
+      displayLabel: definition.condition || label || definition.label,
+      kind: definition.kind,
+      route: isOuterRight ? 'outer-right' : 'forward',
+      title: [definition.condition, definition.label, sourceTitle(definition.span)].filter(Boolean).join(' · '),
+    },
   };
 }
 
-function sourceHandle(kind: string, definition?: FlowDefinitionNode): string | undefined {
+function sourceHandle(
+  kind: string,
+  definition?: FlowDefinitionNode,
+  isOuterRight = false,
+): string | undefined {
+  if (isOuterRight && (definition?.kind === 'decision' || definition?.kind === 'step')) {
+    return 'step-control-outer-source';
+  }
   if (definition?.kind !== 'step') return undefined;
   if (kind === 'failure_transition') return 'step-recovery-source';
   if (kind.startsWith('resource_')) return 'step-resource-source';
   return undefined;
 }
 
-function targetHandle(kind: string, definition?: FlowDefinitionNode): string | undefined {
+function targetHandle(
+  kind: string,
+  definition?: FlowDefinitionNode,
+  isOuterRight = false,
+): string | undefined {
   if (definition?.kind !== 'step') return undefined;
+  if (isOuterRight) return 'step-control-outer-target';
   if (kind === 'transition' || kind === 'failure_transition') return 'step-target';
   if (kind.startsWith('resource_')) return 'step-resource-target';
   return undefined;
+}
+
+function usesOuterRightRoute(
+  edge: FlowDefinitionEdge,
+  sourceDefinition: FlowDefinitionNode | undefined,
+  targetDefinition: FlowDefinitionNode | undefined,
+  stepNodes: Array<Node<DefinitionNodeData>>,
+): boolean {
+  if (edge.kind !== 'transition' && edge.kind !== 'failure_transition') return false;
+  const sourceStepID = sourceDefinition?.kind === 'decision'
+    ? sourceDefinition.parentId
+    : sourceDefinition?.kind === 'step' ? sourceDefinition.id : undefined;
+  if (!sourceStepID || targetDefinition?.kind !== 'step') return false;
+  const positions = new Map(stepNodes.map((node) => [node.id, node.position]));
+  const sourcePosition = positions.get(sourceStepID);
+  const targetPosition = positions.get(targetDefinition.id);
+  if (!sourcePosition || !targetPosition) return false;
+  return sourceStepID === targetDefinition.id || targetPosition.y <= sourcePosition.y + 24;
 }
 
 function internalStepEdges(
@@ -555,9 +662,10 @@ function internalStepEdges(
           source: source.id,
           target: phaseTarget,
           type: 'definitionEdge',
+          interactionWidth: 28,
           markerEnd: { type: MarkerType.ArrowClosed, width: 13, height: 13, color: '#94a3b8' },
           style: { stroke: '#94a3b8', strokeWidth: 1.35 },
-          data: { title: 'WaitFor completes before Execute' },
+          data: { kind: 'phase', title: 'WaitFor completes before Execute' },
         });
       }
     }
@@ -571,11 +679,16 @@ function branchEdge(source: string, target: Node<DefinitionNodeData>): Edge<Defi
     id: `branch:${source}:${target.id}`,
     source,
     target: target.id,
-    label: truncateCondition(condition),
+    label: condition,
     type: 'definitionEdge',
+    interactionWidth: 28,
     markerEnd: { type: MarkerType.ArrowClosed, width: 13, height: 13, color: '#64748b' },
     style: { stroke: '#64748b', strokeWidth: 1.35 },
-    data: { title: [condition, sourceTitle(target.data.definition?.span)].filter(Boolean).join(' · ') },
+    data: {
+      displayLabel: condition,
+      kind: 'branch',
+      title: [condition, sourceTitle(target.data.definition?.span)].filter(Boolean).join(' · '),
+    },
   };
 }
 
@@ -600,8 +713,25 @@ function isDashed(kind: string): boolean {
   return kind.startsWith('resource_') || kind === 'wait_condition' || kind === 'subflow';
 }
 
-function truncateCondition(condition: string): string {
-  return condition.length <= 36 ? condition : `${condition.slice(0, 35)}…`;
+function stepHeaderHeight(name: string, width: number): number {
+  const availableCharacters = Math.max(24, Math.floor((width - 112) / 8));
+  return Math.max(52, 28 + wrappedLineCount(name, availableCharacters) * 20);
+}
+
+function wrappedLineCount(value: string, charactersPerLine: number): number {
+  if (!value) return 1;
+  return Math.max(1, Math.ceil(value.length / charactersPerLine));
+}
+
+function waitIconPrefix(kind: string): string {
+  if (kind === 'channel') return 'channel';
+  if (kind === 'timer') return 'timer';
+  if (kind === 'subflow') return 'subflow';
+  return 'unknown';
+}
+
+function shortID(id: string): string {
+  return id.split(':').at(-1) ?? id;
 }
 
 function sourceTitle(span?: SourceSpan): string {

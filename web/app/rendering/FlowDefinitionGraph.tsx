@@ -11,12 +11,12 @@ import {
   Background,
   BaseEdge,
   Controls,
-  EdgeLabelRenderer,
   Handle,
   MiniMap,
   Position,
   ReactFlow,
   getSmoothStepPath,
+  type Edge,
   type EdgeProps,
   type EdgeTypes,
   type NodeProps,
@@ -64,6 +64,7 @@ const nodeTypes: NodeTypes = {
   definitionStep: StepNode,
   definitionStream: StreamNode,
   definitionSubFlow: SubFlowNode,
+  definitionTimeout: TimeoutNode,
   definitionUnknown: UnknownNode,
   definitionWait: WaitNode,
 };
@@ -79,12 +80,19 @@ export function FlowDefinitionGraphView({
 }) {
   const [visibility, setVisibility] = useState(defaultVisibility);
   const [selectedNodeID, setSelectedNodeID] = useState('');
+  const [selectedEdgeID, setSelectedEdgeID] = useState('');
+  const [isMiniMapExpanded, setIsMiniMapExpanded] = useState(false);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
   const scene = useMemo(
     () => buildDefinitionScene(graph, visibility),
     [graph, visibility],
   );
   const selectedNode = scene.nodes.find((node) => node.id === selectedNodeID);
+  const selectedEdge = scene.edges.find((edge) => edge.id === selectedEdgeID);
+  const renderedEdges = useMemo(
+    () => scene.edges.map((edge) => ({ ...edge, selected: edge.id === selectedEdgeID })),
+    [scene.edges, selectedEdgeID],
+  );
 
   useEffect(() => {
     if (!flowInstance || scene.nodes.length === 0) return;
@@ -96,6 +104,12 @@ export function FlowDefinitionGraphView({
       setSelectedNodeID('');
     }
   }, [scene.nodes, selectedNodeID]);
+
+  useEffect(() => {
+    if (selectedEdgeID && !scene.edges.some((edge) => edge.id === selectedEdgeID)) {
+      setSelectedEdgeID('');
+    }
+  }, [scene.edges, selectedEdgeID]);
 
   return (
     <section className="flow-definition-view">
@@ -128,7 +142,7 @@ export function FlowDefinitionGraphView({
 
       <div className="flow-definition-canvas">
         <ReactFlow
-          edges={scene.edges}
+          edges={renderedEdges}
           edgeTypes={edgeTypes}
           elementsSelectable
           fitView
@@ -140,20 +154,46 @@ export function FlowDefinitionGraphView({
           nodesDraggable={false}
           nodeTypes={nodeTypes}
           onInit={setFlowInstance}
-          onNodeClick={(_, node) => setSelectedNodeID(node.id)}
-          onPaneClick={() => setSelectedNodeID('')}
+          onEdgeClick={(_, edge) => {
+            setSelectedEdgeID(edge.id);
+            setSelectedNodeID('');
+          }}
+          onNodeClick={(_, node) => {
+            setSelectedNodeID(node.id);
+            setSelectedEdgeID('');
+          }}
+          onPaneClick={() => {
+            setSelectedNodeID('');
+            setSelectedEdgeID('');
+          }}
           proOptions={{ hideAttribution: true }}
         >
           <Background gap={24} size={1} color="#ddd8ea" />
           <Controls position="top-right" />
-          <MiniMap
-            maskColor="rgba(247, 244, 252, 0.68)"
-            nodeColor={miniMapColor}
-            pannable
-            position="bottom-right"
-            zoomable
-            nodeStrokeWidth={2}
-          />
+          <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
+            {isMiniMapExpanded && (
+              <MiniMap
+                ariaLabel="Flow rendering Mini Map"
+                className="graph-minimap"
+                maskColor="rgba(247, 244, 252, 0.68)"
+                nodeColor={miniMapColor}
+                pannable
+                position="top-left"
+                zoomable
+                nodeStrokeWidth={2}
+              />
+            )}
+            <button
+              aria-expanded={isMiniMapExpanded}
+              aria-label={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
+              className="graph-minimap-toggle nodrag nopan"
+              onClick={() => setIsMiniMapExpanded((expanded) => !expanded)}
+              title={isMiniMapExpanded ? 'Collapse Mini Map' : 'Expand Mini Map'}
+              type="button"
+            >
+              {isMiniMapExpanded ? 'Close ×' : 'Mini Map'}
+            </button>
+          </div>
         </ReactFlow>
       </div>
 
@@ -165,6 +205,17 @@ export function FlowDefinitionGraphView({
           </div>
           <code>{selectedNode.id}</code>
           {selectedNode.data.sourceTitle && <span>{selectedNode.data.sourceTitle}</span>}
+        </div>
+      )}
+
+      {selectedEdge && (
+        <div className="flow-definition-selection flow-definition-edge-selection card">
+          <div>
+            <span>{edgeKindLabel(selectedEdge)}</span>
+            <b>{selectedEdge.data?.displayLabel || 'Selected relation'}</b>
+          </div>
+          <code>{sceneNodeName(scene.nodes, selectedEdge.source)} → {sceneNodeName(scene.nodes, selectedEdge.target)}</code>
+          {selectedEdge.data?.title && <span>{selectedEdge.data.title}</span>}
         </div>
       )}
 
@@ -186,7 +237,7 @@ export function FlowDefinitionGraphView({
 function FlowNode({ data }: NodeProps) {
   const definition = data as DefinitionNodeData;
   return (
-    <div className="definition-flow-frame" title={definition.sourceTitle}>
+    <div aria-label={definition.sourceTitle} className="definition-flow-frame">
       <strong>{definition.displayName || 'Flow'}</strong>
     </div>
   );
@@ -195,8 +246,10 @@ function FlowNode({ data }: NodeProps) {
 function StepNode({ data }: NodeProps) {
   const definition = (data as DefinitionNodeData).definition!;
   return (
-    <div className="definition-step-frame" title={sourceTitle(definition)}>
+    <div aria-label={sourceTitle(definition)} className="definition-step-frame">
       <Handle id="step-target" position={Position.Top} type="target" />
+      <Handle id="step-control-outer-target" position={Position.Right} style={{ top: 22 }} type="target" />
+      <Handle id="step-control-outer-source" position={Position.Right} style={{ top: 'calc(100% - 22px)' }} type="source" />
       <div className="definition-step-title">
         <strong>{definition.name}</strong>
         {definition.start && <span>START</span>}
@@ -211,13 +264,13 @@ function StepNode({ data }: NodeProps) {
 function WaitNode({ data }: NodeProps) {
   const definition = (data as DefinitionNodeData).definition!;
   return (
-    <div className="definition-wait-shape" title={sourceTitle(definition)}>
+    <div aria-label={sourceTitle(definition)} className="definition-wait-shape">
       <Handle position={Position.Top} type="target" />
       <div className="definition-shape-content">
         <strong>WaitFor <span>{definition.wait?.type ?? definition.name}</span></strong>
         <div className="definition-shape-rows">
           {definition.wait?.conditions.map((condition, index) => (
-            <span key={`${condition.kind}-${condition.label}-${index}`} title={condition.expression || condition.label}>
+            <span key={`${condition.kind}-${condition.label}-${index}`}>
               {waitIcon(condition.kind)} {condition.label}
             </span>
           ))}
@@ -231,7 +284,7 @@ function WaitNode({ data }: NodeProps) {
 function DispatchNode({ data }: NodeProps) {
   const definition = data as DefinitionNodeData;
   return (
-    <div className="definition-dispatch-diamond" title={definition.displayName}>
+    <div aria-label={definition.displayName} className="definition-dispatch-diamond">
       <Handle position={Position.Top} type="target" />
       <span>?</span>
       <Handle position={Position.Bottom} type="source" />
@@ -253,7 +306,7 @@ function DecisionNode({ data }: NodeProps) {
   return (
     <div
       className={`definition-decision-card decision-${details?.type ?? 'unknown'}`}
-      title={sourceTitle(definition)}
+      aria-label={sourceTitle(definition)}
     >
       <Handle position={Position.Top} type="target" />
       <strong>{details?.type ?? definition.name}</strong>
@@ -279,7 +332,7 @@ function DecisionNode({ data }: NodeProps) {
 function ChannelNode({ data }: NodeProps) {
   const definition = (data as DefinitionNodeData).definition!;
   return (
-    <div className="definition-channel-pipe" title={sourceTitle(definition)}>
+    <div aria-label={sourceTitle(definition)} className="definition-channel-pipe">
       <Handle position={Position.Left} type="target" />
       <strong>{definition.name}</strong>
       <Handle position={Position.Right} type="source" />
@@ -295,7 +348,7 @@ function AttributesNode({ data }: NodeProps) {
       <Handle position={Position.Right} type="source" />
       <strong>Attributes</strong>
       {definitions.map((definition) => (
-        <span key={definition.id} title={sourceTitle(definition)}>
+        <span key={definition.id}>
           - {definition.name}:{definition.resource?.valueType ?? 'unknown'}
           {definition.resource?.map ? ' map' : ''}
         </span>
@@ -307,9 +360,31 @@ function AttributesNode({ data }: NodeProps) {
 function RPCNode({ data }: NodeProps) {
   const definition = (data as DefinitionNodeData).definition!;
   return (
-    <div className="definition-rpc-hexagon" title={sourceTitle(definition)}>
+    <div aria-label={sourceTitle(definition)} className="definition-rpc-hexagon">
       <Handle position={Position.Left} type="target" />
       <strong>{definition.name}</strong>
+      <Handle position={Position.Right} type="source" />
+    </div>
+  );
+}
+
+function TimeoutNode({ data }: NodeProps) {
+  const definitionData = data as DefinitionNodeData;
+  const definition = definitionData.definition!;
+  const decisions = definitionData.definitions ?? [];
+  return (
+    <div aria-label={sourceTitle(definition)} className="definition-timeout-handler">
+      <Handle position={Position.Left} type="target" />
+      <span className="definition-timeout-kicker">⏱ TIMEOUT HANDLER</span>
+      <strong>handleTimeout</strong>
+      <div className="definition-timeout-decisions">
+        {decisions.map((decision) => (
+          <span key={decision.id}>
+            {decision.decision?.type ?? decision.name}
+            {timeoutMovementLabels(decision, definitionData).map((label) => ` → 🧩 ${label}`)}
+          </span>
+        ))}
+      </div>
       <Handle position={Position.Right} type="source" />
     </div>
   );
@@ -318,7 +393,7 @@ function RPCNode({ data }: NodeProps) {
 function SubFlowNode({ data }: NodeProps) {
   const definition = (data as DefinitionNodeData).definition!;
   return (
-    <div className="definition-subflow-frame" title={sourceTitle(definition)}>
+    <div aria-label={sourceTitle(definition)} className="definition-subflow-frame">
       <Handle position={Position.Left} type="target" />
       <strong>{definition.name}</strong>
     </div>
@@ -328,7 +403,7 @@ function SubFlowNode({ data }: NodeProps) {
 function StreamNode({ data }: NodeProps) {
   const definition = (data as DefinitionNodeData).definition!;
   return (
-    <div className="definition-stream-node" title={sourceTitle(definition)}>
+    <div aria-label={sourceTitle(definition)} className="definition-stream-node">
       <Handle position={Position.Left} type="target" />
       <strong>{definition.name}</strong>
       <Handle position={Position.Right} type="source" />
@@ -339,7 +414,7 @@ function StreamNode({ data }: NodeProps) {
 function UnknownNode({ data }: NodeProps) {
   const definition = (data as DefinitionNodeData).definition!;
   return (
-    <div className="definition-unknown-node" title={sourceTitle(definition)}>
+    <div aria-label={sourceTitle(definition)} className="definition-unknown-node">
       <Handle position={Position.Left} type="target" />
       <strong>Unknown</strong>
       <span>{definition.name}</span>
@@ -348,7 +423,9 @@ function UnknownNode({ data }: NodeProps) {
 }
 
 function DefinitionEdge({
+  data,
   id,
+  selected,
   sourceX,
   sourceY,
   targetX,
@@ -357,10 +434,9 @@ function DefinitionEdge({
   targetPosition,
   markerEnd,
   style,
-  label,
-  data,
 }: EdgeProps) {
-  const [path, labelX, labelY] = getSmoothStepPath({
+  const edgeData = data as DefinitionEdgeData | undefined;
+  const [path] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -368,30 +444,28 @@ function DefinitionEdge({
     targetY,
     targetPosition,
     borderRadius: 18,
-    offset: edgeLaneOffset(id),
+    offset: (edgeData?.route === 'outer-right' ? 72 : 28) + edgeLaneOffset(id),
   });
-  return (
-    <>
-      <BaseEdge id={id} markerEnd={markerEnd} path={path} style={style} />
-      {label && (
-        <EdgeLabelRenderer>
-          <span
-            className="definition-edge-label nodrag nopan"
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}
-            title={(data as DefinitionEdgeData | undefined)?.title}
-          >
-            {String(label)}
-          </span>
-        </EdgeLabelRenderer>
-      )}
-    </>
-  );
+  const selectedStyle = selected
+    ? {
+      ...style,
+      filter: 'drop-shadow(0 0 4px rgba(37, 99, 235, 0.85))',
+      strokeWidth: numericStrokeWidth(style?.strokeWidth) + 3,
+    }
+    : style;
+  return <BaseEdge id={id} interactionWidth={28} markerEnd={markerEnd} path={path} style={selectedStyle} />;
 }
 
 function edgeLaneOffset(id: string): number {
   let hash = 0;
   for (const character of id) hash = (hash * 31 + character.charCodeAt(0)) % 4;
-  return 18 + hash * 7;
+  return hash * 9;
+}
+
+function numericStrokeWidth(value: string | number | undefined): number {
+  if (typeof value === 'number') return value;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 1.5;
 }
 
 function waitIcon(kind: string): string {
@@ -413,9 +487,18 @@ function shortID(id: string): string {
   return id.split(':').at(-1) ?? id;
 }
 
+function timeoutMovementLabels(
+  decision: FlowDefinitionNode,
+  data: DefinitionNodeData,
+): string[] {
+  return (data.relatedEdges ?? [])
+    .filter((edge) => edge.kind === 'transition' && edge.from === decision.id)
+    .map((edge) => data.nameByID?.[edge.to] ?? shortID(edge.to));
+}
+
 function selectionKind(data: DefinitionNodeData): string {
   if (data.kind === 'attributes') return 'Attributes';
-  if (data.kind === 'rpc' && data.definition?.kind === 'timeout_handler') return 'Timeout handler';
+  if (data.kind === 'timeout') return 'Timeout handler';
   return data.kind.replaceAll('_', ' ');
 }
 
@@ -424,11 +507,30 @@ function selectionName(data: DefinitionNodeData): string {
   return data.definition?.name ?? data.displayName ?? data.kind;
 }
 
+function edgeKindLabel(edge: Edge<DefinitionEdgeData>): string {
+  if (edge.data?.kind === 'failure_transition') return 'Recovery edge';
+  if (edge.data?.kind === 'transition') return 'Step transition';
+  if (edge.data?.kind === 'branch') return 'Conditional branch';
+  if (edge.data?.kind === 'phase') return 'Step phase';
+  return edge.data?.kind?.replaceAll('_', ' ') ?? 'Relation';
+}
+
+function sceneNodeName(
+  nodes: Array<{ data: DefinitionNodeData; id: string }>,
+  id: string,
+): string {
+  const node = nodes.find((candidate) => candidate.id === id);
+  if (!node) return id;
+  if (node.data.kind === 'attributes') return 'Attributes';
+  return node.data.definition?.name ?? node.data.displayName ?? id;
+}
+
 function miniMapColor(node: { data?: unknown }): string {
   const data = node.data as DefinitionNodeData | undefined;
   if (data?.kind === 'step') return '#dbeafe';
   if (data?.kind === 'wait') return '#fef3c7';
   if (data?.kind === 'decision') return '#dcfce7';
+  if (data?.kind === 'timeout') return '#fff1d6';
   if (data?.kind === 'flow') return '#f3effb';
   return '#e2e8f0';
 }
