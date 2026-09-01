@@ -104,6 +104,8 @@ Step implementation 通常只有一个或两个小方法：**WaitFor** -> **Exec
 
 每次 **WaitFor** 或 **Execute** 调用都有独立的 commit 边界。Dex Server 会暂存该 method 内的 Attribute 写入和 Channel publish，并只在 method 成功返回时，将它们与相应的 **Wait** 或 **StepDecision** 一起 commit。如果 method 失败，这些 durable 变更都不会被 commit。**WaitFor** 和 **Execute** 不共享一次 commit，外部 API 调用也不在这个原子边界内。
 
+在最终 **Wait** 或 **StepDecision** 之前，handler 可以发送 [heartbeat checkpoint](/primitives/step/step-options#heartbeat) 和任意多条 best-effort [Stream message](/primitives/stream)。Response stream 必须以且仅以一个最终 result 结束。这些 progress frame 不属于 method commit，Stream Store 写入失败也不会让 Step 失败。
+
 <StepWaitExecuteDiagram />
 
 <SdkTabs

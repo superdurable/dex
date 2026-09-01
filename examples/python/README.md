@@ -1,6 +1,6 @@
 # Dex Python examples
 
-These examples target [`dex-python-sdk==0.2.3`](https://pypi.org/project/dex-python-sdk/0.2.3/)
+These examples target [`dex-python-sdk==0.2.6`](https://pypi.org/project/dex-python-sdk/0.2.6/)
 (`import dex`). Requires Python 3.11+.
 
 The primary sample process hosts one asyncio `AsyncWorker` on `127.0.0.1:8803` and a

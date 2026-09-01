@@ -21,7 +21,8 @@ from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
 from dex_examples.products.subscription.customer import Customer
 from dex_examples.products.subscription.subscription import Subscription
-from tests.integ.conftest import WAIT_TIMEOUT, wait_until
+from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
+from tests.integ.conftest import WAIT_TIMEOUT, wait_for_attribute, wait_until
 
 from dex import AsyncClient
 
@@ -72,10 +73,12 @@ async def test_subscription_describe_returns_the_stored_plan(
         start_options(),
     )
 
-    subscription = await wait_until(
-        "Initialize to store the customer",
-        lambda: client.invoke_rpc(app.subscription.describe, flow_id),
+    await wait_for_attribute(
+        client,
+        flow_id,
+        SubscriptionFlow.customer_details,
     )
+    subscription = await client.invoke_rpc(app.subscription.describe, flow_id)
     assert subscription.trial_period_seconds == LONG_TRIAL_SECONDS
     assert subscription.billing_period_charge == 100
 
@@ -98,9 +101,10 @@ async def test_subscription_update_charge_amount(
         start_options(),
     )
 
-    await wait_until(
-        "Initialize to store the customer",
-        lambda: client.invoke_rpc(app.subscription.describe, flow_id),
+    await wait_for_attribute(
+        client,
+        flow_id,
+        SubscriptionFlow.customer_details,
     )
     await client.publish(flow_id, app.subscription.update_charge_amount, 250)
 

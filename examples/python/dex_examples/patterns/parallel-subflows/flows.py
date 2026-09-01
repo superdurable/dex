@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from dex import (
+    AsyncContext,
     AsyncClient,
     Attribute,
     Channel,
@@ -61,7 +62,7 @@ class SubmitRequestInput:
 
 
 class DoWorkStep(Step[str]):
-    async def execute(self, context: Context, request: str) -> StepDecision:
+    async def execute(self, context: AsyncContext, request: str) -> StepDecision:
         await asyncio.sleep((50 + len(request) % 10 * 50) / 1000)
         return graceful_complete(request)
 
@@ -124,7 +125,7 @@ class SubFlowStep(Step[str]):
         )
 
     async def execute(  # type: ignore[override]
-        self, context: Context, request: str
+        self, context: AsyncContext, request: str
     ) -> StepDecision:
         result = SubFlow.get_condition_results(context)
         if result.status is not FlowStatus.RUNNING:
@@ -379,7 +380,7 @@ class SubmitStep(Step[SubmitRequestInput]):
         self.parent_flow = parent_flow
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: SubmitRequestInput
+        self, context: AsyncContext, input: SubmitRequestInput
     ) -> StepDecision:
         if not input.parent_ids:
             raise ValueError("at least one parent Flow ID is required")

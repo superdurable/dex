@@ -182,7 +182,7 @@ class ExampleApp:
 
         self.controller = ControllerFlow(client_provider, lambda: self.processing)
         self.processing = ProcessingFlow(client_provider, lambda: self.controller)
-        self.email_agent = EmailAgentFlow(client_provider)
+        self.email_agent = EmailAgentFlow()
 
         flows: list[Flow[Any]] = [
             self.money_transfer,

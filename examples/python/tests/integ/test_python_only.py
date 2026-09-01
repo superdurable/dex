@@ -56,6 +56,16 @@ async def test_stream_resumes_after_step_and_client_writes(
         timeout=WAIT_TIMEOUT,
     )
     assert step_message.value == "Rendering preview for invoice"
+    assert step_message.source.startswith("#")
+
+    second_step_message = await client.read_stream(
+        flow_id,
+        app.stream.progress,
+        step_message.resume_token,
+        WAIT_TIMEOUT,
+    )
+    assert second_step_message.value == "Preview ready for invoice"
+    assert second_step_message.source == step_message.source
 
     await client.write_stream(
         flow_id,
@@ -66,11 +76,11 @@ async def test_stream_resumes_after_step_and_client_writes(
     client_message = await client.read_stream(
         flow_id,
         app.stream.progress,
-        step_message.resume_token,
+        second_step_message.resume_token,
         WAIT_TIMEOUT,
     )
     assert client_message.value == "Preview displayed"
-    assert client_message.idempotency_key == "browser/complete"
+    assert client_message.source == "browser/complete"
 
 
 async def test_resourcecontrol_enqueue(

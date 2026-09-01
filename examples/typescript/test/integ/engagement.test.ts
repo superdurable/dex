@@ -62,12 +62,25 @@ test("engagementStartChannelRpcAndStatus", async () => {
   assert.equal((description as { currentStatus: string }).currentStatus, "Initiated");
 
   await environment.client.publish(flowId, optOutReminder, undefined);
+  await awaitCondition(
+    () => environment.client.invokeRPC(flow.describe, flowId),
+    (current) => current.notes.includes("user opted out of reminders"),
+    20_000,
+    "engagement reminder did not stop",
+  );
   const declined = await environment.client.invokeRPC(
     flow.decline,
     flowId,
     "declined in integration test",
   );
   assert.equal(declined, "Declined");
+
+  await awaitCondition(
+    () => environment.client.getAttribute(flowId, flow.engagementStatus),
+    (status) => status === "Declined",
+    20_000,
+    "engagement status not Declined",
+  );
 
   const accepted = await environment.client.invokeRPC(
     flow.accept,

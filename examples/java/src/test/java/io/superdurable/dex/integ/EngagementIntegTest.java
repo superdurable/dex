@@ -60,11 +60,21 @@ public class EngagementIntegTest {
         assertEquals(Status.INITIATED, description.currentStatus);
 
         environment.client().publish(flowId, flow.optOutReminder, (Void) null);
+        environment.awaitCondition(
+                () -> environment.client().invokeRPC(stub::describe),
+                current -> current.notes.contains("user opted out of reminders"),
+                Duration.ofSeconds(20),
+                "engagement reminder did not stop");
 
         final Status declined = environment.client().invokeRPC(
                 stub::decline,
                 "declined in integration test");
         assertEquals(Status.DECLINED, declined);
+        environment.awaitAttribute(
+                flowId,
+                flow.engagementStatus,
+                Status.DECLINED,
+                Duration.ofSeconds(20));
 
         final Status accepted = environment.client().invokeRPC(
                 stub::accept,

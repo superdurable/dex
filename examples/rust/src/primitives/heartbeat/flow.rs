@@ -46,11 +46,13 @@ impl Step for HeartbeatStep {
     }
 
     fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<StepDecision> {
-        for _batch in 0..batches {
+        let completed_batches = context.last_heartbeat_value::<i32>()?.unwrap_or_default();
+        for batch in completed_batches..batches {
             if context.is_cancelled() {
                 return Ok(StepDecision::dead_end());
             }
             thread::sleep(Duration::from_secs(2));
+            context.record_heartbeat_value(batch + 1)?;
         }
         Ok(StepDecision::graceful_complete(String::from("processed")))
     }

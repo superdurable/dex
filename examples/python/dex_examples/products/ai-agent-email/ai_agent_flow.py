@@ -19,16 +19,14 @@ from __future__ import annotations
 import os
 import smtplib
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 
 from dex import (
+    AsyncContext,
     Attribute,
-    AsyncClient,
     Channel,
     Context,
-    DexServiceError,
     Flow,
     PersistenceSchema,
     RetryPolicy,
@@ -61,8 +59,8 @@ STATUS_SKIPPED = "skipped"
 STATUS_CANCELED = "canceled"
 
 AGENT_OPTIONS = StepOptions(execute_method_timeout=timedelta(seconds=90))
-# Sending retries forever by default; stop after a minute so a bad app password
-# surfaces instead of looping.
+# The default retry budget is four hours; stop after a minute so a bad app
+# password surfaces sooner.
 SENDING_OPTIONS = StepOptions(
     execute_retry=RetryPolicy(total_duration=timedelta(seconds=60))
 )
@@ -149,11 +147,9 @@ class Agent(Step[None]):
         self,
         flow: EmailAgentFlow,
         schedule: Schedule,
-        client_provider: Callable[[], AsyncClient],
     ) -> None:
         self.flow = flow
         self.schedule = schedule
-        self.client_provider = client_provider
 
     def get_step_options(self) -> StepOptions:
         return AGENT_OPTIONS
@@ -164,7 +160,7 @@ class Agent(Step[None]):
 
     async def execute(  # type: ignore[override]
         self,
-        context: Context,
+        context: AsyncContext,
         input: None,
     ) -> StepDecision:
         requests = user_input.results(context)
@@ -173,25 +169,10 @@ class Agent(Step[None]):
         user_request = requests[0]
         self.flow.current_request.set(context, user_request)
 
-        progress_index = 0
-
         async def write_progress(chunk: str) -> None:
-            nonlocal progress_index
             if not chunk:
                 return
-            idempotency_key = (
-                f"{context.run_id}/{context.step_execution_id}/{progress_index}"
-            )
-            progress_index += 1
-            try:
-                await self.client_provider().write_stream(
-                    context.flow_id,
-                    self.flow.thinking,
-                    idempotency_key,
-                    chunk,
-                )
-            except DexServiceError as error:
-                print(f"thinking update dropped: {error}")
+            self.flow.thinking.write(context, chunk)
 
         reply = await request_email_fields(
             user_request,
@@ -260,10 +241,10 @@ class EmailAgentFlow(Flow[None]):
     scheduled_time_seconds = Attribute(DA_SCHEDULED_TIME_SECONDS, int)
     thinking = Stream("Thinking", str, 10 * 1024 * 1024)
 
-    def __init__(self, client_provider: Callable[[], AsyncClient]) -> None:
+    def __init__(self) -> None:
         self.sending = Sending(self)
         self.schedule = Schedule(self, self.sending)
-        self.agent = Agent(self, self.schedule, client_provider)
+        self.agent = Agent(self, self.schedule)
         self.init = Init(self)
 
     def get_steps(self) -> StepList[None]:

@@ -26,7 +26,7 @@ sidebar_label: Dynamic Parallel Steps
 ```python
 class DoWorkStep(Step[int]):
     async def execute(  # type: ignore[override]
-        self, context: Context, input: int
+        self, context: AsyncContext, input: int
     ) -> StepDecision:
         await asyncio.sleep(random.uniform(0.05, 0.5))
         return graceful_complete(input)

@@ -82,11 +82,13 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 **ASYNC** durability does this asynchronously. Every few seconds, Dex Server flushes accumulated Step completions and persists them. It provides much higher throughput because it removes a lot of overhead from the backend database and server.
 
-A Step should usually be idempotent, so **ASYNC** durability is generally safe to use. It is the default for most Steps.
+**SYNC** is the default. Dex resolves durability in this order: a method override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**.
 
-Steps with a recovery failure policy default to **SYNC** durability. The business may assume that once a Flow enters the following Execute method or recovery Step, it does not go back to the previous method.
+**SYNC** runs only as a regular Temporal activity. Its default method attempt timeout is two hours, and its default heartbeat timeout is one minute.
 
-Set the default durability with **FlowConfig**. This default does not apply to a method with a recovery failure policy. To override the durability for that method, set it in the Step's **StepOptions**.
+**ASYNC** first runs as a Temporal local activity for at most seven seconds and three attempts, then falls back to a regular activity if it still fails. A smaller user retry duration or attempt limit still applies. The local activity phase ignores the method timeout and heartbeat settings. If it falls back to a regular activity, Dex applies the remaining retry budget and the same two-hour method attempt and one-minute heartbeat defaults.
+
+The default total retry duration is four hours for both durability modes. An explicit retry duration may be shorter or longer.
 
 <SdkTabs
   examples={{
@@ -162,12 +164,15 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-**Heartbeat** lets a Step with a long method timeout fail and schedule the next attempt earlier, or being canceled earlier.
+During a regular activity attempt, the Worker must send a heartbeat or a [Stream message](/primitives/stream) before the **HeartbeatTimeout** expires. In other words, sending a Stream message is an implicit heartbeat.
 
-Set a **HeartbeatTimeout** to use it.
+**HeartbeatTimeout** defaults to one minute. The default allowed minimum is 10 seconds.
 
+For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds instead of waiting for the full 60 seconds.
 
-For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds instead of waiting for the full 60 seconds. Similarly, a Step that is being canceled does not have to wait for the full timeout, fail, or complete first.
+A heartbeat can persist a checkpoint value. The next regular attempt receives the latest value and can resume from it. An explicit heartbeat without a value clears the previous checkpoint. An implicit heartbeat from a Stream message preserves the latest explicit state, including an explicitly cleared state.
+
+The local phase of **ASYNC** durability ignores heartbeat output and does not pass a checkpoint to the fallback regular activity. Stream messages are still emitted during the local phase.
 
 <SdkTabs
   examples={{
@@ -183,19 +188,26 @@ For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeou
 func (heartbeatStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteMethodTimeout: 60 * time.Second,
-		HeartbeatTimeout:       10 * time.Second,
-		ExecuteRetry:           &dex.RetryPolicy{MaximumAttempts: 3},
+		HeartbeatTimeout:     10 * time.Second,
+		ExecuteRetry:         &dex.RetryPolicy{MaximumAttempts: 3},
 	}
 }
 
 func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecision, error) {
-	for batch := 0; batch < batches; batch++ {
+	completedBatches := 0
+	if _, err := ctx.GetLastHeartbeatValue(&completedBatches); err != nil {
+		return nil, err
+	}
+	for batch := completedBatches; batch < batches; batch++ {
 		select {
 		case <-ctx.Done():
 			return dex.DeadEnd(), nil
 		default:
 		}
 		time.Sleep(2 * time.Second)
+		if err := ctx.RecordHeartbeat(batch + 1); err != nil {
+			return nil, err
+		}
 	}
 	return dex.GracefulComplete("processed"), nil
 }
@@ -207,7 +219,10 @@ func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecisi
 ```java
 @Override
 public StepDecision execute(final Context context, final Integer batches) {
-    for (int batch = 0; batch < batches; batch++) {
+    final int completedBatches = context.hasLastHeartbeatValue()
+            ? context.getLastHeartbeatValue(Integer.class)
+            : 0;
+    for (int batch = completedBatches; batch < batches; batch++) {
         if (context.isCancellationRequested()) {
             return StepDecision.deadEnd();
         }
@@ -217,6 +232,7 @@ public StepDecision execute(final Context context, final Integer batches) {
             Thread.currentThread().interrupt();
             return StepDecision.deadEnd();
         }
+        context.recordHeartbeat(batch + 1);
     }
     return StepDecision.gracefulComplete("processed");
 }
@@ -242,11 +258,15 @@ def get_step_options(self) -> StepOptions:
         execute_retry=RetryPolicy(maximum_attempts=3),
     )
 
-async def execute(self, context: Context, batches: int) -> StepDecision:
-    for _batch in range(batches):
+async def execute(
+    self, context: AsyncContext, batches: int
+) -> StepDecision:
+    completed_batches = context.get_last_heartbeat_value(int) or 0
+    for batch in range(completed_batches, batches):
         if context.is_cancellation_requested():
             return dead_end()
         await asyncio.sleep(2)
+        await context.heartbeat(batch + 1)
     return graceful_complete("processed")
 ```
 
@@ -264,12 +284,14 @@ public getStepOptions(): StepOptions {
   };
 }
 
-public async execute(context: Context, batches: number): Promise<StepDecision> {
-  for (let batch = 0; batch < batches; batch++) {
+public async execute(context: AsyncContext, batches: number): Promise<StepDecision> {
+  const completedBatches = context.getLastHeartbeatValue(doubleCodec) ?? 0;
+  for (let batch = completedBatches; batch < batches; batch++) {
     if (context.cancellationSignal.aborted) {
       return deadEnd();
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await context.recordHeartbeat(batch + 1, doubleCodec);
   }
   return gracefulComplete("processed");
 }
@@ -287,11 +309,13 @@ fn options(&self) -> StepOptions<Self::Input> {
 }
 
 fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<StepDecision> {
-    for _batch in 0..batches {
+    let completed_batches = context.last_heartbeat_value::<i32>()?.unwrap_or_default();
+    for batch in completed_batches..batches {
         if context.is_cancelled() {
             return Ok(StepDecision::dead_end());
         }
         thread::sleep(Duration::from_secs(2));
+        context.record_heartbeat_value(batch + 1)?;
     }
     Ok(StepDecision::graceful_complete(String::from("processed")))
 }
@@ -300,7 +324,7 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 </SdkSnippet>
 </SdkTabs>
 
-Heartbeat makes cancellation reach a regular handler earlier. It does not make an external API call atomic. Use idempotency or compensation when the API needs it.
+A heartbeat helps deliver cancellation. A Step invocation is canceled only when it completes, fails, or records a heartbeat.
 
 ## Attribute locks
 

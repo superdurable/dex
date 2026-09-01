@@ -115,7 +115,7 @@ fi
 cd "$script_dir"
 export DEXCLI_PATH="$binary_dir/dexcli"
 DEX_FLOW_SERVICE_ADDRESS="$dex_address" \
-  ./gradlew test --tests 'io.superdurable.dex.integ.*' --tests 'io.superdurable.dex.integ.smoke.*' --info --no-daemon "${test_args[@]}"
+  ./gradlew test --tests 'io.superdurable.dex.integ.*' --tests 'io.superdurable.dex.integ.smoke.*' --info --no-daemon ${test_args[@]+"${test_args[@]}"}
 
 if $keep_running; then
   echo ""

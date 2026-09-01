@@ -42,7 +42,7 @@ def create_stream_blueprint(app_state: ExampleApp) -> Blueprint:
         await app_state.client.write_stream(
             required_query("workflowId"),
             app_state.stream.progress,
-            required_query("idempotencyKey"),
+            required_query("source"),
             required_query("message"),
         )
         return "done"
@@ -59,7 +59,7 @@ def create_stream_blueprint(app_state: ExampleApp) -> Blueprint:
             value=message.value,
             resume_token=message.resume_token,
             created_time=message.created_time.isoformat(),
-            idempotency_key=message.idempotency_key,
+            source=message.source,
         )
 
     return blueprint

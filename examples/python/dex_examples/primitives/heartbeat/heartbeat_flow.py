@@ -18,7 +18,7 @@ import asyncio
 from datetime import timedelta
 
 from dex import (
-    Context,
+    AsyncContext,
     Flow,
     RetryPolicy,
     Step,
@@ -38,11 +38,15 @@ class HeartbeatStep(Step[int]):
             execute_retry=RetryPolicy(maximum_attempts=3),
         )
 
-    async def execute(self, context: Context, batches: int) -> StepDecision:  # type: ignore[override]
-        for _batch in range(batches):
+    async def execute(
+        self, context: AsyncContext, batches: int
+    ) -> StepDecision:
+        completed_batches = context.get_last_heartbeat_value(int) or 0
+        for batch in range(completed_batches, batches):
             if context.is_cancellation_requested():
                 return dead_end()
             await asyncio.sleep(2)
+            await context.heartbeat(batch + 1)
         return graceful_complete("processed")
 
 

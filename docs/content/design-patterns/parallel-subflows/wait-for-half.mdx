@@ -44,7 +44,7 @@ class SubFlowStep(Step[str]):
     def wait_for(self, context: Context, request: str) -> Wait:
         return Wait.any_of(SubFlow.run(self.example_subflow, request), self.all_done_ch.for_one())
 
-    async def execute(self, context: Context, request: str) -> StepDecision:
+    async def execute(self, context: AsyncContext, request: str) -> StepDecision:
         if SubFlow.get_condition_results(context).status is not FlowStatus.RUNNING:
             self.subflow_completed_ch.publish(context, True)
             return graceful_complete()

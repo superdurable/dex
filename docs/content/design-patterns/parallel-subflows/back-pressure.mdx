@@ -35,7 +35,7 @@ class SubmitStep(Step[SubmitRequestInput]):
         self.parent_flow = parent_flow
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: SubmitRequestInput
+        self, context: AsyncContext, input: SubmitRequestInput
     ) -> StepDecision:
         if not input.parent_ids:
             raise ValueError("at least one parent Flow ID is required")

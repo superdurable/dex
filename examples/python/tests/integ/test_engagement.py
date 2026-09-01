@@ -22,7 +22,7 @@ from dex_examples.config import start_options
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.engagement.engagement_input import EngagementInput
 from dex_examples.products.engagement.status import Status
-from tests.integ.conftest import WAIT_TIMEOUT, wait_for_attribute
+from tests.integ.conftest import WAIT_TIMEOUT, wait_for_attribute, wait_until
 
 from dex import AsyncClient
 
@@ -73,6 +73,14 @@ async def test_engagement_decline_then_accept(
     assert await client.invoke_rpc(app.engagement.decline, flow_id, "not now") is (
         Status.DECLINED
     )
+
+    async def engagement_is_declined() -> bool:
+        return (
+            await client.get_attribute(flow_id, EngagementFlow.engagement_status)
+            is Status.DECLINED
+        )
+
+    await wait_until("the engagement to become declined", engagement_is_declined)
     assert await client.invoke_rpc(
         app.engagement.accept, flow_id, "changed my mind"
     ) is (Status.ACCEPTED)
@@ -101,6 +109,11 @@ async def test_engagement_opt_out_of_reminders(
     await client.publish(flow_id, app.engagement.opt_out_reminder, None)
 
     # Opting out ends the reminder loop but leaves the engagement open.
+    async def reminder_is_stopped() -> bool:
+        description = await client.invoke_rpc(app.engagement.describe, flow_id)
+        return "user opted out of reminders" in description.notes
+
+    await wait_until("the reminder loop to stop", reminder_is_stopped)
     await client.invoke_rpc(app.engagement.accept, flow_id, "")
     assert (await client.wait_for_flow(flow_id, WAIT_TIMEOUT)).single_output(
         str

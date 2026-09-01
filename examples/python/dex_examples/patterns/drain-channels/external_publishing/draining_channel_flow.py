@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 
 from dex import (
+    AsyncContext,
     Channel,
     Context,
     Flow,
@@ -44,7 +45,7 @@ class ProcessMessage(Step[str]):
         return Wait.skip_immediately()
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: str
+        self, context: AsyncContext, input: str
     ) -> StepDecision:
         if input is not None:
             print(f"DrainingExternalChannelFlow process message: {input}")

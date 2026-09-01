@@ -82,11 +82,13 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 **ASYNC** durability 会异步完成这件事。每隔几秒，Dex Server 会 flush 累积的 Step completion 并持久化。它减少了 backend database 和 server 的大量开销，因此吞吐量高得多。
 
-Step 通常应当是 idempotent，所以一般可以安全使用 **ASYNC** durability。它是大多数 Step 的默认值。
+**SYNC** 是默认值。Dex 按这个顺序确定 durability：**StepOptions** 中的 method override、Flow 的 **FlowConfig**，最后是 **SYNC**。
 
-使用 recovery failure policy 的 Step 默认使用 **SYNC** durability。业务可能假设 Flow 进入后续的 Execute 方法或 recovery Step 后，不会再回到前一个方法。
+**SYNC** 只使用 regular Temporal activity。默认 method attempt timeout 是两小时，默认 heartbeat timeout 是一分钟。
 
-用 **FlowConfig** 设置默认 durability。这个默认值不适用于使用 recovery failure policy 的方法。如需 override 这些方法的 durability，在该 Step 的 **StepOptions** 中设置。
+**ASYNC** 先作为 Temporal local activity 执行，最多七秒和三次 attempt；如果仍然失败，再 fallback 到 regular activity。用户设置的更短 retry duration 或更少 attempt 仍然生效。Local activity 阶段忽略 method timeout 和 heartbeat 设置。Fallback 到 regular activity 后，Dex 使用剩余 retry budget，并采用同样的两小时 method attempt 和一分钟 heartbeat 默认值。
+
+两种 durability mode 的默认 retry total duration 都是四小时。显式设置的 retry duration 可以更短或更长。
 
 <SdkTabs
   examples={{
@@ -162,11 +164,15 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-**Heartbeat** 让拥有较长 method timeout 的 Step 更早失败并安排下一次 attempt，或更早被 cancel。
+在 regular activity attempt 中，Worker 必须在 **HeartbeatTimeout** 到期前发送 heartbeat 或 [Stream message](/primitives/stream)。换句话说，发送 Stream message 就是 implicit heartbeat。
 
-设置 **HeartbeatTimeout** 即可使用它。
+**HeartbeatTimeout** 默认是一分钟。默认允许的最小值是 10 秒。
 
-例如，**Execute** method timeout 为 60 秒，**HeartbeatTimeout** 为 10 秒时，Dex 大约 10 秒后就能 retry 这个 Step，而不必等完整的 60 秒。类似地，正在被 cancel 的 Step 不必等到完整 timeout、失败或完成后才被 cancel。
+例如，**Execute** method timeout 为 60 秒、**HeartbeatTimeout** 为 10 秒时，Dex 大约 10 秒后就能 retry 这个 Step，而不必等满 60 秒。
+
+Heartbeat 可以持久化 checkpoint value。下一次 regular attempt 会收到最新值，并从那里继续。显式发送不带 value 的 heartbeat 会清除之前的 checkpoint。Stream message 产生的 implicit heartbeat 会保留最新的显式状态，包括已经显式清空的状态。
+
+**ASYNC** durability 的 local 阶段忽略 heartbeat output，也不会把 checkpoint 传给 fallback regular activity。Local 阶段仍会发送 Stream message。
 
 <SdkTabs
   examples={{
@@ -182,19 +188,26 @@ fn options(&self) -> StepOptions<Self::Input> {
 func (heartbeatStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteMethodTimeout: 60 * time.Second,
-		HeartbeatTimeout:       10 * time.Second,
-		ExecuteRetry:           &dex.RetryPolicy{MaximumAttempts: 3},
+		HeartbeatTimeout:     10 * time.Second,
+		ExecuteRetry:         &dex.RetryPolicy{MaximumAttempts: 3},
 	}
 }
 
 func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecision, error) {
-	for batch := 0; batch < batches; batch++ {
+	completedBatches := 0
+	if _, err := ctx.GetLastHeartbeatValue(&completedBatches); err != nil {
+		return nil, err
+	}
+	for batch := completedBatches; batch < batches; batch++ {
 		select {
 		case <-ctx.Done():
 			return dex.DeadEnd(), nil
 		default:
 		}
 		time.Sleep(2 * time.Second)
+		if err := ctx.RecordHeartbeat(batch + 1); err != nil {
+			return nil, err
+		}
 	}
 	return dex.GracefulComplete("processed"), nil
 }
@@ -206,7 +219,10 @@ func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecisi
 ```java
 @Override
 public StepDecision execute(final Context context, final Integer batches) {
-    for (int batch = 0; batch < batches; batch++) {
+    final int completedBatches = context.hasLastHeartbeatValue()
+            ? context.getLastHeartbeatValue(Integer.class)
+            : 0;
+    for (int batch = completedBatches; batch < batches; batch++) {
         if (context.isCancellationRequested()) {
             return StepDecision.deadEnd();
         }
@@ -216,6 +232,7 @@ public StepDecision execute(final Context context, final Integer batches) {
             Thread.currentThread().interrupt();
             return StepDecision.deadEnd();
         }
+        context.recordHeartbeat(batch + 1);
     }
     return StepDecision.gracefulComplete("processed");
 }
@@ -241,11 +258,15 @@ def get_step_options(self) -> StepOptions:
         execute_retry=RetryPolicy(maximum_attempts=3),
     )
 
-async def execute(self, context: Context, batches: int) -> StepDecision:
-    for _batch in range(batches):
+async def execute(
+    self, context: AsyncContext, batches: int
+) -> StepDecision:
+    completed_batches = context.get_last_heartbeat_value(int) or 0
+    for batch in range(completed_batches, batches):
         if context.is_cancellation_requested():
             return dead_end()
         await asyncio.sleep(2)
+        await context.heartbeat(batch + 1)
     return graceful_complete("processed")
 ```
 
@@ -263,12 +284,14 @@ public getStepOptions(): StepOptions {
   };
 }
 
-public async execute(context: Context, batches: number): Promise<StepDecision> {
-  for (let batch = 0; batch < batches; batch++) {
+public async execute(context: AsyncContext, batches: number): Promise<StepDecision> {
+  const completedBatches = context.getLastHeartbeatValue(doubleCodec) ?? 0;
+  for (let batch = completedBatches; batch < batches; batch++) {
     if (context.cancellationSignal.aborted) {
       return deadEnd();
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
+    await context.recordHeartbeat(batch + 1, doubleCodec);
   }
   return gracefulComplete("processed");
 }
@@ -286,11 +309,13 @@ fn options(&self) -> StepOptions<Self::Input> {
 }
 
 fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<StepDecision> {
-    for _batch in 0..batches {
+    let completed_batches = context.last_heartbeat_value::<i32>()?.unwrap_or_default();
+    for batch in completed_batches..batches {
         if context.is_cancelled() {
             return Ok(StepDecision::dead_end());
         }
         thread::sleep(Duration::from_secs(2));
+        context.record_heartbeat_value(batch + 1)?;
     }
     Ok(StepDecision::graceful_complete(String::from("processed")))
 }
@@ -299,7 +324,7 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 </SdkSnippet>
 </SdkTabs>
 
-Heartbeat 能让取消更早到达普通 handler。它不会让外部 API 调用原子化。API 需要时，使用幂等或补偿。
+Heartbeat 有助于传递 cancellation。Step invocation 只会在完成、失败或记录 heartbeat 时被 cancel。
 
 ## Attribute locks
 

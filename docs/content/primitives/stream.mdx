@@ -19,7 +19,7 @@ A Stream provides best-effort durability only, using an in-memory store such as 
 
 A Stream has a stable name, a message type, and **streamCapacityBytes**. streamCapacityBytes is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
 
-This example writes a progress message before its Step returns. The write becomes visible as soon as Dex accepts it; the Client does not wait for the Step to complete.
+This example writes two progress messages before its Step returns. Each write enters the Worker output stream immediately; the handler does not wait for a Stream Store acknowledgement.
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
@@ -35,8 +35,9 @@ class RenderPreview(Step[str]):
     def __init__(self, progress: Stream[str]) -> None:
         self.progress = progress
 
-    async def execute(self, context: Context, input: str) -> StepDecision:
-        await self.progress.write(context, f"Rendering preview for {input}")
+    async def execute(self, context: AsyncContext, input: str) -> StepDecision:
+        self.progress.write(context, f"Rendering preview for {input}")
+        self.progress.write(context, f"Preview ready for {input}")
         return graceful_complete(f"Rendered {input}")
 
 
@@ -79,6 +80,9 @@ func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, 
 	if err := Progress.Write(ctx, "Rendering preview for "+input); err != nil {
 		return nil, err
 	}
+	if err := Progress.Write(ctx, "Preview ready for "+input); err != nil {
+		return nil, err
+	}
 	return dex.GracefulComplete("Rendered " + input), nil
 }
 ```
@@ -111,6 +115,7 @@ public final class StreamFlow implements Flow<String> {
         @Override
         public StepDecision execute(final Context context, final String input) {
             progress.write(context, "Rendering preview for " + input);
+            progress.write(context, "Preview ready for " + input);
             return StepDecision.gracefulComplete("Rendered " + input);
         }
     }
@@ -131,7 +136,8 @@ class RenderPreview implements Step<string> {
   }
 
   public async execute(context: Context, input: string): Promise<StepDecision> {
-    await progress.write(context, `Rendering preview for ${input}`);
+    progress.write(context, `Rendering preview for ${input}`);
+    progress.write(context, `Preview ready for ${input}`);
     return gracefulComplete(`Rendered ${input}`);
   }
 }
@@ -189,6 +195,7 @@ impl Step for RenderPreview {
         input: Self::Input,
     ) -> HandlerResult<StepDecision> {
         PROGRESS.write(context, format!("Rendering preview for {input}"))?;
+        PROGRESS.write(context, format!("Preview ready for {input}"))?;
         Ok(StepDecision::graceful_complete(format!(
             "Rendered {input}"
         )))
@@ -205,17 +212,19 @@ impl Step for RenderPreview {
 
 A direct Step write has these semantics:
 
-- Dex sends it immediately during **Execute**. It is not buffered until the Step completes.
+- Dex sends it immediately during **WaitFor** or **Execute**. It is not buffered until the Step completes.
 - A later Step failure does not roll the message back.
-- One Step execution can write once to each Stream. Dex derives the idempotency key from the run ID and Step execution ID, so a retry does not append the same message again.
+- One method invocation can write any number of messages to the same or different Streams. Each write is an implicit heartbeat and preserves the last explicit heartbeat value.
+- The SDK only confirms local encoding and delivery to the Worker output stream. A disabled, unavailable, full, or rejecting Stream Store drops the message without failing the Step.
+- Every Step message has source **#StepExecutionID**. Attempts and messages from the same Step execution share that source. Source is informational, not unique, and does not deduplicate retries.
 
-A Client can write even when the Flow instance does not exist or is no longer active. Supply a non-empty idempotency key for every logical message. RPC handlers cannot write through the Step Context, but they can send Stream messages through an injected Client dependency.
+A Client can write even when the Flow instance does not exist or is no longer active. Supply a non-empty source for each write. A source may be repeated and may contain **#**; every call appends another message. RPC handlers cannot write through their Context, but they can send Stream messages through an injected Client dependency.
 
-While an idempotency key remains retained, repeating it is a successful first-write-wins no-op. Once trimming removes the message and its idempotency record, the same key may append again.
+Python coroutine Steps call **Stream.write** without **await**. Python synchronous Steps must yield the returned **StepOutput** from a generator. Other SDKs send the frame through their Step Context and return after local enqueueing.
 
 ### Resumable reads
 
-**ReadStream** returns one message with its value, resume token, creation time, and producer idempotency key.
+**ReadStream** returns one message with its value, resume token, creation time, and source.
 
 - An empty token starts at the current retained head.
 - A token older than the retained head also starts at that head.
@@ -228,7 +237,7 @@ Resume is best effort. A slow reader can miss messages trimmed before its next r
 
 **streamCapacityBytes** is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
 
-The Dex server calculates the estimated size from each message's serialized value, identity bytes, and configured per-message overhead.
+The Dex server calculates the estimated size from each message's serialized value, Flow ID, source, and configured per-message overhead.
 
 When usage reaches the trim trigger threshold, one background trimmer removes the oldest messages across all instances until usage reaches the trim target threshold. In rare cases, if trimming is too slow and usage reaches the capacity limit (**streamCapacityBytes**), the write request is rejected.
 

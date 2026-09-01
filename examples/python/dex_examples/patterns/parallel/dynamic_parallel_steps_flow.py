@@ -16,6 +16,7 @@ import asyncio
 import random
 
 from dex import (
+    AsyncContext,
     Context,
     Flow,
     PersistenceSchema,
@@ -30,7 +31,7 @@ from dex import (
 
 class DoWorkStep(Step[int]):
     async def execute(  # type: ignore[override]
-        self, context: Context, input: int
+        self, context: AsyncContext, input: int
     ) -> StepDecision:
         await asyncio.sleep(random.uniform(0.05, 0.5))
         return graceful_complete(input)

@@ -17,6 +17,7 @@ import random
 from typing import Any
 
 from dex import (
+    AsyncContext,
     Channel,
     Context,
     Flow,
@@ -37,7 +38,7 @@ class DoWorkStep(Step[int]):
         self.complete_ch = complete_ch
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: int
+        self, context: AsyncContext, input: int
     ) -> StepDecision:
         await asyncio.sleep(random.uniform(0.05, 0.5))
         self.complete_ch.publish(context, None)

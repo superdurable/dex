@@ -35,7 +35,7 @@ export function createStreamRouter(client: Client): Router {
     await client.writeStream(
       String(request.query.workflowId ?? ""),
       progress,
-      String(request.query.idempotencyKey ?? ""),
+      String(request.query.source ?? ""),
       String(request.query.message ?? ""),
     );
     response.send("done");
