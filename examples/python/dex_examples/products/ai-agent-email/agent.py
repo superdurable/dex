@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from typing import Any
 
 from pydantic import BaseModel
@@ -46,12 +46,12 @@ class AgentReply(BaseModel):
 async def request_email_fields(
     request: str,
     previous_response_id: str | None,
-    write_progress: Callable[[str], Awaitable[None]],
+    write_progress: Callable[[str], None],
 ) -> AgentReply:
     if not os.environ.get(OPENAI_KEY_VARIABLE):
         print(f"{OPENAI_KEY_VARIABLE} is unset; drafting the email locally")
-        await write_progress("Analyzing the request. ")
-        await write_progress("Preparing a local email draft. ")
+        write_progress("Analyzing the request. ")
+        write_progress("Preparing a local email draft. ")
         return AgentReply(response_id=None, response=_local_draft(request))
     try:
         response = await _create_response(
@@ -94,7 +94,7 @@ def _local_draft(request: str) -> AgentResponse:
 async def _create_response(
     request: str,
     previous_response_id: str | None,
-    write_progress: Callable[[str], Awaitable[None]],
+    write_progress: Callable[[str], None],
 ) -> Any:
     # Imported here so the rest of the examples run without the agent extras.
     from agents import AgentOutputSchema  # type: ignore[import-untyped]
@@ -118,16 +118,16 @@ async def _create_response(
     async for event in stream:
         if event.type == "response.reasoning_summary_text.delta":
             has_reasoning_summary = True
-            await write_progress(event.delta)
+            write_progress(event.delta)
         elif event.type == "response.output_text.delta" and not has_reasoning_summary:
             if not announced_output:
                 announced_output = True
-                await write_progress("Composing the structured email draft. ")
+                write_progress("Composing the structured email draft. ")
         elif event.type == "response.completed":
             completed_response = event.response
     if completed_response is None:
         raise RuntimeError("OpenAI response stream ended before completion")
-    await write_progress("Draft ready.")
+    write_progress("Draft ready.")
     return completed_response
 
 

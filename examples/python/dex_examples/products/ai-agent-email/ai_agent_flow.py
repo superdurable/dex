@@ -185,15 +185,11 @@ class Agent(Step[None]):
         user_request = requests[0]
         self.flow.current_request.set(context, user_request)
 
-        async def write_progress(chunk: str) -> None:
-            if not chunk:
-                return
-            self.flow.thinking.write(context, chunk)
-
+        progress = self.flow.thinking.buffered_text(context)
         reply = await request_email_fields(
             user_request,
             self.flow.previous_response_id.get(context),
-            write_progress,
+            progress.write,
         )
         if reply.response_id is not None:
             self.flow.previous_response_id.set(context, reply.response_id)

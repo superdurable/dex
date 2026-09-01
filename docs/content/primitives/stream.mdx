@@ -19,7 +19,7 @@ A Stream provides best-effort durability only, using an in-memory store such as 
 
 A Stream has a stable name, a message type, and **streamCapacityBytes**. streamCapacityBytes is an approximate capacity shared by all Flow executions with the same Flow type and Stream name. It is not a per-Flow-ID limit.
 
-This example writes two progress messages before its Step returns. Each write enters the Worker output stream immediately; the handler does not wait for a Stream Store acknowledgement.
+This example uses a buffered text writer. Dex flushes the accumulated progress before the Step result. The handler does not wait for a Stream Store acknowledgement.
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
@@ -36,8 +36,9 @@ class RenderPreview(Step[str]):
         self.progress = progress
 
     async def execute(self, context: AsyncContext, input: str) -> StepDecision:
-        self.progress.write(context, f"Rendering preview for {input}")
-        self.progress.write(context, f"Preview ready for {input}")
+        progress = self.progress.buffered_text(context)
+        progress.write(f"Rendering preview for {input}")
+        progress.write(f"Preview ready for {input}")
         return graceful_complete(f"Rendered {input}")
 
 
@@ -77,10 +78,14 @@ type renderPreview struct {
 }
 
 func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, error) {
-	if err := Progress.Write(ctx, "Rendering preview for "+input); err != nil {
+	progress, err := dex.NewBufferedTextStream(ctx, Progress)
+	if err != nil {
 		return nil, err
 	}
-	if err := Progress.Write(ctx, "Preview ready for "+input); err != nil {
+	if err := progress.Write("Rendering preview for " + input); err != nil {
+		return nil, err
+	}
+	if err := progress.Write("Preview ready for " + input); err != nil {
 		return nil, err
 	}
 	return dex.GracefulComplete("Rendered " + input), nil
@@ -114,8 +119,9 @@ public final class StreamFlow implements Flow<String> {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            progress.write(context, "Rendering preview for " + input);
-            progress.write(context, "Preview ready for " + input);
+            final BufferedTextStream writer = BufferedTextStream.create(context, progress);
+            writer.write("Rendering preview for " + input);
+            writer.write("Preview ready for " + input);
             return StepDecision.gracefulComplete("Rendered " + input);
         }
     }
@@ -136,8 +142,9 @@ class RenderPreview implements Step<string> {
   }
 
   public async execute(context: Context, input: string): Promise<StepDecision> {
-    progress.write(context, `Rendering preview for ${input}`);
-    progress.write(context, `Preview ready for ${input}`);
+    const writer = progress.bufferedText(context, { flushIntervalMs: 500 });
+    writer.write(`Rendering preview for ${input}`);
+    writer.write(`Preview ready for ${input}`);
     return gracefulComplete(`Rendered ${input}`);
   }
 }
@@ -194,8 +201,12 @@ impl Step for RenderPreview {
         context: &mut Context,
         input: Self::Input,
     ) -> HandlerResult<StepDecision> {
-        PROGRESS.write(context, format!("Rendering preview for {input}"))?;
-        PROGRESS.write(context, format!("Preview ready for {input}"))?;
+        let progress = PROGRESS.buffered_text_with_options(
+            context,
+            BufferedTextStreamOptions::new(Duration::from_millis(500), 16 * 1024),
+        )?;
+        progress.write(format!("Rendering preview for {input}"))?;
+        progress.write(format!("Preview ready for {input}"))?;
         Ok(StepDecision::graceful_complete(format!(
             "Rendered {input}"
         )))
@@ -221,6 +232,12 @@ A direct Step write has these semantics:
 A Client can write even when the Flow instance does not exist or is no longer active. Supply a non-empty source for each write. A source may be repeated and may contain **#**; every call appends another message. RPC handlers cannot write through their Context, but they can send Stream messages through an injected Client dependency.
 
 Python coroutine Steps call **Stream.write** without **await**. Python synchronous Steps must yield the returned **StepOutput** from a generator. Other SDKs send the frame through their Step Context and return after local enqueueing.
+
+### Buffer text chunks
+
+Use the buffered text writer when many small chunks form one text value, such as LLM deltas. The default flush interval is one second and the soft threshold is 16 KiB of UTF-8 data. A timer, the size threshold, or invocation completion emits the current non-empty batch. The helper preserves text exactly, never splits a chunk, and ignores empty chunks.
+
+Go, Java, Python async, TypeScript, and Rust stop the timer and flush the tail before sending the final result or error. Python sync generators use cooperative elapsed-time checks and must yield from an explicit final flush. An empty buffer does not produce a Stream message or implicit heartbeat. Retry does not restore unsent text, and batches sent before a retry may appear again.
 
 ### Resumable reads
 
