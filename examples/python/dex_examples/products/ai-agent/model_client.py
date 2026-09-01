@@ -256,6 +256,28 @@ async def _mock_completion(
                 )
             ],
         )
+    if request.lower().startswith("/ask-many ") and {
+        "request_user_input",
+        "durable_wait",
+    }.issubset(available_tool_names):
+        prompt = request.removeprefix("/ask-many ").strip()
+        return ModelReply(
+            "I need more information before I continue.",
+            [
+                ToolCall(
+                    id=f"call-{uuid4().hex}",
+                    name="request_user_input",
+                    arguments_json=json.dumps({"prompt": prompt}),
+                ),
+                ToolCall(
+                    id=f"call-{uuid4().hex}",
+                    name="durable_wait",
+                    arguments_json=(
+                        '{"duration_seconds":60,"reason":"superseded test"}'
+                    ),
+                ),
+            ],
+        )
     if request.lower().startswith("/ask ") and "request_user_input" in available_tool_names:
         content = "I need more information before I continue."
         await _stream_mock_content(content, write_progress)

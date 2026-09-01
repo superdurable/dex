@@ -430,7 +430,7 @@ class RouteTool(Step[None]):
                 context,
                 PendingUserInput(call.id, prompt),
             )
-            self.flow.append_tool_result(
+            self.flow.append_tool_result_and_cancel_remaining(
                 context,
                 call,
                 ToolExecutionResult(
@@ -440,10 +440,7 @@ class RouteTool(Step[None]):
                     ),
                     False,
                 ),
-            )
-            self.flow.state.set(
-                context,
-                replace(state, pending_tool_calls=[], pending_tool_index=0),
+                "superseded_by_user_input",
             )
             self.flow.events.write(
                 context,
@@ -564,7 +561,7 @@ class DurableWait(Step[None]):
         user_messages = self.flow.user_messages.results(context)
         self.flow.pending_timer.delete(context)
         if user_messages:
-            self.flow.append_tool_result(
+            self.flow.append_tool_result_and_cancel_remaining(
                 context,
                 call,
                 ToolExecutionResult(
@@ -574,6 +571,7 @@ class DurableWait(Step[None]):
                     ),
                     True,
                 ),
+                "superseded_by_new_user_message",
             )
             self.flow.begin_user_turn(context, user_messages[0])
             return go_to(CompactContext, None)
@@ -808,6 +806,35 @@ class AIAgentFlow(Flow[AgentConfig]):
                 tool_name=call.name,
             ),
         )
+
+    def append_tool_result_and_cancel_remaining(
+        self,
+        context: Context,
+        call: ToolCall,
+        result: ToolExecutionResult,
+        cancellation_reason: str,
+    ) -> None:
+        state = self.state.get(context)
+        remaining_calls = state.pending_tool_calls[state.pending_tool_index + 1 :]
+        self.state.set(
+            context,
+            replace(state, pending_tool_calls=[], pending_tool_index=0),
+        )
+        self.append_tool_result(context, call, result)
+        for remaining_call in remaining_calls:
+            self.append_tool_result(
+                context,
+                remaining_call,
+                ToolExecutionResult(
+                    json.dumps(
+                        {
+                            "status": "cancelled",
+                            "reason": cancellation_reason,
+                        }
+                    ),
+                    True,
+                ),
+            )
 
     def advance_tool(self, context: Context) -> StepDecision:
         state = self.state.get(context)

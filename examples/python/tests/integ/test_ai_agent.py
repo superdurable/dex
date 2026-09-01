@@ -192,6 +192,29 @@ async def test_ai_agent_requests_and_resumes_from_durable_user_input(
         )
 
     await wait_until("AI Agent user input request", is_waiting_for_input, WAIT_TIMEOUT)
+    history = await client.invoke_rpc(
+        app.ai_agent.history,
+        flow_id,
+        HistoryRequest(limit=200),
+    )
+    request_message = next(
+        item
+        for item in reversed(history.messages)
+        if any(call.name == "request_user_input" for call in item.message.tool_calls)
+    )
+    request_call = next(
+        call
+        for call in request_message.message.tool_calls
+        if call.name == "request_user_input"
+    )
+    request_result = next(
+        item
+        for item in history.messages
+        if item.message.tool_call_id == request_call.id
+    )
+    assert request_result.sequence == request_message.sequence + 1
+    assert request_result.message.role == "tool"
+
     await _send(client, app, flow_id, "September 12")
 
     async def has_completed_plan() -> bool:
@@ -205,6 +228,68 @@ async def test_ai_agent_requests_and_resumes_from_durable_user_input(
     await wait_until("AI Agent resumed plan", has_completed_plan, WAIT_TIMEOUT)
     description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
     assert description.pending_user_input_prompt is None
+    resumed_history = await client.invoke_rpc(
+        app.ai_agent.history,
+        flow_id,
+        HistoryRequest(limit=200),
+    )
+    user_answer = next(
+        item
+        for item in resumed_history.messages
+        if item.message.role == "user" and item.message.content == "September 12"
+    )
+    assert user_answer.sequence == request_result.sequence + 1
+
+
+async def test_ai_agent_closes_remaining_tool_calls_before_waiting_for_input(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("ai-agent-user-input-tool-closure")
+    await client.start_flow(
+        app.ai_agent,
+        flow_id,
+        AgentConfig(),
+        StartFlowOptions(),
+    )
+    await _send(client, app, flow_id, "/ask-many What date should I use?")
+
+    async def is_waiting_for_input() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return description.pending_user_input_prompt == "What date should I use?"
+
+    await wait_until("AI Agent multi-call input request", is_waiting_for_input)
+    history = await client.invoke_rpc(
+        app.ai_agent.history,
+        flow_id,
+        HistoryRequest(limit=200),
+    )
+    request_message = next(
+        item for item in reversed(history.messages) if len(item.message.tool_calls) == 2
+    )
+    tool_results = [
+        item
+        for item in history.messages
+        if item.message.tool_call_id
+        in {call.id for call in request_message.message.tool_calls}
+    ]
+    assert [item.sequence for item in tool_results] == [
+        request_message.sequence + 1,
+        request_message.sequence + 2,
+    ]
+    assert [item.message.tool_call_id for item in tool_results] == [
+        call.id for call in request_message.message.tool_calls
+    ]
+    assert '"status": "cancelled"' in tool_results[1].message.content
+
+    await _send(client, app, flow_id, "September 12")
+    await _wait_for_content(
+        client,
+        app,
+        flow_id,
+        "Local demo response: September 12",
+    )
 
 
 async def test_ai_agent_plans_before_execution(
