@@ -82,11 +82,11 @@ Ok(StepDecision::graceful_complete(String::from("ready")))
 
 **ASYNC** durability does this asynchronously. Every few seconds, Dex Server flushes accumulated Step completions and persists them. It provides much higher throughput because it removes a lot of overhead from the backend database and server.
 
-**SYNC** is the default. Dex resolves durability in this order: a method override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**. A failure policy does not change that order.
+**SYNC** is the default. Dex resolves durability in this order: a method override in **StepOptions**, the Flow's **FlowConfig**, then **SYNC**.
 
-**SYNC** runs only as a regular activity. Its default method attempt timeout is two hours, and its default heartbeat timeout is one minute.
+**SYNC** runs only as a regular Temporal activity. Its default method attempt timeout is two hours, and its default heartbeat timeout is one minute.
 
-**ASYNC** first runs locally for at most seven seconds and three attempts. A smaller user retry duration or attempt limit still applies. The local phase ignores the method timeout and heartbeat settings. If it falls back to a regular activity, Dex applies the remaining retry budget and the same two-hour method attempt and one-minute heartbeat defaults.
+**ASYNC** first runs as a Temporal local activity for at most seven seconds and three attempts, then falls back to a regular activity if it still fails. A smaller user retry duration or attempt limit still applies. The local activity phase ignores the method timeout and heartbeat settings. If it falls back to a regular activity, Dex applies the remaining retry budget and the same two-hour method attempt and one-minute heartbeat defaults.
 
 The default total retry duration is four hours for both durability modes. An explicit retry duration may be shorter or longer.
 
@@ -164,9 +164,11 @@ fn options(&self) -> StepOptions<Self::Input> {
 
 ## Heartbeat {#heartbeat}
 
-Dex Server does not send automatic heartbeats for Step handlers. During a regular activity attempt, the Worker must send a heartbeat or a [Stream message](/primitives/stream) before the **HeartbeatTimeout** expires. A Stream message is an implicit heartbeat because it shows that the handler is making progress.
+During a regular activity attempt, the Worker must send a heartbeat or a [Stream message](/primitives/stream) before the **HeartbeatTimeout** expires. In other words, sending a Stream message is an implicit heartbeat.
 
-An omitted or zero **HeartbeatTimeout** uses the one-minute default. Dex Server controls the smallest explicit value; the default minimum is 10 seconds. For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds instead of waiting for the full 60 seconds.
+**HeartbeatTimeout** defaults to one minute. The default allowed minimum is 10 seconds.
+
+For example, an **Execute** method timeout of 60 seconds and a **HeartbeatTimeout** of 10 seconds lets Dex retry the Step in about 10 seconds instead of waiting for the full 60 seconds.
 
 A heartbeat can persist a checkpoint value. The next regular attempt receives the latest value and can resume from it. An explicit heartbeat without a value clears the previous checkpoint. An implicit heartbeat from a Stream message preserves the latest explicit state, including an explicitly cleared state.
 
@@ -322,7 +324,7 @@ fn execute(&self, context: &mut Context, batches: Self::Input) -> HandlerResult<
 </SdkSnippet>
 </SdkTabs>
 
-Cancellation reaches a regular handler on its next heartbeat or Stream output. A heartbeat does not make an external API call atomic. Use idempotency or compensation when the API needs it.
+A heartbeat helps deliver cancellation. A Step invocation is canceled only when it completes, fails, or records a heartbeat.
 
 ## Attribute locks
 

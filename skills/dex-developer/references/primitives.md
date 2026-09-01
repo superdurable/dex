@@ -14,9 +14,9 @@ Use a Step for retried background work and explicit state transitions. **WaitFor
 
 Use multiple next Steps for parallel work. Use cancellation deliberately when a first-winner branch makes siblings unnecessary.
 
-Step durability resolves in this order: a method override, FlowConfig, then **SYNC**. Failure policies do not change that order. The default retry total duration is four hours. Regular attempts default to a two-hour method timeout and one-minute heartbeat timeout.
+Step durability resolves in this order: a method override, FlowConfig, then **SYNC**. The default retry total duration is four hours. Regular attempts default to a two-hour method timeout and one-minute heartbeat timeout.
 
-Dex does not heartbeat a Step automatically. A long-running regular attempt must emit an explicit heartbeat or Stream message before its heartbeat timeout. A heartbeat value is a retry checkpoint. An explicit valueless heartbeat clears the checkpoint; a Stream message preserves its current state. The local phase of **ASYNC** durability ignores heartbeats but still emits Stream messages.
+A long-running regular attempt must emit an explicit heartbeat or Stream message before its heartbeat timeout. A heartbeat value is a retry checkpoint. An explicit valueless heartbeat clears the checkpoint; a Stream message preserves its current state. The local phase of **ASYNC** durability ignores heartbeats but still emits Stream messages.
 
 Docs: https://docs.superdurable.io/primitives/step
 
