@@ -24,6 +24,7 @@ export function JsonView({
   collapseNonce = 0,
   parentFlowId = '',
   stepExecutionId = '',
+  persistenceKind,
 }: {
   value: unknown;
   label?: string;
@@ -33,6 +34,7 @@ export function JsonView({
   collapseNonce?: number;
   parentFlowId?: string;
   stepExecutionId?: string;
+  persistenceKind?: 'attributes' | 'channels';
 }) {
   const storageKey = persistKey ?? label;
   const [open, setOpen] = useState(() => openByKey.get(storageKey) ?? initiallyOpen);
@@ -104,6 +106,7 @@ export function JsonView({
                 value={value}
                 parentFlowId={parentFlowId}
                 stepExecutionId={stepExecutionId}
+                persistenceKind={persistenceKind}
               />
             : (
               <pre className="json-view-raw">

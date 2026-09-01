@@ -1279,6 +1279,55 @@ pre {
   overflow-wrap: anywhere;
 }
 
+.semantic-record > summary {
+  display: flex;
+  align-items: center;
+  list-style: none;
+  cursor: pointer;
+}
+
+.semantic-record > summary::-webkit-details-marker {
+  display: none;
+}
+
+.semantic-record > summary::before {
+  content: '▸';
+  margin-right: 5px;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.semantic-record[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+.semantic-record > summary > strong {
+  margin-bottom: 0;
+}
+
+.channel-record > summary > strong {
+  color: #765620;
+}
+
+.semantic-record-content {
+  margin-top: 8px;
+}
+
+.semantic-map-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.semantic-map-entry {
+  padding: 7px;
+  background: #fbfcfc;
+}
+
+.semantic-channel-values {
+  margin-top: 8px;
+}
+
 .channel-record > strong {
   color: #765620;
 }

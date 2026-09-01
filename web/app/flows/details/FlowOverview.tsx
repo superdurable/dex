@@ -191,7 +191,9 @@ export function FlowOverview({
                 <JsonView
                   value={state.attributes}
                   label="Attributes"
+                  initiallyOpen
                   persistKey="overview:attributes"
+                  persistenceKind="attributes"
                   forceOpen={attributesExpand.expanded || undefined}
                   collapseNonce={attributesExpand.collapseNonce}
                 />
@@ -217,6 +219,7 @@ export function FlowOverview({
                   value={state.pendingChannelMessages}
                   label="Pending channel messages"
                   persistKey="overview:pending-channels"
+                  persistenceKind="channels"
                   forceOpen={channelsExpand.expanded || undefined}
                   collapseNonce={channelsExpand.collapseNonce}
                 />
