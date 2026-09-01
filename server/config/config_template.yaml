@@ -37,6 +37,9 @@ worker:
 interpreter:
   # Bounds backend index creation and propagation checks. Existing indexes return immediately.
   attributeIndexSyncTimeout: 2m
+  interpreterActivityConfig:
+    # Minimum explicit Step heartbeat timeout. Zero uses 10s.
+    minimumStepHeartbeatTimeout: 10s
   defaultWorkflowConfig:
     continueAsNewThreshold: 100
   temporal:

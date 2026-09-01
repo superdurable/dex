@@ -288,6 +288,32 @@ private static final long serialVersionUID = 0L;
     return recoveryError_ == null ? io.superdurable.gen.RecoveryErrorInfo.getDefaultInstance() : recoveryError_;
   }
 
+  public static final int LAST_HEARTBEAT_VALUE_FIELD_NUMBER = 9;
+  private io.superdurable.gen.Value lastHeartbeatValue_;
+  /**
+   * <code>.dex.Value last_heartbeat_value = 9;</code>
+   * @return Whether the lastHeartbeatValue field is set.
+   */
+  @java.lang.Override
+  public boolean hasLastHeartbeatValue() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <code>.dex.Value last_heartbeat_value = 9;</code>
+   * @return The lastHeartbeatValue.
+   */
+  @java.lang.Override
+  public io.superdurable.gen.Value getLastHeartbeatValue() {
+    return lastHeartbeatValue_ == null ? io.superdurable.gen.Value.getDefaultInstance() : lastHeartbeatValue_;
+  }
+  /**
+   * <code>.dex.Value last_heartbeat_value = 9;</code>
+   */
+  @java.lang.Override
+  public io.superdurable.gen.ValueOrBuilder getLastHeartbeatValueOrBuilder() {
+    return lastHeartbeatValue_ == null ? io.superdurable.gen.Value.getDefaultInstance() : lastHeartbeatValue_;
+  }
+
   private byte memoizedIsInitialized = -1;
   @java.lang.Override
   public final boolean isInitialized() {
@@ -326,6 +352,9 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(8, getRecoveryError());
     }
+    if (((bitField0_ & 0x00000002) != 0)) {
+      output.writeMessage(9, getLastHeartbeatValue());
+    }
     getUnknownFields().writeTo(output);
   }
   private int computeSerializedSize_0() {
@@ -357,6 +386,10 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(8, getRecoveryError());
+    }
+    if (((bitField0_ & 0x00000002) != 0)) {
+      size += com.google.protobuf.CodedOutputStream
+        .computeMessageSize(9, getLastHeartbeatValue());
     }
     return size;
   }
@@ -401,6 +434,11 @@ private static final long serialVersionUID = 0L;
       if (!getRecoveryError()
           .equals(other.getRecoveryError())) return false;
     }
+    if (hasLastHeartbeatValue() != other.hasLastHeartbeatValue()) return false;
+    if (hasLastHeartbeatValue()) {
+      if (!getLastHeartbeatValue()
+          .equals(other.getLastHeartbeatValue())) return false;
+    }
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -431,6 +469,10 @@ private static final long serialVersionUID = 0L;
     if (hasRecoveryError()) {
       hash = (37 * hash) + RECOVERY_ERROR_FIELD_NUMBER;
       hash = (53 * hash) + getRecoveryError().hashCode();
+    }
+    if (hasLastHeartbeatValue()) {
+      hash = (37 * hash) + LAST_HEARTBEAT_VALUE_FIELD_NUMBER;
+      hash = (53 * hash) + getLastHeartbeatValue().hashCode();
     }
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
@@ -563,6 +605,7 @@ private static final long serialVersionUID = 0L;
       if (com.google.protobuf.GeneratedMessage
               .alwaysUseFieldBuilders) {
         internalGetRecoveryErrorFieldBuilder();
+        internalGetLastHeartbeatValueFieldBuilder();
       }
     }
     @java.lang.Override
@@ -580,6 +623,11 @@ private static final long serialVersionUID = 0L;
       if (recoveryErrorBuilder_ != null) {
         recoveryErrorBuilder_.dispose();
         recoveryErrorBuilder_ = null;
+      }
+      lastHeartbeatValue_ = null;
+      if (lastHeartbeatValueBuilder_ != null) {
+        lastHeartbeatValueBuilder_.dispose();
+        lastHeartbeatValueBuilder_ = null;
       }
       return this;
     }
@@ -642,6 +690,12 @@ private static final long serialVersionUID = 0L;
             : recoveryErrorBuilder_.build();
         to_bitField0_ |= 0x00000001;
       }
+      if (((from_bitField0_ & 0x00000100) != 0)) {
+        result.lastHeartbeatValue_ = lastHeartbeatValueBuilder_ == null
+            ? lastHeartbeatValue_
+            : lastHeartbeatValueBuilder_.build();
+        to_bitField0_ |= 0x00000002;
+      }
       result.bitField0_ |= to_bitField0_;
     }
 
@@ -688,6 +742,9 @@ private static final long serialVersionUID = 0L;
       }
       if (other.hasRecoveryError()) {
         mergeRecoveryError(other.getRecoveryError());
+      }
+      if (other.hasLastHeartbeatValue()) {
+        mergeLastHeartbeatValue(other.getLastHeartbeatValue());
       }
       this.mergeUnknownFields(other.getUnknownFields());
       onChanged();
@@ -757,6 +814,13 @@ private static final long serialVersionUID = 0L;
               bitField0_ |= 0x00000080;
               break;
             } // case 66
+            case 74: {
+              input.readMessage(
+                  internalGetLastHeartbeatValueFieldBuilder().getBuilder(),
+                  extensionRegistry);
+              bitField0_ |= 0x00000100;
+              break;
+            } // case 74
             default: {
               if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                 done = true; // was an endgroup tag
@@ -1333,6 +1397,127 @@ private static final long serialVersionUID = 0L;
         recoveryError_ = null;
       }
       return recoveryErrorBuilder_;
+    }
+
+    private io.superdurable.gen.Value lastHeartbeatValue_;
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> lastHeartbeatValueBuilder_;
+    /**
+     * <code>.dex.Value last_heartbeat_value = 9;</code>
+     * @return Whether the lastHeartbeatValue field is set.
+     */
+    public boolean hasLastHeartbeatValue() {
+      return ((bitField0_ & 0x00000100) != 0);
+    }
+    /**
+     * <code>.dex.Value last_heartbeat_value = 9;</code>
+     * @return The lastHeartbeatValue.
+     */
+    public io.superdurable.gen.Value getLastHeartbeatValue() {
+      if (lastHeartbeatValueBuilder_ == null) {
+        return lastHeartbeatValue_ == null ? io.superdurable.gen.Value.getDefaultInstance() : lastHeartbeatValue_;
+      } else {
+        return lastHeartbeatValueBuilder_.getMessage();
+      }
+    }
+    /**
+     * <code>.dex.Value last_heartbeat_value = 9;</code>
+     */
+    public Builder setLastHeartbeatValue(io.superdurable.gen.Value value) {
+      if (lastHeartbeatValueBuilder_ == null) {
+        if (value == null) {
+          throw new NullPointerException();
+        }
+        lastHeartbeatValue_ = value;
+      } else {
+        lastHeartbeatValueBuilder_.setMessage(value);
+      }
+      bitField0_ |= 0x00000100;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.Value last_heartbeat_value = 9;</code>
+     */
+    public Builder setLastHeartbeatValue(
+        io.superdurable.gen.Value.Builder builderForValue) {
+      if (lastHeartbeatValueBuilder_ == null) {
+        lastHeartbeatValue_ = builderForValue.build();
+      } else {
+        lastHeartbeatValueBuilder_.setMessage(builderForValue.build());
+      }
+      bitField0_ |= 0x00000100;
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.Value last_heartbeat_value = 9;</code>
+     */
+    public Builder mergeLastHeartbeatValue(io.superdurable.gen.Value value) {
+      if (lastHeartbeatValueBuilder_ == null) {
+        if (((bitField0_ & 0x00000100) != 0) &&
+          lastHeartbeatValue_ != null &&
+          lastHeartbeatValue_ != io.superdurable.gen.Value.getDefaultInstance()) {
+          getLastHeartbeatValueBuilder().mergeFrom(value);
+        } else {
+          lastHeartbeatValue_ = value;
+        }
+      } else {
+        lastHeartbeatValueBuilder_.mergeFrom(value);
+      }
+      if (lastHeartbeatValue_ != null) {
+        bitField0_ |= 0x00000100;
+        onChanged();
+      }
+      return this;
+    }
+    /**
+     * <code>.dex.Value last_heartbeat_value = 9;</code>
+     */
+    public Builder clearLastHeartbeatValue() {
+      bitField0_ = (bitField0_ & ~0x00000100);
+      lastHeartbeatValue_ = null;
+      if (lastHeartbeatValueBuilder_ != null) {
+        lastHeartbeatValueBuilder_.dispose();
+        lastHeartbeatValueBuilder_ = null;
+      }
+      onChanged();
+      return this;
+    }
+    /**
+     * <code>.dex.Value last_heartbeat_value = 9;</code>
+     */
+    public io.superdurable.gen.Value.Builder getLastHeartbeatValueBuilder() {
+      bitField0_ |= 0x00000100;
+      onChanged();
+      return internalGetLastHeartbeatValueFieldBuilder().getBuilder();
+    }
+    /**
+     * <code>.dex.Value last_heartbeat_value = 9;</code>
+     */
+    public io.superdurable.gen.ValueOrBuilder getLastHeartbeatValueOrBuilder() {
+      if (lastHeartbeatValueBuilder_ != null) {
+        return lastHeartbeatValueBuilder_.getMessageOrBuilder();
+      } else {
+        return lastHeartbeatValue_ == null ?
+            io.superdurable.gen.Value.getDefaultInstance() : lastHeartbeatValue_;
+      }
+    }
+    /**
+     * <code>.dex.Value last_heartbeat_value = 9;</code>
+     */
+    private com.google.protobuf.SingleFieldBuilder<
+        io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder> 
+        internalGetLastHeartbeatValueFieldBuilder() {
+      if (lastHeartbeatValueBuilder_ == null) {
+        lastHeartbeatValueBuilder_ = new com.google.protobuf.SingleFieldBuilder<
+            io.superdurable.gen.Value, io.superdurable.gen.Value.Builder, io.superdurable.gen.ValueOrBuilder>(
+                getLastHeartbeatValue(),
+                getParentForChildren(),
+                isClean());
+        lastHeartbeatValue_ = null;
+      }
+      return lastHeartbeatValueBuilder_;
     }
 
     // @@protoc_insertion_point(builder_scope:dex.Context)

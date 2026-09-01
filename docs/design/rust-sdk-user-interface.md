@@ -190,6 +190,42 @@ reuse. User handlers run on the runtime's blocking executor; tonic stubs are
 cloned per call so long polls do not serialize unrelated Client operations.
 `Context` propagates invocation cancellation into blocking user handlers.
 
+### Step Worker response streams
+
+WaitFor and Execute use unary-request, server-streaming Worker RPCs. Each invocation owns a bounded
+channel with capacity one. The synchronous handler uses blocking sends for heartbeat and Stream
+frames, while tonic consumes them asynchronously. A successful handler enqueues exactly one final
+result after all progress frames and then closes the response with a clean EOF. Hydration, handler,
+and result-mapping failures terminate the RPC with a gRPC status instead.
+Flow timeout handlers and RPCs cannot send heartbeat or Stream frames.
+
+Dropping the response stream cancels the invocation, closes the emitter, and aborts the producer
+task. A blocked send wakes with `HandlerError`, and the existing Context cancellation methods expose
+the state to user code. The handler still runs on Tokio's blocking executor; streaming does not add
+one OS thread per RPC.
+
+```rust
+fn execute(&self, context: &mut Context, input: Import) -> HandlerResult<StepDecision> {
+    let checkpoint = context.last_heartbeat_value::<Option<Checkpoint>>()?;
+    for batch in remaining_batches(input, checkpoint)? {
+        self.progress.write(context, batch.summary())?;
+        context.record_heartbeat_value(Some(batch.checkpoint()))?;
+    }
+    Ok(StepDecision::graceful_complete(()))
+}
+```
+
+`record_heartbeat()` emits no Value and clears backend heartbeat details. An encoded JSON null is a
+present Value, so decoding `Option<T>` returns outer `Some` with inner `None`. A Stream frame is an
+implicit backend heartbeat that reuses the last explicit Worker heartbeat value, including its
+absence. Local activities ignore heartbeat details but still forward Stream frames.
+
+Step Stream writes are fire-and-forget relative to Dex storage. Calls report local registration,
+capacity, encoding, cancellation, and response-stream errors, but receive no Stream Store ack.
+Repeated writes are allowed and retain handler order. Dex assigns `#<stepExecutionID>` as their
+source. External `Client::write_stream` remains unary, accepts any non-empty source including `#`,
+and appends repeated sources. `StreamMessage::source` is metadata, not an idempotency key.
+
 ## Tests
 
 The `dex-sdk` integration target mirrors every Java integration workflow and

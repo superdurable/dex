@@ -35,7 +35,7 @@ from dex.codec import (
     WireKind,
 )
 from dex.condition import ConditionCombination
-from dex.context import Context
+from dex.context import AsyncContext, Context
 from dex.flow import Flow, PersistenceSchema, Registry, RPCResult, rpc
 from dex.flow_config import ActiveStepSearchMode, FlowConfig
 from dex.flow_info import (
@@ -80,6 +80,7 @@ from dex.step import (
     StepList,
     StepMovement,
     StepOptions,
+    StepOutput,
     WaitForFailurePolicy,
     dead_end,
     force_complete,
@@ -88,6 +89,7 @@ from dex.step import (
     go_to,
     go_to_many,
     graceful_complete,
+    heartbeat,
 )
 from dex.step_execution import StepExecutionId, TimerId
 from dex.stream import Stream, StreamMessage
@@ -108,6 +110,7 @@ __all__ = [
     "AttributeIndex",
     "AttributeLock",
     "AttributeMap",
+    "AsyncContext",
     "AsyncClient",
     "AsyncWorker",
     "BlobCache",
@@ -161,6 +164,7 @@ __all__ = [
     "StepList",
     "StepDurability",
     "StepMovement",
+    "StepOutput",
     "StepOptions",
     "Stream",
     "StreamMessage",
@@ -182,6 +186,7 @@ __all__ = [
     "force_complete_if_channels_empty",
     "force_fail",
     "graceful_complete",
+    "heartbeat",
     "go_to",
     "go_to_many",
     "open_blob_cache",

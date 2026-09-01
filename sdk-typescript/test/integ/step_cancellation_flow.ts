@@ -24,6 +24,7 @@ import {
   voidCodec,
   withCancelingSiblingSteps,
   withCancelingSteps,
+  type AsyncContext,
   type Context,
   type Flow,
   type PersistenceSchema,
@@ -95,7 +96,7 @@ class CancellationBlockingExecute implements Step<void> {
       ...(
         this.flow.scenario === "heartbeat-execute" ||
           this.flow.scenario === "local-timeout-fallback"
-          ? { heartbeatTimeoutMs: 2_000 }
+          ? { heartbeatTimeoutMs: 10_000 }
           : {}
       ),
       executeDurability:
@@ -107,12 +108,17 @@ class CancellationBlockingExecute implements Step<void> {
     };
   }
 
-  public async execute(context: Context, _input: void): Promise<StepDecision> {
+  public async execute(context: AsyncContext, _input: void): Promise<StepDecision> {
     this.flow.blockingInvocations += 1;
     this.flow.markBlockingStarted();
     try {
       if (this.flow.scenario === "no-heartbeat") {
         await delay(7_000);
+      } else if (
+        this.flow.scenario === "heartbeat-execute" ||
+        this.flow.scenario === "local-timeout-fallback"
+      ) {
+        await delayWithHeartbeats(context, 10_000);
       } else {
         await delay(10_000, context.cancellationSignal);
       }
@@ -142,17 +148,17 @@ class CancellationBlockingWaitFor implements Step<void> {
   public getStepOptions(): StepOptions {
     return {
       waitForMethodTimeoutMs: 15_000,
-      heartbeatTimeoutMs: 2_000,
+      heartbeatTimeoutMs: 10_000,
       waitForFailure: "proceed",
       waitForDurability: "sync",
     };
   }
 
-  public async waitFor(context: Context, _input: void): Promise<Wait> {
+  public async waitFor(context: AsyncContext, _input: void): Promise<Wait> {
     this.flow.blockingInvocations += 1;
     this.flow.markBlockingStarted();
     try {
-      await delay(10_000, context.cancellationSignal);
+      await delayWithHeartbeats(context, 10_000);
     } catch (failure) {
       if (!context.cancellationSignal.aborted) {
         throw failure;
@@ -408,4 +414,12 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
     }
     signal.addEventListener("abort", abort, { once: true });
   });
+}
+
+async function delayWithHeartbeats(context: AsyncContext, milliseconds: number): Promise<void> {
+  const deadline = Date.now() + milliseconds;
+  while (Date.now() < deadline) {
+    await context.recordHeartbeat({ attempt: context.attempt });
+    await delay(Math.min(500, deadline - Date.now()), context.cancellationSignal);
+  }
 }

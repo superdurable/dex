@@ -19,28 +19,28 @@ public final class WorkerServiceGrpc {
 
   // Static method descriptors that strictly reflect the proto.
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.InvokeWaitForMethodRequest,
-      io.superdurable.gen.InvokeWaitForMethodResponse> getInvokeWaitForMethodMethod;
+      io.superdurable.gen.InvokeWaitForMethodOutput> getInvokeWaitForMethodMethod;
 
   @io.grpc.stub.annotations.RpcMethod(
       fullMethodName = SERVICE_NAME + '/' + "InvokeWaitForMethod",
       requestType = io.superdurable.gen.InvokeWaitForMethodRequest.class,
-      responseType = io.superdurable.gen.InvokeWaitForMethodResponse.class,
-      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+      responseType = io.superdurable.gen.InvokeWaitForMethodOutput.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
   public static io.grpc.MethodDescriptor<io.superdurable.gen.InvokeWaitForMethodRequest,
-      io.superdurable.gen.InvokeWaitForMethodResponse> getInvokeWaitForMethodMethod() {
-    io.grpc.MethodDescriptor<io.superdurable.gen.InvokeWaitForMethodRequest, io.superdurable.gen.InvokeWaitForMethodResponse> getInvokeWaitForMethodMethod;
+      io.superdurable.gen.InvokeWaitForMethodOutput> getInvokeWaitForMethodMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.InvokeWaitForMethodRequest, io.superdurable.gen.InvokeWaitForMethodOutput> getInvokeWaitForMethodMethod;
     if ((getInvokeWaitForMethodMethod = WorkerServiceGrpc.getInvokeWaitForMethodMethod) == null) {
       synchronized (WorkerServiceGrpc.class) {
         if ((getInvokeWaitForMethodMethod = WorkerServiceGrpc.getInvokeWaitForMethodMethod) == null) {
           WorkerServiceGrpc.getInvokeWaitForMethodMethod = getInvokeWaitForMethodMethod =
-              io.grpc.MethodDescriptor.<io.superdurable.gen.InvokeWaitForMethodRequest, io.superdurable.gen.InvokeWaitForMethodResponse>newBuilder()
-              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              io.grpc.MethodDescriptor.<io.superdurable.gen.InvokeWaitForMethodRequest, io.superdurable.gen.InvokeWaitForMethodOutput>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
               .setFullMethodName(generateFullMethodName(SERVICE_NAME, "InvokeWaitForMethod"))
               .setSampledToLocalTracing(true)
               .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
                   io.superdurable.gen.InvokeWaitForMethodRequest.getDefaultInstance()))
               .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  io.superdurable.gen.InvokeWaitForMethodResponse.getDefaultInstance()))
+                  io.superdurable.gen.InvokeWaitForMethodOutput.getDefaultInstance()))
               .setSchemaDescriptor(new WorkerServiceMethodDescriptorSupplier("InvokeWaitForMethod"))
               .build();
         }
@@ -50,28 +50,28 @@ public final class WorkerServiceGrpc {
   }
 
   private static volatile io.grpc.MethodDescriptor<io.superdurable.gen.InvokeExecuteMethodRequest,
-      io.superdurable.gen.InvokeExecuteMethodResponse> getInvokeExecuteMethodMethod;
+      io.superdurable.gen.InvokeExecuteMethodOutput> getInvokeExecuteMethodMethod;
 
   @io.grpc.stub.annotations.RpcMethod(
       fullMethodName = SERVICE_NAME + '/' + "InvokeExecuteMethod",
       requestType = io.superdurable.gen.InvokeExecuteMethodRequest.class,
-      responseType = io.superdurable.gen.InvokeExecuteMethodResponse.class,
-      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+      responseType = io.superdurable.gen.InvokeExecuteMethodOutput.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
   public static io.grpc.MethodDescriptor<io.superdurable.gen.InvokeExecuteMethodRequest,
-      io.superdurable.gen.InvokeExecuteMethodResponse> getInvokeExecuteMethodMethod() {
-    io.grpc.MethodDescriptor<io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodResponse> getInvokeExecuteMethodMethod;
+      io.superdurable.gen.InvokeExecuteMethodOutput> getInvokeExecuteMethodMethod() {
+    io.grpc.MethodDescriptor<io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodOutput> getInvokeExecuteMethodMethod;
     if ((getInvokeExecuteMethodMethod = WorkerServiceGrpc.getInvokeExecuteMethodMethod) == null) {
       synchronized (WorkerServiceGrpc.class) {
         if ((getInvokeExecuteMethodMethod = WorkerServiceGrpc.getInvokeExecuteMethodMethod) == null) {
           WorkerServiceGrpc.getInvokeExecuteMethodMethod = getInvokeExecuteMethodMethod =
-              io.grpc.MethodDescriptor.<io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodResponse>newBuilder()
-              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              io.grpc.MethodDescriptor.<io.superdurable.gen.InvokeExecuteMethodRequest, io.superdurable.gen.InvokeExecuteMethodOutput>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
               .setFullMethodName(generateFullMethodName(SERVICE_NAME, "InvokeExecuteMethod"))
               .setSampledToLocalTracing(true)
               .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
                   io.superdurable.gen.InvokeExecuteMethodRequest.getDefaultInstance()))
               .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  io.superdurable.gen.InvokeExecuteMethodResponse.getDefaultInstance()))
+                  io.superdurable.gen.InvokeExecuteMethodOutput.getDefaultInstance()))
               .setSchemaDescriptor(new WorkerServiceMethodDescriptorSupplier("InvokeExecuteMethod"))
               .build();
         }
@@ -165,14 +165,14 @@ public final class WorkerServiceGrpc {
     /**
      */
     default void invokeWaitForMethod(io.superdurable.gen.InvokeWaitForMethodRequest request,
-        io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeWaitForMethodResponse> responseObserver) {
+        io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeWaitForMethodOutput> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getInvokeWaitForMethodMethod(), responseObserver);
     }
 
     /**
      */
     default void invokeExecuteMethod(io.superdurable.gen.InvokeExecuteMethodRequest request,
-        io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeExecuteMethodResponse> responseObserver) {
+        io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeExecuteMethodOutput> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getInvokeExecuteMethodMethod(), responseObserver);
     }
 
@@ -220,16 +220,16 @@ public final class WorkerServiceGrpc {
     /**
      */
     public void invokeWaitForMethod(io.superdurable.gen.InvokeWaitForMethodRequest request,
-        io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeWaitForMethodResponse> responseObserver) {
-      io.grpc.stub.ClientCalls.asyncUnaryCall(
+        io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeWaitForMethodOutput> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncServerStreamingCall(
           getChannel().newCall(getInvokeWaitForMethodMethod(), getCallOptions()), request, responseObserver);
     }
 
     /**
      */
     public void invokeExecuteMethod(io.superdurable.gen.InvokeExecuteMethodRequest request,
-        io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeExecuteMethodResponse> responseObserver) {
-      io.grpc.stub.ClientCalls.asyncUnaryCall(
+        io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeExecuteMethodOutput> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncServerStreamingCall(
           getChannel().newCall(getInvokeExecuteMethodMethod(), getCallOptions()), request, responseObserver);
     }
 
@@ -263,15 +263,17 @@ public final class WorkerServiceGrpc {
 
     /**
      */
-    public io.superdurable.gen.InvokeWaitForMethodResponse invokeWaitForMethod(io.superdurable.gen.InvokeWaitForMethodRequest request) {
-      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+    public java.util.Iterator<io.superdurable.gen.InvokeWaitForMethodOutput> invokeWaitForMethod(
+        io.superdurable.gen.InvokeWaitForMethodRequest request) {
+      return io.grpc.stub.ClientCalls.blockingServerStreamingCall(
           getChannel(), getInvokeWaitForMethodMethod(), getCallOptions(), request);
     }
 
     /**
      */
-    public io.superdurable.gen.InvokeExecuteMethodResponse invokeExecuteMethod(io.superdurable.gen.InvokeExecuteMethodRequest request) {
-      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+    public java.util.Iterator<io.superdurable.gen.InvokeExecuteMethodOutput> invokeExecuteMethod(
+        io.superdurable.gen.InvokeExecuteMethodRequest request) {
+      return io.grpc.stub.ClientCalls.blockingServerStreamingCall(
           getChannel(), getInvokeExecuteMethodMethod(), getCallOptions(), request);
     }
 
@@ -300,22 +302,6 @@ public final class WorkerServiceGrpc {
     protected WorkerServiceFutureStub build(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       return new WorkerServiceFutureStub(channel, callOptions);
-    }
-
-    /**
-     */
-    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.InvokeWaitForMethodResponse> invokeWaitForMethod(
-        io.superdurable.gen.InvokeWaitForMethodRequest request) {
-      return io.grpc.stub.ClientCalls.futureUnaryCall(
-          getChannel().newCall(getInvokeWaitForMethodMethod(), getCallOptions()), request);
-    }
-
-    /**
-     */
-    public com.google.common.util.concurrent.ListenableFuture<io.superdurable.gen.InvokeExecuteMethodResponse> invokeExecuteMethod(
-        io.superdurable.gen.InvokeExecuteMethodRequest request) {
-      return io.grpc.stub.ClientCalls.futureUnaryCall(
-          getChannel().newCall(getInvokeExecuteMethodMethod(), getCallOptions()), request);
     }
 
     /**
@@ -350,11 +336,11 @@ public final class WorkerServiceGrpc {
       switch (methodId) {
         case METHODID_INVOKE_WAIT_FOR_METHOD:
           serviceImpl.invokeWaitForMethod((io.superdurable.gen.InvokeWaitForMethodRequest) request,
-              (io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeWaitForMethodResponse>) responseObserver);
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeWaitForMethodOutput>) responseObserver);
           break;
         case METHODID_INVOKE_EXECUTE_METHOD:
           serviceImpl.invokeExecuteMethod((io.superdurable.gen.InvokeExecuteMethodRequest) request,
-              (io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeExecuteMethodResponse>) responseObserver);
+              (io.grpc.stub.StreamObserver<io.superdurable.gen.InvokeExecuteMethodOutput>) responseObserver);
           break;
         case METHODID_INVOKE_WORKER_RPC:
           serviceImpl.invokeWorkerRPC((io.superdurable.gen.InvokeWorkerRPCRequest) request,
@@ -380,17 +366,17 @@ public final class WorkerServiceGrpc {
     return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
         .addMethod(
           getInvokeWaitForMethodMethod(),
-          io.grpc.stub.ServerCalls.asyncUnaryCall(
+          io.grpc.stub.ServerCalls.asyncServerStreamingCall(
             new MethodHandlers<
               io.superdurable.gen.InvokeWaitForMethodRequest,
-              io.superdurable.gen.InvokeWaitForMethodResponse>(
+              io.superdurable.gen.InvokeWaitForMethodOutput>(
                 service, METHODID_INVOKE_WAIT_FOR_METHOD)))
         .addMethod(
           getInvokeExecuteMethodMethod(),
-          io.grpc.stub.ServerCalls.asyncUnaryCall(
+          io.grpc.stub.ServerCalls.asyncServerStreamingCall(
             new MethodHandlers<
               io.superdurable.gen.InvokeExecuteMethodRequest,
-              io.superdurable.gen.InvokeExecuteMethodResponse>(
+              io.superdurable.gen.InvokeExecuteMethodOutput>(
                 service, METHODID_INVOKE_EXECUTE_METHOD)))
         .addMethod(
           getInvokeWorkerRPCMethod(),

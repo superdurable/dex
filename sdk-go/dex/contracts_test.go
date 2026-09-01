@@ -67,7 +67,17 @@ func (waitingStep) WaitFor(
 	ctx dex.Context,
 	input stepInput,
 ) (*dex.Wait, error) {
+	var checkpoint string
+	if _, err := ctx.GetLastHeartbeatValue(&checkpoint); err != nil {
+		return nil, err
+	}
+	if err := ctx.RecordHeartbeat(input.OrderID); err != nil {
+		return nil, err
+	}
 	if err := progressStream.Write(ctx, "waiting"); err != nil {
+		return nil, err
+	}
+	if err := progressStream.Write(ctx, "still waiting"); err != nil {
 		return nil, err
 	}
 	if err := statusAttribute.Set(ctx, input.OrderID); err != nil {

@@ -120,7 +120,19 @@ func run() (returnErr error) {
 }
 
 func (w *worker) InvokeExecuteMethod(
-	_ context.Context,
+	request *dexpb.InvokeExecuteMethodRequest,
+	stream grpc.ServerStreamingServer[dexpb.InvokeExecuteMethodOutput],
+) error {
+	response, err := w.invokeExecuteMethod(request)
+	if err != nil {
+		return err
+	}
+	return stream.Send(&dexpb.InvokeExecuteMethodOutput{
+		Output: &dexpb.InvokeExecuteMethodOutput_Result{Result: response},
+	})
+}
+
+func (w *worker) invokeExecuteMethod(
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {
 	if request.GetFlowType() != flowType {

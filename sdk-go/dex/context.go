@@ -45,6 +45,38 @@ type Context interface {
 	// WaitForMethodFailed reports whether Execute followed an exhausted WaitFor with Proceed policy.
 	WaitForMethodFailed() bool
 
+	// RecordHeartbeat reports progress for the active WaitFor or Execute invocation.
+	//
+	// A nil value, including a typed nil, clears persisted heartbeat details. Any
+	// other value is encoded and supplied to the next regular activity attempt.
+	// The call waits only for the Worker response frame to enter the gRPC stream;
+	// it does not wait for backend heartbeat persistence. RecordHeartbeat and
+	// Stream.Write may be called concurrently and serialize their output.
+	// Encoding failures return ValueMappingError; transport failures return the
+	// underlying gRPC error.
+	//
+	// RPC and Flow timeout invocations, and calls after the handler returns, produce an error.
+	//
+	//	var checkpoint ImportCheckpoint
+	//	found, err := ctx.GetLastHeartbeatValue(&checkpoint)
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	if !found {
+	//		checkpoint = ImportCheckpoint{}
+	//	}
+	//	if err := ctx.RecordHeartbeat(checkpoint); err != nil {
+	//		return nil, err
+	//	}
+	RecordHeartbeat(value any) error
+	// GetLastHeartbeatValue decodes the latest regular-activity heartbeat details.
+	//
+	// valuePtr must be a non-nil pointer. The method returns false without changing
+	// valuePtr when no details exist. Local-activity heartbeats are not available to
+	// fallback regular attempts. Decode failures return ValueMappingError. See
+	// RecordHeartbeat for an example.
+	GetLastHeartbeatValue(valuePtr any) (found bool, err error)
+
 	// SetStepExecutionLocal stages value under key for later attempts of this Step execution.
 	SetStepExecutionLocal(key string, value any) error
 	// GetStepExecutionLocal decodes a local value into non-nil valuePtr and reports whether it exists.

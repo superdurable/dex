@@ -113,6 +113,8 @@ func (r *Runtime) createTemporalServices() (
 		store,
 		r.attributeStore,
 		r.workerPool,
+		r.streamStore,
+		metrics,
 	)
 	return unifiedClient, store, worker, nil
 }

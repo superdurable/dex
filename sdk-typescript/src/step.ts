@@ -7,7 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import type { Codec } from "./codec.js";
-import type { Context } from "./context.js";
+import type { AsyncContext, Context } from "./context.js";
 import type { AttributeLock } from "./persistence.js";
 import type { Channel, ChannelMap, Wait } from "./wait.js";
 
@@ -26,7 +26,7 @@ export interface RetryPolicy {
   readonly maximumIntervalMs?: number;
   /** Total attempt limit including the initial call. */
   readonly maximumAttempts?: number;
-  /** Overall elapsed-time limit in milliseconds. */
+  /** Overall elapsed-time limit in milliseconds; defaults to four hours when omitted. */
   readonly totalDurationMs?: number;
 }
 
@@ -57,11 +57,11 @@ export const ExecuteFailure = Object.freeze({
 
 /** Configures timeouts, retries, durability, locks, and failure routing for a Step. */
 export interface StepOptions {
-  /** Maximum duration of one `waitFor` attempt in milliseconds. */
+  /** Regular `waitFor` attempt limit in milliseconds; defaults to two hours. */
   readonly waitForMethodTimeoutMs?: number;
-  /** Maximum duration of one `execute` attempt in milliseconds. */
+  /** Regular `execute` attempt limit in milliseconds; defaults to two hours. */
   readonly executeMethodTimeoutMs?: number;
-  /** Regular-activity heartbeat in milliseconds; must represent whole seconds. */
+  /** Regular heartbeat timeout in milliseconds; requires whole seconds and defaults to one minute. */
   readonly heartbeatTimeoutMs?: number;
   /** Optional retry policy for `waitFor`. */
   readonly waitForRetry?: RetryPolicy;
@@ -69,9 +69,9 @@ export interface StepOptions {
   readonly executeRetry?: RetryPolicy;
   /** Behavior after all `waitFor` attempts fail. */
   readonly waitForFailure?: WaitForFailurePolicy;
-  /** Durability used for the `waitFor` result. */
+  /** WaitFor durability override; otherwise uses Flow configuration, then sync. */
   readonly waitForDurability?: StepDurability;
-  /** Durability used for the `execute` result. */
+  /** Execute durability override; otherwise uses Flow configuration, then sync. */
   readonly executeDurability?: StepDurability;
   /** Attribute locks held during `waitFor`. */
   readonly waitForLockAttributes?: readonly AttributeLock[];
@@ -117,19 +117,25 @@ export interface Step<Input> {
   getStepOptions?(): StepOptions | undefined;
   /**
    * Describes durable conditions required before execution.
+   * Async handlers that record heartbeats must accept AsyncContext and return a Promise.
    * @param context - Current execution metadata and persistence operations.
    * @param input - Decoded Step input.
    * @returns A Wait or promise resolving to one.
    */
-  waitFor?(context: Context, input: Input): Wait | Promise<Wait>;
+  waitFor?: StepHandler<Input, Wait>;
   /**
    * Runs application logic and produces the next durable decision.
+   * Async handlers that record heartbeats must accept AsyncContext and return a Promise.
    * @param context - Current execution metadata and persistence operations.
    * @param input - Decoded Step input.
    * @returns A StepDecision or promise resolving to one.
    */
-  execute(context: Context, input: Input): StepDecision | Promise<StepDecision>;
+  execute: StepHandler<Input, StepDecision>;
 }
+
+type StepHandler<Input, Output> =
+  | ((context: Context, input: Input) => Output | Promise<Output>)
+  | ((context: AsyncContext, input: Input) => Promise<Output>);
 
 /**
  * Identifies one registered Step implementation by its runtime class.
@@ -143,7 +149,7 @@ interface StartStepDefinition<StartInput> {
 }
 
 interface NonStartStepDefinition {
-  readonly step: Step<unknown>;
+  readonly step: Step<any>;
   readonly isStartStep: false;
 }
 
@@ -181,7 +187,7 @@ export class StepList<StartInput> {
    * @returns A StepList with exactly one starting Step.
    */
   public static startStep<StartInput>(step: Step<StartInput>): StepList<StartInput> {
-    return new StepList([{ step: step as Step<unknown>, isStartStep: true }]);
+    return new StepList([{ step: step as Step<any>, isStartStep: true }]);
   }
 
   /**
@@ -193,7 +199,7 @@ export class StepList<StartInput> {
   public static withoutStartStep<StartInput = never>(
     ...steps: readonly Step<any>[]
   ): StepList<StartInput> {
-    return new StepList(steps.map((step) => ({ step: step as Step<unknown>, isStartStep: false })));
+    return new StepList(steps.map((step) => ({ step: step as Step<any>, isStartStep: false })));
   }
 
   /**
@@ -204,7 +210,7 @@ export class StepList<StartInput> {
   public otherSteps(...steps: readonly Step<any>[]): StepList<StartInput> {
     return new StepList([
       ...this.definitions,
-      ...steps.map((step) => ({ step: step as Step<unknown>, isStartStep: false as const })),
+      ...steps.map((step) => ({ step: step as Step<any>, isStartStep: false as const })),
     ]);
   }
 
@@ -263,7 +269,7 @@ export type StepDecision = (
       /** Schedules next Step movements. */
       kind: "next";
       /** Ordered destination movements. */
-      movements: readonly StepMovement<unknown>[];
+      movements: readonly StepMovement<any>[];
     }>
   | Readonly<{
       /** Requests graceful or immediate successful completion. */
@@ -277,7 +283,7 @@ export type StepDecision = (
       /** Codec-supported Flow result. */
       output: unknown;
       /** Movement scheduled when any selected Channel is non-empty. */
-      fallback: StepMovement<unknown>;
+      fallback: StepMovement<any>;
       /** Registered Channels inspected for emptiness. */
       channels: readonly (Channel<unknown> | ChannelMap<unknown>)[];
     }>
@@ -307,7 +313,7 @@ export const goTo = <Input>(step: StepClass<Input>, input: Input): StepDecision 
  * @param movements - Typed movements applied in argument order.
  * @returns A next decision containing every movement.
  */
-export const goToMany = (...movements: readonly StepMovement<unknown>[]): StepDecision => ({
+export const goToMany = (...movements: readonly StepMovement<any>[]): StepDecision => ({
   kind: "next",
   movements,
 });
@@ -338,7 +344,7 @@ export const forceComplete = (output?: unknown): StepDecision => ({ kind: "force
  */
 export const forceCompleteIfChannelsEmpty = (
   output: unknown,
-  fallback: StepMovement<unknown>,
+  fallback: StepMovement<any>,
   ...channels: readonly (Channel<unknown> | ChannelMap<unknown>)[]
 ): StepDecision => ({ kind: "forceCompleteIfChannelsEmpty", output, fallback, channels });
 

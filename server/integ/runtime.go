@@ -43,6 +43,7 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -102,8 +103,94 @@ type interpreterWorker interface {
 	Close()
 }
 
-// startWorker serves a WorkerServiceServer and returns its dial target.
-func startWorker(t *testing.T, handler dexpb.WorkerServiceServer) *dexpb.WorkerTarget {
+type resultOnlyWaitForWorker interface {
+	InvokeWaitForMethod(context.Context, *dexpb.InvokeWaitForMethodRequest) (
+		*dexpb.InvokeWaitForMethodResponse,
+		error,
+	)
+}
+
+type resultOnlyExecuteWorker interface {
+	InvokeExecuteMethod(context.Context, *dexpb.InvokeExecuteMethodRequest) (
+		*dexpb.InvokeExecuteMethodResponse,
+		error,
+	)
+}
+
+type resultOnlyRPCWorker interface {
+	InvokeWorkerRPC(context.Context, *dexpb.InvokeWorkerRPCRequest) (
+		*dexpb.InvokeWorkerRPCResponse,
+		error,
+	)
+}
+
+type resultOnlyWorkerAdapter struct {
+	dexpb.UnimplementedWorkerServiceServer
+	handler any
+}
+
+func (adapter *resultOnlyWorkerAdapter) InvokeWaitForMethod(
+	req *dexpb.InvokeWaitForMethodRequest,
+	stream grpc.ServerStreamingServer[dexpb.InvokeWaitForMethodOutput],
+) error {
+	handler, ok := adapter.handler.(resultOnlyWaitForWorker)
+	if !ok {
+		return status.Error(codes.Unimplemented, "WaitFor is not implemented")
+	}
+	response, err := handler.InvokeWaitForMethod(stream.Context(), req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(&dexpb.InvokeWaitForMethodOutput{
+		Output: &dexpb.InvokeWaitForMethodOutput_Result{Result: response},
+	})
+}
+
+func (adapter *resultOnlyWorkerAdapter) InvokeExecuteMethod(
+	req *dexpb.InvokeExecuteMethodRequest,
+	stream grpc.ServerStreamingServer[dexpb.InvokeExecuteMethodOutput],
+) error {
+	handler, ok := adapter.handler.(resultOnlyExecuteWorker)
+	if !ok {
+		return status.Error(codes.Unimplemented, "Execute is not implemented")
+	}
+	response, err := handler.InvokeExecuteMethod(stream.Context(), req)
+	if err != nil {
+		return err
+	}
+	return stream.Send(&dexpb.InvokeExecuteMethodOutput{
+		Output: &dexpb.InvokeExecuteMethodOutput_Result{Result: response},
+	})
+}
+
+func (adapter *resultOnlyWorkerAdapter) InvokeWorkerRPC(
+	ctx context.Context,
+	req *dexpb.InvokeWorkerRPCRequest,
+) (*dexpb.InvokeWorkerRPCResponse, error) {
+	handler, ok := adapter.handler.(resultOnlyRPCWorker)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "Worker RPC is not implemented")
+	}
+	return handler.InvokeWorkerRPC(ctx, req)
+}
+
+func startWorker(t *testing.T, handler any) *dexpb.WorkerTarget {
+	t.Helper()
+	if streamingHandler, ok := handler.(dexpb.WorkerServiceServer); ok {
+		return startStreamingWorker(t, streamingHandler)
+	}
+	_, hasWaitFor := handler.(resultOnlyWaitForWorker)
+	_, hasExecute := handler.(resultOnlyExecuteWorker)
+	_, hasRPC := handler.(resultOnlyRPCWorker)
+	require.True(t, hasWaitFor || hasExecute || hasRPC,
+		"worker handler must implement streaming or result-only methods")
+	return startStreamingWorker(t, &resultOnlyWorkerAdapter{handler: handler})
+}
+
+func startStreamingWorker(
+	t *testing.T,
+	handler dexpb.WorkerServiceServer,
+) *dexpb.WorkerTarget {
 	t.Helper()
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -172,6 +259,9 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 	attributeStore, err := attributestore.NewManager(context.Background(), &cfg.AttributeStore, logger)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, attributeStore.Close()) })
+	streamStore, err := streamstore.New(&cfg.StreamStore, logger)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, streamStore.Close()) })
 
 	var worker interpreterWorker
 	var unifiedClient uclient.UnifiedClient
@@ -182,7 +272,11 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		if testConfig.MemoEncryption {
 			dataConverter = encryptionDataConverter
 		}
-		temporalClient := createTemporalClient(t, dataConverter, testConfig.TemporalMetricsHandler)
+		metricsHandler := testConfig.TemporalMetricsHandler
+		if metricsHandler == nil {
+			metricsHandler = client.MetricsNopHandler
+		}
+		temporalClient := createTemporalClient(t, dataConverter, metricsHandler)
 		store, err = blobstore.NewBlobStore(
 			s3Client,
 			testNamespace,
@@ -207,6 +301,8 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			store,
 			attributeStore,
 			workerPool,
+			streamStore,
+			metricsHandler,
 		)
 	case service.BackendTypeCadence:
 		serviceClient, adminClient, closeServiceClient, err := dex.BuildCadenceServiceClient(
@@ -249,6 +345,8 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 			store,
 			attributeStore,
 			workerPool,
+			streamStore,
+			client.MetricsNopHandler,
 		)
 	default:
 		require.FailNow(t, "unsupported backend", testConfig.BackendType)
@@ -294,6 +392,7 @@ func startInProcessDexService(t *testing.T, testConfig DexServiceTestConfig) *in
 		logger,
 		store,
 		attributeStore,
+		streamStore,
 		worker.Close,
 		workerPool,
 		newInternalDumpHeaderCaptureInterceptor(internalDumpCapture),
@@ -362,16 +461,12 @@ func startApiServer(
 	logger log.Logger,
 	store blobstore.BlobStore,
 	attributeStore *attributestore.Manager,
+	streamStore *streamstore.Store,
 	closeInterpreter func(),
 	workerPool *workerclient.WorkerClientPool,
 	extraUnaryInterceptors ...grpc.UnaryServerInterceptor,
 ) {
 	t.Helper()
-	streamStore, err := streamstore.New(&cfg.StreamStore, logger)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, streamStore.Close())
-	})
 
 	server := api.NewServer(
 		&cfg.Api,

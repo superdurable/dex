@@ -20,7 +20,9 @@ import java.time.Duration;
  * {@link java.time.Duration}; the receiving API determines whether subsecond precision is accepted.
  * With asynchronous Step durability, local and regular execution share the same attempt and elapsed
  * duration budgets. Fallback starts immediately, while later regular retries continue the cumulative
- * exponential-backoff sequence.
+ * exponential-backoff sequence. Step retry total duration defaults to four hours. The asynchronous
+ * local phase uses at most seven seconds and three attempts before fallback; smaller user limits
+ * still apply.
  *
  * <pre>{@code
  * RetryPolicy retry = RetryPolicy.newBuilder()
@@ -132,6 +134,9 @@ public final class RetryPolicy {
 
         /**
          * Limits the total elapsed retry duration.
+         *
+         * <p>Step method retries default to four hours when this value is unset. An explicit value
+         * may be shorter or longer.
          *
          * @param value the total retry duration, or {@code null} for the server default
          * @return this builder

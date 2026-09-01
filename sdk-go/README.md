@@ -33,7 +33,21 @@ func (WaitForCommandStep) WaitFor(
 	ctx dex.Context,
 	input OrderInput,
 ) (*dex.Wait, error) {
+	var checkpoint string
+	found, err := ctx.GetLastHeartbeatValue(&checkpoint)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		checkpoint = "starting"
+	}
+	if err := ctx.RecordHeartbeat(checkpoint); err != nil {
+		return nil, err
+	}
 	if err := Progress.Write(ctx, "waiting for a command"); err != nil {
+		return nil, err
+	}
+	if err := Progress.Write(ctx, "inventory check started"); err != nil {
 		return nil, err
 	}
 	if err := OrderStatus.Set(ctx, "waiting"); err != nil {
@@ -100,6 +114,36 @@ attempts, total duration, and 1-based attempt numbers. Fallback starts
 immediately; later regular retries continue the backoff sequence at the
 cumulative attempt.
 
+Step durability resolves from the method override, then FlowConfig, then
+`StepDurabilitySync`. Retry total duration defaults to four hours. Regular
+attempts default to two hours with a one-minute heartbeat timeout. The server's
+minimum explicit heartbeat timeout defaults to ten seconds and can be changed
+by operators; the Go SDK validates only non-negative whole seconds in the
+signed int32 range. Async execution first uses at most seven local-activity
+seconds and three attempts. The local phase ignores method and heartbeat
+timeouts before regular fallback.
+
+### Heartbeats and Stream progress
+
+`Context.RecordHeartbeat` emits a checkpoint from WaitFor or Execute. A retry
+restores the most recent regular-activity checkpoint through
+`Context.GetLastHeartbeatValue`. Passing nil, including a typed nil, explicitly
+clears the checkpoint. Local-activity heartbeats are ignored. Flow timeout
+handlers and RPCs cannot send heartbeat or Stream progress.
+
+`Stream.Write` emits a fire-and-forget frame on the same Worker response stream.
+A handler may write any number of messages to the same or different Streams.
+The call reports local validation, encoding, and gRPC send failures, but it does
+not wait for a Stream Store acknowledgment. Server-side store rejection or
+unavailability is visible through server logs and metrics rather than the
+handler return value. Heartbeats and Stream writes may run concurrently; their
+frames are serialized by the Worker.
+
+Messages written by a Step have `#<stepExecutionID>` in
+`StreamMessage.Source`. Client writes accept any non-empty source, including
+values containing `#`. Reusing a source appends another message; source is
+metadata, not an idempotency key.
+
 ### Canceling Step executions
 
 A successful Step can cancel queued or active executions while continuing with
@@ -122,22 +166,6 @@ already-canceled, and absent targets are no-ops. Next Steps created by the same
 decision are not in that snapshot. Dex immediately applies the next or close
 action without waiting for target handlers; late decisions, writes, retries,
 and recovery Steps are discarded.
-
-Configure `StepOptions.HeartbeatTimeout` on long-running regular Steps so
-cancellation reaches the Worker promptly. The same setting applies to WaitFor
-and Execute; local activities ignore it, while an ASYNC fallback uses it. Zero
-disables heartbeats, and positive values must be whole seconds within the
-signed int32 range. Go handlers receive cancellation through the standard
-`Context.Done()` channel:
-
-```go
-select {
-case <-ctx.Done():
-	return nil, ctx.Err()
-case result := <-work:
-	return dex.GracefulComplete(result), nil
-}
-```
 
 An RPC may call `RPCResult.CancelSteps` for Flow-wide selection while also
 returning output and scheduling Next Steps. RPCs do not support sibling
@@ -196,27 +224,6 @@ Inside a handler, `AttributeMap.MapSize` and `AllInstanceKeys` include buffered
 sets and deletes. `ChannelMap.MapSize` and `AllInstanceKeys` are RPC-only and
 include buffered publishes, but omit empty instances. Keys are decoded and
 sorted. Use `ForceCompleteIfChannelsEmpty` for atomic conditional completion.
-
-## Resumable Streams
-
-Streams carry best-effort progress messages without adding durable Flow history.
-The byte budget is approximate and shared by every Flow instance with the same
-Flow type and Stream name. Register one definition in exactly one Flow schema.
-
-```go
-if err := client.WriteStream(ctx, flowID, Progress, "frontend/1", "starting"); err != nil {
-	return err
-}
-
-var progress string
-message, err := client.ReadStream(ctx, flowID, Progress, resumeToken, &progress)
-```
-
-Client idempotency keys cannot contain `#`. Step writes generate
-`runID#stepExecutionID` and allow one write per Stream per invocation. Reads
-return `ResumeToken`, `CreatedTime`, and `IdempotencyKey`. An empty token starts
-at the retained head. Use `context.WithTimeout` or `context.WithDeadline` to
-bound a read; Go wait APIs do not expose a second timeout option.
 
 SubFlows are normal, independently addressable Flows used as durable Conditions:
 

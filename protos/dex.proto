@@ -100,8 +100,8 @@ service FlowService {
 
 // Hosted by Dex worker; server calls these RPCs.
 service WorkerService {
-  rpc InvokeWaitForMethod(InvokeWaitForMethodRequest) returns (InvokeWaitForMethodResponse);
-  rpc InvokeExecuteMethod(InvokeExecuteMethodRequest) returns (InvokeExecuteMethodResponse);
+  rpc InvokeWaitForMethod(InvokeWaitForMethodRequest) returns (stream InvokeWaitForMethodOutput);
+  rpc InvokeExecuteMethod(InvokeExecuteMethodRequest) returns (stream InvokeExecuteMethodOutput);
   rpc InvokeWorkerRPC(InvokeWorkerRPCRequest) returns (InvokeWorkerRPCResponse);
 }
 
@@ -183,6 +183,7 @@ message Context {
   string from_step_execution_id = 7;
   // Previous Step method failure supplied only to its configured recovery method.
   RecoveryErrorInfo recovery_error = 8;
+  Value last_heartbeat_value = 9;
 }
 
 message LocalActivityMetadata {
@@ -329,8 +330,7 @@ message WriteStreamRequest {
   string stream_name = 3;
   int64 stream_capacity_bytes = 4;
   Value value = 5;
-  // Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`.
-  string idempotency_key = 6;
+  string source = 6;
 }
 
 message ReadStreamRequest {
@@ -349,7 +349,7 @@ message StreamMessage {
   Value value = 1;
   string resume_token = 2;
   google.protobuf.Timestamp created_time = 3;
-  string idempotency_key = 4;
+  string source = 4;
 }
 
 enum StopType {
@@ -904,6 +904,24 @@ message InvokeWaitForMethodResponse {
   repeated ChannelMessage publish_to_channel = 6;
 }
 
+message StepMethodHeartbeat {
+  Value value = 1;
+}
+
+message StepStreamWrite {
+  string stream_name = 1;
+  int64 stream_capacity_bytes = 2;
+  Value value = 3;
+}
+
+message InvokeWaitForMethodOutput {
+  oneof output {
+    StepMethodHeartbeat heartbeat = 1;
+    StepStreamWrite stream_write = 2;
+    InvokeWaitForMethodResponse result = 3;
+  }
+}
+
 message InvokeExecuteMethodRequest {
   Context context = 1;
   string flow_type = 2;
@@ -922,6 +940,14 @@ message InvokeExecuteMethodResponse {
   repeated KV record_events = 4;
   repeated KV upsert_step_exe_locals = 5;
   repeated ChannelMessage publish_to_channel = 6;
+}
+
+message InvokeExecuteMethodOutput {
+  oneof output {
+    StepMethodHeartbeat heartbeat = 1;
+    StepStreamWrite stream_write = 2;
+    InvokeExecuteMethodResponse result = 3;
+  }
 }
 
 message InvokeWorkerRPCRequest {

@@ -58,8 +58,15 @@ public final class Stream<T> extends PersistenceDefinition {
     /**
      * Appends one message immediately from the current Step execution.
      *
-     * @param context the current Step Context; RPC Contexts are rejected
+     * <p>This method sends a fire-and-forget frame to Dex. It may be called repeatedly for the same
+     * Stream. Each frame also acts as an implicit activity heartbeat. Storage failures do not fail
+     * the Step, but local validation, serialization, or transport failures may throw.
+     *
+     * @param context the current Step Context; RPC and Flow timeout Contexts are rejected
      * @param value the typed message to append
+     * @throws IllegalStateException if the Context belongs to an RPC or Flow timeout handler
+     * @throws io.grpc.StatusRuntimeException if the Step invocation is canceled or transport fails
+     * @throws io.superdurable.dex.exceptions.ValueMappingException if the value cannot be encoded
      */
     public void write(final Context context, final T value) {
         context.writeStream(this, value);

@@ -111,17 +111,15 @@ func New(cfg *config.Config, options *Options) (*Runtime, error) {
 		zapLogger:  zapLogger,
 		serveError: make(chan error, 1),
 	}
-	if options.Services.API {
-		streamStore, streamStoreErr := streamstore.New(
-			&cfg.StreamStore,
-			logger.WithTags(tag.Service("stream-store")),
-		)
-		if streamStoreErr != nil {
-			workerPool.Close()
-			return nil, fmt.Errorf("initialize Stream Store: %w", streamStoreErr)
-		}
-		runtime.streamStore = streamStore
+	streamStore, streamStoreErr := streamstore.New(
+		&cfg.StreamStore,
+		logger.WithTags(tag.Service("stream-store")),
+	)
+	if streamStoreErr != nil {
+		workerPool.Close()
+		return nil, fmt.Errorf("initialize Stream Store: %w", streamStoreErr)
 	}
+	runtime.streamStore = streamStore
 	attributeStore, err := attributestore.NewManager(context.Background(), &cfg.AttributeStore, logger)
 	if err != nil {
 		if runtime.streamStore != nil {

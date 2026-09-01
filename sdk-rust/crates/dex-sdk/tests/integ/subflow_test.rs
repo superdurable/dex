@@ -22,7 +22,7 @@ use crate::subflow_workflow::{
     AbnormalSubFlowParent, AllSubFlowParent, AnySubFlowParent, ContinueAsNewSubFlowParent,
     SingleSubFlowParent, TimerSubFlowParent,
 };
-use crate::support::{DexDevTestEnvironment, flow_id};
+use crate::support::{DexDevTestEnvironment, flow_id, skip_timer_when_pending};
 use crate::timer_workflow::{TimerStep, TimerWorkflow};
 
 #[test]
@@ -150,14 +150,12 @@ fn test_subflow_partial_results_survive_continue_as_new_without_restart() {
         .describe_flow(&completed_id)
         .unwrap()
         .run_id;
-    environment
-        .client
-        .skip_timer(
-            &delayed_id,
-            StepExecutionId::of(&TimerStep),
-            TimerId::by_condition_id("test-timer-id"),
-        )
-        .unwrap();
+    skip_timer_when_pending(
+        &environment.client,
+        &delayed_id,
+        StepExecutionId::of(&TimerStep),
+        TimerId::by_condition_id("test-timer-id"),
+    );
     let output: String = wait(&environment.client, &id).single_output().unwrap();
     assert_eq!(
         vec![completed_id.as_str(), "6", delayed_id.as_str(), "Completed"],
@@ -194,14 +192,12 @@ fn assert_running_reuse(reuse_policy: SubFlowReusePolicy, expects_restart: bool)
         expects_restart.then_some(first_run_id.as_str()),
     );
     assert_eq!(expects_restart, active_run_id != first_run_id);
-    environment
-        .client
-        .skip_timer(
-            &child_id,
-            StepExecutionId::of(&TimerStep),
-            TimerId::by_condition_id("test-timer-id"),
-        )
-        .unwrap();
+    skip_timer_when_pending(
+        &environment.client,
+        &child_id,
+        StepExecutionId::of(&TimerStep),
+        TimerId::by_condition_id("test-timer-id"),
+    );
     let output: String = wait(&environment.client, &id).single_output().unwrap();
     assert_eq!(
         vec![child_id.as_str(), "Completed"],

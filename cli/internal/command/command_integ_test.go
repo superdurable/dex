@@ -34,12 +34,14 @@ type testFlowService struct {
 	loadCalls            int
 	startCalls           int
 	stopCalls            int
+	streamWriteCalls     int
 	skipTimerCalls       int
 	waitStepCalls        int
 	updateConfigCalls    int
 	continueAsNewCalls   int
 	startRequest         *dexpb.StartFlowRequest
 	stopRequest          *dexpb.StopFlowRequest
+	streamWriteRequest   *dexpb.WriteStreamRequest
 	waitRequest          *dexpb.WaitForFlowRequest
 	skipTimerRequest     *dexpb.SkipTimerRequest
 	waitStepRequest      *dexpb.WaitForStepCompletionRequest
@@ -102,6 +104,17 @@ func (s *testFlowService) StopFlow(
 	s.stopRequest = request
 	s.stopCalls++
 	s.mu.Unlock()
+	return &emptypb.Empty{}, nil
+}
+
+func (s *testFlowService) WriteStream(
+	_ context.Context,
+	request *dexpb.WriteStreamRequest,
+) (*emptypb.Empty, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.streamWriteCalls++
+	s.streamWriteRequest = request
 	return &emptypb.Empty{}, nil
 }
 
@@ -295,6 +308,33 @@ func TestMutationRequiresYesBeforeSendingRequest(t *testing.T) {
 	)
 	if result["stopped"] != true {
 		t.Fatalf("unexpected stop result: %#v", result)
+	}
+}
+
+func TestGenericAPIStreamWriteRequiresConfirmation(t *testing.T) {
+	service, address := startTestFlowService(t)
+	requestJSON := `{"flowId":"flow-1","flowType":"OrderFlow","streamName":"progress","streamCapacityBytes":"1024","value":{"stringValue":"working"},"source":"cli#writer"}`
+	app := NewApp(bytes.NewReader(nil), &bytes.Buffer{}, &bytes.Buffer{})
+	err := app.Execute(context.Background(), []string{
+		"api", "call", "WriteStream", "--data", requestJSON, "--server", address,
+	})
+	if err == nil || ExitCode(err) != 2 {
+		t.Fatalf("expected confirmation error, got %v", err)
+	}
+	service.mu.Lock()
+	if service.streamWriteCalls != 0 {
+		service.mu.Unlock()
+		t.Fatal("Stream write was called without confirmation")
+	}
+	service.mu.Unlock()
+
+	executeTestCommand(t, nil,
+		"api", "call", "WriteStream", "--data", requestJSON, "--yes", "--server", address,
+	)
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	if service.streamWriteCalls != 1 || service.streamWriteRequest.GetSource() != "cli#writer" {
+		t.Fatalf("unexpected Stream write request: %#v", service.streamWriteRequest)
 	}
 }
 
@@ -524,6 +564,10 @@ func TestAPIDescriptorIncludesEveryFlowServiceMethod(t *testing.T) {
 	described := executeTestCommand(t, nil, "api", "describe", "ResetFlow")
 	if described["requestType"] != "dex.ResetFlowRequest" || described["mutating"] != true {
 		t.Fatalf("unexpected descriptor: %#v", described)
+	}
+	streamDescription := executeTestCommand(t, nil, "api", "describe", "WriteStream")
+	if streamDescription["requestType"] != "dex.WriteStreamRequest" || streamDescription["mutating"] != true {
+		t.Fatalf("unexpected Stream descriptor: %#v", streamDescription)
 	}
 }
 

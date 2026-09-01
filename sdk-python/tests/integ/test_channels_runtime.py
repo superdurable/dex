@@ -13,7 +13,7 @@ from datetime import timedelta
 
 import pytest
 
-from dex import FlowNotActiveError, StepExecutionId, TimerId
+from dex import DexServiceError, FlowNotActiveError, StepExecutionId, TimerId
 
 from .async_environment import AsyncDexDevTestEnvironment
 from .basic_internal_channel_flow import BasicInternalChannelFlow
@@ -96,13 +96,30 @@ async def _signal_conditions_and_timer_skip() -> None:
         await environment.client.publish(flow_id, flow.first, 2, 3, 5)
         await environment.client.publish(flow_id, flow.third, None)
         await environment.client.publish(flow_id, flow.signal_map, "one", 4)
-        await environment.client.skip_timer(
-            flow_id,
-            StepExecutionId("SignalCombinationStep"),
-            TimerId.by_condition_id("test-timer-id"),
-        )
+        await _skip_signal_timer_when_pending(environment, flow_id)
         assert (
             await environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT)
         ).single_output(int) == 6
         with pytest.raises(FlowNotActiveError):
             await environment.client.publish(flow_id, flow.first, 8)
+
+
+async def _skip_signal_timer_when_pending(
+    environment: AsyncDexDevTestEnvironment,
+    flow_id: str,
+) -> None:
+    deadline = asyncio.get_running_loop().time() + 10
+    while True:
+        try:
+            await environment.client.skip_timer(
+                flow_id,
+                StepExecutionId("SignalCombinationStep"),
+                TimerId.by_condition_id("test-timer-id"),
+            )
+            return
+        except DexServiceError as error:
+            if "does not exist or is not pending" not in error.detail:
+                raise
+            if asyncio.get_running_loop().time() >= deadline:
+                raise
+            await asyncio.sleep(0.01)

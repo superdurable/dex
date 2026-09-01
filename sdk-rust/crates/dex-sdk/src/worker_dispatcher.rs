@@ -13,17 +13,17 @@ use std::time::Duration;
 use dex_protocol::dex::{
     AttributeWrite, ChannelCondition, ChannelMessage, CloseDecision, CloseDecisionType,
     ConditionCombination as ProtoCombination, ExecuteMethodFailurePolicy,
-    InvokeExecuteMethodRequest, InvokeExecuteMethodResponse, InvokeWaitForMethodRequest,
-    InvokeWaitForMethodResponse, InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, Kv,
-    RetryPolicy as ProtoRetryPolicy, StepDecision as ProtoStepDecision,
-    StepDurability as ProtoStepDurability, StepMovement as ProtoStepMovement,
-    StepOptions as ProtoStepOptions, SubFlowCondition as ProtoSubFlowCondition,
-    SubFlowOptions as ProtoSubFlowOptions, SubFlowReusePolicy as ProtoSubFlowReusePolicy,
-    TimerCondition, WaitForMethodFailurePolicy, WaitingCondition, WaitingConditionType,
-    flow_service_client::FlowServiceClient,
+    InvokeExecuteMethodOutput, InvokeExecuteMethodRequest, InvokeExecuteMethodResponse,
+    InvokeWaitForMethodOutput, InvokeWaitForMethodRequest, InvokeWaitForMethodResponse,
+    InvokeWorkerRpcRequest, InvokeWorkerRpcResponse, Kv, RetryPolicy as ProtoRetryPolicy,
+    StepDecision as ProtoStepDecision, StepDurability as ProtoStepDurability,
+    StepMovement as ProtoStepMovement, StepOptions as ProtoStepOptions,
+    SubFlowCondition as ProtoSubFlowCondition, SubFlowOptions as ProtoSubFlowOptions,
+    SubFlowReusePolicy as ProtoSubFlowReusePolicy, TimerCondition, WaitForMethodFailurePolicy,
+    WaitingCondition, WaitingConditionType, invoke_execute_method_output,
+    invoke_wait_for_method_output,
 };
-use tokio::runtime::Handle;
-use tonic::transport::Channel as TransportChannel;
+use tokio::sync::mpsc;
 
 use crate::context::{Context, ContextInput, InvocationCancellation, InvocationMethod};
 use crate::persistence::PersistenceKind;
@@ -34,6 +34,7 @@ use crate::step_options::ErasedStepOptions;
 use crate::value_hydrator::ValueHydrator;
 use crate::value_mapper;
 use crate::wait::{Condition, ConditionKind, Wait, WaitKind};
+use crate::worker_output::{StepOutputEmitter, WorkerInvocation};
 use crate::{
     HandlerError, HandlerResult, Registry, RetryPolicy, SdkError, StepDurability,
     SubFlowReusePolicy, WaitForFailurePolicy,
@@ -45,28 +46,39 @@ const TIMEOUT_HANDLER_STEP_TYPE: &str = "sys:timeout_handler";
 pub(crate) struct WorkerDispatcher {
     registry: Registry,
     hydrator: ValueHydrator,
-    flow_service: FlowServiceClient<TransportChannel>,
-    runtime_handle: Handle,
 }
 
 impl WorkerDispatcher {
-    pub(crate) fn new(
-        registry: Registry,
-        hydrator: ValueHydrator,
-        flow_service: FlowServiceClient<TransportChannel>,
-        runtime_handle: Handle,
-    ) -> Self {
-        Self {
-            registry,
-            hydrator,
-            flow_service,
-            runtime_handle,
-        }
+    pub(crate) fn new(registry: Registry, hydrator: ValueHydrator) -> Self {
+        Self { registry, hydrator }
     }
 
-    pub(crate) async fn invoke_wait_for(
+    pub(crate) fn invoke_wait_for(
         &self,
         request: InvokeWaitForMethodRequest,
+    ) -> WorkerInvocation<InvokeWaitForMethodOutput> {
+        let (output_emitter, receiver) = StepOutputEmitter::wait_for();
+        let sender = output_emitter.wait_for_sender();
+        let cancellation = InvocationCancellation::new();
+        let producer_cancellation = cancellation.clone();
+        let dispatcher = self.clone();
+        let producer = tokio::spawn(async move {
+            let result = dispatcher
+                .do_invoke_wait_for(request, output_emitter, producer_cancellation.clone())
+                .await
+                .map(|result| InvokeWaitForMethodOutput {
+                    output: Some(invoke_wait_for_method_output::Output::Result(result)),
+                });
+            send_handler_result(sender, producer_cancellation, result).await;
+        });
+        WorkerInvocation::new(receiver, cancellation, producer)
+    }
+
+    async fn do_invoke_wait_for(
+        &self,
+        request: InvokeWaitForMethodRequest,
+        output_emitter: StepOutputEmitter,
+        cancellation: InvocationCancellation,
     ) -> HandlerResult<InvokeWaitForMethodResponse> {
         let request = self.hydrate_wait_for(request).await?;
         let flow = self.registered_flow(&request.flow_type)?;
@@ -95,8 +107,8 @@ impl WorkerDispatcher {
                 condition_results: None,
                 channel_infos: HashMap::new(),
             },
-            self.runtime_handle.clone(),
-            self.flow_service.clone(),
+            Some(output_emitter),
+            cancellation,
         )?;
         let input = request
             .step_input
@@ -121,14 +133,39 @@ impl WorkerDispatcher {
         .await
     }
 
-    pub(crate) async fn invoke_execute(
+    pub(crate) fn invoke_execute(
         &self,
         request: InvokeExecuteMethodRequest,
+    ) -> WorkerInvocation<InvokeExecuteMethodOutput> {
+        let (output_emitter, receiver) = StepOutputEmitter::execute();
+        let sender = output_emitter.execute_sender();
+        let cancellation = InvocationCancellation::new();
+        let producer_cancellation = cancellation.clone();
+        let dispatcher = self.clone();
+        let producer = tokio::spawn(async move {
+            let result = dispatcher
+                .do_invoke_execute(request, output_emitter, producer_cancellation.clone())
+                .await
+                .map(|result| InvokeExecuteMethodOutput {
+                    output: Some(invoke_execute_method_output::Output::Result(result)),
+                });
+            send_handler_result(sender, producer_cancellation, result).await;
+        });
+        WorkerInvocation::new(receiver, cancellation, producer)
+    }
+
+    async fn do_invoke_execute(
+        &self,
+        request: InvokeExecuteMethodRequest,
+        output_emitter: StepOutputEmitter,
+        cancellation: InvocationCancellation,
     ) -> HandlerResult<InvokeExecuteMethodResponse> {
         let request = self.hydrate_execute(request).await?;
         let flow = self.registered_flow(&request.flow_type)?;
         if request.step_type == TIMEOUT_HANDLER_STEP_TYPE {
-            return self.invoke_timeout_handler(request, flow).await;
+            return self
+                .invoke_timeout_handler(request, flow, cancellation)
+                .await;
         }
         let step = flow
             .steps
@@ -155,8 +192,8 @@ impl WorkerDispatcher {
                 condition_results: request.condition_results,
                 channel_infos: HashMap::new(),
             },
-            self.runtime_handle.clone(),
-            self.flow_service.clone(),
+            Some(output_emitter),
+            cancellation,
         )?;
         let input = request
             .step_input
@@ -184,6 +221,7 @@ impl WorkerDispatcher {
         &self,
         request: InvokeExecuteMethodRequest,
         flow: RegisteredFlow,
+        cancellation: InvocationCancellation,
     ) -> HandlerResult<InvokeExecuteMethodResponse> {
         if request.step_input.is_some() {
             return Err(HandlerError::new(
@@ -212,8 +250,8 @@ impl WorkerDispatcher {
                 condition_results: request.condition_results,
                 channel_infos: HashMap::new(),
             },
-            self.runtime_handle.clone(),
-            self.flow_service.clone(),
+            None,
+            cancellation,
         )?;
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
@@ -270,8 +308,8 @@ impl WorkerDispatcher {
                 condition_results: None,
                 channel_infos: request.channel_infos,
             },
-            self.runtime_handle.clone(),
-            self.flow_service.clone(),
+            None,
+            InvocationCancellation::new(),
         )?;
         let input = request
             .input
@@ -417,6 +455,16 @@ impl WorkerDispatcher {
             .flow(flow_type)
             .cloned()
             .map_err(handler_error)
+    }
+}
+
+async fn send_handler_result<Output>(
+    sender: mpsc::Sender<HandlerResult<Output>>,
+    cancellation: InvocationCancellation,
+    result: HandlerResult<Output>,
+) {
+    if sender.send(result).await.is_err() {
+        cancellation.cancel();
     }
 }
 

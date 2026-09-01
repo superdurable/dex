@@ -13,6 +13,7 @@ the shared Rust Core is used only for BlobCache.
 
 ```python
 from datetime import timedelta
+from typing import Generator
 
 import dex
 
@@ -30,8 +31,9 @@ class Run(dex.Step[str]):
 
     def execute(
         self, context: dex.Context, input: str
-    ) -> dex.StepDecision:
-        progress.write(context, "running")
+    ) -> Generator[dex.StepOutput, None, dex.StepDecision]:
+        yield progress.write(context, "running")
+        yield dex.heartbeat({"phase": "running"})
         return dex.graceful_complete(input)
 
 class CounterFlow(dex.Flow[str]):
@@ -61,23 +63,6 @@ Built-in primitive types and dataclasses need no codec arguments. Register an
 explicit codec only for a custom encoding or a type Registry cannot derive.
 `PersistenceSchema.of(...)` accepts attributes, channels, and streams together and
 partitions them by definition type.
-
-Streams provide best-effort resumable progress messages. Their approximate byte
-budget is shared by all instances of the owning Flow type. Client keys cannot
-contain `#`; Step writes generate `runID#stepExecutionID` and allow one write per
-Stream per invocation.
-
-```python
-client.write_stream(flow_id, progress, "frontend/1", "starting")
-message = client.read_stream(
-    flow_id, progress, resume_token, timeout=timedelta(seconds=30)
-)
-resume_token = message.resume_token
-```
-
-Async Step handlers await **Stream.write**, and **AsyncClient** exposes matching
-async methods. Reads return the decoded value, resume token, creation time, and
-idempotency key.
 
 `Worker` and `AsyncWorker` synchronize all registered Indexed Attributes with
 Dex Server before opening their listener. Existing indexes return immediately;
@@ -128,9 +113,10 @@ Applications implement two generic interfaces from [`dex`](dex/):
   binds the Flow input to the starting Step input. Use `StepList.empty()` when
   a Flow has no Steps.
 - `Step[INPUT]` implements `execute` and optionally `wait_for`. The default
-  Worker path requires synchronous handlers. With `AsyncWorker` and
-  `Registry(..., allow_async_handlers=True)`, handlers may be `async def` and
-  `await` an `AsyncClient`.
+  Worker accepts ordinary synchronous handlers and generator handlers. A generator
+  yields `StepOutput` progress frames and returns its final `Wait` or `StepDecision`.
+  With `AsyncWorker` and `Registry(..., allow_async_handlers=True)`, Step
+  coroutines use `AsyncContext`; async RPCs keep `Context`.
 
 `StepOptions.wait_for_method_timeout` and `execute_method_timeout` bound the
 two handler calls. Timer and channel conditions determine how long a Step waits.
@@ -140,6 +126,58 @@ two handler calls. Timer and channel conditions determine how long a Step waits.
 attempts, total duration, and 1-based attempt numbers. Fallback starts
 immediately; later regular retries continue the backoff sequence at the
 cumulative attempt.
+
+The default Step durability is synchronous. A Flow configuration can select
+asynchronous durability, and a Step method override has highest precedence. The
+default retry total duration is four hours. Regular attempts default to a two-hour
+method timeout and one-minute heartbeat timeout; an explicit heartbeat timeout must
+meet the server minimum, which defaults to ten seconds. Asynchronous durability
+first allows at most three local attempts in seven seconds. The local phase ignores
+method timeouts and heartbeat frames before falling back to a regular activity.
+
+### Step progress and heartbeat recovery
+
+A synchronous handler yields every heartbeat and Stream write. The generator return
+value is the only final result:
+
+```python
+def execute(
+    self, context: dex.Context, input: str
+) -> Generator[dex.StepOutput, None, dex.StepDecision]:
+    yield dex.heartbeat({"offset": 10})
+    yield progress.write(context, "processed 10 items")
+    return dex.graceful_complete(input)
+```
+
+An asynchronous handler keeps its normal coroutine return. Stream writes enqueue
+without waiting for Stream Store acknowledgement; heartbeat waits only for the
+Worker output queue:
+
+```python
+async def execute(
+    self, context: dex.AsyncContext, input: str
+) -> dex.StepDecision:
+    progress.write(context, "started")
+    await context.heartbeat({"offset": 10})
+    return dex.graceful_complete(input)
+```
+
+Call `heartbeat()` or `await context.heartbeat()` without a value to clear previous
+details. Passing Python `None` persists a present null Value. On a later regular
+attempt, use `context.has_last_heartbeat_value()` before decoding with
+`context.get_last_heartbeat_value(ExpectedType)`. A Stream frame is also an implicit
+heartbeat, but it preserves the latest explicit heartbeat state.
+
+A Step may write the same Stream any number of times. Dex assigns
+`#<stepExecutionID>` as each Step message's `StreamMessage.source`. Client writes
+provide their own non-empty source; duplicate sources and `#` are allowed and every
+write appends:
+
+```python
+client.write_stream(flow_id, progress, "frontend#preview", "rendering")
+message = client.read_stream(flow_id, progress)
+print(message.source)
+```
 
 ### Canceling Step executions
 
@@ -164,14 +202,6 @@ Dex resolves one snapshot after the current execution succeeds. Completed,
 already-canceled, and absent targets are no-ops. Next Steps created by the same
 decision are outside the snapshot. Dex immediately applies the next or close
 action; late decisions, writes, retries, and recovery Steps are discarded.
-
-Set `StepOptions.heartbeat_timeout` on long-running regular Steps so
-cancellation reaches the Worker promptly. It applies to `wait_for` and
-`execute`; local activities ignore it, while an ASYNC fallback uses it. `None`
-and zero disable heartbeats, and positive values must be whole seconds in the
-signed int32 range. `AsyncWorker` cancels the handler's asyncio task. A handler
-may catch `asyncio.CancelledError` for cleanup; synchronous CPU-bound handlers
-may check `Context.is_cancellation_requested()` at natural boundaries.
 
 `RPCResult.with_canceling_steps` provides the Flow-wide selector for RPCs.
 RPCs do not support sibling selection because they have no Step execution
@@ -282,14 +312,14 @@ serialization, and invalid handler returns use `FlowDefinitionError`,
 ### Sync vs asyncio
 
 - **Sync (default):** `Client` and `Worker` use blocking gRPC and a thread-pool
-  Worker. Blocking `Client` calls inside `Step.execute` are safe (one pool
-  thread is occupied; other RPCs still run).
+  Worker. A progress generator cooperatively hands each yielded frame to gRPC;
+  `Stream.write` must therefore be yielded. Blocking Client calls inside
+  `Step.execute` are safe while other pool threads remain available.
 - **Asyncio:** `AsyncClient` and `AsyncWorker` use `grpc.aio`. Use
   `Registry(..., allow_async_handlers=True)` when Steps/RPCs are coroutines.
-  Inside async `execute`, inject `AsyncClient` — do not call sync `Client` on
-  the Worker event loop. Sync `Worker` still rejects coroutine handlers at
-  registry construction unless `allow_async_handlers=True` (and even then the
-  sync Worker dispatcher rejects awaitable return values).
+  Step coroutines annotate `AsyncContext`, call `Stream.write` without `await`,
+  and await `context.heartbeat`. Inside async `execute`, inject `AsyncClient` —
+  do not call sync `Client` on the Worker event loop. Async generators are rejected.
 
 Integration scenarios live under
 [`tests/integ`](tests/integ/README.md). They exercise the same workflows,
@@ -302,7 +332,8 @@ The strongly typed contracts, registry, synchronous Client/Worker, optional
 `AsyncClient`/`AsyncWorker` (`grpc.aio`), and Rust-backed BlobCache are
 implemented. Python owns its gRPC transport; the native bridge is limited to
 the shared BlobCache. Design notes:
-[`docs/design/plan/python-sdk-async-apis.md`](../docs/design/plan/python-sdk-async-apis.md).
+[`python-sdk-async-apis.md`](../docs/design/plan/python-sdk-async-apis.md) and
+[`python-sdk-step-streaming.md`](../docs/design/plan/python-sdk-step-streaming.md).
 
 ## Running Dex locally
 

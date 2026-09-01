@@ -332,27 +332,24 @@ impl Client {
         )
     }
 
-    /// Appends one typed best-effort Stream message with client idempotency.
+    /// Appends one typed best-effort Stream message with source metadata.
     ///
-    /// The Flow instance need not exist or be active. Retained duplicate keys are successful
-    /// first-write-wins no-ops.
+    /// The Flow instance need not exist or be active. Every call appends a message, including calls
+    /// that repeat the same source. A source may contain `#`.
     ///
     /// # Errors
     ///
-    /// Returns a definition error for an unregistered Stream, InvalidArgument for an empty ID or
-    /// key containing `#`, a mapping error, or a FlowService failure.
+    /// Returns a definition error for an unregistered Stream, InvalidArgument for an empty Flow ID
+    /// or source, a mapping error, or a FlowService failure.
     pub fn write_stream<T: Value>(
         &self,
         flow_id: &str,
         stream: &Stream<T>,
-        idempotency_key: &str,
+        source: &str,
         value: T,
     ) -> SdkResult<()> {
         require_name(flow_id, "Flow ID")?;
-        require_name(idempotency_key, "Stream idempotency key")?;
-        if idempotency_key.contains('#') {
-            return Err(invalid("Stream client idempotency key must not contain #"));
-        }
+        require_name(source, "Stream source")?;
         let flow_type = self.registry.flow_for_stream(stream)?.name.to_string();
         let request = WriteStreamRequest {
             flow_id: flow_id.to_string(),
@@ -360,7 +357,7 @@ impl Client {
             stream_name: stream.name().to_string(),
             stream_capacity_bytes: stream.stream_capacity_bytes(),
             value: Some(value_mapper::encode(&value)?),
-            idempotency_key: idempotency_key.to_string(),
+            source: source.to_string(),
         };
         self.call_empty(
             "write_stream",
@@ -996,7 +993,7 @@ impl Client {
             value: value_mapper::decode(&value)?,
             resume_token: message.resume_token,
             created_time,
-            idempotency_key: message.idempotency_key,
+            source: message.source,
         })
     }
 

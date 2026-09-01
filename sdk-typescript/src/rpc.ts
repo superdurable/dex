@@ -21,7 +21,7 @@ export interface RPCResult<Output> {
   /** Typed application result. */
   readonly output: Output;
   /** Step movements applied atomically with handler persistence writes. */
-  readonly nextSteps?: readonly StepMovement<unknown>[];
+  readonly nextSteps?: readonly StepMovement<any>[];
   /** Registered Step types canceled before `nextSteps` are scheduled. */
   readonly cancelingSteps?: readonly StepClass<any>[];
 }

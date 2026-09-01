@@ -32,6 +32,7 @@ type ActivityProvider interface {
 		retryAfterSeconds int32,
 	) error
 	GetActivityInfo(ctx context.Context) ActivityInfo
+	GetHeartbeatValue(ctx context.Context) (*dexpb.Value, error)
 	RecordHeartbeat(ctx context.Context, details ...interface{})
 }
 

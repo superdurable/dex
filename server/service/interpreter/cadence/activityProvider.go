@@ -65,6 +65,17 @@ func (a *activityProvider) GetActivityInfo(ctx context.Context) interfaces.Activ
 	}
 }
 
+func (a *activityProvider) GetHeartbeatValue(ctx context.Context) (*dexpb.Value, error) {
+	if !activity.HasHeartbeatDetails(ctx) {
+		return nil, nil
+	}
+	value := &dexpb.Value{}
+	if err := activity.GetHeartbeatDetails(ctx, value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
 func (a *activityProvider) RecordHeartbeat(ctx context.Context, details ...interface{}) {
 	activity.RecordHeartbeat(ctx, details...)
 }

@@ -179,16 +179,15 @@ final class ClientExceptionIntegrationTest {
         assertEquals("StreamFlow", flowService.writeStreamRequest.getFlowType());
         assertEquals("thinking", flowService.writeStreamRequest.getStreamName());
         assertEquals(1_048_576, flowService.writeStreamRequest.getStreamCapacityBytes());
-        assertEquals("client-1", flowService.writeStreamRequest.getIdempotencyKey());
+        assertEquals("client-1", flowService.writeStreamRequest.getSource());
         assertEquals("previous", flowService.readStreamRequest.getResumeToken());
         assertEquals(2, flowService.readStreamRequest.getWaitTimeSeconds());
         assertEquals("working", message.getValue());
         assertEquals("resume-1", message.getResumeToken());
         assertEquals(java.time.Instant.parse("2026-08-27T12:00:00Z"), message.getCreatedTime());
-        assertEquals("client-1", message.getIdempotencyKey());
-        assertThrows(
-                IllegalArgumentException.class,
-                () -> client.writeStream("flow-1", THINKING, "bad#key", "ignored"));
+        assertEquals("client-1", message.getSource());
+        client.writeStream("flow-1", THINKING, "producer#partition", "allowed");
+        assertEquals("producer#partition", flowService.writeStreamRequest.getSource());
     }
 
     @Test
@@ -257,7 +256,7 @@ final class ClientExceptionIntegrationTest {
                             .setResumeToken("resume-1")
                             .setCreatedTime(com.google.protobuf.Timestamp.newBuilder()
                                     .setSeconds(1_787_832_000L))
-                            .setIdempotencyKey("client-1"))
+                            .setSource("client-1"))
                     .build());
             observer.onCompleted();
         }

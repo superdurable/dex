@@ -1213,15 +1213,15 @@ class WorkerServiceStub:
         Args:
             channel: A grpc.Channel.
         """
-        self.InvokeWaitForMethod = channel.unary_unary(
+        self.InvokeWaitForMethod = channel.unary_stream(
                 '/dex.WorkerService/InvokeWaitForMethod',
                 request_serializer=dex__pb2.InvokeWaitForMethodRequest.SerializeToString,
-                response_deserializer=dex__pb2.InvokeWaitForMethodResponse.FromString,
+                response_deserializer=dex__pb2.InvokeWaitForMethodOutput.FromString,
                 _registered_method=True)
-        self.InvokeExecuteMethod = channel.unary_unary(
+        self.InvokeExecuteMethod = channel.unary_stream(
                 '/dex.WorkerService/InvokeExecuteMethod',
                 request_serializer=dex__pb2.InvokeExecuteMethodRequest.SerializeToString,
-                response_deserializer=dex__pb2.InvokeExecuteMethodResponse.FromString,
+                response_deserializer=dex__pb2.InvokeExecuteMethodOutput.FromString,
                 _registered_method=True)
         self.InvokeWorkerRPC = channel.unary_unary(
                 '/dex.WorkerService/InvokeWorkerRPC',
@@ -1255,15 +1255,15 @@ class WorkerServiceServicer:
 
 def add_WorkerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'InvokeWaitForMethod': grpc.unary_unary_rpc_method_handler(
+            'InvokeWaitForMethod': grpc.unary_stream_rpc_method_handler(
                     servicer.InvokeWaitForMethod,
                     request_deserializer=dex__pb2.InvokeWaitForMethodRequest.FromString,
-                    response_serializer=dex__pb2.InvokeWaitForMethodResponse.SerializeToString,
+                    response_serializer=dex__pb2.InvokeWaitForMethodOutput.SerializeToString,
             ),
-            'InvokeExecuteMethod': grpc.unary_unary_rpc_method_handler(
+            'InvokeExecuteMethod': grpc.unary_stream_rpc_method_handler(
                     servicer.InvokeExecuteMethod,
                     request_deserializer=dex__pb2.InvokeExecuteMethodRequest.FromString,
-                    response_serializer=dex__pb2.InvokeExecuteMethodResponse.SerializeToString,
+                    response_serializer=dex__pb2.InvokeExecuteMethodOutput.SerializeToString,
             ),
             'InvokeWorkerRPC': grpc.unary_unary_rpc_method_handler(
                     servicer.InvokeWorkerRPC,
@@ -1293,12 +1293,12 @@ class WorkerService:
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
+        return grpc.experimental.unary_stream(
             request,
             target,
             '/dex.WorkerService/InvokeWaitForMethod',
             dex__pb2.InvokeWaitForMethodRequest.SerializeToString,
-            dex__pb2.InvokeWaitForMethodResponse.FromString,
+            dex__pb2.InvokeWaitForMethodOutput.FromString,
             options,
             channel_credentials,
             insecure,
@@ -1320,12 +1320,12 @@ class WorkerService:
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_unary(
+        return grpc.experimental.unary_stream(
             request,
             target,
             '/dex.WorkerService/InvokeExecuteMethod',
             dex__pb2.InvokeExecuteMethodRequest.SerializeToString,
-            dex__pb2.InvokeExecuteMethodResponse.FromString,
+            dex__pb2.InvokeExecuteMethodOutput.FromString,
             options,
             channel_credentials,
             insecure,

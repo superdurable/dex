@@ -26,6 +26,11 @@ import (
 	"github.com/superdurable/dex/service/interpreter/timers"
 )
 
+const (
+	defaultStepMethodTimeout    = 2 * time.Hour
+	defaultStepHeartbeatTimeout = time.Minute
+)
+
 type Interpreter struct {
 	activities   *Activities
 	sharedConfig *config.Config
@@ -834,13 +839,11 @@ func (i *Interpreter) processStepExecution(
 		FromStepExecutionId:  step.GetFromStepExecutionIdInternalOnly(),
 		RecoveryError:        step.GetRecoveryErrorInternalOnly(),
 	}
-	activityOptions := interfaces.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: retry.ActivityRetryPolicyFromProto(
-			step.GetStepOptions().GetWaitForRetryPolicy(),
-		),
-		HeartbeatTimeout: time.Duration(step.GetStepOptions().GetHeartbeatTimeoutSeconds()) * time.Second,
-	}
+	activityOptions := stepActivityOptions(
+		step.GetStepOptions().GetWaitForRetryPolicy(),
+		step.GetStepOptions().GetWaitForTimeoutSeconds(),
+		step.GetStepOptions().GetHeartbeatTimeoutSeconds(),
+	)
 	if globalVersioner.UsesDeterministicStepActivityIDs() {
 		activityOptions.ActivityID = service.WaitForStepActivityID(stepExeId)
 	}
@@ -888,13 +891,6 @@ func (i *Interpreter) processStepExecution(
 			completedSubFlowResults = subFlowTracker.MustGetCompletedResults(stepExeId)
 		}
 	} else {
-		if step.StepOptions != nil {
-			waitForMethodTimeout := options.GetWaitForTimeoutSeconds()
-			if waitForMethodTimeout > 0 {
-				activityOptions.StartToCloseTimeout = time.Duration(waitForMethodTimeout) * time.Second
-			}
-		}
-
 		ctx = provider.WithActivityOptions(ctx, activityOptions)
 
 		lockAttributeKeys := options.GetWaitForLockAttributeKeys()
@@ -1200,23 +1196,14 @@ func (i *Interpreter) invokeExecuteMethod(
 	globalVersioner *GlobalVersioner,
 ) (*dexpb.StepDecision, service.StepExecutionStatus, error) {
 	var err error
-	activityOptions := interfaces.ActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
-		RetryPolicy: retry.ActivityRetryPolicyFromProto(
-			step.GetStepOptions().GetExecuteRetryPolicy(),
-		),
-		HeartbeatTimeout: time.Duration(step.GetStepOptions().GetHeartbeatTimeoutSeconds()) * time.Second,
-	}
+	activityOptions := stepActivityOptions(
+		step.GetStepOptions().GetExecuteRetryPolicy(),
+		step.GetStepOptions().GetExecuteTimeoutSeconds(),
+		step.GetStepOptions().GetHeartbeatTimeoutSeconds(),
+	)
 	if globalVersioner.UsesDeterministicStepActivityIDs() {
 		activityOptions.ActivityID = service.ExecuteStepActivityID(stepExeId)
 	}
-	if step.StepOptions != nil {
-		executeMethodTimeout := step.GetStepOptions().GetExecuteTimeoutSeconds()
-		if executeMethodTimeout > 0 {
-			activityOptions.StartToCloseTimeout = time.Duration(executeMethodTimeout) * time.Second
-		}
-	}
-
 	ctx = provider.WithActivityOptions(ctx, activityOptions)
 
 	lockAttributeKeys := step.GetStepOptions().GetExecuteLockAttributeKeys()
@@ -1283,6 +1270,25 @@ func stepMethodOptions(options interfaces.ActivityOptions) *dexpb.StepMethodOpti
 		RetryPolicy:             retry.ActivityRetryPolicyToProto(options.RetryPolicy),
 		HeartbeatTimeoutSeconds: int32(options.HeartbeatTimeout / time.Second),
 	}
+}
+
+func stepActivityOptions(
+	retryPolicy *dexpb.RetryPolicy,
+	timeoutSeconds int32,
+	heartbeatTimeoutSeconds int32,
+) interfaces.ActivityOptions {
+	options := interfaces.ActivityOptions{
+		StartToCloseTimeout: defaultStepMethodTimeout,
+		HeartbeatTimeout:    defaultStepHeartbeatTimeout,
+		RetryPolicy:         retry.ActivityRetryPolicyFromProto(retryPolicy),
+	}
+	if timeoutSeconds > 0 {
+		options.StartToCloseTimeout = time.Duration(timeoutSeconds) * time.Second
+	}
+	if heartbeatTimeoutSeconds > 0 {
+		options.HeartbeatTimeout = time.Duration(heartbeatTimeoutSeconds) * time.Second
+	}
+	return options
 }
 
 func shouldProceedOnWaitForMethodError(step *dexpb.StepMovement) bool {

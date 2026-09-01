@@ -31,7 +31,7 @@ private static final long serialVersionUID = 0L;
     flowId_ = "";
     flowType_ = "";
     streamName_ = "";
-    idempotencyKey_ = "";
+    source_ = "";
   }
 
   public static final com.google.protobuf.Descriptors.Descriptor
@@ -207,47 +207,39 @@ private static final long serialVersionUID = 0L;
     return value_ == null ? io.superdurable.gen.Value.getDefaultInstance() : value_;
   }
 
-  public static final int IDEMPOTENCY_KEY_FIELD_NUMBER = 6;
+  public static final int SOURCE_FIELD_NUMBER = 6;
   @SuppressWarnings("serial")
-  private volatile java.lang.Object idempotencyKey_ = "";
+  private volatile java.lang.Object source_ = "";
   /**
-   * <pre>
-   * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
-   * </pre>
-   *
-   * <code>string idempotency_key = 6;</code>
-   * @return The idempotencyKey.
+   * <code>string source = 6;</code>
+   * @return The source.
    */
   @java.lang.Override
-  public java.lang.String getIdempotencyKey() {
-    java.lang.Object ref = idempotencyKey_;
+  public java.lang.String getSource() {
+    java.lang.Object ref = source_;
     if (ref instanceof java.lang.String) {
       return (java.lang.String) ref;
     } else {
       com.google.protobuf.ByteString bs = 
           (com.google.protobuf.ByteString) ref;
       java.lang.String s = bs.toStringUtf8();
-      idempotencyKey_ = s;
+      source_ = s;
       return s;
     }
   }
   /**
-   * <pre>
-   * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
-   * </pre>
-   *
-   * <code>string idempotency_key = 6;</code>
-   * @return The bytes for idempotencyKey.
+   * <code>string source = 6;</code>
+   * @return The bytes for source.
    */
   @java.lang.Override
   public com.google.protobuf.ByteString
-      getIdempotencyKeyBytes() {
-    java.lang.Object ref = idempotencyKey_;
+      getSourceBytes() {
+    java.lang.Object ref = source_;
     if (ref instanceof java.lang.String) {
       com.google.protobuf.ByteString b = 
           com.google.protobuf.ByteString.copyFromUtf8(
               (java.lang.String) ref);
-      idempotencyKey_ = b;
+      source_ = b;
       return b;
     } else {
       return (com.google.protobuf.ByteString) ref;
@@ -283,8 +275,8 @@ private static final long serialVersionUID = 0L;
     if (((bitField0_ & 0x00000001) != 0)) {
       output.writeMessage(5, getValue());
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(idempotencyKey_)) {
-      com.google.protobuf.GeneratedMessage.writeString(output, 6, idempotencyKey_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(source_)) {
+      com.google.protobuf.GeneratedMessage.writeString(output, 6, source_);
     }
     getUnknownFields().writeTo(output);
   }
@@ -307,8 +299,8 @@ private static final long serialVersionUID = 0L;
       size += com.google.protobuf.CodedOutputStream
         .computeMessageSize(5, getValue());
     }
-    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(idempotencyKey_)) {
-      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, idempotencyKey_);
+    if (!com.google.protobuf.GeneratedMessage.isStringEmpty(source_)) {
+      size += com.google.protobuf.GeneratedMessage.computeStringSize(6, source_);
     }
     return size;
   }
@@ -347,8 +339,8 @@ private static final long serialVersionUID = 0L;
       if (!getValue()
           .equals(other.getValue())) return false;
     }
-    if (!getIdempotencyKey()
-        .equals(other.getIdempotencyKey())) return false;
+    if (!getSource()
+        .equals(other.getSource())) return false;
     if (!getUnknownFields().equals(other.getUnknownFields())) return false;
     return true;
   }
@@ -373,8 +365,8 @@ private static final long serialVersionUID = 0L;
       hash = (37 * hash) + VALUE_FIELD_NUMBER;
       hash = (53 * hash) + getValue().hashCode();
     }
-    hash = (37 * hash) + IDEMPOTENCY_KEY_FIELD_NUMBER;
-    hash = (53 * hash) + getIdempotencyKey().hashCode();
+    hash = (37 * hash) + SOURCE_FIELD_NUMBER;
+    hash = (53 * hash) + getSource().hashCode();
     hash = (29 * hash) + getUnknownFields().hashCode();
     memoizedHashCode = hash;
     return hash;
@@ -521,7 +513,7 @@ private static final long serialVersionUID = 0L;
         valueBuilder_.dispose();
         valueBuilder_ = null;
       }
-      idempotencyKey_ = "";
+      source_ = "";
       return this;
     }
 
@@ -575,7 +567,7 @@ private static final long serialVersionUID = 0L;
         to_bitField0_ |= 0x00000001;
       }
       if (((from_bitField0_ & 0x00000020) != 0)) {
-        result.idempotencyKey_ = idempotencyKey_;
+        result.source_ = source_;
       }
       result.bitField0_ |= to_bitField0_;
     }
@@ -613,8 +605,8 @@ private static final long serialVersionUID = 0L;
       if (other.hasValue()) {
         mergeValue(other.getValue());
       }
-      if (!other.getIdempotencyKey().isEmpty()) {
-        idempotencyKey_ = other.idempotencyKey_;
+      if (!other.getSource().isEmpty()) {
+        source_ = other.source_;
         bitField0_ |= 0x00000020;
         onChanged();
       }
@@ -672,7 +664,7 @@ private static final long serialVersionUID = 0L;
               break;
             } // case 42
             case 50: {
-              idempotencyKey_ = input.readStringRequireUtf8();
+              source_ = input.readStringRequireUtf8();
               bitField0_ |= 0x00000020;
               break;
             } // case 50
@@ -1062,93 +1054,73 @@ private static final long serialVersionUID = 0L;
       return valueBuilder_;
     }
 
-    private java.lang.Object idempotencyKey_ = "";
+    private java.lang.Object source_ = "";
     /**
-     * <pre>
-     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
-     * </pre>
-     *
-     * <code>string idempotency_key = 6;</code>
-     * @return The idempotencyKey.
+     * <code>string source = 6;</code>
+     * @return The source.
      */
-    public java.lang.String getIdempotencyKey() {
-      java.lang.Object ref = idempotencyKey_;
+    public java.lang.String getSource() {
+      java.lang.Object ref = source_;
       if (!(ref instanceof java.lang.String)) {
         com.google.protobuf.ByteString bs =
             (com.google.protobuf.ByteString) ref;
         java.lang.String s = bs.toStringUtf8();
-        idempotencyKey_ = s;
+        source_ = s;
         return s;
       } else {
         return (java.lang.String) ref;
       }
     }
     /**
-     * <pre>
-     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
-     * </pre>
-     *
-     * <code>string idempotency_key = 6;</code>
-     * @return The bytes for idempotencyKey.
+     * <code>string source = 6;</code>
+     * @return The bytes for source.
      */
     public com.google.protobuf.ByteString
-        getIdempotencyKeyBytes() {
-      java.lang.Object ref = idempotencyKey_;
+        getSourceBytes() {
+      java.lang.Object ref = source_;
       if (ref instanceof String) {
         com.google.protobuf.ByteString b = 
             com.google.protobuf.ByteString.copyFromUtf8(
                 (java.lang.String) ref);
-        idempotencyKey_ = b;
+        source_ = b;
         return b;
       } else {
         return (com.google.protobuf.ByteString) ref;
       }
     }
     /**
-     * <pre>
-     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
-     * </pre>
-     *
-     * <code>string idempotency_key = 6;</code>
-     * @param value The idempotencyKey to set.
+     * <code>string source = 6;</code>
+     * @param value The source to set.
      * @return This builder for chaining.
      */
-    public Builder setIdempotencyKey(
+    public Builder setSource(
         java.lang.String value) {
       if (value == null) { throw new NullPointerException(); }
-      idempotencyKey_ = value;
+      source_ = value;
       bitField0_ |= 0x00000020;
       onChanged();
       return this;
     }
     /**
-     * <pre>
-     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
-     * </pre>
-     *
-     * <code>string idempotency_key = 6;</code>
+     * <code>string source = 6;</code>
      * @return This builder for chaining.
      */
-    public Builder clearIdempotencyKey() {
-      idempotencyKey_ = getDefaultInstance().getIdempotencyKey();
+    public Builder clearSource() {
+      source_ = getDefaultInstance().getSource();
       bitField0_ = (bitField0_ & ~0x00000020);
       onChanged();
       return this;
     }
     /**
-     * <pre>
-     * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
-     * </pre>
-     *
-     * <code>string idempotency_key = 6;</code>
-     * @param value The bytes for idempotencyKey to set.
+     * <code>string source = 6;</code>
+     * @param value The bytes for source to set.
      * @return This builder for chaining.
      */
-    public Builder setIdempotencyKeyBytes(
+    public Builder setSourceBytes(
         com.google.protobuf.ByteString value) {
       if (value == null) { throw new NullPointerException(); }
       checkByteStringIsUtf8(value);
-      idempotencyKey_ = value;
+      source_ = value;
       bitField0_ |= 0x00000020;
       onChanged();
       return this;

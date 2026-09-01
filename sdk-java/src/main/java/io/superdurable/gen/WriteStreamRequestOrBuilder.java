@@ -68,22 +68,14 @@ public interface WriteStreamRequestOrBuilder extends
   io.superdurable.gen.ValueOrBuilder getValueOrBuilder();
 
   /**
-   * <pre>
-   * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
-   * </pre>
-   *
-   * <code>string idempotency_key = 6;</code>
-   * @return The idempotencyKey.
+   * <code>string source = 6;</code>
+   * @return The source.
    */
-  java.lang.String getIdempotencyKey();
+  java.lang.String getSource();
   /**
-   * <pre>
-   * Client keys must not contain "#"; Step SDKs use `&lt;runID&gt;#&lt;stepExecutionID&gt;`.
-   * </pre>
-   *
-   * <code>string idempotency_key = 6;</code>
-   * @return The bytes for idempotencyKey.
+   * <code>string source = 6;</code>
+   * @return The bytes for source.
    */
   com.google.protobuf.ByteString
-      getIdempotencyKeyBytes();
+      getSourceBytes();
 }

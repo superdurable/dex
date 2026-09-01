@@ -785,16 +785,37 @@ Execute never receive or synthesize channel sizes.
 persistence names within a Flow, and ownership by exactly one Flow. This lets
 different Flow types use the same Stream name with separate capacity scopes.
 
-`Stream.Write` is available only in WaitFor and Execute. It calls FlowService
-immediately, permits one successful write per Stream per invocation, and sends
-`runID#stepExecutionID` as the idempotency key. A failed transport call does not
-consume the invocation-local write slot. RPC writes are rejected.
+`Stream.Write` is available only in WaitFor and Execute. It emits a
+fire-and-forget frame on the current Worker response stream, so it does not make
+a Worker-to-server FlowService call. One invocation may emit any number of
+messages to the same or different Streams. The server attempts them in order;
+write failures are observable only through server logs and metrics. Step frames
+use `#stepExecutionID` as source metadata. Flow timeout and RPC writes are
+rejected.
 
-`Client.WriteStream` accepts the exact registered Stream, Flow ID, client key,
-and typed value. Client keys are non-empty and cannot contain `#`.
+`Context.RecordHeartbeat(value)` sends a heartbeat frame on that response
+stream. A nil value, including a typed nil pointer, map, slice, or interface,
+sends no Value and explicitly clears backend heartbeat details. A non-nil value
+uses normal Value encoding. `Context.GetLastHeartbeatValue(valuePtr)` requires a
+non-nil pointer, returns false without changing it when details are absent, and
+decodes the latest regular-activity checkpoint otherwise. Local-activity
+heartbeats are ignored and do not reach regular fallback.
+
+Heartbeat and Stream writes share an invocation-scoped emitter and send lock.
+Sequential calls preserve order; concurrent calls enter the gRPC stream in lock
+acquisition order. The first send failure is retained, cancels the handler
+Context, rejects later progress, and prevents a final result even if application
+code ignored the original error. The Worker closes progress before mapping and
+sending the unique result frame. Calls from late goroutines return an invalid
+context error, so no frame can follow the result. Applications must still stop
+and join Context-using goroutines before their handler returns; other Context
+
+
+`Client.WriteStream` accepts the exact registered Stream, Flow ID, non-empty
+source, and typed value. Sources may repeat and may contain `#`.
 `Client.ReadStream` accepts an opaque resume token, decodes the next value into
-a caller pointer, and returns the next token, creation time, and idempotency
-key. Empty or trimmed-away tokens resume from the retained head according to
+a caller pointer, and returns the next token, creation time, and source. Empty
+or trimmed-away tokens resume from the retained head according to
 the server contract.
 
 ### WaitFor response
@@ -1767,6 +1788,8 @@ type Context interface {
 	HasTimerFired() bool
 	HasTimerFiredByIndex(index int) bool
 	WaitForMethodFailed() bool
+	RecordHeartbeat(value any) error
+	GetLastHeartbeatValue(valuePtr any) (found bool, err error)
 
 	SetStepExecutionLocal(key string, value any) error
 	GetStepExecutionLocal(key string, valuePtr any) (found bool, err error)
@@ -1785,6 +1808,9 @@ Semantics:
   WaitFor.
 - `WaitForMethodFailed` is true only when Execute follows a failed WaitFor under
   `ProceedOnFailure`.
+- `RecordHeartbeat` is available in WaitFor and Execute. Flow timeout and RPC
+  invocation contexts reject it. `GetLastHeartbeatValue` is also available to
+  Flow timeout handlers; RPC invocation contexts reject it.
 - Step-method `Attempt` starts at one. RPC returns zero `Attempt` and a zero
   `FirstAttemptAt` because its request carries no attempt metadata.
 - writes, events, and channel publishes are buffered until the method returns
@@ -2219,9 +2245,17 @@ The typed constructor prevents callers from placing an erased step inside
 `ExecuteFailure`. Phase 3 validates that its target consumes the failed step's
 unchanged input, because the server reuses that input. `StepOptions` does not
 expose physical attribute keys, server-owned fields, or a generic skip flag.
-`HeartbeatTimeout` applies to regular WaitFor and Execute activities. Zero
-disables it; positive values require whole seconds in the signed int32 range.
-Local activities ignore it, and an asynchronous regular fallback uses it.
+`HeartbeatTimeout` applies to regular WaitFor and Execute activities. Zero uses
+the one-minute default. The Go SDK accepts non-negative whole seconds in the
+signed int32 range. The server enforces a configurable minimum that defaults to
+ten seconds. Local activities ignore it, and an asynchronous regular fallback
+uses it. Worker heartbeat output may include a typed checkpoint Value. The next
+regular attempt exposes the last checkpoint through its Context.
+
+The server defaults Step durability to sync and retry total duration to four
+hours. Regular attempts default to two hours. Async durability first uses at
+most seven local-activity seconds and three attempts, then applies the remaining
+retry budget to regular fallback.
 
 ### RPC
 

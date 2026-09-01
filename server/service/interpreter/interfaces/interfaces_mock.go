@@ -60,6 +60,21 @@ func (mr *MockActivityProviderMockRecorder) GetActivityInfo(ctx interface{}) *go
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActivityInfo", reflect.TypeOf((*MockActivityProvider)(nil).GetActivityInfo), ctx)
 }
 
+// GetHeartbeatValue mocks base method.
+func (m *MockActivityProvider) GetHeartbeatValue(ctx context.Context) (*dexpb.Value, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetHeartbeatValue", ctx)
+	ret0, _ := ret[0].(*dexpb.Value)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetHeartbeatValue indicates an expected call of GetHeartbeatValue.
+func (mr *MockActivityProviderMockRecorder) GetHeartbeatValue(ctx interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetHeartbeatValue", reflect.TypeOf((*MockActivityProvider)(nil).GetHeartbeatValue), ctx)
+}
+
 // GetLogger mocks base method.
 func (m *MockActivityProvider) GetLogger(ctx context.Context) UnifiedLogger {
 	m.ctrl.T.Helper()

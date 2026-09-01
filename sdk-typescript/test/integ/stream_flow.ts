@@ -11,10 +11,11 @@
 import {
   StepList,
   Stream,
+  Wait,
   gracefulComplete,
   stringCodec,
   voidCodec,
-  type Context,
+  type AsyncContext,
   type Flow,
   type PersistenceSchema,
   type Step,
@@ -24,21 +25,40 @@ import {
 class StreamTestStep implements Step<void> {
   public readonly inputCodec = voidCodec;
 
-  public constructor(private readonly progress: Stream<string>) {}
+  public constructor(
+    private readonly progress: Stream<string>,
+    private readonly details: Stream<string>,
+  ) {}
 
   public getStepType(): string {
     return "StreamTestStep";
   }
 
-  public async execute(context: Context, _input: void): Promise<StepDecision> {
-    await this.progress.write(context, "step-progress");
+  public getStepOptions() {
+    return { heartbeatTimeoutMs: 10_000 };
+  }
+
+  public async waitFor(context: AsyncContext, _input: void): Promise<Wait> {
+    await context.recordHeartbeat("wait-for", stringCodec);
+    this.progress.write(context, "wait-progress-1");
+    this.progress.write(context, "wait-progress-2");
+    this.details.write(context, "wait-details");
+    return Wait.skipImmediately();
+  }
+
+  public async execute(context: AsyncContext, _input: void): Promise<StepDecision> {
+    await context.recordHeartbeat({ phase: "execute" });
+    this.progress.write(context, "execute-progress-1");
+    this.details.write(context, "execute-details");
+    this.progress.write(context, "execute-progress-2");
     return gracefulComplete();
   }
 }
 
 export class StreamTestFlow implements Flow<void> {
   public readonly progress = new Stream("stream-test-progress", stringCodec, 1 << 20);
-  private readonly start = new StreamTestStep(this.progress);
+  public readonly details = new Stream("stream-test-details", stringCodec, 1 << 20);
+  private readonly start = new StreamTestStep(this.progress, this.details);
 
   public getFlowType(): string {
     return "StreamTestFlow";
@@ -49,6 +69,6 @@ export class StreamTestFlow implements Flow<void> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { streams: [this.progress] };
+    return { streams: [this.progress, this.details] };
   }
 }

@@ -16,12 +16,16 @@ import io.grpc.Status;
 import io.grpc.protobuf.StatusProto;
 import io.grpc.stub.StreamObserver;
 import io.superdurable.dex.exceptions.RetryAfterException;
+import io.superdurable.gen.InvokeExecuteMethodOutput;
 import io.superdurable.gen.InvokeExecuteMethodRequest;
 import io.superdurable.gen.InvokeExecuteMethodResponse;
+import io.superdurable.gen.InvokeWaitForMethodOutput;
 import io.superdurable.gen.InvokeWaitForMethodRequest;
 import io.superdurable.gen.InvokeWaitForMethodResponse;
 import io.superdurable.gen.InvokeWorkerRPCRequest;
 import io.superdurable.gen.InvokeWorkerRPCResponse;
+import io.superdurable.gen.StepMethodHeartbeat;
+import io.superdurable.gen.StepStreamWrite;
 import io.superdurable.gen.WorkerErrorResponse;
 import io.superdurable.gen.WorkerServiceGrpc;
 
@@ -59,27 +63,29 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
     @Override
     public void invokeWaitForMethod(
             final InvokeWaitForMethodRequest request,
-            final StreamObserver<InvokeWaitForMethodResponse> observer) {
-        submit(observer, () -> dispatcher.invokeWaitFor(request));
+            final StreamObserver<InvokeWaitForMethodOutput> observer) {
+        final WaitForOutputEmitter emitter = new WaitForOutputEmitter(observer);
+        submit(observer, () -> emitter.emitResult(dispatcher.invokeWaitFor(request, emitter)));
     }
 
     @Override
     public void invokeExecuteMethod(
             final InvokeExecuteMethodRequest request,
-            final StreamObserver<InvokeExecuteMethodResponse> observer) {
-        submit(observer, () -> dispatcher.invokeExecute(request));
+            final StreamObserver<InvokeExecuteMethodOutput> observer) {
+        final ExecuteOutputEmitter emitter = new ExecuteOutputEmitter(observer);
+        submit(observer, () -> emitter.emitResult(dispatcher.invokeExecute(request, emitter)));
     }
 
     @Override
     public void invokeWorkerRPC(
             final InvokeWorkerRPCRequest request,
             final StreamObserver<InvokeWorkerRPCResponse> observer) {
-        submit(observer, () -> dispatcher.invokeRpc(request));
+        submit(observer, () -> emit(observer, dispatcher.invokeRpc(request)));
     }
 
-    private <Response> void submit(
-            final StreamObserver<Response> observer,
-            final Invocation<Response> invocation) {
+    private void submit(
+            final StreamObserver<?> observer,
+            final Invocation invocation) {
         final Context requestContext = Context.current();
         final HandlerCancellation cancellation = new HandlerCancellation(requestContext);
         final Runnable task = requestContext.wrap(() -> {
@@ -100,11 +106,11 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
         }
     }
 
-    private <Response> void invoke(
-            final StreamObserver<Response> observer,
-            final Invocation<Response> invocation) {
+    private void invoke(
+            final StreamObserver<?> observer,
+            final Invocation invocation) {
         try {
-            observer.onNext(invocation.invoke());
+            invocation.invoke();
             observer.onCompleted();
         } catch (Throwable failure) {
             if (Context.current().isCancelled()) {
@@ -163,8 +169,83 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
                 + new String(STACK_TRACE_TRUNCATION_MARKER, StandardCharsets.UTF_8);
     }
 
-    private interface Invocation<Response> {
-        Response invoke() throws Throwable;
+    private static <Response> void emit(
+            final StreamObserver<Response> observer,
+            final Response response) {
+        try {
+            requireActiveInvocation();
+            observer.onNext(response);
+        } catch (RuntimeException failure) {
+            if (Context.current().isCancelled()) {
+                Thread.currentThread().interrupt();
+            }
+            throw failure;
+        }
+    }
+
+    private static void requireActiveInvocation() {
+        if (Context.current().isCancelled()) {
+            Thread.currentThread().interrupt();
+            throw Status.CANCELLED
+                    .withDescription("Java Worker invocation canceled")
+                    .asRuntimeException();
+        }
+    }
+
+    private interface Invocation {
+        void invoke() throws Throwable;
+    }
+
+    private static final class WaitForOutputEmitter implements StepOutputEmitter {
+        private final StreamObserver<InvokeWaitForMethodOutput> observer;
+
+        private WaitForOutputEmitter(final StreamObserver<InvokeWaitForMethodOutput> observer) {
+            this.observer = observer;
+        }
+
+        @Override
+        public void emitHeartbeat(final StepMethodHeartbeat heartbeat) {
+            emit(observer, InvokeWaitForMethodOutput.newBuilder()
+                    .setHeartbeat(heartbeat)
+                    .build());
+        }
+
+        @Override
+        public void emitStreamWrite(final StepStreamWrite streamWrite) {
+            emit(observer, InvokeWaitForMethodOutput.newBuilder()
+                    .setStreamWrite(streamWrite)
+                    .build());
+        }
+
+        private void emitResult(final InvokeWaitForMethodResponse result) {
+            emit(observer, InvokeWaitForMethodOutput.newBuilder().setResult(result).build());
+        }
+    }
+
+    private static final class ExecuteOutputEmitter implements StepOutputEmitter {
+        private final StreamObserver<InvokeExecuteMethodOutput> observer;
+
+        private ExecuteOutputEmitter(final StreamObserver<InvokeExecuteMethodOutput> observer) {
+            this.observer = observer;
+        }
+
+        @Override
+        public void emitHeartbeat(final StepMethodHeartbeat heartbeat) {
+            emit(observer, InvokeExecuteMethodOutput.newBuilder()
+                    .setHeartbeat(heartbeat)
+                    .build());
+        }
+
+        @Override
+        public void emitStreamWrite(final StepStreamWrite streamWrite) {
+            emit(observer, InvokeExecuteMethodOutput.newBuilder()
+                    .setStreamWrite(streamWrite)
+                    .build());
+        }
+
+        private void emitResult(final InvokeExecuteMethodResponse result) {
+            emit(observer, InvokeExecuteMethodOutput.newBuilder().setResult(result).build());
+        }
     }
 
     private static final class HandlerCancellation implements Context.CancellationListener {

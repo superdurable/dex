@@ -8,11 +8,13 @@
 // Third-Party Materials remain under the Apache License, Version 2.0.
 // See LICENSE and LEGACY_NOTICES.md.
 
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use dex_sdk::{
     Client, Context, Flow, FlowErrorType, FlowStatus, FlowTimeoutHandler, FlowTimeoutPolicy,
-    HandlerResult, Registry, SdkError, SdkResult, StartFlowOptions, StepDecision, StopFlowOptions,
+    HandlerResult, PersistenceSchema, Registry, SdkError, SdkResult, StartFlowOptions,
+    StepDecision, StopFlowOptions, Stream,
 };
 
 use crate::signal_workflow::SignalWorkflow;
@@ -71,14 +73,27 @@ fn test_flow_timeout() {
 
 struct TimeoutHandlerFlow;
 
+static TIMEOUT_PROGRESS: LazyLock<Stream<String>> =
+    LazyLock::new(|| Stream::new("timeout-progress", 1 << 20));
+
 impl TimeoutHandlerFlow {
-    fn handle_timeout(&self, _context: &mut Context) -> HandlerResult<StepDecision> {
+    fn handle_timeout(&self, context: &mut Context) -> HandlerResult<StepDecision> {
+        assert!(context.record_heartbeat().is_err());
+        assert!(
+            TIMEOUT_PROGRESS
+                .write(context, "invalid".to_string())
+                .is_err()
+        );
         Ok(StepDecision::force_complete("expired".to_string()))
     }
 }
 
 impl Flow for TimeoutHandlerFlow {
     type StartInput = ();
+
+    fn persistence(&self) -> PersistenceSchema {
+        PersistenceSchema::new().stream(&TIMEOUT_PROGRESS)
+    }
 
     fn timeout_handler(&self) -> Option<FlowTimeoutHandler<Self>> {
         Some(Self::handle_timeout)

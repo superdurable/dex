@@ -11,9 +11,15 @@
 from __future__ import annotations
 
 from abc import ABC
+from collections.abc import Generator as GeneratorABC
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from inspect import iscoroutinefunction, signature
+from inspect import (
+    isasyncgenfunction,
+    iscoroutinefunction,
+    isgeneratorfunction,
+    signature,
+)
 from types import MappingProxyType
 from typing import (
     Any,
@@ -32,10 +38,10 @@ from dex._utils import require_name
 from dex.attribute import Attribute, AttributeLock, AttributeMap
 from dex.channel import Channel, ChannelMap
 from dex.codec import Codec, CodecRegistry
-from dex.context import Context
+from dex.context import AsyncContext, Context
 from dex.dexpb import dex_pb2 as pb
 from dex.runtime_errors import FlowDefinitionError
-from dex.step import Step, StepDecision, StepList, StepMovement, _StepDef
+from dex.step import Step, StepDecision, StepList, StepMovement, StepOutput, _StepDef
 from dex.stream import Stream
 from dex.wait import Wait
 
@@ -345,9 +351,9 @@ class Registry:
         Args:
             flows: Flow instances with unique Flow types.
             codec_registry: Optional custom codecs; defaults to ``CodecRegistry()``.
-            allow_async_handlers: Accept ``async def`` Step and RPC handlers. Sync
-                Client/Worker construction leaves this ``False``; Async variants use
-                ``True``.
+            allow_async_handlers: Accept ``async def`` Step and RPC handlers. Async
+                Steps annotate AsyncContext; async RPCs and timeout handlers keep
+                Context. Sync Client/Worker construction leaves this ``False``.
 
         Raises:
             FlowDefinitionError: If any Flow, Step, RPC, persistence definition,
@@ -662,6 +668,10 @@ class Registry:
         *,
         allow_async_handlers: bool,
     ) -> Any:
+        if isasyncgenfunction(handler):
+            raise TypeError(
+                f"Step {step.get_step_type()} {handler_name} must not be an async generator"
+            )
         if iscoroutinefunction(handler) and not allow_async_handlers:
             raise TypeError(
                 f"Step {step.get_step_type()} {handler_name} must be synchronous"
@@ -673,16 +683,32 @@ class Registry:
                 f"Step {step.get_step_type()} {handler_name} must accept context and input"
             )
         context_parameter, input_parameter = parameters
-        if hints.get(context_parameter.name) is not Context:
+        expected_context = AsyncContext if iscoroutinefunction(handler) else Context
+        if hints.get(context_parameter.name) is not expected_context:
             raise TypeError(
-                f"Step {step.get_step_type()} {handler_name} context must be Context"
+                f"Step {step.get_step_type()} {handler_name} context must be "
+                f"{expected_context.__name__}"
             )
         input_type = hints.get(input_parameter.name)
         if input_type is None:
             raise TypeError(
                 f"Step {step.get_step_type()} {handler_name} input must be annotated"
             )
-        if hints.get("return") is not return_type:
+        annotated_return = hints.get("return")
+        if isgeneratorfunction(handler):
+            arguments = get_args(annotated_return)
+            if (
+                get_origin(annotated_return) is not GeneratorABC
+                or len(arguments) != 3
+                or arguments[0] is not StepOutput
+                or arguments[1] not in (None, type(None))
+                or arguments[2] is not return_type
+            ):
+                raise TypeError(
+                    f"Step {step.get_step_type()} {handler_name} generator must return "
+                    f"Generator[StepOutput, None, {return_type.__name__}]"
+                )
+        elif annotated_return is not return_type:
             raise TypeError(
                 f"Step {step.get_step_type()} {handler_name} must return "
                 f"{return_type.__name__}"

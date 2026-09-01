@@ -12,6 +12,10 @@ Protobuf + gRPC interface between Dex SDKs and the Dex server.
 - **FlowService** — hosted by the server; SDKs call these RPCs
 - **WorkerService** — hosted by the worker; the server calls `WaitFor`, `Execute`, and `WorkerRpc`
 
+`InvokeWaitForMethod` and `InvokeExecuteMethod` use a unary request and a
+server-streaming response. `InvokeWorkerRPC` remains unary. A Step response may
+emit heartbeat and Stream frames before exactly one result and clean EOF.
+
 Workers call `SyncAttributeIndexes` before opening their listener. The RPC is
 an internal startup protocol: it adds missing backend indexes, validates
 existing types, and returns only after all requested indexes are readable.
@@ -28,9 +32,9 @@ change the target for subsequent WorkerService calls while the flow is running.
 
 `WriteStream` appends one best-effort message to the Stream instance identified
 by `flow_id` and `stream_name`. Every write carries `stream_capacity_bytes` and a
-single `idempotency_key`. Client keys cannot contain `#`; Step SDKs compose the
-key as `<runID>#<stepExecutionID>`. The server scopes the key to the Flow and
-uses it for first-write-wins idempotency.
+non-empty `source`. Sources may repeat and may contain `#`. Every write appends;
+the Store does not deduplicate messages. Step output uses
+`#<stepExecutionID>` as source metadata.
 
 Capacity applies across every Flow instance of the same Stream name. Reaching
 the trim trigger schedules background global FIFO trimming toward the target.
@@ -40,8 +44,7 @@ A write that would exceed the hard capacity is not appended and returns
 `ReadStream` long-polls one message after an opaque, scope-bound resume token.
 An empty token starts at the earliest retained message. A token older than the
 retained head also resumes at that head. Each response includes the message
-value, the next resume token, its Redis-derived creation time, and the public
-idempotency key.
+value, the next resume token, its Redis-derived creation time, and its source.
 
 Stream RPCs do not require a Flow to exist or remain active. Their availability
 depends only on the optional Redis Stream Store.
@@ -79,11 +82,21 @@ backend activity results that arrive after logical cancellation do not affect
 Flow state. Cancellation does not add a Dex semantic history event.
 
 `StepOptions.heartbeat_timeout_seconds` applies to regular wait-for and execute
-activities. Zero disables heartbeats. Local activities ignore it, while an
-ASYNC fallback to a regular activity uses it. Dex calls the backend SDK
-heartbeat API once per second while the regular Step activity is active and leaves request
-throttling to the SDK. Effective regular and local method history retains the
-value in `StepMethodOptions`.
+activities. Zero selects the one-minute default. Explicit values must be at
+least `interpreter.interpreterActivityConfig.minimumStepHeartbeatTimeout`,
+which defaults to ten seconds. Local activities ignore it, while an ASYNC
+fallback regular activity uses it. Dex does not generate automatic Step heartbeats. Worker
+heartbeat frames call the backend heartbeat API, and Stream frames count as
+implicit heartbeats. A heartbeat Value is restored on the next attempt through
+`Context.last_heartbeat_value`. An explicit heartbeat without a Value clears
+the details. An implicit Stream heartbeat reuses the latest explicit heartbeat
+state, including cleared details. Effective regular and local method history
+retains the configured value in `StepMethodOptions`.
+
+Step durability resolves from the method override, then `FlowConfig`, then
+SYNC. Regular attempts default to two hours. Retry total duration defaults to
+four hours. ASYNC uses a local Schedule-to-Close window of at most seven seconds
+and three attempts before regular fallback.
 
 ## Search flows
 

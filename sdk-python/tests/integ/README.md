@@ -34,8 +34,9 @@ uv run --frozen pyright tests/integ
 - Synchronous Client shapes match Java and Go while preserving Python naming.
 - Sync and async suites cover singleton Attribute and AttributeMap instance equality waits;
   local contracts cover Condition IDs and map introspection.
-- Sync and async Stream integration covers Step/client writes, idempotency, resume tokens,
-  and message metadata.
+- Sync generator and async coroutine suites cover ordered heartbeat and Stream
+  frames, repeated Stream sources, heartbeat-value recovery, explicit clearing,
+  and persisted Python `None`.
 
 ## Error coverage
 

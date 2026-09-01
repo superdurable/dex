@@ -15,6 +15,7 @@ import (
 
 	"github.com/superdurable/dex/gen/dexpb"
 	"github.com/superdurable/dex/service/common/ptr"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -102,6 +103,45 @@ func (h *Handler) InvokeWorkerRPC(
 }
 
 func (h *Handler) InvokeWaitForMethod(
+	request *dexpb.InvokeWaitForMethodRequest,
+	stream grpc.ServerStreamingServer[dexpb.InvokeWaitForMethodOutput],
+) error {
+	if request.GetStepType() == GlobalWaitForMethod {
+		return h.streamWaitForHeartbeatsUntilCanceled(stream)
+	}
+	response, err := h.invokeWaitForMethod(stream.Context(), request)
+	if err != nil {
+		return err
+	}
+	return stream.Send(&dexpb.InvokeWaitForMethodOutput{
+		Output: &dexpb.InvokeWaitForMethodOutput_Result{Result: response},
+	})
+}
+
+func (h *Handler) streamWaitForHeartbeatsUntilCanceled(
+	stream grpc.ServerStreamingServer[dexpb.InvokeWaitForMethodOutput],
+) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := stream.Send(&dexpb.InvokeWaitForMethodOutput{
+			Output: &dexpb.InvokeWaitForMethodOutput_Heartbeat{
+				Heartbeat: &dexpb.StepMethodHeartbeat{},
+			},
+		}); err != nil {
+			h.markCanceled(GlobalWaitForMethod)
+			return err
+		}
+		select {
+		case <-stream.Context().Done():
+			h.markCanceled(GlobalWaitForMethod)
+			return stream.Context().Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (h *Handler) invokeWaitForMethod(
 	ctx context.Context,
 	request *dexpb.InvokeWaitForMethodRequest,
 ) (*dexpb.InvokeWaitForMethodResponse, error) {
@@ -133,6 +173,46 @@ func (h *Handler) InvokeWaitForMethod(
 }
 
 func (h *Handler) InvokeExecuteMethod(
+	request *dexpb.InvokeExecuteMethodRequest,
+	stream grpc.ServerStreamingServer[dexpb.InvokeExecuteMethodOutput],
+) error {
+	if request.GetStepType() == SiblingExecute || request.GetStepType() == GlobalExecute {
+		return h.streamExecuteHeartbeatsUntilCanceled(request.GetStepType(), stream)
+	}
+	response, err := h.invokeExecuteMethod(stream.Context(), request)
+	if err != nil {
+		return err
+	}
+	return stream.Send(&dexpb.InvokeExecuteMethodOutput{
+		Output: &dexpb.InvokeExecuteMethodOutput_Result{Result: response},
+	})
+}
+
+func (h *Handler) streamExecuteHeartbeatsUntilCanceled(
+	stepType string,
+	stream grpc.ServerStreamingServer[dexpb.InvokeExecuteMethodOutput],
+) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if err := stream.Send(&dexpb.InvokeExecuteMethodOutput{
+			Output: &dexpb.InvokeExecuteMethodOutput_Heartbeat{
+				Heartbeat: &dexpb.StepMethodHeartbeat{},
+			},
+		}); err != nil {
+			h.markCanceled(stepType)
+			return err
+		}
+		select {
+		case <-stream.Context().Done():
+			h.markCanceled(stepType)
+			return stream.Context().Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (h *Handler) invokeExecuteMethod(
 	ctx context.Context,
 	request *dexpb.InvokeExecuteMethodRequest,
 ) (*dexpb.InvokeExecuteMethodResponse, error) {

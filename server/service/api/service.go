@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -140,7 +139,10 @@ func (s *serviceImpl) StartFlow(
 	if err := service.ValidateStepType(req.GetStartStepType()); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
-	if err := service.ValidateStepOptions(req.GetStepOptions()); err != nil {
+	if err := service.ValidateStepOptions(
+		req.GetStepOptions(),
+		s.interpreterCfg.InterpreterActivityConfig.EffectiveMinimumStepHeartbeatTimeout(),
+	); err != nil {
 		return nil, makeInvalidRequestError(err.Error())
 	}
 	if err := blobstore.OffloadLargeValue(
@@ -542,10 +544,10 @@ func (s *serviceImpl) ReadStream(
 	}
 	return &dexpb.ReadStreamResponse{
 		Message: &dexpb.StreamMessage{
-			Value:          message.Value,
-			ResumeToken:    resumeToken,
-			CreatedTime:    timestamppb.New(message.CreatedTime),
-			IdempotencyKey: message.IdempotencyKey,
+			Value:       message.Value,
+			ResumeToken: resumeToken,
+			CreatedTime: timestamppb.New(message.CreatedTime),
+			Source:      message.Source,
 		},
 	}, nil
 }
@@ -560,29 +562,17 @@ func streamWriteInput(req *dexpb.WriteStreamRequest) (streamstore.WriteInput, er
 	if req.GetValue() == nil {
 		return streamstore.WriteInput{}, fmt.Errorf("Stream Value is required")
 	}
-	if req.GetIdempotencyKey() == "" {
-		return streamstore.WriteInput{}, fmt.Errorf("Stream idempotency key is required")
+	if req.GetSource() == "" {
+		return streamstore.WriteInput{}, fmt.Errorf("Stream source is required")
 	}
 	return streamstore.WriteInput{
-		FlowID:               req.GetFlowId(),
-		FlowType:             req.GetFlowType(),
-		StreamName:           req.GetStreamName(),
-		StreamCapacityBytes:  req.GetStreamCapacityBytes(),
-		Value:                req.GetValue(),
-		PublicIdempotencyKey: req.GetIdempotencyKey(),
-		InternalIdentity: lengthPrefixedIdentity(
-			req.GetFlowId(),
-			req.GetIdempotencyKey(),
-		),
+		FlowID:              req.GetFlowId(),
+		FlowType:            req.GetFlowType(),
+		StreamName:          req.GetStreamName(),
+		StreamCapacityBytes: req.GetStreamCapacityBytes(),
+		Value:               req.GetValue(),
+		Source:              req.GetSource(),
 	}, nil
-}
-
-func lengthPrefixedIdentity(parts ...string) string {
-	var identity strings.Builder
-	for _, part := range parts {
-		fmt.Fprintf(&identity, "%d:%s", len(part), part)
-	}
-	return identity.String()
 }
 
 func streamStoreError(err error) error {
@@ -1235,7 +1225,8 @@ func (s *serviceImpl) doInvokeRPC(
 		s.workerPool,
 		&preparation,
 		req,
-		s.apiCfg.EffectiveMaxWaitSeconds(),
+		s.apiCfg,
+		&s.interpreterCfg.InterpreterActivityConfig,
 		s.store,
 		req.GetRequestId(),
 		s.blobStoreCfg,

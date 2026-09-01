@@ -42,7 +42,8 @@ final class StreamTestWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            progress.write(context, "step-progress");
+            progress.write(context, "step-progress-1");
+            progress.write(context, "step-progress-2");
             return StepDecision.gracefulComplete();
         }
     }

@@ -143,6 +143,10 @@ public final class StepOptions {
         /**
          * Sets the maximum duration of one wait-for method attempt.
          *
+         * <p>A regular activity attempt defaults to two hours. An asynchronous local activity
+         * ignores this setting during its seven-second optimization window; fallback regular
+         * activity attempts apply it.
+         *
          * @param value the method timeout, or {@code null} for the server default
          * @return this builder
          */
@@ -153,6 +157,10 @@ public final class StepOptions {
 
         /**
          * Sets the maximum duration of one execute method attempt.
+         *
+         * <p>A regular activity attempt defaults to two hours. An asynchronous local activity
+         * ignores this setting during its seven-second optimization window; fallback regular
+         * activity attempts apply it.
          *
          * @param value the method timeout, or {@code null} for the server default
          * @return this builder
@@ -165,15 +173,15 @@ public final class StepOptions {
         /**
          * Sets the heartbeat timeout for regular wait-for and execute activities.
          *
-         * <p>Dex automatically heartbeats while the Java handler is running so cancellation reaches
-         * the worker promptly. Local activities ignore this setting; an asynchronous local activity
-         * that falls back to a regular activity uses it. {@code null} and {@link Duration#ZERO}
-         * disable heartbeats. Positive values must be whole seconds within the signed int32 range.
-         * Once cancellation reaches the Java Worker, Dex interrupts the handler thread. CPU-bound or
-         * batch-oriented handlers may additionally check {@link Context#isCancellationRequested()}
-         * at natural work boundaries.
+         * <p>Dex sends no automatic heartbeat. Application code must call
+         * {@link Context#recordHeartbeat} or write a {@link Stream} often enough to make progress.
+         * {@code null} and {@link Duration#ZERO} use the one-minute server default. Explicit values
+         * must be whole seconds within the signed int32 range and satisfy the server-configured
+         * minimum, which defaults to ten seconds. Local activities ignore this setting; a fallback
+         * regular activity applies it. Once cancellation reaches the Java Worker, Dex interrupts the
+         * handler thread.
          *
-         * @param value the regular activity heartbeat timeout, or {@code null} to disable it
+         * @param value the regular activity heartbeat timeout, or {@code null} for one minute
          * @return this builder
          */
         public Builder heartbeatTimeout(final Duration value) {
@@ -206,12 +214,8 @@ public final class StepOptions {
         /**
          * Sets the action taken after wait-for retries are exhausted.
          *
-         * <p>When {@link WaitForFailurePolicy#PROCEED} is selected, Dex defaults to
-         * {@link StepDurability#SYNC} for the wait-for method so the recorded failure is not lost after
-         * the execute method begins. The Flow-wide durability setting does not override this safety
-         * choice. The application may still choose {@link StepDurability#ASYNC} explicitly through
-         * {@link #waitForDurability} when it accepts that an extreme failure can cause the wait-for
-         * method to run again after execution has already begun.
+         * <p>This policy does not change durability selection. The method override takes precedence
+         * over {@link FlowConfig}'s default, followed by the synchronous server default.
          *
          * @param value the failure policy; the default is {@link WaitForFailurePolicy#FAIL_FLOW}
          * @return this builder
@@ -227,11 +231,8 @@ public final class StepOptions {
          * <p>The recovery Step receives {@code null} input. Its input type should therefore accept
          * {@code null}, commonly {@link Void}.
          *
-         * <p>Dex defaults to {@link StepDurability#SYNC} for the execute method that owns this policy. The
-         * Flow-wide durability setting does not override this safety choice. The application may still
-         * select {@link StepDurability#ASYNC} explicitly through {@link #executeDurability} when it
-         * accepts that an extreme failure after the recovery Step begins can cause Dex to execute the
-         * earlier Step again.
+         * <p>This policy does not change durability selection. The method override takes precedence
+         * over {@link FlowConfig}'s default, followed by the synchronous server default.
          *
          * @param stepClass the nonnull recovery Step class
          * @param <I> the recovery Step input type
@@ -269,12 +270,9 @@ public final class StepOptions {
         /**
          * Overrides durability for this Step's wait-for method result.
          *
-         * <p>This method-level value takes precedence over {@link FlowConfig}'s default and Dex's
-         * {@link StepDurability#SYNC} default when {@link #waitForFailure} selects
-         * {@link WaitForFailurePolicy#PROCEED}. Asynchronous durability reduces latency and improves
-         * server persistence batching, but an unpersisted result can be lost during an extreme failure
-         * and the wait-for method can run again after execution has already begun. See
-         * {@link StepDurability} for the full tradeoff.
+         * <p>This method-level value takes precedence over {@link FlowConfig}'s default and the
+         * synchronous server default. Failure policy does not alter that ordering. See
+         * {@link StepDurability} for the asynchronous replay tradeoff.
          *
          * @param value the durability mode; the default is {@link StepDurability#DEFAULT}
          * @return this builder
@@ -287,12 +285,9 @@ public final class StepOptions {
         /**
          * Overrides durability for this Step's execute method result.
          *
-         * <p>This method-level value takes precedence over {@link FlowConfig}'s default and Dex's
-         * {@link StepDurability#SYNC} default when this builder also uses
-         * {@link #onExecuteFailureProceedTo(Class)}. The application may choose
-         * {@link StepDurability#ASYNC} when it accepts that an extreme failure after recovery begins
-         * can cause the earlier Step to execute again. See {@link StepDurability} for latency and
-         * throughput details.
+         * <p>This method-level value takes precedence over {@link FlowConfig}'s default and the
+         * synchronous server default. Failure policy does not alter that ordering. See
+         * {@link StepDurability} for the asynchronous replay tradeoff.
          *
          * @param value the durability mode; the default is {@link StepDurability#DEFAULT}
          * @return this builder

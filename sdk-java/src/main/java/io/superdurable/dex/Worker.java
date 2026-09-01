@@ -103,8 +103,7 @@ public final class Worker implements AutoCloseable {
         final WorkerDispatcher dispatcher = new WorkerDispatcher(
                 registry,
                 values,
-                new ValueHydrator(flowService, blobCache),
-                flowService);
+                new ValueHydrator(flowService, blobCache));
         this.workerService = new JavaWorkerService(
                 dispatcher,
                 handlers,

@@ -45,7 +45,8 @@ public final class SignalTest {
             environment.client().publish(flowId, WORKFLOW.first, 2, 3, 5);
             environment.client().publish(flowId, WORKFLOW.third, (Void) null);
             environment.client().publish(flowId, WORKFLOW.signalMap, "one", 4);
-            environment.client().skipTimer(
+            IntegrationTestWaits.skipTimerWhenRegistered(
+                    environment.client(),
                     flowId,
                     StepExecutionId.of("SignalCombinationStep"),
                     TimerId.byConditionId("test-timer-id"));

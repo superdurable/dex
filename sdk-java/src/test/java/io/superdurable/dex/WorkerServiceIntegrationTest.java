@@ -15,8 +15,6 @@
 package io.superdurable.dex;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.protobuf.Empty;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import io.grpc.Server;
@@ -31,8 +29,10 @@ import io.superdurable.dex.exceptions.RetryAfterException;
 import io.superdurable.gen.CloseDecisionType;
 import io.superdurable.gen.ChannelInfo;
 import io.superdurable.gen.FlowServiceGrpc;
+import io.superdurable.gen.InvokeExecuteMethodOutput;
 import io.superdurable.gen.InvokeExecuteMethodRequest;
 import io.superdurable.gen.InvokeExecuteMethodResponse;
+import io.superdurable.gen.InvokeWaitForMethodOutput;
 import io.superdurable.gen.InvokeWaitForMethodRequest;
 import io.superdurable.gen.InvokeWaitForMethodResponse;
 import io.superdurable.gen.InvokeWorkerRPCRequest;
@@ -45,7 +45,6 @@ import io.superdurable.gen.SyncAttributeIndexResponse;
 import io.superdurable.gen.Value;
 import io.superdurable.gen.WorkerServiceGrpc;
 import io.superdurable.gen.WorkerErrorResponse;
-import io.superdurable.gen.WriteStreamRequest;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -54,9 +53,12 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
@@ -89,12 +91,12 @@ final class WorkerServiceIntegrationTest {
         final BridgeFlow flow = new BridgeFlow();
         final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
         try {
-            final InvokeWaitForMethodResponse wait = running.client.invokeWaitForMethod(
-                    waitRequest(concrete("hello")));
+            final InvokeWaitForMethodResponse wait = invokeWaitFor(
+                    running, waitRequest(concrete("hello")));
             assertFalse(wait.hasWaitingCondition());
 
-            final InvokeExecuteMethodResponse execute = running.client.invokeExecuteMethod(
-                    executeRequest(concrete("hello")));
+            final InvokeExecuteMethodResponse execute = invokeExecute(
+                    running, executeRequest(concrete("hello")));
             assertEquals(
                     CloseDecisionType.CLOSE_DECISION_TYPE_GRACEFUL_COMPLETE,
                     execute.getStepDecision().getCloseDecision().getCloseDecisionType());
@@ -112,17 +114,88 @@ final class WorkerServiceIntegrationTest {
     }
 
     @Test
-    void stepStreamWritesUseExecutionIdempotencyKey() throws Exception {
+    void streamsStepProgressFramesInCallOrder() throws Exception {
         final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
         try {
-            running.client.invokeExecuteMethod(executeRequest(concrete("stream")));
-            final WriteStreamRequest request = running.writeStreamRequest.get();
-            assertEquals("flow-1", request.getFlowId());
-            assertEquals("BridgeFlow", request.getFlowType());
-            assertEquals("thinking", request.getStreamName());
-            assertEquals(1_048_576, request.getStreamCapacityBytes());
-            assertEquals("run-1#step-1", request.getIdempotencyKey());
-            assertEquals("stream", request.getValue().getStringValue());
+            final List<InvokeExecuteMethodOutput> execute = collectExecuteOutputs(
+                    running, executeRequest(concrete("progress")));
+            assertEquals(6, execute.size());
+            assertEquals("checkpoint", execute.get(0).getHeartbeat().getValue().getStringValue());
+            assertEquals("thinking", execute.get(1).getStreamWrite().getStreamName());
+            assertEquals("first", execute.get(1).getStreamWrite().getValue().getStringValue());
+            assertEquals("thinking", execute.get(2).getStreamWrite().getStreamName());
+            assertEquals("second", execute.get(2).getStreamWrite().getValue().getStringValue());
+            assertFalse(execute.get(3).getHeartbeat().hasValue());
+            assertEquals("findings", execute.get(4).getStreamWrite().getStreamName());
+            assertEquals("third", execute.get(4).getStreamWrite().getValue().getStringValue());
+            assertTrue(execute.get(5).hasResult());
+
+            final List<InvokeWaitForMethodOutput> wait = collectWaitForOutputs(
+                    running, waitRequest(concrete("progress")));
+            assertEquals(3, wait.size());
+            assertEquals("wait-checkpoint", wait.get(0).getHeartbeat()
+                    .getValue().getStringValue());
+            assertEquals("thinking", wait.get(1).getStreamWrite().getStreamName());
+            assertTrue(wait.get(2).hasResult());
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void preservesProgressBeforeHandlerFailureWithoutSendingResult() throws Exception {
+        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+        try {
+            final Iterator<InvokeExecuteMethodOutput> outputs =
+                    running.client.invokeExecuteMethod(
+                            executeRequest(concrete("progress-fail")));
+            assertTrue(outputs.hasNext());
+            assertTrue(outputs.next().hasHeartbeat());
+            assertTrue(outputs.hasNext());
+            assertTrue(outputs.next().hasStreamWrite());
+            assertThrows(StatusRuntimeException.class, outputs::hasNext);
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
+    void restoresHeartbeatDetailsAndRejectsProgressFromUnsupportedContexts() throws Exception {
+        final BridgeFlow flow = new BridgeFlow();
+        final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
+        try {
+            assertEquals(
+                    "absent",
+                    invokeExecute(running, executeRequest(concrete("read-heartbeat")))
+                            .getStepDecision().getCloseDecision()
+                            .getCloseInput().getStringValue());
+            final InvokeExecuteMethodRequest restored = executeRequest(concrete("read-heartbeat"))
+                    .toBuilder()
+                    .setContext(context().toBuilder()
+                            .setLastHeartbeatValue(concrete("restored")))
+                    .build();
+            assertEquals(
+                    "restored",
+                    invokeExecute(running, restored)
+                            .getStepDecision().getCloseDecision()
+                            .getCloseInput().getStringValue());
+
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeWorkerRPC(rpcRequest("rpc-heartbeat")));
+            assertThrows(
+                    StatusRuntimeException.class,
+                    () -> running.client.invokeWorkerRPC(rpcRequest("rpc-stream")));
+
+            final InvokeExecuteMethodRequest timeout = InvokeExecuteMethodRequest.newBuilder()
+                    .setContext(context())
+                    .setFlowType(flow.getFlowType())
+                    .setStepType("sys:timeout_handler")
+                    .build();
+            final List<InvokeExecuteMethodOutput> timeoutOutputs = collectExecuteOutputs(
+                    running, timeout);
+            assertEquals(1, timeoutOutputs.size());
+            assertTrue(timeoutOutputs.get(0).hasResult());
         } finally {
             running.close();
         }
@@ -132,15 +205,15 @@ final class WorkerServiceIntegrationTest {
     void mapsConditionIdsWithoutInternalValues() throws Exception {
         final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
         try {
-            final InvokeWaitForMethodResponse unnamed = running.client.invokeWaitForMethod(
-                    waitRequest(concrete("unnamed")));
+            final InvokeWaitForMethodResponse unnamed = invokeWaitFor(
+                    running, waitRequest(concrete("unnamed")));
             assertEquals("", unnamed.getWaitingCondition()
                     .getTimerConditions(0).getConditionId());
             assertEquals("", unnamed.getWaitingCondition()
                     .getChannelConditions(0).getConditionId());
 
-            final InvokeWaitForMethodResponse reused = running.client.invokeWaitForMethod(
-                    waitRequest(concrete("reused")));
+            final InvokeWaitForMethodResponse reused = invokeWaitFor(
+                    running, waitRequest(concrete("reused")));
             assertEquals(
                     "__dex_internal_condition_0",
                     reused.getWaitingCondition().getChannelConditions(0).getConditionId());
@@ -150,15 +223,15 @@ final class WorkerServiceIntegrationTest {
 
             assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeWaitForMethod(
+                    () -> invokeWaitFor(running,
                             waitRequest(concrete("missing-combination-id"))));
             assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeWaitForMethod(
+                    () -> invokeWaitFor(running,
                             waitRequest(concrete("duplicate-id"))));
             assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeWaitForMethod(
+                    () -> invokeWaitFor(running,
                             waitRequest(concrete("empty-id"))));
         } finally {
             running.close();
@@ -230,7 +303,7 @@ final class WorkerServiceIntegrationTest {
         try {
             final StatusRuntimeException failure = assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(executeRequest(concrete("fail"))));
+                    () -> invokeExecute(running, executeRequest(concrete("fail"))));
             assertEquals(Status.Code.INTERNAL, failure.getStatus().getCode());
             final com.google.rpc.Status status = StatusProto.fromThrowable(failure);
             final WorkerErrorResponse details = status.getDetails(0)
@@ -250,7 +323,7 @@ final class WorkerServiceIntegrationTest {
         try {
             final StatusRuntimeException failure = assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(
+                    () -> invokeExecute(running,
                             executeRequest(concrete("retry-after"))));
             final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
                     .getDetails(0)
@@ -362,7 +435,7 @@ final class WorkerServiceIntegrationTest {
         try {
             final StatusRuntimeException failure = assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(executeRequest(concrete("fail"))));
+                    () -> invokeExecute(running, executeRequest(concrete("fail"))));
             assertEquals(Status.Code.FAILED_PRECONDITION, failure.getStatus().getCode());
         } finally {
             running.close();
@@ -375,7 +448,7 @@ final class WorkerServiceIntegrationTest {
         try {
             final StatusRuntimeException failure = assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(executeRequest(concrete("large"))));
+                    () -> invokeExecute(running, executeRequest(concrete("large"))));
             final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
                     .getDetails(0)
                     .unpack(WorkerErrorResponse.class);
@@ -394,7 +467,7 @@ final class WorkerServiceIntegrationTest {
         try {
             final StatusRuntimeException failure = assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(executeRequest(concrete("invalid"))));
+                    () -> invokeExecute(running, executeRequest(concrete("invalid"))));
             final com.google.rpc.Status status = StatusProto.fromThrowable(failure);
             final WorkerErrorResponse details = status.getDetails(0)
                     .unpack(WorkerErrorResponse.class);
@@ -411,8 +484,8 @@ final class WorkerServiceIntegrationTest {
         final BridgeFlow flow = new BridgeFlow();
         final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
         try {
-            final InvokeExecuteMethodResponse cancellation = running.client.invokeExecuteMethod(
-                    executeRequest(concrete("cancel")));
+            final InvokeExecuteMethodResponse cancellation = invokeExecute(
+                    running, executeRequest(concrete("cancel")));
             assertEquals(
                     Collections.singletonList("BridgeOtherStep"),
                     cancellation.getStepDecision().getCancelStepTypesList());
@@ -433,8 +506,8 @@ final class WorkerServiceIntegrationTest {
                     rpcCancellation.getStepDecision().getNextSteps(0).getStepType());
             assertTrue(flow.baseRpcResult.get().getCancelingSteps().isEmpty());
 
-            final InvokeExecuteMethodResponse heartbeat = running.client.invokeExecuteMethod(
-                    executeRequest(concrete("heartbeat")));
+            final InvokeExecuteMethodResponse heartbeat = invokeExecute(
+                    running, executeRequest(concrete("heartbeat")));
             assertEquals(
                     10,
                     heartbeat.getStepDecision()
@@ -442,8 +515,8 @@ final class WorkerServiceIntegrationTest {
                             .getStepOptions()
                             .getHeartbeatTimeoutSeconds());
 
-            final InvokeExecuteMethodResponse disabled = running.client.invokeExecuteMethod(
-                    executeRequest(concrete("heartbeat-zero")));
+            final InvokeExecuteMethodResponse disabled = invokeExecute(
+                    running, executeRequest(concrete("heartbeat-zero")));
             assertEquals(
                     0,
                     disabled.getStepDecision()
@@ -453,23 +526,23 @@ final class WorkerServiceIntegrationTest {
 
             assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(
+                    () -> invokeExecute(running,
                             executeRequest(concrete("cancel-foreign"))));
             assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(
+                    () -> invokeExecute(running,
                             executeRequest(concrete("cancel-null"))));
             assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(
+                    () -> invokeExecute(running,
                             executeRequest(concrete("heartbeat-fraction"))));
             assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(
+                    () -> invokeExecute(running,
                             executeRequest(concrete("heartbeat-negative"))));
             assertThrows(
                     StatusRuntimeException.class,
-                    () -> running.client.invokeExecuteMethod(
+                    () -> invokeExecute(running,
                             executeRequest(concrete("heartbeat-overflow"))));
             assertThrows(
                     StatusRuntimeException.class,
@@ -487,13 +560,28 @@ final class WorkerServiceIntegrationTest {
         final BridgeFlow flow = new BridgeFlow();
         final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
         try {
-            final ListenableFuture<InvokeExecuteMethodResponse> response =
-                    WorkerServiceGrpc.newFutureStub(running.channel)
-                            .withWaitForReady()
-                            .withDeadlineAfter(10, TimeUnit.SECONDS)
-                            .invokeExecuteMethod(executeRequest(concrete("block")));
+            final io.grpc.Context.CancellableContext invocation =
+                    io.grpc.Context.current().withCancellation();
+            invocation.run(() -> WorkerServiceGrpc.newStub(running.channel)
+                    .withWaitForReady()
+                    .withDeadlineAfter(10, TimeUnit.SECONDS)
+                    .invokeExecuteMethod(
+                            executeRequest(concrete("block")),
+                            new StreamObserver<InvokeExecuteMethodOutput>() {
+                                @Override
+                                public void onNext(final InvokeExecuteMethodOutput output) {
+                                }
+
+                                @Override
+                                public void onError(final Throwable failure) {
+                                }
+
+                                @Override
+                                public void onCompleted() {
+                                }
+                            }));
             assertTrue(flow.start.blockStarted.await(5, TimeUnit.SECONDS));
-            response.cancel(true);
+            invocation.cancel(null);
             assertTrue(flow.start.cancellationObserved.await(5, TimeUnit.SECONDS));
             assertTrue(flow.start.contextReportedCancellation.get());
         } finally {
@@ -542,14 +630,26 @@ final class WorkerServiceIntegrationTest {
         try {
             assertEquals(
                     "hydrated",
-                    running.client.invokeExecuteMethod(executeRequest(blob))
+                    invokeExecute(running, executeRequest(blob))
                             .getStepDecision()
                             .getCloseDecision()
                             .getCloseInput()
                             .getStringValue());
             assertEquals(
                     "hydrated",
-                    running.client.invokeExecuteMethod(executeRequest(blob))
+                    invokeExecute(running, executeRequest(blob))
+                            .getStepDecision()
+                            .getCloseDecision()
+                            .getCloseInput()
+                            .getStringValue());
+            final InvokeExecuteMethodRequest heartbeat = executeRequest(
+                    concrete("read-heartbeat"))
+                    .toBuilder()
+                    .setContext(context().toBuilder().setLastHeartbeatValue(blob))
+                    .build();
+            assertEquals(
+                    "hydrated",
+                    invokeExecute(running, heartbeat)
                             .getStepDecision()
                             .getCloseDecision()
                             .getCloseInput()
@@ -579,8 +679,6 @@ final class WorkerServiceIntegrationTest {
                 new AtomicReference<SyncAttributeIndexRequest>();
         final AtomicReference<Boolean> listeningDuringSync =
                 new AtomicReference<Boolean>();
-        final AtomicReference<WriteStreamRequest> writeStreamRequest =
-                new AtomicReference<WriteStreamRequest>();
         final Server ownedFlowServer;
         final String effectiveServerAddress;
         if (serverAddress == null) {
@@ -599,15 +697,6 @@ final class WorkerServiceIntegrationTest {
                                 listeningDuringSync.set(Boolean.FALSE);
                             }
                             observer.onNext(SyncAttributeIndexResponse.getDefaultInstance());
-                            observer.onCompleted();
-                        }
-
-                        @Override
-                        public void writeStream(
-                                final WriteStreamRequest request,
-                                final StreamObserver<Empty> observer) {
-                            writeStreamRequest.set(request);
-                            observer.onNext(Empty.getDefaultInstance());
                             observer.onCompleted();
                         }
                     })
@@ -654,8 +743,7 @@ final class WorkerServiceIntegrationTest {
                 client,
                 ownedFlowServer,
                 syncRequest,
-                listeningDuringSync,
-                writeStreamRequest);
+                listeningDuringSync);
     }
 
     private static InvokeWaitForMethodRequest waitRequest(final Value input) {
@@ -700,13 +788,54 @@ final class WorkerServiceIntegrationTest {
         return Value.newBuilder().setStringValue(value).build();
     }
 
+    private static InvokeWaitForMethodResponse invokeWaitFor(
+            final RunningWorker running,
+            final InvokeWaitForMethodRequest request) {
+        final List<InvokeWaitForMethodOutput> outputs = collectWaitForOutputs(running, request);
+        assertTrue(outputs.get(outputs.size() - 1).hasResult());
+        return outputs.get(outputs.size() - 1).getResult();
+    }
+
+    private static List<InvokeWaitForMethodOutput> collectWaitForOutputs(
+            final RunningWorker running,
+            final InvokeWaitForMethodRequest request) {
+        final List<InvokeWaitForMethodOutput> outputs = new ArrayList<InvokeWaitForMethodOutput>();
+        final Iterator<InvokeWaitForMethodOutput> iterator =
+                running.client.invokeWaitForMethod(request);
+        while (iterator.hasNext()) {
+            outputs.add(iterator.next());
+        }
+        return outputs;
+    }
+
+    private static InvokeExecuteMethodResponse invokeExecute(
+            final RunningWorker running,
+            final InvokeExecuteMethodRequest request) {
+        final List<InvokeExecuteMethodOutput> outputs = collectExecuteOutputs(running, request);
+        assertTrue(outputs.get(outputs.size() - 1).hasResult());
+        return outputs.get(outputs.size() - 1).getResult();
+    }
+
+    private static List<InvokeExecuteMethodOutput> collectExecuteOutputs(
+            final RunningWorker running,
+            final InvokeExecuteMethodRequest request) {
+        final List<InvokeExecuteMethodOutput> outputs =
+                new ArrayList<InvokeExecuteMethodOutput>();
+        final Iterator<InvokeExecuteMethodOutput> iterator =
+                running.client.invokeExecuteMethod(request);
+        while (iterator.hasNext()) {
+            outputs.add(iterator.next());
+        }
+        return outputs;
+    }
+
     private static void assertWorkerFailure(
             final RunningWorker running,
             final String input,
             final Class<? extends Throwable> expectedType) throws Exception {
         final StatusRuntimeException failure = assertThrows(
                 StatusRuntimeException.class,
-                () -> running.client.invokeExecuteMethod(executeRequest(concrete(input))));
+                () -> invokeExecute(running, executeRequest(concrete(input))));
         assertEquals(Status.Code.INTERNAL, failure.getStatus().getCode());
         final WorkerErrorResponse details = StatusProto.fromThrowable(failure)
                 .getDetails(0)
@@ -745,7 +874,6 @@ final class WorkerServiceIntegrationTest {
         private final Server ownedFlowServer;
         private final AtomicReference<SyncAttributeIndexRequest> syncRequest;
         private final AtomicReference<Boolean> listeningDuringSync;
-        private final AtomicReference<WriteStreamRequest> writeStreamRequest;
 
         private RunningWorker(
                 final Worker worker,
@@ -755,8 +883,7 @@ final class WorkerServiceIntegrationTest {
                 final WorkerServiceGrpc.WorkerServiceBlockingStub client,
                 final Server ownedFlowServer,
                 final AtomicReference<SyncAttributeIndexRequest> syncRequest,
-                final AtomicReference<Boolean> listeningDuringSync,
-                final AtomicReference<WriteStreamRequest> writeStreamRequest) {
+                final AtomicReference<Boolean> listeningDuringSync) {
             this.worker = worker;
             this.workerThread = workerThread;
             this.workerFailure = workerFailure;
@@ -765,7 +892,6 @@ final class WorkerServiceIntegrationTest {
             this.ownedFlowServer = ownedFlowServer;
             this.syncRequest = syncRequest;
             this.listeningDuringSync = listeningDuringSync;
-            this.writeStreamRequest = writeStreamRequest;
         }
 
         @Override
@@ -784,8 +910,10 @@ final class WorkerServiceIntegrationTest {
         private final Channel<Void> commands = Channel.define("commands", Void.class);
         private final Stream<String> thinking =
                 Stream.define("thinking", String.class, 1_048_576);
+        private final Stream<String> findings =
+                Stream.define("findings", String.class, 1_048_576);
         private final BridgeOtherStep other = new BridgeOtherStep();
-        private final BridgeStep start = new BridgeStep(commands, thinking);
+        private final BridgeStep start = new BridgeStep(commands, thinking, findings);
         private final Attribute<String> status = Attribute.define(
                 "status",
                 String.class,
@@ -803,6 +931,13 @@ final class WorkerServiceIntegrationTest {
             return "BridgeFlow";
         }
 
+        @Override
+        public StepDecision handleTimeout(final Context context) {
+            assertThrows(IllegalStateException.class, () -> context.recordHeartbeat("invalid"));
+            assertThrows(IllegalStateException.class, () -> thinking.write(context, "invalid"));
+            return StepDecision.gracefulComplete("timeout");
+        }
+
         @RPC
         public RPCResult<String> checkedRpc(final Context context)
                 throws CheckedBridgeException {
@@ -811,6 +946,12 @@ final class WorkerServiceIntegrationTest {
 
         @RPC
         public RPCResult<String> cancellationRpc(final Context context, final String input) {
+            if ("rpc-heartbeat".equals(input)) {
+                context.recordHeartbeat("invalid");
+            }
+            if ("rpc-stream".equals(input)) {
+                thinking.write(context, "invalid");
+            }
             if ("cancel-foreign".equals(input)) {
                 return RPCResult.of(input)
                         .withCancelingSteps(ForeignBridgeStep.class);
@@ -829,7 +970,7 @@ final class WorkerServiceIntegrationTest {
 
         @Override
         public PersistenceSchema getPersistenceSchema() {
-            return PersistenceSchema.of(status, commands, thinking);
+            return PersistenceSchema.of(status, commands, thinking, findings);
         }
     }
 
@@ -843,12 +984,15 @@ final class WorkerServiceIntegrationTest {
         private final CountDownLatch cancellationObserved = new CountDownLatch(1);
         private final Channel<Void> commands;
         private final Stream<String> thinking;
+        private final Stream<String> findings;
 
         private BridgeStep(
                 final Channel<Void> commands,
-                final Stream<String> thinking) {
+                final Stream<String> thinking,
+                final Stream<String> findings) {
             this.commands = commands;
             this.thinking = thinking;
+            this.findings = findings;
         }
 
         @Override
@@ -863,6 +1007,11 @@ final class WorkerServiceIntegrationTest {
 
         @Override
         public Wait waitFor(final Context context, final String input) {
+            if ("progress".equals(input)) {
+                context.recordHeartbeat("wait-checkpoint");
+                thinking.write(context, "wait-stream");
+                return Wait.skipImmediately();
+            }
             if ("unnamed".equals(input)) {
                 return Wait.allOf(
                         Timer.byDuration(java.time.Duration.ofSeconds(1)),
@@ -890,8 +1039,22 @@ final class WorkerServiceIntegrationTest {
 
         @Override
         public StepDecision execute(final Context context, final String input) {
-            if ("stream".equals(input)) {
-                thinking.write(context, input);
+            if ("progress-fail".equals(input)) {
+                context.recordHeartbeat("before-failure");
+                thinking.write(context, "before-failure");
+                throw new BridgeFailureException("failure after progress");
+            }
+            if ("progress".equals(input)) {
+                context.recordHeartbeat("checkpoint");
+                thinking.write(context, "first");
+                thinking.write(context, "second");
+                context.recordHeartbeat(null);
+                findings.write(context, "third");
+            }
+            if ("read-heartbeat".equals(input)) {
+                return StepDecision.gracefulComplete(context.hasLastHeartbeatValue()
+                        ? context.getLastHeartbeatValue(String.class)
+                        : "absent");
             }
             handlerThread.set(Thread.currentThread().getName());
             if ("fail".equals(input)) {

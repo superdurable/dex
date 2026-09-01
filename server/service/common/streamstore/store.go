@@ -39,20 +39,19 @@ var (
 const resumeTokenVersion = 1
 
 type WriteInput struct {
-	FlowID               string
-	FlowType             string
-	StreamName           string
-	StreamCapacityBytes  int64
-	Value                *dexpb.Value
-	InternalIdentity     string
-	PublicIdempotencyKey string
+	FlowID              string
+	FlowType            string
+	StreamName          string
+	StreamCapacityBytes int64
+	Value               *dexpb.Value
+	Source              string
 }
 
 type Message struct {
-	Value          *dexpb.Value
-	MessageID      string
-	CreatedTime    time.Time
-	IdempotencyKey string
+	Value       *dexpb.Value
+	MessageID   string
+	CreatedTime time.Time
+	Source      string
 }
 
 type Store struct {
@@ -192,8 +191,7 @@ func (b *redisBackend) Close() error {
 func (b *redisBackend) Write(ctx context.Context, input backendWriteInput) error {
 	scriptOutput, err := runWriteScript(ctx, b.client, writeScriptInput{
 		keys:                   streamKeys(input.input.FlowType, input.input.StreamName, input.input.FlowID),
-		internalIdentity:       input.input.InternalIdentity,
-		publicIdempotencyKey:   input.input.PublicIdempotencyKey,
+		source:                 input.input.Source,
 		payload:                input.payload,
 		chargedBytes:           input.chargedBytes,
 		capacityBytes:          input.capacityBytes,
@@ -254,7 +252,7 @@ func (b *redisBackend) Read(
 	if err != nil {
 		return nil, err
 	}
-	publicKey, err := redisFieldString(redisMessage.Values, "k")
+	source, err := redisFieldString(redisMessage.Values, "s")
 	if err != nil {
 		return nil, err
 	}
@@ -267,10 +265,10 @@ func (b *redisBackend) Read(
 		return nil, err
 	}
 	return &Message{
-		Value:          value,
-		MessageID:      redisMessage.ID,
-		CreatedTime:    createdTime,
-		IdempotencyKey: publicKey,
+		Value:       value,
+		MessageID:   redisMessage.ID,
+		CreatedTime: createdTime,
+		Source:      source,
 	}, nil
 }
 
@@ -295,8 +293,7 @@ func (s *Store) chargedBytes(input WriteInput, payloadBytes int) (int64, error) 
 	parts := []int64{
 		int64(payloadBytes),
 		int64(len(input.FlowID)),
-		int64(len(input.InternalIdentity)),
-		int64(len(input.PublicIdempotencyKey)),
+		int64(len(input.Source)),
 		s.cfg.EffectiveEstimatedMessageOverheadBytes(),
 	}
 	var total int64
@@ -365,7 +362,6 @@ func parseMessageID(messageID string) (int64, uint64, error) {
 type redisKeys struct {
 	fifo         string
 	chargedBytes string
-	idempotency  string
 	instance     string
 	lease        string
 }
@@ -378,7 +374,6 @@ func streamKeys(flowType string, streamName string, flowID string) redisKeys {
 	return redisKeys{
 		fifo:         base + ":fifo",
 		chargedBytes: base + ":charged",
-		idempotency:  base + ":idem",
 		instance:     base + ":instance:" + flowDigest,
 		lease:        base + ":trim-lease",
 	}

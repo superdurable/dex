@@ -32,10 +32,10 @@ const (
 
 type invocationContext struct {
 	context.Context
-	method  invocationMethod
-	flow    *registeredFlow
-	service dexpb.FlowServiceClient
-	active  bool
+	method        invocationMethod
+	flow          *registeredFlow
+	outputEmitter *stepOutputEmitter
+	active        bool
 
 	flowID              string
 	runID               string
@@ -44,6 +44,7 @@ type invocationContext struct {
 	fromStepExecutionID string
 	firstAttemptAt      time.Time
 	attempt             int32
+	lastHeartbeatValue  *dexpb.Value
 
 	attributes          map[string]*dexpb.Value
 	attributeWrites     map[string]*dexpb.AttributeWrite
@@ -56,7 +57,6 @@ type invocationContext struct {
 	events         map[string]struct{}
 	recordedEvents []*dexpb.KV
 	publications   []*dexpb.ChannelMessage
-	streamWrites   map[*streamDefinition]struct{}
 
 	conditionResults *dexpb.ConditionResults
 	channelSizes     map[string]int
@@ -66,16 +66,13 @@ func newInvocationContext(
 	ctx context.Context,
 	method invocationMethod,
 	flow *registeredFlow,
-	service dexpb.FlowServiceClient,
+	outputStream stepProgressStream,
 	metadata *dexpb.Context,
 	attributes []*dexpb.KV,
 	locals []*dexpb.KV,
 	conditionResults *dexpb.ConditionResults,
 	channelInfos map[string]*dexpb.ChannelInfo,
 ) (*invocationContext, error) {
-	if service == nil {
-		panic("dex: invocation context requires FlowService client")
-	}
 	attributeValues, err := buildInvocationValues("attribute", attributes)
 	if err != nil {
 		return nil, err
@@ -91,11 +88,20 @@ func newInvocationContext(
 	if err := validateConditionResults(conditionResults); err != nil {
 		return nil, err
 	}
+	invocationHandlerContext := ctx
+	var outputEmitter *stepOutputEmitter
+	if method == invocationRPC {
+		if outputStream != nil {
+			panic("dex: RPC invocation cannot have a Step output stream")
+		}
+	} else if outputStream != nil {
+		invocationHandlerContext, outputEmitter = newStepOutputEmitter(ctx, outputStream)
+	}
 	invocation := &invocationContext{
-		Context:          ctx,
+		Context:          invocationHandlerContext,
 		method:           method,
 		flow:             flow,
-		service:          service,
+		outputEmitter:    outputEmitter,
 		active:           true,
 		flowID:           metadata.FlowId,
 		runID:            metadata.RunId,
@@ -105,7 +111,6 @@ func newInvocationContext(
 		locals:           localValues,
 		localWrites:      make(map[string]*dexpb.KV),
 		events:           make(map[string]struct{}),
-		streamWrites:     make(map[*streamDefinition]struct{}),
 		conditionResults: conditionResults,
 		channelSizes:     sizes,
 	}
@@ -114,6 +119,7 @@ func newInvocationContext(
 		invocation.fromStepExecutionID = metadata.FromStepExecutionId
 		invocation.attempt = metadata.Attempt
 		invocation.firstAttemptAt = time.Unix(metadata.FirstAttemptTimestamp, 0)
+		invocation.lastHeartbeatValue = metadata.LastHeartbeatValue
 	}
 	return invocation, nil
 }
@@ -122,34 +128,55 @@ func (invocation *invocationContext) writeStream(
 	definition *streamDefinition,
 	value any,
 ) error {
-	if !invocation.active || invocation.method == invocationRPC {
+	if invocation.method == invocationRPC || invocation.outputEmitter == nil {
 		return errInvalidInvocationContext
 	}
 	registered, err := invocation.flow.resolveStream(definition)
 	if err != nil {
 		return fmt.Errorf("dex: %w", err)
 	}
-	if _, found := invocation.streamWrites[registered.definition]; found {
-		return fmt.Errorf("dex: stream %q was already written by this Step execution", definition.name)
-	}
 	encoded, err := encodeValue(value)
 	if err != nil {
 		return err
 	}
-	idempotencyKey := invocation.runID + "#" + invocation.stepExecutionID
-	_, err = invocation.service.WriteStream(invocation, &dexpb.WriteStreamRequest{
-		FlowId:              invocation.flowID,
-		FlowType:            invocation.flow.flowType,
-		StreamName:          definition.name,
-		StreamCapacityBytes: definition.streamCapacityBytes,
+	return invocation.outputEmitter.sendStreamWrite(&dexpb.StepStreamWrite{
+		StreamName:          registered.definition.name,
+		StreamCapacityBytes: registered.definition.streamCapacityBytes,
 		Value:               encoded,
-		IdempotencyKey:      idempotencyKey,
 	})
-	if err != nil {
-		return translateRPCError(err, "WriteStream", invocation.flowID, flowTargetNone)
+}
+
+func (invocation *invocationContext) RecordHeartbeat(value any) error {
+	if invocation.method == invocationRPC || invocation.outputEmitter == nil {
+		return errInvalidInvocationContext
 	}
-	invocation.streamWrites[registered.definition] = struct{}{}
-	return nil
+	heartbeat := &dexpb.StepMethodHeartbeat{}
+	if value != nil && !isNilValue(reflect.ValueOf(value)) {
+		encoded, err := encodeValue(value)
+		if err != nil {
+			return err
+		}
+		heartbeat.Value = encoded
+	}
+	return invocation.outputEmitter.sendHeartbeat(heartbeat)
+}
+
+func (invocation *invocationContext) GetLastHeartbeatValue(
+	valuePtr any,
+) (bool, error) {
+	if err := invocation.requireActive(invocationWaitFor, invocationExecute); err != nil {
+		return false, err
+	}
+	if _, err := decodeTarget(valuePtr); err != nil {
+		return false, err
+	}
+	if invocation.lastHeartbeatValue == nil {
+		return false, nil
+	}
+	if err := decodeValue(invocation.lastHeartbeatValue, valuePtr); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func buildInvocationValues(
@@ -767,8 +794,12 @@ func (invocation *invocationContext) requireActive(
 	return errInvalidInvocationContext
 }
 
-func (invocation *invocationContext) finish() {
+func (invocation *invocationContext) finish() error {
 	invocation.active = false
+	if invocation.outputEmitter == nil {
+		return nil
+	}
+	return invocation.outputEmitter.close()
 }
 
 func (invocation *invocationContext) mappedAttributeWrites() []*dexpb.AttributeWrite {

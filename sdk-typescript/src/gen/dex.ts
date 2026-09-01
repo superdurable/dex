@@ -11,7 +11,9 @@ import {
   type ChannelCredentials,
   Client,
   type ClientOptions,
+  type ClientReadableStream,
   type ClientUnaryCall,
+  type handleServerStreamingCall,
   type handleUnaryCall,
   makeGenericClientConstructor,
   type Metadata,
@@ -285,6 +287,7 @@ export interface Context {
   fromStepExecutionId: string;
   /** Previous Step method failure supplied only to its configured recovery method. */
   recoveryError: RecoveryErrorInfo | undefined;
+  lastHeartbeatValue: Value | undefined;
 }
 
 export interface LocalActivityMetadata {
@@ -391,11 +394,8 @@ export interface WriteStreamRequest {
   flowType: string;
   streamName: string;
   streamCapacityBytes: bigint;
-  value:
-    | Value
-    | undefined;
-  /** Client keys must not contain "#"; Step SDKs use `<runID>#<stepExecutionID>`. */
-  idempotencyKey: string;
+  value: Value | undefined;
+  source: string;
 }
 
 export interface ReadStreamRequest {
@@ -414,7 +414,7 @@ export interface StreamMessage {
   value: Value | undefined;
   resumeToken: string;
   createdTime: Date | undefined;
-  idempotencyKey: string;
+  source: string;
 }
 
 export interface StopFlowRequest {
@@ -927,6 +927,23 @@ export interface InvokeWaitForMethodResponse {
   publishToChannel: ChannelMessage[];
 }
 
+export interface StepMethodHeartbeat {
+  value: Value | undefined;
+}
+
+export interface StepStreamWrite {
+  streamName: string;
+  streamCapacityBytes: bigint;
+  value: Value | undefined;
+}
+
+export interface InvokeWaitForMethodOutput {
+  output: { $case: "heartbeat"; value: StepMethodHeartbeat } | { $case: "streamWrite"; value: StepStreamWrite } | {
+    $case: "result";
+    value: InvokeWaitForMethodResponse;
+  } | undefined;
+}
+
 export interface InvokeExecuteMethodRequest {
   context: Context | undefined;
   flowType: string;
@@ -945,6 +962,13 @@ export interface InvokeExecuteMethodResponse {
   recordEvents: KV[];
   upsertStepExeLocals: KV[];
   publishToChannel: ChannelMessage[];
+}
+
+export interface InvokeExecuteMethodOutput {
+  output: { $case: "heartbeat"; value: StepMethodHeartbeat } | { $case: "streamWrite"; value: StepStreamWrite } | {
+    $case: "result";
+    value: InvokeExecuteMethodResponse;
+  } | undefined;
 }
 
 export interface InvokeWorkerRPCRequest {
@@ -1889,6 +1913,7 @@ function createBaseContext(): Context {
     attempt: 0,
     fromStepExecutionId: "",
     recoveryError: undefined,
+    lastHeartbeatValue: undefined,
   };
 }
 
@@ -1923,6 +1948,9 @@ export const Context: MessageFns<Context> = {
     }
     if (message.recoveryError !== undefined) {
       RecoveryErrorInfo.encode(message.recoveryError, writer.uint32(66).fork()).join();
+    }
+    if (message.lastHeartbeatValue !== undefined) {
+      Value.encode(message.lastHeartbeatValue, writer.uint32(74).fork()).join();
     }
     return writer;
   },
@@ -1998,6 +2026,14 @@ export const Context: MessageFns<Context> = {
           message.recoveryError = RecoveryErrorInfo.decode(reader, reader.uint32());
           continue;
         }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.lastHeartbeatValue = Value.decode(reader, reader.uint32());
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -2026,6 +2062,9 @@ export const Context: MessageFns<Context> = {
     message.fromStepExecutionId = object.fromStepExecutionId ?? "";
     message.recoveryError = (object.recoveryError !== undefined && object.recoveryError !== null)
       ? RecoveryErrorInfo.fromPartial(object.recoveryError)
+      : undefined;
+    message.lastHeartbeatValue = (object.lastHeartbeatValue !== undefined && object.lastHeartbeatValue !== null)
+      ? Value.fromPartial(object.lastHeartbeatValue)
       : undefined;
     return message;
   },
@@ -3215,7 +3254,7 @@ export const ChannelMessage: MessageFns<ChannelMessage> = {
 };
 
 function createBaseWriteStreamRequest(): WriteStreamRequest {
-  return { flowId: "", flowType: "", streamName: "", streamCapacityBytes: 0n, value: undefined, idempotencyKey: "" };
+  return { flowId: "", flowType: "", streamName: "", streamCapacityBytes: 0n, value: undefined, source: "" };
 }
 
 export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
@@ -3238,8 +3277,8 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
     if (message.value !== undefined) {
       Value.encode(message.value, writer.uint32(42).fork()).join();
     }
-    if (message.idempotencyKey !== "") {
-      writer.uint32(50).string(message.idempotencyKey);
+    if (message.source !== "") {
+      writer.uint32(50).string(message.source);
     }
     return writer;
   },
@@ -3296,7 +3335,7 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
             break;
           }
 
-          message.idempotencyKey = reader.string();
+          message.source = reader.string();
           continue;
         }
       }
@@ -3320,7 +3359,7 @@ export const WriteStreamRequest: MessageFns<WriteStreamRequest> = {
       ? BigInt(object.streamCapacityBytes)
       : 0n;
     message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
-    message.idempotencyKey = object.idempotencyKey ?? "";
+    message.source = object.source ?? "";
     return message;
   },
 };
@@ -3468,7 +3507,7 @@ export const ReadStreamResponse: MessageFns<ReadStreamResponse> = {
 };
 
 function createBaseStreamMessage(): StreamMessage {
-  return { value: undefined, resumeToken: "", createdTime: undefined, idempotencyKey: "" };
+  return { value: undefined, resumeToken: "", createdTime: undefined, source: "" };
 }
 
 export const StreamMessage: MessageFns<StreamMessage> = {
@@ -3482,8 +3521,8 @@ export const StreamMessage: MessageFns<StreamMessage> = {
     if (message.createdTime !== undefined) {
       Timestamp.encode(toTimestamp(message.createdTime), writer.uint32(26).fork()).join();
     }
-    if (message.idempotencyKey !== "") {
-      writer.uint32(34).string(message.idempotencyKey);
+    if (message.source !== "") {
+      writer.uint32(34).string(message.source);
     }
     return writer;
   },
@@ -3524,7 +3563,7 @@ export const StreamMessage: MessageFns<StreamMessage> = {
             break;
           }
 
-          message.idempotencyKey = reader.string();
+          message.source = reader.string();
           continue;
         }
       }
@@ -3544,7 +3583,7 @@ export const StreamMessage: MessageFns<StreamMessage> = {
     message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
     message.resumeToken = object.resumeToken ?? "";
     message.createdTime = object.createdTime ?? undefined;
-    message.idempotencyKey = object.idempotencyKey ?? "";
+    message.source = object.source ?? "";
     return message;
   },
 };
@@ -9607,6 +9646,216 @@ export const InvokeWaitForMethodResponse: MessageFns<InvokeWaitForMethodResponse
   },
 };
 
+function createBaseStepMethodHeartbeat(): StepMethodHeartbeat {
+  return { value: undefined };
+}
+
+export const StepMethodHeartbeat: MessageFns<StepMethodHeartbeat> = {
+  encode(message: StepMethodHeartbeat, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.value !== undefined) {
+      Value.encode(message.value, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StepMethodHeartbeat {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStepMethodHeartbeat();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.value = Value.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StepMethodHeartbeat>, I>>(base?: I): StepMethodHeartbeat {
+    return StepMethodHeartbeat.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StepMethodHeartbeat>, I>>(object: I): StepMethodHeartbeat {
+    const message = createBaseStepMethodHeartbeat();
+    message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
+    return message;
+  },
+};
+
+function createBaseStepStreamWrite(): StepStreamWrite {
+  return { streamName: "", streamCapacityBytes: 0n, value: undefined };
+}
+
+export const StepStreamWrite: MessageFns<StepStreamWrite> = {
+  encode(message: StepStreamWrite, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.streamName !== "") {
+      writer.uint32(10).string(message.streamName);
+    }
+    if (message.streamCapacityBytes !== 0n) {
+      if (BigInt.asIntN(64, message.streamCapacityBytes) !== message.streamCapacityBytes) {
+        throw new globalThis.Error("value provided for field message.streamCapacityBytes of type int64 too large");
+      }
+      writer.uint32(16).int64(message.streamCapacityBytes);
+    }
+    if (message.value !== undefined) {
+      Value.encode(message.value, writer.uint32(26).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): StepStreamWrite {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseStepStreamWrite();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.streamName = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.streamCapacityBytes = reader.int64() as bigint;
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.value = Value.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<StepStreamWrite>, I>>(base?: I): StepStreamWrite {
+    return StepStreamWrite.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<StepStreamWrite>, I>>(object: I): StepStreamWrite {
+    const message = createBaseStepStreamWrite();
+    message.streamName = object.streamName ?? "";
+    message.streamCapacityBytes = (object.streamCapacityBytes !== undefined && object.streamCapacityBytes !== null)
+      ? BigInt(object.streamCapacityBytes)
+      : 0n;
+    message.value = (object.value !== undefined && object.value !== null) ? Value.fromPartial(object.value) : undefined;
+    return message;
+  },
+};
+
+function createBaseInvokeWaitForMethodOutput(): InvokeWaitForMethodOutput {
+  return { output: undefined };
+}
+
+export const InvokeWaitForMethodOutput: MessageFns<InvokeWaitForMethodOutput> = {
+  encode(message: InvokeWaitForMethodOutput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    switch (message.output?.$case) {
+      case "heartbeat":
+        StepMethodHeartbeat.encode(message.output.value, writer.uint32(10).fork()).join();
+        break;
+      case "streamWrite":
+        StepStreamWrite.encode(message.output.value, writer.uint32(18).fork()).join();
+        break;
+      case "result":
+        InvokeWaitForMethodResponse.encode(message.output.value, writer.uint32(26).fork()).join();
+        break;
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InvokeWaitForMethodOutput {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInvokeWaitForMethodOutput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.output = { $case: "heartbeat", value: StepMethodHeartbeat.decode(reader, reader.uint32()) };
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.output = { $case: "streamWrite", value: StepStreamWrite.decode(reader, reader.uint32()) };
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.output = { $case: "result", value: InvokeWaitForMethodResponse.decode(reader, reader.uint32()) };
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InvokeWaitForMethodOutput>, I>>(base?: I): InvokeWaitForMethodOutput {
+    return InvokeWaitForMethodOutput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InvokeWaitForMethodOutput>, I>>(object: I): InvokeWaitForMethodOutput {
+    const message = createBaseInvokeWaitForMethodOutput();
+    switch (object.output?.$case) {
+      case "heartbeat": {
+        if (object.output?.value !== undefined && object.output?.value !== null) {
+          message.output = { $case: "heartbeat", value: StepMethodHeartbeat.fromPartial(object.output.value) };
+        }
+        break;
+      }
+      case "streamWrite": {
+        if (object.output?.value !== undefined && object.output?.value !== null) {
+          message.output = { $case: "streamWrite", value: StepStreamWrite.fromPartial(object.output.value) };
+        }
+        break;
+      }
+      case "result": {
+        if (object.output?.value !== undefined && object.output?.value !== null) {
+          message.output = { $case: "result", value: InvokeWaitForMethodResponse.fromPartial(object.output.value) };
+        }
+        break;
+      }
+    }
+    return message;
+  },
+};
+
 function createBaseInvokeExecuteMethodRequest(): InvokeExecuteMethodRequest {
   return {
     context: undefined,
@@ -9853,6 +10102,95 @@ export const InvokeExecuteMethodResponse: MessageFns<InvokeExecuteMethodResponse
     message.recordEvents = object.recordEvents?.map((e) => KV.fromPartial(e)) || [];
     message.upsertStepExeLocals = object.upsertStepExeLocals?.map((e) => KV.fromPartial(e)) || [];
     message.publishToChannel = object.publishToChannel?.map((e) => ChannelMessage.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseInvokeExecuteMethodOutput(): InvokeExecuteMethodOutput {
+  return { output: undefined };
+}
+
+export const InvokeExecuteMethodOutput: MessageFns<InvokeExecuteMethodOutput> = {
+  encode(message: InvokeExecuteMethodOutput, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    switch (message.output?.$case) {
+      case "heartbeat":
+        StepMethodHeartbeat.encode(message.output.value, writer.uint32(10).fork()).join();
+        break;
+      case "streamWrite":
+        StepStreamWrite.encode(message.output.value, writer.uint32(18).fork()).join();
+        break;
+      case "result":
+        InvokeExecuteMethodResponse.encode(message.output.value, writer.uint32(26).fork()).join();
+        break;
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): InvokeExecuteMethodOutput {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseInvokeExecuteMethodOutput();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.output = { $case: "heartbeat", value: StepMethodHeartbeat.decode(reader, reader.uint32()) };
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.output = { $case: "streamWrite", value: StepStreamWrite.decode(reader, reader.uint32()) };
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.output = { $case: "result", value: InvokeExecuteMethodResponse.decode(reader, reader.uint32()) };
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  create<I extends Exact<DeepPartial<InvokeExecuteMethodOutput>, I>>(base?: I): InvokeExecuteMethodOutput {
+    return InvokeExecuteMethodOutput.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<InvokeExecuteMethodOutput>, I>>(object: I): InvokeExecuteMethodOutput {
+    const message = createBaseInvokeExecuteMethodOutput();
+    switch (object.output?.$case) {
+      case "heartbeat": {
+        if (object.output?.value !== undefined && object.output?.value !== null) {
+          message.output = { $case: "heartbeat", value: StepMethodHeartbeat.fromPartial(object.output.value) };
+        }
+        break;
+      }
+      case "streamWrite": {
+        if (object.output?.value !== undefined && object.output?.value !== null) {
+          message.output = { $case: "streamWrite", value: StepStreamWrite.fromPartial(object.output.value) };
+        }
+        break;
+      }
+      case "result": {
+        if (object.output?.value !== undefined && object.output?.value !== null) {
+          message.output = { $case: "result", value: InvokeExecuteMethodResponse.fromPartial(object.output.value) };
+        }
+        break;
+      }
+    }
     return message;
   },
 };
@@ -15790,24 +16128,24 @@ export const WorkerServiceService = {
   invokeWaitForMethod: {
     path: "/dex.WorkerService/InvokeWaitForMethod" as const,
     requestStream: false as const,
-    responseStream: false as const,
+    responseStream: true as const,
     requestSerialize: (value: InvokeWaitForMethodRequest): Buffer =>
       Buffer.from(InvokeWaitForMethodRequest.encode(value).finish()),
     requestDeserialize: (value: Buffer): InvokeWaitForMethodRequest => InvokeWaitForMethodRequest.decode(value),
-    responseSerialize: (value: InvokeWaitForMethodResponse): Buffer =>
-      Buffer.from(InvokeWaitForMethodResponse.encode(value).finish()),
-    responseDeserialize: (value: Buffer): InvokeWaitForMethodResponse => InvokeWaitForMethodResponse.decode(value),
+    responseSerialize: (value: InvokeWaitForMethodOutput): Buffer =>
+      Buffer.from(InvokeWaitForMethodOutput.encode(value).finish()),
+    responseDeserialize: (value: Buffer): InvokeWaitForMethodOutput => InvokeWaitForMethodOutput.decode(value),
   },
   invokeExecuteMethod: {
     path: "/dex.WorkerService/InvokeExecuteMethod" as const,
     requestStream: false as const,
-    responseStream: false as const,
+    responseStream: true as const,
     requestSerialize: (value: InvokeExecuteMethodRequest): Buffer =>
       Buffer.from(InvokeExecuteMethodRequest.encode(value).finish()),
     requestDeserialize: (value: Buffer): InvokeExecuteMethodRequest => InvokeExecuteMethodRequest.decode(value),
-    responseSerialize: (value: InvokeExecuteMethodResponse): Buffer =>
-      Buffer.from(InvokeExecuteMethodResponse.encode(value).finish()),
-    responseDeserialize: (value: Buffer): InvokeExecuteMethodResponse => InvokeExecuteMethodResponse.decode(value),
+    responseSerialize: (value: InvokeExecuteMethodOutput): Buffer =>
+      Buffer.from(InvokeExecuteMethodOutput.encode(value).finish()),
+    responseDeserialize: (value: Buffer): InvokeExecuteMethodOutput => InvokeExecuteMethodOutput.decode(value),
   },
   invokeWorkerRpc: {
     path: "/dex.WorkerService/InvokeWorkerRPC" as const,
@@ -15823,42 +16161,30 @@ export const WorkerServiceService = {
 } as const;
 
 export interface WorkerServiceServer extends UntypedServiceImplementation {
-  invokeWaitForMethod: handleUnaryCall<InvokeWaitForMethodRequest, InvokeWaitForMethodResponse>;
-  invokeExecuteMethod: handleUnaryCall<InvokeExecuteMethodRequest, InvokeExecuteMethodResponse>;
+  invokeWaitForMethod: handleServerStreamingCall<InvokeWaitForMethodRequest, InvokeWaitForMethodOutput>;
+  invokeExecuteMethod: handleServerStreamingCall<InvokeExecuteMethodRequest, InvokeExecuteMethodOutput>;
   invokeWorkerRpc: handleUnaryCall<InvokeWorkerRPCRequest, InvokeWorkerRPCResponse>;
 }
 
 export interface WorkerServiceClient extends Client {
   invokeWaitForMethod(
     request: InvokeWaitForMethodRequest,
-    callback: (error: ServiceError | null, response: InvokeWaitForMethodResponse) => void,
-  ): ClientUnaryCall;
+    options?: Partial<CallOptions>,
+  ): ClientReadableStream<InvokeWaitForMethodOutput>;
   invokeWaitForMethod(
     request: InvokeWaitForMethodRequest,
-    metadata: Metadata,
-    callback: (error: ServiceError | null, response: InvokeWaitForMethodResponse) => void,
-  ): ClientUnaryCall;
-  invokeWaitForMethod(
-    request: InvokeWaitForMethodRequest,
-    metadata: Metadata,
-    options: Partial<CallOptions>,
-    callback: (error: ServiceError | null, response: InvokeWaitForMethodResponse) => void,
-  ): ClientUnaryCall;
+    metadata?: Metadata,
+    options?: Partial<CallOptions>,
+  ): ClientReadableStream<InvokeWaitForMethodOutput>;
   invokeExecuteMethod(
     request: InvokeExecuteMethodRequest,
-    callback: (error: ServiceError | null, response: InvokeExecuteMethodResponse) => void,
-  ): ClientUnaryCall;
+    options?: Partial<CallOptions>,
+  ): ClientReadableStream<InvokeExecuteMethodOutput>;
   invokeExecuteMethod(
     request: InvokeExecuteMethodRequest,
-    metadata: Metadata,
-    callback: (error: ServiceError | null, response: InvokeExecuteMethodResponse) => void,
-  ): ClientUnaryCall;
-  invokeExecuteMethod(
-    request: InvokeExecuteMethodRequest,
-    metadata: Metadata,
-    options: Partial<CallOptions>,
-    callback: (error: ServiceError | null, response: InvokeExecuteMethodResponse) => void,
-  ): ClientUnaryCall;
+    metadata?: Metadata,
+    options?: Partial<CallOptions>,
+  ): ClientReadableStream<InvokeExecuteMethodOutput>;
   invokeWorkerRpc(
     request: InvokeWorkerRPCRequest,
     callback: (error: ServiceError | null, response: InvokeWorkerRPCResponse) => void,

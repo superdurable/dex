@@ -36,7 +36,7 @@ describe('StreamPanel', () => {
           value: 'first token',
           resumeToken: 'token-1',
           createdTime: '2026-08-27T12:34:56Z',
-          idempotencyKey: 'run-1#Step-1',
+          source: '#Step-1',
         }), { status: 200 });
       }
       return new Response(JSON.stringify({ error: 'Stream read timed out' }), { status: 408 });
@@ -50,11 +50,11 @@ describe('StreamPanel', () => {
       signal: controller.signal,
       fetcher: fetcher as typeof fetch,
       onMessage: async (message) => {
-        messages.push(message.resumeToken);
+        messages.push(`${message.resumeToken}:${message.source}`);
       },
     });
 
-    expect(messages).toEqual(['token-1']);
+    expect(messages).toEqual(['token-1:#Step-1']);
     expect(fetcher).toHaveBeenCalledTimes(3);
     expect(String(fetcher.mock.calls[2][0])).toContain('resumeToken=token-1');
   });

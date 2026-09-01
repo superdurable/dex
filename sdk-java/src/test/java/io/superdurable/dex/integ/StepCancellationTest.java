@@ -52,7 +52,7 @@ public final class StepCancellationTest {
     }
 
     @Test
-    void testLocalActivityCancellationInterruptsWithoutFallback() throws Exception {
+    void testLocalHeartbeatIsIgnoredUntilRegularFallback() throws Exception {
         final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
                 StepCancellationWorkflow.Scenario.LOCAL_EXECUTE);
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
@@ -63,19 +63,19 @@ public final class StepCancellationTest {
             environment.client().waitForStepCompletion(
                     flowId,
                     StepExecutionId.of(workflow.canceledStepType()),
-                    CANCELLATION_TIMEOUT);
-            assertTrue(workflow.awaitCancellation(CANCELLATION_TIMEOUT));
+                    FLOW_TIMEOUT);
+            assertTrue(workflow.awaitCancellation(FLOW_TIMEOUT));
             assertCompleted(environment, flowId, StepCancellationWorkflow.Scenario.LOCAL_EXECUTE);
             assertTrue(workflow.wasHandlerInterrupted());
             assertTrue(workflow.didContextReportCancellation());
-            assertEquals(1, workflow.blockingExecuteInvocations());
+            assertEquals(2, workflow.blockingExecuteInvocations());
             assertFalse(workflow.wasRecoveryRun());
             assertNull(environment.client().getAttribute(flowId, workflow.lateWrite));
         }
     }
 
     @Test
-    void testTimerCancelsAfterLocalTimeoutFallback() throws Exception {
+    void testTimerCancelsAfterLocalTimeoutFallbackWithoutWorkerProgress() throws Exception {
         final StepCancellationWorkflow workflow = new StepCancellationWorkflow(
                 StepCancellationWorkflow.Scenario.LOCAL_TIMEOUT_FALLBACK);
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(
@@ -91,7 +91,7 @@ public final class StepCancellationTest {
                     environment,
                     flowId,
                     StepCancellationWorkflow.Scenario.LOCAL_TIMEOUT_FALLBACK);
-            assertEquals(1, workflow.blockingExecuteInvocations());
+            assertEquals(2, workflow.blockingExecuteInvocations());
             assertTrue(workflow.wasHandlerInterrupted());
             assertTrue(workflow.didContextReportCancellation());
             assertFalse(workflow.wasRecoveryRun());

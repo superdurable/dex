@@ -14,7 +14,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -31,9 +33,12 @@ import (
 	"github.com/superdurable/dex/service/common/ptr"
 	"github.com/superdurable/dex/service/common/retry"
 	"github.com/superdurable/dex/service/common/rpc"
+	"github.com/superdurable/dex/service/common/streamstore"
 	"github.com/superdurable/dex/service/common/workerclient"
 	interpreterconfig "github.com/superdurable/dex/service/interpreter/config"
 	"github.com/superdurable/dex/service/interpreter/interfaces"
+	"go.temporal.io/sdk/client"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
@@ -48,6 +53,8 @@ type Activities struct {
 	eventHandler     event.HandleEventFunc
 	cfg              *config.Config
 	subFlowResolver  *SubFlowReuseResolver
+	streamStore      *streamstore.Store
+	metrics          client.MetricsHandler
 }
 
 func NewActivities(
@@ -59,9 +66,12 @@ func NewActivities(
 	attributeStore *attributestore.Manager,
 	eventHandler event.HandleEventFunc,
 	cfg *config.Config,
+	streamStore *streamstore.Store,
+	metrics client.MetricsHandler,
 ) *Activities {
 	if activityProvider == nil || workerPool == nil || internalClient == nil ||
-		unifiedClient == nil || attributeStore == nil || eventHandler == nil {
+		unifiedClient == nil || attributeStore == nil || eventHandler == nil ||
+		streamStore == nil || metrics == nil {
 		panic("Activities requires non-nil dependencies")
 	}
 	if cfg == nil {
@@ -77,6 +87,8 @@ func NewActivities(
 		eventHandler:     eventHandler,
 		cfg:              cfg,
 		subFlowResolver:  NewSubFlowReuseResolver(unifiedClient),
+		streamStore:      streamStore,
+		metrics:          metrics,
 	}
 }
 
@@ -106,8 +118,6 @@ func (a *Activities) InvokeWaitForMethod(
 	logger.Info("InvokeWaitForMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
-	heartbeat := NewActivityHeartbeat(provider, ctx, activityInfo)
-	defer heartbeat.Stop()
 	req := waitForMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
 		req.GetContext(),
@@ -121,6 +131,9 @@ func (a *Activities) InvokeWaitForMethod(
 			req.GetContext(),
 			localInput.GetMethodOptions(),
 		)
+	}
+	if err := a.restoreHeartbeatValue(ctx, activityInfo, req.GetContext()); err != nil {
+		return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 	}
 
 	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
@@ -140,14 +153,23 @@ func (a *Activities) InvokeWaitForMethod(
 	}
 	defer release()
 
-	resp, err := client.InvokeWaitForMethod(callCtx, req)
+	stream, err := client.InvokeWaitForMethod(callCtx, req)
+	if err != nil {
+		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
+		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
+		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
+	}
+	resp, err := a.receiveWaitForMethodResponse(ctx, stream, req, activityInfo, logger)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeWaitForMethod", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
-	if err := validateWaitingCondition(resp.GetWaitingCondition()); err != nil {
+	if err := validateWaitingCondition(
+		resp.GetWaitingCondition(),
+		a.cfg.Interpreter.InterpreterActivityConfig.EffectiveMinimumStepHeartbeatTimeout(),
+	); err != nil {
 		a.emitStepWaitForMethodEvent(req, activityInfo, event.EventTypeWaitForAttemptFail)
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
@@ -253,8 +275,6 @@ func (a *Activities) InvokeExecuteMethod(
 	logger.Info("InvokeExecuteMethodActivity", "input", log.ToJsonAndTruncateForLogging(input))
 
 	activityInfo := provider.GetActivityInfo(ctx)
-	heartbeat := NewActivityHeartbeat(provider, ctx, activityInfo)
-	defer heartbeat.Stop()
 	req := executeMethodRequestForAttempt(input.GetRequest())
 	activityAttempt := retry.NewStepActivityAttempt(
 		req.GetContext(),
@@ -268,6 +288,9 @@ func (a *Activities) InvokeExecuteMethod(
 			req.GetContext(),
 			localInput.GetMethodOptions(),
 		)
+	}
+	if err := a.restoreHeartbeatValue(ctx, activityInfo, req.GetContext()); err != nil {
+		return nil, newServerSideActivityError(ctx, provider, err, localActivityFailure)
 	}
 
 	lazyLoading := a.cfg.BlobStore.EffectiveLazyLoading()
@@ -294,14 +317,23 @@ func (a *Activities) InvokeExecuteMethod(
 	}
 	defer release()
 
-	resp, err := client.InvokeExecuteMethod(callCtx, req)
+	stream, err := client.InvokeExecuteMethod(callCtx, req)
+	if err != nil {
+		a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptFail)
+		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
+		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
+	}
+	resp, err := a.receiveExecuteMethodResponse(ctx, stream, req, activityInfo, logger)
 	printDebugMsg(logger, err, workerAddressForLogging(callCtx, input.GetWorkerTarget()))
 	if err != nil {
 		a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptFail)
 		a.logLocalActivityWarn(logger, activityInfo, "InvokeExecuteMethod", req.GetContext().GetStepExecutionId(), req, err)
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
-	if err := validateExecuteResponse(resp); err != nil {
+	if err := validateExecuteResponse(
+		resp,
+		a.cfg.Interpreter.InterpreterActivityConfig.EffectiveMinimumStepHeartbeatTimeout(),
+	); err != nil {
 		return nil, newWorkerSideActivityError(ctx, provider, a.unifiedClient.GetBackendType(), err, localActivityFailure)
 	}
 	if err := a.persistStepEventInput(
@@ -359,6 +391,226 @@ func (a *Activities) InvokeExecuteMethod(
 
 	a.emitStepExecuteMethodEvent(req, activityInfo, event.EventTypeExecuteAttemptSucc)
 	return &dexpb.InvokeExecuteMethodActivityOutput{Response: resp}, nil
+}
+
+type waitForMethodOutputStream interface {
+	Recv() (*dexpb.InvokeWaitForMethodOutput, error)
+}
+
+type executeMethodOutputStream interface {
+	Recv() (*dexpb.InvokeExecuteMethodOutput, error)
+}
+
+func (a *Activities) receiveWaitForMethodResponse(
+	ctx context.Context,
+	stream waitForMethodOutputStream,
+	request *dexpb.InvokeWaitForMethodRequest,
+	activityInfo interfaces.ActivityInfo,
+	logger interfaces.UnifiedLogger,
+) (*dexpb.InvokeWaitForMethodResponse, error) {
+	var result *dexpb.InvokeWaitForMethodResponse
+	lastHeartbeatValue := request.GetContext().GetLastHeartbeatValue()
+	for {
+		output, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			if result == nil {
+				return nil, fmt.Errorf("InvokeWaitForMethod stream ended without a result")
+			}
+			return result, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if result != nil {
+			return nil, fmt.Errorf("InvokeWaitForMethod emitted output after its result")
+		}
+		switch frame := output.GetOutput().(type) {
+		case *dexpb.InvokeWaitForMethodOutput_Heartbeat:
+			a.recordStepHeartbeat(ctx, activityInfo, frame.Heartbeat.GetValue(), &lastHeartbeatValue)
+		case *dexpb.InvokeWaitForMethodOutput_StreamWrite:
+			a.recordImplicitStepHeartbeat(ctx, activityInfo, lastHeartbeatValue)
+			a.writeStepStream(ctx, request.GetContext(), request.GetFlowType(), request.GetStepType(), "wait_for", frame.StreamWrite, logger)
+		case *dexpb.InvokeWaitForMethodOutput_Result:
+			if frame.Result == nil {
+				return nil, fmt.Errorf("InvokeWaitForMethod emitted an empty result")
+			}
+			result = frame.Result
+		default:
+			return nil, fmt.Errorf("InvokeWaitForMethod emitted an empty output")
+		}
+	}
+}
+
+func (a *Activities) receiveExecuteMethodResponse(
+	ctx context.Context,
+	stream executeMethodOutputStream,
+	request *dexpb.InvokeExecuteMethodRequest,
+	activityInfo interfaces.ActivityInfo,
+	logger interfaces.UnifiedLogger,
+) (*dexpb.InvokeExecuteMethodResponse, error) {
+	var result *dexpb.InvokeExecuteMethodResponse
+	lastHeartbeatValue := request.GetContext().GetLastHeartbeatValue()
+	for {
+		output, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			if result == nil {
+				return nil, fmt.Errorf("InvokeExecuteMethod stream ended without a result")
+			}
+			return result, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		if result != nil {
+			return nil, fmt.Errorf("InvokeExecuteMethod emitted output after its result")
+		}
+		switch frame := output.GetOutput().(type) {
+		case *dexpb.InvokeExecuteMethodOutput_Heartbeat:
+			a.recordStepHeartbeat(ctx, activityInfo, frame.Heartbeat.GetValue(), &lastHeartbeatValue)
+		case *dexpb.InvokeExecuteMethodOutput_StreamWrite:
+			a.recordImplicitStepHeartbeat(ctx, activityInfo, lastHeartbeatValue)
+			a.writeStepStream(ctx, request.GetContext(), request.GetFlowType(), request.GetStepType(), "execute", frame.StreamWrite, logger)
+		case *dexpb.InvokeExecuteMethodOutput_Result:
+			if frame.Result == nil {
+				return nil, fmt.Errorf("InvokeExecuteMethod emitted an empty result")
+			}
+			result = frame.Result
+		default:
+			return nil, fmt.Errorf("InvokeExecuteMethod emitted an empty output")
+		}
+	}
+}
+
+func (a *Activities) restoreHeartbeatValue(
+	ctx context.Context,
+	activityInfo interfaces.ActivityInfo,
+	workerContext *dexpb.Context,
+) error {
+	if activityInfo.IsLocalActivity {
+		return nil
+	}
+	value, err := a.activityProvider.GetHeartbeatValue(ctx)
+	if err != nil {
+		return fmt.Errorf("decode Step heartbeat value: %w", err)
+	}
+	workerContext.LastHeartbeatValue = value
+	return nil
+}
+
+func (a *Activities) recordStepHeartbeat(
+	ctx context.Context,
+	activityInfo interfaces.ActivityInfo,
+	value *dexpb.Value,
+	lastHeartbeatValue **dexpb.Value,
+) {
+	if activityInfo.IsLocalActivity {
+		return
+	}
+	*lastHeartbeatValue = value
+	a.recordStepHeartbeatValue(ctx, activityInfo, value)
+}
+
+func (a *Activities) recordImplicitStepHeartbeat(
+	ctx context.Context,
+	activityInfo interfaces.ActivityInfo,
+	lastHeartbeatValue *dexpb.Value,
+) {
+	a.recordStepHeartbeatValue(ctx, activityInfo, lastHeartbeatValue)
+}
+
+func (a *Activities) recordStepHeartbeatValue(
+	ctx context.Context,
+	activityInfo interfaces.ActivityInfo,
+	value *dexpb.Value,
+) {
+	if activityInfo.IsLocalActivity {
+		return
+	}
+	if value == nil {
+		a.activityProvider.RecordHeartbeat(ctx)
+		return
+	}
+	a.activityProvider.RecordHeartbeat(ctx, value)
+}
+
+func (a *Activities) writeStepStream(
+	ctx context.Context,
+	workerContext *dexpb.Context,
+	flowType string,
+	stepType string,
+	stepMethod string,
+	write *dexpb.StepStreamWrite,
+	logger interfaces.UnifiedLogger,
+) {
+	input, err := stepStreamWriteInput(workerContext, flowType, write)
+	if err == nil {
+		err = a.streamStore.Write(ctx, input)
+	}
+	if err == nil {
+		return
+	}
+	reason := stepStreamWriteFailureReason(err)
+	a.metrics.WithTags(map[string]string{
+		"flow_type":   flowType,
+		"step_type":   stepType,
+		"step_method": stepMethod,
+		"reason":      reason,
+	}).Counter("dex_step_stream_write_failure").Inc(1)
+	logger.Warn(
+		"Step Stream write failed",
+		"flowType", flowType,
+		"stepType", stepType,
+		"stepMethod", stepMethod,
+		"streamName", write.GetStreamName(),
+		"source", input.Source,
+		"reason", reason,
+		"error", err,
+	)
+}
+
+func stepStreamWriteInput(
+	workerContext *dexpb.Context,
+	flowType string,
+	write *dexpb.StepStreamWrite,
+) (streamstore.WriteInput, error) {
+	if write == nil || write.GetStreamName() == "" {
+		return streamstore.WriteInput{}, fmt.Errorf("Step Stream name is required")
+	}
+	if write.GetStreamCapacityBytes() <= 0 {
+		return streamstore.WriteInput{}, fmt.Errorf("Step Stream capacity must be positive")
+	}
+	if write.GetValue() == nil {
+		return streamstore.WriteInput{}, fmt.Errorf("Step Stream Value is required")
+	}
+	if workerContext.GetStepExecutionId() == "" {
+		return streamstore.WriteInput{}, fmt.Errorf("Step Stream source requires a Step execution ID")
+	}
+	source := "#" + workerContext.GetStepExecutionId()
+	return streamstore.WriteInput{
+		FlowID:              workerContext.GetFlowId(),
+		FlowType:            flowType,
+		StreamName:          write.GetStreamName(),
+		StreamCapacityBytes: write.GetStreamCapacityBytes(),
+		Value:               write.GetValue(),
+		Source:              source,
+	}, nil
+}
+
+func stepStreamWriteFailureReason(err error) string {
+	switch {
+	case errors.Is(err, streamstore.ErrDisabled):
+		return codes.FailedPrecondition.String()
+	case errors.Is(err, streamstore.ErrMessageTooLarge), errors.Is(err, streamstore.ErrCapacityExceeded):
+		return codes.ResourceExhausted.String()
+	case errors.Is(err, streamstore.ErrUnavailable):
+		return codes.Unavailable.String()
+	case errors.Is(err, context.Canceled):
+		return codes.Canceled.String()
+	case errors.Is(err, context.DeadlineExceeded):
+		return codes.DeadlineExceeded.String()
+	default:
+		return codes.Internal.String()
+	}
 }
 
 func waitForMethodRequestForAttempt(
@@ -486,7 +738,8 @@ func (a *Activities) InvokeWorkerRPC(
 		a.workerPool,
 		input.GetRpcPrep(),
 		input.GetRequest(),
-		a.cfg.Api.EffectiveMaxWaitSeconds(),
+		&a.cfg.Api,
+		&a.cfg.Interpreter.InterpreterActivityConfig,
 		a.blobStore,
 		input.GetRequest().GetRequestId(),
 		&a.cfg.BlobStore,
@@ -939,8 +1192,11 @@ func validateWorkerWaitForResponse(resp *dexpb.InvokeWaitForMethodResponse) erro
 	return workerclient.RejectWorkerKVBlobIDs(resp.GetRecordEvents())
 }
 
-func validateExecuteResponse(resp *dexpb.InvokeExecuteMethodResponse) error {
-	if err := validateStepDecision(resp.GetStepDecision()); err != nil {
+func validateExecuteResponse(
+	resp *dexpb.InvokeExecuteMethodResponse,
+	minimumHeartbeatTimeout time.Duration,
+) error {
+	if err := validateStepDecision(resp.GetStepDecision(), minimumHeartbeatTimeout); err != nil {
 		return err
 	}
 	return validateWorkerExecuteResponse(resp)
@@ -962,7 +1218,10 @@ func validateWorkerExecuteResponse(resp *dexpb.InvokeExecuteMethodResponse) erro
 	return nil
 }
 
-func validateStepDecision(decision *dexpb.StepDecision) error {
+func validateStepDecision(
+	decision *dexpb.StepDecision,
+	minimumHeartbeatTimeout time.Duration,
+) error {
 	if decision == nil {
 		return fmt.Errorf("step decision is nil")
 	}
@@ -976,7 +1235,10 @@ func validateStepDecision(decision *dexpb.StepDecision) error {
 		if err := service.ValidateStepType(movement.GetStepType()); err != nil {
 			return fmt.Errorf("next step at index %d: %w", index, err)
 		}
-		if err := service.ValidateStepOptions(movement.GetStepOptions()); err != nil {
+		if err := service.ValidateStepOptions(
+			movement.GetStepOptions(),
+			minimumHeartbeatTimeout,
+		); err != nil {
 			return fmt.Errorf("next step at index %d: %w", index, err)
 		}
 	}
@@ -1049,7 +1311,10 @@ func validateCloseDecision(closeDecision *dexpb.CloseDecision, nextStepCount int
 	return nil
 }
 
-func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
+func validateWaitingCondition(
+	waiting *dexpb.WaitingCondition,
+	minimumHeartbeatTimeout time.Duration,
+) error {
 	if waiting == nil {
 		return nil
 	}
@@ -1145,7 +1410,10 @@ func validateWaitingCondition(waiting *dexpb.WaitingCondition) error {
 		if err := service.ValidateStepType(subFlowCondition.GetStartStepType()); err != nil {
 			return fmt.Errorf("SubFlow condition at index %d: %w", i, err)
 		}
-		if err := service.ValidateStepOptions(subFlowCondition.GetStepOptions()); err != nil {
+		if err := service.ValidateStepOptions(
+			subFlowCondition.GetStepOptions(),
+			minimumHeartbeatTimeout,
+		); err != nil {
 			return fmt.Errorf("SubFlow condition at index %d: %w", i, err)
 		}
 		if subFlowCondition.GetSubFlowIndex() != int32(i) {

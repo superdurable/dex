@@ -35,12 +35,14 @@ export class Stream<T> {
   /**
    * Appends one message immediately from the current Step execution.
    *
-   * A Step execution may write once per Stream. Retries reuse the same server idempotency key.
+   * The write emits a fire-and-forget frame on the current Worker response stream. One Step method
+   * invocation may write any number of messages to the same or different Streams. Dex Stream Store
+   * failures are not returned to the handler; local validation and encoding errors still throw.
    * @param context - Current Step Context; RPC Contexts are rejected.
    * @param value - Typed message to append.
    */
-  public async write(context: Context, value: T): Promise<void> {
-    await context.writeStream(this, value);
+  public write(context: Context, value: T): void {
+    context.writeStream(this, value);
   }
 }
 
@@ -55,6 +57,6 @@ export interface StreamMessage<T> {
   readonly resumeToken: string;
   /** Server-assigned UTC creation time. */
   readonly createdTime: Date;
-  /** Client key or Step-generated runID#stepExecutionID key. */
-  readonly idempotencyKey: string;
+  /** Client-supplied source or Step-generated `#stepExecutionID` source. */
+  readonly source: string;
 }
