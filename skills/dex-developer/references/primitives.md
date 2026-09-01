@@ -14,6 +14,10 @@ Use a Step for retried background work and explicit state transitions. **WaitFor
 
 Use multiple next Steps for parallel work. Use cancellation deliberately when a first-winner branch makes siblings unnecessary.
 
+Step durability resolves in this order: a method override, FlowConfig, then **SYNC**. Failure policies do not change that order. The default retry total duration is four hours. Regular attempts default to a two-hour method timeout and one-minute heartbeat timeout.
+
+Dex does not heartbeat a Step automatically. A long-running regular attempt must emit an explicit heartbeat or Stream message before its heartbeat timeout. A heartbeat value is a retry checkpoint. An explicit valueless heartbeat clears the checkpoint; a Stream message preserves its current state. The local phase of **ASYNC** durability ignores heartbeats but still emits Stream messages.
+
 Docs: https://docs.superdurable.io/primitives/step
 
 ## Attribute
@@ -47,6 +51,10 @@ Docs: https://docs.superdurable.io/primitives/rpc
 ## Stream
 
 Use a Stream for low-latency, best-effort, resumable updates such as progress displayed in a UI. Do not use a Stream when delivery must be durable; use a Channel or Attribute instead.
+
+A Step may append any number of messages to the same or different Streams before its final result. A Step Stream write is fire-and-forget: local encoding or registration can fail immediately, but Dex Server does not acknowledge Stream Store persistence and a Store failure does not fail the Step.
+
+Step messages use **#StepExecutionID** as source metadata. The source is not an idempotency key: attempts and messages may share it, and every write appends. Client Stream writes require a nonempty source, which may repeat or contain **#**.
 
 Docs: https://docs.superdurable.io/primitives/stream
 

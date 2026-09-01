@@ -24,6 +24,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Callable
 
 from dex import (
+    AsyncContext,
     AsyncClient,
     Attribute,
     Channel,
@@ -95,7 +96,7 @@ class LoopForNextRequest(Step[None]):
         return Wait.any_of(*conditions)
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: None
+        self, context: AsyncContext, input: None
     ) -> StepDecision:
         waiting = list(self.current_wait_child_wfs.get(context) or [])
 
@@ -121,7 +122,9 @@ class LoopForNextRequest(Step[None]):
             )
         return go_to(LoopForNextRequest, None)
 
-    async def start_child_flow(self, context: Context, request: Request) -> str | None:
+    async def start_child_flow(
+        self, context: AsyncContext, request: Request
+    ) -> str | None:
         """Returns the child Flow ID to wait for, or None when another run owns it."""
         processing_flow = self.processing_flow_provider()
         child_flow_id = f"processing-{request.id}"

@@ -46,6 +46,7 @@ impl Step for RenderPreview {
 
     fn execute(&self, context: &mut Context, input: Self::Input) -> HandlerResult<StepDecision> {
         PROGRESS.write(context, format!("Rendering preview for {input}"))?;
+        PROGRESS.write(context, format!("Preview ready for {input}"))?;
         Ok(StepDecision::graceful_complete(format!("Rendered {input}")))
     }
 }

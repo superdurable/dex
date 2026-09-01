@@ -78,7 +78,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             value=message.value,
             resume_token=message.resume_token,
             created_time=message.created_time.isoformat(),
-            idempotency_key=message.idempotency_key,
+            source=message.source,
         )
 
     @blueprint.get("/save_draft")

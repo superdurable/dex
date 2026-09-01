@@ -24,6 +24,8 @@ Match the language and exact SDK version already used by the project. For new pr
 
 Preserve whether the application uses the synchronous or asynchronous SDK style. Do not mix them in one execution path. Use typed models and the project's configured codec behavior.
 
+A synchronous Step with progress is a generator: yield each heartbeat or Stream **StepOutput**, then return the final **Wait** or **StepDecision**. An asynchronous Step is a coroutine with **AsyncContext**: await **heartbeat**, call **Stream.write** without await, then return the final result. Do not use an async generator.
+
 ### Go
 
 Use typed definitions and return every SDK error. Follow the repository's constructor and interface conventions. Prefer project Makefile targets for full suites.

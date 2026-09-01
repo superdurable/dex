@@ -19,7 +19,9 @@ Losing a progress chunk does not change the email draft or send decision. That m
 
 ## Streaming from the Agent Step
 
-A direct Step Stream write supports one message per Stream and Step execution. An LLM produces many chunks during one Step execution, so this example injects an AsyncClient and writes each chunk with a stable sequence key. Retries reuse the same run ID, Step execution ID, and sequence numbers, making retained chunks first-write-wins.
+The Agent Step writes every LLM progress chunk directly to its Stream. In an async handler, **Stream.write** queues each message locally and returns without waiting for a Stream Store acknowledgement. A Stream Store failure does not fail the Step.
+
+Step messages use **#StepExecutionID** as their source. The source describes where a message came from; it is not an idempotency key. All writes append, so a retry can produce duplicate progress chunks. That is acceptable because the feed is presentational and the final draft remains in durable Attributes.
 
 The OpenAI call requests a user-visible reasoning summary. It does not expose private chain-of-thought. When OpenAI is not configured, the local fallback emits progress messages through the same Stream path.
 
@@ -27,25 +29,10 @@ The OpenAI call requests a user-visible reasoning summary. It does not expose pr
 <SdkSnippet lang="python">
 
 ```python
-        progress_index = 0
-
         async def write_progress(chunk: str) -> None:
-            nonlocal progress_index
             if not chunk:
                 return
-            idempotency_key = (
-                f"{context.run_id}/{context.step_execution_id}/{progress_index}"
-            )
-            progress_index += 1
-            try:
-                await self.client_provider().write_stream(
-                    context.flow_id,
-                    self.flow.thinking,
-                    idempotency_key,
-                    chunk,
-                )
-            except DexServiceError as error:
-                print(f"thinking update dropped: {error}")
+            self.flow.thinking.write(context, chunk)
 
         reply = await request_email_fields(
             user_request,

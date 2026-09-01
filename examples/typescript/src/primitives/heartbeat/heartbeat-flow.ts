@@ -19,7 +19,7 @@ import {
   deadEnd,
   doubleCodec,
   gracefulComplete,
-  type Context,
+  type AsyncContext,
   type Flow,
   type PersistenceSchema,
   type Step,
@@ -44,12 +44,14 @@ class HeartbeatStep implements Step<number> {
     };
   }
 
-  public async execute(context: Context, batches: number): Promise<StepDecision> {
-    for (let batch = 0; batch < batches; batch++) {
+  public async execute(context: AsyncContext, batches: number): Promise<StepDecision> {
+    const completedBatches = context.getLastHeartbeatValue(doubleCodec) ?? 0;
+    for (let batch = completedBatches; batch < batches; batch++) {
       if (context.cancellationSignal.aborted) {
         return deadEnd();
       }
       await new Promise((resolve) => setTimeout(resolve, 2_000));
+      await context.recordHeartbeat(batch + 1, doubleCodec);
     }
     return gracefulComplete("processed");
   }

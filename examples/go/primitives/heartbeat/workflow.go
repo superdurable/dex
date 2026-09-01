@@ -50,19 +50,26 @@ type heartbeatStep struct {
 func (heartbeatStep) GetStepOptions() *dex.StepOptions {
 	return &dex.StepOptions{
 		ExecuteMethodTimeout: 60 * time.Second,
-		HeartbeatTimeout:       10 * time.Second,
-		ExecuteRetry:           &dex.RetryPolicy{MaximumAttempts: 3},
+		HeartbeatTimeout:     10 * time.Second,
+		ExecuteRetry:         &dex.RetryPolicy{MaximumAttempts: 3},
 	}
 }
 
 func (step heartbeatStep) Execute(ctx dex.Context, batches int) (*dex.StepDecision, error) {
-	for batch := 0; batch < batches; batch++ {
+	completedBatches := 0
+	if _, err := ctx.GetLastHeartbeatValue(&completedBatches); err != nil {
+		return nil, err
+	}
+	for batch := completedBatches; batch < batches; batch++ {
 		select {
 		case <-ctx.Done():
 			return dex.DeadEnd(), nil
 		default:
 		}
 		time.Sleep(2 * time.Second)
+		if err := ctx.RecordHeartbeat(batch + 1); err != nil {
+			return nil, err
+		}
 	}
 	return dex.GracefulComplete("processed"), nil
 }

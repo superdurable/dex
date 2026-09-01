@@ -25,7 +25,10 @@ from dex_examples.patterns.entity_store.user_profile import (
     UserProfileMetadata,
 )
 from dex_examples.patterns.entity_store.user_profile_flow import STORE_NAME
-from dex_examples.patterns.parallel_subflows.flows import ParentInput
+from dex_examples.patterns.parallel_subflows.flows import (
+    AdvancedLongLiveParentFlow,
+    ParentInput,
+)
 from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )
@@ -40,6 +43,7 @@ from dex_examples.patterns.wait_for_step_completion.job_seeker_data import (
 from tests.integ.conftest import (
     LONG_WAIT_TIMEOUT,
     WAIT_TIMEOUT,
+    attribute_or_none,
     flow_status_or_none,
     wait_until,
 )
@@ -235,6 +239,17 @@ async def test_long_lived_parallel_subflows_stop(
         ParentInput(["one", "two"], 2),
         start_options(),
     )
+
+    async def initialized() -> bool:
+        return (
+            await attribute_or_none(
+                client,
+                flow_id,
+                AdvancedLongLiveParentFlow.stopped,
+            )
+        ) is not None
+
+    await wait_until("the long-lived parent to initialize", initialized)
     await client.invoke_rpc(app.long_live_subflows.stop, flow_id, None)
     result = await client.wait_for_flow(flow_id, LONG_WAIT_TIMEOUT)
     assert result.status == FlowStatus.COMPLETED

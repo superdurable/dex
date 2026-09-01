@@ -48,6 +48,9 @@ func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, 
 	if err := Progress.Write(ctx, "Rendering preview for "+input); err != nil {
 		return nil, err
 	}
+	if err := Progress.Write(ctx, "Preview ready for "+input); err != nil {
+		return nil, err
+	}
 	return dex.GracefulComplete("Rendered " + input), nil
 }
 

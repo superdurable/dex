@@ -23,6 +23,7 @@ from dex_examples.products.engagement.status import Status
 from dex_examples.products.money_transfer.transfer_request import TransferRequest
 from dex_examples.products.subscription.customer import Customer
 from dex_examples.products.subscription.subscription import Subscription
+from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
 from sync_examples.app import SyncExampleApp
 from sync_examples.config import DEFAULT_TIMEOUT, start_options
 from sync_examples.wait import (
@@ -102,10 +103,12 @@ def test_subscription_describe_and_cancel(
         ),
     )
     client.start_flow(app.subscription, flow_id, customer, start_options())
-    subscription = wait_until(
-        "Initialize to store the customer",
-        lambda: client.invoke_rpc(app.subscription.describe, flow_id),
+    wait_for_attribute(
+        client,
+        flow_id,
+        SubscriptionFlow.customer_details,
     )
+    subscription = client.invoke_rpc(app.subscription.describe, flow_id)
     assert subscription.billing_period_charge == 100
     client.publish(flow_id, app.subscription.cancel_subscription, None)
     assert (

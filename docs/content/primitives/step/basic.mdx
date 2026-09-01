@@ -38,6 +38,8 @@ If a Step does not implement **WaitFor**, **Execute** runs immediately.
 
 Each **WaitFor** or **Execute** invocation is a separate commit boundary. Dex Server stages the Attribute writes and Channel publications from that method, then commits them with its **Wait** or **StepDecision** only after the method returns successfully. If the method fails, none of those durable changes are committed. **WaitFor** and **Execute** do not share a commit. External API calls are outside this atomic boundary.
 
+The Worker returns each invocation as a response stream. Before its final **Wait** or **StepDecision**, a handler can send [heartbeat checkpoints](/primitives/step/step-options#heartbeat) and any number of best-effort [Stream messages](/primitives/stream). The response stream must end with exactly one final result. These progress frames are not part of the method's commit, and a Stream Store failure does not fail the Step.
+
 <StepWaitExecuteDiagram />
 
 <SdkTabs

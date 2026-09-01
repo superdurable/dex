@@ -66,7 +66,7 @@ func (controller *controller) write(request *gin.Context) {
 	if !found {
 		return
 	}
-	idempotencyKey, found := httputil.RequiredQuery(request, "idempotencyKey")
+	source, found := httputil.RequiredQuery(request, "source")
 	if !found {
 		return
 	}
@@ -78,7 +78,7 @@ func (controller *controller) write(request *gin.Context) {
 		request.Request.Context(),
 		flowID,
 		Progress,
-		idempotencyKey,
+		source,
 		message,
 	)
 	httputil.RespondString(request, "done", err)
@@ -102,10 +102,10 @@ func (controller *controller) read(request *gin.Context) {
 		return
 	}
 	request.JSON(http.StatusOK, gin.H{
-		"value":          value,
-		"resumeToken":    message.ResumeToken,
-		"createdTime":    message.CreatedTime.Format(time.RFC3339Nano),
-		"idempotencyKey": message.IdempotencyKey,
+		"value":       value,
+		"resumeToken": message.ResumeToken,
+		"createdTime": message.CreatedTime.Format(time.RFC3339Nano),
+		"source":      message.Source,
 	})
 }
 

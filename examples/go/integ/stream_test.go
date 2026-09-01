@@ -21,6 +21,7 @@
 package integ
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -52,6 +53,19 @@ func TestStreamResumesAfterStepAndClientWrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Rendering preview for invoice", stepValue)
 	require.NotEmpty(t, stepMessage.ResumeToken)
+	require.True(t, strings.HasPrefix(stepMessage.Source, "#"))
+
+	var secondStepValue string
+	secondStepMessage, err := integClient.ReadStream(
+		ctx,
+		flowID,
+		streamprimitive.Progress,
+		stepMessage.ResumeToken,
+		&secondStepValue,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "Preview ready for invoice", secondStepValue)
+	require.Equal(t, stepMessage.Source, secondStepMessage.Source)
 
 	err = integClient.WriteStream(
 		ctx,
@@ -67,10 +81,10 @@ func TestStreamResumesAfterStepAndClientWrites(t *testing.T) {
 		ctx,
 		flowID,
 		streamprimitive.Progress,
-		stepMessage.ResumeToken,
+		secondStepMessage.ResumeToken,
 		&clientValue,
 	)
 	require.NoError(t, err)
 	require.Equal(t, "Preview displayed", clientValue)
-	require.Equal(t, "browser/complete", clientMessage.IdempotencyKey)
+	require.Equal(t, "browser/complete", clientMessage.Source)
 }

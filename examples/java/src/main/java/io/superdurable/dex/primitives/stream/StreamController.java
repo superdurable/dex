@@ -55,9 +55,9 @@ public final class StreamController {
     @GetMapping("/write")
     public ResponseEntity<String> write(
             @RequestParam final String workflowId,
-            @RequestParam final String idempotencyKey,
+            @RequestParam final String source,
             @RequestParam final String message) {
-        client.writeStream(workflowId, flow.progress, idempotencyKey, message);
+        client.writeStream(workflowId, flow.progress, source, message);
         return ResponseEntity.ok("done");
     }
 
@@ -74,7 +74,7 @@ public final class StreamController {
         response.put("value", message.getValue());
         response.put("resumeToken", message.getResumeToken());
         response.put("createdTime", message.getCreatedTime().toString());
-        response.put("idempotencyKey", message.getIdempotencyKey());
+        response.put("source", message.getSource());
         return ResponseEntity.ok(response);
     }
 }

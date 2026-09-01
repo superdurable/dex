@@ -20,6 +20,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Callable
 
 from dex import (
+    AsyncContext,
     AsyncClient,
     Attribute,
     Context,
@@ -62,7 +63,7 @@ class Complete(Step[None]):
         self.parent_flow_id = parent_flow_id
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: None
+        self, context: AsyncContext, input: None
     ) -> StepDecision:
         parent_flow_id = self.parent_flow_id.get(context)
         if parent_flow_id:

@@ -21,6 +21,7 @@
 package integ
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -70,6 +71,17 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		engagement.OptOutReminder,
 		nil,
 	))
+	require.Eventually(t, func() bool {
+		err = integClient.InvokeRPC(
+			ctx,
+			flowID,
+			registry.Engagement.Describe,
+			nil,
+			&description,
+			dex.InvokeOptions{},
+		)
+		return err == nil && strings.Contains(description.Notes, "user opted out of reminders")
+	}, 20*time.Second, 200*time.Millisecond, "reminder opt-out failed: %v", err)
 
 	var status engagement.Status
 	require.NoError(t, integClient.InvokeRPC(
@@ -81,6 +93,12 @@ func TestEngagementStartChannelRPCAndSearch(t *testing.T) {
 		dex.InvokeOptions{},
 	))
 	require.Equal(t, engagement.StatusDeclined, status)
+	require.NoError(t, integClient.WaitForAttributeEqual(
+		ctx,
+		flowID,
+		engagement.EngagementStatus,
+		engagement.StatusDeclined,
+	))
 	require.NoError(t, integClient.InvokeRPC(
 		ctx,
 		flowID,

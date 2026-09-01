@@ -50,6 +50,7 @@ public final class StreamFlow implements Flow<String> {
         @Override
         public StepDecision execute(final Context context, final String input) {
             progress.write(context, "Rendering preview for " + input);
+            progress.write(context, "Preview ready for " + input);
             return StepDecision.gracefulComplete("Rendered " + input);
         }
     }

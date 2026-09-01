@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from dex import Context, Flow, PersistenceSchema, Step, StepDecision, StepList, Stream
+from dex import AsyncContext, Flow, PersistenceSchema, Step, StepDecision, StepList, Stream
 from dex import graceful_complete
 
 
@@ -24,8 +24,9 @@ class RenderPreview(Step[str]):
     def __init__(self, progress: Stream[str]) -> None:
         self.progress = progress
 
-    async def execute(self, context: Context, input: str) -> StepDecision:
-        await self.progress.write(context, f"Rendering preview for {input}")
+    async def execute(self, context: AsyncContext, input: str) -> StepDecision:
+        self.progress.write(context, f"Rendering preview for {input}")
+        self.progress.write(context, f"Preview ready for {input}")
         return graceful_complete(f"Rendered {input}")
 
 

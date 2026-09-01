@@ -50,7 +50,10 @@ public final class StepHeartbeatFlow implements Flow<Integer> {
 
         @Override
         public StepDecision execute(final Context context, final Integer batches) {
-            for (int batch = 0; batch < batches; batch++) {
+            final int completedBatches = context.hasLastHeartbeatValue()
+                    ? context.getLastHeartbeatValue(Integer.class)
+                    : 0;
+            for (int batch = completedBatches; batch < batches; batch++) {
                 if (context.isCancellationRequested()) {
                     return StepDecision.deadEnd();
                 }
@@ -60,6 +63,7 @@ public final class StepHeartbeatFlow implements Flow<Integer> {
                     Thread.currentThread().interrupt();
                     return StepDecision.deadEnd();
                 }
+                context.recordHeartbeat(batch + 1);
             }
             return StepDecision.gracefulComplete("processed");
         }

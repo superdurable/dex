@@ -39,8 +39,8 @@ struct StartQuery {
 struct WriteQuery {
     #[serde(default, rename = "workflowId")]
     workflow_id: String,
-    #[serde(default, rename = "idempotencyKey")]
-    idempotency_key: String,
+    #[serde(default)]
+    source: String,
     #[serde(default)]
     message: String,
 }
@@ -60,8 +60,7 @@ struct ReadResponse {
     resume_token: String,
     #[serde(rename = "createdTime")]
     created_time: String,
-    #[serde(rename = "idempotencyKey")]
-    idempotency_key: String,
+    source: String,
 }
 
 pub fn mount(client: SharedClient) -> Router {
@@ -93,12 +92,7 @@ async fn write(
     Query(query): Query<WriteQuery>,
 ) -> impl IntoResponse {
     match run_blocking(move || {
-        client.write_stream(
-            &query.workflow_id,
-            &PROGRESS,
-            &query.idempotency_key,
-            query.message,
-        )
+        client.write_stream(&query.workflow_id, &PROGRESS, &query.source, query.message)
     }) {
         Ok(()) => ok_text("done"),
         Err(error) => map_sdk_error(error).into_response(),
@@ -121,7 +115,7 @@ async fn read(
                 value: message.value,
                 resume_token: message.resume_token,
                 created_time: format!("{:?}", message.created_time),
-                idempotency_key: message.idempotency_key,
+                source: message.source,
             })
     }) {
         Ok(response) => ok_json(response),

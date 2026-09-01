@@ -20,7 +20,7 @@ Stream 只提供 best-effort durability，底层使用 Redis 等内存存储。�
 
 Stream 包含稳定名称、消息类型和 **streamCapacityBytes**。streamCapacityBytes 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
 
-下面的 Step 在返回之前写入一条 progress message。Dex 接受写入后，Client 立刻就能读取；不需要等待 Step 完成。
+下面的 Step 在返回前写入两条 progress message。每次写入都会立即进入 Worker output stream；handler 不会等待 Stream Store acknowledgement。
 
 <SdkTabs examples={{
 python: 'examples/python/dex_examples/primitives/stream/stream_flow.py',
@@ -36,8 +36,9 @@ class RenderPreview(Step[str]):
     def __init__(self, progress: Stream[str]) -> None:
         self.progress = progress
 
-    async def execute(self, context: Context, input: str) -> StepDecision:
-        await self.progress.write(context, f"Rendering preview for {input}")
+    async def execute(self, context: AsyncContext, input: str) -> StepDecision:
+        self.progress.write(context, f"Rendering preview for {input}")
+        self.progress.write(context, f"Preview ready for {input}")
         return graceful_complete(f"Rendered {input}")
 
 
@@ -62,6 +63,9 @@ func (renderPreview) Execute(ctx dex.Context, input string) (*dex.StepDecision, 
 	if err := Progress.Write(ctx, "Rendering preview for "+input); err != nil {
 		return nil, err
 	}
+	if err := Progress.Write(ctx, "Preview ready for "+input); err != nil {
+		return nil, err
+	}
 	return dex.GracefulComplete("Rendered " + input), nil
 }
 ```
@@ -83,6 +87,7 @@ public final class StreamFlow implements Flow<String> {
         @Override
         public StepDecision execute(final Context context, final String input) {
             progress.write(context, "Rendering preview for " + input);
+            progress.write(context, "Preview ready for " + input);
             return StepDecision.gracefulComplete("Rendered " + input);
         }
     }
@@ -97,7 +102,8 @@ export const progress = new Stream("Progress", stringCodec, 10 * 1024 * 1024);
 
 class RenderPreview implements Step<string> {
   public async execute(context: Context, input: string): Promise<StepDecision> {
-    await progress.write(context, `Rendering preview for ${input}`);
+    progress.write(context, `Rendering preview for ${input}`);
+    progress.write(context, `Preview ready for ${input}`);
     return gracefulComplete(`Rendered ${input}`);
   }
 }
@@ -133,6 +139,7 @@ impl Step for RenderPreview {
         input: Self::Input,
     ) -> HandlerResult<StepDecision> {
         PROGRESS.write(context, format!("Rendering preview for {input}"))?;
+        PROGRESS.write(context, format!("Preview ready for {input}"))?;
         Ok(StepDecision::graceful_complete(format!(
             "Rendered {input}"
         )))
@@ -149,17 +156,19 @@ impl Step for RenderPreview {
 
 Step 直接写入 Stream 时：
 
-- Dex 在 **Execute** 期间立即发送，不会缓存到 Step 完成。
+- Dex 在 **WaitFor** 或 **Execute** 期间立即发送，不会缓存到 Step 完成。
 - Step 随后失败不会回滚已经写入的消息。
-- 每个 Step execution 对每个 Stream 最多直接写一次。Dex 使用 run ID 和 Step execution ID 生成 idempotency key，因此 retry 不会重复追加。
+- 一次 method invocation 可以向同一个或不同 Stream 写入任意数量的消息。每次写入都是 implicit heartbeat，并保留最近一次 explicit heartbeat value。
+- SDK 只确认本地编码并把消息交给 Worker output stream。Stream Store 被禁用、不可用、已满或拒绝写入时，消息会被丢弃，但 Step 不会失败。
+- 每条 Step message 的 source 都是 **#StepExecutionID**。同一个 Step execution 的不同 attempt 与 message 共用 source。Source 只表示来源，不要求唯一，也不会 deduplicate retry。
 
-即使 Flow instance 不存在或已经结束，Client 仍可以写入。每条逻辑消息都要提供非空 idempotency key。RPC handler 不能通过 Step Context 写入，但可以通过注入的 Client dependency 发送 Stream 消息。
+即使 Flow instance 不存在或已经结束，Client 仍可以写入。每次写入都要提供非空 source。Source 可以重复，也可以包含 **#**；每次调用都会追加一条消息。RPC handler 不能通过自己的 Context 写入，但可以通过注入的 Client dependency 发送 Stream message。
 
-只要 idempotency key 仍被保留，重复使用相同 key 就会成为成功的 first-write-wins no-op。消息及其幂等记录被 trim 后，同一个 key 可以再次写入。
+Python coroutine Step 调用 **Stream.write** 时不使用 **await**。Python synchronous Step 必须从 generator yield 返回的 **StepOutput**。其他 SDK 通过 Step Context 发送 frame，并在本地 enqueue 后返回。
 
 ### 可续读
 
-**ReadStream** 每次返回一条消息，包括 value、resume token、created time 与 producer idempotency key。
+**ReadStream** 每次返回一条消息，包括 value、resume token、created time 与 source。
 
 - 空 token 从当前保留的头部开始。
 - token 比当前头部更旧时，也从当前头部开始。
@@ -172,7 +181,7 @@ Step 直接写入 Stream 时：
 
 **streamCapacityBytes** 是相同 Flow type 和 Stream name 下所有 Flow execution 共享的近似容量，不是每个 Flow ID 独立的 limit。
 
-Dex server 根据每条消息的 serialized value、identity bytes 和可配置的 per-message overhead 计算估算大小。
+Dex server 根据每条消息的 serialized value、Flow ID、source 和可配置的 per-message overhead 计算估算大小。
 
 当 usage 达到 trim trigger threshold 时，全局只有一个 background trimmer 会删除所有 instance 中最旧的消息，直到 usage 降至 trim target threshold。极少数情况下，如果 trimming 太慢，usage 达到 capacity limit（**streamCapacityBytes**），write request 会被拒绝。
 

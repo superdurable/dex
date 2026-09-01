@@ -20,7 +20,9 @@ sidebar_label: AI agent email
 
 ## 从 Agent Step streaming
 
-Step 直接写 Stream 时，每个 Stream 和 Step execution 只能写一条消息。一次 LLM call 会在同一个 Step execution 中生成许多 chunk，因此本 example 注入 AsyncClient，并用稳定的 sequence key 写入每个 chunk。Retry 会复用相同的 run ID、Step execution ID 与 sequence number，使仍被保留的 chunk 保持 first-write-wins。
+Agent Step 会把每个 LLM progress chunk 直接写入 Stream。在 async handler 中，**Stream.write** 会把每条消息放入本地队列，然后直接返回，不会等待 Stream Store acknowledgement。Stream Store 写入失败不会让 Step 失败。
+
+Step message 使用 **#StepExecutionID** 作为 source。Source 只说明消息来自哪里，不是 idempotency key。每次写入都会 append，因此 retry 可能产生重复 progress chunk。这对展示用 feed 没有影响，最终 draft 仍保存在 durable Attribute 中。
 
 OpenAI call 请求的是可以展示给用户的 reasoning summary，而不是 private chain-of-thought。没有配置 OpenAI 时，local fallback 也会通过同一条 Stream path 发送 progress message。
 
@@ -28,25 +30,10 @@ OpenAI call 请求的是可以展示给用户的 reasoning summary，而不是 p
 <SdkSnippet lang="python">
 
 ```python
-        progress_index = 0
-
         async def write_progress(chunk: str) -> None:
-            nonlocal progress_index
             if not chunk:
                 return
-            idempotency_key = (
-                f"{context.run_id}/{context.step_execution_id}/{progress_index}"
-            )
-            progress_index += 1
-            try:
-                await self.client_provider().write_stream(
-                    context.flow_id,
-                    self.flow.thinking,
-                    idempotency_key,
-                    chunk,
-                )
-            except DexServiceError as error:
-                print(f"thinking update dropped: {error}")
+            self.flow.thinking.write(context, chunk)
 
         reply = await request_email_fields(
             user_request,
