@@ -37,6 +37,7 @@ from dex_examples.products.ai_agent.models import (
 )
 from dex_examples.products.ai_agent.ai_agent_flow import (
     _plan_tasks,
+    _user_input_choices,
     _write_todos_definition,
 )
 
@@ -303,3 +304,14 @@ def test_plan_tasks_reject_invalid_status() -> None:
 
     with pytest.raises(ValueError, match="status is invalid"):
         _plan_tasks(call)
+
+
+def test_user_input_choices_validate_selectable_answers() -> None:
+    assert _user_input_choices([" Staging ", "Production"]) == [
+        "Staging",
+        "Production",
+    ]
+    with pytest.raises(ValueError, match="zero or 2-8"):
+        _user_input_choices(["only one"])
+    with pytest.raises(ValueError, match="unique"):
+        _user_input_choices(["same", "same"])

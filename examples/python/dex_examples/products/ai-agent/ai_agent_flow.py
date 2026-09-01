@@ -424,26 +424,40 @@ class RouteTool(Step[None]):
         if call.name == "request_user_input":
             arguments = _tool_arguments(call)
             prompt = str(arguments.get("prompt", "")).strip()
-            if not prompt:
+            validation_error = "prompt must not be empty" if not prompt else None
+            choices: list[str] = []
+            if validation_error is None:
+                try:
+                    choices = _user_input_choices(arguments.get("choices", []))
+                except ValueError as error:
+                    validation_error = str(error)
+            if validation_error is not None:
                 self.flow.append_tool_result(
                     context,
                     call,
                     ToolExecutionResult(
-                        '{"status":"failed","error":"prompt must not be empty"}',
+                        json.dumps(
+                            {"status": "failed", "error": validation_error},
+                            ensure_ascii=False,
+                        ),
                         True,
                     ),
                 )
                 return self.flow.advance_tool(context)
             self.flow.pending_user_input.set(
                 context,
-                PendingUserInput(call.id, prompt),
+                PendingUserInput(call.id, prompt, choices),
             )
             self.flow.append_tool_result_and_cancel_remaining(
                 context,
                 call,
                 ToolExecutionResult(
                     json.dumps(
-                        {"status": "waiting_for_user", "prompt": prompt},
+                        {
+                            "status": "waiting_for_user",
+                            "prompt": prompt,
+                            "choices": choices,
+                        },
                         ensure_ascii=False,
                     ),
                     False,
@@ -884,6 +898,16 @@ class AIAgentFlow(Flow[AgentConfig]):
         state: AgentState,
     ) -> list[AgentMessage]:
         result: list[AgentMessage] = []
+        if state.interaction_mode != MODE_PLANNING:
+            result.append(
+                AgentMessage(
+                    "system",
+                    "When you need a user reply, call request_user_input instead "
+                    "of asking only in assistant text. Provide choices when the "
+                    "valid answers are known. If no reply is required, finish "
+                    "without a follow-up question.",
+                )
+            )
         summary = self.get_summary(context)
         if summary.content:
             result.append(
@@ -1120,6 +1144,7 @@ class AIAgentFlow(Flow[AgentConfig]):
                     pending_timer_reason=None,
                     pending_user_input_call_id=None,
                     pending_user_input_prompt=None,
+                    pending_user_input_choices=[],
                     plan=None,
                     plan_execution_requested=False,
                     available_mcp_servers=self.mcp_registry.server_names,
@@ -1157,6 +1182,9 @@ class AIAgentFlow(Flow[AgentConfig]):
                 ),
                 pending_user_input_prompt=(
                     pending_user_input.prompt if pending_user_input else None
+                ),
+                pending_user_input_choices=(
+                    pending_user_input.choices if pending_user_input else []
                 ),
                 plan=_plan_description(plan),
                 plan_execution_requested=(
@@ -1249,7 +1277,17 @@ def _request_user_input_definition() -> ToolDefinition:
                     "type": "string",
                     "minLength": 1,
                     "description": "One concise question for the user.",
-                }
+                },
+                "choices": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "minItems": 2,
+                    "maxItems": 8,
+                    "uniqueItems": True,
+                    "description": (
+                        "Known valid answers. Omit this field for free-form input."
+                    ),
+                },
             },
             "required": ["prompt"],
             "additionalProperties": False,
@@ -1259,6 +1297,21 @@ def _request_user_input_definition() -> ToolDefinition:
         maximum_attempts=1,
         retry_total_seconds=0,
     )
+
+
+def _user_input_choices(value: object) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError("choices must be a list")
+    if any(not isinstance(choice, str) for choice in value):
+        raise ValueError("choices must contain only strings")
+    choices = [choice.strip() for choice in value if isinstance(choice, str)]
+    if any(not choice for choice in choices):
+        raise ValueError("choices must not contain empty values")
+    if len(choices) == 1 or len(choices) > 8:
+        raise ValueError("choices must contain either zero or 2-8 values")
+    if len(set(choices)) != len(choices):
+        raise ValueError("choices must be unique")
+    return choices
 
 
 def _plan_tasks(call: ToolCall) -> list[PlanTask]:

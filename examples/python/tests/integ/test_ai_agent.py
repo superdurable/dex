@@ -282,7 +282,6 @@ async def test_ai_agent_closes_remaining_tool_calls_before_waiting_for_input(
         call.id for call in request_message.message.tool_calls
     ]
     assert '"status": "cancelled"' in tool_results[1].message.content
-
     await _send(client, app, flow_id, "September 12")
     await _wait_for_content(
         client,
@@ -290,6 +289,46 @@ async def test_ai_agent_closes_remaining_tool_calls_before_waiting_for_input(
         flow_id,
         "Local demo response: September 12",
     )
+
+
+async def test_ai_agent_offers_durable_user_input_choices(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("ai-agent-user-input-choices")
+    await client.start_flow(
+        app.ai_agent,
+        flow_id,
+        AgentConfig(),
+        StartFlowOptions(),
+    )
+    await _send(
+        client,
+        app,
+        flow_id,
+        "/choose Where should I deploy? | Staging | Production",
+    )
+
+    async def choices() -> list[str] | None:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        if description.pending_user_input_prompt != "Where should I deploy?":
+            return None
+        return description.pending_user_input_choices
+
+    assert await wait_until("AI Agent input choices", choices) == [
+        "Staging",
+        "Production",
+    ]
+    await _send(client, app, flow_id, "Production")
+
+    async def input_was_consumed() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return description.pending_user_input_prompt is None
+
+    await wait_until("AI Agent consumed selected choice", input_was_consumed)
+
+    await _wait_for_content(client, app, flow_id, "Local demo response: Production")
 
 
 async def test_ai_agent_plans_before_execution(

@@ -449,6 +449,30 @@ async def _mock_completion(
         )
         _write_tool_call_activities(reply.tool_calls, write_activity)
         return reply
+    if (
+        request.lower().startswith("/choose ")
+        and "request_user_input" in available_tool_names
+    ):
+        parts = [part.strip() for part in request.removeprefix("/choose ").split("|")]
+        if len(parts) < 3 or any(not part for part in parts):
+            raise ValueError(
+                "local /choose syntax is "
+                "/choose <prompt> | <choice> | <choice>"
+            )
+        reply = ModelReply(
+            "Please choose an option so I can continue.",
+            [
+                ToolCall(
+                    id=f"call-{uuid4().hex}",
+                    name="request_user_input",
+                    arguments_json=json.dumps(
+                        {"prompt": parts[0], "choices": parts[1:]}
+                    ),
+                )
+            ],
+        )
+        _write_tool_call_activities(reply.tool_calls, write_activity)
+        return reply
     if request.lower().startswith("/ask-many ") and {
         "request_user_input",
         "durable_wait",

@@ -79,7 +79,9 @@ The chat page shows reasoning summaries when the provider supplies them and
 buffers visible response text separately while a model call is running. Press
 **Command/Ctrl+Enter** or **Alt+Enter** to send; plain Enter inserts a line break.
 When work needs information that is missing, the Agent uses
-**request_user_input** to show a durable question card and wait for a reply.
+**request_user_input** to open a durable input dialog and wait for a reply. The
+tool may provide known choices, which the UI renders as selection buttons;
+otherwise the dialog renders a free-form text box.
 
 ## Configure a real model
 

@@ -63,6 +63,7 @@ interface AgentDescription {
   pending_timer_reason: string | null;
   pending_user_input_call_id: string | null;
   pending_user_input_prompt: string | null;
+  pending_user_input_choices: string[];
   plan: AgentPlan | null;
   plan_execution_requested: boolean;
   available_mcp_servers: string[];
@@ -123,12 +124,14 @@ const App: React.FC = () => {
   const [description, setDescription] = useState<AgentDescription | null>(null);
   const [input, setInput] = useState('');
   const [planMode, setPlanMode] = useState(false);
+  const [userInputAnswer, setUserInputAnswer] = useState('');
   const [liveReasoningSummary, setLiveReasoningSummary] = useState('');
   const [liveResponseText, setLiveResponseText] = useState('');
   const [activity, setActivity] = useState<AgentEvent[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState('');
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
+  const userInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (workflowId) return;
@@ -147,7 +150,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (description?.pending_user_input_prompt) {
-      messageInputRef.current?.focus();
+      setUserInputAnswer('');
+      window.requestAnimationFrame(() => userInputRef.current?.focus());
     }
   }, [description?.pending_user_input_prompt]);
 
@@ -342,6 +346,27 @@ const App: React.FC = () => {
         body: JSON.stringify({ workflowId, revision }),
       });
       if (!response.ok) throw new Error(await response.text());
+      await fetchState();
+    } catch (reason) {
+      setError(String(reason));
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const answerUserInput = async (answer: string) => {
+    const content = answer.trim();
+    if (!content || !workflowId) return;
+    setIsBusy(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_BASE}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflowId, content, planMode: false }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      setUserInputAnswer('');
       await fetchState();
     } catch (reason) {
       setError(String(reason));
@@ -613,14 +638,6 @@ const App: React.FC = () => {
           </section>
         )}
 
-        {description?.pending_user_input_prompt && (
-          <section style={styles.userInputCard}>
-            <p style={styles.eyebrow}>Agent needs your input</p>
-            <strong style={styles.userInputPrompt}>{description.pending_user_input_prompt}</strong>
-            <small>Your reply is delivered durably and execution resumes from this point.</small>
-          </section>
-        )}
-
         {description?.plan && (
           <PlanCard
             plan={description.plan}
@@ -693,9 +710,7 @@ const App: React.FC = () => {
               ref={messageInputRef}
               style={{ ...styles.input, minHeight: 90, margin: 0 }}
               value={input}
-              placeholder={description?.pending_user_input_prompt
-                ? 'Answer the Agent’s question…'
-                : planMode
+              placeholder={planMode
                   ? 'Describe what you want the Agent to plan.'
                   : 'Message the AI Agent. Try /wait 5 demo when using mock/dex.'}
               onChange={(event) => setInput(event.target.value)}
@@ -707,13 +722,70 @@ const App: React.FC = () => {
               }}
             />
             <button style={styles.primaryButton} disabled={isBusy || !input.trim()} onClick={sendMessage}>
-              {description?.pending_user_input_prompt ? 'Reply' : planMode ? 'Create plan' : 'Send'}
+              {planMode ? 'Create plan' : 'Send'}
             </button>
           </div>
           <small style={styles.shortcutHint}>Send with ⌘/Ctrl + Enter or Alt + Enter · Enter adds a new line</small>
         </div>
         {error && <p style={styles.error}>{error}</p>}
       </section>
+
+      {description?.pending_user_input_prompt && (
+        <div style={styles.inputModalBackdrop}>
+          <section
+            style={styles.inputModal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="agent-input-title"
+          >
+            <p style={styles.eyebrow}>Agent needs your input</p>
+            <h2 id="agent-input-title" style={styles.inputModalPrompt}>
+              {description.pending_user_input_prompt}
+            </h2>
+            {(description.pending_user_input_choices ?? []).length > 0 ? (
+              <div style={styles.inputChoices}>
+                {description.pending_user_input_choices.map((choice) => (
+                  <button
+                    key={choice}
+                    style={styles.inputChoice}
+                    disabled={isBusy}
+                    onClick={() => void answerUserInput(choice)}
+                  >
+                    {choice}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <>
+                <textarea
+                  ref={userInputRef}
+                  style={{ ...styles.input, minHeight: 110, resize: 'vertical' }}
+                  value={userInputAnswer}
+                  placeholder="Type your answer…"
+                  onChange={(event) => setUserInputAnswer(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey || event.altKey)) {
+                      event.preventDefault();
+                      void answerUserInput(userInputAnswer);
+                    }
+                  }}
+                />
+                <button
+                  style={styles.primaryButton}
+                  disabled={isBusy || !userInputAnswer.trim()}
+                  onClick={() => void answerUserInput(userInputAnswer)}
+                >
+                  {isBusy ? 'Sending…' : 'Submit answer'}
+                </button>
+              </>
+            )}
+            <small style={styles.inputModalHint}>
+              Your answer is delivered through a durable Channel and resumes the Agent.
+            </small>
+            {error && <p style={styles.error}>{error}</p>}
+          </section>
+        </div>
+      )}
 
       <footer style={styles.footer}>
         Flow ID: <code>{workflowId}</code>
@@ -860,8 +932,12 @@ const styles: Record<string, React.CSSProperties> = {
   thinkingIndicator: { width: 9, height: 9, borderRadius: '50%', background: '#9b72e8', boxShadow: '0 0 0 5px rgba(155,114,232,.15)' },
   liveIndicator: { width: 9, height: 9, borderRadius: '50%', background: '#7c72ff', boxShadow: '0 0 0 5px rgba(124,114,255,.15)' },
   streamText: { margin: '13px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.6, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
-  userInputCard: { display: 'grid', gap: 8, marginTop: 18, padding: 20, borderRadius: 14, background: '#fff8e8', border: '1px solid #f1ca74' },
-  userInputPrompt: { fontSize: 18, lineHeight: 1.5 },
+  inputModalBackdrop: { position: 'fixed', inset: 0, zIndex: 20, display: 'grid', placeItems: 'center', padding: 20, background: 'rgba(18, 24, 43, .56)', backdropFilter: 'blur(3px)' },
+  inputModal: { width: 'min(620px, 100%)', boxSizing: 'border-box', padding: 26, borderRadius: 20, background: '#fff', border: '1px solid #d7dcef', boxShadow: '0 28px 80px rgba(16, 24, 40, .28)' },
+  inputModalPrompt: { margin: '10px 0 18px', fontSize: 24, lineHeight: 1.4 },
+  inputChoices: { display: 'grid', gap: 10 },
+  inputChoice: { width: '100%', padding: '13px 15px', borderRadius: 11, border: '1px solid #c8d0e2', background: '#f8f9fd', color: '#172033', font: 'inherit', fontWeight: 700, textAlign: 'left', cursor: 'pointer' },
+  inputModalHint: { display: 'block', marginTop: 16, color: '#667085', lineHeight: 1.45 },
   planCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#f0f4ff', border: '1px solid #aebdf2' },
   planHeader: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' },
   planRevision: { marginLeft: 8, color: '#667085' },

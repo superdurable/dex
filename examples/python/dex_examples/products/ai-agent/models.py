@@ -158,6 +158,7 @@ class PendingTimer:
 class PendingUserInput:
     call_id: str
     prompt: str
+    choices: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -202,6 +203,7 @@ class AgentDescription:
     pending_timer_reason: str | None
     pending_user_input_call_id: str | None
     pending_user_input_prompt: str | None
+    pending_user_input_choices: list[str]
     plan: dict[str, Any] | None
     plan_execution_requested: bool
     available_mcp_servers: list[str]
