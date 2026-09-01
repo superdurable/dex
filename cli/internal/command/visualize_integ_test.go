@@ -265,16 +265,48 @@ func TestVisualizeGroupsConditionalWaitReturns(t *testing.T) {
 			waits := nodesOfKind(graph.Nodes, "wait")
 			require.Len(t, waits, 2)
 			actualKinds := make([]string, 0, len(waits))
+			actualConditions := make([]string, 0, len(waits))
 			for _, wait := range waits {
 				require.NotEmpty(t, wait.Condition)
 				require.NotNil(t, wait.Wait)
 				require.Len(t, wait.Wait.Conditions, 1)
 				actualKinds = append(actualKinds, wait.Wait.Conditions[0].Kind)
+				actualConditions = append(actualConditions, wait.Condition)
 			}
 			require.ElementsMatch(t, test.conditionKinds, actualKinds)
+			require.NotContains(t, strings.Join(actualConditions, "\n"), "otherwise")
 			if test.name != "python conditional resource" {
 				require.Contains(t, waitConditionLabels(waits), "2 seconds timer")
 			}
+		})
+	}
+}
+
+func TestVisualizeBranchConditionsUseSourcePredicates(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	tests := []struct {
+		name              string
+		source            string
+		expectedCondition string
+	}{
+		{name: "go", source: "examples/go/patterns/cron/workflow.go", expectedCondition: "!(run.IsFinal)"},
+		{name: "python", source: "examples/python/dex_examples/patterns/cron/cron_schedule_flow.py", expectedCondition: "not (run_input.is_final)"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, test.source), flowviz.AnalyzeOptions{})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, graph.Diagnostics)
+
+			conditions := make([]string, 0)
+			for _, decision := range nodesOfKind(graph.Nodes, "decision") {
+				if decision.Condition != "" {
+					conditions = append(conditions, decision.Condition)
+				}
+			}
+			joined := strings.Join(conditions, "\n")
+			require.Contains(t, joined, test.expectedCondition)
+			require.NotContains(t, joined, "otherwise")
 		})
 	}
 }

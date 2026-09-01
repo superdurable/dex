@@ -317,7 +317,13 @@ class Analyzer:
     def analyze_decisions(self, owner_id, method, rpc):
         locals_map = self.local_movements(method)
         outcomes = []
-        self.walk_statements(method.body, "", lambda expression, condition: outcomes.extend(self.decision_outcomes(expression, condition, rpc, locals_map)))
+
+        def collect_decisions(expression, condition):
+            found = self.decision_outcomes(expression, condition, rpc, locals_map)
+            outcomes.extend(found)
+            return bool(found)
+
+        self.walk_statements(method.body, "", collect_decisions)
         if any(outcome.get("condition") for outcome in outcomes) and len(outcomes) > 1:
             for outcome in outcomes:
                 if not outcome.get("condition"):
@@ -364,7 +370,13 @@ class Analyzer:
 
     def analyze_wait(self, owner_id, step_name, method):
         outcomes = []
-        self.walk_statements(method.body, "", lambda expression, condition: outcomes.extend(self.wait_outcomes(expression, condition)))
+
+        def collect_waits(expression, condition):
+            found = self.wait_outcomes(expression, condition)
+            outcomes.extend(found)
+            return bool(found)
+
+        self.walk_statements(method.body, "", collect_waits)
         if any(outcome.get("condition") for outcome in outcomes) and len(outcomes) > 1:
             for outcome in outcomes:
                 if not outcome.get("condition"):
@@ -397,7 +409,7 @@ class Analyzer:
             branch = self.unparse(expression.test)
             return (
                 self.decision_outcomes(expression.body, self.combine(condition, branch), rpc, locals_map)
-                + self.decision_outcomes(expression.orelse, self.combine(condition, "otherwise"), rpc, locals_map)
+                + self.decision_outcomes(expression.orelse, self.combine(condition, self.negate(branch)), rpc, locals_map)
             )
         decision_type = self.decision_type(expression, rpc)
         if not decision_type:
@@ -450,7 +462,7 @@ class Analyzer:
             branch = self.unparse(expression.test)
             return (
                 self.wait_outcomes(expression.body, self.combine(condition, branch))
-                + self.wait_outcomes(expression.orelse, self.combine(condition, "otherwise"))
+                + self.wait_outcomes(expression.orelse, self.combine(condition, self.negate(branch)))
             )
         if not isinstance(expression, ast.Call) or not self.wait_type(expression):
             return []
@@ -465,7 +477,7 @@ class Analyzer:
             },
             {
                 "call": expression,
-                "condition": self.combine(condition, "otherwise"),
+                "condition": self.combine(condition, self.negate(self.unparse(conditional_resource.test))),
                 "resourceOverride": conditional_resource.orelse,
             },
         ]
@@ -603,7 +615,7 @@ class Analyzer:
     def parse_decision(self, expression, condition, rpc, locals_map):
         if isinstance(expression, ast.IfExp):
             branch = self.unparse(expression.test)
-            return self.parse_decision(expression.body, self.combine(condition, branch), rpc, locals_map) + self.parse_decision(expression.orelse, self.combine(condition, "otherwise"), rpc, locals_map)
+            return self.parse_decision(expression.body, self.combine(condition, branch), rpc, locals_map) + self.parse_decision(expression.orelse, self.combine(condition, self.negate(branch)), rpc, locals_map)
         if not isinstance(expression, ast.Call):
             return []
         if isinstance(expression.func, ast.Attribute) and expression.func.attr in {"with_canceling_steps", "with_canceling_sibling_steps"}:
@@ -694,25 +706,44 @@ class Analyzer:
         return result
 
     def walk_statements(self, statements, condition, visit):
+        has_outcome = False
         for statement in statements:
             if isinstance(statement, ast.Return) and statement.value is not None:
-                visit(statement.value, condition)
+                has_outcome = visit(statement.value, condition) or has_outcome
             elif isinstance(statement, ast.If):
                 branch = self.unparse(statement.test)
-                self.walk_statements(statement.body, self.combine(condition, branch), visit)
-                self.walk_statements(statement.orelse, self.combine(condition, "otherwise"), visit)
+                body_has_outcome = self.walk_statements(statement.body, self.combine(condition, branch), visit)
+                has_outcome = body_has_outcome or has_outcome
+                if statement.orelse:
+                    has_outcome = self.walk_statements(statement.orelse, self.combine(condition, self.negate(branch)), visit) or has_outcome
+                elif body_has_outcome and self.statements_always_return(statement.body):
+                    condition = self.combine(condition, self.negate(branch))
             elif isinstance(statement, ast.Match):
                 for case in statement.cases:
-                    self.walk_statements(case.body, self.combine(condition, self.unparse(case.pattern)), visit)
+                    has_outcome = self.walk_statements(case.body, self.combine(condition, self.unparse(case.pattern)), visit) or has_outcome
             elif isinstance(statement, (ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)):
-                self.walk_statements(statement.body, condition, visit)
-                self.walk_statements(getattr(statement, "orelse", []), condition, visit)
+                has_outcome = self.walk_statements(statement.body, condition, visit) or has_outcome
+                has_outcome = self.walk_statements(getattr(statement, "orelse", []), condition, visit) or has_outcome
             elif isinstance(statement, ast.Try):
-                self.walk_statements(statement.body, condition, visit)
+                has_outcome = self.walk_statements(statement.body, condition, visit) or has_outcome
                 for handler in statement.handlers:
-                    self.walk_statements(handler.body, self.combine(condition, "exception"), visit)
-                self.walk_statements(statement.orelse, condition, visit)
-                self.walk_statements(statement.finalbody, condition, visit)
+                    has_outcome = self.walk_statements(handler.body, self.combine(condition, "exception"), visit) or has_outcome
+                has_outcome = self.walk_statements(statement.orelse, condition, visit) or has_outcome
+                has_outcome = self.walk_statements(statement.finalbody, condition, visit) or has_outcome
+        return has_outcome
+
+    def statements_always_return(self, statements):
+        if not statements:
+            return False
+        statement = statements[-1]
+        if isinstance(statement, (ast.Return, ast.Raise)):
+            return True
+        if isinstance(statement, ast.If) and statement.orelse:
+            return self.statements_always_return(statement.body) and self.statements_always_return(statement.orelse)
+        return False
+
+    def negate(self, condition):
+        return f"not ({condition})"
 
     def resolve_target(self, target, span):
         if target in self.registered:

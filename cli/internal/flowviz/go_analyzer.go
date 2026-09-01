@@ -333,10 +333,10 @@ func (analyzer *goAnalyzer) analyzeDecisionHandler(ownerID string, method *ast.F
 	}
 	localMovements := analyzer.collectLocalMovements(method.Body)
 	outcomes := make([]goDecisionOutcome, 0)
-	analyzer.walkStatements(method.Body.List, "", func(expression ast.Expr, condition string) {
+	analyzer.walkStatements(method.Body.List, "", func(expression ast.Expr, condition string) bool {
 		decisionType := analyzer.decisionType(expression, phase == "rpc")
 		if decisionType == "" {
-			return
+			return false
 		}
 		outcomes = append(outcomes, goDecisionOutcome{
 			decisionType:    decisionType,
@@ -345,6 +345,7 @@ func (analyzer *goAnalyzer) analyzeDecisionHandler(ownerID string, method *ast.F
 			checkedChannels: analyzer.checkedChannels(expression),
 			span:            analyzer.span(expression),
 		})
+		return true
 	})
 	hasCondition := false
 	for _, outcome := range outcomes {
@@ -414,12 +415,13 @@ func (analyzer *goAnalyzer) analyzeWaitFor(ownerID string, stepType string, meth
 		condition string
 	}
 	returns := make([]waitReturn, 0)
-	analyzer.walkStatements(method.Body.List, "", func(expression ast.Expr, condition string) {
+	analyzer.walkStatements(method.Body.List, "", func(expression ast.Expr, condition string) bool {
 		call, ok := expression.(*ast.CallExpr)
 		if !ok || goWaitType(analyzer.callName(call)) == "" {
-			return
+			return false
 		}
 		returns = append(returns, waitReturn{call: call, condition: condition})
+		return true
 	})
 	if len(returns) == 0 {
 		unknownID := fmt.Sprintf("unknown:wait:%s:%d", stepType, analyzer.fileSet.Position(method.Pos()).Line)
@@ -778,25 +780,28 @@ func (analyzer *goAnalyzer) collectLocalMovements(body *ast.BlockStmt) map[strin
 	return locals
 }
 
-func (analyzer *goAnalyzer) walkStatements(statements []ast.Stmt, condition string, visit func(ast.Expr, string)) {
+func (analyzer *goAnalyzer) walkStatements(statements []ast.Stmt, condition string, visit func(ast.Expr, string) bool) bool {
+	hasOutcome := false
 	for _, statement := range statements {
 		switch current := statement.(type) {
 		case *ast.ReturnStmt:
 			for _, result := range current.Results {
-				visit(result, condition)
+				hasOutcome = visit(result, condition) || hasOutcome
 			}
 		case *ast.IfStmt:
 			branch := analyzer.expressionString(current.Cond)
-			analyzer.walkStatements(current.Body.List, combineCondition(condition, branch), visit)
+			bodyHasOutcome := analyzer.walkStatements(current.Body.List, combineCondition(condition, branch), visit)
+			hasOutcome = bodyHasOutcome || hasOutcome
 			if current.Else != nil {
+				fallbackCondition := combineCondition(condition, negateGoCondition(branch))
 				switch otherwise := current.Else.(type) {
 				case *ast.BlockStmt:
-					analyzer.walkStatements(otherwise.List, combineCondition(condition, "otherwise"), visit)
+					hasOutcome = analyzer.walkStatements(otherwise.List, fallbackCondition, visit) || hasOutcome
 				case *ast.IfStmt:
-					analyzer.walkStatements([]ast.Stmt{otherwise}, combineCondition(condition, "otherwise"), visit)
+					hasOutcome = analyzer.walkStatements([]ast.Stmt{otherwise}, fallbackCondition, visit) || hasOutcome
 				}
-			} else if statementsAlwaysReturn(current.Body.List) {
-				condition = combineCondition(condition, "otherwise")
+			} else if bodyHasOutcome && statementsAlwaysReturn(current.Body.List) {
+				condition = combineCondition(condition, negateGoCondition(branch))
 			}
 		case *ast.SwitchStmt:
 			tag := analyzer.expressionString(current.Tag)
@@ -813,12 +818,13 @@ func (analyzer *goAnalyzer) walkStatements(statements []ast.Stmt, condition stri
 					}
 					branch = tag + " == " + strings.Join(values, " or ")
 				}
-				analyzer.walkStatements(clause.Body, combineCondition(condition, branch), visit)
+				hasOutcome = analyzer.walkStatements(clause.Body, combineCondition(condition, branch), visit) || hasOutcome
 			}
 		case *ast.BlockStmt:
-			analyzer.walkStatements(current.List, condition, visit)
+			hasOutcome = analyzer.walkStatements(current.List, condition, visit) || hasOutcome
 		}
 	}
+	return hasOutcome
 }
 
 func statementsAlwaysReturn(statements []ast.Stmt) bool {
@@ -1220,6 +1226,10 @@ func combineCondition(parent string, child string) string {
 		return child
 	}
 	return parent + " and " + child
+}
+
+func negateGoCondition(condition string) string {
+	return "!(" + condition + ")"
 }
 
 func valueOr(value string, fallback string) string {
