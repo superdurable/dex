@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Generic, TypeVar, cast
 
-from dex._utils import require_name
+from dex._utils import require_name, require_persistence_definition_name
 from dex.context import Context
 from dex.dexpb import dex_pb2 as pb
 
@@ -71,7 +71,7 @@ class Attribute(Generic[ValueT]):
     projects SQL NULL, and failures do not roll back the Flow Attribute.
 
     Attributes:
-        name: The non-empty logical Attribute name, unique within its Flow.
+        name: The non-empty logical Attribute name without ``/``, unique within its Flow.
         value_type: The Python type used to encode and decode values.
         index: Optional search-index configuration; ``None`` disables indexing.
         sync_to_attribute_store: Whether writes are projected to the selected
@@ -90,7 +90,7 @@ class Attribute(Generic[ValueT]):
     sync_to_attribute_store: bool = False
 
     def __post_init__(self) -> None:
-        require_name(self.name)
+        require_persistence_definition_name(self.name)
 
     def get(self, context: Context) -> ValueT:
         """Return the current value from a Step or RPC Context.
@@ -150,7 +150,7 @@ class AttributeMap(Generic[ValueT]):
     do not roll back Flow Attributes.
 
     Attributes:
-        name: The non-empty logical Attribute name, unique within its Flow.
+        name: The non-empty logical Attribute name without ``/``, unique within its Flow.
         value_type: The Python type used for every map instance.
         index: Optional shared search-index configuration.
         sync_to_attribute_store: Whether every instance is projected to the selected
@@ -169,7 +169,7 @@ class AttributeMap(Generic[ValueT]):
     sync_to_attribute_store: bool = False
 
     def __post_init__(self) -> None:
-        require_name(self.name)
+        require_persistence_definition_name(self.name)
 
     def get(self, context: Context, instance: str) -> ValueT:
         """Return one map instance from a Step or RPC Context.

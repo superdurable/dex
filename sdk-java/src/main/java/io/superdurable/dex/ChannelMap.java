@@ -34,18 +34,18 @@ public final class ChannelMap<T> extends PersistenceDefinition {
     private final Class<T> valueType;
 
     private ChannelMap(final String name, final Class<T> valueType) {
-        this.name = Attribute.requireName(name);
+        this.name = Attribute.requirePersistenceDefinitionName(name);
         this.valueType = Objects.requireNonNull(valueType, "valueType");
     }
 
     /**
      * Defines a typed Channel map.
      *
-     * @param name the stable Channel-map name; must not be blank
+     * @param name the stable Channel-map name; must not be blank or contain {@code /}
      * @param valueType the concrete Java class used to serialize messages
      * @param <T> the Java message type
      * @return the typed Channel-map definition
-     * @throws IllegalArgumentException if {@code name} is {@code null} or blank
+     * @throws IllegalArgumentException if {@code name} is {@code null}, blank, or contains {@code /}
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> ChannelMap<T> define(final String name, final Class<T> valueType) {

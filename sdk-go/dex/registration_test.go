@@ -530,6 +530,26 @@ func TestRegistryValidatesPersistenceSchema(t *testing.T) {
 			error: "attribute name must not be empty",
 		},
 		{
+			name: "slash attribute",
+			flows: []Flow{&registrationFlow{
+				flowType: "flow",
+				schema: PersistenceSchema{
+					Attributes: []AttributeDef{DefineAttribute[string]("orders/by-id")},
+				},
+			}},
+			error: "attribute name must not contain /",
+		},
+		{
+			name: "slash attribute map",
+			flows: []Flow{&registrationFlow{
+				flowType: "flow",
+				schema: PersistenceSchema{
+					Attributes: []AttributeDef{DefineAttributeMap[string]("orders/by-id")},
+				},
+			}},
+			error: "attribute name must not contain /",
+		},
+		{
 			name: "duplicate attribute",
 			flows: []Flow{&registrationFlow{
 				flowType: "flow",
@@ -578,6 +598,26 @@ func TestRegistryValidatesPersistenceSchema(t *testing.T) {
 				},
 			}},
 			error: "channel name must not be empty",
+		},
+		{
+			name: "slash channel",
+			flows: []Flow{&registrationFlow{
+				flowType: "flow",
+				schema: PersistenceSchema{
+					Channels: []ChannelDef{DefineChannel[string]("orders/by-id")},
+				},
+			}},
+			error: "channel name must not contain /",
+		},
+		{
+			name: "slash channel map",
+			flows: []Flow{&registrationFlow{
+				flowType: "flow",
+				schema: PersistenceSchema{
+					Channels: []ChannelDef{DefineChannelMap[string]("orders/by-id")},
+				},
+			}},
+			error: "channel name must not contain /",
 		},
 		{
 			name: "duplicate channel",

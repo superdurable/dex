@@ -13,6 +13,14 @@ export function requireName(name: string): string {
   return name;
 }
 
+export function requirePersistenceDefinitionName(name: string): string {
+  requireName(name);
+  if (name.includes("/")) {
+    throw new TypeError("persistence definition names must not contain '/'");
+  }
+  return name;
+}
+
 export function requireConditionId(conditionId: string | undefined): void {
   if (conditionId !== undefined && conditionId.length === 0) {
     throw new TypeError("condition ID must not be empty");

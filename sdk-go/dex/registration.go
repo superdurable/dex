@@ -207,8 +207,8 @@ func (flow *registeredFlow) registerAttribute(
 	indexTypes map[string]IndexType,
 ) error {
 	name := definition.attributeName()
-	if name == "" {
-		return fmt.Errorf("attribute name must not be empty")
+	if err := validatePersistenceDefinitionName(name, "attribute"); err != nil {
+		return err
 	}
 	if _, found := flow.attributes[name]; found {
 		return fmt.Errorf("duplicate attribute %q", name)
@@ -248,8 +248,8 @@ func (flow *registeredFlow) registerChannel(
 	definition ChannelDef,
 ) error {
 	name := definition.channelName()
-	if name == "" {
-		return fmt.Errorf("channel name must not be empty")
+	if err := validatePersistenceDefinitionName(name, "channel"); err != nil {
+		return err
 	}
 	if _, found := flow.channels[name]; found {
 		return fmt.Errorf("duplicate channel %q", name)
@@ -258,6 +258,16 @@ func (flow *registeredFlow) registerChannel(
 		def:   definition,
 		name:  name,
 		isMap: definition.channelIsMap(),
+	}
+	return nil
+}
+
+func validatePersistenceDefinitionName(name string, kind string) error {
+	if name == "" {
+		return fmt.Errorf("%s name must not be empty", kind)
+	}
+	if strings.Contains(name, "/") {
+		return fmt.Errorf("%s name must not contain /", kind)
 	}
 	return nil
 }

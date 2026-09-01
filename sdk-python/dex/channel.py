@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generic, Sequence, TypeVar, cast
 
-from dex._utils import require_name
+from dex._utils import require_persistence_definition_name
 from dex.condition import ChannelCondition, Condition
 from dex.context import Context
 
@@ -29,7 +29,7 @@ class Channel(Generic[ValueT]):
     selected values through ``results``.
 
     Attributes:
-        name: The non-empty Channel name, unique within its Flow.
+        name: The non-empty Channel name without ``/``, unique within its Flow.
         value_type: The Python type of every published value.
 
     Examples:
@@ -42,7 +42,7 @@ class Channel(Generic[ValueT]):
     value_type: type[ValueT]
 
     def __post_init__(self) -> None:
-        require_name(self.name)
+        require_persistence_definition_name(self.name)
 
     def publish(self, context: Context, value: ValueT) -> None:
         """Stage one value to append with the current handler decision.
@@ -173,7 +173,7 @@ class ChannelMap(Generic[ValueT]):
     Add the ChannelMap definition to the Flow's ``PersistenceSchema``.
 
     Attributes:
-        name: The non-empty Channel name, unique within its Flow.
+        name: The non-empty Channel name without ``/``, unique within its Flow.
         value_type: The Python type of every published value.
 
     Examples:
@@ -186,7 +186,7 @@ class ChannelMap(Generic[ValueT]):
     value_type: type[ValueT]
 
     def __post_init__(self) -> None:
-        require_name(self.name)
+        require_persistence_definition_name(self.name)
 
     def publish(self, context: Context, instance: str, value: ValueT) -> None:
         """Stage a value to append to one ChannelMap instance.

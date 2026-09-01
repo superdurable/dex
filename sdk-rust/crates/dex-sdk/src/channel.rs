@@ -30,7 +30,7 @@ pub struct Channel<T> {
 }
 
 impl<T> Channel<T> {
-    /// Defines a Channel with stable `name`.
+    /// Defines a Channel with stable slash-free `name`.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -124,7 +124,7 @@ pub struct ChannelMap<T> {
 }
 
 impl<T> ChannelMap<T> {
-    /// Defines a Channel map with stable `name`.
+    /// Defines a Channel map with stable slash-free `name`.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),

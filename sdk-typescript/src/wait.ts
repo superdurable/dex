@@ -13,6 +13,7 @@ import type { SubFlowOptions } from "./subflow.js";
 import {
   requireConditionId,
   requireName,
+  requirePersistenceDefinitionName,
   validateChannelBounds,
 } from "./validation.js";
 
@@ -86,14 +87,14 @@ export const Timer = Object.freeze({
 export class Channel<T> {
   /**
    * Creates a Channel definition.
-   * @param name - Non-empty name unique within the Flow.
+   * @param name - Non-empty name without `/`, unique within the Flow.
    * @param codec - Element codec.
    */
   public constructor(
     public readonly name: string,
     public readonly codec: Codec<T>,
   ) {
-    requireName(name);
+    requirePersistenceDefinitionName(name);
   }
 
   /**
@@ -189,14 +190,14 @@ export class Channel<T> {
 export class ChannelMap<T> {
   /**
    * Creates a ChannelMap definition.
-   * @param name - Non-empty name unique within the Flow.
+   * @param name - Non-empty name without `/`, unique within the Flow.
    * @param codec - Element codec shared by every instance.
    */
   public constructor(
     public readonly name: string,
     public readonly codec: Codec<T>,
   ) {
-    requireName(name);
+    requirePersistenceDefinitionName(name);
   }
 
   /**

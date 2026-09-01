@@ -312,6 +312,19 @@ fn assemble_persistence(
                 "Flow {flow_name} has an empty persistence definition name"
             )));
         }
+        if matches!(
+            definition.kind,
+            PersistenceKind::Attribute
+                | PersistenceKind::AttributeMap
+                | PersistenceKind::Channel
+                | PersistenceKind::ChannelMap
+        ) && definition.name.contains('/')
+        {
+            return Err(definition_error(format!(
+                "Flow {flow_name} persistence definition {} must not contain /",
+                definition.name
+            )));
+        }
         if persistence
             .insert(definition.name.clone(), definition.clone())
             .is_some()
@@ -427,5 +440,38 @@ fn hex_value(byte: u8) -> Result<u8, String> {
             "invalid percent-encoding digit {}",
             char::from(byte)
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{PersistenceDefinition, PersistenceKind, assemble_persistence, physical_name};
+
+    #[test]
+    fn persistence_definition_names_reserve_slash() {
+        for kind in [
+            PersistenceKind::Attribute,
+            PersistenceKind::AttributeMap,
+            PersistenceKind::Channel,
+            PersistenceKind::ChannelMap,
+        ] {
+            let result = assemble_persistence(
+                "TestFlow",
+                &[PersistenceDefinition {
+                    name: "orders/by-id".to_string(),
+                    kind,
+                    index: None,
+                    sync_to_attribute_store: false,
+                    stream_identity: None,
+                    stream_capacity_bytes: None,
+                }],
+            );
+            assert!(result.is_err());
+        }
+
+        assert_eq!(
+            physical_name("messages", "orders/by-id"),
+            "messages/orders%2Fby-id"
+        );
     }
 }

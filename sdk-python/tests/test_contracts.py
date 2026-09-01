@@ -84,6 +84,20 @@ STATUS = Attribute("status", str)
 COMMANDS = Channel("commands", OrderInput)
 
 
+@pytest.mark.parametrize(
+    "definition",
+    (
+        lambda: Attribute("orders/by-id", str),
+        lambda: AttributeMap("orders/by-id", str),
+        lambda: Channel("orders/by-id", str),
+        lambda: ChannelMap("orders/by-id", str),
+    ),
+)
+def test_persistence_definition_names_reserve_slash(definition: Any) -> None:
+    with pytest.raises(ValueError, match="must not contain"):
+        definition()
+
+
 class ApproveOrder(Step[OrderInput]):
     def get_step_type(self) -> str:
         return "ApproveOrder"

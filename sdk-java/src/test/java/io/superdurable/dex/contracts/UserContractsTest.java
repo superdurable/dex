@@ -21,6 +21,7 @@ import io.superdurable.dex.BlobCache;
 import io.superdurable.dex.BlobCacheConfig;
 import io.superdurable.dex.BufferedTextStream;
 import io.superdurable.dex.Channel;
+import io.superdurable.dex.ChannelMap;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.ClientOptions;
 import io.superdurable.dex.Context;
@@ -78,6 +79,23 @@ public class UserContractsTest {
                 () -> PersistenceSchema.of(
                         Collections.singletonList(COMMANDS),
                         Collections.emptyList()));
+    }
+
+    @Test
+    public void persistenceDefinitionNamesReserveSlash() {
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> Attribute.define("orders/by-id", String.class));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> AttributeMap.define("orders/by-id", String.class));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> Channel.define("orders/by-id", String.class));
+        Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> ChannelMap.define("orders/by-id", String.class));
+
     }
 
     @Test

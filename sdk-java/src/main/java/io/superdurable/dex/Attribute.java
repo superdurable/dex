@@ -53,7 +53,7 @@ public final class Attribute<T> extends PersistenceDefinition {
             final Class<T> valueType,
             final AttributeIndex index,
             final boolean syncToAttributeStore) {
-        this.name = requireName(name);
+        this.name = requirePersistenceDefinitionName(name);
         this.valueType = Objects.requireNonNull(valueType, "valueType");
         this.index = index;
         this.syncToAttributeStore = syncToAttributeStore;
@@ -62,11 +62,11 @@ public final class Attribute<T> extends PersistenceDefinition {
     /**
      * Defines an Attribute without a search index.
      *
-     * @param name the stable Attribute name; must not be blank
+     * @param name the stable Attribute name; must not be blank or contain {@code /}
      * @param valueType the concrete Java class used to serialize and deserialize values
      * @param <T> the Java value type
      * @return the typed Attribute definition
-     * @throws IllegalArgumentException if {@code name} is {@code null} or blank
+     * @throws IllegalArgumentException if {@code name} is {@code null}, blank, or contains {@code /}
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> Attribute<T> define(final String name, final Class<T> valueType) {
@@ -76,12 +76,12 @@ public final class Attribute<T> extends PersistenceDefinition {
     /**
      * Defines an Attribute with a search index.
      *
-     * @param name the stable Attribute name; must not be blank
+     * @param name the stable Attribute name; must not be blank or contain {@code /}
      * @param valueType the concrete Java class used to serialize and deserialize values
      * @param index the search-index definition, or {@code null} for no index
      * @param <T> the Java value type
      * @return the typed Attribute definition
-     * @throws IllegalArgumentException if {@code name} is {@code null} or blank
+     * @throws IllegalArgumentException if {@code name} is {@code null}, blank, or contains {@code /}
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> Attribute<T> define(
@@ -155,5 +155,13 @@ public final class Attribute<T> extends PersistenceDefinition {
             throw new IllegalArgumentException("name is required");
         }
         return name;
+    }
+
+    static String requirePersistenceDefinitionName(final String name) {
+        final String value = requireName(name);
+        if (value.contains("/")) {
+            throw new IllegalArgumentException("persistence definition names must not contain '/'");
+        }
+        return value;
     }
 }
