@@ -57,7 +57,7 @@ class StreamingStep(Step[Input]):
         context: Context,
         input: Input,
     ) -> Generator[StepOutput, None, StepDecision]:
-        buffered = progress.buffered(context)
+        buffered = progress.buffered_text(context)
         yield from buffered.write("thinking ")
         yield from buffered.flush()
         yield heartbeat({"input": input.value})
@@ -71,7 +71,7 @@ class AsyncTypedStep(Step[Input]):
         context: AsyncContext,
         input: Input,
     ) -> StepDecision:
-        buffered = progress.buffered(context)
+        buffered = progress.buffered_text(context)
         buffered.write("thinking ")
         buffered.flush()
         progress.write(context, input.value)

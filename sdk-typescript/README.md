@@ -212,7 +212,7 @@ For text deltas, create one writer and pass its bound `write` method directly
 to the producer:
 
 ```typescript
-const progress = thinking.buffered(context, { flushIntervalMs: 500 });
+const progress = thinking.bufferedText(context, { flushIntervalMs: 500 });
 await generateText(input, progress.write);
 ```
 

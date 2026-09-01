@@ -93,7 +93,7 @@ class Stream(Generic[ValueT]):
         return context._write_stream(self, value)
 
     @overload
-    def buffered(  # type: ignore[overload-overlap]
+    def buffered_text(  # type: ignore[overload-overlap]
         self: Stream[str],
         context: AsyncContext,
         *,
@@ -102,7 +102,7 @@ class Stream(Generic[ValueT]):
     ) -> AsyncBufferedTextStream: ...
 
     @overload
-    def buffered(
+    def buffered_text(
         self: Stream[str],
         context: Context,
         *,
@@ -110,7 +110,7 @@ class Stream(Generic[ValueT]):
         max_buffered_bytes: int = _DEFAULT_BUFFERED_TEXT_MAX_BYTES,
     ) -> BufferedTextStream: ...
 
-    def buffered(
+    def buffered_text(
         self: Stream[str],
         context: Context,
         *,
@@ -183,9 +183,9 @@ class StreamMessage(Generic[ValueT]):
 class AsyncBufferedTextStream:
     """Batch text chunks for an asynchronous Step invocation.
 
-    Create this writer with :meth:`Stream.buffered`. ``write`` and ``flush`` are synchronous and
-    return after local buffering or Worker-output enqueueing. AsyncWorker automatically stops its
-    timer and flushes remaining text before the invocation result or error.
+    Create this writer with :meth:`Stream.buffered_text`. ``write`` and ``flush`` are synchronous
+    and return after local buffering or Worker-output enqueueing. AsyncWorker automatically stops
+    its timer and flushes remaining text before the invocation result or error.
     """
 
     def __init__(
@@ -328,8 +328,8 @@ class AsyncBufferedTextStream:
 class BufferedTextStream:
     """Batch text chunks for a synchronous Step generator.
 
-    Create this writer with :meth:`Stream.buffered`. Yield every output returned by ``write`` and
-    ``flush``. The interval is cooperative: elapsed time is checked when another chunk arrives.
+    Create this writer with :meth:`Stream.buffered_text`. Yield every output returned by ``write``
+    and ``flush``. The interval is cooperative: elapsed time is checked when another chunk arrives.
     """
 
     def __init__(

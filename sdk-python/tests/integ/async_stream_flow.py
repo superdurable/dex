@@ -33,7 +33,7 @@ class AsyncStreamTestStep(Step[None]):
         input: None,
     ) -> Wait:
         del input
-        progress = self.progress.buffered(context)
+        progress = self.progress.buffered_text(context)
         progress.write("async-")
         progress.write("wait")
         progress.flush()
@@ -46,7 +46,7 @@ class AsyncStreamTestStep(Step[None]):
         input: None,
     ) -> StepDecision:
         del input
-        progress = self.progress.buffered(context)
+        progress = self.progress.buffered_text(context)
         progress.write("async-step-")
         progress.write("first")
         progress.flush()

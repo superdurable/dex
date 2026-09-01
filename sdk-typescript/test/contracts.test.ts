@@ -583,7 +583,7 @@ test("buffered text Stream flushes on timer and before the final result", async 
     }
 
     public async execute(context: Context, input: string): Promise<StepDecision> {
-      const progress = thinking.buffered(context, {
+      const progress = thinking.bufferedText(context, {
         flushIntervalMs: 5,
         maxBufferedBytes: 1_024,
       });

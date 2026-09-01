@@ -74,7 +74,7 @@ export class Stream<T> {
    * @throws {@link TypeError} if this is not a string Stream or the Context is not an active Step.
    * @throws {@link RangeError} if an option is not a positive finite number.
    */
-  public buffered(
+  public bufferedText(
     this: Stream<string>,
     context: Context,
     options: BufferedTextStreamOptions = {},

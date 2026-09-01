@@ -200,11 +200,11 @@ Flow timeout handlers and RPCs cannot send heartbeat or Stream progress.
 Use an invocation-managed writer for text deltas:
 
 ```rust
-let progress = THINKING.buffered(context)?;
+let progress = THINKING.buffered_text(context)?;
 progress.write(delta)?;
 ```
 
-`buffered_with_options` accepts a `BufferedTextStreamOptions` interval and soft UTF-8 byte
+`buffered_text_with_options` accepts a `BufferedTextStreamOptions` interval and soft UTF-8 byte
 threshold. Defaults are one second and 16 KiB. `flush` sends the current batch, while invocation
 finalization sends the tail before the final result or error. Empty buffers do not emit a message
 or heartbeat. Retry does not restore unsent text or deduplicate emitted batches.

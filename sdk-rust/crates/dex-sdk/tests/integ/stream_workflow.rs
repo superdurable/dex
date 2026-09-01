@@ -52,7 +52,7 @@ impl Step for StreamTestStep {
 
     fn wait_for(&self, context: &mut Context, _input: ()) -> HandlerResult<Wait> {
         context.record_heartbeat()?;
-        let progress = PROGRESS.buffered(context)?;
+        let progress = PROGRESS.buffered_text(context)?;
         progress.write("wait-progress-")?;
         progress.write("1")?;
         progress.flush()?;
@@ -64,7 +64,7 @@ impl Step for StreamTestStep {
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
         context.record_heartbeat()?;
-        let progress = PROGRESS.buffered_with_options(
+        let progress = PROGRESS.buffered_text_with_options(
             context,
             BufferedTextStreamOptions::new(Duration::from_millis(250), 16 * 1024),
         )?;

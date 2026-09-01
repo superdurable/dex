@@ -39,7 +39,7 @@ fn stream_definitions_and_client_calls_compile() {
         let _stream_write: dex_sdk::HandlerResult<()> =
             stream.write(context, "checking".to_owned());
         let buffered: dex_sdk::HandlerResult<dex_sdk::BufferedTextStream> = stream
-            .buffered_with_options(
+            .buffered_text_with_options(
                 context,
                 dex_sdk::BufferedTextStreamOptions::new(
                     std::time::Duration::from_millis(500),

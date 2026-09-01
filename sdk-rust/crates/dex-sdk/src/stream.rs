@@ -97,8 +97,8 @@ impl Stream<String> {
     /// # Errors
     ///
     /// Returns [`HandlerError`] unless this registered String Stream is used by an active Step.
-    pub fn buffered(&self, context: &mut Context) -> HandlerResult<BufferedTextStream> {
-        self.buffered_with_options(context, BufferedTextStreamOptions::default())
+    pub fn buffered_text(&self, context: &mut Context) -> HandlerResult<BufferedTextStream> {
+        self.buffered_text_with_options(context, BufferedTextStreamOptions::default())
     }
 
     /// Creates an invocation-managed writer with explicit buffering settings.
@@ -107,7 +107,7 @@ impl Stream<String> {
     ///
     /// Returns [`HandlerError`] for invalid settings, an unregistered Stream, cancellation, or a
     /// Context that does not belong to a Step.
-    pub fn buffered_with_options(
+    pub fn buffered_text_with_options(
         &self,
         context: &mut Context,
         options: BufferedTextStreamOptions,

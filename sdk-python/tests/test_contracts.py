@@ -772,7 +772,7 @@ def test_sync_buffered_text_stream_is_cooperative() -> None:
             context: Context,
             input: str,
         ) -> Generator[StepOutput, None, StepDecision]:
-            writer = progress.buffered(context, max_buffered_bytes=5)
+            writer = progress.buffered_text(context, max_buffered_bytes=5)
             yield from writer.write(input)
             yield from writer.write(" 世界")
             yield from writer.flush()
@@ -1113,7 +1113,7 @@ async def _assert_async_buffered_text_stream_flushes() -> None:
             context: AsyncContext,
             input: str,
         ) -> StepDecision:
-            writer = progress.buffered(
+            writer = progress.buffered_text(
                 context,
                 flush_interval=timedelta(milliseconds=5),
             )

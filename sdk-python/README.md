@@ -157,7 +157,7 @@ Worker output queue:
 async def execute(
     self, context: dex.AsyncContext, input: str
 ) -> dex.StepDecision:
-    writer = progress.buffered(context)
+    writer = progress.buffered_text(context)
     writer.write("started")
     await context.heartbeat({"offset": 10})
     return dex.graceful_complete(input)
@@ -172,7 +172,7 @@ A synchronous generator uses the cooperative form because only yielded
 `StepOutput` values can reach gRPC:
 
 ```python
-writer = progress.buffered(context)
+writer = progress.buffered_text(context)
 yield from writer.write(delta)
 yield from writer.flush()
 ```
