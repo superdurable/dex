@@ -98,7 +98,20 @@ fn run_scenario(scenario: CancellationScenario) {
             assert!(state.context_reported_cancellation.load(Ordering::SeqCst));
         }
     }
-    assert_eq!(1, state.blocking_invocations.load(Ordering::SeqCst));
+    let expected_invocations = if matches!(
+        scenario,
+        CancellationScenario::LocalExecute | CancellationScenario::LocalTimeoutFallback
+    ) {
+        2
+    } else {
+        1
+    };
+    assert_eq!(
+        expected_invocations,
+        state.blocking_invocations.load(Ordering::SeqCst),
+        "{}",
+        scenario.name()
+    );
     assert!(!state.recovery_ran.load(Ordering::SeqCst));
     assert_eq!(
         None,

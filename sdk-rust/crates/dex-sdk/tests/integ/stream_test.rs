@@ -21,7 +21,7 @@ fn test_stream_round_trip() {
     let workflow = StreamTestWorkflow::new();
     let environment = DexDevTestEnvironment::start(Registry::new().register(workflow.clone()));
     let flow_id = flow_id("stream");
-    let run_id = environment
+    environment
         .client
         .start_flow(&workflow, &flow_id, ())
         .expect("start Stream Flow");
@@ -35,7 +35,7 @@ fn test_stream_round_trip() {
         .write_stream(
             &flow_id,
             &PROGRESS,
-            "client-write",
+            "client#source",
             "client-progress".to_string(),
         )
         .expect("write client Stream message");
@@ -44,31 +44,45 @@ fn test_stream_round_trip() {
         .write_stream(
             &flow_id,
             &PROGRESS,
-            "client-write",
-            "duplicate-ignored".to_string(),
+            "client#source",
+            "client-progress-again".to_string(),
         )
-        .expect("deduplicate client Stream message");
+        .expect("append repeated-source client Stream message");
 
-    let step = environment
-        .client
-        .read_stream_with_timeout(&flow_id, &PROGRESS, "", Duration::from_secs(30))
-        .expect("read Step Stream message");
-    assert_eq!("step-progress", step.value);
-    assert!(!step.resume_token.is_empty());
-    assert!(step.created_time > SystemTime::UNIX_EPOCH);
-    assert!(step.idempotency_key.starts_with(&format!("{run_id}#")));
+    let mut resume_token = String::new();
+    let mut step_source = None;
+    for expected in [
+        "wait-progress-1",
+        "wait-progress-2",
+        "execute-progress-1",
+        "execute-progress-2",
+    ] {
+        let message = environment
+            .client
+            .read_stream_with_timeout(&flow_id, &PROGRESS, &resume_token, Duration::from_secs(30))
+            .expect("read Step Stream message");
+        assert_eq!(expected, message.value);
+        assert!(!message.resume_token.is_empty());
+        assert!(message.created_time > SystemTime::UNIX_EPOCH);
+        assert!(message.source.starts_with('#'));
+        assert!(!message.source[1..].is_empty());
+        if let Some(source) = step_source.as_ref() {
+            assert_eq!(source, &message.source);
+        } else {
+            step_source = Some(message.source.clone());
+        }
+        resume_token = message.resume_token;
+    }
 
-    let client = environment
-        .client
-        .read_stream_with_timeout(
-            &flow_id,
-            &PROGRESS,
-            &step.resume_token,
-            Duration::from_secs(30),
-        )
-        .expect("read client Stream message");
-    assert_eq!("client-progress", client.value);
-    assert_ne!(step.resume_token, client.resume_token);
-    assert!(client.created_time > SystemTime::UNIX_EPOCH);
-    assert_eq!("client-write", client.idempotency_key);
+    for expected in ["client-progress", "client-progress-again"] {
+        let message = environment
+            .client
+            .read_stream_with_timeout(&flow_id, &PROGRESS, &resume_token, Duration::from_secs(30))
+            .expect("read client Stream message");
+        assert_eq!(expected, message.value);
+        assert_ne!(resume_token, message.resume_token);
+        assert!(message.created_time > SystemTime::UNIX_EPOCH);
+        assert_eq!("client#source", message.source);
+        resume_token = message.resume_token;
+    }
 }
