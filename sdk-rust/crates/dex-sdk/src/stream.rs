@@ -184,9 +184,9 @@ impl Default for BufferedTextStreamOptions {
 
 /// Batches text chunks during one Step invocation.
 ///
-/// [`Self::write`] and [`Self::flush`] block only on the Worker's bounded output queue. They do not
-/// wait for Dex Stream Store acknowledgement. The Worker automatically flushes the tail before
-/// returning the handler result or error.
+/// [`Self::write`] blocks only on the Worker's bounded output queue. It does not wait for Dex Stream
+/// Store acknowledgement. The Worker automatically flushes the tail before returning the handler
+/// result or error.
 #[derive(Clone)]
 pub struct BufferedTextStream {
     inner: Arc<BufferedTextStreamInner>,
@@ -218,18 +218,6 @@ impl BufferedTextStream {
             self.inner.flush_locked(&mut state)?;
         }
         Ok(())
-    }
-
-    /// Emits the current nonempty batch immediately.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HandlerError`] after cancellation, invocation completion, or output failure.
-    pub fn flush(&self) -> HandlerResult<()> {
-        let mut state = self.inner.state.blocking_lock();
-        state.require_open()?;
-        self.inner.stop_timer(&mut state);
-        self.inner.flush_locked(&mut state)
     }
 }
 

@@ -52,10 +52,12 @@ impl Step for StreamTestStep {
 
     fn wait_for(&self, context: &mut Context, _input: ()) -> HandlerResult<Wait> {
         context.record_heartbeat()?;
-        let progress = PROGRESS.buffered_text(context)?;
+        let progress = PROGRESS.buffered_text_with_options(
+            context,
+            BufferedTextStreamOptions::new(Duration::from_secs(1), "wait-progress-1".len()),
+        )?;
         progress.write("wait-progress-")?;
         progress.write("1")?;
-        progress.flush()?;
         context.record_heartbeat_value("wait-checkpoint".to_string())?;
         progress.write("wait-progress-")?;
         progress.write("2")?;
@@ -66,11 +68,10 @@ impl Step for StreamTestStep {
         context.record_heartbeat()?;
         let progress = PROGRESS.buffered_text_with_options(
             context,
-            BufferedTextStreamOptions::new(Duration::from_millis(250), 16 * 1024),
+            BufferedTextStreamOptions::new(Duration::from_millis(250), "execute-progress-1".len()),
         )?;
         progress.write("execute-progress-")?;
         progress.write("1")?;
-        progress.flush()?;
         context.record_heartbeat_value("execute-checkpoint".to_string())?;
         progress.write("execute-progress-")?;
         progress.write("2")?;

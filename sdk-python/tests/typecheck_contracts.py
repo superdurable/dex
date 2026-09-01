@@ -73,7 +73,6 @@ class AsyncTypedStep(Step[Input]):
     ) -> StepDecision:
         buffered = progress.buffered_text(context)
         buffered.write("thinking ")
-        buffered.flush()
         progress.write(context, input.value)
         await context.heartbeat(input.value)
         return graceful_complete()

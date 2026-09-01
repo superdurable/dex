@@ -249,7 +249,6 @@ public class UserContractsTest {
                 Duration.ofMillis(500),
                 8 * 1024);
         progress.write("thinking ");
-        progress.flush();
     }
 
     public static class OrderFlow implements Flow<OrderInput> {

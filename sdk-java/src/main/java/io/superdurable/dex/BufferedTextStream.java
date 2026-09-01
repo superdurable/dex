@@ -128,20 +128,9 @@ public final class BufferedTextStream implements StepOutputFinalizer {
             startTimer();
         }
         if (bufferedBytes >= maxBufferedBytes) {
-            flush();
+            stopTimer();
+            flushBuffer();
         }
-    }
-
-    /**
-     * Emits the current nonempty batch immediately.
-     *
-     * @throws IllegalStateException if the invocation ended
-     * @throws RuntimeException if an earlier background or current output write failed
-     */
-    public synchronized void flush() {
-        requireOpen();
-        stopTimer();
-        flushBuffer();
     }
 
     /** Flushes the tail and closes this writer during invocation finalization. */

@@ -183,9 +183,9 @@ class StreamMessage(Generic[ValueT]):
 class AsyncBufferedTextStream:
     """Batch text chunks for an asynchronous Step invocation.
 
-    Create this writer with :meth:`Stream.buffered_text`. ``write`` and ``flush`` are synchronous
-    and return after local buffering or Worker-output enqueueing. AsyncWorker automatically stops
-    its timer and flushes remaining text before the invocation result or error.
+    Create this writer with :meth:`Stream.buffered_text`. ``write`` is synchronous and returns
+    after local buffering or Worker-output enqueueing. AsyncWorker automatically stops its timer
+    and flushes remaining text before the invocation result or error.
     """
 
     def __init__(
@@ -240,20 +240,8 @@ class AsyncBufferedTextStream:
         if was_empty:
             self._start_timer()
         if self._buffered_bytes >= self._max_buffered_bytes:
-            self.flush()
-
-    def flush(self) -> None:
-        """Immediately enqueue the current non-empty batch.
-
-        A later write starts a new timer. Stream Store failures remain unacknowledged.
-
-        Raises:
-            BaseException: A timer or Worker-output failure.
-            ValueError: If the invocation already finished.
-        """
-        self._require_open()
-        self._stop_timer()
-        self._flush_buffer()
+            self._stop_timer()
+            self._flush_buffer()
 
     def _finalize_step_output(self) -> None:
         if self._is_closed:

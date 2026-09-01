@@ -12,6 +12,8 @@
 
 package io.superdurable.dex.integ;
 
+import java.time.Duration;
+
 import io.superdurable.dex.BufferedTextStream;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
@@ -43,10 +45,13 @@ final class StreamTestWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            final BufferedTextStream writer = BufferedTextStream.create(context, progress);
+            final BufferedTextStream writer = BufferedTextStream.create(
+                    context,
+                    progress,
+                    Duration.ofSeconds(1),
+                    "step-progress-1".length());
             writer.write("step-progress-");
             writer.write("1");
-            writer.flush();
             writer.write("step-progress-");
             writer.write("2");
             return StepDecision.gracefulComplete();

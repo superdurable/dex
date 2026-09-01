@@ -203,7 +203,7 @@ func compileBufferedTextStream(context dex.Context) error {
 	if err := progress.Write("thinking "); err != nil {
 		return err
 	}
-	return progress.Flush()
+	return nil
 }
 
 var _ = compileBufferedTextStream
