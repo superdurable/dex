@@ -28,8 +28,9 @@ When the model context reaches 85 percent of its configured window, a Step summa
     user_messages = Channel("UserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
+    reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
     assistant_text = Stream("AssistantText", str, 10 * 1024 * 1024)
-    events = Stream("AgentEvents", AgentEvent, 10 * 1024 * 1024)
+    agent_activity = Stream("AgentActivity", AgentEvent, 10 * 1024 * 1024)
 ```
 
 </SdkSnippet>
@@ -59,7 +60,9 @@ The built-in **durable_wait** tool moves the Flow to a Step that waits on both a
 
 ## Live events
 
-Assistant text uses a buffered [Stream](/primitives/stream). The Step passes the buffered writer directly to the LiteLLM delta callback. The SDK combines small chunks for up to one second or 16 KiB and flushes the tail before the Step result or error.
+Reasoning summaries and assistant text use separate buffered [Streams](/primitives/stream). The Step passes both buffered writers to the model adapter. The SDK combines small chunks for up to one second or 16 KiB and flushes each tail before the Step result or error.
+
+OpenAI models use LiteLLM's Responses adapter. Each request asks for an automatic reasoning summary but does not use provider-side conversation storage. Dex retains encrypted OpenAI reasoning items with the durable assistant message and replays them as stateless model context. The UI shows official reasoning-summary deltas under **Thinking**, visible output under **Response**, and tool calls or lifecycle progress under **Agent activity**. Other providers do not show a Thinking panel unless their adapter supplies a real reasoning-summary event.
 
 Tool progress, timer state, and compaction status use a separate Stream. Stream delivery is best effort. Durable chat history always comes from Attributes, so refreshing the browser does not depend on replaying every progress event.
 
@@ -69,7 +72,7 @@ The Flow and HTTP routes are under [examples/python/dex_examples/products/ai-age
 
 The application opens on an Agent Portal. Choose a LiteLLM provider and model, optionally enter its API key, and select registered MCP servers and tools before starting the Agent. A key entered in the Portal stays in Worker memory and is not written to Dex state or Flow history. Use a Worker environment variable when the credential must survive a process restart.
 
-The local playground starts credential-free search, Slack, and Google Docs demo MCP servers. The chat page displays buffered model output while a call is running. Use **Command/Ctrl+Enter** or **Alt+Enter** to send a message. When a plan needs missing information, the built-in **request_user_input** tool creates a durable question and waits for the next user reply before execution continues.
+The local playground starts credential-free search, Slack, and Google Docs demo MCP servers. The chat page separates Thinking, Response, and Agent activity while a call is running. Use **Command/Ctrl+Enter** or **Alt+Enter** to send a message. When a plan needs missing information, the built-in **request_user_input** tool creates a durable question and waits for the next user reply before execution continues.
 
 ## Related
 

@@ -230,6 +230,20 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
     @blueprint.get("/events")
     async def events() -> Response:
         stream_name = optional_query("stream", "activity")
+        if stream_name == "reasoning":
+            message = await app_state.client.read_stream(
+                required_query("workflowId"),
+                app_state.ai_agent.reasoning_summary,
+                optional_query("resumeToken", ""),
+                timedelta(seconds=20),
+            )
+            return jsonify(
+                kind="reasoning_summary",
+                value=message.value,
+                resume_token=message.resume_token,
+                created_time=message.created_time.isoformat(),
+                source=message.source,
+            )
         if stream_name == "assistant":
             message = await app_state.client.read_stream(
                 required_query("workflowId"),
@@ -245,10 +259,10 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
                 source=message.source,
             )
         if stream_name != "activity":
-            raise BadRequest("stream must be assistant or activity")
+            raise BadRequest("stream must be reasoning, assistant, or activity")
         message = await app_state.client.read_stream(
             required_query("workflowId"),
-            app_state.ai_agent.events,
+            app_state.ai_agent.agent_activity,
             optional_query("resumeToken", ""),
             timedelta(seconds=20),
         )

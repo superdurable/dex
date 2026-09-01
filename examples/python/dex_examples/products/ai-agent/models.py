@@ -65,12 +65,19 @@ class ToolCall:
 
 
 @dataclass(frozen=True)
+class ProviderContextItem:
+    provider: str
+    item_json: str
+
+
+@dataclass(frozen=True)
 class AgentMessage:
     role: str
     content: str
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_id: str | None = None
     tool_name: str | None = None
+    provider_context_items: list[ProviderContextItem] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -205,6 +212,7 @@ class AgentDescription:
 class ModelReply:
     content: str
     tool_calls: list[ToolCall] = field(default_factory=list)
+    provider_context_items: list[ProviderContextItem] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

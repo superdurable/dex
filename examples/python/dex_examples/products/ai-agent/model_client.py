@@ -24,13 +24,16 @@ from uuid import uuid4
 
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
+    AgentEvent,
     AgentMessage,
     ModelReply,
+    ProviderContextItem,
     ToolCall,
     ToolDefinition,
 )
 
-ProgressWriter = Callable[[str], None]
+TextWriter = Callable[[str], None]
+ActivityWriter = Callable[[AgentEvent], None]
 
 
 class ModelClient(Protocol):
@@ -39,7 +42,9 @@ class ModelClient(Protocol):
         config: AgentConfig,
         messages: Sequence[AgentMessage],
         tools: Sequence[ToolDefinition],
-        write_progress: ProgressWriter,
+        write_assistant_text: TextWriter,
+        write_reasoning_summary: TextWriter,
+        write_activity: ActivityWriter,
         forced_tool_name: str | None = None,
         flow_id: str | None = None,
     ) -> ModelReply: ...
@@ -79,7 +84,9 @@ class LiteLLMModelClient:
         config: AgentConfig,
         messages: Sequence[AgentMessage],
         tools: Sequence[ToolDefinition],
-        write_progress: ProgressWriter,
+        write_assistant_text: TextWriter,
+        write_reasoning_summary: TextWriter,
+        write_activity: ActivityWriter,
         forced_tool_name: str | None = None,
         flow_id: str | None = None,
     ) -> ModelReply:
@@ -87,11 +94,25 @@ class LiteLLMModelClient:
             return await _mock_completion(
                 messages,
                 tools,
-                write_progress,
+                write_assistant_text,
+                write_activity,
                 forced_tool_name,
             )
 
         import litellm
+
+        if config.model.startswith("openai/"):
+            return await _complete_openai_response(
+                litellm,
+                config,
+                messages,
+                tools,
+                write_assistant_text,
+                write_reasoning_summary,
+                write_activity,
+                forced_tool_name,
+                self._credentials.get_api_key(flow_id),
+            )
 
         request: dict[str, Any] = {
             "model": config.model,
@@ -121,10 +142,7 @@ class LiteLLMModelClient:
             content = getattr(delta, "content", None)
             if isinstance(content, str) and content:
                 content_parts.append(content)
-                write_progress(content)
-            reasoning = getattr(delta, "reasoning_content", None)
-            if isinstance(reasoning, str) and reasoning:
-                write_progress(reasoning)
+                write_assistant_text(content)
             for tool_delta in getattr(delta, "tool_calls", None) or []:
                 index = int(getattr(tool_delta, "index", 0))
                 current = tool_parts.setdefault(
@@ -151,6 +169,7 @@ class LiteLLMModelClient:
             )
             for _, parts in sorted(tool_parts.items())
         ]
+        _write_tool_call_activities(tool_calls, write_activity)
         return ModelReply("".join(content_parts), tool_calls)
 
     async def summarize(
@@ -195,21 +214,191 @@ class LiteLLMModelClient:
             return sum(max(1, len(message.content) // 4) for message in messages)
         import litellm
 
+        provider_context_tokens = sum(
+            max(
+                1,
+                len(item.item_json) // 4,
+            )
+            for message in messages
+            for item in message.provider_context_items
+        )
         try:
-            return int(
+            message_tokens = int(
                 litellm.token_counter(
                     model=model,
                     messages=_to_litellm_messages("", messages),
                 )
             )
+            return message_tokens + provider_context_tokens
         except Exception:
-            return sum(max(1, len(message.content) // 4) for message in messages)
+            return provider_context_tokens + sum(
+                max(1, len(message.content) // 4) for message in messages
+            )
+
+
+async def _complete_openai_response(
+    litellm: Any,
+    config: AgentConfig,
+    messages: Sequence[AgentMessage],
+    tools: Sequence[ToolDefinition],
+    write_assistant_text: TextWriter,
+    write_reasoning_summary: TextWriter,
+    write_activity: ActivityWriter,
+    forced_tool_name: str | None,
+    api_key: str | None,
+) -> ModelReply:
+    request: dict[str, Any] = {
+        "model": config.model,
+        "input": _to_responses_input(messages),
+        "include": ["reasoning.encrypted_content"],
+        "instructions": config.system_prompt,
+        "reasoning": {"summary": "auto"},
+        "store": False,
+        "stream": True,
+    }
+    if api_key is not None:
+        request["api_key"] = api_key
+    if tools:
+        request["tools"] = [_to_responses_tool(tool) for tool in tools]
+    if forced_tool_name is not None:
+        if forced_tool_name not in {tool.name for tool in tools}:
+            raise ValueError(f"forced tool {forced_tool_name!r} is not available")
+        request["tool_choice"] = {
+            "type": "function",
+            "name": forced_tool_name,
+        }
+    stream = await litellm.aresponses(**request)
+    return await _consume_openai_response_stream(
+        stream,
+        write_assistant_text,
+        write_reasoning_summary,
+        write_activity,
+    )
+
+
+async def _consume_openai_response_stream(
+    stream: Any,
+    write_assistant_text: TextWriter,
+    write_reasoning_summary: TextWriter,
+    write_activity: ActivityWriter,
+) -> ModelReply:
+    content_parts: list[str] = []
+    tool_calls: dict[int, ToolCall] = {}
+    provider_context_items: list[ProviderContextItem] = []
+    async for event in stream:
+        event_type = _response_field(event, "type")
+        if event_type in {
+            "response.output_text.delta",
+            "response.refusal.delta",
+        }:
+            delta = _response_field(event, "delta")
+            if isinstance(delta, str) and delta:
+                content_parts.append(delta)
+                write_assistant_text(delta)
+            continue
+        if event_type == "response.reasoning_summary_text.delta":
+            delta = _response_field(event, "delta")
+            if isinstance(delta, str) and delta:
+                write_reasoning_summary(delta)
+            continue
+        if event_type != "response.output_item.done":
+            continue
+        item = _response_field(event, "item")
+        item_type = _response_field(item, "type")
+        if item_type == "reasoning":
+            provider_context_items.append(_reasoning_context_item(item))
+            continue
+        if item_type != "function_call":
+            continue
+        output_index = _response_field(event, "output_index")
+        name = _response_field(item, "name")
+        arguments = _response_field(item, "arguments")
+        call_id = _response_field(item, "call_id")
+        if not isinstance(output_index, int):
+            raise RuntimeError(
+                "OpenAI returned a function call without an output index"
+            )
+        if not isinstance(name, str) or not name:
+            raise RuntimeError("OpenAI returned a function call without a name")
+        if not isinstance(arguments, str):
+            raise RuntimeError("OpenAI returned a function call without arguments")
+        if not isinstance(call_id, str) or not call_id:
+            raise RuntimeError("OpenAI returned a function call without a call ID")
+        call = ToolCall(call_id, name, arguments)
+        tool_calls[output_index] = call
+        _write_tool_call_activity(call, write_activity)
+    return ModelReply(
+        "".join(content_parts),
+        [call for _, call in sorted(tool_calls.items())],
+        provider_context_items,
+    )
+
+
+def _response_field(value: object, name: str) -> object:
+    if isinstance(value, dict):
+        return value.get(name)
+    return getattr(value, name, None)
+
+
+def _reasoning_context_item(value: object) -> ProviderContextItem:
+    if isinstance(value, dict):
+        serialized = value
+    else:
+        model_dump = getattr(value, "model_dump", None)
+        if not callable(model_dump):
+            raise RuntimeError("OpenAI returned an invalid reasoning item")
+        serialized = model_dump(mode="json", exclude_none=True)
+    if not isinstance(serialized, dict):
+        raise RuntimeError("OpenAI returned an invalid reasoning item")
+    required_fields = ("id", "summary", "type")
+    if any(field not in serialized for field in required_fields):
+        raise RuntimeError("OpenAI returned an incomplete reasoning item")
+    allowed_fields = (
+        "id",
+        "summary",
+        "type",
+        "content",
+        "encrypted_content",
+        "status",
+    )
+    item = {
+        field: serialized[field]
+        for field in allowed_fields
+        if field in serialized and serialized[field] is not None
+    }
+    return ProviderContextItem(
+        "openai",
+        json.dumps(item, ensure_ascii=False, separators=(",", ":")),
+    )
+
+
+def _write_tool_call_activities(
+    tool_calls: Sequence[ToolCall],
+    write_activity: ActivityWriter,
+) -> None:
+    for call in tool_calls:
+        _write_tool_call_activity(call, write_activity)
+
+
+def _write_tool_call_activity(
+    call: ToolCall,
+    write_activity: ActivityWriter,
+) -> None:
+    write_activity(
+        AgentEvent(
+            "model_tool_call",
+            f"Model requested {call.name}.",
+            call.id,
+            call.name,
+        )
+    )
 
 
 async def _mock_completion(
     messages: Sequence[AgentMessage],
     tools: Sequence[ToolDefinition],
-    write_progress: ProgressWriter,
+    write_assistant_text: TextWriter,
+    write_activity: ActivityWriter,
     forced_tool_name: str | None,
 ) -> ModelReply:
     if forced_tool_name is not None:
@@ -232,7 +421,7 @@ async def _mock_completion(
                 },
             ]
         )
-        return ModelReply(
+        reply = ModelReply(
             "I will prepare a plan for review.",
             [
                 ToolCall(
@@ -242,11 +431,13 @@ async def _mock_completion(
                 )
             ],
         )
+        _write_tool_call_activities(reply.tool_calls, write_activity)
+        return reply
 
     request = _last_user_content(messages)
     available_tool_names = {tool.name for tool in tools}
     if request.lower() == "/plan-clear" and "write_todos" in available_tool_names:
-        return ModelReply(
+        reply = ModelReply(
             "I will clear the current plan.",
             [
                 ToolCall(
@@ -256,12 +447,14 @@ async def _mock_completion(
                 )
             ],
         )
+        _write_tool_call_activities(reply.tool_calls, write_activity)
+        return reply
     if request.lower().startswith("/ask-many ") and {
         "request_user_input",
         "durable_wait",
     }.issubset(available_tool_names):
         prompt = request.removeprefix("/ask-many ").strip()
-        return ModelReply(
+        reply = ModelReply(
             "I need more information before I continue.",
             [
                 ToolCall(
@@ -278,10 +471,12 @@ async def _mock_completion(
                 ),
             ],
         )
+        _write_tool_call_activities(reply.tool_calls, write_activity)
+        return reply
     if request.lower().startswith("/ask ") and "request_user_input" in available_tool_names:
         content = "I need more information before I continue."
-        await _stream_mock_content(content, write_progress)
-        return ModelReply(
+        await _stream_mock_content(content, write_assistant_text)
+        reply = ModelReply(
             content,
             [
                 ToolCall(
@@ -293,6 +488,8 @@ async def _mock_completion(
                 )
             ],
         )
+        _write_tool_call_activities(reply.tool_calls, write_activity)
+        return reply
 
     active_plan = _active_plan(messages)
     if active_plan is not None and any(
@@ -300,9 +497,9 @@ async def _mock_completion(
     ):
         if _last_user_content(messages).lower().startswith("/plan-stop "):
             content = "I stopped before completing every plan task."
-            await _stream_mock_content(content, write_progress)
+            await _stream_mock_content(content, write_assistant_text)
             return ModelReply(content)
-        return ModelReply(
+        reply = ModelReply(
             "I will execute the approved plan.",
             [
                 ToolCall(
@@ -314,6 +511,8 @@ async def _mock_completion(
                 )
             ],
         )
+        _write_tool_call_activities(reply.tool_calls, write_activity)
+        return reply
 
     if not messages:
         content = "How can I help?"
@@ -331,7 +530,7 @@ async def _mock_completion(
             parts = request.split(maxsplit=2)
             duration = int(parts[1])
             reason = parts[2] if len(parts) > 2 else "Requested wait"
-            return ModelReply(
+            reply = ModelReply(
                 "I will wait durably.",
                 [
                     ToolCall(
@@ -343,6 +542,8 @@ async def _mock_completion(
                     )
                 ],
             )
+            _write_tool_call_activities(reply.tool_calls, write_activity)
+            return reply
         if request.lower().startswith("/tool "):
             parts = request.split(maxsplit=2)
             if len(parts) != 3:
@@ -350,7 +551,7 @@ async def _mock_completion(
             arguments = json.loads(parts[2])
             if not isinstance(arguments, dict):
                 raise ValueError("local /tool arguments must be a JSON object")
-            return ModelReply(
+            reply = ModelReply(
                 f"I will call {parts[1]}.",
                 [
                     ToolCall(
@@ -360,14 +561,16 @@ async def _mock_completion(
                     )
                 ],
             )
+            _write_tool_call_activities(reply.tool_calls, write_activity)
+            return reply
         content = f"Local demo response: {request}"
-    await _stream_mock_content(content, write_progress)
+    await _stream_mock_content(content, write_assistant_text)
     return ModelReply(content)
 
 
 async def _stream_mock_content(
     content: str,
-    write_progress: ProgressWriter,
+    write_progress: TextWriter,
 ) -> None:
     midpoint = len(content) // 2
     write_progress(content[:midpoint])
@@ -506,6 +709,55 @@ def _to_litellm_tool(tool: ToolDefinition) -> dict[str, Any]:
             "description": tool.description,
             "parameters": tool.input_schema,
         },
+    }
+
+
+def _to_responses_input(
+    messages: Sequence[AgentMessage],
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for message in messages:
+        if message.role == "tool":
+            if not message.tool_call_id:
+                raise ValueError("tool messages require a tool call ID")
+            result.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": message.tool_call_id,
+                    "output": message.content,
+                }
+            )
+            continue
+        for context_item in message.provider_context_items:
+            if context_item.provider == "openai":
+                result.append(json.loads(context_item.item_json))
+        if message.content:
+            result.append(
+                {
+                    "type": "message",
+                    "role": message.role,
+                    "content": message.content,
+                }
+            )
+        result.extend(
+            {
+                "type": "function_call",
+                "call_id": call.id,
+                "name": call.name,
+                "arguments": call.arguments_json,
+            }
+            for call in message.tool_calls
+        )
+    return result
+
+
+def _to_responses_tool(tool: ToolDefinition) -> dict[str, Any]:
+    return {
+        "type": "function",
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": tool.input_schema,
+        "strict": False,
     }
 
 

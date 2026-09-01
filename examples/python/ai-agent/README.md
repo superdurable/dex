@@ -15,8 +15,9 @@ model. Its local model echoes normal messages and understands `/wait <seconds>
 - `AgentPlan` atomically stores the current revision and ordered task list.
 - `ContextSummary` keeps the cumulative compaction summary.
 - Channels carry durable user messages, plan execution requests, and tool approvals.
-- `AssistantText` uses the SDK buffered text writer for best-effort model output.
-- `AgentEvents` is a best-effort Stream for tool and lifecycle progress.
+- `ReasoningSummary` uses a buffered text writer for OpenAI reasoning summaries.
+- `AssistantText` uses a separate buffered writer for visible response text.
+- `AgentActivity` is a best-effort Stream for tool and lifecycle progress.
 - The `durable_wait` tool uses a Dex Timer and can be interrupted by a user message.
 - Write, destructive, and unclassified MCP tools wait for explicit approval.
 
@@ -24,9 +25,17 @@ The current AttributeMap retains 2,000 messages by default. Dex compacts older
 context before deleting summarized map instances. Deleted instances remain in the
 Flow history until the configured history retention expires.
 
-The model adapter receives `assistant_text.buffered_text(context).write` as its
-delta callback. The SDK combines token-sized chunks for up to one second or 16
-KiB and flushes the final batch when the Step invocation finishes.
+The model adapter receives separate buffered callbacks for reasoning summaries
+and assistant text. The SDK combines token-sized chunks for up to one second or
+16 KiB and flushes each final batch when the Step invocation finishes.
+
+OpenAI models use LiteLLM's Responses API adapter with stateless requests and an
+automatic reasoning summary. Dex still rebuilds the complete provider-neutral
+input for every call. Encrypted OpenAI reasoning items are retained with their
+durable assistant message and replayed when that provider requires them. The UI labels official reasoning-summary events as
+**Thinking**, visible output as **Response**, and structured tool or lifecycle
+events as **Agent activity**. Providers without reasoning-summary events never
+show inferred or fabricated thinking.
 
 ## Plan before execution
 
@@ -66,7 +75,8 @@ Demo Slack posts and Google Doc creation still require approval. Use
 [`mcp-servers.example.yaml`](./mcp-servers.example.yaml) when connecting real
 providers.
 
-The chat page shows buffered model text while a model call is running. Press
+The chat page shows reasoning summaries when the provider supplies them and
+buffers visible response text separately while a model call is running. Press
 **Command/Ctrl+Enter** or **Alt+Enter** to send; plain Enter inserts a line break.
 When work needs information that is missing, the Agent uses
 **request_user_input** to show a durable question card and wait for a reply.

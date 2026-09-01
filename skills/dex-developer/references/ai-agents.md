@@ -29,9 +29,11 @@ reload the durable Attribute after loss or refresh.
 
 Commit the completed assistant message and tool result to Attributes. Use a Stream for token deltas, tool progress, and UI status. A retry may repeat Stream messages, so the UI must recover from durable message state.
 
-For streaming LLM text, create one buffered text writer per model invocation and pass its bound write method as the delta callback. Keep structured tool and lifecycle events on a separate Stream.
+For streaming LLM output, use separate buffered text writers for provider-authored reasoning summaries and visible assistant text. Keep structured tool and lifecycle events on a third Stream.
 
-Never expose hidden chain-of-thought. Stream user-visible response text or concise application progress.
+Never expose hidden chain-of-thought or label ordinary text as reasoning. Show a Thinking surface only for an explicit provider reasoning-summary event. Providers without that event should expose response text and Agent activity without fabricated thinking.
+
+When a stateless provider requires opaque reasoning items on later calls, persist the encrypted items beside the assistant message. Replay them as model context without interpreting or displaying them.
 
 ## Route tools through Steps
 

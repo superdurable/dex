@@ -168,7 +168,7 @@ class AwaitUser(Step[None]):
                 pending_plan_execution_revision=None,
             ),
         )
-        self.flow.events.write(
+        self.flow.agent_activity.write(
             context,
             AgentEvent("plan_started", f"Executing plan revision {plan.revision}."),
         )
@@ -232,7 +232,7 @@ class CompactContext(Step[None]):
         )
         self.flow.state.set(context, state)
         self.flow.trim_summarized_messages(context, config, state)
-        self.flow.events.write(
+        self.flow.agent_activity.write(
             context,
             AgentEvent(
                 "compaction",
@@ -265,8 +265,9 @@ class CallModel(Step[None]):
             else None
         )
 
-        progress = self.flow.assistant_text.buffered_text(context)
-        self.flow.events.write(
+        assistant_text = self.flow.assistant_text.buffered_text(context)
+        reasoning_summary = self.flow.reasoning_summary.buffered_text(context)
+        self.flow.agent_activity.write(
             context,
             AgentEvent("model_started", f"Calling {config.model}."),
         )
@@ -275,13 +276,20 @@ class CallModel(Step[None]):
             config,
             self.flow.context_messages(context, config, state),
             tools,
-            progress.write,
-            forced_tool_name,
-            context.flow_id,
+            assistant_text.write,
+            reasoning_summary.write,
+            lambda event: self.flow.agent_activity.write(context, event),
+            forced_tool_name=forced_tool_name,
+            flow_id=context.flow_id,
         )
         self.flow.append_message(
             context,
-            AgentMessage("assistant", reply.content, reply.tool_calls),
+            AgentMessage(
+                "assistant",
+                reply.content,
+                reply.tool_calls,
+                provider_context_items=reply.provider_context_items,
+            ),
         )
         event_message = (
             "Model response completed."
@@ -289,7 +297,7 @@ class CallModel(Step[None]):
             else "Model requested: "
             + ", ".join(call.name for call in reply.tool_calls)
         )
-        self.flow.events.write(
+        self.flow.agent_activity.write(
             context,
             AgentEvent("model_completed", event_message),
         )
@@ -442,7 +450,7 @@ class RouteTool(Step[None]):
                 ),
                 "superseded_by_user_input",
             )
-            self.flow.events.write(
+            self.flow.agent_activity.write(
                 context,
                 AgentEvent("user_input_requested", prompt, call.id, call.name),
             )
@@ -499,7 +507,7 @@ class ExecuteTool(Step[None]):
         config = self.flow.config.get(context)
 
         async def write_progress(message: str) -> None:
-            self.flow.events.write(
+            self.flow.agent_activity.write(
                 context,
                 AgentEvent("tool_progress", message, call.id, call.name),
             )
@@ -512,7 +520,7 @@ class ExecuteTool(Step[None]):
                 write_progress,
             )
         except Exception as error:
-            self.flow.events.write(
+            self.flow.agent_activity.write(
                 context,
                 AgentEvent(
                     "tool_error",
@@ -533,7 +541,7 @@ class ExecuteTool(Step[None]):
                 True,
             )
         self.flow.append_tool_result(context, call, result)
-        self.flow.events.write(
+        self.flow.agent_activity.write(
             context,
             AgentEvent("tool_result", result.content, call.id, call.name),
         )
@@ -605,8 +613,9 @@ class AIAgentFlow(Flow[AgentConfig]):
     user_messages = Channel("UserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
+    reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
     assistant_text = Stream("AssistantText", str, 10 * 1024 * 1024)
-    events = Stream("AgentEvents", AgentEvent, 10 * 1024 * 1024)
+    agent_activity = Stream("AgentActivity", AgentEvent, 10 * 1024 * 1024)
 
     def __init__(
         self,
@@ -648,8 +657,9 @@ class AIAgentFlow(Flow[AgentConfig]):
             self.user_messages,
             self.tool_approvals,
             self.plan_executions,
+            self.reasoning_summary,
             self.assistant_text,
-            self.events,
+            self.agent_activity,
         )
 
     def validate_config(self, config: AgentConfig) -> None:
@@ -778,7 +788,7 @@ class AIAgentFlow(Flow[AgentConfig]):
                 pending_plan_execution_revision=None,
             ),
         )
-        self.events.write(context, AgentEvent("plan_updated", event_message))
+        self.agent_activity.write(context, AgentEvent("plan_updated", event_message))
         return revision
 
     def append_message(self, context: Context, message: AgentMessage) -> int:

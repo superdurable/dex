@@ -131,6 +131,12 @@ async def test_ai_agent_conversation_and_durable_wait(
         timeout=WAIT_TIMEOUT,
     )
     assert assistant_text.value == "Local demo response: Hello durable agent"
+    activity = await client.read_stream(
+        flow_id,
+        app.ai_agent.agent_activity,
+        timeout=WAIT_TIMEOUT,
+    )
+    assert activity.value.kind == "model_started"
 
     async def has_reply() -> bool:
         history = await client.invoke_rpc(

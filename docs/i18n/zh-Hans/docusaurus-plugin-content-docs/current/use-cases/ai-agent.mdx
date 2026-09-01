@@ -29,8 +29,9 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
     user_messages = Channel("UserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
+    reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
     assistant_text = Stream("AssistantText", str, 10 * 1024 * 1024)
-    events = Stream("AgentEvents", AgentEvent, 10 * 1024 * 1024)
+    agent_activity = Stream("AgentActivity", AgentEvent, 10 * 1024 * 1024)
 ```
 
 </SdkSnippet>
@@ -60,7 +61,9 @@ Example 支持 tool、resource、resource template、prompt、progress 与 loggi
 
 ## 实时 event
 
-Assistant text 使用 buffered [Stream](/primitives/stream)。Step 把 buffered writer 直接传给 LiteLLM delta callback。SDK 会在一秒或 16 KiB 内合并较小的 chunk，并在 Step 返回 result 或 error 前 flush 最后的内容。
+Reasoning summary 与 assistant text 使用两条独立的 buffered [Stream](/primitives/stream)。Step 把两个 buffered writer 传给 model adapter。SDK 会在一秒或 16 KiB 内合并较小的 chunk，并在 Step 返回 result 或 error 前分别 flush 最后的内容。
+
+OpenAI model 使用 LiteLLM 的 Responses adapter。每次 request 都会请求自动 reasoning summary，但不会使用 provider 端的 conversation storage。Dex 会把加密的 OpenAI reasoning item 与 durable assistant message 一起保存，并在 stateless model context 中重放。UI 把官方 reasoning-summary delta 显示在 **Thinking**，把可见输出显示在 **Response**，并把 tool call 与 lifecycle progress 显示在 **Agent activity**。其他 provider 只有在 adapter 提供真实 reasoning-summary event 时才显示 Thinking panel。
 
 Tool progress、timer state 与 compaction status 使用另一个 Stream。Stream delivery 是 best effort。Durable chat history 始终来自 Attribute，因此浏览器刷新不依赖重放每条 progress event。
 
@@ -70,7 +73,7 @@ Flow 与 HTTP route 位于 [examples/python/dex_examples/products/ai-agent](http
 
 Application 默认先进入 Agent Portal。启动 Agent 前，可以选择 LiteLLM provider 和 model、输入可选 API key，并选择已注册的 MCP server 与 tool。Portal 中输入的 key 只保存在 Worker memory，不会写入 Dex state 或 Flow history。需要在 Worker process 重启后继续使用 credential 时，应配置 Worker environment variable。
 
-Local playground 会启动无需 credential 的 search、Slack 和 Google Docs demo MCP server。Model call 运行时，chat page 会展示经过 buffer 的 model output。可以使用 **Command/Ctrl+Enter** 或 **Alt+Enter** 发送 message。当 plan 缺少必要信息时，内置 **request_user_input** tool 会创建 durable question，并等待下一条 user reply 后再继续执行。
+Local playground 会启动无需 credential 的 search、Slack 和 Google Docs demo MCP server。Model call 运行时，chat page 会分别展示 Thinking、Response 与 Agent activity。可以使用 **Command/Ctrl+Enter** 或 **Alt+Enter** 发送 message。当 plan 缺少必要信息时，内置 **request_user_input** tool 会创建 durable question，并等待下一条 user reply 后再继续执行。
 
 ## 相关内容
 

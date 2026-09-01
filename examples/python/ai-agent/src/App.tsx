@@ -123,7 +123,8 @@ const App: React.FC = () => {
   const [description, setDescription] = useState<AgentDescription | null>(null);
   const [input, setInput] = useState('');
   const [planMode, setPlanMode] = useState(false);
-  const [liveText, setLiveText] = useState('');
+  const [liveReasoningSummary, setLiveReasoningSummary] = useState('');
+  const [liveResponseText, setLiveResponseText] = useState('');
   const [activity, setActivity] = useState<AgentEvent[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState('');
@@ -167,7 +168,8 @@ const App: React.FC = () => {
       nextDescription.status === 'waiting_for_message'
       && history.messages.at(-1)?.message.role === 'assistant'
     ) {
-      setLiveText('');
+      setLiveReasoningSummary('');
+      setLiveResponseText('');
     }
   };
 
@@ -184,9 +186,10 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!workflowId) return;
     const controller = new AbortController();
+    let reasoningSource = '';
     let assistantSource = '';
     const readStream = async (
-      stream: 'assistant' | 'activity',
+      stream: 'reasoning' | 'assistant' | 'activity',
       receive: (payload: { value: unknown; source: string }) => void,
     ) => {
       let resumeToken = '';
@@ -207,13 +210,21 @@ const App: React.FC = () => {
         }
       }
     };
+    void readStream('reasoning', (payload) => {
+      if (payload.source !== reasoningSource) {
+        reasoningSource = payload.source;
+        setLiveReasoningSummary(String(payload.value));
+        return;
+      }
+      setLiveReasoningSummary((current) => current + String(payload.value));
+    });
     void readStream('assistant', (payload) => {
       if (payload.source !== assistantSource) {
         assistantSource = payload.source;
-        setLiveText(String(payload.value));
+        setLiveResponseText(String(payload.value));
         return;
       }
-      setLiveText((current) => current + String(payload.value));
+      setLiveResponseText((current) => current + String(payload.value));
     });
     void readStream('activity', (payload) => {
       setActivity((current) => [...current, payload.value as AgentEvent].slice(-30));
@@ -288,7 +299,8 @@ const App: React.FC = () => {
     setWorkflowId('');
     setDescription(null);
     setMessages([]);
-    setLiveText('');
+    setLiveReasoningSummary('');
+    setLiveResponseText('');
     setActivity([]);
     setError('');
   };
@@ -299,7 +311,8 @@ const App: React.FC = () => {
     setIsBusy(true);
     setError('');
     setInput('');
-    setLiveText('');
+    setLiveReasoningSummary('');
+    setLiveResponseText('');
     const requestedPlanMode = planMode;
     setPlanMode(false);
     try {
@@ -354,14 +367,7 @@ const App: React.FC = () => {
     }
   };
 
-  const isModelRunning = description?.status === 'calling_model'
-    || description?.status === 'compacting_context'
-    || description?.status === 'routing_tool'
-    || description?.status === 'executing_tool';
-  const latestModelEvent = [...activity]
-    .reverse()
-    .find((event) => event.kind.startsWith('model_'));
-
+  const isModelRunning = description?.status === 'calling_model';
   if (!workflowId) {
     return (
       <main style={styles.page}>
@@ -583,15 +589,26 @@ const App: React.FC = () => {
             ))}
         </div>
 
-        {(isModelRunning || liveText) && (
+        {liveReasoningSummary && (
+          <section style={styles.thinkingCard} aria-live="polite">
+            <div style={styles.streamHeader}>
+              <span style={styles.thinkingIndicator} />
+              <strong>Thinking</strong>
+              <small>OpenAI reasoning summary</small>
+            </div>
+            <p style={styles.streamText}>{liveReasoningSummary}</p>
+          </section>
+        )}
+
+        {(isModelRunning || liveResponseText) && (
           <section style={styles.liveModelCard} aria-live="polite">
-            <div style={styles.liveModelHeader}>
+            <div style={styles.streamHeader}>
               <span style={styles.liveIndicator} />
-              <strong>Live model output</strong>
+              <strong>Response</strong>
               <small>{description?.model}</small>
             </div>
-            <p style={styles.liveModelText}>
-              {liveText || latestModelEvent?.message || 'Waiting for streamed model output…'}
+            <p style={styles.streamText}>
+              {liveResponseText || 'Waiting for streamed response…'}
             </p>
           </section>
         )}
@@ -838,9 +855,11 @@ const styles: Record<string, React.CSSProperties> = {
   approvalCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#fff3e5', border: '1px solid #f4bb77' },
   timerCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#e9f8f2', border: '1px solid #8dd7bd' },
   liveModelCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#161b2e', color: '#eef2ff', border: '1px solid #343b5f', boxShadow: '0 12px 30px rgba(20, 24, 45, .16)' },
-  liveModelHeader: { display: 'flex', alignItems: 'center', gap: 9, color: '#c7d2fe' },
+  thinkingCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#f4f1ff', color: '#3d3168', border: '1px solid #cfc4ff' },
+  streamHeader: { display: 'flex', alignItems: 'center', gap: 9, color: 'inherit' },
+  thinkingIndicator: { width: 9, height: 9, borderRadius: '50%', background: '#9b72e8', boxShadow: '0 0 0 5px rgba(155,114,232,.15)' },
   liveIndicator: { width: 9, height: 9, borderRadius: '50%', background: '#7c72ff', boxShadow: '0 0 0 5px rgba(124,114,255,.15)' },
-  liveModelText: { margin: '13px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.6, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
+  streamText: { margin: '13px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.6, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
   userInputCard: { display: 'grid', gap: 8, marginTop: 18, padding: 20, borderRadius: 14, background: '#fff8e8', border: '1px solid #f1ca74' },
   userInputPrompt: { fontSize: 18, lineHeight: 1.5 },
   planCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#f0f4ff', border: '1px solid #aebdf2' },
