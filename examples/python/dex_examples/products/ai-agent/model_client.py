@@ -538,18 +538,19 @@ async def _mock_completion(
         _write_tool_call_activities(reply.tool_calls, write_activity)
         return reply
 
-    if not messages:
+    last_message = _last_conversation_message(messages)
+    if last_message is None:
         content = "How can I help?"
-    elif messages[-1].role == "tool" and messages[-1].tool_name == "write_todos":
+    elif last_message.role == "tool" and last_message.tool_name == "write_todos":
         content = (
             "I completed the approved plan."
             if _plan_status(messages) == "completed"
             else "The plan is ready for review."
         )
-    elif messages[-1].role == "tool":
-        content = f"The tool finished with this result: {messages[-1].content}"
+    elif last_message.role == "tool":
+        content = f"The tool finished with this result: {last_message.content}"
     else:
-        request = messages[-1].content.strip()
+        request = _last_user_content(messages)
         if request.lower().startswith("/wait "):
             parts = request.split(maxsplit=2)
             duration = int(parts[1])
@@ -610,6 +611,15 @@ def _last_user_content(messages: Sequence[AgentMessage]) -> str:
     return ""
 
 
+def _last_conversation_message(
+    messages: Sequence[AgentMessage],
+) -> AgentMessage | None:
+    return next(
+        (message for message in reversed(messages) if message.role != "system"),
+        None,
+    )
+
+
 def _active_plan(messages: Sequence[AgentMessage]) -> list[dict[str, Any]] | None:
     if not _is_plan_execution(messages):
         return None
@@ -623,10 +633,10 @@ def _active_plan(messages: Sequence[AgentMessage]) -> list[dict[str, Any]] | Non
 
 
 def _is_plan_execution(messages: Sequence[AgentMessage]) -> bool:
-    return any(
-        message.role == "system"
-        and "The user approved this plan. Execute it" in message.content
-        for message in messages
+    return bool(
+        messages
+        and messages[-1].role == "system"
+        and "The user approved this plan. Execute it" in messages[-1].content
     )
 
 

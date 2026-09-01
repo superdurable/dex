@@ -282,6 +282,8 @@ class CallModel(Step[None]):
             forced_tool_name=forced_tool_name,
             flow_id=context.flow_id,
         )
+        if not reply.content.strip() and not reply.tool_calls:
+            raise RuntimeError("the model returned no content or tool calls")
         self.flow.append_message(
             context,
             AgentMessage(
@@ -916,14 +918,14 @@ class AIAgentFlow(Flow[AgentConfig]):
                     f"Conversation summary through message {summary.summarized_through_sequence}:\n{summary.content}",
                 )
             )
-        plan_message = self.plan_context_message(context, state)
-        if plan_message is not None:
-            result.append(plan_message)
         start = max(
             state.first_retained_sequence,
             state.summarized_through_sequence + 1,
         )
         result.extend(self.load_messages(context, start, state.last_sequence, config))
+        plan_message = self.plan_context_message(context, state)
+        if plan_message is not None:
+            result.append(plan_message)
         return result
 
     def plan_context_message(
