@@ -31,18 +31,7 @@ from dex import (
     graceful_complete,
 )
 
-
-class SubFlowChildStep(Step[int]):
-    def execute(self, context: Context, input: int) -> StepDecision:
-        return graceful_complete(input + 1)
-
-
-class SubFlowChildFlow(Flow[int]):
-    def __init__(self) -> None:
-        self.start = SubFlowChildStep()
-
-    def get_steps(self) -> StepList[int]:
-        return StepList.start_step(self.start)
+from dex_examples.primitives.subflow.child_flow import SubFlowChildFlow
 
 
 class SubFlowParentStep(Step[int]):
@@ -63,7 +52,7 @@ class SubFlowParentStep(Step[int]):
 
 
 class SubFlowParentFlow(Flow[int]):
-    def __init__(self, target: Flow[int]) -> None:
+    def __init__(self, target: SubFlowChildFlow) -> None:
         self.start = SubFlowParentStep(target)
 
     def get_steps(self) -> StepList[int]:

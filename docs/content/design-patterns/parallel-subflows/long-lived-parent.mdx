@@ -16,8 +16,8 @@ Keep a bounded pool of parent Steps alive while the Flow accepts more requests.
 
 <SdkTabs
   examples={{
-    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
-    go: 'examples/go/patterns/parallel-subflows/flows.go',
+    python: 'examples/python/dex_examples/patterns/parallel-subflows/advanced_long_live_parent_flow.py',
+    go: 'examples/go/patterns/parallel-subflows/advanced_long_live_parent_flow.go',
     java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/AdvancedLongLiveParentFlow.java',
     typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
     rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',
@@ -125,8 +125,8 @@ const (
 )
 
 var (
-	RequestChannel = dex.DefineChannel[string]("RequestChannel")
-	Stopped        = dex.DefineAttribute[bool]("Stopped")
+	LongLiveRequestChannel = dex.DefineChannel[string]("RequestChannel")
+	Stopped                = dex.DefineAttribute[bool]("Stopped")
 )
 
 type AdvancedLongLiveParentFlow struct {
@@ -147,14 +147,17 @@ func (flow *AdvancedLongLiveParentFlow) GetSteps() []dex.StepDef {
 }
 
 func (*AdvancedLongLiveParentFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Attributes: []dex.AttributeDef{Stopped}, Channels: []dex.ChannelDef{RequestChannel}}
+	return dex.PersistenceSchema{
+		Attributes: []dex.AttributeDef{Stopped},
+		Channels:   []dex.ChannelDef{LongLiveRequestChannel},
+	}
 }
 
 func (*AdvancedLongLiveParentFlow) SendRequest(ctx dex.Context, request string) (*dex.RPCResult[bool], error) {
-	if RequestChannel.Size(ctx) >= MaxBufferedRequests {
+	if LongLiveRequestChannel.Size(ctx) >= MaxBufferedRequests {
 		return &dex.RPCResult[bool]{Output: false}, nil
 	}
-	if err := RequestChannel.Publish(ctx, request); err != nil {
+	if err := LongLiveRequestChannel.Publish(ctx, request); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[bool]{Output: true}, nil
@@ -175,14 +178,19 @@ func (longLiveInitStep) GetStepType() string { return "InitStep" }
 
 func (longLiveInitStep) Execute(ctx dex.Context, input ParentInput) (*dex.StepDecision, error) {
 	for _, request := range input.Requests {
-		if err := RequestChannel.Publish(ctx, request); err != nil {
+		if err := LongLiveRequestChannel.Publish(ctx, request); err != nil {
 			return nil, err
 		}
 	}
 	if err := Stopped.Set(ctx, false); err != nil {
 		return nil, err
 	}
-	return dex.GoToMany(longLiveWorkerMovements(concurrency(input.Concurrency))...), nil
+	count := concurrency(input.Concurrency)
+	movements := make([]dex.StepMovement, 0, count)
+	for index := 0; index < count; index++ {
+		movements = append(movements, dex.MovementOf(longLiveHandleRequestStep{}, nil))
+	}
+	return dex.GoToMany(movements...), nil
 }
 
 type longLiveHandleRequestStep struct{ dex.StepDefaults }
@@ -190,11 +198,11 @@ type longLiveHandleRequestStep struct{ dex.StepDefaults }
 func (longLiveHandleRequestStep) GetStepType() string { return "HandleRequestStep" }
 
 func (longLiveHandleRequestStep) WaitFor(_ dex.Context, _ dex.None) (*dex.Wait, error) {
-	return dex.Until(RequestChannel.ForOne()), nil
+	return dex.Until(LongLiveRequestChannel.ForOne()), nil
 }
 
 func (longLiveHandleRequestStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
-	requests, err := RequestChannel.GetConditionResults(ctx)
+	requests, err := LongLiveRequestChannel.GetConditionResults(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -223,13 +231,6 @@ func (longLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepDe
 	return dex.GoTo(longLiveHandleRequestStep{}, nil), nil
 }
 
-func longLiveWorkerMovements(count int) []dex.StepMovement {
-	movements := make([]dex.StepMovement, 0, count)
-	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(longLiveHandleRequestStep{}, nil))
-	}
-	return movements
-}
 ```
 
 </SdkSnippet>

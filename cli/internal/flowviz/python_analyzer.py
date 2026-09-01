@@ -143,10 +143,24 @@ class Analyzer:
             self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(statement), "resource": resource})
 
     def index_flow_fields(self, flow_class):
+        local_resources = {}
+        for statement in flow_class.body:
+            target = None
+            value = None
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+                target, value = statement.targets[0], statement.value
+            elif isinstance(statement, ast.AnnAssign):
+                target, value = statement.target, statement.value
+            if not isinstance(target, ast.Name) or not isinstance(value, ast.Call):
+                continue
+            class_name = self.symbol(value.func)
+            if class_name in self.step_classes:
+                self.flow_fields[target.id] = class_name
+                self.index_step_resource_wiring(class_name, value, flow_class.name, local_resources)
+
         initializer = self.method(flow_class, "__init__")
         if initializer is None:
             return
-        local_resources = {}
         for statement in initializer.body:
             target = None
             value = None
@@ -280,8 +294,21 @@ class Analyzer:
                 self.graph["flow"]["startStepId"] = node_id
         if starts > 1:
             self.error("multiple_start_steps", "Flow defines more than one start Step", self.span(method))
-        if not registrations:
+        if not registrations and not self.has_static_empty_registration(method):
             self.error("dynamic_step_registration", "get_steps must directly call StepList.start_step or other_steps", self.span(method))
+
+    def has_static_empty_registration(self, method):
+        if len(method.body) != 1 or not isinstance(method.body[0], ast.Return):
+            return False
+        expression = method.body[0].value
+        return (
+            isinstance(expression, ast.Call)
+            and isinstance(expression.func, ast.Attribute)
+            and expression.func.attr == "empty"
+            and self.is_dex_reference(expression.func.value, "StepList")
+            and not expression.args
+            and not expression.keywords
+        )
 
     def analyze_step(self, step_name, node_id):
         step_class = self.step_classes[step_name]
@@ -382,6 +409,20 @@ class Analyzer:
                 if not outcome.get("condition"):
                     outcome["condition"] = "otherwise"
         if not outcomes:
+            if self.raises_wait_failure(method):
+                source_span = self.span(method)
+                wait_id = f"wait:{step_name}:{source_span['startLine']}:{source_span['startColumn']}:0"
+                self.add_node({
+                    "id": wait_id,
+                    "kind": "wait",
+                    "name": "failure",
+                    "parentId": owner_id,
+                    "phase": "wait_for",
+                    "span": source_span,
+                    "wait": {"type": "failure", "conditions": []},
+                })
+                self.analyze_resources(owner_id, method, "wait_for")
+                return
             node_id = f"unknown:wait:{step_name}:{method.lineno}"
             self.add_node({"id": node_id, "kind": "unknown", "name": "Dynamic WaitFor", "parentId": owner_id, "span": self.span(method)})
             self.error("hidden_dex_wait", f"{method.name} hides its Dex Wait in a helper", self.span(method))
@@ -403,6 +444,15 @@ class Analyzer:
                 "wait": {"type": wait_type, "conditions": conditions},
             })
         self.analyze_resources(owner_id, method, "wait_for")
+
+    def raises_wait_failure(self, method):
+        has_raise = False
+        for node in ast.walk(method):
+            if isinstance(node, ast.Return):
+                return False
+            if isinstance(node, ast.Raise):
+                has_raise = True
+        return has_raise
 
     def decision_outcomes(self, expression, condition, rpc, locals_map):
         if isinstance(expression, ast.IfExp):

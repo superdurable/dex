@@ -41,51 +41,27 @@ var testCustomer = Customer{
 	},
 }
 
-func TestInitializeSubscription(t *testing.T) {
-	decision := initializeSubscription()
-
-	require.Equal(t, dex.GoToMany(
-		dex.MovementOf(trialStep{}, nil),
-		dex.MovementOf(cancelStep{}, nil),
-		dex.MovementOf(updateChargeAmountStep{}, nil),
-	), decision)
-}
-
-func TestWaitForTrial(t *testing.T) {
+func TestSendWelcomeEmail(t *testing.T) {
 	applicationService := &recordingService{}
 
-	wait := waitForTrial(testCustomer, applicationService)
+	sendWelcomeEmail(testCustomer, applicationService)
 
-	require.Equal(t, dex.Until(dex.Timer(testCustomer.Subscription.TrialPeriod)), wait)
 	require.Equal(t, []recordedEmail{{
 		recipient: testCustomer.Email,
 		subject:   "welcome email",
 		content:   "hello content",
 	}}, applicationService.emails)
 }
-
-func TestExecuteTrial(t *testing.T) {
-	decision := executeTrial()
-
-	require.Equal(t, dex.GoTo(chargeCurrentBillStep{}, nil), decision)
-}
-
-func TestWaitForCharge(t *testing.T) {
+func TestIsSubscriptionOver(t *testing.T) {
 	t.Run("active subscription", func(t *testing.T) {
-		wait, subscriptionOver := waitForCharge(testCustomer, 0)
-
-		require.False(t, subscriptionOver)
-		require.Equal(t, dex.Until(dex.Timer(testCustomer.Subscription.BillingPeriod)), wait)
+		require.False(t, isSubscriptionOver(testCustomer, 0))
 	})
 
 	t.Run("completed subscription", func(t *testing.T) {
-		wait, subscriptionOver := waitForCharge(
+		require.True(t, isSubscriptionOver(
 			testCustomer,
 			testCustomer.Subscription.MaxBillingPeriods,
-		)
-
-		require.True(t, subscriptionOver)
-		require.Equal(t, dex.SkipWaitImmediately(), wait)
+		))
 	})
 }
 
@@ -93,29 +69,29 @@ func TestExecuteCharge(t *testing.T) {
 	t.Run("charge and continue", func(t *testing.T) {
 		applicationService := &recordingService{}
 
-		decision := executeCharge(testCustomer, false, applicationService)
+		result := applyCharge(testCustomer, false, applicationService)
 
+		require.Equal(t, chargeContinues, result)
 		require.Empty(t, applicationService.emails)
 		require.Equal(t, []recordedCharge{{
 			email:      testCustomer.Email,
 			customerID: testCustomer.ID,
 			amount:     testCustomer.Subscription.BillingPeriodCharge,
 		}}, applicationService.charges)
-		require.Equal(t, dex.GoTo(chargeCurrentBillStep{}, nil), decision)
 	})
 
 	t.Run("complete subscription", func(t *testing.T) {
 		applicationService := &recordingService{}
 
-		decision := executeCharge(testCustomer, true, applicationService)
+		result := applyCharge(testCustomer, true, applicationService)
 
+		require.Equal(t, chargeCompleted, result)
 		require.Empty(t, applicationService.charges)
 		require.Equal(t, []recordedEmail{{
 			recipient: testCustomer.Email,
 			subject:   "subscription over",
 			content:   "hello content",
 		}}, applicationService.emails)
-		require.Equal(t, dex.ForceComplete("subscription ended"), decision)
 	})
 }
 
@@ -126,13 +102,12 @@ func TestCancelSubscription(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, dex.Until(CancelSubscription.ForOne()), wait)
 
-	decision := executeCancel(testCustomer, applicationService)
+	cancelCustomerSubscription(testCustomer, applicationService)
 	require.Equal(t, []recordedEmail{{
 		recipient: testCustomer.Email,
 		subject:   "subscription canceled",
 		content:   "hello content",
 	}}, applicationService.emails)
-	require.Equal(t, dex.ForceComplete("subscription canceled"), decision)
 }
 
 func TestUpdateChargeAmount(t *testing.T) {
@@ -140,15 +115,14 @@ func TestUpdateChargeAmount(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, dex.Until(UpdateChargeAmount.ForOne()), wait)
 
-	updatedCustomer, decision, err := executeUpdateChargeAmount(testCustomer, []int{200})
+	updatedCustomer, err := updateCustomerChargeAmount(testCustomer, []int{200})
 	require.NoError(t, err)
 	require.Equal(t, 200, updatedCustomer.Subscription.BillingPeriodCharge)
-	require.Equal(t, dex.GoTo(updateChargeAmountStep{}, nil), decision)
 }
 
 func TestUpdateChargeAmountRejectsUnexpectedResults(t *testing.T) {
 	for _, amounts := range [][]int{nil, {100, 200}} {
-		_, _, err := executeUpdateChargeAmount(testCustomer, amounts)
+		_, err := updateCustomerChargeAmount(testCustomer, amounts)
 
 		require.Error(t, err)
 	}

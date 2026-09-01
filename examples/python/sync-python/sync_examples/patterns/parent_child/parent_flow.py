@@ -16,12 +16,9 @@
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Callable, cast
-
-from sync_examples.config import start_options
+from typing import Callable
 
 from dex import (
     Channel,
@@ -39,8 +36,10 @@ from dex import (
     Wait,
     go_to,
     go_to_many,
-    graceful_complete,
 )
+
+from sync_examples.config import start_options
+from sync_examples.patterns.parent_child.child_flow import ChildFlow
 
 CONCURRENCY_PER_PARENT_WORKFLOW = 3
 MAX_WAIT_SECONDS = 10
@@ -50,25 +49,6 @@ MAX_WAIT_SECONDS = 10
 class WaitForChildInput:
     child_wf_id: str
     timer_seconds: int
-
-
-class ChildProcessing(Step[str]):
-    def wait_for(self, context: Context, input: str) -> Wait:
-        return Wait.until(Timer.by_duration(timedelta(seconds=random.randint(1, 3))))
-
-    def execute(self, context: Context, input: str) -> StepDecision:
-        return graceful_complete()
-
-
-class ChildFlow(Flow[str]):
-    def __init__(self) -> None:
-        self.processing = ChildProcessing()
-
-    def get_steps(self) -> StepList[str]:
-        return StepList.start_step(self.processing)
-
-    def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of()
 
 
 class AwaitChildWorkflowCompletion(Step[WaitForChildInput]):

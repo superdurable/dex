@@ -41,7 +41,8 @@ from dex_examples.products.money_transfer.money_transfer_flow import MoneyTransf
 from dex_examples.products.subscription.subscription_flow import SubscriptionFlow
 from dex_examples.shared.my_dependency_service import MyDependencyService
 from sync_examples.config import SyncExamplesConfig
-from sync_examples.patterns.parent_child.parent_child import ChildFlow, ParentFlowV2
+from sync_examples.patterns.parent_child.child_flow import ChildFlow
+from sync_examples.patterns.parent_child.parent_flow import ParentFlowV2
 
 
 class SyncExampleApp:

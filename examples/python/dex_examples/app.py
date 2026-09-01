@@ -50,12 +50,20 @@ from dex_examples.patterns.parallel.await_parallel_steps_flow import AwaitParall
 from dex_examples.patterns.parallel.dynamic_parallel_steps_flow import DynamicParallelStepsFlow
 from dex_examples.patterns.parallel.first_win_parallel_steps_flow import FirstWinParallelStepsFlow
 from dex_examples.patterns.parallel.static_parallel_steps_flow import StaticParallelStepsFlow
-from dex_examples.patterns.parallel_subflows.flows import (
+from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow import (
     AdvancedLongLiveParentFlow,
+)
+from dex_examples.patterns.parallel_subflows.advanced_short_live_parent_flow import (
     AdvancedShortLiveParentFlow,
-    BasicParentFlow,
+)
+from dex_examples.patterns.parallel_subflows.basic_parent_flow import BasicParentFlow
+from dex_examples.patterns.parallel_subflows.example_subflow import (
     ExampleSubFlow as ParallelExampleSubFlow,
+)
+from dex_examples.patterns.parallel_subflows.submit_request_flow import (
     SubmitRequestFlow,
+)
+from dex_examples.patterns.parallel_subflows.wait_for_half_parent_flow import (
     WaitForHalfParentFlow,
 )
 from dex_examples.patterns.polling.backoff_polling_flow import BackoffPollingFlow
@@ -94,7 +102,8 @@ from dex_examples.primitives.step_execution_local.step_execution_local_flow impo
 )
 from dex_examples.primitives.step_decision.step_decision_flow import StepDecisionFlow
 from dex_examples.primitives.stream.stream_flow import StreamFlow
-from dex_examples.primitives.subflow.subflow_flow import SubFlowChildFlow, SubFlowParentFlow
+from dex_examples.primitives.subflow.child_flow import SubFlowChildFlow
+from dex_examples.primitives.subflow.parent_flow import SubFlowParentFlow
 from dex_examples.primitives.timer.timer_flow import TimerFlow
 from dex_examples.primitives.wait_types.wait_types_flow import WaitTypesFlow
 from dex_examples.products.ai_agent.ai_agent_flow import AIAgentFlow

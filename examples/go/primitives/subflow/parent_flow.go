@@ -27,30 +27,6 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-type SubFlowChildFlow struct {
-	dex.FlowDefaults
-}
-
-func NewSubFlowChildFlow() *SubFlowChildFlow {
-	return &SubFlowChildFlow{}
-}
-
-func (*SubFlowChildFlow) GetSteps() []dex.StepDef {
-	return []dex.StepDef{dex.DefineStartStep(subFlowChildStep{})}
-}
-
-func (*SubFlowChildFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{}
-}
-
-type subFlowChildStep struct {
-	dex.StepDefaultsNoWaitFor[int]
-}
-
-func (subFlowChildStep) Execute(_ dex.Context, input int) (*dex.StepDecision, error) {
-	return dex.GracefulComplete(input + 1), nil
-}
-
 type SubFlowParentFlow struct {
 	dex.FlowDefaults
 	child *SubFlowChildFlow
@@ -97,7 +73,4 @@ func (subFlowParentStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, err
 	return dex.GracefulComplete(fmt.Sprintf("%s|%d", flowID, output)), nil
 }
 
-var (
-	_ dex.Flow = (*SubFlowChildFlow)(nil)
-	_ dex.Flow = (*SubFlowParentFlow)(nil)
-)
+var _ dex.Flow = (*SubFlowParentFlow)(nil)

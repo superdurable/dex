@@ -153,22 +153,6 @@ func TestVisualizeRepresentativeGoAndPythonFlows(t *testing.T) {
 
 func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
-	expectedBlocking := map[string][]string{
-		"examples/go/patterns/entity-store/workflow.go":                                                   {"dynamic_step_registration"},
-		"examples/go/patterns/parallel-subflows/flows.go":                                                 {"multiple_flows"},
-		"examples/go/primitives/options-override/workflow.go":                                             {"hidden_dex_wait"},
-		"examples/go/primitives/proceed-on-wait-failure/workflow.go":                                      {"hidden_dex_wait"},
-		"examples/go/primitives/subflow/workflow.go":                                                      {"multiple_flows"},
-		"examples/go/products/subscription/workflow.go":                                                   {"hidden_dex_decision", "hidden_dex_wait"},
-		"examples/python/dex_examples/patterns/entity-store/user_profile_flow.py":                         {"dynamic_step_registration"},
-		"examples/python/dex_examples/patterns/parallel-subflows/flows.py":                                {"multiple_flows"},
-		"examples/python/dex_examples/primitives/options_override/options_override_flow.py":               {"hidden_dex_wait"},
-		"examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py": {"hidden_dex_wait"},
-		"examples/python/dex_examples/primitives/subflow/subflow_flow.py":                                 {"multiple_flows"},
-		"examples/python/dex_examples/primitives/timer/timer_flow.py":                                     {"dynamic_step_target"},
-		"examples/python/sync-python/sync_examples/patterns/parent_child/parent_child.py":                 {"multiple_flows"},
-	}
-
 	sources := exampleFlowSources(t, repositoryRoot)
 	require.NotEmpty(t, sources)
 	for _, source := range sources {
@@ -184,16 +168,34 @@ func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 			second, marshalErr := json.Marshal(graph)
 			require.NoError(t, marshalErr)
 			require.Equal(t, first, second)
+			require.True(t, graph.Valid, graph.Diagnostics)
+		})
+	}
+}
 
-			expected := expectedBlocking[relative]
-			if len(expected) == 0 {
-				require.True(t, graph.Valid, graph.Diagnostics)
-				return
-			}
-			require.False(t, graph.Valid)
-			for _, code := range expected {
-				require.Contains(t, diagnosticCodes(graph.Diagnostics), code)
-			}
+func TestVisualizeRepresentsStaticWaitFailures(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	sources := []string{
+		"examples/go/primitives/options-override/workflow.go",
+		"examples/go/primitives/proceed-on-wait-failure/workflow.go",
+		"examples/python/dex_examples/primitives/options_override/options_override_flow.py",
+		"examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py",
+	}
+	for _, source := range sources {
+		t.Run(source, func(t *testing.T) {
+			graph, err := flowviz.Analyze(context.Background(), filepath.Join(repositoryRoot, source), flowviz.AnalyzeOptions{})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, graph.Diagnostics)
+
+			waits := nodesOfKind(graph.Nodes, "wait")
+			require.Condition(t, func() bool {
+				for _, wait := range waits {
+					if wait.Wait != nil && wait.Wait.Type == "failure" {
+						return true
+					}
+				}
+				return false
+			})
 		})
 	}
 }
@@ -734,6 +736,9 @@ func exampleFlowSources(t *testing.T, repositoryRoot string) []string {
 		err := filepath.WalkDir(root.directory, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
+			}
+			if entry.IsDir() && path != root.directory && strings.HasPrefix(entry.Name(), ".") {
+				return filepath.SkipDir
 			}
 			if entry.IsDir() || filepath.Ext(path) != root.extension || strings.HasSuffix(path, "_test.go") {
 				return nil

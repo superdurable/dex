@@ -278,9 +278,24 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 		}
 		return false
 	})
-	if registrationCount == 0 {
+	if registrationCount == 0 && !analyzer.hasStaticEmptyStepRegistration(getSteps) {
 		analyzer.graph.AddDiagnostic("error", "dynamic_step_registration", "GetSteps must directly call DefineStep or DefineStartStep", analyzer.span(getSteps))
 	}
+}
+
+func (analyzer *goAnalyzer) hasStaticEmptyStepRegistration(getSteps *ast.FuncDecl) bool {
+	if getSteps.Body == nil || len(getSteps.Body.List) != 1 {
+		return false
+	}
+	returnStatement, ok := getSteps.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(returnStatement.Results) != 1 {
+		return false
+	}
+	if identifier, isIdentifier := returnStatement.Results[0].(*ast.Ident); isIdentifier {
+		return identifier.Name == "nil"
+	}
+	composite, isComposite := returnStatement.Results[0].(*ast.CompositeLit)
+	return isComposite && len(composite.Elts) == 0
 }
 
 func (analyzer *goAnalyzer) analyzeStep(stepType string, nodeID string) {
@@ -424,6 +439,16 @@ func (analyzer *goAnalyzer) analyzeWaitFor(ownerID string, stepType string, meth
 		return true
 	})
 	if len(returns) == 0 {
+		if analyzer.returnsOnlyWaitFailure(method) {
+			position := analyzer.fileSet.Position(method.Pos())
+			waitID := fmt.Sprintf("wait:%s:%d:%d", stepType, position.Line, position.Column)
+			analyzer.graph.AddNode(Node{
+				ID: waitID, Kind: "wait", Name: "failure", ParentID: ownerID,
+				Phase: "wait_for", Span: analyzer.span(method), Wait: &WaitDetails{Type: "failure"},
+			})
+			analyzer.analyzeResourceAccess(ownerID, method, "wait_for")
+			return
+		}
 		unknownID := fmt.Sprintf("unknown:wait:%s:%d", stepType, analyzer.fileSet.Position(method.Pos()).Line)
 		analyzer.graph.AddNode(Node{ID: unknownID, Kind: "unknown", Name: "Dynamic WaitFor", ParentID: ownerID, Span: analyzer.span(method)})
 		analyzer.graph.AddDiagnostic("error", "hidden_dex_wait", fmt.Sprintf("%s hides its Dex Wait in a helper", method.Name.Name), analyzer.span(method))
@@ -443,6 +468,32 @@ func (analyzer *goAnalyzer) analyzeWaitFor(ownerID string, stepType string, meth
 		})
 	}
 	analyzer.analyzeResourceAccess(ownerID, method, "wait_for")
+}
+
+func (analyzer *goAnalyzer) returnsOnlyWaitFailure(method *ast.FuncDecl) bool {
+	hasFailureReturn := false
+	hasOtherReturn := false
+	ast.Inspect(method.Body, func(current ast.Node) bool {
+		if _, isFunction := current.(*ast.FuncLit); isFunction {
+			return false
+		}
+		returnStatement, ok := current.(*ast.ReturnStmt)
+		if !ok {
+			return true
+		}
+		if len(returnStatement.Results) != 2 || !isNilIdentifier(returnStatement.Results[0]) || isNilIdentifier(returnStatement.Results[1]) {
+			hasOtherReturn = true
+			return false
+		}
+		hasFailureReturn = true
+		return false
+	})
+	return hasFailureReturn && !hasOtherReturn
+}
+
+func isNilIdentifier(expression ast.Expr) bool {
+	identifier, ok := expression.(*ast.Ident)
+	return ok && identifier.Name == "nil"
 }
 
 func (analyzer *goAnalyzer) analyzeFailurePolicy(ownerID string, method *ast.FuncDecl) {
