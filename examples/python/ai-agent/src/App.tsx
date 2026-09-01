@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 const API_BASE = '/products/ai-agent';
 
@@ -61,6 +61,8 @@ interface AgentDescription {
   pending_timer_call_id: string | null;
   pending_timer_duration_seconds: number | null;
   pending_timer_reason: string | null;
+  pending_user_input_call_id: string | null;
+  pending_user_input_prompt: string | null;
   plan: AgentPlan | null;
   plan_execution_requested: boolean;
   available_mcp_servers: string[];
@@ -125,6 +127,7 @@ const App: React.FC = () => {
   const [activity, setActivity] = useState<AgentEvent[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState('');
+  const messageInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (workflowId) return;
@@ -140,6 +143,12 @@ const App: React.FC = () => {
       })
       .catch((reason) => setError(String(reason)));
   }, [workflowId]);
+
+  useEffect(() => {
+    if (description?.pending_user_input_prompt) {
+      messageInputRef.current?.focus();
+    }
+  }, [description?.pending_user_input_prompt]);
 
   const fetchState = async () => {
     if (!workflowId) return;
@@ -345,6 +354,14 @@ const App: React.FC = () => {
     }
   };
 
+  const isModelRunning = description?.status === 'calling_model'
+    || description?.status === 'compacting_context'
+    || description?.status === 'routing_tool'
+    || description?.status === 'executing_tool';
+  const latestModelEvent = [...activity]
+    .reverse()
+    .find((event) => event.kind.startsWith('model_'));
+
   if (!workflowId) {
     return (
       <main style={styles.page}>
@@ -515,7 +532,7 @@ const App: React.FC = () => {
 
             <div style={styles.builtIns}>
               <strong>Built in</strong>
-              {(portalConfig?.builtInTools ?? ['write_todos', 'durable_wait']).map((tool) => (
+              {(portalConfig?.builtInTools ?? ['write_todos', 'request_user_input', 'durable_wait']).map((tool) => (
                 <span key={tool} style={styles.toolPill}>{tool}</span>
               ))}
             </div>
@@ -560,17 +577,32 @@ const App: React.FC = () => {
         <div style={styles.messages}>
           {messages.length === 0 && <p style={styles.empty}>Send a message to begin.</p>}
           {messages
-            .filter(({ message }) => !isPlanPlumbing(message))
+            .filter(({ message }) => !isAgentPlumbing(message))
             .map(({ sequence, message }) => (
               <MessageCard key={sequence} sequence={sequence} message={message} />
             ))}
-          {liveText && (
-            <div style={{ ...styles.message, ...styles.assistantMessage }}>
-              <strong>Assistant · streaming</strong>
-              <p style={styles.messageText}>{liveText}</p>
-            </div>
-          )}
         </div>
+
+        {(isModelRunning || liveText) && (
+          <section style={styles.liveModelCard} aria-live="polite">
+            <div style={styles.liveModelHeader}>
+              <span style={styles.liveIndicator} />
+              <strong>Live model output</strong>
+              <small>{description?.model}</small>
+            </div>
+            <p style={styles.liveModelText}>
+              {liveText || latestModelEvent?.message || 'Waiting for streamed model output…'}
+            </p>
+          </section>
+        )}
+
+        {description?.pending_user_input_prompt && (
+          <section style={styles.userInputCard}>
+            <p style={styles.eyebrow}>Agent needs your input</p>
+            <strong style={styles.userInputPrompt}>{description.pending_user_input_prompt}</strong>
+            <small>Your reply is delivered durably and execution resumes from this point.</small>
+          </section>
+        )}
 
         {description?.plan && (
           <PlanCard
@@ -578,6 +610,7 @@ const App: React.FC = () => {
             canExecute={
               description.status === 'waiting_for_message'
               && !description.plan_execution_requested
+              && !description.pending_user_input_prompt
               && description.plan.status !== 'completed'
             }
             isBusy={isBusy || description.plan_execution_requested}
@@ -640,21 +673,27 @@ const App: React.FC = () => {
           </label>
           <div style={styles.composer}>
             <textarea
+              ref={messageInputRef}
               style={{ ...styles.input, minHeight: 90, margin: 0 }}
               value={input}
-              placeholder={planMode ? 'Describe what you want the Agent to plan.' : 'Message the AI Agent. Try /wait 5 demo when using mock/dex.'}
+              placeholder={description?.pending_user_input_prompt
+                ? 'Answer the Agent’s question…'
+                : planMode
+                  ? 'Describe what you want the Agent to plan.'
+                  : 'Message the AI Agent. Try /wait 5 demo when using mock/dex.'}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.shiftKey) {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey || event.altKey)) {
                   event.preventDefault();
                   void sendMessage();
                 }
               }}
             />
             <button style={styles.primaryButton} disabled={isBusy || !input.trim()} onClick={sendMessage}>
-              {planMode ? 'Create plan' : 'Send'}
+              {description?.pending_user_input_prompt ? 'Reply' : planMode ? 'Create plan' : 'Send'}
             </button>
           </div>
+          <small style={styles.shortcutHint}>Send with ⌘/Ctrl + Enter or Alt + Enter · Enter adds a new line</small>
         </div>
         {error && <p style={styles.error}>{error}</p>}
       </section>
@@ -731,9 +770,11 @@ const PlanCard: React.FC<{
   );
 };
 
-const isPlanPlumbing = (message: AgentMessage): boolean => (
-  message.tool_name === 'write_todos'
-  || (message.tool_calls.length > 0 && message.tool_calls.every((call) => call.name === 'write_todos'))
+const INTERNAL_TOOLS = new Set(['write_todos', 'request_user_input']);
+
+const isAgentPlumbing = (message: AgentMessage): boolean => (
+  (message.tool_name !== null && INTERNAL_TOOLS.has(message.tool_name))
+  || (message.tool_calls.length > 0 && message.tool_calls.every((call) => INTERNAL_TOOLS.has(call.name)))
 );
 
 const planTaskIcon = (status: PlanTask['status']): string => {
@@ -796,6 +837,12 @@ const styles: Record<string, React.CSSProperties> = {
   pre: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '8px 0', fontSize: 12 },
   approvalCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#fff3e5', border: '1px solid #f4bb77' },
   timerCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#e9f8f2', border: '1px solid #8dd7bd' },
+  liveModelCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#161b2e', color: '#eef2ff', border: '1px solid #343b5f', boxShadow: '0 12px 30px rgba(20, 24, 45, .16)' },
+  liveModelHeader: { display: 'flex', alignItems: 'center', gap: 9, color: '#c7d2fe' },
+  liveIndicator: { width: 9, height: 9, borderRadius: '50%', background: '#7c72ff', boxShadow: '0 0 0 5px rgba(124,114,255,.15)' },
+  liveModelText: { margin: '13px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.6, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
+  userInputCard: { display: 'grid', gap: 8, marginTop: 18, padding: 20, borderRadius: 14, background: '#fff8e8', border: '1px solid #f1ca74' },
+  userInputPrompt: { fontSize: 18, lineHeight: 1.5 },
   planCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#f0f4ff', border: '1px solid #aebdf2' },
   planHeader: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' },
   planRevision: { marginLeft: 8, color: '#667085' },
@@ -810,6 +857,7 @@ const styles: Record<string, React.CSSProperties> = {
   planModeToggle: { display: 'flex', gap: 8, alignItems: 'center', fontWeight: 700, marginBottom: 10 },
   planModeHint: { color: '#667085', fontWeight: 400 },
   composer: { display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' },
+  shortcutHint: { display: 'block', marginTop: 8, color: '#7b8495' },
   error: { padding: 12, borderRadius: 9, background: '#ffeded', color: '#a11d2b' },
   empty: { textAlign: 'center', color: '#7b8495', margin: '100px 0' },
   footer: { maxWidth: 960, margin: '14px auto', color: '#6b7280', fontSize: 13 },

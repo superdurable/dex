@@ -51,6 +51,7 @@ cd ai-agent
 npm ci
 npm run build
 cd ..
+export DEX_AGENT_MCP_CONFIG="$PWD/ai-agent/mcp-servers.local.yaml"
 uv run --frozen python main.py
 ```
 
@@ -58,6 +59,17 @@ Open [http://127.0.0.1:8080/products/ai-agent/](http://127.0.0.1:8080/products/a
 The first page is the Agent Portal. Choose a LiteLLM provider and model, enter an
 API key or use the Worker environment, and select the registered MCP servers and
 tools available to the new session.
+
+The local MCP configuration starts credential-free search, Slack, and Google
+Docs demo servers before the Portal loads. Read operations run automatically.
+Demo Slack posts and Google Doc creation still require approval. Use
+[`mcp-servers.example.yaml`](./mcp-servers.example.yaml) when connecting real
+providers.
+
+The chat page shows buffered model text while a model call is running. Press
+**Command/Ctrl+Enter** or **Alt+Enter** to send; plain Enter inserts a line break.
+When work needs information that is missing, the Agent uses
+**request_user_input** to show a durable question card and wait for a reply.
 
 ## Configure a real model
 

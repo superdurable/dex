@@ -148,6 +148,12 @@ class PendingTimer:
 
 
 @dataclass(frozen=True)
+class PendingUserInput:
+    call_id: str
+    prompt: str
+
+
+@dataclass(frozen=True)
 class AgentEvent:
     kind: str
     message: str
@@ -187,6 +193,8 @@ class AgentDescription:
     pending_timer_call_id: str | None
     pending_timer_duration_seconds: int | None
     pending_timer_reason: str | None
+    pending_user_input_call_id: str | None
+    pending_user_input_prompt: str | None
     plan: dict[str, Any] | None
     plan_execution_requested: bool
     available_mcp_servers: list[str]

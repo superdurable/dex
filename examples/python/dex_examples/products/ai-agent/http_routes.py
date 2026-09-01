@@ -115,7 +115,7 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             ],
             mcpServers=app_state.mcp_registry.server_names,
             tools=tools,
-            builtInTools=["write_todos", "durable_wait"],
+            builtInTools=["write_todos", "request_user_input", "durable_wait"],
         )
 
     @blueprint.post("/start")

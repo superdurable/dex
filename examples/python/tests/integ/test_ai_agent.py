@@ -82,6 +82,23 @@ servers:
         await process.wait()
 
 
+async def test_local_portal_mcp_servers_are_ready_before_start() -> None:
+    config_path = Path(__file__).parents[2] / "ai-agent" / "mcp-servers.local.yaml"
+    registry = MCPRegistry.from_file(config_path)
+    try:
+        await registry.start()
+        assert registry.server_names == ["google_docs", "search", "slack"]
+        assert registry.tool_names == [
+            "google_docs__create_document",
+            "google_docs__search_documents",
+            "search__web_search",
+            "slack__post_message",
+            "slack__search_messages",
+        ]
+    finally:
+        await registry.close()
+
+
 async def test_ai_agent_executes_mcp_primitives_and_approval(
     app: ExampleApp,
     client: AsyncClient,
@@ -126,6 +143,68 @@ async def test_ai_agent_executes_mcp_primitives_and_approval(
         '/tool mcp_get_prompt {"server":"test","name":"greeting","arguments":{"name":"Dex"}}',
     )
     await _wait_for_content(client, app, flow_id, "Greet Dex")
+
+
+async def test_ai_agent_requests_and_resumes_from_durable_user_input(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("ai-agent-user-input")
+    await client.start_flow(
+        app.ai_agent,
+        flow_id,
+        AgentConfig(),
+        StartFlowOptions(),
+    )
+    await _send(
+        client,
+        app,
+        flow_id,
+        "/ask What date should I use?",
+        plan_mode=True,
+    )
+
+    async def draft_revision() -> int | None:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        if (
+            description.status != "waiting_for_message"
+            or description.plan is None
+            or description.plan["status"] != "draft"
+        ):
+            return None
+        revision = description.plan["revision"]
+        assert isinstance(revision, int)
+        return revision
+
+    revision = await wait_until("AI Agent input plan", draft_revision, WAIT_TIMEOUT)
+    assert await client.invoke_rpc(
+        app.ai_agent.execute_plan,
+        flow_id,
+        PlanExecutionRequest(revision),
+    )
+
+    async def is_waiting_for_input() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return (
+            description.status == "waiting_for_message"
+            and description.pending_user_input_prompt == "What date should I use?"
+        )
+
+    await wait_until("AI Agent user input request", is_waiting_for_input, WAIT_TIMEOUT)
+    await _send(client, app, flow_id, "September 12")
+
+    async def has_completed_plan() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return (
+            description.pending_user_input_prompt is None
+            and description.plan is not None
+            and description.plan["status"] == "completed"
+        )
+
+    await wait_until("AI Agent resumed plan", has_completed_plan, WAIT_TIMEOUT)
+    description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+    assert description.pending_user_input_prompt is None
 
 
 async def test_ai_agent_plans_before_execution(

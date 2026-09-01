@@ -1,0 +1,18 @@
+servers:
+  - name: search
+    transport: stdio
+    command: .venv/bin/python
+    args: [ai-agent/local_mcp_server.py, search]
+    trust_read_only_annotations: true
+
+  - name: slack
+    transport: stdio
+    command: .venv/bin/python
+    args: [ai-agent/local_mcp_server.py, slack]
+    trust_read_only_annotations: true
+
+  - name: google_docs
+    transport: stdio
+    command: .venv/bin/python
+    args: [ai-agent/local_mcp_server.py, google-docs]
+    trust_read_only_annotations: true

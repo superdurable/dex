@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol
@@ -121,6 +122,9 @@ class LiteLLMModelClient:
             if isinstance(content, str) and content:
                 content_parts.append(content)
                 write_progress(content)
+            reasoning = getattr(delta, "reasoning_content", None)
+            if isinstance(reasoning, str) and reasoning:
+                write_progress(reasoning)
             for tool_delta in getattr(delta, "tool_calls", None) or []:
                 index = int(getattr(tool_delta, "index", 0))
                 current = tool_parts.setdefault(
@@ -252,6 +256,21 @@ async def _mock_completion(
                 )
             ],
         )
+    if request.lower().startswith("/ask ") and "request_user_input" in available_tool_names:
+        content = "I need more information before I continue."
+        await _stream_mock_content(content, write_progress)
+        return ModelReply(
+            content,
+            [
+                ToolCall(
+                    id=f"call-{uuid4().hex}",
+                    name="request_user_input",
+                    arguments_json=json.dumps(
+                        {"prompt": request.removeprefix("/ask ").strip()}
+                    ),
+                )
+            ],
+        )
 
     active_plan = _active_plan(messages)
     if active_plan is not None and any(
@@ -259,9 +278,7 @@ async def _mock_completion(
     ):
         if _last_user_content(messages).lower().startswith("/plan-stop "):
             content = "I stopped before completing every plan task."
-            midpoint = len(content) // 2
-            write_progress(content[:midpoint])
-            write_progress(content[midpoint:])
+            await _stream_mock_content(content, write_progress)
             return ModelReply(content)
         return ModelReply(
             "I will execute the approved plan.",
@@ -322,10 +339,19 @@ async def _mock_completion(
                 ],
             )
         content = f"Local demo response: {request}"
+    await _stream_mock_content(content, write_progress)
+    return ModelReply(content)
+
+
+async def _stream_mock_content(
+    content: str,
+    write_progress: ProgressWriter,
+) -> None:
     midpoint = len(content) // 2
     write_progress(content[:midpoint])
+    await asyncio.sleep(0.2)
     write_progress(content[midpoint:])
-    return ModelReply(content)
+    await asyncio.sleep(0.2)
 
 
 def _last_user_content(messages: Sequence[AgentMessage]) -> str:

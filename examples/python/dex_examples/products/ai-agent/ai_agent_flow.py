@@ -57,6 +57,7 @@ from dex_examples.products.ai_agent.models import (
     HistoryRequest,
     PendingApproval,
     PendingTimer,
+    PendingUserInput,
     PlanExecutionRequest,
     PlanTask,
     SequencedMessage,
@@ -265,6 +266,10 @@ class CallModel(Step[None]):
         )
 
         progress = self.flow.assistant_text.buffered_text(context)
+        self.flow.events.write(
+            context,
+            AgentEvent("model_started", f"Calling {config.model}."),
+        )
 
         reply = await self.flow.model_client.complete(
             config,
@@ -277,6 +282,16 @@ class CallModel(Step[None]):
         self.flow.append_message(
             context,
             AgentMessage("assistant", reply.content, reply.tool_calls),
+        )
+        event_message = (
+            "Model response completed."
+            if not reply.tool_calls
+            else "Model requested: "
+            + ", ".join(call.name for call in reply.tool_calls)
+        )
+        self.flow.events.write(
+            context,
+            AgentEvent("model_completed", event_message),
         )
         state = self.flow.state.get(context)
         state = self.flow.trim_summarized_messages(context, config, state)
@@ -398,6 +413,43 @@ class RouteTool(Step[None]):
                 PendingTimer(call.id, duration_seconds, reason),
             )
             return go_to(DurableWait, None)
+        if call.name == "request_user_input":
+            arguments = _tool_arguments(call)
+            prompt = str(arguments.get("prompt", "")).strip()
+            if not prompt:
+                self.flow.append_tool_result(
+                    context,
+                    call,
+                    ToolExecutionResult(
+                        '{"status":"failed","error":"prompt must not be empty"}',
+                        True,
+                    ),
+                )
+                return self.flow.advance_tool(context)
+            self.flow.pending_user_input.set(
+                context,
+                PendingUserInput(call.id, prompt),
+            )
+            self.flow.append_tool_result(
+                context,
+                call,
+                ToolExecutionResult(
+                    json.dumps(
+                        {"status": "waiting_for_user", "prompt": prompt},
+                        ensure_ascii=False,
+                    ),
+                    False,
+                ),
+            )
+            self.flow.state.set(
+                context,
+                replace(state, pending_tool_calls=[], pending_tool_index=0),
+            )
+            self.flow.events.write(
+                context,
+                AgentEvent("user_input_requested", prompt, call.id, call.name),
+            )
+            return go_to(AwaitUser, None)
 
         if definition.requires_approval:
             self.flow.pending_approval.set(
@@ -551,6 +603,7 @@ class AIAgentFlow(Flow[AgentConfig]):
     plan = Attribute("AgentPlan", AgentPlan)
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
+    pending_user_input = Attribute("PendingUserInput", PendingUserInput)
     user_messages = Channel("UserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
@@ -593,6 +646,7 @@ class AIAgentFlow(Flow[AgentConfig]):
             self.plan,
             self.pending_approval,
             self.pending_timer,
+            self.pending_user_input,
             self.user_messages,
             self.tool_approvals,
             self.plan_executions,
@@ -625,6 +679,7 @@ class AIAgentFlow(Flow[AgentConfig]):
             else []
         )
         definitions.append(_durable_wait_definition())
+        definitions.append(_request_user_input_definition())
         return definitions
 
     def invocation_tool_definitions(
@@ -658,10 +713,15 @@ class AIAgentFlow(Flow[AgentConfig]):
     def begin_user_turn(self, context: Context, message: UserMessage) -> None:
         state = self.state.get(context)
         plan = self.get_plan(context)
+        pending_user_input = _optional_attribute(self.pending_user_input, context)
         if message.plan_mode:
             interaction_mode = MODE_PLANNING
             planning_requires_write = True
             planning_allows_write = True
+        elif pending_user_input is not None and plan is not None and plan.status == PLAN_ACTIVE:
+            interaction_mode = MODE_EXECUTING
+            planning_requires_write = False
+            planning_allows_write = False
         elif plan is not None and plan.status in {PLAN_DRAFT, PLAN_ACTIVE}:
             interaction_mode = MODE_PLANNING
             planning_requires_write = False
@@ -687,6 +747,8 @@ class AIAgentFlow(Flow[AgentConfig]):
                 ),
             ),
         )
+        if pending_user_input is not None:
+            self.pending_user_input.delete(context)
         self.append_message(context, AgentMessage("user", message.content))
 
     def get_plan(self, context: Context) -> AgentPlan | None:
@@ -834,7 +896,9 @@ class AIAgentFlow(Flow[AgentConfig]):
         elif plan is not None and plan.status == PLAN_ACTIVE:
             instruction = (
                 "The user approved this plan. Execute it and use write_todos to "
-                "keep task statuses accurate."
+                "keep task statuses accurate. If required information is missing, "
+                "keep dependent tasks pending, call request_user_input with one "
+                "concise question, and stop until the user answers."
             )
         else:
             instruction = "This completed plan is durable reference state."
@@ -960,6 +1024,7 @@ class AIAgentFlow(Flow[AgentConfig]):
             or state.status != STATUS_WAITING
             or state.pending_plan_execution_revision is not None
             or state.pending_user_message_count > 0
+            or _optional_attribute(self.pending_user_input, context) is not None
             or self.user_messages.size(context) > 0
             or plan.revision != input.revision
             or plan.status not in {PLAN_DRAFT, PLAN_ACTIVE}
@@ -1016,14 +1081,21 @@ class AIAgentFlow(Flow[AgentConfig]):
                     pending_timer_call_id=None,
                     pending_timer_duration_seconds=None,
                     pending_timer_reason=None,
+                    pending_user_input_call_id=None,
+                    pending_user_input_prompt=None,
                     plan=None,
                     plan_execution_requested=False,
                     available_mcp_servers=self.mcp_registry.server_names,
-                    available_tools=["write_todos", "durable_wait"],
+                    available_tools=[
+                        "write_todos",
+                        "durable_wait",
+                        "request_user_input",
+                    ],
                 )
             )
         approval = _optional_attribute(self.pending_approval, context)
         timer = _optional_attribute(self.pending_timer, context)
+        pending_user_input = _optional_attribute(self.pending_user_input, context)
         plan = self.get_plan(context)
         return RPCResult(
             AgentDescription(
@@ -1043,6 +1115,12 @@ class AIAgentFlow(Flow[AgentConfig]):
                     timer.duration_seconds if timer else None
                 ),
                 pending_timer_reason=(timer.reason if timer else None),
+                pending_user_input_call_id=(
+                    pending_user_input.call_id if pending_user_input else None
+                ),
+                pending_user_input_prompt=(
+                    pending_user_input.prompt if pending_user_input else None
+                ),
                 plan=_plan_description(plan),
                 plan_execution_requested=(
                     state.pending_plan_execution_revision is not None
@@ -1112,6 +1190,32 @@ def _durable_wait_definition() -> ToolDefinition:
                 "reason": {"type": "string"},
             },
             "required": ["duration_seconds", "reason"],
+        },
+        requires_approval=False,
+        timeout_seconds=0,
+        maximum_attempts=1,
+        retry_total_seconds=0,
+    )
+
+
+def _request_user_input_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="request_user_input",
+        description=(
+            "Pause durably and ask the user for information required to continue. "
+            "Keep dependent plan tasks pending until the user answers."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "One concise question for the user.",
+                }
+            },
+            "required": ["prompt"],
+            "additionalProperties": False,
         },
         requires_approval=False,
         timeout_seconds=0,
