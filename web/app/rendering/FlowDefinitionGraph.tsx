@@ -11,6 +11,7 @@ import {
   Background,
   BaseEdge,
   Controls,
+  EdgeLabelRenderer,
   Handle,
   MiniMap,
   Position,
@@ -436,7 +437,7 @@ function DefinitionEdge({
   style,
 }: EdgeProps) {
   const edgeData = data as DefinitionEdgeData | undefined;
-  const [path] = getSmoothStepPath({
+  const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
@@ -453,7 +454,35 @@ function DefinitionEdge({
       strokeWidth: numericStrokeWidth(style?.strokeWidth) + 3,
     }
     : style;
-  return <BaseEdge id={id} interactionWidth={28} markerEnd={markerEnd} path={path} style={selectedStyle} />;
+  return (
+    <>
+      <BaseEdge id={id} interactionWidth={28} markerEnd={markerEnd} path={path} style={selectedStyle} />
+      {selected && edgeData?.displayLabel && (
+        <EdgeLabelRenderer>
+          <SelectedEdgeLabel label={edgeData.displayLabel} labelX={labelX} labelY={labelY} />
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+export function SelectedEdgeLabel({
+  label,
+  labelX,
+  labelY,
+}: {
+  label: string;
+  labelX: number;
+  labelY: number;
+}) {
+  return (
+    <span
+      className="definition-selected-edge-label nodrag nopan"
+      style={{ transform: `translate(-50%, -100%) translate(${labelX}px, ${labelY - 14}px)` }}
+    >
+      {label}
+    </span>
+  );
 }
 
 function edgeLaneOffset(id: string): number {

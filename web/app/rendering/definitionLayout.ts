@@ -428,7 +428,7 @@ function layoutResources(
       `- ${attribute.name}:${attribute.resource?.valueType ?? 'unknown'}${attribute.resource?.map ? ' map' : ''}`,
       35,
     ), 0);
-    const height = 48 + rowLines * 19;
+    const height = 60 + rowLines * 19 + attributes.length * 4;
     nodes.push({
       id: attributeGroupID,
       type: 'definitionAttributes',

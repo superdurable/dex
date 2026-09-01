@@ -93,6 +93,35 @@ describe('Flow Definition Graph layout', () => {
     expect(selfTransition.interactionWidth).toBeGreaterThanOrEqual(24);
     expect(branch.data?.displayLabel).toBe('input.HasAnExtremelyLongConditionThatMustRemainComplete()');
   });
+
+  it('reserves Attribute height for row gaps and wrapped values', () => {
+    const attributeNames = [
+      'buyerID',
+      'currentActionIndexToExecute',
+      'currentState',
+      'itemID',
+      'pendingPreConditionName',
+      'pendingPreConditionState',
+      'processDefinition',
+      'processID',
+      'stateData',
+    ];
+    const denseGraph: FlowDefinitionGraph = {
+      ...graph,
+      nodes: [
+        ...graph.nodes.filter((node) => node.kind !== 'attribute'),
+        ...attributeNames.map((name, index) => ({
+          id: `resource:attribute:${index}`,
+          kind: 'attribute' as const,
+          name,
+          resource: { valueType: index === attributeNames.length - 1 ? 'map[string]string' : 'string' },
+        })),
+      ],
+    };
+    const attributes = requiredNode(buildDefinitionScene(denseGraph, visible), 'definition:attributes');
+
+    expect(Number(attributes.style?.height)).toBeGreaterThanOrEqual(267);
+  });
 });
 
 function requiredNode(scene: ReturnType<typeof buildDefinitionScene>, id: string) {

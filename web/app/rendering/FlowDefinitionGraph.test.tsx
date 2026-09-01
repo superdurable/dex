@@ -9,7 +9,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { FlowDefinitionGraph } from '@/lib/types';
-import { FlowDefinitionGraphView } from './FlowDefinitionGraph';
+import { FlowDefinitionGraphView, SelectedEdgeLabel } from './FlowDefinitionGraph';
 
 describe('Flow Definition Graph renderer', () => {
   it('renders semantic shapes, icons, and failure diagnostics', () => {
@@ -42,6 +42,15 @@ describe('Flow Definition Graph renderer', () => {
     expect(markup).not.toContain('definition-stream-node');
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).toContain('aria-pressed="false"');
+  });
+
+  it('renders a complete selected edge condition above its path', () => {
+    const condition = 'input.HasAnExtremelyLongConditionThatMustRemainComplete()';
+    const markup = renderToStaticMarkup(<SelectedEdgeLabel label={condition} labelX={120} labelY={80} />);
+
+    expect(markup).toContain('definition-selected-edge-label');
+    expect(markup).toContain(condition);
+    expect(markup).toContain('translate(120px, 66px)');
   });
 });
 

@@ -98,10 +98,10 @@ point to consuming WaitFor paths, Attribute writers point to the Attribute box,
 and the box points to readers. Resource and SubFlow relations are dashed.
 Transitions are solid; Execute-failure recovery is solid magenta.
 Long labels wrap inside their shapes. Backward transitions and self-loops use
-outer routing lanes. Select an edge to emphasize it and read its complete
-condition, endpoints, and source location below the canvas. The Mini Map starts
-collapsed. Flow timeout handlers use a compact Step-like card with their timeout
-decision, rather than the RPC hexagon.
+outer routing lanes. Select an edge to emphasize it and show its complete
+condition beside the path; its endpoints and source location remain below the
+canvas. The Mini Map starts collapsed. Flow timeout handlers use a compact
+Step-like card with their timeout decision, rather than the RPC hexagon.
 
 The Run page opens on Execution graph and also provides Overview (Live Flow State beside
 Selected event, then Run input beside Identity), Timeline, Streams, attributes, timers, queued

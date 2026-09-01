@@ -844,6 +844,25 @@ a {
   overflow-wrap: anywhere;
 }
 
+.definition-selected-edge-label {
+  position: absolute;
+  z-index: 20;
+  max-width: 320px;
+  padding: 5px 8px;
+  border: 1px solid #9cb7e8;
+  border-radius: 6px;
+  color: #274467;
+  background: rgba(247, 250, 255, 0.97);
+  box-shadow: 0 3px 9px rgba(37, 99, 235, 0.16);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  text-align: center;
+  white-space: normal;
+}
+
 .flow-definition-selection {
   align-items: center;
   padding: 13px 16px;
