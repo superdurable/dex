@@ -179,14 +179,105 @@ function WaitingConditionStructured({
   );
 }
 
+function mapEntry(key: string): { name: string; instance: string } | null {
+  const separator = key.indexOf('/');
+  if (separator <= 0 || separator === key.length - 1) return null;
+  const name = key.slice(0, separator);
+  const encodedInstance = key.slice(separator + 1);
+  try {
+    return { name, instance: decodeURIComponent(encodedInstance) };
+  } catch {
+    return { name, instance: encodedInstance };
+  }
+}
+
+type PersistenceGroup =
+  | { kind: 'value'; entry: Data; index: number }
+  | { kind: 'map'; name: string; entries: Array<{ entry: Data; instance: string; index: number }> };
+
+function persistenceGroups(entries: Data[]): PersistenceGroup[] {
+  const groups: PersistenceGroup[] = [];
+  const mapsByName = new Map<string, Extract<PersistenceGroup, { kind: 'map' }>>();
+  for (const [index, entry] of entries.entries()) {
+    const key = typeof entry.key === 'string' ? entry.key : displayValue(entry.key);
+    const mapped = mapEntry(key);
+    if (!mapped) {
+      groups.push({ kind: 'value', entry, index });
+      continue;
+    }
+    let group = mapsByName.get(mapped.name);
+    if (!group) {
+      group = { kind: 'map', name: mapped.name, entries: [] };
+      mapsByName.set(mapped.name, group);
+      groups.push(group);
+    }
+    group.entries.push({ entry, instance: mapped.instance, index });
+  }
+  return groups;
+}
+
 function KeyValueListStructured({ value }: { value: unknown }) {
+  const groups = persistenceGroups(asDataArray(value));
   return (
     <div className="structured-value semantic-records">
-      {asDataArray(value).map((entry, index) => (
-        <div className="semantic-record" key={`${String(entry.key)}-${index}`}>
-          <strong>{displayValue(entry.key)}</strong>
-          <div className="semantic-value">
-            <ValueChip value={entry.value} />
+      {groups.map((group) => group.kind === 'value' ? (
+        <div className="semantic-record" key={`${String(group.entry.key)}-${group.index}`}>
+          <strong>{displayValue(group.entry.key)}</strong>
+          <div className="semantic-value"><ValueChip value={group.entry.value} /></div>
+        </div>
+      ) : (
+        <div className="semantic-record semantic-map-record" key={group.name}>
+          <strong>{group.name}</strong>
+          <div className="semantic-map-list">
+            {group.entries.map(({ entry, instance, index }) => (
+              <details className="semantic-record semantic-map-entry" key={`${instance}-${index}`}>
+                <summary><strong>{instance}</strong></summary>
+                <div className="semantic-record-content">
+                  <div className="semantic-value"><ValueChip value={entry.value} /></div>
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ChannelValues({ value }: { value: unknown }) {
+  const values = asDataArray(asData(value).values);
+  if (values.length === 0) return <ValueChip value={value} />;
+  return (
+    <div className="semantic-records semantic-channel-values">
+      {values.map((message, index) => (
+        <div className="semantic-record" key={index}>
+          <strong>Message {index + 1}</strong>
+          <div className="semantic-value"><ValueChip value={message} /></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PendingChannelsStructured({ value }: { value: Data }) {
+  const groups = persistenceGroups(Object.entries(value).map(([key, entry]) => ({ key, value: entry })));
+  return (
+    <div className="structured-value semantic-records">
+      {groups.map((group) => group.kind === 'value' ? (
+        <div className="semantic-record channel-record" key={`${String(group.entry.key)}-${group.index}`}>
+          <strong>{displayValue(group.entry.key)}</strong>
+          <ChannelValues value={group.entry.value} />
+        </div>
+      ) : (
+        <div className="semantic-record channel-record semantic-map-record" key={group.name}>
+          <strong>{group.name}</strong>
+          <div className="semantic-map-list">
+            {group.entries.map(({ entry, instance, index }) => (
+              <details className="semantic-record semantic-map-entry" key={`${instance}-${index}`}>
+                <summary><strong>{instance}</strong></summary>
+                <div className="semantic-record-content"><ChannelValues value={entry.value} /></div>
+              </details>
+            ))}
           </div>
         </div>
       ))}
@@ -262,22 +353,25 @@ export function StructuredValue({
   value,
   parentFlowId = '',
   stepExecutionId = '',
+  persistenceKind,
 }: {
   value: unknown;
   parentFlowId?: string;
   stepExecutionId?: string;
+  persistenceKind?: 'attributes' | 'channels';
 }) {
   if (value === undefined || value === null) {
     return <p className="muted">No value</p>;
   }
   if (Array.isArray(value)) {
     if (value.length === 0) return <p className="muted">Empty list</p>;
-    if (isKeyValueList(value)) return <KeyValueListStructured value={value} />;
+    if (persistenceKind === 'attributes' && isKeyValueList(value)) return <KeyValueListStructured value={value} />;
     if (isTimerList(value)) return <TimerListStructured value={value} />;
     return <ArrayStructured value={value} />;
   }
   if (typeof value === 'object') {
     if (Object.keys(value).length === 0) return <p className="muted">Empty object</p>;
+    if (persistenceKind === 'channels') return <PendingChannelsStructured value={asData(value)} />;
     if (isWaitingCondition(value)) {
       return <WaitingConditionStructured
         value={value}

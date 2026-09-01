@@ -8,6 +8,7 @@
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
+import { StructuredValue } from '@/app/components/StructuredValue';
 import type { FlowState, FlowSummary } from '@/lib/types';
 import { FlowOverview } from './FlowOverview';
 
@@ -71,5 +72,59 @@ describe('live Flow state failures', () => {
     expect(markup).toContain('<details class="active-step-card" open="">');
     expect(markup).toContain('Collapse all');
     expect(markup).toContain('<details class="failure-stack" open="">');
+  });
+
+  it('expands Attributes while keeping AttributeMap instance values collapsed', () => {
+    const summary: FlowSummary = {
+      flowId: 'flow-1',
+      runId: 'run-1',
+      firstRunId: 'run-1',
+      requestId: 'request-1',
+      flowType: 'PaymentFlow',
+      flowStatus: 'Running',
+      flowStatusCode: 1,
+      startTime: '2026-08-10T00:00:00Z',
+      closeTime: null,
+    };
+    const state: FlowState = {
+      flowConfig: {},
+      attributes: [
+        { key: 'status', value: 'ready' },
+        { key: 'orders/first%20order', value: 'pending' },
+        { key: 'orders/second', value: 'complete' },
+      ],
+      activeStepExecutions: [],
+      queuedSteps: [],
+      pendingChannelMessages: {},
+      completedSteps: [],
+    };
+
+    const markup = renderToStaticMarkup(
+      <FlowOverview summary={summary} events={[]} state={state} selectedEvent={null} />,
+    );
+
+    expect(markup).toContain('status');
+    expect(markup).toContain('ready');
+    expect(markup).toContain('orders');
+    expect(markup).toContain('first order');
+    expect(markup).toContain('second');
+    expect(markup).toContain('<details class="semantic-record semantic-map-entry">');
+  });
+
+  it('shows ChannelMap instances before their queued messages', () => {
+    const markup = renderToStaticMarkup(
+      <StructuredValue
+        persistenceKind="channels"
+        value={{
+          'updates/first%20order': { values: ['queued'] },
+          'updates/second': { values: ['complete'] },
+        }}
+      />,
+    );
+
+    expect(markup).toContain('updates');
+    expect(markup).toContain('first order');
+    expect(markup).toContain('second');
+    expect(markup).toContain('<details class="semantic-record semantic-map-entry">');
   });
 });

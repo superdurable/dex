@@ -498,6 +498,44 @@ describe('RPC event details', () => {
     expect(markup).not.toContain('RPC call');
     expect(markup).not.toContain('RPC name');
   });
+
+  it('keeps Attribute and Channel values collapsed, with two levels for maps', () => {
+    const attributesEvent: FlowHistoryEvent = {
+      eventId: 10,
+      eventTime: '2026-08-05T23:44:31Z',
+      type: 'RpcExecutionCompleted',
+      payload: {
+        isSetAttributeApi: true,
+        upsertAttributes: [
+          { key: 'status', value: { stringValue: 'ready' } },
+          { key: 'orders/first%20order', value: { stringValue: 'pending' } },
+        ],
+      },
+    };
+    const channelEvent: FlowHistoryEvent = {
+      eventId: 11,
+      eventTime: '2026-08-05T23:44:32Z',
+      type: 'ChannelExternalPublish',
+      payload: {
+        messages: [
+          { channelName: 'notifications', value: { stringValue: 'sent' } },
+          { channelName: 'updates/first%20order', value: { stringValue: 'queued' } },
+        ],
+      },
+    };
+
+    const attributeMarkup = renderDetails(attributesEvent);
+    const channelMarkup = renderDetails(channelEvent);
+
+    expect(attributeMarkup).toContain('<details class="semantic-record">');
+    expect(attributeMarkup).toContain('<details class="semantic-record semantic-map-record">');
+    expect(attributeMarkup).toContain('first order');
+    expect(attributeMarkup).not.toContain('<details class="semantic-record" open="">');
+    expect(channelMarkup).toContain('<details class="semantic-record channel-record">');
+    expect(channelMarkup).toContain('<details class="semantic-record channel-record semantic-map-record">');
+    expect(channelMarkup).toContain('first order');
+    expect(channelMarkup).not.toContain('<details class="semantic-record channel-record" open="">');
+  });
 });
 
 describe('pending step method details', () => {
