@@ -160,8 +160,9 @@ final class WorkerServiceIntegrationTest {
     }
 
     @Test
-    void restoresHeartbeatDetailsAndRejectsProgressFromRpcContext() throws Exception {
-        final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
+    void restoresHeartbeatDetailsAndRejectsProgressFromUnsupportedContexts() throws Exception {
+        final BridgeFlow flow = new BridgeFlow();
+        final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
         try {
             assertEquals(
                     "absent",
@@ -185,6 +186,16 @@ final class WorkerServiceIntegrationTest {
             assertThrows(
                     StatusRuntimeException.class,
                     () -> running.client.invokeWorkerRPC(rpcRequest("rpc-stream")));
+
+            final InvokeExecuteMethodRequest timeout = InvokeExecuteMethodRequest.newBuilder()
+                    .setContext(context())
+                    .setFlowType(flow.getFlowType())
+                    .setStepType("sys:timeout_handler")
+                    .build();
+            final List<InvokeExecuteMethodOutput> timeoutOutputs = collectExecuteOutputs(
+                    running, timeout);
+            assertEquals(1, timeoutOutputs.size());
+            assertTrue(timeoutOutputs.get(0).hasResult());
         } finally {
             running.close();
         }
@@ -918,6 +929,13 @@ final class WorkerServiceIntegrationTest {
         @Override
         public String getFlowType() {
             return "BridgeFlow";
+        }
+
+        @Override
+        public StepDecision handleTimeout(final Context context) {
+            assertThrows(IllegalStateException.class, () -> context.recordHeartbeat("invalid"));
+            assertThrows(IllegalStateException.class, () -> thinking.write(context, "invalid"));
+            return StepDecision.gracefulComplete("timeout");
         }
 
         @RPC

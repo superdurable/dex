@@ -62,9 +62,9 @@ public final class Stream<T> extends PersistenceDefinition {
      * Stream. Each frame also acts as an implicit activity heartbeat. Storage failures do not fail
      * the Step, but local validation, serialization, or transport failures may throw.
      *
-     * @param context the current Step Context; RPC Contexts are rejected
+     * @param context the current Step Context; RPC and Flow timeout Contexts are rejected
      * @param value the typed message to append
-     * @throws IllegalStateException if the Context belongs to an RPC
+     * @throws IllegalStateException if the Context belongs to an RPC or Flow timeout handler
      * @throws io.grpc.StatusRuntimeException if the Step invocation is canceled or transport fails
      * @throws io.superdurable.dex.exceptions.ValueMappingException if the value cannot be encoded
      */

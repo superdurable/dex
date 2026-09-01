@@ -55,7 +55,7 @@ type Context interface {
 	// Encoding failures return ValueMappingError; transport failures return the
 	// underlying gRPC error.
 	//
-	// RPC invocations and calls after the handler returns produce an error.
+	// RPC and Flow timeout invocations, and calls after the handler returns, produce an error.
 	//
 	//	var checkpoint ImportCheckpoint
 	//	found, err := ctx.GetLastHeartbeatValue(&checkpoint)

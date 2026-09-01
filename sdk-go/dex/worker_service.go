@@ -267,7 +267,7 @@ func (service *workerService) invokeTimeoutHandler(
 		output.stream.Context(),
 		invocationExecute,
 		flow,
-		output,
+		nil,
 		request.Context,
 		request.Attributes,
 		request.StepExeLocals,

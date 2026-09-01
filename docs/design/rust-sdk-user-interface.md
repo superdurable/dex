@@ -197,6 +197,7 @@ channel with capacity one. The synchronous handler uses blocking sends for heart
 frames, while tonic consumes them asynchronously. A successful handler enqueues exactly one final
 result after all progress frames and then closes the response with a clean EOF. Hydration, handler,
 and result-mapping failures terminate the RPC with a gRPC status instead.
+Flow timeout handlers and RPCs cannot send heartbeat or Stream frames.
 
 Dropping the response stream cancels the invocation, closes the emitter, and aborts the producer
 task. A blocked send wakes with `HandlerError`, and the existing Context cancellation methods expose

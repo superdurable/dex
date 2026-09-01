@@ -90,10 +90,12 @@ func newInvocationContext(
 	}
 	invocationHandlerContext := ctx
 	var outputEmitter *stepOutputEmitter
-	if method != invocationRPC {
-		invocationHandlerContext, outputEmitter = newStepOutputEmitter(ctx, outputStream)
+	if method == invocationRPC {
+		if outputStream != nil {
+			panic("dex: RPC invocation cannot have a Step output stream")
+		}
 	} else if outputStream != nil {
-		panic("dex: RPC invocation cannot have a Step output stream")
+		invocationHandlerContext, outputEmitter = newStepOutputEmitter(ctx, outputStream)
 	}
 	invocation := &invocationContext{
 		Context:          invocationHandlerContext,

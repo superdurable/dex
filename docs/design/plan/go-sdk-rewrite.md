@@ -790,7 +790,8 @@ fire-and-forget frame on the current Worker response stream, so it does not make
 a Worker-to-server FlowService call. One invocation may emit any number of
 messages to the same or different Streams. The server attempts them in order;
 write failures are observable only through server logs and metrics. Step frames
-use `#stepExecutionID` as source metadata. RPC writes are rejected.
+use `#stepExecutionID` as source metadata. Flow timeout and RPC writes are
+rejected.
 
 `Context.RecordHeartbeat(value)` sends a heartbeat frame on that response
 stream. A nil value, including a typed nil pointer, map, slice, or interface,
@@ -1807,8 +1808,9 @@ Semantics:
   WaitFor.
 - `WaitForMethodFailed` is true only when Execute follows a failed WaitFor under
   `ProceedOnFailure`.
-- `RecordHeartbeat` and `GetLastHeartbeatValue` are available in WaitFor,
-  Execute, and Flow timeout handlers. RPC invocation contexts reject both.
+- `RecordHeartbeat` is available in WaitFor and Execute. Flow timeout and RPC
+  invocation contexts reject it. `GetLastHeartbeatValue` is also available to
+  Flow timeout handlers; RPC invocation contexts reject it.
 - Step-method `Attempt` starts at one. RPC returns zero `Attempt` and a zero
   `FirstAttemptAt` because its request carries no attempt metadata.
 - writes, events, and channel publishes are buffered until the method returns

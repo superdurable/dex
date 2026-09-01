@@ -130,8 +130,8 @@ impl Context {
     ///
     /// # Errors
     ///
-    /// Returns [`HandlerError`] for an RPC Context, cancellation, or a closed Worker response
-    /// stream.
+    /// Returns [`HandlerError`] for an RPC or Flow timeout Context, cancellation, or a closed
+    /// Worker response stream.
     pub fn record_heartbeat(&mut self) -> HandlerResult<()> {
         self.step_output_emitter()?.send_heartbeat(None)
     }
@@ -162,8 +162,8 @@ impl Context {
     ///
     /// # Errors
     ///
-    /// Returns [`HandlerError`] for an RPC Context, encoding failure, cancellation, or a closed
-    /// Worker response stream.
+    /// Returns [`HandlerError`] for an RPC or Flow timeout Context, encoding failure, cancellation,
+    /// or a closed Worker response stream.
     pub fn record_heartbeat_value<T: Value>(&mut self, value: T) -> HandlerResult<()> {
         let value = value_mapper::encode_handler(&value)?;
         self.step_output_emitter()?.send_heartbeat(Some(value))
@@ -519,8 +519,8 @@ impl Context {
     ///
     /// # Errors
     ///
-    /// Returns [`HandlerError`] for an RPC Context, an unregistered Stream, a capacity mismatch,
-    /// encoding failure, cancellation, or a closed Worker response stream.
+    /// Returns [`HandlerError`] for an RPC or Flow timeout Context, an unregistered Stream, a
+    /// capacity mismatch, encoding failure, cancellation, or a closed Worker response stream.
     pub fn write_stream<T: Value>(&mut self, stream: &Stream<T>, value: T) -> HandlerResult<()> {
         let output_emitter = self.step_output_emitter()?.clone();
         let definition = self

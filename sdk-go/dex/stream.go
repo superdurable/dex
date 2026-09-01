@@ -71,7 +71,7 @@ type StreamMessage struct {
 // A Step execution may call Write any number of times. Each call sends a fire-and-forget frame on
 // the current Worker response stream. The returned error covers local validation, encoding, and
 // gRPC transport only; Stream Store failures are observable through server logs and metrics.
-// RPC invocation contexts are rejected. Write and Context.RecordHeartbeat may run concurrently.
+// RPC and Flow timeout contexts are rejected. Write and Context.RecordHeartbeat may run concurrently.
 func (s Stream[T]) Write(ctx Context, value T) error {
 	invocation, ok := ctx.(streamInvocation)
 	if !ok {

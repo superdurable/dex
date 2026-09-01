@@ -125,10 +125,11 @@ timeouts before regular fallback.
 
 ### Heartbeats and Stream progress
 
-`Context.RecordHeartbeat` emits a checkpoint from WaitFor, Execute, or a Flow
-timeout handler. A retry restores the most recent regular-activity checkpoint
-through `Context.GetLastHeartbeatValue`. Passing nil, including a typed nil,
-explicitly clears the checkpoint. Local-activity heartbeats are ignored.
+`Context.RecordHeartbeat` emits a checkpoint from WaitFor or Execute. A retry
+restores the most recent regular-activity checkpoint through
+`Context.GetLastHeartbeatValue`. Passing nil, including a typed nil, explicitly
+clears the checkpoint. Local-activity heartbeats are ignored. Flow timeout
+handlers and RPCs cannot send heartbeat or Stream progress.
 
 `Stream.Write` emits a fire-and-forget frame on the same Worker response stream.
 A handler may write any number of messages to the same or different Streams.

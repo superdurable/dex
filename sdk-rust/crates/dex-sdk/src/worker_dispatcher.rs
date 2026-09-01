@@ -164,7 +164,7 @@ impl WorkerDispatcher {
         let flow = self.registered_flow(&request.flow_type)?;
         if request.step_type == TIMEOUT_HANDLER_STEP_TYPE {
             return self
-                .invoke_timeout_handler(request, flow, output_emitter, cancellation)
+                .invoke_timeout_handler(request, flow, cancellation)
                 .await;
         }
         let step = flow
@@ -221,7 +221,6 @@ impl WorkerDispatcher {
         &self,
         request: InvokeExecuteMethodRequest,
         flow: RegisteredFlow,
-        output_emitter: StepOutputEmitter,
         cancellation: InvocationCancellation,
     ) -> HandlerResult<InvokeExecuteMethodResponse> {
         if request.step_input.is_some() {
@@ -251,7 +250,7 @@ impl WorkerDispatcher {
                 condition_results: request.condition_results,
                 channel_infos: HashMap::new(),
             },
-            Some(output_emitter),
+            None,
             cancellation,
         )?;
         let cancellation = context.cancellation();

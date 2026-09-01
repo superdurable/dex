@@ -151,7 +151,7 @@ public interface Context {
      * }</pre>
      *
      * @param value the checkpoint to persist, or {@code null} to send no heartbeat details
-     * @throws IllegalStateException if called from an RPC
+     * @throws IllegalStateException if called from an RPC or Flow timeout handler
      * @throws io.grpc.StatusRuntimeException if the invocation is canceled or transport fails
      * @throws io.superdurable.dex.exceptions.ValueMappingException if a nonnull value cannot be
      *     encoded

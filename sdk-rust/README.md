@@ -168,13 +168,14 @@ impl Step for Greet {
 
 `Client` calls block and return their final result. `Worker::start` serves until
 another thread calls `Worker::stop`. Synchronous user handlers run on Tokio's
-blocking executor, so they do not occupy gRPC I/O tasks. Long-running handlers
-should emit heartbeats or Stream messages while polling `Context::is_cancelled`.
-Cancellation becomes observable when the Worker response stream closes.
+blocking executor, so they do not occupy gRPC I/O tasks. Long-running Step
+handlers should emit heartbeats or Stream messages while polling
+`Context::is_cancelled`. Cancellation becomes observable when the Worker
+response stream closes.
 
 ### Step progress and Streams
 
-WaitFor, Execute, and Flow timeout handlers can send progress before returning:
+WaitFor and Execute handlers can send progress before returning:
 
 ```rust
 if let Some(checkpoint) = context.last_heartbeat_value::<Checkpoint>()? {
@@ -194,6 +195,7 @@ Each call blocks only when the Worker's single-frame output buffer is full. This
 backpressure preserves handler order without unbounded memory. `Stream::write` uses the same Step
 response stream and may append repeatedly to the same Stream. It does not wait for a Stream Store
 acknowledgment; storage rejection or failure is observable on Dex, not by the handler.
+Flow timeout handlers and RPCs cannot send heartbeat or Stream progress.
 
 External writes remain unary. `Client::write_stream` requires a non-empty `source`, accepts `#`,
 and appends every call even when a source repeats. Read messages return that metadata in

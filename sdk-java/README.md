@@ -85,8 +85,8 @@ ignores method and heartbeat timeouts before regular-activity fallback.
 
 ### Step progress and Streams
 
-Dex does not heartbeat a Step automatically. Long-running handlers should emit
-progress before the configured heartbeat timeout:
+Dex does not heartbeat a Step automatically. Long-running Step handlers should
+emit progress before the configured heartbeat timeout:
 
 ```java
 @Override
@@ -114,6 +114,8 @@ One handler may write the same Stream any number of times. Dex assigns
 `#<stepExecutionID>` as source metadata. Storage rejection does not fail the
 handler, although local validation, serialization, and Worker transport errors
 can still fail it.
+
+Flow timeout handlers and RPCs cannot send heartbeat or Stream progress.
 
 `Client.writeStream(flowId, stream, source, value)` appends on every call.
 Sources are required metadata, may repeat, and may contain `#`. Read them with

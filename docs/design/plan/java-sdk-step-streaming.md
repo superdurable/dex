@@ -17,8 +17,8 @@ encoding, or transport failure ends the RPC with an error and no result; progres
 already delivered to Dex is not retracted. gRPC cancellation is checked before
 every progress or result frame and continues to interrupt the handler task.
 
-Flow timeout handlers use the Execute stream and may emit progress. RPC Contexts
-reject heartbeat and Stream operations because **InvokeWorkerRPC** is unary.
+Flow timeout handlers use the Execute stream only for their final result. Flow
+timeout and RPC Contexts reject heartbeat and Stream operations.
 
 ## Heartbeat context
 

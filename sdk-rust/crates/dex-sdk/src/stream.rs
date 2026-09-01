@@ -64,8 +64,9 @@ impl<T> Stream<T> {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::HandlerError`] for RPC Contexts, unregistered Streams, encoding failures,
-    /// cancellation, or a closed Worker output stream. Dex storage failures are not acknowledged.
+    /// Returns [`crate::HandlerError`] for RPC or Flow timeout Contexts, unregistered Streams,
+    /// encoding failures, cancellation, or a closed Worker output stream. Dex storage failures are
+    /// not acknowledged.
     pub fn write(&self, context: &mut Context, value: T) -> HandlerResult<()>
     where
         T: Value,

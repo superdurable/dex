@@ -99,7 +99,7 @@ final class WorkerDispatcher {
         final InvokeExecuteMethodRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         if (TIMEOUT_HANDLER_STEP_TYPE.equals(request.getStepType())) {
-            return invokeTimeoutHandler(request, flow, stepOutputEmitter);
+            return invokeTimeoutHandler(request, flow);
         }
         final Registry.RegisteredStep step = flow.getStep(request.getStepType());
         final InvocationContext context = new InvocationContext(
@@ -125,8 +125,7 @@ final class WorkerDispatcher {
 
     private InvokeExecuteMethodResponse invokeTimeoutHandler(
             final InvokeExecuteMethodRequest request,
-            final Registry.RegisteredFlow flow,
-            final StepOutputEmitter stepOutputEmitter) {
+            final Registry.RegisteredFlow flow) {
         if (request.hasStepInput()) {
             throw new InvalidStepResultException("Flow timeout handler must not receive input");
         }
@@ -139,7 +138,7 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
-                stepOutputEmitter,
+                null,
                 request.getAttributesList(),
                 request.getStepExeLocalsList(),
                 request.hasConditionResults() ? request.getConditionResults() : null,
