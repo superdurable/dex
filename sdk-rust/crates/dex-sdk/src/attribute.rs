@@ -34,7 +34,7 @@ pub struct Attribute<T> {
 }
 
 impl<T> Attribute<T> {
-    /// Defines an unindexed Attribute with stable `name`.
+    /// Defines an unindexed Attribute with stable slash-free `name`.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -160,7 +160,7 @@ pub struct AttributeMap<T> {
 }
 
 impl<T> AttributeMap<T> {
-    /// Defines an unindexed Attribute map with stable `name`.
+    /// Defines an unindexed Attribute map with stable slash-free `name`.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),

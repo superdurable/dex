@@ -42,7 +42,7 @@ public final class AttributeMap<T> extends PersistenceDefinition {
             final Class<T> valueType,
             final AttributeIndex index,
             final boolean syncToAttributeStore) {
-        this.name = Attribute.requireName(name);
+        this.name = Attribute.requirePersistenceDefinitionName(name);
         this.valueType = Objects.requireNonNull(valueType, "valueType");
         this.index = index;
         this.syncToAttributeStore = syncToAttributeStore;
@@ -51,11 +51,11 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     /**
      * Defines an Attribute map without a search index.
      *
-     * @param name the stable Attribute-map name; must not be blank
+     * @param name the stable Attribute-map name; must not be blank or contain {@code /}
      * @param valueType the concrete Java class used for every instance value
      * @param <T> the Java value type
      * @return the typed Attribute-map definition
-     * @throws IllegalArgumentException if {@code name} is {@code null} or blank
+     * @throws IllegalArgumentException if {@code name} is {@code null}, blank, or contains {@code /}
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> AttributeMap<T> define(final String name, final Class<T> valueType) {
@@ -65,12 +65,12 @@ public final class AttributeMap<T> extends PersistenceDefinition {
     /**
      * Defines an Attribute map with a search index.
      *
-     * @param name the stable Attribute-map name; must not be blank
+     * @param name the stable Attribute-map name; must not be blank or contain {@code /}
      * @param valueType the concrete Java class used for every instance value
      * @param index the search-index definition, or {@code null} for no index
      * @param <T> the Java value type
      * @return the typed Attribute-map definition
-     * @throws IllegalArgumentException if {@code name} is {@code null} or blank
+     * @throws IllegalArgumentException if {@code name} is {@code null}, blank, or contains {@code /}
      * @throws NullPointerException if {@code valueType} is {@code null}
      */
     public static <T> AttributeMap<T> define(

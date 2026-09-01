@@ -788,6 +788,16 @@ test("map introspection tracks buffered changes", () => {
   assert.equal(channels.getMapSize(context), 2);
 });
 
+test("persistence definitions reserve slash while map instances keep it", () => {
+  assert.throws(() => new Attribute("orders/by-id", stringCodec), TypeError);
+  assert.throws(() => new AttributeMap("orders/by-id", stringCodec), TypeError);
+  assert.throws(() => new Channel("orders/by-id", stringCodec), TypeError);
+  assert.throws(() => new ChannelMap("orders/by-id", stringCodec), TypeError);
+
+  const messages = new ChannelMap("messages", stringCodec);
+  assert.equal(messages.forOne("orders/by-id").instance, "orders/by-id");
+});
+
 test("blob cache contract opens the native DXBC cache", () => {
   const directory = mkdtempSync(join(tmpdir(), "dex-typescript-blob-cache-"));
   const cache = openBlobCache({ directory, maxBytes: 1024, frequencyCounters: 0 });

@@ -13,6 +13,13 @@ def require_name(name: str) -> str:
     return name
 
 
+def require_persistence_definition_name(name: str) -> str:
+    require_name(name)
+    if "/" in name:
+        raise ValueError("persistence definition names must not contain '/'")
+    return name
+
+
 def validate_condition_id(condition_id: str | None) -> None:
     if condition_id is not None and not condition_id:
         raise ValueError("condition ID must not be empty")

@@ -31,6 +31,7 @@ type Attribute[T any] struct {
 }
 
 // DefineAttribute creates a typed Attribute with a stable name and definition options.
+// "/" is reserved as the AttributeMap separator and is prohibited in Attribute names.
 // The definition does not perform I/O; register it through PersistenceSchema before use.
 func DefineAttribute[T any](key string, options ...AttributeOption) Attribute[T] {
 	config := applyAttributeOptions(options)
@@ -123,6 +124,7 @@ type AttributeMap[T any] struct {
 }
 
 // DefineAttributeMap creates a typed Attribute map with a stable name and definition options.
+// "/" is reserved as the AttributeMap separator and is prohibited in AttributeMap names.
 // The definition performs no I/O; register it through PersistenceSchema before use.
 func DefineAttributeMap[T any](name string, options ...AttributeOption) AttributeMap[T] {
 	config := applyAttributeOptions(options)

@@ -24,6 +24,7 @@ type Channel[T any] struct {
 }
 
 // DefineChannel creates a typed Channel with a stable name without performing I/O.
+// "/" is reserved as the ChannelMap separator and is prohibited in Channel names.
 func DefineChannel[T any](name string) Channel[T] {
 	return Channel[T]{name: name}
 }
@@ -127,6 +128,7 @@ type ChannelMap[T any] struct {
 }
 
 // DefineChannelMap creates a typed Channel map with a stable name.
+// "/" is reserved as the ChannelMap separator and is prohibited in ChannelMap names.
 func DefineChannelMap[T any](name string) ChannelMap[T] {
 	return ChannelMap[T]{name: name}
 }

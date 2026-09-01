@@ -11,7 +11,7 @@ import { markAttributeStoreSynced } from "./attribute-store-sync.js";
 import type { Codec } from "./codec.js";
 import type { Context } from "./context.js";
 import type { Stream } from "./stream.js";
-import { requireName } from "./validation.js";
+import { requirePersistenceDefinitionName, requireName } from "./validation.js";
 
 /** Selects how Dex indexes an Attribute for Flow search. */
 export const IndexType = Object.freeze({
@@ -65,7 +65,7 @@ export interface AttributeLock {
 export class Attribute<T> {
   /**
    * Creates an Attribute definition for a PersistenceSchema.
-   * @param name - Non-empty logical name unique within the Flow.
+   * @param name - Non-empty logical name without `/`, unique within the Flow.
    * @param codec - Value codec used by handlers and Client calls.
    * @param index - Optional visibility search index.
    */
@@ -74,7 +74,7 @@ export class Attribute<T> {
     public readonly codec: Codec<T>,
     public readonly index?: AttributeIndex,
   ) {
-    requireName(name);
+    requirePersistenceDefinitionName(name);
   }
 
   /**
@@ -130,7 +130,7 @@ export class Attribute<T> {
 export class AttributeMap<T> {
   /**
    * Creates an AttributeMap definition for a PersistenceSchema.
-   * @param name - Non-empty logical name unique within the Flow.
+   * @param name - Non-empty logical name without `/`, unique within the Flow.
    * @param codec - Value codec shared by every instance.
    * @param index - Optional shared visibility search index.
    */
@@ -139,7 +139,7 @@ export class AttributeMap<T> {
     public readonly codec: Codec<T>,
     public readonly index?: AttributeIndex,
   ) {
-    requireName(name);
+    requirePersistenceDefinitionName(name);
   }
 
   /**
