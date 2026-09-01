@@ -59,15 +59,17 @@ async def request_email_fields(
             previous_response_id,
             write_progress,
         )
+        payload = response.output_text
+        if not isinstance(payload, str) or not payload:
+            raise ValueError("OpenAI response has no structured output text")
+        response_id = response.id if isinstance(response.id, str) else None
+        return AgentReply(
+            response_id=response_id,
+            response=AgentResponse.model_validate_json(payload),
+        )
     except Exception as error:
         print(f"the OpenAI request failed ({error}); drafting the email locally")
         return AgentReply(response_id=None, response=_local_draft(request))
-    response_id = response.id if isinstance(response.id, str) else None
-    payload = response.output[0].content[0].text
-    return AgentReply(
-        response_id=response_id,
-        response=AgentResponse.model_validate_json(payload),
-    )
 
 
 def _local_draft(request: str) -> AgentResponse:
