@@ -157,10 +157,29 @@ Worker output queue:
 async def execute(
     self, context: dex.AsyncContext, input: str
 ) -> dex.StepDecision:
-    progress.write(context, "started")
+    writer = progress.buffered_text(context)
+    writer.write("started")
     await context.heartbeat({"offset": 10})
     return dex.graceful_complete(input)
 ```
+
+The async buffered writer has synchronous `write` and `flush` methods, so
+`writer.write` can be passed directly as an LLM delta callback. It flushes after
+one second, at a soft 16 KiB UTF-8 threshold, or before the final result or
+error. It concatenates chunks exactly and ignores empty chunks.
+
+A synchronous generator uses the cooperative form because only yielded
+`StepOutput` values can reach gRPC:
+
+```python
+writer = progress.buffered_text(context)
+yield from writer.write(delta)
+yield from writer.flush()
+```
+
+Its interval is checked by the next write, and the handler must explicitly
+flush the tail. Retry does not restore either writer's unsent buffer or
+deduplicate sent batches.
 
 Call `heartbeat()` or `await context.heartbeat()` without a value to clear previous
 details. Passing Python `None` persists a present null Value. On a later regular

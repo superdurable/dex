@@ -37,6 +37,11 @@ export interface StepOutputEmitter {
   writeStream(write: StepStreamWrite): void;
 }
 
+export interface StepOutputFinalizer {
+  finalizeStepOutput(): void;
+  cancelStepOutput(): void;
+}
+
 export class InvocationContext implements AsyncContext {
   public readonly flowId: string;
   public readonly runId: string;
@@ -56,6 +61,8 @@ export class InvocationContext implements AsyncContext {
   private readonly eventNames = new Set<string>();
   private readonly publications: ChannelMessage[] = [];
   private readonly lastHeartbeatValue: Value | undefined;
+  private readonly stepOutputFinalizers: StepOutputFinalizer[] = [];
+  private stepOutputsFinalized = false;
 
   public constructor(
     private readonly method: InvocationMethod,
@@ -83,6 +90,7 @@ export class InvocationContext implements AsyncContext {
     this.attributes = mapValues("Attribute", attributes);
     this.locals = mapValues("step-execution local", locals);
     this.channelInfos = new Map(Object.entries(channelInfos));
+    cancellationSignal.addEventListener("abort", () => this.cancelStepOutputs(), { once: true });
   }
 
   public hasLastHeartbeatValue(): boolean {
@@ -115,6 +123,52 @@ export class InvocationContext implements AsyncContext {
       streamCapacityBytes: BigInt(stream.streamCapacityBytes),
       value: encodeValue(stream.codec, value),
     });
+  }
+
+  public prepareBufferedStream(stream: Stream<unknown>): void {
+    if (this.stepOutput === undefined || (this.method !== "waitFor" && this.method !== "execute")) {
+      throw new TypeError("Buffered Streams require an async Step Context");
+    }
+    requireFlowStream(this.flow, stream);
+  }
+
+  public registerStepOutputFinalizer(finalizer: StepOutputFinalizer): void {
+    if (this.stepOutputsFinalized || this.stepOutput === undefined) {
+      throw new TypeError("Buffered Stream invocation has finished");
+    }
+    this.stepOutputFinalizers.push(finalizer);
+  }
+
+  public finalizeStepOutputs(failure?: unknown): unknown | undefined {
+    if (this.stepOutputsFinalized) {
+      return failure;
+    }
+    this.stepOutputsFinalized = true;
+    const failures: unknown[] = failure === undefined ? [] : [failure];
+    for (const finalizer of this.stepOutputFinalizers) {
+      try {
+        finalizer.finalizeStepOutput();
+      } catch (finalizerFailure) {
+        failures.push(finalizerFailure);
+      }
+    }
+    if (failures.length === 0) {
+      return undefined;
+    }
+    if (failures.length === 1) {
+      return failures[0];
+    }
+    return new AggregateError(failures, "Step handler and buffered Stream finalization failed");
+  }
+
+  private cancelStepOutputs(): void {
+    if (this.stepOutputsFinalized) {
+      return;
+    }
+    this.stepOutputsFinalized = true;
+    for (const finalizer of this.stepOutputFinalizers) {
+      finalizer.cancelStepOutput();
+    }
   }
 
   public hasTimerFired(index?: number): boolean {

@@ -9,9 +9,11 @@
 // See LICENSE and LEGACY_NOTICES.md.
 
 use std::sync::LazyLock;
+use std::time::Duration;
 
 use dex_sdk::{
-    Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Stream, Wait,
+    BufferedTextStreamOptions, Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision,
+    StepList, Stream, Wait,
 };
 
 pub(crate) static PROGRESS: LazyLock<Stream<String>> =
@@ -50,17 +52,28 @@ impl Step for StreamTestStep {
 
     fn wait_for(&self, context: &mut Context, _input: ()) -> HandlerResult<Wait> {
         context.record_heartbeat()?;
-        PROGRESS.write(context, "wait-progress-1".to_string())?;
+        let progress = PROGRESS.buffered_text(context)?;
+        progress.write("wait-progress-")?;
+        progress.write("1")?;
+        progress.flush()?;
         context.record_heartbeat_value("wait-checkpoint".to_string())?;
-        PROGRESS.write(context, "wait-progress-2".to_string())?;
+        progress.write("wait-progress-")?;
+        progress.write("2")?;
         Ok(Wait::skip_immediately())
     }
 
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
         context.record_heartbeat()?;
-        PROGRESS.write(context, "execute-progress-1".to_string())?;
+        let progress = PROGRESS.buffered_text_with_options(
+            context,
+            BufferedTextStreamOptions::new(Duration::from_millis(250), 16 * 1024),
+        )?;
+        progress.write("execute-progress-")?;
+        progress.write("1")?;
+        progress.flush()?;
         context.record_heartbeat_value("execute-checkpoint".to_string())?;
-        PROGRESS.write(context, "execute-progress-2".to_string())?;
+        progress.write("execute-progress-")?;
+        progress.write("2")?;
         Ok(StepDecision::graceful_complete(()))
     }
 }

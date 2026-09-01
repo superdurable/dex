@@ -12,6 +12,7 @@ package dex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -60,6 +61,11 @@ type invocationContext struct {
 
 	conditionResults *dexpb.ConditionResults
 	channelSizes     map[string]int
+	outputFinalizers []invocationOutputFinalizer
+}
+
+type invocationOutputFinalizer interface {
+	finalize() error
 }
 
 func newInvocationContext(
@@ -795,11 +801,29 @@ func (invocation *invocationContext) requireActive(
 }
 
 func (invocation *invocationContext) finish() error {
+	var finalErr error
+	for _, finalizer := range invocation.outputFinalizers {
+		finalErr = errors.Join(finalErr, finalizer.finalize())
+	}
 	invocation.active = false
 	if invocation.outputEmitter == nil {
-		return nil
+		return finalErr
 	}
-	return invocation.outputEmitter.close()
+	return errors.Join(finalErr, invocation.outputEmitter.close())
+}
+
+func (invocation *invocationContext) registerOutputFinalizer(
+	finalizer invocationOutputFinalizer,
+) error {
+	if finalizer == nil {
+		panic("dex: invocation output finalizer is nil")
+	}
+	if err := invocation.requireActive(invocationWaitFor, invocationExecute); err != nil ||
+		invocation.outputEmitter == nil {
+		return errInvalidInvocationContext
+	}
+	invocation.outputFinalizers = append(invocation.outputFinalizers, finalizer)
+	return nil
 }
 
 func (invocation *invocationContext) mappedAttributeWrites() []*dexpb.AttributeWrite {

@@ -139,6 +139,24 @@ unavailability is visible through server logs and metrics rather than the
 handler return value. Heartbeats and Stream writes may run concurrently; their
 frames are serialized by the Worker.
 
+Use `NewBufferedTextStream` for token-sized text deltas. It preserves text
+exactly, flushes after one second or a soft 16 KiB UTF-8 threshold, and emits
+the tail before the handler result or error:
+
+```go
+progress, err := dex.NewBufferedTextStream(ctx, Thinking)
+if err != nil {
+	return nil, err
+}
+if err := progress.Write(delta); err != nil {
+	return nil, err
+}
+```
+
+`BufferedTextStreamFlushInterval` and `BufferedTextStreamMaxBytes` override the
+defaults. Empty buffers emit no message or heartbeat. Retry does not restore an
+unsent buffer or deduplicate batches already sent.
+
 Messages written by a Step have `#<stepExecutionID>` in
 `StreamMessage.Source`. Client writes accept any non-empty source, including
 values containing `#`. Reusing a source appends another message; source is

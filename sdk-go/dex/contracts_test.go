@@ -190,6 +190,24 @@ var _ dex.Flow = flow
 var _ dex.RPC[stepInput, command] = flow.Update
 var _ dex.RPC[dex.None, command] = flow.Describe
 
+func compileBufferedTextStream(context dex.Context) error {
+	progress, err := dex.NewBufferedTextStream(
+		context,
+		progressStream,
+		dex.BufferedTextStreamFlushInterval(500*time.Millisecond),
+		dex.BufferedTextStreamMaxBytes(8<<10),
+	)
+	if err != nil {
+		return err
+	}
+	if err := progress.Write("thinking "); err != nil {
+		return err
+	}
+	return progress.Flush()
+}
+
+var _ = compileBufferedTextStream
+
 func TestPublicContractsCompile(t *testing.T) {
 	_ = dex.MovementOf(noPayload, nil)
 	_ = noPayloadChannel.ForOne()

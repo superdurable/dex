@@ -39,6 +39,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ScheduledExecutorService;
 
 final class InvocationContext implements Context {
     enum Method {
@@ -56,12 +57,19 @@ final class InvocationContext implements Context {
     private final Map<String, Value> locals;
     private final ConditionResults conditionResults;
     private final Map<String, ChannelInfo> channelInfos;
+    private final ScheduledExecutorService bufferedStreamScheduler;
+    private final io.grpc.Context requestContext;
+    private final io.grpc.Context.CancellationListener cancellationListener;
     private final Map<String, AttributeWrite> attributeWrites =
             new LinkedHashMap<String, AttributeWrite>();
     private final Map<String, KV> localWrites = new LinkedHashMap<String, KV>();
     private final List<KV> events = new ArrayList<KV>();
     private final Set<String> eventNames = new HashSet<String>();
     private final List<ChannelMessage> publications = new ArrayList<ChannelMessage>();
+    private final List<StepOutputFinalizer> stepOutputFinalizers =
+            new ArrayList<StepOutputFinalizer>();
+    private boolean stepOutputsFinalized;
+
     InvocationContext(
             final Method method,
             final Registry.RegisteredFlow flow,
@@ -72,6 +80,30 @@ final class InvocationContext implements Context {
             final List<KV> locals,
             final ConditionResults conditionResults,
             final Map<String, ChannelInfo> channelInfos) {
+        this(
+                method,
+                flow,
+                metadata,
+                values,
+                stepOutputEmitter,
+                attributes,
+                locals,
+                conditionResults,
+                channelInfos,
+                null);
+    }
+
+    InvocationContext(
+            final Method method,
+            final Registry.RegisteredFlow flow,
+            final io.superdurable.gen.Context metadata,
+            final ValueMapper values,
+            final StepOutputEmitter stepOutputEmitter,
+            final List<KV> attributes,
+            final List<KV> locals,
+            final ConditionResults conditionResults,
+            final Map<String, ChannelInfo> channelInfos,
+            final ScheduledExecutorService bufferedStreamScheduler) {
         if (metadata == null) {
             throw new IllegalArgumentException("Worker request Context is required");
         }
@@ -80,6 +112,12 @@ final class InvocationContext implements Context {
         this.metadata = metadata;
         this.values = values;
         this.stepOutputEmitter = stepOutputEmitter;
+        this.bufferedStreamScheduler = bufferedStreamScheduler;
+        this.requestContext = io.grpc.Context.current();
+        this.cancellationListener = ignored -> cancelStepOutputs();
+        if (stepOutputEmitter != null) {
+            requestContext.addListener(cancellationListener, Runnable::run);
+        }
         this.attributes = mapValues("Attribute", attributes);
         this.locals = mapValues("step-execution local", locals);
         this.conditionResults = conditionResults;
@@ -195,6 +233,62 @@ final class InvocationContext implements Context {
                 .setStreamCapacityBytes(stream.getStreamCapacityBytes())
                 .setValue(values.encode(value))
                 .build());
+    }
+
+    synchronized void prepareBufferedStream(final Stream<String> stream) {
+        requireStepOutput("Buffered Streams");
+        requireRegistered(stream);
+        if (stream.getValueType() != String.class) {
+            throw new IllegalArgumentException("Buffered Streams require Stream<String>");
+        }
+        if (stepOutputsFinalized) {
+            throw new IllegalStateException("Buffered Stream invocation has finished");
+        }
+    }
+
+    synchronized void registerStepOutputFinalizer(final StepOutputFinalizer finalizer) {
+        if (stepOutputsFinalized) {
+            throw new IllegalStateException("Buffered Stream invocation has finished");
+        }
+        stepOutputFinalizers.add(finalizer);
+    }
+
+    synchronized Throwable finalizeStepOutputs(final Throwable failure) {
+        if (stepOutputsFinalized) {
+            return failure;
+        }
+        stepOutputsFinalized = true;
+        requestContext.removeListener(cancellationListener);
+        Throwable combined = failure;
+        for (StepOutputFinalizer finalizer : stepOutputFinalizers) {
+            try {
+                finalizer.finalizeStepOutput();
+            } catch (Throwable finalizationFailure) {
+                if (combined == null) {
+                    combined = finalizationFailure;
+                } else if (combined != finalizationFailure) {
+                    combined.addSuppressed(finalizationFailure);
+                }
+            }
+        }
+        return combined;
+    }
+
+    private synchronized void cancelStepOutputs() {
+        if (stepOutputsFinalized) {
+            return;
+        }
+        stepOutputsFinalized = true;
+        for (StepOutputFinalizer finalizer : stepOutputFinalizers) {
+            finalizer.cancelStepOutput();
+        }
+    }
+
+    ScheduledExecutorService getBufferedStreamScheduler() {
+        if (bufferedStreamScheduler == null) {
+            throw new IllegalStateException("Buffered Stream scheduler is unavailable");
+        }
+        return bufferedStreamScheduler;
     }
 
     private void requireStepOutput(final String operation) {

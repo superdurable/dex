@@ -197,6 +197,18 @@ response stream and may append repeatedly to the same Stream. It does not wait f
 acknowledgment; storage rejection or failure is observable on Dex, not by the handler.
 Flow timeout handlers and RPCs cannot send heartbeat or Stream progress.
 
+Use an invocation-managed writer for text deltas:
+
+```rust
+let progress = THINKING.buffered_text(context)?;
+progress.write(delta)?;
+```
+
+`buffered_text_with_options` accepts a `BufferedTextStreamOptions` interval and soft UTF-8 byte
+threshold. Defaults are one second and 16 KiB. `flush` sends the current batch, while invocation
+finalization sends the tail before the final result or error. Empty buffers do not emit a message
+or heartbeat. Retry does not restore unsent text or deduplicate emitted batches.
+
 External writes remain unary. `Client::write_stream` requires a non-empty `source`, accepts `#`,
 and appends every call even when a source repeats. Read messages return that metadata in
 `StreamMessage::source`. Step writes use `#<stepExecutionID>`.

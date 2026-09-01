@@ -64,7 +64,7 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
     public void invokeWaitForMethod(
             final InvokeWaitForMethodRequest request,
             final StreamObserver<InvokeWaitForMethodOutput> observer) {
-        final WaitForOutputEmitter emitter = new WaitForOutputEmitter(observer);
+        final WaitForOutputEmitter emitter = new WaitForOutputEmitter(observer, Context.current());
         submit(observer, () -> emitter.emitResult(dispatcher.invokeWaitFor(request, emitter)));
     }
 
@@ -72,7 +72,7 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
     public void invokeExecuteMethod(
             final InvokeExecuteMethodRequest request,
             final StreamObserver<InvokeExecuteMethodOutput> observer) {
-        final ExecuteOutputEmitter emitter = new ExecuteOutputEmitter(observer);
+        final ExecuteOutputEmitter emitter = new ExecuteOutputEmitter(observer, Context.current());
         submit(observer, () -> emitter.emitResult(dispatcher.invokeExecute(request, emitter)));
     }
 
@@ -183,6 +183,18 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
         }
     }
 
+    private static <Response> void emit(
+            final StreamObserver<Response> observer,
+            final Response response,
+            final Context requestContext) {
+        final Context previous = requestContext.attach();
+        try {
+            emit(observer, response);
+        } finally {
+            requestContext.detach(previous);
+        }
+    }
+
     private static void requireActiveInvocation() {
         if (Context.current().isCancelled()) {
             Thread.currentThread().interrupt();
@@ -198,53 +210,63 @@ final class JavaWorkerService extends WorkerServiceGrpc.WorkerServiceImplBase {
 
     private static final class WaitForOutputEmitter implements StepOutputEmitter {
         private final StreamObserver<InvokeWaitForMethodOutput> observer;
+        private final Context requestContext;
 
-        private WaitForOutputEmitter(final StreamObserver<InvokeWaitForMethodOutput> observer) {
+        private WaitForOutputEmitter(
+                final StreamObserver<InvokeWaitForMethodOutput> observer,
+                final Context requestContext) {
             this.observer = observer;
+            this.requestContext = requestContext;
         }
 
         @Override
-        public void emitHeartbeat(final StepMethodHeartbeat heartbeat) {
+        public synchronized void emitHeartbeat(final StepMethodHeartbeat heartbeat) {
             emit(observer, InvokeWaitForMethodOutput.newBuilder()
                     .setHeartbeat(heartbeat)
-                    .build());
+                    .build(), requestContext);
         }
 
         @Override
-        public void emitStreamWrite(final StepStreamWrite streamWrite) {
+        public synchronized void emitStreamWrite(final StepStreamWrite streamWrite) {
             emit(observer, InvokeWaitForMethodOutput.newBuilder()
                     .setStreamWrite(streamWrite)
-                    .build());
+                    .build(), requestContext);
         }
 
-        private void emitResult(final InvokeWaitForMethodResponse result) {
-            emit(observer, InvokeWaitForMethodOutput.newBuilder().setResult(result).build());
+        private synchronized void emitResult(final InvokeWaitForMethodResponse result) {
+            emit(observer, InvokeWaitForMethodOutput.newBuilder().setResult(result).build(),
+                    requestContext);
         }
     }
 
     private static final class ExecuteOutputEmitter implements StepOutputEmitter {
         private final StreamObserver<InvokeExecuteMethodOutput> observer;
+        private final Context requestContext;
 
-        private ExecuteOutputEmitter(final StreamObserver<InvokeExecuteMethodOutput> observer) {
+        private ExecuteOutputEmitter(
+                final StreamObserver<InvokeExecuteMethodOutput> observer,
+                final Context requestContext) {
             this.observer = observer;
+            this.requestContext = requestContext;
         }
 
         @Override
-        public void emitHeartbeat(final StepMethodHeartbeat heartbeat) {
+        public synchronized void emitHeartbeat(final StepMethodHeartbeat heartbeat) {
             emit(observer, InvokeExecuteMethodOutput.newBuilder()
                     .setHeartbeat(heartbeat)
-                    .build());
+                    .build(), requestContext);
         }
 
         @Override
-        public void emitStreamWrite(final StepStreamWrite streamWrite) {
+        public synchronized void emitStreamWrite(final StepStreamWrite streamWrite) {
             emit(observer, InvokeExecuteMethodOutput.newBuilder()
                     .setStreamWrite(streamWrite)
-                    .build());
+                    .build(), requestContext);
         }
 
-        private void emitResult(final InvokeExecuteMethodResponse result) {
-            emit(observer, InvokeExecuteMethodOutput.newBuilder().setResult(result).build());
+        private synchronized void emitResult(final InvokeExecuteMethodResponse result) {
+            emit(observer, InvokeExecuteMethodOutput.newBuilder().setResult(result).build(),
+                    requestContext);
         }
     }
 

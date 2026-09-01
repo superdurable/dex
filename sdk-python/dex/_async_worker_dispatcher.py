@@ -29,6 +29,7 @@ class _AsyncStepOutputEmitter:
     def __init__(self) -> None:
         self.queue: asyncio.Queue[StepOutput] = asyncio.Queue()
         self._is_closed = False
+        self._close_callbacks: list[Callable[[], None]] = []
 
     def emit_nowait(self, output: StepOutput) -> None:
         if self._is_closed:
@@ -44,7 +45,17 @@ class _AsyncStepOutputEmitter:
             raise asyncio.CancelledError
 
     def close(self) -> None:
+        if self._is_closed:
+            return
         self._is_closed = True
+        for callback in self._close_callbacks:
+            callback()
+
+    def add_close_callback(self, callback: Callable[[], None]) -> None:
+        if self._is_closed:
+            callback()
+            return
+        self._close_callbacks.append(callback)
 
 
 class AsyncWorkerDispatcher(WorkerDispatcher):
@@ -93,18 +104,21 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             output_emitter=emitter,
         )
         input = self._values.decode(request.step_input, step.input_codec)
-        wait = step.step.wait_for(context, input)
-        if isgenerator(wait):
-            wait.close()
-            raise InvalidStepResultError(
-                flow.name,
-                step.name,
-                "wait_for",
-                "synchronous generators require Worker",
-            )
-        if isawaitable(wait):
-            wait = await wait
+        response: pb.InvokeWaitForMethodResponse | None = None
+        failure: BaseException | None = None
+        cause: BaseException | None = None
         try:
+            wait = step.step.wait_for(context, input)
+            if isgenerator(wait):
+                wait.close()
+                raise InvalidStepResultError(
+                    flow.name,
+                    step.name,
+                    "wait_for",
+                    "synchronous generators require Worker",
+                )
+            if isawaitable(wait):
+                wait = await wait
             if not isinstance(wait, Wait):
                 raise TypeError("wait_for must return Wait")
             response = pb.InvokeWaitForMethodResponse(
@@ -116,11 +130,22 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             waiting = self._map_wait(flow, wait)
             if waiting is not None:
                 response.waiting_condition.CopyFrom(waiting)
-            return response
+        except InvalidStepResultError as error:
+            failure = error
         except (TypeError, ValueError) as error:
-            raise InvalidStepResultError(
+            failure = InvalidStepResultError(
                 flow.name, step.name, "wait_for", str(error)
-            ) from error
+            )
+            cause = error
+        except BaseException as error:
+            failure = error
+        combined = context._finalize_step_outputs(failure)
+        if combined is not None:
+            if cause is not None:
+                raise combined from cause
+            raise combined
+        assert response is not None
+        return response
 
     async def invoke_execute(  # type: ignore[override]
         self,
@@ -166,31 +191,46 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             output_emitter=emitter,
         )
         input = self._values.decode(request.step_input, step.input_codec)
-        decision: Any = step.step.execute(context, input)
-        if isgenerator(decision):
-            decision.close()
-            raise InvalidStepResultError(
-                flow.name,
-                step.name,
-                "execute",
-                "synchronous generators require Worker",
-            )
-        if isawaitable(decision):
-            decision = await decision
+        response: pb.InvokeExecuteMethodResponse | None = None
+        failure: BaseException | None = None
+        cause: BaseException | None = None
         try:
+            decision: Any = step.step.execute(context, input)
+            if isgenerator(decision):
+                decision.close()
+                raise InvalidStepResultError(
+                    flow.name,
+                    step.name,
+                    "execute",
+                    "synchronous generators require Worker",
+                )
+            if isawaitable(decision):
+                decision = await decision
             if not isinstance(decision, StepDecision):
                 raise TypeError("execute must return StepDecision")
-            return pb.InvokeExecuteMethodResponse(
+            response = pb.InvokeExecuteMethodResponse(
                 step_decision=self._map_decision(flow, decision),
                 upsert_attributes=list(context.attribute_writes.values()),
                 record_events=context.events,
                 upsert_step_exe_locals=list(context.local_writes.values()),
                 publish_to_channel=context.publications,
             )
+        except InvalidStepResultError as error:
+            failure = error
         except (TypeError, ValueError) as error:
-            raise InvalidStepResultError(
+            failure = InvalidStepResultError(
                 flow.name, step.name, "execute", str(error)
-            ) from error
+            )
+            cause = error
+        except BaseException as error:
+            failure = error
+        combined = context._finalize_step_outputs(failure)
+        if combined is not None:
+            if cause is not None:
+                raise combined from cause
+            raise combined
+        assert response is not None
+        return response
 
     async def _invoke_timeout_handler_async(
         self,

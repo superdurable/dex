@@ -763,6 +763,60 @@ def test_sync_step_generator_maps_ordered_progress_and_result() -> None:
     ] == ["first", "second"]
 
 
+def test_sync_buffered_text_stream_is_cooperative() -> None:
+    progress = Stream("sync-buffered-progress", str, 1_048_576)
+
+    class BufferedStep(Step[str]):
+        def execute(
+            self,
+            context: Context,
+            input: str,
+        ) -> Generator[StepOutput, None, StepDecision]:
+            writer = progress.buffered_text(context, max_buffered_bytes=5)
+            yield from writer.write(input)
+            yield from writer.write(" 世界")
+            yield from writer.flush()
+            return graceful_complete(input)
+
+    class BufferedFlow(Flow[str]):
+        start = BufferedStep()
+
+        def get_steps(self) -> StepList[str]:
+            return StepList.start_step(self.start)
+
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(progress)
+
+    class PassthroughHydrator:
+        @staticmethod
+        def execute_request(
+            request: pb.InvokeExecuteMethodRequest,
+        ) -> pb.InvokeExecuteMethodRequest:
+            return request
+
+    registry = Registry((BufferedFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = WorkerDispatcher(registry, values, cast(Any, PassthroughHydrator()))
+    outputs = list(
+        dispatcher.invoke_execute(
+            pb.InvokeExecuteMethodRequest(
+                flow_type="BufferedFlow",
+                step_type="BufferedStep",
+                step_input=values.encode("hello", values.codec(str)),
+            )
+        )
+    )
+    assert [output.WhichOneof("output") for output in outputs] == [
+        "stream_write",
+        "stream_write",
+        "result",
+    ]
+    assert [
+        values.decode(output.stream_write.value, values.codec(str))
+        for output in outputs[:-1]
+    ] == ["hello", " 世界"]
+
+
 @pytest.mark.parametrize("invalid_output", [graceful_complete(), object()])
 def test_sync_step_generator_rejects_invalid_yields(invalid_output: object) -> None:
     class InvalidGeneratorStep(Step[None]):
@@ -1043,6 +1097,74 @@ async def _assert_async_step_outputs_preserve_call_order() -> None:
     ]
     assert not outputs[1].heartbeat.HasField("value")
     assert outputs[3].heartbeat.HasField("value")
+
+
+def test_async_buffered_text_stream_flushes_on_timer_and_completion() -> None:
+    asyncio.run(_assert_async_buffered_text_stream_flushes())
+
+
+async def _assert_async_buffered_text_stream_flushes() -> None:
+    progress = Stream("async-buffered-progress", str, 1_048_576)
+    release_handler = asyncio.Event()
+
+    class BufferedStep(Step[str]):
+        async def execute(  # type: ignore[override]
+            self,
+            context: AsyncContext,
+            input: str,
+        ) -> StepDecision:
+            writer = progress.buffered_text(
+                context,
+                flush_interval=timedelta(milliseconds=5),
+            )
+            writer.write(input)
+            await release_handler.wait()
+            writer.write(" ")
+            writer.write("世界")
+            return graceful_complete(input)
+
+    class BufferedFlow(Flow[str]):
+        start = BufferedStep()
+
+        def get_steps(self) -> StepList[str]:
+            return StepList.start_step(self.start)
+
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(progress)
+
+    class AsyncPassthroughHydrator:
+        @staticmethod
+        async def execute_request(
+            request: pb.InvokeExecuteMethodRequest,
+        ) -> pb.InvokeExecuteMethodRequest:
+            return request
+
+    registry = Registry((BufferedFlow(),), allow_async_handlers=True)
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = AsyncWorkerDispatcher(
+        registry,
+        values,
+        cast(Any, AsyncPassthroughHydrator()),
+    )
+    invocation = dispatcher.invoke_execute(
+        pb.InvokeExecuteMethodRequest(
+            flow_type="BufferedFlow",
+            step_type="BufferedStep",
+            step_input=values.encode("hello", values.codec(str)),
+        )
+    )
+    first_output = await anext(invocation)
+    release_handler.set()
+    outputs = [first_output, *[output async for output in invocation]]
+    assert [output.WhichOneof("output") for output in outputs] == [
+        "stream_write",
+        "stream_write",
+        "result",
+    ]
+    assert [
+        values.decode(output.stream_write.value, values.codec(str))
+        for output in outputs[:-1]
+    ] == ["hello", " 世界"]
 
 
 def test_async_step_stream_cancellation_cancels_handler() -> None:

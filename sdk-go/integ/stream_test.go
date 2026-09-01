@@ -34,10 +34,23 @@ type streamTestStep struct {
 }
 
 func (streamTestStep) Execute(ctx dex.Context, _ struct{}) (*dex.StepDecision, error) {
-	if err := streamTestProgress.Write(ctx, "step-progress-1"); err != nil {
+	progress, err := dex.NewBufferedTextStream(ctx, streamTestProgress)
+	if err != nil {
 		return nil, err
 	}
-	if err := streamTestProgress.Write(ctx, "step-progress-2"); err != nil {
+	if err := progress.Write("step-progress-"); err != nil {
+		return nil, err
+	}
+	if err := progress.Write("1"); err != nil {
+		return nil, err
+	}
+	if err := progress.Flush(); err != nil {
+		return nil, err
+	}
+	if err := progress.Write("step-progress-"); err != nil {
+		return nil, err
+	}
+	if err := progress.Write("2"); err != nil {
 		return nil, err
 	}
 	return dex.GracefulComplete(struct{}{}), nil

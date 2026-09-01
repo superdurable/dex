@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -57,6 +59,7 @@ public final class Worker implements AutoCloseable {
     private final WorkerOptions options;
     private final WorkerTarget workerTarget;
     private final ExecutorService handlers;
+    private final ScheduledExecutorService bufferedStreamScheduler;
     private final ManagedChannel flowChannel;
     private final FlowServiceGrpc.FlowServiceBlockingStub flowService;
     private final JavaWorkerService workerService;
@@ -95,6 +98,11 @@ public final class Worker implements AutoCloseable {
                 ? targetFromBindAddress(options.getBindAddress())
                 : options.getWorkerTarget();
         this.handlers = newHandlerExecutor();
+        this.bufferedStreamScheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            final Thread thread = new Thread(runnable, "dex-java-buffered-stream");
+            thread.setDaemon(true);
+            return thread;
+        });
         this.flowChannel = ManagedChannelBuilder.forTarget(options.getServerAddress())
                 .usePlaintext()
                 .build();
@@ -103,7 +111,8 @@ public final class Worker implements AutoCloseable {
         final WorkerDispatcher dispatcher = new WorkerDispatcher(
                 registry,
                 values,
-                new ValueHydrator(flowService, blobCache));
+                new ValueHydrator(flowService, blobCache),
+                bufferedStreamScheduler);
         this.workerService = new JavaWorkerService(
                 dispatcher,
                 handlers,
@@ -239,6 +248,7 @@ public final class Worker implements AutoCloseable {
             handlers.shutdownNow();
             Thread.currentThread().interrupt();
         }
+        bufferedStreamScheduler.shutdownNow();
         flowChannel.shutdown();
         try {
             if (!flowChannel.awaitTermination(5, TimeUnit.SECONDS)) {

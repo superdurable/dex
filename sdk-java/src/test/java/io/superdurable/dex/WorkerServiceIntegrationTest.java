@@ -143,6 +143,26 @@ final class WorkerServiceIntegrationTest {
     }
 
     @Test
+    void bufferedTextStreamFlushesBeforeTheResult() throws Exception {
+        final BridgeFlow flow = new BridgeFlow();
+        final RunningWorker running = startWorker(flow, new TestBlobCache(), null);
+        try {
+            final Iterator<InvokeExecuteMethodOutput> outputs =
+                    running.client.invokeExecuteMethod(executeRequest(concrete("buffered")));
+            assertTrue(outputs.hasNext());
+            assertEquals("hello", outputs.next().getStreamWrite().getValue().getStringValue());
+            flow.start.bufferedHandlerRelease.countDown();
+            assertTrue(outputs.hasNext());
+            assertEquals(" 世界", outputs.next().getStreamWrite().getValue().getStringValue());
+            assertTrue(outputs.hasNext());
+            assertTrue(outputs.next().hasResult());
+            assertFalse(outputs.hasNext());
+        } finally {
+            running.close();
+        }
+    }
+
+    @Test
     void preservesProgressBeforeHandlerFailureWithoutSendingResult() throws Exception {
         final RunningWorker running = startWorker(new BridgeFlow(), new TestBlobCache(), null);
         try {
@@ -982,6 +1002,7 @@ final class WorkerServiceIntegrationTest {
                 new AtomicReference<Boolean>(Boolean.FALSE);
         private final CountDownLatch blockStarted = new CountDownLatch(1);
         private final CountDownLatch cancellationObserved = new CountDownLatch(1);
+        private final CountDownLatch bufferedHandlerRelease = new CountDownLatch(1);
         private final Channel<Void> commands;
         private final Stream<String> thinking;
         private final Stream<String> findings;
@@ -1050,6 +1071,23 @@ final class WorkerServiceIntegrationTest {
                 thinking.write(context, "second");
                 context.recordHeartbeat(null);
                 findings.write(context, "third");
+            }
+            if ("buffered".equals(input)) {
+                final BufferedTextStream progress = BufferedTextStream.create(
+                        context,
+                        thinking,
+                        Duration.ofMillis(5),
+                        1_024);
+                progress.write("hello");
+                try {
+                    if (!bufferedHandlerRelease.await(5, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("buffered handler was not released");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("buffered handler was interrupted", interrupted);
+                }
+                progress.write(" 世界");
             }
             if ("read-heartbeat".equals(input)) {
                 return StepDecision.gracefulComplete(context.hasLastHeartbeatValue()

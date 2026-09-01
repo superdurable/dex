@@ -62,6 +62,13 @@ pub struct Context {
     event_names: HashSet<String>,
     publications: Vec<ChannelMessage>,
     cancellation: InvocationCancellation,
+    runtime: Option<tokio::runtime::Handle>,
+    step_output_finalizers: Vec<Arc<dyn StepOutputFinalizer>>,
+    step_outputs_finalized: bool,
+}
+
+pub(crate) trait StepOutputFinalizer: Send + Sync {
+    fn finalize_step_output(&self) -> HandlerResult<()>;
 }
 
 impl Context {
@@ -85,6 +92,9 @@ impl Context {
             event_names: HashSet::new(),
             publications: Vec::new(),
             cancellation,
+            runtime: tokio::runtime::Handle::try_current().ok(),
+            step_output_finalizers: Vec::new(),
+            step_outputs_finalized: false,
         })
     }
 
@@ -553,6 +563,83 @@ impl Context {
         })
     }
 
+    pub(crate) fn prepare_buffered_text_stream(
+        &self,
+        stream: &Stream<String>,
+    ) -> HandlerResult<(
+        StepOutputEmitter,
+        InvocationCancellation,
+        tokio::runtime::Handle,
+    )> {
+        let output_emitter = self.step_output_emitter()?.clone();
+        let definition = self
+            .flow
+            .persistence
+            .get(stream.name())
+            .filter(|definition| {
+                definition.kind == PersistenceKind::Stream
+                    && definition.stream_identity == Some(stream.identity())
+            })
+            .ok_or_else(|| {
+                HandlerError::new(
+                    "dex_sdk::HandlerError",
+                    format!("Stream does not belong to Flow: {}", stream.name()),
+                )
+            })?;
+        if definition.stream_capacity_bytes != Some(stream.stream_capacity_bytes()) {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                format!(
+                    "Stream capacity does not match its registered definition: {}",
+                    stream.name()
+                ),
+            ));
+        }
+        let runtime = self.runtime.clone().ok_or_else(|| {
+            HandlerError::new(
+                "dex_sdk::HandlerError",
+                "Buffered Stream runtime is unavailable",
+            )
+        })?;
+        Ok((output_emitter, self.cancellation.clone(), runtime))
+    }
+
+    pub(crate) fn register_step_output_finalizer(
+        &mut self,
+        finalizer: Arc<dyn StepOutputFinalizer>,
+    ) -> HandlerResult<()> {
+        if self.step_outputs_finalized {
+            return Err(HandlerError::new(
+                "dex_sdk::HandlerError",
+                "Buffered Stream invocation has finished",
+            ));
+        }
+        self.step_output_finalizers.push(finalizer);
+        Ok(())
+    }
+
+    pub(crate) fn finalize_step_outputs<T>(
+        &mut self,
+        result: HandlerResult<T>,
+    ) -> HandlerResult<T> {
+        if self.step_outputs_finalized {
+            return result;
+        }
+        self.step_outputs_finalized = true;
+        let mut result = result;
+        for finalizer in &self.step_output_finalizers {
+            if let Err(finalization_failure) = finalizer.finalize_step_output() {
+                match &mut result {
+                    Ok(_) => result = Err(finalization_failure),
+                    Err(handler_failure) => {
+                        handler_failure.attach_finalizer_error(&finalization_failure);
+                    }
+                }
+            }
+        }
+        result
+    }
+
     pub(crate) fn cancellation(&self) -> InvocationCancellation {
         self.cancellation.clone()
     }
@@ -752,6 +839,7 @@ struct InvocationCancellationInner {
     cancelled: AtomicBool,
     mutex: Mutex<()>,
     condition: Condvar,
+    notification: tokio::sync::Notify,
 }
 
 impl InvocationCancellation {
@@ -761,6 +849,7 @@ impl InvocationCancellation {
                 cancelled: AtomicBool::new(false),
                 mutex: Mutex::new(()),
                 condition: Condvar::new(),
+                notification: tokio::sync::Notify::new(),
             }),
         }
     }
@@ -780,6 +869,15 @@ impl InvocationCancellation {
         let _guard = self.inner.mutex.lock().expect("cancellation lock");
         self.inner.cancelled.store(true, Ordering::Release);
         self.inner.condition.notify_all();
+        self.inner.notification.notify_waiters();
+    }
+
+    pub(crate) async fn cancelled(&self) {
+        let notified = self.inner.notification.notified();
+        if self.is_cancelled() {
+            return;
+        }
+        notified.await;
     }
 }
 

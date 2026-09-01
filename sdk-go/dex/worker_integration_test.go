@@ -605,6 +605,40 @@ func TestWorkerStepOutputEmitterSerializesAndRetainsSendFailure(t *testing.T) {
 	require.Len(t, failingStream.frames, 1)
 }
 
+func TestBufferedTextStreamFlushesOnTimerAndInvocationFinish(t *testing.T) {
+	progressStream := &bufferedTestProgressStream{}
+	registry, err := NewRegistry([]Flow{workerFlow})
+	require.NoError(t, err)
+	registeredFlow, found := registry.lookupFlow(GetFinalFlowType(workerFlow))
+	require.True(t, found)
+	invocation, err := newInvocationContext(
+		context.Background(),
+		invocationExecute,
+		registeredFlow,
+		progressStream,
+		workerStepContext(),
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	writer, err := NewBufferedTextStream(
+		invocation,
+		workerTestThinking,
+		BufferedTextStreamFlushInterval(5*time.Millisecond),
+	)
+	require.NoError(t, err)
+	require.NoError(t, writer.Write("hello"))
+	require.Eventually(t, func() bool {
+		return len(progressStream.values()) == 1
+	}, time.Second, time.Millisecond)
+	require.NoError(t, writer.Write(" 世界"))
+	require.NoError(t, invocation.finish())
+	require.Equal(t, []string{"hello", " 世界"}, progressStream.values())
+	require.ErrorIs(t, writer.Write("late"), errInvalidInvocationContext)
+}
+
 func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 	client, closeService := newWorkerTestClient(t, nil)
 	defer closeService()
@@ -1407,6 +1441,28 @@ type workerTestProgressStream struct {
 	frames    []string
 	failure   error
 	failAfter int
+}
+
+type bufferedTestProgressStream struct {
+	mu      sync.Mutex
+	written []string
+}
+
+func (stream *bufferedTestProgressStream) sendHeartbeat(*dexpb.StepMethodHeartbeat) error {
+	return nil
+}
+
+func (stream *bufferedTestProgressStream) sendStreamWrite(write *dexpb.StepStreamWrite) error {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.written = append(stream.written, write.GetValue().GetStringValue())
+	return nil
+}
+
+func (stream *bufferedTestProgressStream) values() []string {
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	return append([]string(nil), stream.written...)
 }
 
 func (stream *workerTestProgressStream) sendHeartbeat(*dexpb.StepMethodHeartbeat) error {

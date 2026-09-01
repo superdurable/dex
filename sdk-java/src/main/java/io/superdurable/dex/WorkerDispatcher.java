@@ -44,6 +44,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ScheduledExecutorService;
 
 final class WorkerDispatcher {
     private static final String TIMEOUT_HANDLER_STEP_TYPE = "sys:timeout_handler";
@@ -51,19 +52,29 @@ final class WorkerDispatcher {
     private final Registry registry;
     private final ValueMapper values;
     private final ValueHydrator hydrator;
+    private final ScheduledExecutorService bufferedStreamScheduler;
 
     WorkerDispatcher(
             final Registry registry,
             final ValueMapper values,
             final ValueHydrator hydrator) {
+        this(registry, values, hydrator, null);
+    }
+
+    WorkerDispatcher(
+            final Registry registry,
+            final ValueMapper values,
+            final ValueHydrator hydrator,
+            final ScheduledExecutorService bufferedStreamScheduler) {
         this.registry = registry;
         this.values = values;
         this.hydrator = hydrator;
+        this.bufferedStreamScheduler = bufferedStreamScheduler;
     }
 
     InvokeWaitForMethodResponse invokeWaitFor(
             final InvokeWaitForMethodRequest original,
-            final StepOutputEmitter stepOutputEmitter) {
+            final StepOutputEmitter stepOutputEmitter) throws Throwable {
         final InvokeWaitForMethodRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         final Registry.RegisteredStep step = flow.getStep(request.getStepType());
@@ -76,26 +87,34 @@ final class WorkerDispatcher {
                 request.getAttributesList(),
                 null,
                 null,
-                null);
+                null,
+                bufferedStreamScheduler);
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
-        final Wait wait = callWaitFor(step.getStep(), context, input);
-
-        final InvokeWaitForMethodResponse.Builder response =
-                InvokeWaitForMethodResponse.newBuilder()
-                        .addAllUpsertAttributes(context.getAttributeWrites())
-                        .addAllUpsertStepExeLocals(context.getLocalWrites())
-                        .addAllRecordEvents(context.getEvents())
-                        .addAllPublishToChannel(context.getPublications());
-        final WaitingCondition waiting = mapWait(flow, step, wait);
-        if (waiting != null) {
-            response.setWaitingCondition(waiting);
+        try {
+            final Wait wait = callWaitFor(step.getStep(), context, input);
+            final InvokeWaitForMethodResponse.Builder response =
+                    InvokeWaitForMethodResponse.newBuilder()
+                            .addAllUpsertAttributes(context.getAttributeWrites())
+                            .addAllUpsertStepExeLocals(context.getLocalWrites())
+                            .addAllRecordEvents(context.getEvents())
+                            .addAllPublishToChannel(context.getPublications());
+            final WaitingCondition waiting = mapWait(flow, step, wait);
+            if (waiting != null) {
+                response.setWaitingCondition(waiting);
+            }
+            final Throwable finalizationFailure = context.finalizeStepOutputs(null);
+            if (finalizationFailure != null) {
+                throw finalizationFailure;
+            }
+            return response.build();
+        } catch (Throwable failure) {
+            throw context.finalizeStepOutputs(failure);
         }
-        return response.build();
     }
 
     InvokeExecuteMethodResponse invokeExecute(
             final InvokeExecuteMethodRequest original,
-            final StepOutputEmitter stepOutputEmitter) {
+            final StepOutputEmitter stepOutputEmitter) throws Throwable {
         final InvokeExecuteMethodRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         if (TIMEOUT_HANDLER_STEP_TYPE.equals(request.getStepType())) {
@@ -111,16 +130,26 @@ final class WorkerDispatcher {
                 request.getAttributesList(),
                 request.getStepExeLocalsList(),
                 request.hasConditionResults() ? request.getConditionResults() : null,
-                null);
+                null,
+                bufferedStreamScheduler);
         final Object input = values.decode(request.getStepInput(), step.getStep().getInputType());
-        final StepDecision decision = callExecute(step.getStep(), context, input);
-        return InvokeExecuteMethodResponse.newBuilder()
-                .setStepDecision(mapDecision(flow, step, decision))
-                .addAllUpsertAttributes(context.getAttributeWrites())
-                .addAllRecordEvents(context.getEvents())
-                .addAllUpsertStepExeLocals(context.getLocalWrites())
-                .addAllPublishToChannel(context.getPublications())
-                .build();
+        try {
+            final StepDecision decision = callExecute(step.getStep(), context, input);
+            final InvokeExecuteMethodResponse response = InvokeExecuteMethodResponse.newBuilder()
+                    .setStepDecision(mapDecision(flow, step, decision))
+                    .addAllUpsertAttributes(context.getAttributeWrites())
+                    .addAllRecordEvents(context.getEvents())
+                    .addAllUpsertStepExeLocals(context.getLocalWrites())
+                    .addAllPublishToChannel(context.getPublications())
+                    .build();
+            final Throwable finalizationFailure = context.finalizeStepOutputs(null);
+            if (finalizationFailure != null) {
+                throw finalizationFailure;
+            }
+            return response;
+        } catch (Throwable failure) {
+            throw context.finalizeStepOutputs(failure);
+        }
     }
 
     private InvokeExecuteMethodResponse invokeTimeoutHandler(
@@ -142,7 +171,8 @@ final class WorkerDispatcher {
                 request.getAttributesList(),
                 request.getStepExeLocalsList(),
                 request.hasConditionResults() ? request.getConditionResults() : null,
-                null);
+                null,
+                bufferedStreamScheduler);
         final StepDecision decision = flow.getFlow().handleTimeout(context);
         return InvokeExecuteMethodResponse.newBuilder()
                 .setStepDecision(mapDecision(
@@ -169,7 +199,8 @@ final class WorkerDispatcher {
                 request.getAttributesList(),
                 null,
                 null,
-                request.getChannelInfosMap());
+                request.getChannelInfosMap(),
+                bufferedStreamScheduler);
         final Method method = rpc.getMethod();
         final Object[] arguments;
         if (method.getParameterTypes().length == 2) {

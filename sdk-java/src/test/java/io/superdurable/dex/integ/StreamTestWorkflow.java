@@ -12,6 +12,7 @@
 
 package io.superdurable.dex.integ;
 
+import io.superdurable.dex.BufferedTextStream;
 import io.superdurable.dex.Context;
 import io.superdurable.dex.Flow;
 import io.superdurable.dex.PersistenceSchema;
@@ -42,8 +43,12 @@ final class StreamTestWorkflow implements Flow<Void> {
 
         @Override
         public StepDecision execute(final Context context, final Void input) {
-            progress.write(context, "step-progress-1");
-            progress.write(context, "step-progress-2");
+            final BufferedTextStream writer = BufferedTextStream.create(context, progress);
+            writer.write("step-progress-");
+            writer.write("1");
+            writer.flush();
+            writer.write("step-progress-");
+            writer.write("2");
             return StepDecision.gracefulComplete();
         }
     }

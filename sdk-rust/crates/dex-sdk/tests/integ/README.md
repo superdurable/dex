@@ -63,5 +63,6 @@ introspection. Persistence integration covers singleton Attribute equality waits
 Heartbeat recovery verifies typed checkpoints, explicit clearing, JSON null versus an absent Value,
 Stream implicit-heartbeat preservation, and the absence of local-activity details after regular
 fallback. Stream integration interleaves WaitFor and Execute heartbeat frames with repeated Step
-writes, then verifies repeated client sources containing `#` all append. Cancellation coverage uses
-active heartbeat output so blocked synchronous handlers observe response-stream closure promptly.
+writes, exercises default and custom buffered text writers, then verifies repeated client sources
+containing `#` all append. Cancellation coverage uses active heartbeat output so blocked
+synchronous handlers observe response-stream closure promptly.

@@ -18,6 +18,12 @@ if TYPE_CHECKING:
     from dex.step import StepOutput
     from dex.stream import Stream
 
+    class _StepOutputFinalizer(Protocol):
+        def _finalize_step_output(self) -> None: ...
+
+        def _cancel_step_output(self) -> None: ...
+
+
 ValueT = TypeVar("ValueT")
 
 
@@ -226,6 +232,13 @@ class Context(Protocol):
         definition: Stream[ValueT],
         value: ValueT,
     ) -> StepOutput | None: ...
+
+    def _prepare_buffered_stream(self, definition: Stream[object]) -> bool: ...
+
+    def _register_step_output_finalizer(
+        self,
+        finalizer: _StepOutputFinalizer,
+    ) -> None: ...
 
 
 class AsyncContext(Context, Protocol):
