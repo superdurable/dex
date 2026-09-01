@@ -2020,6 +2020,7 @@ pre {
 
 .semantic-record > summary > strong {
   margin-bottom: 0;
+  font-size: 10px;
 }
 
 .channel-record > summary > strong {
