@@ -31,24 +31,37 @@ Start Dex with a directory containing generated JSON files:
 dexcli dev --flow-rendering-dir ./build
 ```
 
-Open **Flow Rendering** in Dex Web. This page is independent from Flow search and run details. It renders the selected definition interactively. Its legend can show or hide waits, RPC and timeout handlers, Attributes, Channels, Streams, SubFlows, and diagnostics.
+Open **Flow Rendering** in Dex Web. This page is independent from Flow search and run details. It renders the selected definition interactively. Its legend can show or hide control flow, WaitFor, RPC and timeout handlers, Attributes, Channels, Streams, SubFlows, and diagnostics. Streams are hidden by default. The other layers start visible.
 
 Dex scans JSON files recursively and takes a snapshot when it starts. Restart Dex after changing the files. Invalid JSON, an unsupported schema version, or a path that is not a directory stops startup with an error.
 
 ## What the graph contains
 
+The main Flow appears as a lavender frame. Each Step is a blue frame inside it. WaitFor paths appear above Execute decisions. A conditional WaitFor or Execute return first passes through a diamond, then branches into separate cards labeled with the source condition.
+
 The definition graph includes:
 
 - the Flow and start Step
-- registered Steps and statically known transitions
-- condition labels and static or runtime-sized fan-out
-- WaitFor conditions, Timers, and external SubFlows
-- RPCs and their next Steps
-- Attribute, Channel, and Stream access
-- terminal decisions and cancellation relations
+- registered Steps and statically known transitions grouped by Execute decision
+- condition labels and fixed or runtime-sized fan-out
+- ordered WaitFor conditions, including Channel counts, Timer durations, and external SubFlows
+- RPC and timeout decisions and their next Steps
+- Attribute names, source-language value types, and map status
+- Channel, Attribute, and optional Stream access
+- completion, failure, Channel-empty checks, and cancellation inside Execute cards
 - Execute failure recovery paths
 
-An error return or raised exception does not identify another Step. It therefore does not create a transition. An explicit **ProceedToOnExecuteFailure** or **on_execute_failure_proceed_to** policy creates a red dashed edge to the recovery Step.
+Terminal decisions do not create separate terminal nodes. Cancellation is shown inside the Execute card instead of adding duplicate arrows. The start Step carries a START marker instead of receiving an artificial start edge. Timers appear as rows in WaitFor rather than separate nodes.
+
+An error return or raised exception does not identify another Step. It therefore does not create a transition. An explicit **ProceedToOnExecuteFailure** or **on_execute_failure_proceed_to** policy creates a solid magenta recovery edge to the recovery Step. The label records when the recovery skips WaitFor.
+
+Resource arrows have a consistent direction:
+
+- publisher → Channel → consuming WaitFor
+- Attribute writer → Attribute box → Attribute reader
+- WaitFor → folded SubFlow
+
+Resource and SubFlow relations are dashed, so they remain visually weaker than solid Step transitions. Channels are grouped at the upper left of the Flow. Attributes share one box. RPC hexagons cross the left Flow boundary. A SubFlow is a small dashed frame containing only its Flow type; its internal Steps are not expanded.
 
 Stream relations describe observable application output, not control flow. They are hidden by default in Flow Rendering and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. Heartbeat calls and checkpoint reads are runtime reliability details, so they are not included in the definition graph.
 
@@ -76,12 +89,12 @@ Version 1 does not support multiple Flows in one file, reflection, dynamic class
 
 Unsupported dynamic control flow is never omitted silently. The output contains an Unknown node and an error diagnostic. A partial JSON artifact is still written, and the command exits with status 1.
 
-Warnings do not invalidate the graph. For example, a registered Step that cannot be reached from the start Step or an RPC produces a warning. Invalid command arguments exit with status 2.
+Warnings do not invalidate the graph. For example, an Attribute whose value type cannot be determined uses **unknown** and produces a warning. A registered Step that cannot be reached from the start Step or an RPC also produces a warning. Invalid command arguments exit with status 2.
 
 The JSON **valid** field is false when any blocking diagnostic is present. Consumers should reject editing or deployment based on an invalid graph while still using its known nodes and edges for explanation.
 
 ## JSON contract
 
-The [Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) defines source spans, nodes, edges, metadata, and diagnostics. The schema is the integration boundary for future visual editors and additional language analyzers.
+The [Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) defines source spans, parent-child relationships, structured WaitFor and decision details, resource types, branch conditions, edge direction, and diagnostics. The schema is the integration boundary for future visual editors and additional language analyzers.
 
 See [Dex CLI](/references/cli) for commands that operate on running Flows.

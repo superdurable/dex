@@ -38,14 +38,49 @@ type Flow struct {
 }
 
 type Node struct {
-	ID       string         `json:"id"`
-	Kind     string         `json:"kind"`
-	Name     string         `json:"name"`
-	Phase    string         `json:"phase,omitempty"`
-	Start    bool           `json:"start,omitempty"`
-	External bool           `json:"external,omitempty"`
-	Span     *Span          `json:"span,omitempty"`
-	Metadata map[string]any `json:"metadata,omitempty"`
+	ID        string           `json:"id"`
+	Kind      string           `json:"kind"`
+	Name      string           `json:"name"`
+	ParentID  string           `json:"parentId,omitempty"`
+	Condition string           `json:"condition,omitempty"`
+	Phase     string           `json:"phase,omitempty"`
+	Start     bool             `json:"start,omitempty"`
+	External  bool             `json:"external,omitempty"`
+	Span      *Span            `json:"span,omitempty"`
+	Resource  *ResourceDetails `json:"resource,omitempty"`
+	Wait      *WaitDetails     `json:"wait,omitempty"`
+	Decision  *DecisionDetails `json:"decision,omitempty"`
+	Metadata  map[string]any   `json:"metadata,omitempty"`
+}
+
+type ResourceDetails struct {
+	ValueType string `json:"valueType"`
+	Map       bool   `json:"map,omitempty"`
+}
+
+type WaitDetails struct {
+	Type       string          `json:"type"`
+	Conditions []WaitCondition `json:"conditions"`
+}
+
+type WaitCondition struct {
+	Kind       string `json:"kind"`
+	Label      string `json:"label"`
+	ResourceID string `json:"resourceId,omitempty"`
+	SubFlowID  string `json:"subFlowId,omitempty"`
+	Expression string `json:"expression,omitempty"`
+	Span       *Span  `json:"span,omitempty"`
+}
+
+type DecisionDetails struct {
+	Type            string         `json:"type"`
+	CheckedChannels []string       `json:"checkedChannels,omitempty"`
+	Cancellations   []Cancellation `json:"cancellations,omitempty"`
+}
+
+type Cancellation struct {
+	StepID string `json:"stepId"`
+	Scope  string `json:"scope"`
 }
 
 type Edge struct {
@@ -124,7 +159,6 @@ func (graph *Graph) AddDiagnostic(severity string, code string, message string, 
 
 func (graph *Graph) Normalize() {
 	graph.addUnknownTargets()
-	graph.addDecisionNodes()
 	graph.addUnreachableWarnings()
 	graph.addUnusedResourceWarnings()
 	sort.SliceStable(graph.Nodes, func(left int, right int) bool {
@@ -174,26 +208,6 @@ func (graph *Graph) addUnknownTargets() {
 	}
 }
 
-func (graph *Graph) addDecisionNodes() {
-	bySource := make(map[string][]int)
-	for index, edge := range graph.Edges {
-		if edge.Condition != "" && (edge.Kind == "transition" || edge.Kind == "terminal") {
-			bySource[edge.From] = append(bySource[edge.From], index)
-		}
-	}
-	for source, indexes := range bySource {
-		if len(indexes) < 2 {
-			continue
-		}
-		decisionID := "decision:" + source
-		graph.AddNode(Node{ID: decisionID, Kind: "decision", Name: "Decision"})
-		graph.AddEdge(Edge{Kind: "decision", From: source, To: decisionID})
-		for _, index := range indexes {
-			graph.Edges[index].From = decisionID
-		}
-	}
-}
-
 func (graph *Graph) addUnreachableWarnings() {
 	if graph.Flow.StartStepID == "" {
 		return
@@ -206,7 +220,17 @@ func (graph *Graph) addUnreachableWarnings() {
 	}
 	for changed := true; changed; {
 		changed = false
+		for _, node := range graph.Nodes {
+			if node.ParentID == "" || !reachable[node.ParentID] || reachable[node.ID] {
+				continue
+			}
+			reachable[node.ID] = true
+			changed = true
+		}
 		for _, edge := range graph.Edges {
+			if !isControlEdge(edge.Kind) {
+				continue
+			}
 			if !reachable[edge.From] || reachable[edge.To] {
 				continue
 			}
@@ -225,6 +249,7 @@ func (graph *Graph) addUnusedResourceWarnings() {
 	used := make(map[string]bool)
 	for _, edge := range graph.Edges {
 		if isResourceEdge(edge.Kind) {
+			used[edge.From] = true
 			used[edge.To] = true
 		}
 	}
@@ -241,4 +266,8 @@ func isResourceNode(kind string) bool {
 
 func isResourceEdge(kind string) bool {
 	return strings.HasPrefix(kind, "resource_") || kind == "wait_condition"
+}
+
+func isControlEdge(kind string) bool {
+	return kind == "transition" || kind == "failure_transition"
 }

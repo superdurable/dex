@@ -137,7 +137,10 @@ class Analyzer:
             node_id = f"resource:{kind}:{key}"
             self.resources[key] = node_id
             self.resources[target.id] = node_id
-            self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(statement)})
+            resource = self.resource_details(value)
+            if resource["valueType"] == "unknown":
+                self.warning("unknown_resource_type", f"{kind} {resource_name} has no statically readable value type", self.span(value))
+            self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(statement), "resource": resource})
 
     def index_flow_fields(self, flow_class):
         initializer = self.method(flow_class, "__init__")
@@ -228,7 +231,10 @@ class Analyzer:
         node_id = f"resource:{kind}:{key}"
         self.resources[key] = node_id
         self.resources[target_name] = node_id
-        self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(source_node)})
+        resource = self.resource_details(call)
+        if resource["valueType"] == "unknown":
+            self.warning("unknown_resource_type", f"{kind} {resource_name} has no statically readable value type", self.span(call))
+        self.add_node({"id": node_id, "kind": kind, "name": resource_name, "span": self.span(source_node), "resource": resource})
         return node_id
 
     def analyze_registration(self, flow_class):
@@ -272,8 +278,6 @@ class Analyzer:
             if is_start:
                 starts += 1
                 self.graph["flow"]["startStepId"] = node_id
-                self.add_node({"id": "start", "kind": "start", "name": "Start"})
-                self.add_edge("start", "start", node_id, span=self.span(expression))
         if starts > 1:
             self.error("multiple_start_steps", "Flow defines more than one start Step", self.span(method))
         if not registrations:
@@ -312,57 +316,245 @@ class Analyzer:
 
     def analyze_decisions(self, owner_id, method, rpc):
         locals_map = self.local_movements(method)
-        transitions = []
-        self.walk_statements(method.body, "", lambda expression, condition: transitions.extend(self.parse_decision(expression, condition, rpc, locals_map)))
-        if any(transition.get("condition") for transition in transitions) and len(transitions) > 1:
-            for transition in transitions:
-                if not transition.get("condition"):
-                    transition["condition"] = "otherwise"
-        if not transitions and self.has_hidden_decision(method):
+        outcomes = []
+        self.walk_statements(method.body, "", lambda expression, condition: outcomes.extend(self.decision_outcomes(expression, condition, rpc, locals_map)))
+        if any(outcome.get("condition") for outcome in outcomes) and len(outcomes) > 1:
+            for outcome in outcomes:
+                if not outcome.get("condition"):
+                    outcome["condition"] = "otherwise"
+        if not outcomes and self.has_hidden_decision(method):
             node_id = f"unknown:{owner_id}:{method.lineno}"
             self.add_node({"id": node_id, "kind": "unknown", "name": "Dynamic Dex decision", "span": self.span(method)})
             self.add_edge("transition", owner_id, node_id, label="dynamic", span=self.span(method))
             self.error("hidden_dex_decision", f"{method.name} hides its Dex decision in a helper", self.span(method))
-        for transition in transitions:
-            if transition["kind"] == "terminal":
-                target_id = f"terminal:{transition['target']}"
-                self.add_node({"id": target_id, "kind": "terminal", "name": transition["label"], "span": transition["span"]})
-            else:
+            return
+        if len(outcomes) > 1:
+            self.add_node({
+                "id": f"decision-dispatch:{owner_id}", "kind": "decision_dispatch", "name": "Decision",
+                "parentId": owner_id, "phase": "rpc" if rpc else "execute", "span": self.span(method),
+            })
+        for outcome in outcomes:
+            source_span = outcome["span"]
+            decision_id = f"decision:{owner_id}:{source_span['startLine']}:{source_span['startColumn']}"
+            details = {
+                "type": outcome["decisionType"],
+                "checkedChannels": outcome.get("checkedChannels", []),
+                "cancellations": [],
+            }
+            for transition in outcome["transitions"]:
+                if transition["kind"] != "cancel":
+                    continue
                 target_id = self.resolve_target(transition["target"], transition["span"])
-            self.add_edge(
-                transition["kind"], owner_id, target_id,
-                label=transition.get("label", ""), condition=transition.get("condition", ""),
-                multiplicity=transition.get("multiplicity", ""), span=transition.get("span"),
-                metadata=transition.get("metadata"),
-            )
+                scope = "siblings" if transition.get("label") == "with_canceling_sibling_steps" else "all"
+                details["cancellations"].append({"stepId": target_id, "scope": scope})
+            self.add_node({
+                "id": decision_id, "kind": "decision", "name": outcome["decisionType"],
+                "parentId": owner_id, "condition": outcome.get("condition", ""),
+                "phase": "rpc" if rpc else "execute", "span": source_span, "decision": details,
+            })
+            for transition in outcome["transitions"]:
+                if transition["kind"] == "terminal":
+                    continue
+                target_id = self.resolve_target(transition["target"], transition["span"])
+                self.add_edge(
+                    transition["kind"], decision_id, target_id,
+                    label=transition.get("label", ""), multiplicity=transition.get("multiplicity", ""),
+                    span=transition.get("span"), metadata=transition.get("metadata"),
+                )
 
     def analyze_wait(self, owner_id, step_name, method):
-        wait_kind = "WaitFor"
-        calls = [node for node in ast.walk(method) if isinstance(node, ast.Call)]
-        wait_names = {"skip_immediately": "Skip immediately", "until": "Until", "all_of": "AllOf", "any_of": "AnyOf", "any_combination_of": "AnyCombinationOf"}
-        for call in calls:
-            symbol = self.symbol(call.func)
-            short = symbol.rsplit(".", 1)[-1]
-            if short in wait_names and isinstance(call.func, ast.Attribute) and self.is_dex_reference(call.func.value, "Wait"):
-                wait_kind = wait_names[short]
-                break
-        wait_id = f"wait:{step_name}"
-        self.add_node({"id": wait_id, "kind": "wait", "name": wait_kind, "phase": "wait_for", "span": self.span(method)})
-        self.add_edge("wait", owner_id, wait_id, label=wait_kind, span=self.span(method))
-        self.analyze_resources(wait_id, method, "wait_for")
-        for call in calls:
-            symbol = self.symbol(call.func)
+        outcomes = []
+        self.walk_statements(method.body, "", lambda expression, condition: outcomes.extend(self.wait_outcomes(expression, condition)))
+        if any(outcome.get("condition") for outcome in outcomes) and len(outcomes) > 1:
+            for outcome in outcomes:
+                if not outcome.get("condition"):
+                    outcome["condition"] = "otherwise"
+        if not outcomes:
+            node_id = f"unknown:wait:{step_name}:{method.lineno}"
+            self.add_node({"id": node_id, "kind": "unknown", "name": "Dynamic WaitFor", "parentId": owner_id, "span": self.span(method)})
+            self.error("hidden_dex_wait", f"{method.name} hides its Dex Wait in a helper", self.span(method))
+            return
+        if len(outcomes) > 1:
+            self.add_node({
+                "id": f"wait-dispatch:{step_name}", "kind": "wait_dispatch", "name": "WaitFor",
+                "parentId": owner_id, "phase": "wait_for", "span": self.span(method),
+            })
+        for index, outcome in enumerate(outcomes):
+            call = outcome["call"]
+            source_span = self.span(call)
+            wait_id = f"wait:{step_name}:{source_span['startLine']}:{source_span['startColumn']}:{index}"
+            wait_type = self.wait_type(call)
+            conditions = self.wait_conditions(owner_id, wait_id, call, outcome.get("resourceOverride"))
+            self.add_node({
+                "id": wait_id, "kind": "wait", "name": wait_type, "parentId": owner_id,
+                "condition": outcome.get("condition", ""), "phase": "wait_for", "span": source_span,
+                "wait": {"type": wait_type, "conditions": conditions},
+            })
+        self.analyze_resources(owner_id, method, "wait_for")
+
+    def decision_outcomes(self, expression, condition, rpc, locals_map):
+        if isinstance(expression, ast.IfExp):
+            branch = self.unparse(expression.test)
+            return (
+                self.decision_outcomes(expression.body, self.combine(condition, branch), rpc, locals_map)
+                + self.decision_outcomes(expression.orelse, self.combine(condition, "otherwise"), rpc, locals_map)
+            )
+        decision_type = self.decision_type(expression, rpc)
+        if not decision_type:
+            return []
+        return [{
+            "decisionType": decision_type,
+            "condition": condition,
+            "transitions": self.parse_decision(expression, condition, rpc, locals_map),
+            "checkedChannels": self.checked_channels(expression),
+            "span": self.span(expression),
+        }]
+
+    def decision_type(self, expression, rpc):
+        if not isinstance(expression, ast.Call):
+            return None
+        if isinstance(expression.func, ast.Attribute) and expression.func.attr in {"with_canceling_steps", "with_canceling_sibling_steps"}:
+            return self.decision_type(expression.func.value, rpc)
+        short = self.symbol(expression.func).rsplit(".", 1)[-1]
+        names = {
+            "go_to": "goTo",
+            "go_to_many": "goToMany",
+            "graceful_complete": "gracefulComplete",
+            "force_complete": "forceComplete",
+            "force_fail": "forceFail",
+            "dead_end": "deadEnd",
+            "force_complete_if_channels_empty": "forceCompleteIfChannelsEmpty",
+        }
+        if short in names and self.is_dex_reference(expression.func, short):
+            return names[short]
+        if rpc and short == "RPCResult" and self.is_dex_reference(expression.func, "RPCResult"):
+            return "rpcResult"
+        return None
+
+    def checked_channels(self, expression):
+        if not isinstance(expression, ast.Call):
+            return []
+        if isinstance(expression.func, ast.Attribute) and expression.func.attr in {"with_canceling_steps", "with_canceling_sibling_steps"}:
+            return self.checked_channels(expression.func.value)
+        if self.symbol(expression.func).rsplit(".", 1)[-1] != "force_complete_if_channels_empty":
+            return []
+        result = []
+        for argument in expression.args[2:]:
+            resource_id = self.resource_for(argument, "")
+            if resource_id and resource_id.startswith("resource:channel:") and resource_id not in result:
+                result.append(resource_id)
+        return result
+
+    def wait_outcomes(self, expression, condition):
+        if isinstance(expression, ast.IfExp):
+            branch = self.unparse(expression.test)
+            return (
+                self.wait_outcomes(expression.body, self.combine(condition, branch))
+                + self.wait_outcomes(expression.orelse, self.combine(condition, "otherwise"))
+            )
+        if not isinstance(expression, ast.Call) or not self.wait_type(expression):
+            return []
+        conditional_resource = self.conditional_wait_resource(expression)
+        if conditional_resource is None:
+            return [{"call": expression, "condition": condition}]
+        return [
+            {
+                "call": expression,
+                "condition": self.combine(condition, self.unparse(conditional_resource.test)),
+                "resourceOverride": conditional_resource.body,
+            },
+            {
+                "call": expression,
+                "condition": self.combine(condition, "otherwise"),
+                "resourceOverride": conditional_resource.orelse,
+            },
+        ]
+
+    def wait_type(self, call):
+        if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Attribute) or not self.is_dex_reference(call.func.value, "Wait"):
+            return None
+        return {
+            "skip_immediately": "skipWaitImmediately",
+            "until": "until",
+            "all_of": "allOf",
+            "any_of": "anyOf",
+            "any_combination_of": "anyComboOf",
+        }.get(call.func.attr)
+
+    def conditional_wait_resource(self, wait_call):
+        for node in ast.walk(wait_call):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.IfExp):
+                if node.func.attr in {"for_one", "for_n", "at_least", "at_most", "for_range"}:
+                    return node.func.value
+        return None
+
+    def wait_conditions(self, owner_id, wait_id, wait_call, resource_override):
+        conditions = []
+        for call in [node for node in ast.walk(wait_call) if isinstance(node, ast.Call) and node is not wait_call]:
             if isinstance(call.func, ast.Attribute) and call.func.attr == "by_duration" and self.is_dex_reference(call.func.value, "Timer"):
-                node_id = f"timer:{step_name}:{call.lineno}"
-                self.add_node({"id": node_id, "kind": "timer", "name": "Timer", "external": True, "span": self.span(call)})
-                self.add_edge("wait_condition", wait_id, node_id, label="timer", span=self.span(call))
+                expression = self.unparse(call.args[0]) if call.args else "duration"
+                conditions.append({
+                    "kind": "timer", "label": f"{self.humanize_duration(call.args[0] if call.args else None)} timer",
+                    "expression": expression, "span": self.span(call),
+                })
+                continue
             if isinstance(call.func, ast.Attribute) and call.func.attr == "run" and self.is_dex_reference(call.func.value, "SubFlow"):
-                name = "SubFlow"
-                if call.args:
-                    name = self.step_target(call.args[0]) or self.symbol(call.args[0]) or name
-                node_id = f"subflow:{name}:{call.lineno}"
-                self.add_node({"id": node_id, "kind": "subflow", "name": name, "external": True, "span": self.span(call)})
-                self.add_edge("subflow", wait_id, node_id, label="wait", span=self.span(call))
+                name = self.unparse(call.args[0]) if call.args else "SubFlow"
+                subflow_id = f"subflow:{name}:{call.lineno}"
+                self.add_node({"id": subflow_id, "kind": "subflow", "name": name, "external": True, "span": self.span(call)})
+                self.add_edge("subflow", wait_id, subflow_id, label="start", span=self.span(call))
+                conditions.append({"kind": "subflow", "label": name, "subFlowId": subflow_id, "span": self.span(call)})
+                continue
+            if not isinstance(call.func, ast.Attribute) or call.func.attr not in {"for_one", "for_n", "at_least", "at_most", "for_range"}:
+                continue
+            resource_expression = resource_override if isinstance(call.func.value, ast.IfExp) and resource_override is not None else call.func.value
+            resource_id = self.resource_for(resource_expression, owner_id)
+            if not resource_id or not resource_id.startswith("resource:channel:"):
+                continue
+            label, expression = self.channel_condition_label(resource_id, call)
+            conditions.append({
+                "kind": "channel", "label": label, "resourceId": resource_id,
+                "expression": expression, "span": self.span(call),
+            })
+            self.add_edge("wait_condition", resource_id, wait_id, label=label, span=self.span(call))
+        return conditions
+
+    def channel_condition_label(self, resource_id, call):
+        resource = next((node for node in self.graph["nodes"] if node["id"] == resource_id), {})
+        name = resource.get("name", "Channel")
+        is_map = resource.get("resource", {}).get("map", False)
+        arguments = [self.unparse(argument) for argument in call.args]
+        instance = ""
+        counts = arguments
+        if is_map and arguments:
+            instance = f"[{arguments[0]}]"
+            counts = arguments[1:]
+        keywords = {keyword.arg: self.unparse(keyword.value) for keyword in call.keywords if keyword.arg}
+        if call.func.attr == "for_one":
+            suffix = "for 1"
+        elif call.func.attr == "for_n":
+            suffix = f"for {counts[0] if counts else 'N'}"
+        elif call.func.attr == "at_least":
+            suffix = f"at least {counts[0] if counts else 'N'}"
+        elif call.func.attr == "at_most":
+            suffix = f"at most {counts[0] if counts else 'N'}"
+        else:
+            lower = keywords.get("at_least", "0")
+            upper = keywords.get("at_most", "∞")
+            suffix = f"for {lower}…{upper}"
+        expression = ", ".join(arguments + [f"{key}={value}" for key, value in keywords.items()])
+        return f"{name}{instance}.{suffix}", expression
+
+    def humanize_duration(self, expression):
+        if isinstance(expression, ast.Call) and self.symbol(expression.func).rsplit(".", 1)[-1] == "timedelta":
+            units = [("days", "day"), ("hours", "hour"), ("minutes", "minute"), ("seconds", "second"), ("milliseconds", "millisecond")]
+            values = {keyword.arg: keyword.value for keyword in expression.keywords if keyword.arg}
+            for keyword, label in units:
+                value = values.get(keyword)
+                if isinstance(value, ast.Constant) and isinstance(value.value, (int, float)):
+                    suffix = label if value.value == 1 else label + "s"
+                    return f"{value.value:g} {suffix}"
+        return self.unparse(expression) or "duration"
 
     def analyze_failure(self, owner_id, method):
         for call in [node for node in ast.walk(method) if isinstance(node, ast.Call)]:
@@ -385,7 +577,7 @@ class Analyzer:
             if not resource_id:
                 continue
             edge_kind = self.resource_edge_kind(call.func.attr, phase)
-            if not edge_kind:
+            if not edge_kind or edge_kind == "wait_condition":
                 continue
             key = (edge_kind, resource_id, call.func.attr)
             if key in seen:
@@ -404,7 +596,9 @@ class Analyzer:
                         "Stream.write is only available in wait_for and execute",
                         self.span(call),
                     )
-            self.add_edge(edge_kind, owner_id, resource_id, label=call.func.attr, span=self.span(call), metadata=metadata)
+            source = resource_id if edge_kind == "resource_read" else owner_id
+            target = owner_id if edge_kind == "resource_read" else resource_id
+            self.add_edge(edge_kind, source, target, label=call.func.attr, span=self.span(call), metadata=metadata)
 
     def parse_decision(self, expression, condition, rpc, locals_map):
         if isinstance(expression, ast.IfExp):
@@ -445,6 +639,11 @@ class Analyzer:
             if not expression.args:
                 self.dynamic_target("go_to_many must contain a statically analyzable movement", expression)
             return result
+        if short == "force_complete_if_channels_empty" and self.is_dex_reference(expression.func, short):
+            movement = self.parse_movement(expression.args[1], condition) if len(expression.args) > 1 else None
+            if movement:
+                return [movement]
+            return [{"kind": "terminal", "target": short, "label": "Complete if channels empty", "condition": condition, "span": self.span(expression)}]
         if short in {"graceful_complete", "force_complete", "force_fail", "dead_end", "force_complete_if_channels_empty"} and self.is_dex_reference(expression.func, short):
             labels = {
                 "graceful_complete": "Graceful complete", "force_complete": "Force complete",
@@ -639,6 +838,17 @@ class Analyzer:
             return "stream"
         return None
 
+    def resource_details(self, call):
+        short = self.symbol(call.func).rsplit(".", 1)[-1]
+        value_type = "unknown"
+        if len(call.args) > 1:
+            value_type = self.unparse(call.args[1])
+            if value_type == "type(None)":
+                value_type = "None"
+        elif isinstance(call.func, ast.Subscript):
+            value_type = self.unparse(call.func.slice)
+        return {"valueType": value_type or "unknown", "map": short in {"AttributeMap", "ChannelMap"}}
+
     def resource_edge_kind(self, method, phase):
         if phase == "wait_for" and method in {"for_one", "for_n", "at_least", "at_most", "for_range"}:
             return "wait_condition"
@@ -676,6 +886,12 @@ class Analyzer:
             diagnostic["span"] = span
         self.graph["diagnostics"].append(diagnostic)
         self.graph["valid"] = False
+
+    def warning(self, code, message, span=None):
+        diagnostic = {"severity": "warning", "code": code, "message": message}
+        if span:
+            diagnostic["span"] = span
+        self.graph["diagnostics"].append(diagnostic)
 
     def span(self, node):
         return {

@@ -9,64 +9,66 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Background,
+  BaseEdge,
   Controls,
+  EdgeLabelRenderer,
   Handle,
-  MarkerType,
   MiniMap,
   Position,
   ReactFlow,
-  type Edge,
-  type Node,
+  getSmoothStepPath,
+  type EdgeProps,
+  type EdgeTypes,
   type NodeProps,
   type NodeTypes,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import type {
-  FlowDefinitionEdge,
-  FlowDefinitionGraph,
-  FlowDefinitionNode,
-  SourceSpan,
-} from '@/lib/types';
-import { layoutGraph } from '../flows/details/graphLayout';
+import type { FlowDefinitionGraph, FlowDefinitionNode, SourceSpan } from '@/lib/types';
+import {
+  buildDefinitionScene,
+  type DefinitionEdgeData,
+  type DefinitionLayer,
+  type DefinitionNodeData,
+  type DefinitionVisibility,
+} from './definitionLayout';
 
-type DefinitionLayer =
-  | 'control'
-  | 'waits'
-  | 'handlers'
-  | 'attributes'
-  | 'channels'
-  | 'streams'
-  | 'subflows'
-  | 'diagnostics';
-
-interface DefinitionNodeData extends Record<string, unknown> {
-  definition: FlowDefinitionNode;
-  model: { kind: 'definition' };
-}
-
-const layerLabels: Array<[DefinitionLayer, string]> = [
+const layerLabels: Array<[DefinitionLayer | 'diagnostics', string]> = [
   ['control', 'Control flow'],
-  ['waits', 'Waits'],
+  ['waits', 'WaitFor'],
   ['handlers', 'RPC / timeout'],
-  ['attributes', 'Attributes'],
   ['channels', 'Channels'],
+  ['attributes', 'Attributes'],
   ['streams', 'Streams'],
   ['subflows', 'SubFlows'],
   ['diagnostics', 'Diagnostics'],
 ];
 
-const defaultVisibility: Record<DefinitionLayer, boolean> = {
+const defaultVisibility: DefinitionVisibility & { diagnostics: boolean } = {
   control: true,
   waits: true,
   handlers: true,
-  attributes: false,
-  channels: false,
+  attributes: true,
+  channels: true,
   streams: false,
   subflows: true,
   diagnostics: true,
 };
 
-const nodeTypes: NodeTypes = { definition: DefinitionNode };
+const nodeTypes: NodeTypes = {
+  definitionAttributes: AttributesNode,
+  definitionChannel: ChannelNode,
+  definitionDecision: DecisionNode,
+  definitionDispatch: DispatchNode,
+  definitionFlow: FlowNode,
+  definitionRPC: RPCNode,
+  definitionStep: StepNode,
+  definitionStream: StreamNode,
+  definitionSubFlow: SubFlowNode,
+  definitionUnknown: UnknownNode,
+  definitionWait: WaitNode,
+};
+
+const edgeTypes: EdgeTypes = { definitionEdge: DefinitionEdge };
 
 export function FlowDefinitionGraphView({
   displayName,
@@ -77,61 +79,23 @@ export function FlowDefinitionGraphView({
 }) {
   const [visibility, setVisibility] = useState(defaultVisibility);
   const [selectedNodeID, setSelectedNodeID] = useState('');
-  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<DefinitionNodeData>, Edge> | null>(null);
-  const visibleDefinitions = useMemo(
-    () => graph.nodes.filter((node) => visibility[layerForNode(node)]),
-    [graph.nodes, visibility],
+  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance | null>(null);
+  const scene = useMemo(
+    () => buildDefinitionScene(graph, visibility),
+    [graph, visibility],
   );
-  const visibleNodeIDs = useMemo(
-    () => new Set(visibleDefinitions.map((node) => node.id)),
-    [visibleDefinitions],
-  );
-  const edges = useMemo<Edge[]>(() => graph.edges
-    .filter((edge) => visibleNodeIDs.has(edge.from) && visibleNodeIDs.has(edge.to))
-    .map((edge) => {
-      const color = edgeColor(edge.kind);
-      return {
-        id: edge.id,
-        source: edge.from,
-        target: edge.to,
-        label: edgeLabel(edge),
-        type: 'smoothstep',
-        markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18, color },
-        style: {
-          stroke: color,
-          strokeDasharray: edgeDash(edge.kind),
-          strokeWidth: edge.kind === 'failure_transition' ? 2.5 : 1.7,
-        },
-        labelStyle: { fill: '#46534a', fontSize: 11, fontWeight: 650 },
-      };
-    }), [graph.edges, visibleNodeIDs]);
-  const nodes = useMemo(() => layoutGraph(visibleDefinitions.map((definition) => {
-    const dimensions = nodeDimensions(definition.kind);
-    return {
-      id: definition.id,
-      type: 'definition',
-      position: { x: 0, y: 0 },
-      className: [
-        'flow-definition-node',
-        `flow-definition-node--${definition.kind}`,
-        selectedNodeID === definition.id ? 'is-selected' : '',
-      ].filter(Boolean).join(' '),
-      width: dimensions.width,
-      height: dimensions.height,
-      style: dimensions,
-      data: { definition, model: { kind: 'definition' as const } },
-    };
-  }), edges), [edges, selectedNodeID, visibleDefinitions]);
-  const selectedNode = graph.nodes.find((node) => node.id === selectedNodeID);
+  const selectedNode = scene.nodes.find((node) => node.id === selectedNodeID);
 
   useEffect(() => {
-    if (!flowInstance || nodes.length === 0) return;
-    void flowInstance.fitView({ duration: 180, maxZoom: 1.15, padding: 0.12 });
-  }, [flowInstance, nodes]);
+    if (!flowInstance || scene.nodes.length === 0) return;
+    void flowInstance.fitView({ duration: 220, maxZoom: 1, minZoom: 0.7, padding: 0.1 });
+  }, [flowInstance, scene]);
 
   useEffect(() => {
-    if (selectedNodeID && !visibleNodeIDs.has(selectedNodeID)) setSelectedNodeID('');
-  }, [selectedNodeID, visibleNodeIDs]);
+    if (selectedNodeID && !scene.nodes.some((node) => node.id === selectedNodeID)) {
+      setSelectedNodeID('');
+    }
+  }, [scene.nodes, selectedNodeID]);
 
   return (
     <section className="flow-definition-view">
@@ -162,38 +126,45 @@ export function FlowDefinitionGraphView({
         </div>
       </div>
 
-      {nodes.length === 0 ? (
-        <div className="card empty-state"><h3>All graph elements are hidden</h3></div>
-      ) : (
-        <div className="flow-definition-canvas">
-          <ReactFlow
-            edges={edges}
-            elementsSelectable
-            fitView
-            maxZoom={2}
-            minZoom={0.2}
-            nodes={nodes}
-            nodesConnectable={false}
-            nodesDraggable={false}
-            nodeTypes={nodeTypes}
-            onInit={setFlowInstance}
-            onNodeClick={(_, node) => setSelectedNodeID(node.id)}
-          >
-            <Background gap={22} size={1} color="#dfe7e5" />
-            <Controls position="top-right" />
-            <MiniMap pannable position="bottom-right" zoomable nodeStrokeWidth={2} />
-          </ReactFlow>
-        </div>
-      )}
+      <div className="flow-definition-canvas">
+        <ReactFlow
+          edges={scene.edges}
+          edgeTypes={edgeTypes}
+          elementsSelectable
+          fitView
+          fitViewOptions={{ maxZoom: 1, minZoom: 0.7, padding: 0.1 }}
+          maxZoom={1.8}
+          minZoom={0.12}
+          nodes={scene.nodes}
+          nodesConnectable={false}
+          nodesDraggable={false}
+          nodeTypes={nodeTypes}
+          onInit={setFlowInstance}
+          onNodeClick={(_, node) => setSelectedNodeID(node.id)}
+          onPaneClick={() => setSelectedNodeID('')}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background gap={24} size={1} color="#ddd8ea" />
+          <Controls position="top-right" />
+          <MiniMap
+            maskColor="rgba(247, 244, 252, 0.68)"
+            nodeColor={miniMapColor}
+            pannable
+            position="bottom-right"
+            zoomable
+            nodeStrokeWidth={2}
+          />
+        </ReactFlow>
+      </div>
 
-      {selectedNode && (
+      {selectedNode && selectedNode.data.kind !== 'flow' && (
         <div className="flow-definition-selection card">
           <div>
-            <span>{kindLabel(selectedNode.kind)}</span>
-            <b>{selectedNode.name}</b>
+            <span>{selectionKind(selectedNode.data)}</span>
+            <b>{selectionName(selectedNode.data)}</b>
           </div>
           <code>{selectedNode.id}</code>
-          {selectedNode.span && <span>{sourceLocation(selectedNode.span)}</span>}
+          {selectedNode.data.sourceTitle && <span>{selectedNode.data.sourceTitle}</span>}
         </div>
       )}
 
@@ -212,91 +183,252 @@ export function FlowDefinitionGraphView({
   );
 }
 
-function DefinitionNode({ data }: NodeProps<Node<DefinitionNodeData>>) {
-  const definition = data.definition;
+function FlowNode({ data }: NodeProps) {
+  const definition = data as DefinitionNodeData;
   return (
-    <div className="flow-definition-node-body" title={definition.span ? sourceLocation(definition.span) : definition.name}>
+    <div className="definition-flow-frame" title={definition.sourceTitle}>
+      <strong>{definition.displayName || 'Flow'}</strong>
+    </div>
+  );
+}
+
+function StepNode({ data }: NodeProps) {
+  const definition = (data as DefinitionNodeData).definition!;
+  return (
+    <div className="definition-step-frame" title={sourceTitle(definition)}>
+      <Handle id="step-target" position={Position.Top} type="target" />
+      <div className="definition-step-title">
+        <strong>{definition.name}</strong>
+        {definition.start && <span>START</span>}
+      </div>
+      <Handle id="step-resource-target" position={Position.Left} type="target" />
+      <Handle id="step-resource-source" position={Position.Left} type="source" />
+      <Handle id="step-recovery-source" position={Position.Bottom} type="source" />
+    </div>
+  );
+}
+
+function WaitNode({ data }: NodeProps) {
+  const definition = (data as DefinitionNodeData).definition!;
+  return (
+    <div className="definition-wait-shape" title={sourceTitle(definition)}>
       <Handle position={Position.Top} type="target" />
-      <span>{kindLabel(definition.kind)}</span>
-      <b>{definition.name}</b>
-      {definition.phase && <small>{definition.phase.replaceAll('_', ' ')}</small>}
-      {definition.start && <em>START</em>}
+      <div className="definition-shape-content">
+        <strong>WaitFor <span>{definition.wait?.type ?? definition.name}</span></strong>
+        <div className="definition-shape-rows">
+          {definition.wait?.conditions.map((condition, index) => (
+            <span key={`${condition.kind}-${condition.label}-${index}`} title={condition.expression || condition.label}>
+              {waitIcon(condition.kind)} {condition.label}
+            </span>
+          ))}
+        </div>
+      </div>
       <Handle position={Position.Bottom} type="source" />
     </div>
   );
 }
 
-function layerForNode(node: FlowDefinitionNode): DefinitionLayer {
-  switch (node.kind) {
-    case 'wait':
-    case 'timer':
-      return 'waits';
-    case 'rpc':
-    case 'timeout_handler':
-      return 'handlers';
-    case 'attribute':
-      return 'attributes';
-    case 'channel':
-      return 'channels';
-    case 'stream':
-      return 'streams';
-    case 'subflow':
-      return 'subflows';
-    default:
-      return 'control';
-  }
+function DispatchNode({ data }: NodeProps) {
+  const definition = data as DefinitionNodeData;
+  return (
+    <div className="definition-dispatch-diamond" title={definition.displayName}>
+      <Handle position={Position.Top} type="target" />
+      <span>?</span>
+      <Handle position={Position.Bottom} type="source" />
+    </div>
+  );
 }
 
-function nodeDimensions(kind: string): { height: number; width: number } {
-  if (kind === 'step') return { height: 92, width: 230 };
-  if (kind === 'decision') return { height: 86, width: 160 };
-  if (kind === 'attribute' || kind === 'channel' || kind === 'stream') {
-    return { height: 72, width: 190 };
-  }
-  return { height: 76, width: 190 };
+function DecisionNode({ data }: NodeProps) {
+  const definitionData = data as DefinitionNodeData;
+  const definition = definitionData.definition!;
+  const details = definition.decision;
+  const transitionRows = (definitionData.relatedEdges ?? [])
+    .filter((edge) => edge.kind === 'transition')
+    .map((edge) => ({
+      id: edge.id,
+      label: definitionData.nameByID?.[edge.to] ?? shortID(edge.to),
+      multiplicity: edge.multiplicity,
+    }));
+  return (
+    <div
+      className={`definition-decision-card decision-${details?.type ?? 'unknown'}`}
+      title={sourceTitle(definition)}
+    >
+      <Handle position={Position.Top} type="target" />
+      <strong>{details?.type ?? definition.name}</strong>
+      <div className="definition-shape-rows">
+        {transitionRows.map((row) => (
+          <span key={row.id}>🧩 {row.label}{row.multiplicity ? ` ${row.multiplicity}` : ''}</span>
+        ))}
+        {details?.checkedChannels?.map((channelID) => (
+          <span key={channelID}>📨 {definitionData.nameByID?.[channelID] ?? shortID(channelID)}</span>
+        ))}
+        {details?.cancellations?.map((cancellation) => (
+          <span className="definition-cancellation" key={`${cancellation.scope}:${cancellation.stepId}`}>
+            🚫 {definitionData.nameByID?.[cancellation.stepId] ?? shortID(cancellation.stepId)}
+            {cancellation.scope === 'siblings' ? ' · siblings' : ''}
+          </span>
+        ))}
+      </div>
+      <Handle position={Position.Bottom} type="source" />
+    </div>
+  );
 }
 
-function kindLabel(kind: string): string {
-  const labels: Record<string, string> = {
-    attribute: 'Attribute',
-    channel: 'Channel',
-    decision: 'Decision',
-    rpc: 'RPC',
-    start: 'Flow start',
-    step: 'Step',
-    stream: 'Stream',
-    subflow: 'SubFlow',
-    terminal: 'Terminal',
-    timeout_handler: 'Timeout handler',
-    timer: 'Timer',
-    unknown: 'Unknown',
-    wait: 'WaitFor',
-  };
-  return labels[kind] ?? kind.replaceAll('_', ' ');
+function ChannelNode({ data }: NodeProps) {
+  const definition = (data as DefinitionNodeData).definition!;
+  return (
+    <div className="definition-channel-pipe" title={sourceTitle(definition)}>
+      <Handle position={Position.Left} type="target" />
+      <strong>{definition.name}</strong>
+      <Handle position={Position.Right} type="source" />
+    </div>
+  );
 }
 
-function edgeLabel(edge: FlowDefinitionEdge): string {
-  const recoveryOption = edge.metadata?.skipWaitFor === true ? 'skip WaitFor' : '';
-  return [edge.condition || edge.label, edge.multiplicity, recoveryOption]
-    .filter(Boolean)
-    .join(' · ');
+function AttributesNode({ data }: NodeProps) {
+  const definitions = (data as DefinitionNodeData).definitions ?? [];
+  return (
+    <div className="definition-attributes-box">
+      <Handle position={Position.Left} type="target" />
+      <Handle position={Position.Right} type="source" />
+      <strong>Attributes</strong>
+      {definitions.map((definition) => (
+        <span key={definition.id} title={sourceTitle(definition)}>
+          - {definition.name}:{definition.resource?.valueType ?? 'unknown'}
+          {definition.resource?.map ? ' map' : ''}
+        </span>
+      ))}
+    </div>
+  );
 }
 
-function edgeColor(kind: string): string {
-  if (kind === 'failure_transition') return '#b63b3b';
-  if (kind === 'cancel') return '#7c3aed';
-  if (kind.startsWith('resource_')) return '#2e8b57';
-  if (kind === 'wait' || kind === 'wait_condition' || kind === 'subflow') return '#c27a18';
-  return '#64748b';
+function RPCNode({ data }: NodeProps) {
+  const definition = (data as DefinitionNodeData).definition!;
+  return (
+    <div className="definition-rpc-hexagon" title={sourceTitle(definition)}>
+      <Handle position={Position.Left} type="target" />
+      <strong>{definition.name}</strong>
+      <Handle position={Position.Right} type="source" />
+    </div>
+  );
 }
 
-function edgeDash(kind: string): string | undefined {
-  if (kind === 'failure_transition') return '8 5';
-  if (kind === 'cancel') return '3 5';
-  if (kind.startsWith('resource_') || kind === 'subflow') return '5 5';
-  return undefined;
+function SubFlowNode({ data }: NodeProps) {
+  const definition = (data as DefinitionNodeData).definition!;
+  return (
+    <div className="definition-subflow-frame" title={sourceTitle(definition)}>
+      <Handle position={Position.Left} type="target" />
+      <strong>{definition.name}</strong>
+    </div>
+  );
+}
+
+function StreamNode({ data }: NodeProps) {
+  const definition = (data as DefinitionNodeData).definition!;
+  return (
+    <div className="definition-stream-node" title={sourceTitle(definition)}>
+      <Handle position={Position.Left} type="target" />
+      <strong>{definition.name}</strong>
+      <Handle position={Position.Right} type="source" />
+    </div>
+  );
+}
+
+function UnknownNode({ data }: NodeProps) {
+  const definition = (data as DefinitionNodeData).definition!;
+  return (
+    <div className="definition-unknown-node" title={sourceTitle(definition)}>
+      <Handle position={Position.Left} type="target" />
+      <strong>Unknown</strong>
+      <span>{definition.name}</span>
+    </div>
+  );
+}
+
+function DefinitionEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  markerEnd,
+  style,
+  label,
+  data,
+}: EdgeProps) {
+  const [path, labelX, labelY] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    borderRadius: 18,
+    offset: edgeLaneOffset(id),
+  });
+  return (
+    <>
+      <BaseEdge id={id} markerEnd={markerEnd} path={path} style={style} />
+      {label && (
+        <EdgeLabelRenderer>
+          <span
+            className="definition-edge-label nodrag nopan"
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)` }}
+            title={(data as DefinitionEdgeData | undefined)?.title}
+          >
+            {String(label)}
+          </span>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+function edgeLaneOffset(id: string): number {
+  let hash = 0;
+  for (const character of id) hash = (hash * 31 + character.charCodeAt(0)) % 4;
+  return 18 + hash * 7;
+}
+
+function waitIcon(kind: string): string {
+  if (kind === 'channel') return '📨';
+  if (kind === 'timer') return '⏱️';
+  if (kind === 'subflow') return '↳';
+  return '❓';
+}
+
+function sourceTitle(definition: FlowDefinitionNode): string {
+  return definition.span ? sourceLocation(definition.span) : definition.name;
 }
 
 function sourceLocation(span: SourceSpan): string {
   return `lines ${span.startLine}:${span.startColumn}–${span.endLine}:${span.endColumn}`;
+}
+
+function shortID(id: string): string {
+  return id.split(':').at(-1) ?? id;
+}
+
+function selectionKind(data: DefinitionNodeData): string {
+  if (data.kind === 'attributes') return 'Attributes';
+  if (data.kind === 'rpc' && data.definition?.kind === 'timeout_handler') return 'Timeout handler';
+  return data.kind.replaceAll('_', ' ');
+}
+
+function selectionName(data: DefinitionNodeData): string {
+  if (data.kind === 'attributes') return `${data.definitions?.length ?? 0} definitions`;
+  return data.definition?.name ?? data.displayName ?? data.kind;
+}
+
+function miniMapColor(node: { data?: unknown }): string {
+  const data = node.data as DefinitionNodeData | undefined;
+  if (data?.kind === 'step') return '#dbeafe';
+  if (data?.kind === 'wait') return '#fef3c7';
+  if (data?.kind === 'decision') return '#dcfce7';
+  if (data?.kind === 'flow') return '#f3effb';
+  return '#e2e8f0';
 }

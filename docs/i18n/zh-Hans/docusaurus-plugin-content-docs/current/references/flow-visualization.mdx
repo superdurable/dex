@@ -31,24 +31,37 @@ dexcli visualize ./order_flow.py --out -
 dexcli dev --flow-rendering-dir ./build
 ```
 
-在 Dex Web 中打开 **Flow Rendering**。该页面独立于 Flow 搜索页和运行详情页，用于交互式渲染所选定义图。通过图例可以显示或隐藏 wait、RPC 和 timeout handler、Attribute、Channel、Stream、SubFlow 及诊断。
+在 Dex Web 中打开 **Flow Rendering**。该页面独立于 Flow 搜索页和运行详情页，用于交互式渲染所选定义图。通过图例可以显示或隐藏控制流、WaitFor、RPC 和 timeout handler、Attribute、Channel、Stream、SubFlow 及诊断。Stream 默认隐藏，其他图层默认显示。
 
 Dex 会递归扫描 JSON 文件，并在启动时创建一次快照。文件改变后需要重启 Dex。无效 JSON、不支持的 schema 版本或非目录路径都会使启动失败并返回错误。
 
 ## 图中包含的内容
 
+主 Flow 显示为浅紫色大框，每个 Step 是其中的浅蓝色中框。WaitFor 路径位于 Execute decision 上方。WaitFor 或 Execute 存在条件返回时，先经过一个棱形，再根据源码条件连接到不同卡片。
+
 定义图包括：
 
 - Flow 和起始 Step
-- 已注册的 Step 和静态可知的跳转
+- 已注册的 Step，以及按 Execute decision 分组的静态跳转
 - 条件标签，以及固定数量或运行时数量的并行分支
-- WaitFor 条件、Timer 和外部 SubFlow
-- RPC 及其后续 Step
-- Attribute、Channel 和 Stream 的访问关系
-- 终止决策和取消关系
+- 有序的 WaitFor 条件，包括 Channel 数量、Timer 时长和外部 SubFlow
+- RPC 和 timeout decision 及其后续 Step
+- Attribute 名称、源码语言原生 value type 和 map 标记
+- Channel、Attribute 和可选 Stream 的访问关系
+- Execute 卡中的完成、失败、Channel-empty 检查和取消信息
 - Execute 失败后的恢复路径
 
-错误返回或抛出的异常并不能确定另一个 Step，因此不会产生跳转。显式的 **ProceedToOnExecuteFailure** 或 **on_execute_failure_proceed_to** 策略会生成一条指向恢复 Step 的红色虚线。
+终止 decision 不再生成额外 terminal 节点。取消信息直接显示在 Execute 卡中，不再绘制重复箭头。起始 Step 使用 START 标记，不再生成合成的 start 边。Timer 作为 WaitFor 中的一行显示，不再生成独立节点。
+
+错误返回或抛出的异常并不能确定另一个 Step，因此不会产生跳转。显式的 **ProceedToOnExecuteFailure** 或 **on_execute_failure_proceed_to** 策略会生成一条指向恢复 Step 的紫红色实线。恢复跳过 WaitFor 时，边的标签会明确说明。
+
+资源箭头使用统一方向：
+
+- publisher → Channel → consuming WaitFor
+- Attribute writer → Attribute 框 → Attribute reader
+- WaitFor → 折叠的 SubFlow
+
+资源和 SubFlow 关系使用虚线，视觉上弱于 Step 之间的实线跳转。Channel 集中在 Flow 左上区域，Attribute 合并为一个框，RPC 六边形横跨 Flow 左边界。SubFlow 只显示为包含 Flow type 的紫色虚线小框，不展开内部 Step。
 
 Stream 关系描述的是应用可观察输出，而不是控制流。Flow Rendering 默认隐藏 Stream，用户可以通过图例开启。JSON 会标记 Step Stream 写入可重复且为 best effort。Heartbeat 调用和 checkpoint 读取属于运行时可靠性细节，因此不会进入定义图。
 
@@ -76,12 +89,12 @@ Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查�
 
 不支持的动态控制流不会被静默省略。输出会包含 Unknown 节点和错误诊断。命令仍然写出部分 JSON，并以状态码 1 退出。
 
-warning 不会使图失效。例如，从起始 Step 或 RPC 都无法到达的已注册 Step 会产生 warning。无效命令参数以状态码 2 退出。
+warning 不会使图失效。例如，无法确定 value type 的 Attribute 会显示 **unknown** 并产生 warning。从起始 Step 或 RPC 都无法到达的已注册 Step 也会产生 warning。无效命令参数以状态码 2 退出。
 
 存在任何阻断诊断时，JSON 中的 **valid** 字段为 false。消费方应阻止基于无效图的编辑或部署，但仍可使用其中已知的节点和边解释问题。
 
 ## JSON 合约
 
-[Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) 定义了源码位置、节点、边、metadata 和诊断。该 schema 是未来可视化编辑器及其他语言 analyzer 的集成边界。
+[Flow Definition Graph v1 schema](https://github.com/superdurable/dex/blob/main/cli/schema/flow-definition-graph.v1.schema.json) 定义了源码位置、父子关系、结构化 WaitFor 和 decision 详情、资源类型、分支条件、边方向和诊断。该 schema 是未来可视化编辑器及其他语言 analyzer 的集成边界。
 
 运行中 Flow 的操作命令请参阅 [Dex CLI](/references/cli)。

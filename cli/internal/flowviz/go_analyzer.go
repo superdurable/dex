@@ -49,6 +49,14 @@ type goTransition struct {
 	metadata     map[string]any
 }
 
+type goDecisionOutcome struct {
+	decisionType    string
+	condition       string
+	transitions     []goTransition
+	checkedChannels []string
+	span            *Span
+}
+
 func analyzeGo(ctx context.Context, sourcePath string, source []byte) (*Graph, error) {
 	graph := NewGraph("go", sourcePath)
 	config := &packages.Config{
@@ -195,7 +203,11 @@ func (analyzer *goAnalyzer) analyzeResources() {
 					}
 				}
 				nodeID := "resource:" + kind + ":" + name.Name
-				analyzer.graph.AddNode(Node{ID: nodeID, Kind: kind, Name: resourceName, Span: analyzer.span(valueSpec)})
+				resource := analyzer.resourceDetails(call)
+				if resource.ValueType == "unknown" {
+					analyzer.graph.AddDiagnostic("warning", "unknown_resource_type", fmt.Sprintf("%s %s has no statically readable value type", kind, resourceName), analyzer.span(call))
+				}
+				analyzer.graph.AddNode(Node{ID: nodeID, Kind: kind, Name: resourceName, Span: analyzer.span(valueSpec), Resource: &resource})
 				analyzer.resourceVars[name.Name] = nodeID
 				if object := analyzer.typeInfo.Defs[name]; object != nil {
 					analyzer.resources[object] = nodeID
@@ -262,8 +274,6 @@ func (analyzer *goAnalyzer) analyzeStepRegistration(getSteps *ast.FuncDecl) {
 				analyzer.graph.AddDiagnostic("error", "multiple_start_steps", "Flow defines more than one start Step", analyzer.span(call))
 			} else {
 				analyzer.graph.Flow.StartStepID = nodeID
-				analyzer.graph.AddNode(Node{ID: "start", Kind: "start", Name: "Start"})
-				analyzer.graph.AddEdge(Edge{Kind: "start", From: "start", To: nodeID, Span: analyzer.span(call)})
 			}
 		}
 		return false
@@ -322,86 +332,115 @@ func (analyzer *goAnalyzer) analyzeDecisionHandler(ownerID string, method *ast.F
 		return
 	}
 	localMovements := analyzer.collectLocalMovements(method.Body)
-	transitions := make([]goTransition, 0)
+	outcomes := make([]goDecisionOutcome, 0)
 	analyzer.walkStatements(method.Body.List, "", func(expression ast.Expr, condition string) {
-		transitions = append(transitions, analyzer.transitionsFromExpression(expression, condition, phase == "rpc", localMovements)...)
+		decisionType := analyzer.decisionType(expression, phase == "rpc")
+		if decisionType == "" {
+			return
+		}
+		outcomes = append(outcomes, goDecisionOutcome{
+			decisionType:    decisionType,
+			condition:       condition,
+			transitions:     analyzer.transitionsFromExpression(expression, condition, phase == "rpc", localMovements),
+			checkedChannels: analyzer.checkedChannels(expression),
+			span:            analyzer.span(expression),
+		})
 	})
 	hasCondition := false
-	for _, transition := range transitions {
-		if transition.condition != "" {
+	for _, outcome := range outcomes {
+		if outcome.condition != "" {
 			hasCondition = true
 			break
 		}
 	}
-	if hasCondition && len(transitions) > 1 {
-		for index := range transitions {
-			if transitions[index].condition == "" {
-				transitions[index].condition = "otherwise"
+	if hasCondition && len(outcomes) > 1 {
+		for index := range outcomes {
+			if outcomes[index].condition == "" {
+				outcomes[index].condition = "otherwise"
 			}
 		}
 	}
-	if len(transitions) == 0 && analyzer.returnsStepDecisionCall(method) {
+	if len(outcomes) == 0 && analyzer.returnsStepDecisionCall(method) {
 		unknownID := fmt.Sprintf("unknown:%s:%d", ownerID, analyzer.fileSet.Position(method.Pos()).Line)
 		analyzer.graph.AddNode(Node{ID: unknownID, Kind: "unknown", Name: "Dynamic Dex decision", Span: analyzer.span(method)})
 		analyzer.graph.AddEdge(Edge{Kind: "transition", From: ownerID, To: unknownID, Label: "dynamic", Span: analyzer.span(method)})
 		analyzer.graph.AddDiagnostic("error", "hidden_dex_decision", fmt.Sprintf("%s hides its Dex decision in a helper", method.Name.Name), analyzer.span(method))
+		return
 	}
-	for _, transition := range transitions {
-		targetID := ""
-		if transition.kind == "terminal" {
-			targetID = "terminal:" + transition.target
-			analyzer.graph.AddNode(Node{ID: targetID, Kind: "terminal", Name: transition.label, Span: transition.span})
-		} else {
-			targetID = analyzer.resolveTransitionTarget(transition.target, transition.span)
+	if len(outcomes) > 1 {
+		dispatchID := "decision-dispatch:" + ownerID
+		analyzer.graph.AddNode(Node{ID: dispatchID, Kind: "decision_dispatch", Name: "Decision", ParentID: ownerID, Phase: phase, Span: analyzer.span(method)})
+	}
+	for _, outcome := range outcomes {
+		position := analyzer.fileSet.Position(method.Pos())
+		if outcome.span != nil {
+			position.Line = outcome.span.StartLine
+			position.Column = outcome.span.StartColumn
 		}
-		analyzer.graph.AddEdge(Edge{
-			Kind:         transition.kind,
-			From:         ownerID,
-			To:           targetID,
-			Label:        transition.label,
-			Condition:    transition.condition,
-			Multiplicity: transition.multiplicity,
-			Span:         transition.span,
-			Metadata:     transition.metadata,
+		decisionID := fmt.Sprintf("decision:%s:%d:%d", ownerID, position.Line, position.Column)
+		details := DecisionDetails{Type: outcome.decisionType, CheckedChannels: outcome.checkedChannels}
+		for _, transition := range outcome.transitions {
+			if transition.kind != "cancel" {
+				continue
+			}
+			targetID := analyzer.resolveTransitionTarget(transition.target, transition.span)
+			details.Cancellations = append(details.Cancellations, Cancellation{StepID: targetID, Scope: cancellationScope(transition.label)})
+		}
+		analyzer.graph.AddNode(Node{
+			ID: decisionID, Kind: "decision", Name: outcome.decisionType, ParentID: ownerID,
+			Condition: outcome.condition, Phase: phase, Span: outcome.span, Decision: &details,
 		})
+		for _, transition := range outcome.transitions {
+			if transition.kind == "terminal" {
+				continue
+			}
+			targetID := analyzer.resolveTransitionTarget(transition.target, transition.span)
+			analyzer.graph.AddEdge(Edge{
+				Kind:         transition.kind,
+				From:         decisionID,
+				To:           targetID,
+				Label:        transition.label,
+				Multiplicity: transition.multiplicity,
+				Span:         transition.span,
+				Metadata:     transition.metadata,
+			})
+		}
 	}
 }
 
 func (analyzer *goAnalyzer) analyzeWaitFor(ownerID string, stepType string, method *ast.FuncDecl) {
-	waitID := "wait:" + stepType
-	condition := "WaitFor"
-	for _, name := range []string{"SkipWaitImmediately", "Until", "AllOf", "AnyOf", "AnyComboOf"} {
-		if analyzer.bodyHasDexCall(method.Body, name) {
-			condition = name
-			break
-		}
+	type waitReturn struct {
+		call      *ast.CallExpr
+		condition string
 	}
-	analyzer.graph.AddNode(Node{ID: waitID, Kind: "wait", Name: condition, Phase: "wait_for", Span: analyzer.span(method)})
-	analyzer.graph.AddEdge(Edge{Kind: "wait", From: ownerID, To: waitID, Label: condition, Span: analyzer.span(method)})
-	analyzer.analyzeResourceAccess(waitID, method, "wait_for")
-	ast.Inspect(method.Body, func(current ast.Node) bool {
-		call, ok := current.(*ast.CallExpr)
-		if !ok {
-			return true
+	returns := make([]waitReturn, 0)
+	analyzer.walkStatements(method.Body.List, "", func(expression ast.Expr, condition string) {
+		call, ok := expression.(*ast.CallExpr)
+		if !ok || goWaitType(analyzer.callName(call)) == "" {
+			return
 		}
-		switch analyzer.callName(call) {
-		case "Timer":
-			nodeID := fmt.Sprintf("timer:%s:%d", stepType, analyzer.fileSet.Position(call.Pos()).Line)
-			analyzer.graph.AddNode(Node{ID: nodeID, Kind: "timer", Name: "Timer", External: true, Span: analyzer.span(call)})
-			analyzer.graph.AddEdge(Edge{Kind: "wait_condition", From: waitID, To: nodeID, Label: "timer", Span: analyzer.span(call)})
-		case "SubFlow":
-			name := "SubFlow"
-			if len(call.Args) > 0 {
-				if staticName := analyzer.expressionTypeName(call.Args[0]); staticName != "" {
-					name = staticName
-				}
-			}
-			nodeID := fmt.Sprintf("subflow:%s:%d", name, analyzer.fileSet.Position(call.Pos()).Line)
-			analyzer.graph.AddNode(Node{ID: nodeID, Kind: "subflow", Name: name, External: true, Span: analyzer.span(call)})
-			analyzer.graph.AddEdge(Edge{Kind: "subflow", From: waitID, To: nodeID, Label: "wait", Span: analyzer.span(call)})
-		}
-		return true
+		returns = append(returns, waitReturn{call: call, condition: condition})
 	})
+	if len(returns) == 0 {
+		unknownID := fmt.Sprintf("unknown:wait:%s:%d", stepType, analyzer.fileSet.Position(method.Pos()).Line)
+		analyzer.graph.AddNode(Node{ID: unknownID, Kind: "unknown", Name: "Dynamic WaitFor", ParentID: ownerID, Span: analyzer.span(method)})
+		analyzer.graph.AddDiagnostic("error", "hidden_dex_wait", fmt.Sprintf("%s hides its Dex Wait in a helper", method.Name.Name), analyzer.span(method))
+		return
+	}
+	if len(returns) > 1 {
+		analyzer.graph.AddNode(Node{ID: "wait-dispatch:" + stepType, Kind: "wait_dispatch", Name: "WaitFor", ParentID: ownerID, Phase: "wait_for", Span: analyzer.span(method)})
+	}
+	for _, result := range returns {
+		position := analyzer.fileSet.Position(result.call.Pos())
+		waitID := fmt.Sprintf("wait:%s:%d:%d", stepType, position.Line, position.Column)
+		waitType := goWaitType(analyzer.callName(result.call))
+		conditions := analyzer.goWaitConditions(waitID, result.call)
+		analyzer.graph.AddNode(Node{
+			ID: waitID, Kind: "wait", Name: waitType, ParentID: ownerID, Condition: result.condition,
+			Phase: "wait_for", Span: analyzer.span(result.call), Wait: &WaitDetails{Type: waitType, Conditions: conditions},
+		})
+	}
+	analyzer.analyzeResourceAccess(ownerID, method, "wait_for")
 }
 
 func (analyzer *goAnalyzer) analyzeFailurePolicy(ownerID string, method *ast.FuncDecl) {
@@ -441,7 +480,7 @@ func (analyzer *goAnalyzer) analyzeResourceAccess(ownerID string, method *ast.Fu
 			return true
 		}
 		kind := goResourceEdgeKind(selector.Sel.Name, phase)
-		if kind == "" {
+		if kind == "" || kind == "wait_condition" {
 			return true
 		}
 		key := kind + ":" + resourceID + ":" + selector.Sel.Name
@@ -458,9 +497,168 @@ func (analyzer *goAnalyzer) analyzeResourceAccess(ownerID string, method *ast.Fu
 				analyzer.graph.AddDiagnostic("error", "step_progress_outside_step", "Stream.Write is only available in WaitFor and Execute", analyzer.span(call))
 			}
 		}
-		analyzer.graph.AddEdge(Edge{Kind: kind, From: ownerID, To: resourceID, Label: selector.Sel.Name, Span: analyzer.span(call), Metadata: metadata})
+		from := ownerID
+		to := resourceID
+		if kind == "resource_read" {
+			from, to = resourceID, ownerID
+		}
+		analyzer.graph.AddEdge(Edge{Kind: kind, From: from, To: to, Label: selector.Sel.Name, Span: analyzer.span(call), Metadata: metadata})
 		return true
 	})
+}
+
+func (analyzer *goAnalyzer) decisionType(expression ast.Expr, allowRPC bool) string {
+	if allowRPC {
+		if typeAndValue, ok := analyzer.typeInfo.Types[expression]; ok && typeAndValue.Type != nil && strings.Contains(typeAndValue.Type.String(), goSDKPackage+".RPCResult") {
+			return "rpcResult"
+		}
+	}
+	call, ok := expression.(*ast.CallExpr)
+	if !ok {
+		return ""
+	}
+	if selector, selectorOK := unwrapCallFun(call.Fun).(*ast.SelectorExpr); selectorOK && (selector.Sel.Name == "CancelSteps" || selector.Sel.Name == "CancelSiblingSteps") {
+		return analyzer.decisionType(selector.X, allowRPC)
+	}
+	switch analyzer.callName(call) {
+	case "GoTo":
+		return "goTo"
+	case "GoToMany":
+		return "goToMany"
+	case "GracefulComplete":
+		return "gracefulComplete"
+	case "ForceComplete":
+		return "forceComplete"
+	case "ForceFail":
+		return "forceFail"
+	case "DeadEnd":
+		return "deadEnd"
+	case "ForceCompleteIfChannelsEmpty":
+		return "forceCompleteIfChannelsEmpty"
+	case "RPCResult":
+		if allowRPC {
+			return "rpcResult"
+		}
+	}
+	return ""
+}
+
+func (analyzer *goAnalyzer) checkedChannels(expression ast.Expr) []string {
+	call, ok := expression.(*ast.CallExpr)
+	if !ok {
+		return nil
+	}
+	if selector, selectorOK := unwrapCallFun(call.Fun).(*ast.SelectorExpr); selectorOK && (selector.Sel.Name == "CancelSteps" || selector.Sel.Name == "CancelSiblingSteps") {
+		return analyzer.checkedChannels(selector.X)
+	}
+	if analyzer.callName(call) != "ForceCompleteIfChannelsEmpty" || len(call.Args) < 2 {
+		return nil
+	}
+	channels := make([]string, 0)
+	ast.Inspect(call.Args[1], func(current ast.Node) bool {
+		expression, ok := current.(ast.Expr)
+		if !ok {
+			return true
+		}
+		if resourceID := analyzer.resourceForExpression(expression); strings.HasPrefix(resourceID, "resource:channel:") {
+			channels = appendUnique(channels, resourceID)
+			return false
+		}
+		return true
+	})
+	return channels
+}
+
+func (analyzer *goAnalyzer) goWaitConditions(waitID string, waitCall *ast.CallExpr) []WaitCondition {
+	conditions := make([]WaitCondition, 0)
+	ast.Inspect(waitCall, func(current ast.Node) bool {
+		call, ok := current.(*ast.CallExpr)
+		if !ok || call == waitCall {
+			return true
+		}
+		name := analyzer.callName(call)
+		switch name {
+		case "Timer":
+			expression := "duration"
+			if len(call.Args) > 0 {
+				expression = analyzer.expressionString(call.Args[0])
+			}
+			conditions = append(conditions, WaitCondition{
+				Kind: "timer", Label: humanizeGoDuration(expression) + " timer", Expression: expression, Span: analyzer.span(call),
+			})
+			return false
+		case "SubFlow":
+			name := "SubFlow"
+			if len(call.Args) > 0 {
+				name = valueOr(analyzer.expressionTypeName(call.Args[0]), name)
+			}
+			subFlowID := fmt.Sprintf("subflow:%s:%d", name, analyzer.fileSet.Position(call.Pos()).Line)
+			analyzer.graph.AddNode(Node{ID: subFlowID, Kind: "subflow", Name: name, External: true, Span: analyzer.span(call)})
+			analyzer.graph.AddEdge(Edge{Kind: "subflow", From: waitID, To: subFlowID, Label: "start", Span: analyzer.span(call)})
+			conditions = append(conditions, WaitCondition{Kind: "subflow", Label: name, SubFlowID: subFlowID, Span: analyzer.span(call)})
+			return false
+		}
+		selector, selectorOK := unwrapCallFun(call.Fun).(*ast.SelectorExpr)
+		if !selectorOK || !isGoChannelCondition(name) {
+			return true
+		}
+		resourceID := analyzer.resourceForExpression(selector.X)
+		if !strings.HasPrefix(resourceID, "resource:channel:") {
+			return true
+		}
+		label, expression := analyzer.goChannelConditionLabel(resourceID, name, call.Args)
+		conditions = append(conditions, WaitCondition{
+			Kind: "channel", Label: label, ResourceID: resourceID, Expression: expression, Span: analyzer.span(call),
+		})
+		analyzer.graph.AddEdge(Edge{Kind: "wait_condition", From: resourceID, To: waitID, Label: label, Span: analyzer.span(call)})
+		return false
+	})
+	return conditions
+}
+
+func (analyzer *goAnalyzer) goChannelConditionLabel(resourceID string, method string, arguments []ast.Expr) (string, string) {
+	resource := analyzer.node(resourceID)
+	name := resource.Name
+	isMap := resource.Resource != nil && resource.Resource.Map
+	argumentStrings := make([]string, 0, len(arguments))
+	for _, argument := range arguments {
+		argumentStrings = append(argumentStrings, analyzer.expressionString(argument))
+	}
+	instance := ""
+	counts := argumentStrings
+	if isMap && len(argumentStrings) > 0 {
+		instance = "[" + argumentStrings[0] + "]"
+		counts = argumentStrings[1:]
+	}
+	count := func(index int, fallback string) string {
+		if index < len(counts) {
+			return counts[index]
+		}
+		return fallback
+	}
+	label := name + instance
+	switch method {
+	case "ForOne":
+		label += ".for 1"
+	case "ForN":
+		label += ".for " + count(0, "N")
+	case "AtLeast":
+		label += ".at least " + count(0, "N")
+	case "AtMost":
+		label += ".at most " + count(0, "N")
+	case "AtLeastAtMost":
+		label += ".for " + count(0, "N") + "…" + count(1, "N")
+	}
+	return label, strings.Join(argumentStrings, ", ")
+}
+
+func (analyzer *goAnalyzer) node(nodeID string) Node {
+	for _, node := range analyzer.graph.Nodes {
+		if node.ID == nodeID {
+			return node
+		}
+	}
+	return Node{}
 }
 
 func (analyzer *goAnalyzer) transitionsFromExpression(expression ast.Expr, condition string, allowMovement bool, locals map[string][]goTransition) []goTransition {
@@ -513,11 +711,22 @@ func (analyzer *goAnalyzer) transitionsFromExpression(expression ast.Expr, condi
 			}
 		}
 		return result
+	case "ForceCompleteIfChannelsEmpty":
+		result := make([]goTransition, 0)
+		for _, argument := range call.Args[2:] {
+			if movementCall, movementOK := argument.(*ast.CallExpr); movementOK && analyzer.callName(movementCall) == "MovementOf" {
+				result = append(result, analyzer.movementTransition(movementCall, condition))
+			}
+		}
+		if len(result) == 0 {
+			result = append(result, goTransition{kind: "terminal", target: name, label: terminalLabel(name), condition: condition, span: analyzer.span(call)})
+		}
+		return result
 	case "MovementOf":
 		if allowMovement {
 			return []goTransition{analyzer.movementTransition(call, condition)}
 		}
-	case "GracefulComplete", "ForceComplete", "ForceFail", "DeadEnd", "ForceCompleteIfChannelsEmpty":
+	case "GracefulComplete", "ForceComplete", "ForceFail", "DeadEnd":
 		return []goTransition{{kind: "terminal", target: name, label: terminalLabel(name), condition: condition, span: analyzer.span(call)}}
 	}
 	return nil
@@ -586,6 +795,8 @@ func (analyzer *goAnalyzer) walkStatements(statements []ast.Stmt, condition stri
 				case *ast.IfStmt:
 					analyzer.walkStatements([]ast.Stmt{otherwise}, combineCondition(condition, "otherwise"), visit)
 				}
+			} else if statementsAlwaysReturn(current.Body.List) {
+				condition = combineCondition(condition, "otherwise")
 			}
 		case *ast.SwitchStmt:
 			tag := analyzer.expressionString(current.Tag)
@@ -608,6 +819,29 @@ func (analyzer *goAnalyzer) walkStatements(statements []ast.Stmt, condition stri
 			analyzer.walkStatements(current.List, condition, visit)
 		}
 	}
+}
+
+func statementsAlwaysReturn(statements []ast.Stmt) bool {
+	if len(statements) == 0 {
+		return false
+	}
+	switch last := statements[len(statements)-1].(type) {
+	case *ast.ReturnStmt:
+		return true
+	case *ast.BlockStmt:
+		return statementsAlwaysReturn(last.List)
+	case *ast.IfStmt:
+		if last.Else == nil || !statementsAlwaysReturn(last.Body.List) {
+			return false
+		}
+		switch otherwise := last.Else.(type) {
+		case *ast.BlockStmt:
+			return statementsAlwaysReturn(otherwise.List)
+		case *ast.IfStmt:
+			return statementsAlwaysReturn([]ast.Stmt{otherwise})
+		}
+	}
+	return false
 }
 
 func (analyzer *goAnalyzer) resolveTransitionTarget(target string, span *Span) string {
@@ -836,6 +1070,98 @@ func unwrapCallFun(expression ast.Expr) ast.Expr {
 	default:
 		return expression
 	}
+}
+
+func (analyzer *goAnalyzer) resourceDetails(call *ast.CallExpr) ResourceDetails {
+	details := ResourceDetails{ValueType: "unknown"}
+	name := analyzer.callName(call)
+	details.Map = name == "DefineAttributeMap" || name == "DefineChannelMap"
+	switch function := call.Fun.(type) {
+	case *ast.IndexExpr:
+		details.ValueType = analyzer.expressionString(function.Index)
+	case *ast.IndexListExpr:
+		if len(function.Indices) > 0 {
+			details.ValueType = analyzer.expressionString(function.Indices[0])
+		}
+	}
+	if details.ValueType == "" {
+		details.ValueType = "unknown"
+	}
+	return details
+}
+
+func goWaitType(name string) string {
+	switch name {
+	case "SkipWaitImmediately":
+		return "skipWaitImmediately"
+	case "Until":
+		return "until"
+	case "AllOf":
+		return "allOf"
+	case "AnyOf":
+		return "anyOf"
+	case "AnyComboOf":
+		return "anyComboOf"
+	default:
+		return ""
+	}
+}
+
+func isGoChannelCondition(name string) bool {
+	switch name {
+	case "ForOne", "ForN", "AtLeast", "AtMost", "AtLeastAtMost":
+		return true
+	default:
+		return false
+	}
+}
+
+func humanizeGoDuration(expression string) string {
+	trimmed := strings.TrimSpace(expression)
+	units := []struct {
+		source string
+		label  string
+	}{
+		{source: "time.Nanosecond", label: "nanosecond"},
+		{source: "time.Microsecond", label: "microsecond"},
+		{source: "time.Millisecond", label: "millisecond"},
+		{source: "time.Second", label: "second"},
+		{source: "time.Minute", label: "minute"},
+		{source: "time.Hour", label: "hour"},
+	}
+	for _, unit := range units {
+		if trimmed == unit.source {
+			return "1 " + unit.label
+		}
+		suffix := " * " + unit.source
+		if strings.HasSuffix(trimmed, suffix) {
+			count := strings.TrimSpace(strings.TrimSuffix(trimmed, suffix))
+			if _, err := strconv.Atoi(count); err == nil {
+				label := unit.label
+				if count != "1" {
+					label += "s"
+				}
+				return count + " " + label
+			}
+		}
+	}
+	return trimmed
+}
+
+func cancellationScope(label string) string {
+	if label == "CancelSiblingSteps" {
+		return "siblings"
+	}
+	return "all"
+}
+
+func appendUnique(values []string, value string) []string {
+	for _, existing := range values {
+		if existing == value {
+			return values
+		}
+	}
+	return append(values, value)
 }
 
 func goResourceKind(name string) string {

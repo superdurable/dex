@@ -166,9 +166,12 @@ dexcli dev --flow-rendering-dir ./build
 ```
 
 Open **Flow Rendering** in Dex Web to browse the loaded definitions. The page
-renders the graph interactively and lets you show or hide waits, handlers,
-Attributes, Channels, Streams, SubFlows, and diagnostics. Definitions are loaded
-once during startup; restart **dexcli dev** after changing the directory.
+renders the graph interactively. A Flow frame contains Step frames, with WaitFor
+paths above Execute decisions. Conditional returns are grouped below dispatch
+diamonds. Channels, Attributes, RPCs, Streams, folded SubFlows, and diagnostics
+can be shown or hidden independently. Streams are hidden by default. Definitions
+are loaded once during startup; restart **dexcli dev** after changing the
+directory.
 
 Python analysis requires Python 3.11 or newer. Pass `--python /path/to/python`
 to select an interpreter. The analyzer parses Python with the standard-library
@@ -177,14 +180,18 @@ AST and never imports or executes the application module.
 Go analysis requires a local Go toolchain and a module/package that passes type
 checking. Version 1 accepts one Flow per file. Step registration, transitions,
 waits, RPC next Steps, execute-failure recovery targets, and persistence
-resource access must be directly visible in that file. The graph also records
-repeatable best-effort Step Stream writes. Python synchronous Step generators
-and asynchronous Step handlers are both recognized. Heartbeat checkpoints are
-runtime details and are omitted. Step Stream progress from an RPC or Flow timeout
-handler produces a blocking diagnostic. Business helpers may remain in other
-files, but they must not hide Dex control flow. Dynamic targets produce an
-Unknown node and a blocking diagnostic. A partial JSON artifact is still
-written, and the command exits with status 1.
+resource access must be directly visible in that file. Wait conditions and
+Execute decisions are structured node details rather than labels inferred from
+edges. Channel edges run from publishers through the Channel to consuming
+WaitFor paths. Attribute edges run from writers through the Attribute group to
+readers. Terminal decisions and cancellation remain inside their Execute card.
+The graph also records repeatable best-effort Step Stream writes. Python
+synchronous Step generators and asynchronous Step handlers are both recognized.
+Heartbeat checkpoints are runtime details and are omitted. Step Stream progress
+from an RPC or Flow timeout handler produces a blocking diagnostic. Business
+helpers may remain in other files, but they must not hide Dex control flow.
+Dynamic targets produce an Unknown node and a blocking diagnostic. A partial
+JSON artifact is still written, and the command exits with status 1.
 
 ```text
 dexcli visualize SOURCE [--language auto|go|python]

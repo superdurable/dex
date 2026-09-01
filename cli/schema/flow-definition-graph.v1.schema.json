@@ -27,59 +27,117 @@
         "span": {"$ref": "#/$defs/span"}
       }
     },
-    "nodes": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "kind", "name"],
-        "properties": {
-          "id": {"type": "string"},
-          "kind": {"enum": ["start", "step", "rpc", "timeout_handler", "wait", "timer", "attribute", "channel", "stream", "subflow", "decision", "terminal", "unknown"]},
-          "name": {"type": "string"},
-          "phase": {"type": "string"},
-          "start": {"type": "boolean"},
-          "external": {"type": "boolean"},
-          "span": {"$ref": "#/$defs/span"},
-          "metadata": {"type": "object"}
-        }
-      }
-    },
-    "edges": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["id", "kind", "from", "to"],
-        "properties": {
-          "id": {"type": "string"},
-          "kind": {"enum": ["start", "transition", "failure_transition", "decision", "terminal", "wait", "wait_condition", "resource_read", "resource_write", "resource_publish", "cancel", "subflow"]},
-          "from": {"type": "string"},
-          "to": {"type": "string"},
-          "label": {"type": "string"},
-          "condition": {"type": "string"},
-          "multiplicity": {"type": "string"},
-          "span": {"$ref": "#/$defs/span"},
-          "metadata": {"type": "object"}
-        }
-      }
-    },
-    "diagnostics": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["severity", "code", "message"],
-        "properties": {
-          "severity": {"enum": ["warning", "error"]},
-          "code": {"type": "string"},
-          "message": {"type": "string"},
-          "span": {"$ref": "#/$defs/span"}
-        }
-      }
-    }
+    "nodes": {"type": "array", "items": {"$ref": "#/$defs/node"}},
+    "edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+    "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/diagnostic"}}
   },
   "$defs": {
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "name"],
+      "properties": {
+        "id": {"type": "string"},
+        "kind": {"enum": ["step", "rpc", "timeout_handler", "wait_dispatch", "wait", "decision_dispatch", "decision", "attribute", "channel", "stream", "subflow", "unknown"]},
+        "name": {"type": "string"},
+        "parentId": {"type": "string"},
+        "condition": {"type": "string"},
+        "phase": {"type": "string"},
+        "start": {"type": "boolean"},
+        "external": {"type": "boolean"},
+        "span": {"$ref": "#/$defs/span"},
+        "resource": {"$ref": "#/$defs/resource"},
+        "wait": {"$ref": "#/$defs/wait"},
+        "decision": {"$ref": "#/$defs/decision"},
+        "metadata": {"type": "object"}
+      },
+      "allOf": [
+        {"if": {"properties": {"kind": {"enum": ["attribute", "channel", "stream"]}}}, "then": {"required": ["resource"]}},
+        {"if": {"properties": {"kind": {"const": "wait"}}}, "then": {"required": ["parentId", "wait"]}},
+        {"if": {"properties": {"kind": {"const": "decision"}}}, "then": {"required": ["parentId", "decision"]}}
+      ]
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valueType"],
+      "properties": {
+        "valueType": {"type": "string"},
+        "map": {"type": "boolean"}
+      }
+    },
+    "wait": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "conditions"],
+      "properties": {
+        "type": {"enum": ["skipWaitImmediately", "until", "allOf", "anyOf", "anyComboOf", "unknown"]},
+        "conditions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "label"],
+            "properties": {
+              "kind": {"enum": ["channel", "timer", "subflow", "unknown"]},
+              "label": {"type": "string"},
+              "resourceId": {"type": "string"},
+              "subFlowId": {"type": "string"},
+              "expression": {"type": "string"},
+              "span": {"$ref": "#/$defs/span"}
+            }
+          }
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["goTo", "goToMany", "gracefulComplete", "forceComplete", "forceFail", "deadEnd", "forceCompleteIfChannelsEmpty", "rpcResult", "unknown"]},
+        "checkedChannels": {"type": "array", "items": {"type": "string"}},
+        "cancellations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["stepId", "scope"],
+            "properties": {
+              "stepId": {"type": "string"},
+              "scope": {"enum": ["all", "siblings"]}
+            }
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "from", "to"],
+      "properties": {
+        "id": {"type": "string"},
+        "kind": {"enum": ["transition", "failure_transition", "resource_read", "resource_write", "resource_publish", "wait_condition", "cancel", "subflow"]},
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "label": {"type": "string"},
+        "condition": {"type": "string"},
+        "multiplicity": {"type": "string"},
+        "span": {"$ref": "#/$defs/span"},
+        "metadata": {"type": "object"}
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["severity", "code", "message"],
+      "properties": {
+        "severity": {"enum": ["warning", "error"]},
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "span": {"$ref": "#/$defs/span"}
+      }
+    },
     "span": {
       "type": "object",
       "additionalProperties": false,

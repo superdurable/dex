@@ -145,10 +145,35 @@ export interface FlowDefinitionNode {
   id: string;
   kind: string;
   name: string;
+  parentId?: string;
+  condition?: string;
   phase?: string;
   start?: boolean;
   external?: boolean;
   span?: SourceSpan;
+  resource?: {
+    valueType: string;
+    map?: boolean;
+  };
+  wait?: {
+    type: string;
+    conditions: Array<{
+      kind: 'channel' | 'timer' | 'subflow' | 'unknown';
+      label: string;
+      resourceId?: string;
+      subFlowId?: string;
+      expression?: string;
+      span?: SourceSpan;
+    }>;
+  };
+  decision?: {
+    type: string;
+    checkedChannels?: string[];
+    cancellations?: Array<{
+      stepId: string;
+      scope: 'all' | 'siblings';
+    }>;
+  };
   metadata?: Record<string, unknown>;
 }
 

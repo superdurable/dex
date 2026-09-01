@@ -85,8 +85,18 @@ preferences.
 
 The Flow Rendering page displays source definition JSON loaded at startup. Its
 legend independently filters control flow, waits, handlers, resources, SubFlows,
-and diagnostics. Attributes, Channels, and Streams start hidden so the possible
-Step paths remain readable.
+and diagnostics. Control flow, WaitFor, handlers, Channels, Attributes,
+SubFlows, and diagnostics start visible. Streams start hidden.
+
+The Flow Definition renderer uses a compound layout separate from the runtime
+Execution graph. The lavender Flow frame contains blue Step frames. Each Step
+stacks orange WaitFor paths above its Execute decisions, with dispatch diamonds
+for conditional returns. Channels occupy the upper-left resource rail,
+Attributes share one box, RPC hexagons cross the Flow's left boundary, and
+folded SubFlows occupy the right rail. Publishers point to Channels, Channels
+point to consuming WaitFor paths, Attribute writers point to the Attribute box,
+and the box points to readers. Resource and SubFlow relations are dashed.
+Transitions are solid; Execute-failure recovery is solid magenta.
 
 The Run page opens on Execution graph and also provides Overview (Live Flow State beside
 Selected event, then Run input beside Identity), Timeline, Streams, attributes, timers, queued
