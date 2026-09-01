@@ -218,26 +218,146 @@ a {
   font-size: 13px;
 }
 
-.flow-definition-picker {
+.flow-rendering-summary {
   display: grid;
-  min-width: min(440px, 46vw);
-  gap: 7px;
+  max-width: min(560px, 52vw);
+  justify-items: end;
+  gap: 5px;
+  text-align: right;
+}
+
+.flow-rendering-summary b {
+  color: var(--brand-dark);
+  font-size: 12px;
+}
+
+.flow-rendering-summary code {
+  max-width: 100%;
+  overflow: hidden;
   color: var(--muted);
   font-size: 11px;
-  font-weight: 720;
-  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-rendering-workspace {
+  display: grid;
+  grid-template-columns: minmax(270px, 330px) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+
+.flow-definition-browser {
+  position: sticky;
+  top: 84px;
+  display: flex;
+  max-height: calc(100vh - 108px);
+  overflow: hidden;
+  flex-direction: column;
+}
+
+.flow-definition-browser-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 15px 16px 13px;
+  border-bottom: 1px solid var(--line);
+}
+
+.flow-definition-browser-header h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.flow-definition-browser-header > span {
+  min-width: 30px;
+  padding: 5px 8px;
+  border-radius: 999px;
+  color: var(--brand-dark);
+  background: var(--brand-soft);
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.flow-definition-file-list {
+  display: grid;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.flow-definition-file-list button {
+  display: grid;
+  min-width: 0;
+  padding: 12px 14px;
+  gap: 5px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  background: white;
+  text-align: left;
+}
+
+.flow-definition-file-list button:last-child {
+  border-bottom: 0;
+}
+
+.flow-definition-file-list button:hover {
+  background: #f6f9f4;
+}
+
+.flow-definition-file-list button.is-selected {
+  padding-left: 10px;
+  border-left: 4px solid var(--brand);
+  background: var(--brand-soft);
+}
+
+.flow-definition-file-list button > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.flow-definition-file-list b,
+.flow-definition-file-list code,
+.flow-definition-file-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-definition-file-list b {
+  font-size: 12px;
+}
+
+.flow-definition-file-list em {
+  padding: 3px 6px;
+  flex: none;
+  border-radius: 999px;
+  color: var(--brand-dark);
+  background: #dcefcf;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 800;
   text-transform: uppercase;
 }
 
-.flow-definition-picker select {
-  width: 100%;
-  padding: 10px 34px 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: white;
-  font-size: 13px;
-  letter-spacing: normal;
-  text-transform: none;
+.flow-definition-file-list em.is-invalid {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.flow-definition-file-list code,
+.flow-definition-file-list small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.flow-rendering-graph {
+  min-width: 0;
 }
 
 .flow-rendering-empty p {
@@ -3020,6 +3140,15 @@ pre {
 }
 
 @media (max-width: 1100px) {
+  .flow-rendering-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-definition-browser {
+    position: static;
+    max-height: 360px;
+  }
+
   .summary-strip {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -3083,9 +3212,11 @@ pre {
     flex-direction: column;
   }
 
-  .flow-definition-picker {
+  .flow-rendering-summary {
     width: 100%;
-    min-width: 0;
+    max-width: none;
+    justify-items: start;
+    text-align: left;
   }
 
   .flow-definition-legend {
