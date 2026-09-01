@@ -2001,6 +2001,7 @@ pre {
   align-items: center;
   list-style: none;
   cursor: pointer;
+  font-size: 10px;
 }
 
 .semantic-record > summary::-webkit-details-marker {
@@ -2020,6 +2021,7 @@ pre {
 
 .semantic-record > summary > strong {
   margin-bottom: 0;
+  font-size: inherit;
 }
 
 .channel-record > summary > strong {
