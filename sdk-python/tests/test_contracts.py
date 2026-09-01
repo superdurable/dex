@@ -8,15 +8,18 @@
 # Legacy Materials remain under their original licenses.
 # See LICENSE and LEGACY_NOTICES.md.
 
+import asyncio
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast
+from typing import Any, Generator, cast
 
 import pytest
 
 from dex import (
     INT64,
     STRING,
+    AsyncContext,
     Attribute,
     AttributeMap,
     BlobCache,
@@ -41,6 +44,7 @@ from dex import (
     StepDurability,
     StepList,
     StepOptions,
+    StepOutput,
     Stream,
     Timer,
     ValueMappingError,
@@ -48,9 +52,11 @@ from dex import (
     WaitForFailurePolicy,
     WireKind,
     graceful_complete,
+    heartbeat,
     open_blob_cache,
     rpc,
 )
+from dex._async_worker_dispatcher import AsyncWorkerDispatcher
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._value_mapper import ValueMapper
 from dex._worker_dispatcher import WorkerDispatcher
@@ -125,14 +131,14 @@ class OrderFlow(Flow[OrderInput]):
 class AsyncApproveOrder(Step[OrderInput]):
     async def execute(  # type: ignore[override]
         self,
-        context: Context,
+        context: AsyncContext,
         input: OrderInput,
     ) -> StepDecision:
         del context, input
         return graceful_complete()
 
     async def wait_for(  # type: ignore[override]
-        self, context: Context, input: OrderInput
+        self, context: AsyncContext, input: OrderInput
     ) -> Wait:
         del context, input
         return Wait.skip_immediately()
@@ -336,7 +342,6 @@ def test_invalid_step_result_has_flow_and_step_context() -> None:
         registry,
         values,
         cast(Any, PassthroughHydrator()),
-        lambda _request: pb.WriteStreamRequest(),
     )
     request = pb.InvokeExecuteMethodRequest(
         flow_type="InvalidFlow",
@@ -344,7 +349,7 @@ def test_invalid_step_result_has_flow_and_step_context() -> None:
         step_input=values.encode(1, values.codec(int)),
     )
     with pytest.raises(InvalidStepResultError) as captured:
-        dispatcher.invoke_execute(request)
+        list(dispatcher.invoke_execute(request))
     assert captured.value.flow_type == "InvalidFlow"
     assert captured.value.step_type == "InvalidStep"
     assert captured.value.method == "execute"
@@ -420,17 +425,19 @@ def test_worker_maps_only_user_provided_condition_ids() -> None:
         registry,
         values,
         cast(Any, PassthroughHydrator()),
-        lambda _request: pb.WriteStreamRequest(),
     )
 
     def invoke(input: str) -> pb.InvokeWaitForMethodResponse:
-        return dispatcher.invoke_wait_for(
-            pb.InvokeWaitForMethodRequest(
-                flow_type="ConditionFlow",
-                step_type="ConditionStep",
-                step_input=values.encode(input, values.codec(str)),
+        outputs = list(
+            dispatcher.invoke_wait_for(
+                pb.InvokeWaitForMethodRequest(
+                    flow_type="ConditionFlow",
+                    step_type="ConditionStep",
+                    step_input=values.encode(input, values.codec(str)),
+                )
             )
         )
+        return outputs[-1].result
 
     unnamed = invoke("unnamed").waiting_condition
     assert unnamed.timer_conditions[0].condition_id == ""
@@ -465,7 +472,6 @@ def test_map_introspection_tracks_buffered_changes() -> None:
         registry._flow_by_type("MapFlow"),
         pb.Context(),
         values,
-        lambda _request: pb.WriteStreamRequest(),
         (
             pb.KV(
                 key=Registry.physical_name("items", special),
@@ -551,7 +557,7 @@ def test_attribute_store_sync_mapping_preserves_presence() -> None:
     client.close()
 
 
-def test_step_stream_write_uses_execution_idempotency_key() -> None:
+def test_step_stream_write_creates_repeatable_outputs() -> None:
     thinking = Stream("thinking", str, 1_048_576)
 
     class StreamFlow(Flow[str]):
@@ -560,7 +566,6 @@ def test_step_stream_write_uses_execution_idempotency_key() -> None:
 
     registry = Registry((StreamFlow(),))
     values = ValueMapper(registry.codec_registry)
-    requests: list[pb.WriteStreamRequest] = []
     context = InvocationContext(
         InvocationMethod.EXECUTE,
         registry._flow_by_type("StreamFlow"),
@@ -570,28 +575,28 @@ def test_step_stream_write_uses_execution_idempotency_key() -> None:
             step_execution_id="step-1",
         ),
         values,
-        requests.append,
         (),
     )
 
-    assert thinking.write(context, "checking") is None
-    assert len(requests) == 1
-    request = requests[0]
-    assert request.flow_id == "flow-1"
-    assert request.flow_type == "StreamFlow"
-    assert request.stream_name == "thinking"
-    assert request.stream_capacity_bytes == 1_048_576
-    assert request.idempotency_key == "run-1#step-1"
-    assert values.decode(request.value, values.codec(str)) == "checking"
-    with pytest.raises(ValueError, match="already written"):
-        thinking.write(context, "again")
+    first = thinking.write(context, "checking")
+    second = thinking.write(context, "again")
+    assert isinstance(first, StepOutput)
+    assert isinstance(second, StepOutput)
+    assert first is not second
+    assert isinstance(heartbeat(), StepOutput)
+    assert isinstance(heartbeat(None), StepOutput)
+    with pytest.raises(TypeError, match="must be created"):
+        StepOutput()
+    with pytest.raises(ValueError, match="does not belong"):
+        Stream("other", str, 1024).write(context, "unregistered")
+    with pytest.raises(ValueMappingError):
+        thinking.write(context, cast(Any, 1))
 
     rpc_context = InvocationContext(
         InvocationMethod.RPC,
         registry._flow_by_type("StreamFlow"),
         pb.Context(),
         values,
-        requests.append,
         (),
     )
     with pytest.raises(ValueError, match="Step Context"):
@@ -621,7 +626,7 @@ def test_client_stream_transport_and_metadata() -> None:
             response.message.value.string_value = "working"
             response.message.resume_token = "resume-1"
             response.message.created_time.FromDatetime(created_time)
-            response.message.idempotency_key = "client-1"
+            response.message.source = "client-1"
             return response
 
     client = Client(Registry((StreamFlow(),)), cast(BlobCache, object()))
@@ -639,15 +644,491 @@ def test_client_stream_transport_and_metadata() -> None:
         assert service.write_request.flow_type == "StreamFlow"
         assert service.write_request.stream_name == "thinking"
         assert service.write_request.stream_capacity_bytes == 1_048_576
-        assert service.write_request.idempotency_key == "client-1"
+        assert service.write_request.source == "client-1"
         assert service.read_request is not None
         assert service.read_request.resume_token == "previous"
         assert service.read_request.wait_time_seconds == 2
         assert message.value == "working"
         assert message.resume_token == "resume-1"
         assert message.created_time == datetime(2026, 8, 27, 12, tzinfo=timezone.utc)
-        assert message.idempotency_key == "client-1"
-        with pytest.raises(ValueError, match="must not contain"):
-            client.write_stream("flow-1", thinking, "bad#key", "ignored")
+        assert message.source == "client-1"
+        client.write_stream("flow-1", thinking, "allowed#source", "accepted")
+        assert service.write_request.source == "allowed#source"
+        with pytest.raises(ValueError, match="required"):
+            client.write_stream("flow-1", thinking, "", "rejected")
     finally:
         client.close()
+
+
+def test_sync_step_generator_maps_ordered_progress_and_result() -> None:
+    progress = Stream("sync-progress", str, 1_048_576)
+
+    class StreamingStep(Step[str]):
+        def wait_for(
+            self,
+            context: Context,
+            input: str,
+        ) -> Generator[StepOutput, None, Wait]:
+            yield heartbeat(f"wait-{input}")
+            yield progress.write(context, "wait-stream")
+            return Wait.skip_immediately()
+
+        def execute(
+            self,
+            context: Context,
+            input: str,
+        ) -> Generator[StepOutput, None, StepDecision]:
+            yield heartbeat()
+            yield progress.write(context, "first")
+            yield heartbeat(None)
+            yield progress.write(context, "second")
+            return graceful_complete(input)
+
+    class StreamingFlow(Flow[str]):
+        start = StreamingStep()
+
+        def get_steps(self) -> StepList[str]:
+            return StepList.start_step(self.start)
+
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(progress)
+
+    class PassthroughHydrator:
+        @staticmethod
+        def wait_for_request(
+            request: pb.InvokeWaitForMethodRequest,
+        ) -> pb.InvokeWaitForMethodRequest:
+            return request
+
+        @staticmethod
+        def execute_request(
+            request: pb.InvokeExecuteMethodRequest,
+        ) -> pb.InvokeExecuteMethodRequest:
+            return request
+
+    registry = Registry((StreamingFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = WorkerDispatcher(
+        registry,
+        values,
+        cast(Any, PassthroughHydrator()),
+    )
+    encoded_input = values.encode("input", values.codec(str))
+
+    wait_outputs = list(
+        dispatcher.invoke_wait_for(
+            pb.InvokeWaitForMethodRequest(
+                flow_type="StreamingFlow",
+                step_type="StreamingStep",
+                step_input=encoded_input,
+            )
+        )
+    )
+    assert [output.WhichOneof("output") for output in wait_outputs] == [
+        "heartbeat",
+        "stream_write",
+        "result",
+    ]
+    assert (
+        values.decode(wait_outputs[0].heartbeat.value, values.codec(str))
+        == "wait-input"
+    )
+    assert wait_outputs[1].stream_write.stream_name == "sync-progress"
+
+    execute_outputs = list(
+        dispatcher.invoke_execute(
+            pb.InvokeExecuteMethodRequest(
+                flow_type="StreamingFlow",
+                step_type="StreamingStep",
+                step_input=encoded_input,
+            )
+        )
+    )
+    assert [output.WhichOneof("output") for output in execute_outputs] == [
+        "heartbeat",
+        "stream_write",
+        "heartbeat",
+        "stream_write",
+        "result",
+    ]
+    assert not execute_outputs[0].heartbeat.HasField("value")
+    assert execute_outputs[2].heartbeat.HasField("value")
+    assert (
+        values.decode(execute_outputs[2].heartbeat.value, values.codec(type(None)))
+        is None
+    )
+    assert [
+        values.decode(output.stream_write.value, values.codec(str))
+        for output in (execute_outputs[1], execute_outputs[3])
+    ] == ["first", "second"]
+
+
+@pytest.mark.parametrize("invalid_output", [graceful_complete(), object()])
+def test_sync_step_generator_rejects_invalid_yields(invalid_output: object) -> None:
+    class InvalidGeneratorStep(Step[None]):
+        def execute(
+            self,
+            context: Context,
+            input: None,
+        ) -> Generator[StepOutput, None, StepDecision]:
+            del context, input
+            yield cast(StepOutput, invalid_output)
+            return graceful_complete()
+
+    class InvalidGeneratorFlow(Flow[None]):
+        start = InvalidGeneratorStep()
+
+        def get_steps(self) -> StepList[None]:
+            return StepList.start_step(self.start)
+
+    class PassthroughHydrator:
+        @staticmethod
+        def execute_request(
+            request: pb.InvokeExecuteMethodRequest,
+        ) -> pb.InvokeExecuteMethodRequest:
+            return request
+
+    registry = Registry((InvalidGeneratorFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = WorkerDispatcher(
+        registry,
+        values,
+        cast(Any, PassthroughHydrator()),
+    )
+    with pytest.raises(InvalidStepResultError, match="must yield StepOutput"):
+        list(
+            dispatcher.invoke_execute(
+                pb.InvokeExecuteMethodRequest(
+                    flow_type="InvalidGeneratorFlow",
+                    step_type="InvalidGeneratorStep",
+                    step_input=values.encode_dynamic(None),
+                )
+            )
+        )
+
+
+def test_sync_step_generator_requires_final_return() -> None:
+    class MissingResultStep(Step[None]):
+        def execute(  # type: ignore[return]
+            self,
+            context: Context,
+            input: None,
+        ) -> Generator[StepOutput, None, StepDecision]:
+            del context, input
+            yield heartbeat()
+
+    class MissingResultFlow(Flow[None]):
+        start = MissingResultStep()
+
+        def get_steps(self) -> StepList[None]:
+            return StepList.start_step(self.start)
+
+    class PassthroughHydrator:
+        @staticmethod
+        def execute_request(
+            request: pb.InvokeExecuteMethodRequest,
+        ) -> pb.InvokeExecuteMethodRequest:
+            return request
+
+    registry = Registry((MissingResultFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = WorkerDispatcher(
+        registry,
+        values,
+        cast(Any, PassthroughHydrator()),
+    )
+    with pytest.raises(InvalidStepResultError, match="must return StepDecision"):
+        list(
+            dispatcher.invoke_execute(
+                pb.InvokeExecuteMethodRequest(
+                    flow_type="MissingResultFlow",
+                    step_type="MissingResultStep",
+                    step_input=values.encode_dynamic(None),
+                )
+            )
+        )
+
+
+def test_sync_step_generator_preserves_application_errors() -> None:
+    class FailingGeneratorStep(Step[None]):
+        def execute(
+            self,
+            context: Context,
+            input: None,
+        ) -> Generator[StepOutput, None, StepDecision]:
+            del context, input
+            yield heartbeat()
+            raise ValueError("application failure")
+
+    class FailingGeneratorFlow(Flow[None]):
+        start = FailingGeneratorStep()
+
+        def get_steps(self) -> StepList[None]:
+            return StepList.start_step(self.start)
+
+    class PassthroughHydrator:
+        @staticmethod
+        def execute_request(
+            request: pb.InvokeExecuteMethodRequest,
+        ) -> pb.InvokeExecuteMethodRequest:
+            return request
+
+    registry = Registry((FailingGeneratorFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = WorkerDispatcher(
+        registry,
+        values,
+        cast(Any, PassthroughHydrator()),
+    )
+    with pytest.raises(ValueError, match="application failure"):
+        list(
+            dispatcher.invoke_execute(
+                pb.InvokeExecuteMethodRequest(
+                    flow_type="FailingGeneratorFlow",
+                    step_type="FailingGeneratorStep",
+                    step_input=values.encode_dynamic(None),
+                )
+            )
+        )
+
+
+def test_registry_validates_generator_shapes() -> None:
+    class WrongGeneratorStep(Step[None]):
+        def execute(  # type: ignore[override]
+            self,
+            context: Context,
+            input: None,
+        ) -> Iterator[StepOutput]:
+            del context, input
+            yield heartbeat()
+
+    class WrongGeneratorFlow(Flow[None]):
+        start = WrongGeneratorStep()
+
+        def get_steps(self) -> StepList[None]:
+            return StepList.start_step(self.start)
+
+    class AsyncGeneratorStep(Step[None]):
+        async def execute(  # type: ignore[override]
+            self,
+            context: AsyncContext,
+            input: None,
+        ) -> AsyncIterator[StepOutput]:
+            del context, input
+            yield heartbeat()
+
+    class AsyncGeneratorFlow(Flow[None]):
+        start = AsyncGeneratorStep()
+
+        def get_steps(self) -> StepList[None]:
+            return StepList.start_step(self.start)
+
+    class WrongAsyncContextStep(Step[None]):
+        async def execute(  # type: ignore[override]
+            self,
+            context: Context,
+            input: None,
+        ) -> StepDecision:
+            del context, input
+            return graceful_complete()
+
+    class WrongAsyncContextFlow(Flow[None]):
+        start = WrongAsyncContextStep()
+
+        def get_steps(self) -> StepList[None]:
+            return StepList.start_step(self.start)
+
+    with pytest.raises(FlowDefinitionError, match=r"Generator\[StepOutput"):
+        Registry((WrongGeneratorFlow(),))
+    with pytest.raises(FlowDefinitionError, match="must not be an async generator"):
+        Registry((AsyncGeneratorFlow(),), allow_async_handlers=True)
+    with pytest.raises(FlowDefinitionError, match="AsyncContext"):
+        Registry((WrongAsyncContextFlow(),), allow_async_handlers=True)
+
+
+def test_context_decodes_last_heartbeat_presence() -> None:
+    class HeartbeatFlow(Flow[None]):
+        pass
+
+    registry = Registry((HeartbeatFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    absent = InvocationContext(
+        InvocationMethod.EXECUTE,
+        registry._flow_by_type("HeartbeatFlow"),
+        pb.Context(),
+        values,
+        (),
+    )
+    assert not absent.has_last_heartbeat_value()
+    assert absent.get_last_heartbeat_value(str) is None
+
+    present = InvocationContext(
+        InvocationMethod.EXECUTE,
+        registry._flow_by_type("HeartbeatFlow"),
+        pb.Context(last_heartbeat_value=values.encode_dynamic(None)),
+        values,
+        (),
+    )
+    assert present.has_last_heartbeat_value()
+    assert present.get_last_heartbeat_value(type(None)) is None
+    incompatible = InvocationContext(
+        InvocationMethod.EXECUTE,
+        registry._flow_by_type("HeartbeatFlow"),
+        pb.Context(last_heartbeat_value=values.encode_dynamic("checkpoint")),
+        values,
+        (),
+    )
+    with pytest.raises(ValueMappingError):
+        incompatible.get_last_heartbeat_value(int)
+
+
+def test_async_step_outputs_preserve_call_order() -> None:
+    asyncio.run(_assert_async_step_outputs_preserve_call_order())
+
+
+async def _assert_async_step_outputs_preserve_call_order() -> None:
+    progress = Stream("async-progress", str, 1_048_576)
+
+    class AsyncStreamingStep(Step[str]):
+        async def execute(  # type: ignore[override]
+            self,
+            context: AsyncContext,
+            input: str,
+        ) -> StepDecision:
+            progress.write(context, "first")
+            await context.heartbeat()
+            progress.write(context, "second")
+            await context.heartbeat(None)
+            return graceful_complete(input)
+
+    class AsyncStreamingFlow(Flow[str]):
+        start = AsyncStreamingStep()
+
+        def get_steps(self) -> StepList[str]:
+            return StepList.start_step(self.start)
+
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(progress)
+
+    class AsyncPassthroughHydrator:
+        @staticmethod
+        async def execute_request(
+            request: pb.InvokeExecuteMethodRequest,
+        ) -> pb.InvokeExecuteMethodRequest:
+            return request
+
+    registry = Registry((AsyncStreamingFlow(),), allow_async_handlers=True)
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = AsyncWorkerDispatcher(
+        registry,
+        values,
+        cast(Any, AsyncPassthroughHydrator()),
+    )
+    outputs = [
+        output
+        async for output in dispatcher.invoke_execute(
+            pb.InvokeExecuteMethodRequest(
+                flow_type="AsyncStreamingFlow",
+                step_type="AsyncStreamingStep",
+                step_input=values.encode("input", values.codec(str)),
+            )
+        )
+    ]
+    assert [output.WhichOneof("output") for output in outputs] == [
+        "stream_write",
+        "heartbeat",
+        "stream_write",
+        "heartbeat",
+        "result",
+    ]
+    assert not outputs[1].heartbeat.HasField("value")
+    assert outputs[3].heartbeat.HasField("value")
+
+
+def test_async_step_stream_cancellation_cancels_handler() -> None:
+    asyncio.run(_assert_async_step_stream_cancellation_cancels_handler())
+
+
+async def _assert_async_step_stream_cancellation_cancels_handler() -> None:
+    canceled = asyncio.Event()
+    heartbeat_canceled = asyncio.Event()
+    progress = Stream("canceled-progress", str, 1024)
+
+    class BlockingStep(Step[None]):
+        async def execute(  # type: ignore[override]
+            self,
+            context: AsyncContext,
+            input: None,
+        ) -> StepDecision:
+            del input
+            await context.heartbeat("running")
+            try:
+                await asyncio.Future()
+            except asyncio.CancelledError:
+                progress.write(context, "dropped")
+                try:
+                    await context.heartbeat("dropped")
+                except asyncio.CancelledError:
+                    heartbeat_canceled.set()
+                raise
+            finally:
+                canceled.set()
+            return graceful_complete()
+
+    class BlockingFlow(Flow[None]):
+        start = BlockingStep()
+
+        def get_steps(self) -> StepList[None]:
+            return StepList.start_step(self.start)
+
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(progress)
+
+    class AsyncPassthroughHydrator:
+        @staticmethod
+        async def execute_request(
+            request: pb.InvokeExecuteMethodRequest,
+        ) -> pb.InvokeExecuteMethodRequest:
+            return request
+
+    registry = Registry((BlockingFlow(),), allow_async_handlers=True)
+    values = ValueMapper(registry.codec_registry)
+    dispatcher = AsyncWorkerDispatcher(
+        registry,
+        values,
+        cast(Any, AsyncPassthroughHydrator()),
+    )
+    outputs = dispatcher.invoke_execute(
+        pb.InvokeExecuteMethodRequest(
+            flow_type="BlockingFlow",
+            step_type="BlockingStep",
+            step_input=values.encode_dynamic(None),
+        )
+    )
+    assert (await anext(outputs)).WhichOneof("output") == "heartbeat"
+    await outputs.aclose()
+    await asyncio.wait_for(canceled.wait(), timeout=1)
+    await asyncio.wait_for(heartbeat_canceled.wait(), timeout=1)
+
+
+def test_rpc_and_timeout_contexts_reject_progress() -> None:
+    stream = Stream("restricted-progress", str, 1024)
+
+    class RestrictedFlow(Flow[None]):
+        def get_persistence_schema(self) -> PersistenceSchema:
+            return PersistenceSchema.of(stream)
+
+    registry = Registry((RestrictedFlow(),))
+    values = ValueMapper(registry.codec_registry)
+    for method in (InvocationMethod.RPC, InvocationMethod.TIMEOUT):
+        context = InvocationContext(
+            method,
+            registry._flow_by_type("RestrictedFlow"),
+            pb.Context(),
+            values,
+            (),
+        )
+        with pytest.raises(ValueError, match="Step Context"):
+            stream.write(context, "rejected")
+        with pytest.raises(ValueError, match="asynchronous Step Context"):
+            asyncio.run(context.heartbeat())

@@ -16,6 +16,7 @@ from enum import Enum
 from typing import Any
 
 from dex import (
+    AsyncContext,
     Attribute,
     Context,
     Flow,
@@ -78,14 +79,24 @@ class CancellationBlockingExecute(Step[None]):
         self.flow = flow
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: None
+        self, context: AsyncContext, input: None
     ) -> StepDecision:
         del input
         self.flow.blocking_invocations += 1
         self.flow.blocking_started.set()
         duration = 7 if self.flow.scenario is CancellationScenario.NO_HEARTBEAT else 10
         try:
-            await asyncio.sleep(duration)
+            if self.flow.scenario is CancellationScenario.LOCAL_EXECUTE:
+                await context.heartbeat()
+            if self.flow.scenario in {
+                CancellationScenario.HEARTBEAT_EXECUTE,
+                CancellationScenario.LOCAL_TIMEOUT_FALLBACK,
+            }:
+                for _ in range(duration):
+                    await asyncio.sleep(1)
+                    await context.heartbeat()
+            else:
+                await asyncio.sleep(duration)
         except asyncio.CancelledError:
             self.flow.handler_canceled = True
             self.flow.context_reported_cancellation = (
@@ -100,7 +111,7 @@ class CancellationBlockingExecute(Step[None]):
         options = StepOptions(
             execute_method_timeout=timedelta(seconds=15),
             heartbeat_timeout=(
-                timedelta(seconds=2)
+                timedelta(seconds=10)
                 if self.flow.scenario
                 in {
                     CancellationScenario.HEARTBEAT_EXECUTE,
@@ -126,13 +137,15 @@ class CancellationBlockingWaitFor(Step[None]):
         self.flow = flow
 
     async def wait_for(  # type: ignore[override]
-        self, context: Context, input: None
+        self, context: AsyncContext, input: None
     ) -> Wait:
         del input
         self.flow.blocking_invocations += 1
         self.flow.blocking_started.set()
         try:
-            await asyncio.sleep(10)
+            for _ in range(10):
+                await asyncio.sleep(1)
+                await context.heartbeat()
         except asyncio.CancelledError:
             self.flow.handler_canceled = True
             self.flow.context_reported_cancellation = (
@@ -149,7 +162,7 @@ class CancellationBlockingWaitFor(Step[None]):
     def get_step_options(self) -> StepOptions:
         return StepOptions(
             wait_for_method_timeout=timedelta(seconds=15),
-            heartbeat_timeout=timedelta(seconds=2),
+            heartbeat_timeout=timedelta(seconds=10),
             wait_for_failure=WaitForFailurePolicy.PROCEED,
             wait_for_durability=StepDurability.SYNC,
         )
@@ -166,7 +179,7 @@ class CancellationWinner(Step[None]):
         return Wait.until(Timer.by_duration(timedelta(seconds=3)))
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: None
+        self, context: AsyncContext, input: None
     ) -> StepDecision:
         del context, input
         if self.flow.scenario is CancellationScenario.LOCAL_EXECUTE:
@@ -230,7 +243,7 @@ class CancellationSelectorWinner(Step[None]):
         return Wait.until(Timer.by_duration(timedelta(seconds=1)))
 
     async def execute(  # type: ignore[override]
-        self, context: Context, input: None
+        self, context: AsyncContext, input: None
     ) -> StepDecision:
         del context, input
         await asyncio.wait_for(self.flow.selector_waits_registered.wait(), timeout=10)

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from typing import Callable, TypeVar
 
 import grpc
@@ -30,8 +31,8 @@ class WorkerService(dex_pb2_grpc.WorkerServiceServicer):
         self,
         request: pb.InvokeWaitForMethodRequest,
         context: grpc.ServicerContext,
-    ) -> pb.InvokeWaitForMethodResponse:
-        return self._invoke(
+    ) -> Iterator[pb.InvokeWaitForMethodOutput]:
+        return self._invoke_stream(
             context,
             lambda: self._dispatcher.invoke_wait_for(request, context.is_active),
         )
@@ -40,8 +41,8 @@ class WorkerService(dex_pb2_grpc.WorkerServiceServicer):
         self,
         request: pb.InvokeExecuteMethodRequest,
         context: grpc.ServicerContext,
-    ) -> pb.InvokeExecuteMethodResponse:
-        return self._invoke(
+    ) -> Iterator[pb.InvokeExecuteMethodOutput]:
+        return self._invoke_stream(
             context,
             lambda: self._dispatcher.invoke_execute(request, context.is_active),
         )
@@ -63,6 +64,25 @@ class WorkerService(dex_pb2_grpc.WorkerServiceServicer):
     ) -> ResponseT:
         try:
             return invocation()
+        except BaseException as error:
+            if not context.is_active():
+                context.abort(
+                    grpc.StatusCode.CANCELLED,
+                    "Python Worker invocation canceled",
+                )
+            _LOGGER.exception("Python Worker invocation failed")
+            abort_worker_error(context, error)
+            raise RuntimeError("gRPC abort returned unexpectedly") from error
+
+    @staticmethod
+    def _invoke_stream(
+        context: grpc.ServicerContext,
+        invocation: Callable[[], Iterator[ResponseT]],
+    ) -> Iterator[ResponseT]:
+        try:
+            yield from invocation()
+        except GeneratorExit:
+            raise
         except BaseException as error:
             if not context.is_active():
                 context.abort(

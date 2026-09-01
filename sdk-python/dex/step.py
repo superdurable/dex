@@ -14,22 +14,72 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from enum import Enum
-from typing import Any, Generic, Iterator, TypeVar
+from typing import Any, Generator, Generic, Iterator, TypeVar
 
 from dex.attribute import AttributeLock
 from dex.channel import Channel, ChannelMap
 from dex.context import Context
+from dex.dexpb import dex_pb2 as pb
 from dex.wait import Wait
 
 InputT = TypeVar("InputT")
 StartT = TypeVar("StartT")
+_NO_HEARTBEAT_VALUE = object()
+
+
+class StepOutput:
+    """Represent one progress frame yielded by a synchronous Step handler.
+
+    Create outputs with :func:`heartbeat` or :meth:`dex.stream.Stream.write`.
+    A synchronous generator yields these frames and returns its final Wait or
+    StepDecision through the generator return value.
+    """
+
+    def __new__(cls, *args: object, **kwargs: object) -> StepOutput:
+        """Reject direct construction of the abstract output marker."""
+        if cls is StepOutput:
+            raise TypeError("StepOutput must be created by heartbeat or Stream.write")
+        return super().__new__(cls)
+
+
+@dataclass(frozen=True)
+class _HeartbeatStepOutput(StepOutput):
+    has_value: bool
+    value: object
+    encoded_value: pb.Value | None = None
+
+
+@dataclass(frozen=True)
+class _StreamStepOutput(StepOutput):
+    stream_write: pb.StepStreamWrite
+
+
+def heartbeat(value: object = _NO_HEARTBEAT_VALUE) -> StepOutput:
+    """Create a heartbeat frame for a synchronous Step generator.
+
+    Yield ``heartbeat()`` to clear persisted heartbeat details. Passing a value,
+    including ``None``, persists that codec-supported value for the next regular
+    activity attempt. Local activity execution ignores heartbeat frames.
+
+    Args:
+        value: Optional checkpoint value. Omitting it clears prior details.
+
+    Returns:
+        A StepOutput that must be yielded by the current synchronous handler.
+
+    Examples:
+        >>> def execute(context: Context, input: int) -> Generator[StepOutput, None, StepDecision]:
+        ...     yield heartbeat({"completed": input})
+        ...     return graceful_complete()
+    """
+    return _HeartbeatStepOutput(value is not _NO_HEARTBEAT_VALUE, value)
 
 
 class StepDurability(Enum):
     """Control when a Step handler result is durably acknowledged.
 
     Attributes:
-        DEFAULT: Use the Flow or server durability policy.
+        DEFAULT: Use FlowConfig, then the server's synchronous default.
         SYNC: Persist the result before acknowledging the Worker call.
         ASYNC: Allow acknowledgement before persistence completes.
     """
@@ -55,7 +105,8 @@ class WaitForFailurePolicy(Enum):
 class RetryPolicy:
     """Configure exponential retries for a Step handler or Flow.
 
-    A ``None`` duration or zero numeric value uses the server default.
+    A ``None`` duration or zero numeric value uses the server default. The default
+    total duration is four hours.
     Attempts include the initial call. Retries stop at the first configured limit.
     With asynchronous Step durability, local and regular execution share attempts
     and elapsed duration. Fallback is immediate; later regular retries continue the
@@ -66,7 +117,8 @@ class RetryPolicy:
         backoff_coefficient: Interval multiplier; zero uses the server default.
         maximum_interval: Upper bound for one retry delay.
         maximum_attempts: Total attempt limit; zero uses the server default.
-        total_duration: Overall elapsed-time limit for all attempts.
+        total_duration: Overall elapsed-time limit for all attempts; ``None`` uses
+            four hours.
     """
 
     initial_interval: timedelta | None = None
@@ -82,12 +134,18 @@ class StepOptions:
 
     Fields set to ``None`` or ``DEFAULT`` use Flow or server policy. Attribute
     locks are acquired separately for ``wait_for`` and ``execute`` and must reference
-    definitions in the containing Flow's ``PersistenceSchema``.
+    definitions in the containing Flow's ``PersistenceSchema``. Asynchronous
+    durability first uses a local activity capped at seven seconds and three
+    attempts; that phase ignores method and heartbeat timeouts before regular
+    fallback applies the remaining retry budget.
 
     Attributes:
-        wait_for_method_timeout: Maximum duration of one ``wait_for`` attempt.
-        execute_method_timeout: Maximum duration of one ``execute`` attempt.
-        heartbeat_timeout: Cooperative cancellation heartbeat for regular activities.
+        wait_for_method_timeout: Maximum duration of one regular ``wait_for``
+            attempt; ``None`` uses two hours.
+        execute_method_timeout: Maximum duration of one regular ``execute``
+            attempt; ``None`` uses two hours.
+        heartbeat_timeout: Regular-activity progress deadline; ``None`` or zero uses
+            one minute. The server-configured explicit minimum defaults to ten seconds.
         wait_for_retry: Optional retry policy for ``wait_for``.
         execute_retry: Optional retry policy for ``execute``.
         wait_for_failure: Behavior after all ``wait_for`` attempts fail.
@@ -150,15 +208,20 @@ class Step(Generic[InputT], ABC):
         self,
         context: Context,
         input: InputT,
-    ) -> StepDecision:
-        """Execute application logic and return the next durable decision.
+    ) -> StepDecision | Generator[StepOutput, None, StepDecision]:
+        """Execute application logic and produce the next durable decision.
+
+        An ordinary handler returns StepDecision directly. A progress handler yields
+        heartbeat and Stream StepOutput values, then returns StepDecision as its
+        generator return value.
 
         Args:
             context: Execution metadata and decision-local persistence operations.
             input: The decoded value passed by the incoming Step movement.
 
         Returns:
-            A StepDecision describing movements or Flow completion.
+            A StepDecision, or a generator that yields StepOutput and returns the
+            StepDecision describing movements or Flow completion.
 
         Raises:
             Exception: Application exceptions are retried according to StepOptions
@@ -166,18 +229,25 @@ class Step(Generic[InputT], ABC):
         """
         raise NotImplementedError
 
-    def wait_for(self, context: Context, input: InputT) -> Wait:
+    def wait_for(
+        self,
+        context: Context,
+        input: InputT,
+    ) -> Wait | Generator[StepOutput, None, Wait]:
         """Describe durable conditions that must be ready before ``execute``.
 
         Override this method only when the Step waits. Dex skips the base
-        implementation and invokes ``execute`` immediately.
+        implementation and invokes ``execute`` immediately. A progress handler
+        yields heartbeat and Stream StepOutput values, then returns Wait as its
+        generator return value.
 
         Args:
             context: Execution metadata and decision-local persistence operations.
             input: The same decoded input later passed to ``execute``.
 
         Returns:
-            A durable Wait condition tree.
+            A durable Wait condition tree, or a generator that yields StepOutput
+            and returns that Wait.
         """
         del context, input
         raise RuntimeError("framework must skip the default wait_for")

@@ -12,6 +12,7 @@ import time
 from datetime import timedelta
 
 from dex import (
+    DexServiceError,
     FlowConfig,
     FlowNotFoundError,
     FlowStatus,
@@ -142,11 +143,7 @@ def test_subflow_partial_results_survive_continue_as_new_without_restart() -> No
         )
         _await_new_run(environment, flow_id, first_parent_run_id)
         completed_run_id = environment.client.describe_flow(completed_id).run_id
-        environment.client.skip_timer(
-            delayed_id,
-            StepExecutionId("TimerStep"),
-            TimerId.by_condition_id("test-timer-id"),
-        )
+        _skip_subflow_timer_when_pending(environment, delayed_id)
         output = environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(
             str
         )
@@ -174,11 +171,7 @@ def _assert_running_reuse(policy: SubFlowReusePolicy, expects_restart: bool) -> 
             first_run_id if expects_restart else None,
         )
         assert (active_run_id != first_run_id) is expects_restart
-        environment.client.skip_timer(
-            child_id,
-            StepExecutionId("TimerStep"),
-            TimerId.by_condition_id("test-timer-id"),
-        )
+        _skip_subflow_timer_when_pending(environment, child_id)
         output = environment.client.wait_for_flow(flow_id, WAIT_TIMEOUT).single_output(
             str
         )
@@ -201,6 +194,27 @@ def _await_running(
             return info.run_id
         time.sleep(0.01)
     raise AssertionError(f"SubFlow did not reach expected running execution: {flow_id}")
+
+
+def _skip_subflow_timer_when_pending(
+    environment: DexDevTestEnvironment,
+    flow_id: str,
+) -> None:
+    deadline = time.monotonic() + 10
+    while True:
+        try:
+            environment.client.skip_timer(
+                flow_id,
+                StepExecutionId("TimerStep"),
+                TimerId.by_condition_id("test-timer-id"),
+            )
+            return
+        except DexServiceError as error:
+            if "does not exist or is not pending" not in error.detail:
+                raise
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
 
 
 def _await_new_run(
