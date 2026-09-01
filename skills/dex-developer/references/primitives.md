@@ -18,6 +18,8 @@ Step durability resolves in this order: a method override, FlowConfig, then **SY
 
 A long-running regular attempt must emit an explicit heartbeat or Stream message before its heartbeat timeout. A heartbeat value is a retry checkpoint. An explicit valueless heartbeat clears the checkpoint; a Stream message preserves its current state. The local phase of **ASYNC** durability ignores heartbeats but still emits Stream messages.
 
+For an LLM call that may remain healthy without output for more than one minute, tell the application developer to raise **HeartbeatTimeout** above its one-minute default. Size it to the longest acceptable silent interval, and use the method timeout to cap the whole attempt. Do not add periodic heartbeats solely to mask provider silence; they prove only that application code is running, not that the upstream request is progressing.
+
 Docs: https://docs.superdurable.io/primitives/step
 
 ## Attribute
