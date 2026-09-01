@@ -98,7 +98,6 @@ class AsyncClient:
             registry,
             self._values,
             cast(Any, self._hydrator),
-            self._service.WriteStream,
         )
         self._closed = False
 
@@ -508,26 +507,24 @@ class AsyncClient:
         self,
         flow_id: str,
         stream: Stream[ValueT],
-        idempotency_key: str,
+        source: str,
         value: ValueT,
     ) -> None:
-        """Await one typed best-effort Stream append with client idempotency.
+        """Await one typed best-effort Stream append with source metadata.
 
         Args:
             flow_id: Logical Flow instance ID; the Flow need not exist or be active.
             stream: Exact Stream object registered in one Flow schema.
-            idempotency_key: Non-empty key without ``#``; retained duplicates are no-ops.
+            source: Non-empty informational source. Repeated values still append.
             value: Typed message to append.
 
         Raises:
-            ValueError: If an ID is empty or the key contains the reserved separator.
+            ValueError: If the Flow ID or source is empty.
             FlowDefinitionError: If the Stream is not registered.
             ValueMappingError: If the message cannot be encoded.
             DexServiceError: If FlowService cannot append the message.
         """
-        require_name(idempotency_key)
-        if "#" in idempotency_key:
-            raise ValueError("Stream client idempotency key must not contain #")
+        require_name(source)
         flow = self.registry._flow_for_stream(stream)
         await self._call(
             self._service.WriteStream,
@@ -540,7 +537,7 @@ class AsyncClient:
                     value,
                     self._values.codec(stream.value_type),
                 ),
-                idempotency_key=idempotency_key,
+                source=source,
             ),
             "write_stream",
             flow_id,
@@ -563,7 +560,7 @@ class AsyncClient:
             timeout: Optional non-negative server-side long-poll duration.
 
         Returns:
-            The decoded message, next resume token, creation time, and idempotency key.
+            The decoded message, next resume token, creation time, and source.
 
         Raises:
             LongPollTimeoutError: If no message arrives before the server wait expires.
@@ -604,7 +601,7 @@ class AsyncClient:
             ),
             response.message.resume_token,
             response.message.created_time.ToDatetime(tzinfo=timezone.utc),
-            response.message.idempotency_key,
+            response.message.source,
         )
 
     async def wait_for_flow(

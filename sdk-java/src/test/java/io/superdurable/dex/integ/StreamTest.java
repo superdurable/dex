@@ -37,25 +37,35 @@ public final class StreamTest {
         final StreamTestWorkflow workflow = new StreamTestWorkflow();
         try (DexDevTestEnvironment environment = DexDevTestEnvironment.start(cacheDirectory, workflow)) {
             final String flowId = "stream-" + UUID.randomUUID();
-            final String runId = environment.client().startFlow(workflow, flowId, null);
+            environment.client().startFlow(workflow, flowId, null);
             environment.client().waitForFlow(flowId, Duration.ofSeconds(30));
 
             environment.client().writeStream(flowId, workflow.progress, "client-write", "client-progress");
-            environment.client().writeStream(flowId, workflow.progress, "client-write", "duplicate-ignored");
+            environment.client().writeStream(flowId, workflow.progress, "client-write", "duplicate-retained");
 
             final StreamMessage<String> step = environment.client()
                     .readStream(flowId, workflow.progress, "", Duration.ofSeconds(30));
-            assertEquals("step-progress", step.getValue());
+            assertEquals("step-progress-1", step.getValue());
             assertFalse(step.getResumeToken().isEmpty());
             assertTrue(step.getCreatedTime().isAfter(Instant.EPOCH));
-            assertTrue(step.getIdempotencyKey().startsWith(runId + "#"));
+            assertEquals("#StreamTestStep-1", step.getSource());
+
+            final StreamMessage<String> secondStep = environment.client()
+                    .readStream(flowId, workflow.progress, step.getResumeToken(), Duration.ofSeconds(30));
+            assertEquals("step-progress-2", secondStep.getValue());
+            assertEquals(step.getSource(), secondStep.getSource());
 
             final StreamMessage<String> client = environment.client()
-                    .readStream(flowId, workflow.progress, step.getResumeToken(), Duration.ofSeconds(30));
+                    .readStream(flowId, workflow.progress, secondStep.getResumeToken(), Duration.ofSeconds(30));
             assertEquals("client-progress", client.getValue());
-            assertFalse(client.getResumeToken().equals(step.getResumeToken()));
+            assertFalse(client.getResumeToken().equals(secondStep.getResumeToken()));
             assertTrue(client.getCreatedTime().isAfter(Instant.EPOCH));
-            assertEquals("client-write", client.getIdempotencyKey());
+            assertEquals("client-write", client.getSource());
+
+            final StreamMessage<String> duplicate = environment.client()
+                    .readStream(flowId, workflow.progress, client.getResumeToken(), Duration.ofSeconds(30));
+            assertEquals("duplicate-retained", duplicate.getValue());
+            assertEquals("client-write", duplicate.getSource());
         }
     }
 }

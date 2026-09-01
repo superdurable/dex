@@ -131,6 +131,54 @@ public interface Context {
     boolean waitForMethodFailed();
 
     /**
+     * Sends a best-effort heartbeat for the current Step method attempt.
+     *
+     * <p>Dex persists a nonnull value with the activity heartbeat and supplies it to a later
+     * attempt through {@link #getLastHeartbeatValue}. Passing {@code null} sends a heartbeat
+     * without details, clearing any value previously reported during the current attempt. A Stream
+     * write also acts as a heartbeat and preserves the most recently reported details. Heartbeats
+     * are ignored while an asynchronous Step runs as a local activity. This method sends directly
+     * on the invocation's response stream and must be called only from the handler thread.
+     *
+     * <pre>{@code
+     * public StepDecision execute(Context context, Batch input) {
+     *     for (int index = 0; index < input.items().size(); index++) {
+     *         process(input.items().get(index));
+     *         context.recordHeartbeat(index + 1);
+     *     }
+     *     return StepDecision.gracefulComplete();
+     * }
+     * }</pre>
+     *
+     * @param value the checkpoint to persist, or {@code null} to send no heartbeat details
+     * @throws IllegalStateException if called from an RPC
+     * @throws io.grpc.StatusRuntimeException if the invocation is canceled or transport fails
+     * @throws io.superdurable.dex.exceptions.ValueMappingException if a nonnull value cannot be
+     *     encoded
+     */
+    void recordHeartbeat(Object value);
+
+    /**
+     * Reports whether Dex restored heartbeat details from an earlier attempt.
+     *
+     * @return {@code true} when {@link #getLastHeartbeatValue} can decode a restored value
+     */
+    boolean hasLastHeartbeatValue();
+
+    /**
+     * Decodes heartbeat details restored from an earlier attempt.
+     *
+     * <p>Call {@link #hasLastHeartbeatValue} to distinguish an absent checkpoint. Values passed
+     * with a {@link Class} must use concrete, non-parameterized types.
+     *
+     * @param valueType the concrete Java class used to decode the checkpoint
+     * @param <T> the checkpoint type
+     * @return the decoded checkpoint, or {@code null} when no checkpoint was restored
+     * @throws io.superdurable.dex.exceptions.ValueMappingException if the value cannot be decoded
+     */
+    <T> T getLastHeartbeatValue(Class<T> valueType);
+
+    /**
      * Stores a value scoped to the current Step execution.
      *
      * <p>Step-execution locals allow {@link Step#waitFor} to pass durable data to
@@ -274,9 +322,16 @@ public interface Context {
     /**
      * Appends one immediate best-effort Stream message.
      *
+     * <p>The write emits a frame on the current Step method response stream and does not wait for
+     * storage acknowledgement. Multiple writes to the same Stream are allowed. Dex may discard a
+     * message when its Stream Store is unavailable or rejects the write.
+     *
      * @param stream the Stream registered by the current Flow
      * @param value the typed message to append
      * @param <T> the Stream message type
+     * @throws IllegalStateException if called from an RPC
+     * @throws io.grpc.StatusRuntimeException if the invocation is canceled or transport fails
+     * @throws io.superdurable.dex.exceptions.ValueMappingException if the value cannot be encoded
      */
     <T> void writeStream(Stream<T> stream, T value);
 }

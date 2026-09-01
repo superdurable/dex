@@ -17,10 +17,13 @@ import { join } from "node:path";
 
 import {
   Client,
+  DexServiceError,
   Registry,
   Worker,
   openBlobCache,
   type Flow,
+  type StepExecutionId,
+  type TimerId,
 } from "../../src/index.js";
 
 export interface TestEnvironment {
@@ -73,6 +76,30 @@ export async function withEnvironment(
 
 export function flowId(prefix: string): string {
   return `${prefix}-${randomUUID()}`;
+}
+
+export async function skipTimerWhenPending(
+  client: Client,
+  id: string,
+  stepExecutionId: StepExecutionId,
+  timerId: TimerId,
+): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    try {
+      await client.skipTimer(id, stepExecutionId, timerId);
+      return;
+    } catch (failure) {
+      if (
+        !(failure instanceof DexServiceError) ||
+        failure.detail !== "requested timer condition does not exist or is not pending"
+      ) {
+        throw failure;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timer did not become pending for ${id}`);
 }
 
 export async function expectError<Failure extends Error>(

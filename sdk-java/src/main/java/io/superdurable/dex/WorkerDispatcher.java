@@ -22,7 +22,6 @@ import io.superdurable.gen.CloseDecision;
 import io.superdurable.gen.CloseDecisionType;
 import io.superdurable.gen.ConditionCombination;
 import io.superdurable.gen.ExecuteMethodFailurePolicy;
-import io.superdurable.gen.FlowServiceGrpc;
 import io.superdurable.gen.InvokeExecuteMethodRequest;
 import io.superdurable.gen.InvokeExecuteMethodResponse;
 import io.superdurable.gen.InvokeWaitForMethodRequest;
@@ -52,20 +51,19 @@ final class WorkerDispatcher {
     private final Registry registry;
     private final ValueMapper values;
     private final ValueHydrator hydrator;
-    private final FlowServiceGrpc.FlowServiceBlockingStub flowService;
 
     WorkerDispatcher(
             final Registry registry,
             final ValueMapper values,
-            final ValueHydrator hydrator,
-            final FlowServiceGrpc.FlowServiceBlockingStub flowService) {
+            final ValueHydrator hydrator) {
         this.registry = registry;
         this.values = values;
         this.hydrator = hydrator;
-        this.flowService = flowService;
     }
 
-    InvokeWaitForMethodResponse invokeWaitFor(final InvokeWaitForMethodRequest original) {
+    InvokeWaitForMethodResponse invokeWaitFor(
+            final InvokeWaitForMethodRequest original,
+            final StepOutputEmitter stepOutputEmitter) {
         final InvokeWaitForMethodRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         final Registry.RegisteredStep step = flow.getStep(request.getStepType());
@@ -74,7 +72,7 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
-                flowService,
+                stepOutputEmitter,
                 request.getAttributesList(),
                 null,
                 null,
@@ -95,11 +93,13 @@ final class WorkerDispatcher {
         return response.build();
     }
 
-    InvokeExecuteMethodResponse invokeExecute(final InvokeExecuteMethodRequest original) {
+    InvokeExecuteMethodResponse invokeExecute(
+            final InvokeExecuteMethodRequest original,
+            final StepOutputEmitter stepOutputEmitter) {
         final InvokeExecuteMethodRequest request = hydrator.hydrate(original);
         final Registry.RegisteredFlow flow = registry.getFlow(request.getFlowType());
         if (TIMEOUT_HANDLER_STEP_TYPE.equals(request.getStepType())) {
-            return invokeTimeoutHandler(request, flow);
+            return invokeTimeoutHandler(request, flow, stepOutputEmitter);
         }
         final Registry.RegisteredStep step = flow.getStep(request.getStepType());
         final InvocationContext context = new InvocationContext(
@@ -107,7 +107,7 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
-                flowService,
+                stepOutputEmitter,
                 request.getAttributesList(),
                 request.getStepExeLocalsList(),
                 request.hasConditionResults() ? request.getConditionResults() : null,
@@ -125,7 +125,8 @@ final class WorkerDispatcher {
 
     private InvokeExecuteMethodResponse invokeTimeoutHandler(
             final InvokeExecuteMethodRequest request,
-            final Registry.RegisteredFlow flow) {
+            final Registry.RegisteredFlow flow,
+            final StepOutputEmitter stepOutputEmitter) {
         if (request.hasStepInput()) {
             throw new InvalidStepResultException("Flow timeout handler must not receive input");
         }
@@ -138,7 +139,7 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
-                flowService,
+                stepOutputEmitter,
                 request.getAttributesList(),
                 request.getStepExeLocalsList(),
                 request.hasConditionResults() ? request.getConditionResults() : null,
@@ -165,7 +166,7 @@ final class WorkerDispatcher {
                 flow,
                 request.getContext(),
                 values,
-                flowService,
+                null,
                 request.getAttributesList(),
                 null,
                 null,

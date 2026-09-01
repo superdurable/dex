@@ -218,12 +218,7 @@ impl Step for CancellationBlockingExecute {
         if self.state.scenario == CancellationScenario::NoHeartbeat {
             thread::sleep(Duration::from_secs(7));
         } else {
-            context.wait_for_cancellation();
-            self.state.handler_canceled.store(true, Ordering::SeqCst);
-            self.state
-                .context_reported_cancellation
-                .store(context.is_cancelled(), Ordering::SeqCst);
-            self.state.cancellation_observed.set();
+            wait_for_stream_cancellation(context, &self.state)?;
         }
         LATE_WRITE.set(context, "late".to_string())?;
         self.state.late_handler_returned.set();
@@ -241,7 +236,7 @@ impl Step for CancellationBlockingExecute {
             self.state.scenario,
             CancellationScenario::HeartbeatExecute | CancellationScenario::LocalTimeoutFallback
         ) {
-            options = options.heartbeat_timeout(Duration::from_secs(2));
+            options = options.heartbeat_timeout(Duration::from_secs(10));
         }
         if matches!(
             self.state.scenario,
@@ -263,12 +258,7 @@ impl Step for CancellationBlockingWaitFor {
     fn wait_for(&self, context: &mut Context, _input: ()) -> HandlerResult<Wait> {
         self.0.blocking_invocations.fetch_add(1, Ordering::SeqCst);
         self.0.blocking_started.set();
-        context.wait_for_cancellation();
-        self.0.handler_canceled.store(true, Ordering::SeqCst);
-        self.0
-            .context_reported_cancellation
-            .store(context.is_cancelled(), Ordering::SeqCst);
-        self.0.cancellation_observed.set();
+        wait_for_stream_cancellation(context, &self.0)?;
         Ok(Wait::skip_immediately())
     }
 
@@ -282,10 +272,31 @@ impl Step for CancellationBlockingWaitFor {
     fn options(&self) -> StepOptions<Self::Input> {
         StepOptions::new()
             .wait_for_method_timeout(Duration::from_secs(15))
-            .heartbeat_timeout(Duration::from_secs(2))
+            .heartbeat_timeout(Duration::from_secs(10))
             .wait_for_failure(WaitForFailurePolicy::Proceed)
             .wait_for_durability(dex_sdk::StepDurability::Sync)
     }
+}
+
+fn wait_for_stream_cancellation(
+    context: &mut Context,
+    state: &CancellationState,
+) -> HandlerResult<()> {
+    while !context.is_cancelled() {
+        if let Err(error) = context.record_heartbeat() {
+            if context.is_cancelled() {
+                break;
+            }
+            return Err(error);
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+    state.handler_canceled.store(true, Ordering::SeqCst);
+    state
+        .context_reported_cancellation
+        .store(context.is_cancelled(), Ordering::SeqCst);
+    state.cancellation_observed.set();
+    Ok(())
 }
 
 struct CancellationWinner(Arc<CancellationState>);

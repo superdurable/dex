@@ -2,14 +2,15 @@
 
 This suite mirrors `sdk-java/src/test/java/io/superdurable/dex/integ` in
 idiomatic, strongly typed Rust. Each Java integration test and Workflow has a
-corresponding Rust file with the same behavior and assertions. Stream coverage adds
-one SDK-native test and Workflow.
+corresponding Rust file with the same behavior and assertions. SDK-native coverage adds
+Step streaming, heartbeat recovery, and cancellation scenarios.
 
 | Java test | Rust module |
 | --- | --- |
 | `AnyCommandCombinationTest` | `any_command_combination_test.rs` |
 | `BasicTest` | `basic_test.rs` |
 | `ConditionalCompleteTest` | `conditional_complete_test.rs` |
+| Rust heartbeat recovery | `heartbeat_recovery_test.rs` |
 | `InternalChannelTest` | `internal_channel_test.rs` |
 | `NoStartStateTest` | `no_start_state_test.rs` |
 | `PersistenceTest` | `persistence_test.rs` |
@@ -58,3 +59,9 @@ one-to-one Java suite.
 Local contract tests also cover malformed rich details, fallible registration,
 invalid Step-result worker metadata, user-owned Condition IDs, and map
 introspection. Persistence integration covers singleton Attribute equality waits.
+
+Heartbeat recovery verifies typed checkpoints, explicit clearing, JSON null versus an absent Value,
+Stream implicit-heartbeat preservation, and the absence of local-activity details after regular
+fallback. Stream integration interleaves WaitFor and Execute heartbeat frames with repeated Step
+writes, then verifies repeated client sources containing `#` all append. Cancellation coverage uses
+active heartbeat output so blocked synchronous handlers observe response-stream closure promptly.

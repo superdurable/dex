@@ -45,11 +45,12 @@ final class StepCancellationWorkflow implements Flow<Void> {
     }
 
     private static final Duration HANDLER_TIMEOUT = Duration.ofSeconds(15);
-    private static final Duration HEARTBEAT_TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration HEARTBEAT_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration WINNER_DELAY = Duration.ofSeconds(3);
     private static final long LOCAL_WINNER_DELAY_MILLIS = 1_000L;
     private static final long BLOCKING_HANDLER_MILLIS = 10_000L;
     private static final long LATE_HANDLER_MILLIS = 7_000L;
+    private static final long HEARTBEAT_INTERVAL_MILLIS = 250L;
 
     final Attribute<String> lateWrite = Attribute.define("cancellation-late-write", String.class);
     final Channel<Void> selectorWinnerRelease =
@@ -177,12 +178,28 @@ final class StepCancellationWorkflow implements Flow<Void> {
     private void blockUntilCanceled(final Context context) {
         blockingHandlerStarted.countDown();
         try {
-            Thread.sleep(BLOCKING_HANDLER_MILLIS);
+            final long deadline = System.currentTimeMillis() + BLOCKING_HANDLER_MILLIS;
+            while (System.currentTimeMillis() < deadline) {
+                Thread.sleep(HEARTBEAT_INTERVAL_MILLIS);
+                context.recordHeartbeat(null);
+            }
         } catch (InterruptedException interruption) {
             handlerInterrupted.set(true);
-            contextReportedCancellation.set(context.isCancellationRequested());
-            cancellationObserved.countDown();
+            observeCancellation(context);
+        } catch (RuntimeException failure) {
+            if (!context.isCancellationRequested()) {
+                throw failure;
+            }
+            observeCancellation(context);
         }
+    }
+
+    private void observeCancellation(final Context context) {
+        if (Thread.currentThread().isInterrupted()) {
+            handlerInterrupted.set(true);
+        }
+        contextReportedCancellation.set(context.isCancellationRequested());
+        cancellationObserved.countDown();
     }
 
     final class StepCancellationStartStep implements Step<Void> {
@@ -222,13 +239,26 @@ final class StepCancellationWorkflow implements Flow<Void> {
             blockingExecuteInvocations.incrementAndGet();
             blockingHandlerStarted.countDown();
             try {
-                Thread.sleep(scenario == Scenario.NO_HEARTBEAT
-                        ? LATE_HANDLER_MILLIS
-                        : BLOCKING_HANDLER_MILLIS);
+                if (scenario == Scenario.HEARTBEAT_EXECUTE
+                        || scenario == Scenario.LOCAL_EXECUTE) {
+                    final long deadline = System.currentTimeMillis() + BLOCKING_HANDLER_MILLIS;
+                    while (System.currentTimeMillis() < deadline) {
+                        Thread.sleep(HEARTBEAT_INTERVAL_MILLIS);
+                        context.recordHeartbeat(null);
+                    }
+                } else {
+                    Thread.sleep(scenario == Scenario.NO_HEARTBEAT
+                            ? LATE_HANDLER_MILLIS
+                            : BLOCKING_HANDLER_MILLIS);
+                }
             } catch (InterruptedException interruption) {
                 handlerInterrupted.set(true);
-                contextReportedCancellation.set(context.isCancellationRequested());
-                cancellationObserved.countDown();
+                observeCancellation(context);
+            } catch (RuntimeException failure) {
+                if (!context.isCancellationRequested()) {
+                    throw failure;
+                }
+                observeCancellation(context);
             }
             lateWrite.set(context, "late");
             lateHandlerReturned.countDown();

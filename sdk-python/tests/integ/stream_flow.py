@@ -8,6 +8,8 @@
 # Third-Party Materials remain under the Apache License, Version 2.0.
 # See LICENSE and LEGACY_NOTICES.md.
 
+from typing import Generator
+
 from dex import (
     Context,
     Flow,
@@ -15,6 +17,7 @@ from dex import (
     Step,
     StepDecision,
     StepList,
+    StepOutput,
     Stream,
     graceful_complete,
 )
@@ -24,9 +27,13 @@ class StreamTestStep(Step[None]):
     def __init__(self, progress: Stream[str]) -> None:
         self.progress = progress
 
-    def execute(self, context: Context, input: None) -> StepDecision:
+    def execute(
+        self,
+        context: Context,
+        input: None,
+    ) -> Generator[StepOutput, None, StepDecision]:
         del input
-        self.progress.write(context, "step-progress")
+        yield self.progress.write(context, "step-progress")
         return graceful_complete()
 
 

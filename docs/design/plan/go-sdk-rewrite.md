@@ -808,7 +808,7 @@ code ignored the original error. The Worker closes progress before mapping and
 sending the unique result frame. Calls from late goroutines return an invalid
 context error, so no frame can follow the result. Applications must still stop
 and join Context-using goroutines before their handler returns; other Context
-operations are not concurrency-safe.
+
 
 `Client.WriteStream` accepts the exact registered Stream, Flow ID, non-empty
 source, and typed value. Sources may repeat and may contain `#`.

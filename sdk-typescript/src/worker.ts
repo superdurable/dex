@@ -11,6 +11,7 @@ import {
   ServerCredentials,
   Metadata,
   credentials,
+  type ServerWritableStream,
   type ServerUnaryCall,
   type sendUnaryData,
 } from "@grpc/grpc-js";
@@ -18,6 +19,8 @@ import {
 import type { BlobCache } from "./blob-cache.js";
 import {
   FlowServiceClient,
+  InvokeExecuteMethodOutput,
+  InvokeWaitForMethodOutput,
   WorkerServiceService,
   type InvokeExecuteMethodRequest,
   type InvokeExecuteMethodResponse,
@@ -25,10 +28,13 @@ import {
   type InvokeWaitForMethodResponse,
   type InvokeWorkerRPCRequest,
   type InvokeWorkerRPCResponse,
+  type StepStreamWrite,
+  type Value,
   type WorkerServiceServer,
 } from "./gen/dex.js";
 import { workerServiceError } from "./grpc-status.js";
 import { registeredAttributeIndexes, type Registry } from "./flow.js";
+import type { StepOutputEmitter } from "./invocation-context.js";
 import type { WorkerOptions, WorkerTarget } from "./options.js";
 import { ValueHydrator } from "./value-mapper.js";
 import { WorkerDispatcher } from "./worker-dispatcher.js";
@@ -78,7 +84,6 @@ export class Worker {
     const dispatcher = new WorkerDispatcher(
       registry,
       new ValueHydrator(this.flowService, blobCache),
-      this.flowService,
     );
     this.server.addService(WorkerServiceService, workerService(dispatcher));
     this.stopped = new Promise((resolve) => {
@@ -167,17 +172,124 @@ function syncAttributeIndexes(
 
 function workerService(dispatcher: WorkerDispatcher): WorkerServiceServer {
   return {
-    invokeWaitForMethod(call, callback) {
-      invoke(call, (signal) => dispatcher.invokeWaitFor(call.request, signal), callback);
+    invokeWaitForMethod(call) {
+      invokeStep(
+        call,
+        (signal, output) => dispatcher.invokeWaitFor(call.request, signal, output),
+        waitForOutput,
+      );
     },
-    invokeExecuteMethod(call, callback) {
-      invoke(call, (signal) => dispatcher.invokeExecute(call.request, signal), callback);
+    invokeExecuteMethod(call) {
+      invokeStep(
+        call,
+        (signal, output) => dispatcher.invokeExecute(call.request, signal, output),
+        executeOutput,
+      );
     },
     invokeWorkerRpc(call, callback) {
       invoke(call, (signal) => dispatcher.invokeRPC(call.request, signal), callback);
     },
   };
 }
+
+interface StepOutputFactory<Response, Output> {
+  heartbeat(value: Value | undefined): Output;
+  streamWrite(write: StepStreamWrite): Output;
+  result(response: Response): Output;
+}
+
+class GrpcStepOutputEmitter<Request, Response, Output> implements StepOutputEmitter {
+  private isActive = true;
+
+  public constructor(
+    private readonly call: ServerWritableStream<Request, Output>,
+    private readonly outputs: StepOutputFactory<Response, Output>,
+  ) {}
+
+  public recordHeartbeat(value: Value | undefined): Promise<void> {
+    this.write(this.outputs.heartbeat(value));
+    return Promise.resolve();
+  }
+
+  public writeStream(write: StepStreamWrite): void {
+    this.write(this.outputs.streamWrite(write));
+  }
+
+  public finish(response: Response): void {
+    if (!this.isActive) {
+      return;
+    }
+    this.isActive = false;
+    this.call.write(this.outputs.result(response));
+    this.call.end();
+  }
+
+  public fail(failure: unknown): void {
+    if (!this.isActive) {
+      return;
+    }
+    this.isActive = false;
+    this.call.emit("error", workerServiceError(failure));
+  }
+
+  public cancel(): void {
+    this.isActive = false;
+  }
+
+  private write(output: Output): void {
+    if (!this.isActive || this.call.cancelled) {
+      throw new Error("Step invocation is no longer active");
+    }
+    this.call.write(output);
+  }
+}
+
+function invokeStep<Request, Response, Output>(
+  call: ServerWritableStream<Request, Output>,
+  invocation: (signal: AbortSignal, output: StepOutputEmitter) => Promise<Response>,
+  outputs: StepOutputFactory<Response, Output>,
+): void {
+  const controller = new AbortController();
+  const emitter = new GrpcStepOutputEmitter(call, outputs);
+  const cancel = (): void => {
+    controller.abort();
+    emitter.cancel();
+  };
+  call.once("cancelled", cancel);
+  if (call.cancelled) {
+    cancel();
+  }
+  invocation(controller.signal, emitter)
+    .then(
+      (response) => emitter.finish(response),
+      (failure: unknown) => emitter.fail(failure),
+    )
+    .finally(() => call.off("cancelled", cancel));
+}
+
+const waitForOutput: StepOutputFactory<InvokeWaitForMethodResponse, InvokeWaitForMethodOutput> = {
+  heartbeat: (value) => InvokeWaitForMethodOutput.create({
+    output: { $case: "heartbeat", value: { value } },
+  }),
+  streamWrite: (write) => InvokeWaitForMethodOutput.create({
+    output: { $case: "streamWrite", value: write },
+  }),
+  result: (response) => InvokeWaitForMethodOutput.create({
+    output: { $case: "result", value: response },
+  }),
+};
+
+const executeOutput: StepOutputFactory<InvokeExecuteMethodResponse, InvokeExecuteMethodOutput> = {
+  heartbeat: (value) => InvokeExecuteMethodOutput.create({
+    output: { $case: "heartbeat", value: { value } },
+  }),
+  streamWrite: (write) => InvokeExecuteMethodOutput.create({
+    output: { $case: "streamWrite", value: write },
+  }),
+  result: (response) => InvokeExecuteMethodOutput.create({
+    output: { $case: "result", value: response },
+  }),
+};
 
 function invoke<Request, Response>(
   call: ServerUnaryCall<Request, Response>,

@@ -60,7 +60,10 @@ for (const scenario of cancellationScenarios) {
         assert.equal(flow.handlerCanceled, true);
         assert.equal(flow.contextReportedCancellation, true);
       }
-      assert.equal(flow.blockingInvocations, 1);
+      assert.equal(
+        flow.blockingInvocations,
+        scenario === "local-execute" || scenario === "local-timeout-fallback" ? 2 : 1,
+      );
       assert.equal(flow.recoveryRan, false);
       assert.equal(await client.getAttribute(id, flow.lateWrite), undefined);
     });

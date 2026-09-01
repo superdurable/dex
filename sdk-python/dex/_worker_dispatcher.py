@@ -9,8 +9,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from inspect import isawaitable
-from typing import Any, Callable, cast
+from inspect import isawaitable, isgenerator
+from typing import Any, Callable, Generator, cast
 
 from dex._invocation_context import InvocationContext, InvocationMethod
 from dex._value_hydrator import ValueHydrator
@@ -36,7 +36,10 @@ from dex.step import (
     StepDurability,
     StepMovement,
     StepOptions,
+    StepOutput,
     WaitForFailurePolicy,
+    _HeartbeatStepOutput,
+    _StreamStepOutput,
 )
 from dex.wait import Wait, WaitKind
 
@@ -49,18 +52,16 @@ class WorkerDispatcher:
         registry: Registry,
         values: ValueMapper,
         hydrator: ValueHydrator,
-        stream_writer: Callable[[pb.WriteStreamRequest], Any],
     ) -> None:
         self._registry = registry
         self._values = values
         self._hydrator = hydrator
-        self._stream_writer = stream_writer
 
     def invoke_wait_for(
         self,
         original: pb.InvokeWaitForMethodRequest,
         is_active: Callable[[], bool] | None = None,
-    ) -> pb.InvokeWaitForMethodResponse:
+    ) -> Generator[pb.InvokeWaitForMethodOutput, None, None]:
         request = self._hydrator.wait_for_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
         step = flow.step(request.step_type)
@@ -69,17 +70,21 @@ class WorkerDispatcher:
             flow,
             request.context,
             self._values,
-            self._stream_writer,
             request.attributes,
             is_active=is_active,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         wait = step.step.wait_for(context, input)
+        if isawaitable(wait):
+            raise InvalidStepResultError(
+                flow.name,
+                step.name,
+                "wait_for",
+                "wait_for returned an awaitable; use AsyncWorker for async handlers",
+            )
+        if isgenerator(wait):
+            wait = yield from self._wait_for_generator(flow, step, wait)
         try:
-            if isawaitable(wait):
-                raise TypeError(
-                    "wait_for returned an awaitable; use AsyncWorker for async handlers"
-                )
             if not isinstance(wait, Wait):
                 raise TypeError("wait_for must return Wait")
             response = pb.InvokeWaitForMethodResponse(
@@ -91,7 +96,7 @@ class WorkerDispatcher:
             waiting = self._map_wait(flow, wait)
             if waiting is not None:
                 response.waiting_condition.CopyFrom(waiting)
-            return response
+            yield pb.InvokeWaitForMethodOutput(result=response)
         except (TypeError, ValueError) as error:
             raise InvalidStepResultError(
                 flow.name, step.name, "wait_for", str(error)
@@ -101,11 +106,14 @@ class WorkerDispatcher:
         self,
         original: pb.InvokeExecuteMethodRequest,
         is_active: Callable[[], bool] | None = None,
-    ) -> pb.InvokeExecuteMethodResponse:
+    ) -> Generator[pb.InvokeExecuteMethodOutput, None, None]:
         request = self._hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
         if request.step_type == _TIMEOUT_HANDLER_STEP_TYPE:
-            return self._invoke_timeout_handler(request, flow)
+            yield pb.InvokeExecuteMethodOutput(
+                result=self._invoke_timeout_handler(request, flow)
+            )
+            return
         step = flow.step(request.step_type)
         condition_results = (
             request.condition_results if request.HasField("condition_results") else None
@@ -115,7 +123,6 @@ class WorkerDispatcher:
             flow,
             request.context,
             self._values,
-            self._stream_writer,
             request.attributes,
             request.step_exe_locals,
             condition_results,
@@ -123,19 +130,26 @@ class WorkerDispatcher:
         )
         input = self._values.decode(request.step_input, step.input_codec)
         decision = step.step.execute(context, input)
+        if isawaitable(decision):
+            raise InvalidStepResultError(
+                flow.name,
+                step.name,
+                "execute",
+                "execute returned an awaitable; use AsyncWorker for async handlers",
+            )
+        if isgenerator(decision):
+            decision = yield from self._execute_generator(flow, step, decision)
         try:
-            if isawaitable(decision):
-                raise TypeError(
-                    "execute returned an awaitable; use AsyncWorker for async handlers"
-                )
             if not isinstance(decision, StepDecision):
                 raise TypeError("execute must return StepDecision")
-            return pb.InvokeExecuteMethodResponse(
-                step_decision=self._map_decision(flow, decision),
-                upsert_attributes=list(context.attribute_writes.values()),
-                record_events=context.events,
-                upsert_step_exe_locals=list(context.local_writes.values()),
-                publish_to_channel=context.publications,
+            yield pb.InvokeExecuteMethodOutput(
+                result=pb.InvokeExecuteMethodResponse(
+                    step_decision=self._map_decision(flow, decision),
+                    upsert_attributes=list(context.attribute_writes.values()),
+                    record_events=context.events,
+                    upsert_step_exe_locals=list(context.local_writes.values()),
+                    publish_to_channel=context.publications,
+                )
             )
         except (TypeError, ValueError) as error:
             raise InvalidStepResultError(
@@ -162,11 +176,10 @@ class WorkerDispatcher:
             request.condition_results if request.HasField("condition_results") else None
         )
         context = InvocationContext(
-            InvocationMethod.EXECUTE,
+            InvocationMethod.TIMEOUT,
             flow,
             request.context,
             self._values,
-            self._stream_writer,
             request.attributes,
             request.step_exe_locals,
             condition_results,
@@ -204,7 +217,6 @@ class WorkerDispatcher:
             flow,
             request.context,
             self._values,
-            self._stream_writer,
             request.attributes,
             channel_infos=dict(request.channel_infos),
             is_active=is_active,
@@ -247,6 +259,77 @@ class WorkerDispatcher:
             raise
         except (TypeError, ValueError) as error:
             raise InvalidStepResultError(flow.name, None, "rpc", str(error)) from error
+
+    def _wait_for_generator(
+        self,
+        flow: _RegisteredFlow,
+        step: _RegisteredStep,
+        outputs: Generator[Any, None, Any],
+    ) -> Generator[pb.InvokeWaitForMethodOutput, None, Any]:
+        while True:
+            try:
+                output = next(outputs)
+            except StopIteration as completion:
+                return completion.value
+            try:
+                yield self._map_wait_for_output(output)
+            except (TypeError, ValueError) as error:
+                raise InvalidStepResultError(
+                    flow.name, step.name, "wait_for", str(error)
+                ) from error
+
+    def _execute_generator(
+        self,
+        flow: _RegisteredFlow,
+        step: _RegisteredStep,
+        outputs: Generator[Any, None, Any],
+    ) -> Generator[pb.InvokeExecuteMethodOutput, None, Any]:
+        while True:
+            try:
+                output = next(outputs)
+            except StopIteration as completion:
+                return completion.value
+            try:
+                yield self._map_execute_output(output)
+            except (TypeError, ValueError) as error:
+                raise InvalidStepResultError(
+                    flow.name, step.name, "execute", str(error)
+                ) from error
+
+    def _map_wait_for_output(
+        self,
+        output: StepOutput,
+    ) -> pb.InvokeWaitForMethodOutput:
+        heartbeat, stream_write = self._map_step_output(output)
+        if heartbeat is not None:
+            return pb.InvokeWaitForMethodOutput(heartbeat=heartbeat)
+        return pb.InvokeWaitForMethodOutput(stream_write=stream_write)
+
+    def _map_execute_output(
+        self,
+        output: StepOutput,
+    ) -> pb.InvokeExecuteMethodOutput:
+        heartbeat, stream_write = self._map_step_output(output)
+        if heartbeat is not None:
+            return pb.InvokeExecuteMethodOutput(heartbeat=heartbeat)
+        return pb.InvokeExecuteMethodOutput(stream_write=stream_write)
+
+    def _map_step_output(
+        self,
+        output: StepOutput,
+    ) -> tuple[pb.StepMethodHeartbeat | None, pb.StepStreamWrite | None]:
+        if isinstance(output, _HeartbeatStepOutput):
+            heartbeat = pb.StepMethodHeartbeat()
+            if output.has_value:
+                heartbeat.value.CopyFrom(
+                    output.encoded_value
+                    if output.encoded_value is not None
+                    else self._values.encode_dynamic(output.value)
+                )
+            return heartbeat, None
+        if isinstance(output, _StreamStepOutput):
+            return None, output.stream_write
+        raise TypeError("Step generator must yield StepOutput values")
 
     def map_step_options(
         self,

@@ -64,8 +64,8 @@ impl<T> Stream<T> {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::HandlerError`] for RPC Contexts, duplicate writes, unregistered Streams,
-    /// encoding failures, or a failed FlowService write.
+    /// Returns [`crate::HandlerError`] for RPC Contexts, unregistered Streams, encoding failures,
+    /// cancellation, or a closed Worker output stream. Dex storage failures are not acknowledged.
     pub fn write(&self, context: &mut Context, value: T) -> HandlerResult<()>
     where
         T: Value,
@@ -87,6 +87,6 @@ pub struct StreamMessage<T> {
     pub resume_token: String,
     /// Server-assigned creation time.
     pub created_time: SystemTime,
-    /// Client key or Step-generated runID#stepExecutionID key.
-    pub idempotency_key: String,
+    /// Client-provided source or Step-generated `#stepExecutionID` source.
+    pub source: String,
 }

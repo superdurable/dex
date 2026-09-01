@@ -8,7 +8,10 @@
 
 from __future__ import annotations
 
-from inspect import isawaitable
+import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import suppress
+from inspect import isawaitable, isgenerator
 from typing import Any, Callable
 
 from dex._async_value_hydrator import AsyncValueHydrator
@@ -18,8 +21,30 @@ from dex._worker_dispatcher import _TIMEOUT_HANDLER_STEP_TYPE, WorkerDispatcher
 from dex.dexpb import dex_pb2 as pb
 from dex.flow import Registry, RPCResult
 from dex.runtime_errors import InvalidStepResultError, ValueMappingError
-from dex.step import StepDecision
+from dex.step import StepDecision, StepOutput
 from dex.wait import Wait
+
+
+class _AsyncStepOutputEmitter:
+    def __init__(self) -> None:
+        self.queue: asyncio.Queue[StepOutput] = asyncio.Queue()
+        self._is_closed = False
+
+    def emit_nowait(self, output: StepOutput) -> None:
+        if self._is_closed:
+            return
+        self.queue.put_nowait(output)
+
+    async def emit(self, output: StepOutput) -> None:
+        if self._is_closed:
+            raise asyncio.CancelledError
+        self.queue.put_nowait(output)
+        await asyncio.sleep(0)
+        if self._is_closed:
+            raise asyncio.CancelledError
+
+    def close(self) -> None:
+        self._is_closed = True
 
 
 class AsyncWorkerDispatcher(WorkerDispatcher):
@@ -28,17 +53,32 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         registry: Registry,
         values: ValueMapper,
         hydrator: AsyncValueHydrator,
-        stream_writer: Callable[[pb.WriteStreamRequest], Any],
     ) -> None:
         self._registry = registry
         self._values = values
         self._async_hydrator = hydrator
-        self._stream_writer = stream_writer
 
     async def invoke_wait_for(  # type: ignore[override]
         self,
         original: pb.InvokeWaitForMethodRequest,
         is_active: Callable[[], bool] | None = None,
+    ) -> AsyncGenerator[pb.InvokeWaitForMethodOutput, None]:
+        emitter = _AsyncStepOutputEmitter()
+        handler = asyncio.create_task(
+            self._invoke_wait_for_result(original, emitter, is_active)
+        )
+        try:
+            async for output in self._drain_outputs(emitter, handler):
+                yield self._map_wait_for_output(output)
+            yield pb.InvokeWaitForMethodOutput(result=await handler)
+        finally:
+            await self._close_invocation(emitter, handler)
+
+    async def _invoke_wait_for_result(
+        self,
+        original: pb.InvokeWaitForMethodRequest,
+        emitter: _AsyncStepOutputEmitter,
+        is_active: Callable[[], bool] | None,
     ) -> pb.InvokeWaitForMethodResponse:
         request = await self._async_hydrator.wait_for_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
@@ -48,12 +88,20 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             flow,
             request.context,
             self._values,
-            self._stream_writer,
             request.attributes,
             is_active=is_active,
+            output_emitter=emitter,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         wait = step.step.wait_for(context, input)
+        if isgenerator(wait):
+            wait.close()
+            raise InvalidStepResultError(
+                flow.name,
+                step.name,
+                "wait_for",
+                "synchronous generators require Worker",
+            )
         if isawaitable(wait):
             wait = await wait
         try:
@@ -78,11 +126,30 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
         self,
         original: pb.InvokeExecuteMethodRequest,
         is_active: Callable[[], bool] | None = None,
+    ) -> AsyncGenerator[pb.InvokeExecuteMethodOutput, None]:
+        if original.step_type == _TIMEOUT_HANDLER_STEP_TYPE:
+            response = await self._invoke_timeout_handler_async(original)
+            yield pb.InvokeExecuteMethodOutput(result=response)
+            return
+        emitter = _AsyncStepOutputEmitter()
+        handler = asyncio.create_task(
+            self._invoke_execute_result(original, emitter, is_active)
+        )
+        try:
+            async for output in self._drain_outputs(emitter, handler):
+                yield self._map_execute_output(output)
+            yield pb.InvokeExecuteMethodOutput(result=await handler)
+        finally:
+            await self._close_invocation(emitter, handler)
+
+    async def _invoke_execute_result(
+        self,
+        original: pb.InvokeExecuteMethodRequest,
+        emitter: _AsyncStepOutputEmitter,
+        is_active: Callable[[], bool] | None,
     ) -> pb.InvokeExecuteMethodResponse:
         request = await self._async_hydrator.execute_request(original)
         flow = self._registry._flow_by_type(request.flow_type)
-        if request.step_type == _TIMEOUT_HANDLER_STEP_TYPE:
-            return await self._invoke_timeout_handler_async(request, flow)
         step = flow.step(request.step_type)
         condition_results = (
             request.condition_results if request.HasField("condition_results") else None
@@ -92,14 +159,22 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             flow,
             request.context,
             self._values,
-            self._stream_writer,
             request.attributes,
             request.step_exe_locals,
             condition_results,
             is_active=is_active,
+            output_emitter=emitter,
         )
         input = self._values.decode(request.step_input, step.input_codec)
         decision: Any = step.step.execute(context, input)
+        if isgenerator(decision):
+            decision.close()
+            raise InvalidStepResultError(
+                flow.name,
+                step.name,
+                "execute",
+                "synchronous generators require Worker",
+            )
         if isawaitable(decision):
             decision = await decision
         try:
@@ -119,9 +194,10 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
 
     async def _invoke_timeout_handler_async(
         self,
-        request: pb.InvokeExecuteMethodRequest,
-        flow: Any,
+        original: pb.InvokeExecuteMethodRequest,
     ) -> pb.InvokeExecuteMethodResponse:
+        request = await self._async_hydrator.execute_request(original)
+        flow = self._registry._flow_by_type(request.flow_type)
         if request.HasField("step_input"):
             raise InvalidStepResultError(
                 flow.name, _TIMEOUT_HANDLER_STEP_TYPE, "execute", "input must be absent"
@@ -137,11 +213,10 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             request.condition_results if request.HasField("condition_results") else None
         )
         context = InvocationContext(
-            InvocationMethod.EXECUTE,
+            InvocationMethod.TIMEOUT,
             flow,
             request.context,
             self._values,
-            self._stream_writer,
             request.attributes,
             request.step_exe_locals,
             condition_results,
@@ -177,7 +252,6 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             flow,
             request.context,
             self._values,
-            self._stream_writer,
             request.attributes,
             channel_infos=dict(request.channel_infos),
             is_active=is_active,
@@ -218,3 +292,38 @@ class AsyncWorkerDispatcher(WorkerDispatcher):
             raise
         except (TypeError, ValueError) as error:
             raise InvalidStepResultError(flow.name, None, "rpc", str(error)) from error
+
+    async def _drain_outputs(
+        self,
+        emitter: _AsyncStepOutputEmitter,
+        handler: asyncio.Task[Any],
+    ) -> AsyncIterator[StepOutput]:
+        while not handler.done() or not emitter.queue.empty():
+            if not emitter.queue.empty():
+                yield emitter.queue.get_nowait()
+                continue
+            output = asyncio.create_task(emitter.queue.get())
+            try:
+                done, _ = await asyncio.wait(
+                    (handler, output),
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if output in done:
+                    yield output.result()
+            finally:
+                if not output.done():
+                    output.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await output
+
+    async def _close_invocation(
+        self,
+        emitter: _AsyncStepOutputEmitter,
+        handler: asyncio.Task[Any],
+    ) -> None:
+        emitter.close()
+        if handler.done():
+            return
+        handler.cancel()
+        with suppress(asyncio.CancelledError):
+            await handler

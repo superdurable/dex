@@ -148,7 +148,7 @@ public final class Client implements AutoCloseable {
                 .build();
         this.service = FlowServiceGrpc.newBlockingStub(channel);
         this.hydrator = new ValueHydrator(service, blobCache);
-        this.mappings = new WorkerDispatcher(registry, values, hydrator, service);
+        this.mappings = new WorkerDispatcher(registry, values, hydrator);
     }
 
     Registry getRegistry() {
@@ -578,27 +578,26 @@ public final class Client implements AutoCloseable {
     }
 
     /**
-     * Appends one typed best-effort Stream message with client idempotency.
+     * Appends one typed best-effort Stream message with producer metadata.
+     *
+     * <p>Each call appends a new message. The source is informational and may be reused, including
+     * by concurrent producers. A source may contain {@code #}.
      *
      * @param flowId the logical Flow instance ID; the Flow need not exist or be active
      * @param stream the exact Stream registered in one Flow schema
-     * @param idempotencyKey the nonblank key without {@code #}
+     * @param source the nonblank producer description returned with the message
      * @param value the typed message to append
      * @param <T> the Stream message type
      * @throws FlowDefinitionException if the Stream is not registered
-     * @throws IllegalArgumentException if an ID is invalid or the key contains {@code #}
+     * @throws IllegalArgumentException if the Flow ID or source is invalid
      * @throws DexServiceException if Dex cannot append the message
      */
     public <T> void writeStream(
             final String flowId,
             final Stream<T> stream,
-            final String idempotencyKey,
+            final String source,
             final T value) {
-        final String key = Attribute.requireName(idempotencyKey);
-        if (key.indexOf('#') >= 0) {
-            throw new IllegalArgumentException(
-                    "Stream client idempotency key must not contain #");
-        }
+        final String validatedSource = Attribute.requireName(source);
         final Registry.RegisteredFlow flow = registry.getFlow(stream);
         call(() -> service.writeStream(WriteStreamRequest.newBuilder()
                 .setFlowId(Attribute.requireName(flowId))
@@ -606,7 +605,7 @@ public final class Client implements AutoCloseable {
                 .setStreamName(stream.getStreamName())
                 .setStreamCapacityBytes(stream.getStreamCapacityBytes())
                 .setValue(values.encode(value))
-                .setIdempotencyKey(key)
+                .setSource(validatedSource)
                 .build()));
     }
 
@@ -668,7 +667,7 @@ public final class Client implements AutoCloseable {
                 value,
                 response.getMessage().getResumeToken(),
                 instant(response.getMessage().getCreatedTime()),
-                response.getMessage().getIdempotencyKey());
+                response.getMessage().getSource());
     }
 
     /**

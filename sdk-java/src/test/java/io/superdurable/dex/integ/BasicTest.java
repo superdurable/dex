@@ -523,7 +523,8 @@ public final class BasicTest {
                 assertEquals(firstChildRunId, activeChildRunId);
             }
 
-            environment.client().skipTimer(
+            IntegrationTestWaits.skipTimerWhenRegistered(
+                    environment.client(),
                     childFlowId,
                     StepExecutionId.of("TimerStep"),
                     TimerId.byConditionId("test-timer-id"));

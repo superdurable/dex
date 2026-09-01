@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Protocol, Sequence, TypeVar
 if TYPE_CHECKING:
     from dex.attribute import Attribute, AttributeMap
     from dex.channel import Channel, ChannelMap
+    from dex.step import StepOutput
     from dex.stream import Stream
 
 ValueT = TypeVar("ValueT")
@@ -71,6 +72,35 @@ class Context(Protocol):
 
         Returns:
             ``1`` for the initial attempt and a larger value after retries.
+        """
+        ...
+
+    def has_last_heartbeat_value(self) -> bool:
+        """Report whether the previous regular attempt persisted heartbeat details.
+
+        Returns:
+            ``True`` when a heartbeat Value is present. A persisted Python ``None``
+            still counts as present.
+        """
+        ...
+
+    def get_last_heartbeat_value(
+        self,
+        value_type: type[ValueT],
+    ) -> ValueT | None:
+        """Decode the previous regular attempt's heartbeat checkpoint.
+
+        Use :meth:`has_last_heartbeat_value` to distinguish an absent checkpoint
+        from a persisted Python ``None``.
+
+        Args:
+            value_type: The expected Python type and codec selection.
+
+        Returns:
+            The decoded checkpoint, or ``None`` when no Value is present.
+
+        Raises:
+            ValueMappingError: If the Value cannot be decoded as ``value_type``.
         """
         ...
 
@@ -195,4 +225,30 @@ class Context(Protocol):
         self,
         definition: Stream[ValueT],
         value: ValueT,
-    ) -> object: ...
+    ) -> StepOutput | None: ...
+
+
+class AsyncContext(Context, Protocol):
+    """Expose Context operations available to asynchronous Step handlers.
+
+    AsyncWorker supplies this protocol to coroutine ``wait_for`` and ``execute``
+    methods. Stream writes enqueue synchronously; heartbeat waits only for the
+    Worker output queue and never for Dex Stream Store persistence.
+    """
+
+    async def heartbeat(self, value: object = ...) -> None:
+        """Emit one heartbeat from the current asynchronous Step attempt.
+
+        Calling this method without ``value`` clears prior persisted details.
+        Passing any value, including Python ``None``, persists a present Value.
+        Local activity execution ignores heartbeat frames.
+
+        Args:
+            value: Optional codec-supported checkpoint value.
+
+        Raises:
+            asyncio.CancelledError: If the active Worker invocation is canceled.
+            ValueError: If called outside a Step handler.
+            ValueMappingError: If ``value`` cannot be encoded.
+        """
+        ...

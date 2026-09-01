@@ -70,6 +70,15 @@ async def _run_step_cancellation(scenario: CancellationScenario) -> None:
             await asyncio.wait_for(flow.cancellation_observed.wait(), timeout=8)
             assert flow.handler_canceled
             assert flow.context_reported_cancellation
-        assert flow.blocking_invocations == 1
+        expected_invocations = (
+            2
+            if scenario
+            in {
+                CancellationScenario.LOCAL_EXECUTE,
+                CancellationScenario.LOCAL_TIMEOUT_FALLBACK,
+            }
+            else 1
+        )
+        assert flow.blocking_invocations == expected_invocations
         assert not flow.recovery_ran
         assert await environment.client.get_attribute(flow_id, flow.late_write) is None

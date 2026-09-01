@@ -13,7 +13,7 @@ use std::time::Duration;
 use dex_sdk::{Client, GrpcCode, Registry, SdkError, SdkResult, StepExecutionId, TimerId};
 
 use crate::signal_workflow::{FIRST, SignalWorkflow, THIRD};
-use crate::support::{DexDevTestEnvironment, flow_id};
+use crate::support::{DexDevTestEnvironment, flow_id, skip_timer_when_pending};
 
 #[test]
 #[ignore = "requires dexcli dev"]
@@ -37,14 +37,12 @@ fn test_basic_signal_workflow() {
         .client
         .publish_map(&flow_id, &workflow.signal_map, "one", [4])
         .expect("publish mapped signal");
-    environment
-        .client
-        .skip_timer(
-            &flow_id,
-            StepExecutionId::of(&workflow.combination),
-            TimerId::by_condition_id("test-timer-id"),
-        )
-        .expect("skip signal timer");
+    skip_timer_when_pending(
+        &environment.client,
+        &flow_id,
+        StepExecutionId::of(&workflow.combination),
+        TimerId::by_condition_id("test-timer-id"),
+    );
     assert_eq!(
         6,
         environment

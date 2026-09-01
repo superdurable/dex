@@ -19,14 +19,14 @@ def test_stream_round_trip() -> None:
     flow = StreamTestFlow()
     with DexDevTestEnvironment(flow) as environment:
         flow_id = unique_id("stream")
-        run_id = environment.client.start_flow(flow, flow_id, None)
+        environment.client.start_flow(flow, flow_id, None)
         environment.client.wait_for_flow(flow_id, timedelta(seconds=30))
 
         environment.client.write_stream(
-            flow_id, flow.progress, "client-write", "client-progress"
+            flow_id, flow.progress, "client#write", "client-progress"
         )
         environment.client.write_stream(
-            flow_id, flow.progress, "client-write", "duplicate-ignored"
+            flow_id, flow.progress, "client#write", "duplicate-retained"
         )
 
         step = environment.client.read_stream(
@@ -35,7 +35,7 @@ def test_stream_round_trip() -> None:
         assert step.value == "step-progress"
         assert step.resume_token
         assert step.created_time > datetime(1970, 1, 1, tzinfo=timezone.utc)
-        assert step.idempotency_key.startswith(f"{run_id}#")
+        assert step.source.startswith("#StreamTestStep-")
 
         client = environment.client.read_stream(
             flow_id,
@@ -46,4 +46,13 @@ def test_stream_round_trip() -> None:
         assert client.value == "client-progress"
         assert client.resume_token != step.resume_token
         assert client.created_time > datetime(1970, 1, 1, tzinfo=timezone.utc)
-        assert client.idempotency_key == "client-write"
+        assert client.source == "client#write"
+
+        duplicate = environment.client.read_stream(
+            flow_id,
+            flow.progress,
+            client.resume_token,
+            timeout=timedelta(seconds=30),
+        )
+        assert duplicate.value == "duplicate-retained"
+        assert duplicate.source == "client#write"

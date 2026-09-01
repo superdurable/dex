@@ -79,7 +79,6 @@ class Worker:
             registry,
             values,
             ValueHydrator(self._flow_service, blob_cache),
-            self._flow_service.WriteStream,
         )
         concurrency = max(2, min(32, os.cpu_count() or 2))
         self._executor = ThreadPoolExecutor(

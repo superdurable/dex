@@ -11,7 +11,7 @@
 use std::sync::LazyLock;
 
 use dex_sdk::{
-    Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Stream,
+    Context, Flow, HandlerResult, PersistenceSchema, Step, StepDecision, StepList, Stream, Wait,
 };
 
 pub(crate) static PROGRESS: LazyLock<Stream<String>> =
@@ -48,8 +48,19 @@ struct StreamTestStep;
 impl Step for StreamTestStep {
     type Input = ();
 
+    fn wait_for(&self, context: &mut Context, _input: ()) -> HandlerResult<Wait> {
+        context.record_heartbeat()?;
+        PROGRESS.write(context, "wait-progress-1".to_string())?;
+        context.record_heartbeat_value("wait-checkpoint".to_string())?;
+        PROGRESS.write(context, "wait-progress-2".to_string())?;
+        Ok(Wait::skip_immediately())
+    }
+
     fn execute(&self, context: &mut Context, _input: ()) -> HandlerResult<StepDecision> {
-        PROGRESS.write(context, "step-progress".to_string())?;
+        context.record_heartbeat()?;
+        PROGRESS.write(context, "execute-progress-1".to_string())?;
+        context.record_heartbeat_value("execute-checkpoint".to_string())?;
+        PROGRESS.write(context, "execute-progress-2".to_string())?;
         Ok(StepDecision::graceful_complete(()))
     }
 }

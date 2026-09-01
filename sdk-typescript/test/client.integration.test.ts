@@ -70,6 +70,10 @@ class Start implements Step<Input> {
     return "Start";
   }
 
+  public getStepOptions() {
+    return { heartbeatTimeoutMs: 2_000 };
+  }
+
   public execute(_context: Context, _input: Input): StepDecision {
     return { kind: "gracefulComplete", output: undefined };
   }
@@ -125,7 +129,7 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
           value: Value.create({ kind: { $case: "stringValue", value: "working" } }),
           resumeToken: "resume-1",
           createdTime: new Date("2026-08-27T12:00:00.000Z"),
-          idempotencyKey: "client-1",
+          source: "client-1",
         },
       });
     },
@@ -202,8 +206,9 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(message.value, "working");
     assert.equal(message.resumeToken, "resume-1");
     assert.equal(message.createdTime.toISOString(), "2026-08-27T12:00:00.000Z");
-    assert.equal(message.idempotencyKey, "client-1");
-    await assert.rejects(client.writeStream("flow-1", thinking, "bad#key", "ignored"), /must not contain/);
+    assert.equal(message.source, "client-1");
+    await client.writeStream("flow-1", thinking, "source#with-delimiter", "accepted");
+    await assert.rejects(client.writeStream("flow-1", thinking, "", "ignored"), /source is required/);
     const result = await client.waitForFlow("flow-1");
     assert.equal(result.completions.length, 2);
     assert.equal(result.completions[0]?.stepType, "Start");
@@ -222,14 +227,15 @@ test("Client maps typed calls and hydrates blob-backed outputs", async () => {
     assert.equal(failed.completions[1]?.decode(stringCodec), "done");
     assert.equal(requests.start?.flowType, "TestFlow");
     assert.equal(requests.start?.startStepType, "Start");
+    assert.equal(requests.start?.stepOptions?.heartbeatTimeoutSeconds, 2);
     assert.equal(requests.rpc?.rpcName, "accept");
     assert.deepEqual(requests.writeStream, {
       flowId: "flow-1",
       flowType: "TestFlow",
       streamName: "thinking",
       streamCapacityBytes: 1_048_576n,
-      value: Value.create({ kind: { $case: "stringValue", value: "starting" } }),
-      idempotencyKey: "client-1",
+      value: Value.create({ kind: { $case: "stringValue", value: "accepted" } }),
+      source: "source#with-delimiter",
     });
     assert.equal(requests.readStream?.flowType, "TestFlow");
     assert.equal(requests.readStream?.resumeToken, "previous");
