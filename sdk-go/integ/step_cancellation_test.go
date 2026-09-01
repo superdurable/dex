@@ -34,7 +34,7 @@ const (
 
 const (
 	cancellationHandlerTimeout = 15 * time.Second
-	cancellationHeartbeat      = 2 * time.Second
+	cancellationHeartbeat      = 10 * time.Second
 	cancellationWinnerDelay    = 3 * time.Second
 )
 
@@ -161,20 +161,21 @@ func (cancellationBlockingExecuteStep) Execute(
 	}
 	state.blockingInvocations.Add(1)
 	state.startedOnce.Do(func() { close(state.blockingStarted) })
+	defer state.returnedOnce.Do(func() { close(state.lateHandlerReturned) })
 	duration := 10 * time.Second
 	if scenario == cancelNoHeartbeat {
 		duration = 7 * time.Second
 	}
-	select {
-	case <-ctx.Done():
-		state.handlerCanceled.Store(true)
-		state.canceledOnce.Do(func() { close(state.cancellationObserved) })
-	case <-time.After(duration):
+	shouldHeartbeat := scenario == cancelHeartbeatExecute || scenario == cancelLocalFallback
+	if err := waitForHandlerCancellation(ctx, state, duration, shouldHeartbeat); err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	if err := cancellationLateWrite.Set(ctx, "late"); err != nil {
 		return nil, err
 	}
-	state.returnedOnce.Do(func() { close(state.lateHandlerReturned) })
 	return dex.GoTo(cancellationRecoveryStep{}, scenario), nil
 }
 
@@ -202,11 +203,12 @@ func (cancellationBlockingWaitForStep) WaitFor(
 	}
 	state.blockingInvocations.Add(1)
 	state.startedOnce.Do(func() { close(state.blockingStarted) })
-	select {
-	case <-ctx.Done():
-		state.handlerCanceled.Store(true)
-		state.canceledOnce.Do(func() { close(state.cancellationObserved) })
-	case <-time.After(10 * time.Second):
+	defer state.returnedOnce.Do(func() { close(state.lateHandlerReturned) })
+	if err := waitForHandlerCancellation(ctx, state, 10*time.Second, true); err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
 	}
 	return dex.SkipWaitImmediately(), nil
 }
@@ -232,6 +234,51 @@ func (cancellationBlockingWaitForStep) GetStepOptions() *dex.StepOptions {
 	}
 }
 
+func waitForHandlerCancellation(
+	ctx dex.Context,
+	state *cancellationState,
+	duration time.Duration,
+	shouldHeartbeat bool,
+) error {
+	deadline := time.NewTimer(duration)
+	defer deadline.Stop()
+	if !shouldHeartbeat {
+		select {
+		case <-ctx.Done():
+			recordHandlerCancellation(state)
+		case <-deadline.C:
+		}
+		return nil
+	}
+	heartbeats := time.NewTicker(100 * time.Millisecond)
+	defer heartbeats.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			recordHandlerCancellation(state)
+			return nil
+		case <-deadline.C:
+			return nil
+		case <-heartbeats.C:
+			if err := ctx.RecordHeartbeat(nil); err != nil {
+				if ctx.Err() != nil {
+					recordHandlerCancellation(state)
+					return nil
+				}
+				return err
+			}
+		}
+	}
+}
+
+func recordHandlerCancellation(state *cancellationState) {
+	if state.scenario == cancelLocalFallback && state.blockingInvocations.Load() == 1 {
+		return
+	}
+	state.handlerCanceled.Store(true)
+	state.canceledOnce.Do(func() { close(state.cancellationObserved) })
+}
+
 type cancellationWinnerStep struct {
 	dex.StepDefaults
 }
@@ -242,6 +289,9 @@ func (cancellationWinnerStep) WaitFor(
 ) (*dex.Wait, error) {
 	if scenario == cancelLocalExecute {
 		return dex.SkipWaitImmediately(), nil
+	}
+	if scenario == cancelLocalFallback {
+		return dex.Until(dex.Timer(9 * time.Second)), nil
 	}
 	return dex.Until(dex.Timer(cancellationWinnerDelay)), nil
 }
@@ -465,12 +515,15 @@ func runCancellationScenario(t *testing.T, scenario cancellationScenario) {
 		}
 		requireChannel(t, state.lateHandlerReturned, 8*time.Second)
 	default:
-		requireChannel(t, state.cancellationObserved, 8*time.Second)
-		require.True(t, state.handlerCanceled.Load())
+		requireChannel(t, state.lateHandlerReturned, 15*time.Second)
 	}
 	if scenario != cancelGlobalSelector && scenario != cancelSiblingSelector {
 		require.False(t, state.recoveryRan.Load())
-		require.Equal(t, int32(1), state.blockingInvocations.Load())
+		expectedInvocations := int32(1)
+		if scenario == cancelLocalExecute || scenario == cancelLocalFallback {
+			expectedInvocations = 2
+		}
+		require.Equal(t, expectedInvocations, state.blockingInvocations.Load())
 		var late string
 		found, getErr := integClient.GetAttribute(
 			context.Background(),

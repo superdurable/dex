@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"reflect"
@@ -30,7 +31,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 var (
@@ -112,6 +112,41 @@ func (workerWaitingStep) WaitFor(
 			return nil, err
 		}
 	}
+	if input.Mode == "progress" || input.Mode == "progress-error" || input.Mode == "progress-panic" {
+		if err := ctx.RecordHeartbeat("checkpoint-1"); err != nil {
+			return nil, err
+		}
+		if err := workerTestThinking.Write(ctx, "checking inventory"); err != nil {
+			return nil, err
+		}
+		if err := ctx.RecordHeartbeat(nil); err != nil {
+			return nil, err
+		}
+		if input.Mode == "progress-error" {
+			return nil, errors.New("wait failed after progress")
+		}
+		if input.Mode == "progress-panic" {
+			panic("wait panicked after progress")
+		}
+	}
+	if input.Mode == "restore-heartbeat" {
+		lastHeartbeat := "unchanged"
+		found, err := ctx.GetLastHeartbeatValue(&lastHeartbeat)
+		if err != nil || !found || lastHeartbeat != "checkpoint-restored" {
+			return nil, fmt.Errorf("last heartbeat was not restored: %q: %w", lastHeartbeat, err)
+		}
+		var typedNil *string
+		if err := ctx.RecordHeartbeat(typedNil); err != nil {
+			return nil, err
+		}
+	}
+	if input.Mode == "missing-heartbeat" {
+		lastHeartbeat := "unchanged"
+		found, err := ctx.GetLastHeartbeatValue(&lastHeartbeat)
+		if err != nil || found || lastHeartbeat != "unchanged" {
+			return nil, fmt.Errorf("missing heartbeat changed target: %q: %w", lastHeartbeat, err)
+		}
+	}
 	if input.Mode == "nil-wait" {
 		return nil, nil
 	}
@@ -142,6 +177,14 @@ func (workerWaitingStep) Execute(
 			return nil, err
 		}
 		return nil, errors.New("execute failed")
+	}
+	if input.Mode == "execute-progress" {
+		if err := ctx.RecordHeartbeat("execute-checkpoint"); err != nil {
+			return nil, err
+		}
+		if err := workerTestThinking.Write(ctx, "execute-progress"); err != nil {
+			return nil, err
+		}
 	}
 	if input.Mode == "missing-local-target" {
 		found, err := ctx.GetStepExecutionLocal("missing", nil)
@@ -205,6 +248,16 @@ type workerTestFlow struct {
 	FlowDefaults
 }
 
+func (workerTestFlow) HandleTimeout(ctx Context) (*StepDecision, error) {
+	if err := ctx.RecordHeartbeat("timeout-checkpoint"); err != nil {
+		return nil, err
+	}
+	if err := workerTestThinking.Write(ctx, "timeout-progress"); err != nil {
+		return nil, err
+	}
+	return GracefulComplete("timeout"), nil
+}
+
 func (workerTestFlow) GetSteps() []StepDef {
 	return []StepDef{
 		DefineStartStep(workerTestWait),
@@ -235,6 +288,11 @@ func (workerTestFlow) Update(
 	}
 	if input.Mode == "stream" {
 		if err := workerTestThinking.Write(ctx, "rpc"); err != nil {
+			return nil, err
+		}
+	}
+	if input.Mode == "heartbeat" {
+		if err := ctx.RecordHeartbeat("rpc"); err != nil {
 			return nil, err
 		}
 	}
@@ -324,8 +382,7 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	defer closeService()
 
 	waitInput := workerTestInput{OrderID: "order-1"}
-	waitResponse, err := client.InvokeWaitForMethod(
-		context.Background(),
+	waitResponse := invokeWaitForResult(t, client,
 		&dexpb.InvokeWaitForMethodRequest{
 			Context:   workerStepContext(),
 			FlowType:  GetFinalFlowType(workerFlow),
@@ -333,7 +390,6 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 			StepInput: mustEncodeWorkerTestValue(t, waitInput),
 		},
 	)
-	require.NoError(t, err)
 	require.Len(t, waitResponse.UpsertAttributes, 1)
 	require.Equal(t, "waiting", waitResponse.UpsertAttributes[0].Value.GetStringValue())
 	require.True(t, waitResponse.UpsertAttributes[0].GetSyncConfig().GetEnabled())
@@ -353,8 +409,7 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 			Mode:    "immediate",
 		}),
 	}
-	immediateResponse, err := client.InvokeWaitForMethod(context.Background(), immediateRequest)
-	require.NoError(t, err)
+	immediateResponse := invokeWaitForResult(t, client, immediateRequest)
 	require.Nil(t, immediateResponse.WaitingCondition)
 
 	comboRequest := &dexpb.InvokeWaitForMethodRequest{
@@ -366,15 +421,12 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 			Mode:    "combo",
 		}),
 	}
-	comboResponse, err := client.InvokeWaitForMethod(context.Background(), comboRequest)
-	require.NoError(t, err)
+	comboResponse := invokeWaitForResult(t, client, comboRequest)
 	require.Len(t, comboResponse.WaitingCondition.ConditionCombinations, 1)
 
-	executeResponse, err := client.InvokeExecuteMethod(
-		context.Background(),
+	executeResponse := invokeExecuteResult(t, client,
 		workerExecuteRequest(t, waitInput),
 	)
-	require.NoError(t, err)
 	require.Len(t, executeResponse.StepDecision.NextSteps, 1)
 	require.Equal(t, GetFinalStepType(workerTestFinish), executeResponse.StepDecision.NextSteps[0].StepType)
 	require.Len(t, executeResponse.UpsertAttributes, 1)
@@ -388,17 +440,14 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	})
 	timerRequest.ConditionResults.TimerResults[0].ConditionStatus =
 		dexpb.ConditionStatus_CONDITION_STATUS_COMPLETED
-	_, err = client.InvokeExecuteMethod(context.Background(), timerRequest)
-	require.NoError(t, err)
+	invokeExecuteResult(t, client, timerRequest)
 
-	_, err = client.InvokeExecuteMethod(
-		context.Background(),
+	invokeExecuteResult(t, client,
 		workerExecuteRequest(t, workerTestInput{
 			OrderID: "order-1",
 			Mode:    "missing-local-target",
 		}),
 	)
-	require.NoError(t, err)
 
 	rpcInput := workerTestInput{OrderID: "order-1", Mode: "introspection"}
 	rpcResponse, err := client.InvokeWorkerRPC(
@@ -431,35 +480,131 @@ func TestWorkerServiceDispatchesWaitExecuteAndRPC(t *testing.T) {
 	require.Len(t, rpcResponse.StepDecision.NextSteps, 1)
 }
 
-func TestWorkerStreamWriteUsesStepIdentity(t *testing.T) {
-	flowService := &workerStreamFlowServiceClient{}
-	client, closeService := newWorkerTestClientWithFlowService(t, nil, flowService)
+func TestWorkerStepProgressFrames(t *testing.T) {
+	client, closeService := newWorkerTestClient(t, nil)
 	defer closeService()
 
 	request := &dexpb.InvokeWaitForMethodRequest{
 		Context:   workerStepContext(),
 		FlowType:  GetFinalFlowType(workerFlow),
 		StepType:  GetFinalStepType(workerTestWait),
-		StepInput: mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-1", Mode: "stream"}),
+		StepInput: mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-1", Mode: "progress"}),
 	}
-	_, err := client.InvokeWaitForMethod(context.Background(), request)
+	outputs, err := collectWaitForOutputs(client, request)
 	require.NoError(t, err)
-	require.Equal(t, "flow-1", flowService.request.FlowId)
-	require.Equal(t, GetFinalFlowType(workerFlow), flowService.request.FlowType)
-	require.Equal(t, "thinking", flowService.request.StreamName)
-	require.Equal(t, int64(1<<20), flowService.request.StreamCapacityBytes)
-	require.Equal(t, "run-1#waiting-1", flowService.request.IdempotencyKey)
-	require.Equal(t, "checking inventory", flowService.request.Value.GetStringValue())
+	require.Len(t, outputs, 4)
+	require.Equal(t, "checkpoint-1", outputs[0].GetHeartbeat().GetValue().GetStringValue())
+	require.Equal(t, "thinking", outputs[1].GetStreamWrite().GetStreamName())
+	require.Equal(t, int64(1<<20), outputs[1].GetStreamWrite().GetStreamCapacityBytes())
+	require.Equal(t, "checking inventory", outputs[1].GetStreamWrite().GetValue().GetStringValue())
+	require.NotNil(t, outputs[2].GetHeartbeat())
+	require.Nil(t, outputs[2].GetHeartbeat().GetValue())
+	require.NotNil(t, outputs[3].GetResult())
+
+	for _, mode := range []string{"progress-error", "progress-panic"} {
+		request.StepInput = mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-1", Mode: mode})
+		outputs, err = collectWaitForOutputs(client, request)
+		require.Error(t, err)
+		require.Len(t, outputs, 3)
+		for _, output := range outputs {
+			require.Nil(t, output.GetResult())
+		}
+	}
 
 	request.StepInput = mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-1", Mode: "stream-twice"})
-	_, err = client.InvokeWaitForMethod(context.Background(), request)
-	require.ErrorContains(t, err, "already written")
+	outputs, err = collectWaitForOutputs(client, request)
+	require.NoError(t, err)
+	require.Len(t, outputs, 3)
+	require.Equal(t, "checking inventory", outputs[0].GetStreamWrite().GetValue().GetStringValue())
+	require.Equal(t, "duplicate", outputs[1].GetStreamWrite().GetValue().GetStringValue())
+	require.NotNil(t, outputs[2].GetResult())
+
+	restoreRequest := &dexpb.InvokeWaitForMethodRequest{
+		Context:   workerStepContext(),
+		FlowType:  GetFinalFlowType(workerFlow),
+		StepType:  GetFinalStepType(workerTestWait),
+		StepInput: mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-1", Mode: "restore-heartbeat"}),
+	}
+	restoreRequest.Context.LastHeartbeatValue = mustEncodeWorkerTestValue(t, "checkpoint-restored")
+	outputs, err = collectWaitForOutputs(client, restoreRequest)
+	require.NoError(t, err)
+	require.Len(t, outputs, 2)
+	require.NotNil(t, outputs[0].GetHeartbeat())
+	require.Nil(t, outputs[0].GetHeartbeat().GetValue())
+	require.NotNil(t, outputs[1].GetResult())
+
+	missingRequest := &dexpb.InvokeWaitForMethodRequest{
+		Context:   workerStepContext(),
+		FlowType:  GetFinalFlowType(workerFlow),
+		StepType:  GetFinalStepType(workerTestWait),
+		StepInput: mustEncodeWorkerTestValue(t, workerTestInput{OrderID: "order-1", Mode: "missing-heartbeat"}),
+	}
+	invokeWaitForResult(t, client, missingRequest)
+
+	executeOutputs, err := collectExecuteOutputs(
+		client,
+		workerExecuteRequest(t, workerTestInput{OrderID: "order-1", Mode: "execute-progress"}),
+	)
+	require.NoError(t, err)
+	require.Len(t, executeOutputs, 3)
+	require.Equal(t, "execute-checkpoint", executeOutputs[0].GetHeartbeat().GetValue().GetStringValue())
+	require.Equal(t, "execute-progress", executeOutputs[1].GetStreamWrite().GetValue().GetStringValue())
+	require.NotNil(t, executeOutputs[2].GetResult())
+
+	timeoutRequest := &dexpb.InvokeExecuteMethodRequest{
+		Context:  workerStepContext(),
+		FlowType: GetFinalFlowType(workerFlow),
+		StepType: timeoutHandlerStepType,
+	}
+	timeoutOutputs, err := collectExecuteOutputs(client, timeoutRequest)
+	require.NoError(t, err)
+	require.Len(t, timeoutOutputs, 3)
+	require.Equal(t, "timeout-checkpoint", timeoutOutputs[0].GetHeartbeat().GetValue().GetStringValue())
+	require.Equal(t, "timeout-progress", timeoutOutputs[1].GetStreamWrite().GetValue().GetStringValue())
+	require.NotNil(t, timeoutOutputs[2].GetResult())
 
 	_, err = client.InvokeWorkerRPC(context.Background(), workerRPCRequest(
 		t,
 		workerTestInput{OrderID: "order-1", Mode: "stream"},
 	))
 	require.ErrorContains(t, err, "invalid invocation context")
+	_, err = client.InvokeWorkerRPC(context.Background(), workerRPCRequest(
+		t,
+		workerTestInput{OrderID: "order-1", Mode: "heartbeat"},
+	))
+	require.ErrorContains(t, err, "invalid invocation context")
+}
+
+func TestWorkerStepOutputEmitterSerializesAndRetainsSendFailure(t *testing.T) {
+	stream := &workerTestProgressStream{}
+	handlerContext, emitter := newStepOutputEmitter(context.Background(), stream)
+	var waitGroup sync.WaitGroup
+	for index := range 20 {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			if index%2 == 0 {
+				require.NoError(t, emitter.sendHeartbeat(&dexpb.StepMethodHeartbeat{}))
+				return
+			}
+			require.NoError(t, emitter.sendStreamWrite(&dexpb.StepStreamWrite{}))
+		}()
+	}
+	waitGroup.Wait()
+	require.Len(t, stream.frames, 20)
+	require.NoError(t, emitter.close())
+	require.ErrorIs(t, emitter.sendHeartbeat(&dexpb.StepMethodHeartbeat{}), errInvalidInvocationContext)
+	require.ErrorIs(t, handlerContext.Err(), context.Canceled)
+
+	sendFailure := errors.New("send failed")
+	failingStream := &workerTestProgressStream{failure: sendFailure, failAfter: 1}
+	failingContext, failingEmitter := newStepOutputEmitter(context.Background(), failingStream)
+	require.NoError(t, failingEmitter.sendHeartbeat(&dexpb.StepMethodHeartbeat{}))
+	require.ErrorIs(t, failingEmitter.sendStreamWrite(&dexpb.StepStreamWrite{}), sendFailure)
+	require.ErrorIs(t, failingEmitter.sendHeartbeat(&dexpb.StepMethodHeartbeat{}), sendFailure)
+	require.ErrorIs(t, failingEmitter.close(), sendFailure)
+	require.ErrorIs(t, failingContext.Err(), context.Canceled)
+	require.Len(t, failingStream.frames, 1)
 }
 
 func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
@@ -487,23 +632,21 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 		{
 			name: "execute-only WaitFor",
 			call: func() error {
-				_, err := client.InvokeWaitForMethod(context.Background(), &dexpb.InvokeWaitForMethodRequest{
+				return invokeWaitForError(client, &dexpb.InvokeWaitForMethodRequest{
 					Context: workerStepContext(), FlowType: GetFinalFlowType(workerFlow),
 					StepType:  GetFinalStepType(workerTestFinish),
 					StepInput: mustEncodeWorkerTestValue(t, workerTestInput{}),
 				})
-				return err
 			},
 			code: codes.FailedPrecondition,
 		},
 		{
 			name: "unknown step",
 			call: func() error {
-				_, err := client.InvokeExecuteMethod(context.Background(), &dexpb.InvokeExecuteMethodRequest{
+				return invokeExecuteError(client, &dexpb.InvokeExecuteMethodRequest{
 					Context: workerStepContext(), FlowType: GetFinalFlowType(workerFlow),
 					StepType: "missing", StepInput: mustEncodeWorkerTestValue(t, workerTestInput{}),
 				})
-				return err
 			},
 			code: codes.NotFound,
 		},
@@ -521,8 +664,7 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 		{
 			name: "nil wait",
 			call: func() error {
-				_, err := client.InvokeWaitForMethod(
-					context.Background(),
+				return invokeWaitForError(client,
 					&dexpb.InvokeWaitForMethodRequest{
 						Context:  workerStepContext(),
 						FlowType: GetFinalFlowType(workerFlow),
@@ -533,7 +675,6 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 						),
 					},
 				)
-				return err
 			},
 			code:   codes.InvalidArgument,
 			detail: "WaitFor returned nil",
@@ -545,11 +686,9 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 		{
 			name: "nil decision",
 			call: func() error {
-				_, err := client.InvokeExecuteMethod(
-					context.Background(),
+				return invokeExecuteError(client,
 					workerExecuteRequest(t, workerTestInput{OrderID: "order-1", Mode: "empty"}),
 				)
-				return err
 			},
 			code:   codes.InvalidArgument,
 			detail: "Execute returned nil",
@@ -576,11 +715,9 @@ func TestWorkerServiceMapsErrorsAndDiscardsResponses(t *testing.T) {
 		{
 			name: "application error",
 			call: func() error {
-				_, err := client.InvokeExecuteMethod(
-					context.Background(),
+				return invokeExecuteError(client,
 					workerExecuteRequest(t, workerTestInput{OrderID: "order-1", Mode: "error"}),
 				)
-				return err
 			},
 			code: codes.Unknown,
 		},
@@ -1140,18 +1277,6 @@ func newWorkerTestClient(
 	t *testing.T,
 	hydrator valueHydrator,
 ) (dexpb.WorkerServiceClient, func()) {
-	return newWorkerTestClientWithFlowService(
-		t,
-		hydrator,
-		&fakeHydrationFlowServiceClient{},
-	)
-}
-
-func newWorkerTestClientWithFlowService(
-	t *testing.T,
-	hydrator valueHydrator,
-	flowService dexpb.FlowServiceClient,
-) (dexpb.WorkerServiceClient, func()) {
 	if hydrator == nil {
 		hydrator = concreteValueHydrator{}
 	}
@@ -1161,7 +1286,7 @@ func newWorkerTestClientWithFlowService(
 	grpcServer := grpc.NewServer()
 	dexpb.RegisterWorkerServiceServer(
 		grpcServer,
-		newWorkerService(registered, hydrator, flowService, nil),
+		newWorkerService(registered, hydrator, nil),
 	)
 	serveResult := make(chan error, 1)
 	go func() {
@@ -1182,18 +1307,131 @@ func newWorkerTestClientWithFlowService(
 	}
 }
 
-type workerStreamFlowServiceClient struct {
-	dexpb.FlowServiceClient
-	request *dexpb.WriteStreamRequest
+func invokeWaitForResult(
+	t *testing.T,
+	client dexpb.WorkerServiceClient,
+	request *dexpb.InvokeWaitForMethodRequest,
+) *dexpb.InvokeWaitForMethodResponse {
+	outputs, err := collectWaitForOutputs(client, request)
+	require.NoError(t, err)
+	var result *dexpb.InvokeWaitForMethodResponse
+	for _, output := range outputs {
+		if output.GetResult() == nil {
+			continue
+		}
+		require.Nil(t, result)
+		result = output.GetResult()
+	}
+	require.NotNil(t, result)
+	require.NotNil(t, outputs[len(outputs)-1].GetResult())
+	return result
 }
 
-func (client *workerStreamFlowServiceClient) WriteStream(
-	_ context.Context,
-	request *dexpb.WriteStreamRequest,
-	_ ...grpc.CallOption,
-) (*emptypb.Empty, error) {
-	client.request = request
-	return &emptypb.Empty{}, nil
+func invokeExecuteResult(
+	t *testing.T,
+	client dexpb.WorkerServiceClient,
+	request *dexpb.InvokeExecuteMethodRequest,
+) *dexpb.InvokeExecuteMethodResponse {
+	outputs, err := collectExecuteOutputs(client, request)
+	require.NoError(t, err)
+	var result *dexpb.InvokeExecuteMethodResponse
+	for _, output := range outputs {
+		if output.GetResult() == nil {
+			continue
+		}
+		require.Nil(t, result)
+		result = output.GetResult()
+	}
+	require.NotNil(t, result)
+	require.NotNil(t, outputs[len(outputs)-1].GetResult())
+	return result
+}
+
+func invokeWaitForError(
+	client dexpb.WorkerServiceClient,
+	request *dexpb.InvokeWaitForMethodRequest,
+) error {
+	_, err := collectWaitForOutputs(client, request)
+	return err
+}
+
+func invokeExecuteError(
+	client dexpb.WorkerServiceClient,
+	request *dexpb.InvokeExecuteMethodRequest,
+) error {
+	_, err := collectExecuteOutputs(client, request)
+	return err
+}
+
+func collectWaitForOutputs(
+	client dexpb.WorkerServiceClient,
+	request *dexpb.InvokeWaitForMethodRequest,
+) ([]*dexpb.InvokeWaitForMethodOutput, error) {
+	stream, err := client.InvokeWaitForMethod(context.Background(), request)
+	if err != nil {
+		return nil, err
+	}
+	var outputs []*dexpb.InvokeWaitForMethodOutput
+	for {
+		output, receiveErr := stream.Recv()
+		if errors.Is(receiveErr, io.EOF) {
+			return outputs, nil
+		}
+		if receiveErr != nil {
+			return outputs, receiveErr
+		}
+		outputs = append(outputs, output)
+	}
+}
+
+func collectExecuteOutputs(
+	client dexpb.WorkerServiceClient,
+	request *dexpb.InvokeExecuteMethodRequest,
+) ([]*dexpb.InvokeExecuteMethodOutput, error) {
+	stream, err := client.InvokeExecuteMethod(context.Background(), request)
+	if err != nil {
+		return nil, err
+	}
+	var outputs []*dexpb.InvokeExecuteMethodOutput
+	for {
+		output, receiveErr := stream.Recv()
+		if errors.Is(receiveErr, io.EOF) {
+			return outputs, nil
+		}
+		if receiveErr != nil {
+			return outputs, receiveErr
+		}
+		outputs = append(outputs, output)
+	}
+}
+
+type workerTestProgressStream struct {
+	frames    []string
+	failure   error
+	failAfter int
+}
+
+func (stream *workerTestProgressStream) sendHeartbeat(*dexpb.StepMethodHeartbeat) error {
+	if err := stream.sendError(); err != nil {
+		return err
+	}
+	stream.frames = append(stream.frames, "heartbeat")
+	return nil
+}
+
+func (stream *workerTestProgressStream) sendStreamWrite(*dexpb.StepStreamWrite) error {
+	if err := stream.sendError(); err != nil {
+		return err
+	}
+	stream.frames = append(stream.frames, "stream")
+	return nil
+}
+
+func (stream *workerTestProgressStream) sendError() error {
+	if stream.failure != nil && len(stream.frames) >= stream.failAfter {
+		return stream.failure
+	}
+	return nil
 }
 
 func newFlowServiceTestClient(

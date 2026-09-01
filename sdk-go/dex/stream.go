@@ -56,21 +56,22 @@ type StreamDef interface {
 // StreamMessage describes one retained Stream message returned by Client.ReadStream.
 //
 // ResumeToken identifies this message and can be passed unchanged to the next ReadStream call.
-// CreatedTime is assigned by the Stream Store. IdempotencyKey is the client key or the Step's
-// generated runID#stepExecutionID key.
+// CreatedTime is assigned by the Stream Store. Source identifies where the message originated.
 type StreamMessage struct {
 	// ResumeToken identifies this message for the next ReadStream call.
 	ResumeToken string
 	// CreatedTime is the server-assigned creation time.
 	CreatedTime time.Time
-	// IdempotencyKey is the client key or the Step's generated key.
-	IdempotencyKey string
+	// Source is client-supplied metadata or the Step's #stepExecutionID value.
+	Source string
 }
 
 // Write appends value immediately from the current Step invocation.
 //
-// A Step execution may call Write once per Stream. Retries reuse runID#stepExecutionID, so the
-// server applies first-write-wins idempotency. RPC invocation contexts are rejected.
+// A Step execution may call Write any number of times. Each call sends a fire-and-forget frame on
+// the current Worker response stream. The returned error covers local validation, encoding, and
+// gRPC transport only; Stream Store failures are observable through server logs and metrics.
+// RPC invocation contexts are rejected. Write and Context.RecordHeartbeat may run concurrently.
 func (s Stream[T]) Write(ctx Context, value T) error {
 	invocation, ok := ctx.(streamInvocation)
 	if !ok {
