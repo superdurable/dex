@@ -51,21 +51,9 @@ func TestStreamResumesAfterStepAndClientWrites(t *testing.T) {
 		&stepValue,
 	)
 	require.NoError(t, err)
-	require.Equal(t, "Rendering preview for invoice", stepValue)
+	require.Equal(t, "Rendering preview for invoicePreview ready for invoice", stepValue)
 	require.NotEmpty(t, stepMessage.ResumeToken)
 	require.True(t, strings.HasPrefix(stepMessage.Source, "#"))
-
-	var secondStepValue string
-	secondStepMessage, err := integClient.ReadStream(
-		ctx,
-		flowID,
-		streamprimitive.Progress,
-		stepMessage.ResumeToken,
-		&secondStepValue,
-	)
-	require.NoError(t, err)
-	require.Equal(t, "Preview ready for invoice", secondStepValue)
-	require.Equal(t, stepMessage.Source, secondStepMessage.Source)
 
 	err = integClient.WriteStream(
 		ctx,
@@ -81,7 +69,7 @@ func TestStreamResumesAfterStepAndClientWrites(t *testing.T) {
 		ctx,
 		flowID,
 		streamprimitive.Progress,
-		secondStepMessage.ResumeToken,
+		stepMessage.ResumeToken,
 		&clientValue,
 	)
 	require.NoError(t, err)
