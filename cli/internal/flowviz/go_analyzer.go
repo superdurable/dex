@@ -449,7 +449,16 @@ func (analyzer *goAnalyzer) analyzeResourceAccess(ownerID string, method *ast.Fu
 			return true
 		}
 		seen[key] = true
-		analyzer.graph.AddEdge(Edge{Kind: kind, From: ownerID, To: resourceID, Label: selector.Sel.Name, Span: analyzer.span(call), Metadata: map[string]any{"phase": phase}})
+		metadata := map[string]any{"phase": phase}
+		if strings.HasPrefix(resourceID, "resource:stream:") && selector.Sel.Name == "Write" {
+			metadata["bestEffort"] = true
+			metadata["repeatable"] = true
+			metadata["role"] = "progress"
+			if phase == "rpc" || phase == "timeout" {
+				analyzer.graph.AddDiagnostic("error", "step_progress_outside_step", "Stream.Write is only available in WaitFor and Execute", analyzer.span(call))
+			}
+		}
+		analyzer.graph.AddEdge(Edge{Kind: kind, From: ownerID, To: resourceID, Label: selector.Sel.Name, Span: analyzer.span(call), Metadata: metadata})
 		return true
 	})
 }

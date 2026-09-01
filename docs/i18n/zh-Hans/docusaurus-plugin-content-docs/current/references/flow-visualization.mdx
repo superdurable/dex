@@ -43,6 +43,8 @@ JSON 和 SVG 使用同一个定义图，其中包括：
 
 错误返回或抛出的异常并不能确定另一个 Step，因此不会产生跳转。显式的 **ProceedToOnExecuteFailure** 或 **on_execute_failure_proceed_to** 策略会生成一条指向恢复 Step 的红色虚线。
 
+Stream 关系描述的是应用可观察输出，而不是控制流。SVG 会把它显示为次要的资源关系；JSON 会标记 Step Stream 写入可重复且为 best effort。Heartbeat 调用和 checkpoint 读取属于运行时可靠性细节，因此不会进入 definition graph。
+
 ## 支持的源码约束
 
 首版要求每个源文件只包含一个 Flow。以下内容必须直接出现在该文件中：
@@ -53,10 +55,13 @@ JSON 和 SVG 使用同一个定义图，其中包括：
 - RPC 的后续 Step
 - Execute 失败后的恢复目标
 - 持久化资源定义及其访问
+- Step Stream progress 操作
 
 可以使用普通业务辅助函数和导入的数据模型，但辅助函数不能隐藏 Dex 跳转、WaitFor 定义、资源定义或恢复目标。Step 类型、Flow 类型和资源名称必须能够静态确定。
 
 Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查的 module 和 package。Python 分析要求 Python 3.11 或更高版本。Python analyzer 在隔离模式下使用标准库 AST，绝不会导入或执行应用模块。
+
+对于 Python，analyzer 可以识别同步 Step generator 通过 yield 发出的 Stream output，也可以识别异步 Step handler 中同步入队的 Stream 写入。在 RPC 或 Flow timeout handler 中使用 Step Stream progress 属于无效代码，会产生阻断诊断。
 
 首版不支持单文件中的多个 Flow、反射、动态 class、Dex 通配符导入、基于 getattr 的目标、monkeypatch，以及逃逸出处理方法的 movement 集合。TypeScript、Java、Rust 和递归多文件分析也不在首版范围内。
 

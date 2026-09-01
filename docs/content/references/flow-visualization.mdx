@@ -43,6 +43,8 @@ The JSON and SVG share the same definition graph. It includes:
 
 An error return or raised exception does not identify another Step. It therefore does not create a transition. An explicit **ProceedToOnExecuteFailure** or **on_execute_failure_proceed_to** policy creates a red dashed edge to the recovery Step.
 
+Stream relations describe observable application output, not control flow. The SVG shows them as secondary resource relations. The JSON marks Step Stream writes as repeatable and best effort. Heartbeat calls and checkpoint reads are runtime reliability details, so they are not included in the definition graph.
+
 ## Supported source profile
 
 Version 1 supports one Flow per source file. The file must directly contain:
@@ -53,10 +55,13 @@ Version 1 supports one Flow per source file. The file must directly contain:
 - RPC next Steps
 - execute-failure recovery targets
 - persistence resource definitions and access
+- Step Stream progress operations
 
 Ordinary business helpers and imported models are allowed. A helper must not hide a Dex transition, WaitFor definition, resource definition, or recovery target. Step types, Flow types, and resource names must be statically known.
 
 Go analysis requires a local Go toolchain. The input must belong to a module and package that can be type checked. Python analysis requires Python 3.11 or newer. The Python analyzer uses the standard-library AST in isolated mode. It never imports or executes the application module.
+
+For Python, the analyzer recognizes Stream outputs yielded by synchronous Step generators and synchronously enqueued Stream writes in asynchronous Step handlers. Step Stream progress in an RPC or Flow timeout handler is invalid and produces a blocking diagnostic.
 
 Version 1 does not support multiple Flows in one file, reflection, dynamic classes, wildcard Dex imports, getattr-based targets, monkeypatching, or movement collections that escape the handler. TypeScript, Java, Rust, and recursive multi-file analysis are not included.
 

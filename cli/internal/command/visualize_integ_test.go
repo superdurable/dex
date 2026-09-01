@@ -175,6 +175,65 @@ func TestVisualizeDynamicFanOutUsesStaticTargetAndDynamicMultiplicity(t *testing
 	}
 }
 
+func TestVisualizeStepStreamProgress(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	directory := t.TempDir()
+	goModule := "module flowvizprogress\n\ngo 1.24.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.Join(repositoryRoot, "sdk-go") + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(goModule), 0o644))
+	goSource := filepath.Join(directory, "progress.go")
+	require.NoError(t, os.WriteFile(goSource, []byte(goStepProgressFlow), 0o644))
+
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{name: "go", source: goSource},
+		{name: "python sync generator", source: filepath.Join(repositoryRoot, "sdk-python/tests/integ/step_streaming_flow.py")},
+		{name: "python async", source: filepath.Join(repositoryRoot, "sdk-python/tests/integ/async_stream_flow.py")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			graph, err := flowviz.Analyze(context.Background(), test.source, flowviz.AnalyzeOptions{})
+			require.NoError(t, err)
+			require.True(t, graph.Valid, graph.Diagnostics)
+			require.False(t, graphHasKind(graph, "heartbeat"))
+
+			streamWrites := edgesOfKind(graph.Edges, "resource_write")
+			require.NotEmpty(t, streamWrites)
+			for _, edge := range streamWrites {
+				if !strings.HasPrefix(edge.To, "resource:stream:") {
+					continue
+				}
+				require.Equal(t, true, edge.Metadata["bestEffort"])
+				require.Equal(t, true, edge.Metadata["repeatable"])
+				require.Equal(t, "progress", edge.Metadata["role"])
+			}
+		})
+	}
+}
+
+func TestVisualizeRejectsStepProgressFromRPC(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	directory := t.TempDir()
+	goModule := "module flowvizinvalidprogress\n\ngo 1.24.0\n\nrequire github.com/superdurable/dex/sdk-go v0.0.0\n\nreplace github.com/superdurable/dex/sdk-go => " + filepath.Join(repositoryRoot, "sdk-go") + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(goModule), 0o644))
+	sources := map[string]string{
+		"go":     goRPCProgressFlow,
+		"python": pythonRPCProgressFlow,
+	}
+	for language, source := range sources {
+		t.Run(language, func(t *testing.T) {
+			sourcePath := filepath.Join(directory, "invalid."+map[string]string{"go": "go", "python": "py"}[language])
+			require.NoError(t, os.WriteFile(sourcePath, []byte(source), 0o644))
+
+			graph, err := flowviz.Analyze(context.Background(), sourcePath, flowviz.AnalyzeOptions{})
+			require.NoError(t, err)
+			require.False(t, graph.Valid)
+			require.Contains(t, diagnosticCodes(graph.Diagnostics), "step_progress_outside_step")
+		})
+	}
+}
+
 func TestVisualizeUnsupportedSourceProducesBlockingDiagnostics(t *testing.T) {
 	dynamicResourceSource := strings.Replace(minimalPythonFlow, "StepList, graceful_complete", "StepList, Attribute, graceful_complete", 1)
 	dynamicResourceSource = strings.Replace(dynamicResourceSource, "class PythonFlow(Flow[None]):", "class PythonFlow(Flow[None]):\n    status = Attribute(dynamic_name(), str)", 1)
@@ -397,6 +456,96 @@ func (startStep) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
 func chooseNext() *dex.StepDecision {
 	return dex.GracefulComplete(nil)
 }
+`
+
+const goStepProgressFlow = `package flow
+
+import "github.com/superdurable/dex/sdk-go/dex"
+
+var Progress = dex.DefineStream[string]("Progress", 1024)
+
+type ProgressFlow struct{ dex.FlowDefaults }
+
+func (*ProgressFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(progressStep{})}
+}
+
+func (*ProgressFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Streams: []dex.StreamDef{Progress}}
+}
+
+type progressStep struct{ dex.StepDefaultsNoWaitFor[dex.None] }
+
+func (progressStep) Execute(ctx dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	var checkpoint string
+	if _, err := ctx.GetLastHeartbeatValue(&checkpoint); err != nil {
+		return nil, err
+	}
+	if err := ctx.RecordHeartbeat("checkpoint"); err != nil {
+		return nil, err
+	}
+	if err := Progress.Write(ctx, "working"); err != nil {
+		return nil, err
+	}
+	if err := ctx.RecordHeartbeat(nil); err != nil {
+		return nil, err
+	}
+	return dex.GracefulComplete(checkpoint), nil
+}
+`
+
+const goRPCProgressFlow = `package flow
+
+import "github.com/superdurable/dex/sdk-go/dex"
+
+var Progress = dex.DefineStream[string]("Progress", 1024)
+
+type ProgressFlow struct{ dex.FlowDefaults }
+
+func (*ProgressFlow) GetSteps() []dex.StepDef {
+	return []dex.StepDef{dex.DefineStartStep(finishStep{})}
+}
+
+func (*ProgressFlow) GetPersistenceSchema() dex.PersistenceSchema {
+	return dex.PersistenceSchema{Streams: []dex.StreamDef{Progress}}
+}
+
+func (*ProgressFlow) Report(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
+	if err := Progress.Write(ctx, "invalid"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+type finishStep struct{ dex.StepDefaultsNoWaitFor[dex.None] }
+
+func (finishStep) Execute(_ dex.Context, _ dex.None) (*dex.StepDecision, error) {
+	return dex.GracefulComplete(nil), nil
+}
+`
+
+const pythonRPCProgressFlow = `from dex import Context, Flow, PersistenceSchema, RPCResult, Step, StepDecision, StepList, Stream, graceful_complete, rpc
+
+class Finish(Step[None]):
+    def execute(self, context: Context, input: None) -> StepDecision:
+        return graceful_complete()
+
+class ProgressFlow(Flow[None]):
+    progress = Stream("Progress", str, 1024)
+
+    def __init__(self):
+        self.finish = Finish()
+
+    def get_steps(self):
+        return StepList.start_step(self.finish)
+
+    def get_persistence_schema(self):
+        return PersistenceSchema.of(self.progress)
+
+    @rpc()
+    async def report(self, context: Context, input: None) -> RPCResult[None]:
+        self.progress.write(context, "invalid")
+        return RPCResult(None)
 `
 
 const goSubFlowChild = `package flow

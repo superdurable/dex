@@ -170,10 +170,14 @@ AST and never imports or executes the application module.
 Go analysis requires a local Go toolchain and a module/package that passes type
 checking. Version 1 accepts one Flow per file. Step registration, transitions,
 waits, RPC next Steps, execute-failure recovery targets, and persistence
-resource access must be directly visible in that file. Business helpers may
-remain in other files, but they must not hide Dex control flow. Dynamic targets
-produce an Unknown node and a blocking diagnostic. Partial JSON and SVG
-artifacts are still written, and the command exits with status 1.
+resource access must be directly visible in that file. The graph also records
+repeatable best-effort Step Stream writes. Python synchronous Step generators
+and asynchronous Step handlers are both recognized. Heartbeat checkpoints are
+runtime details and are omitted. Step Stream progress from an RPC or Flow timeout
+handler produces a blocking diagnostic. Business helpers may remain in other
+files, but they must not hide Dex control flow. Dynamic targets produce an
+Unknown node and a blocking diagnostic. Partial JSON and SVG artifacts are still
+written, and the command exits with status 1.
 
 ```text
 dexcli visualize SOURCE [--language auto|go|python]

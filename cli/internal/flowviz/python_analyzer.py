@@ -391,7 +391,20 @@ class Analyzer:
             if key in seen:
                 continue
             seen.add(key)
-            self.add_edge(edge_kind, owner_id, resource_id, label=call.func.attr, span=self.span(call), metadata={"phase": phase})
+            metadata = {"phase": phase}
+            if resource_id.startswith("resource:stream:") and call.func.attr == "write":
+                metadata.update({
+                    "bestEffort": True,
+                    "repeatable": True,
+                    "role": "progress",
+                })
+                if phase in {"rpc", "timeout"}:
+                    self.error(
+                        "step_progress_outside_step",
+                        "Stream.write is only available in wait_for and execute",
+                        self.span(call),
+                    )
+            self.add_edge(edge_kind, owner_id, resource_id, label=call.func.attr, span=self.span(call), metadata=metadata)
 
     def parse_decision(self, expression, condition, rpc, locals_map):
         if isinstance(expression, ast.IfExp):
