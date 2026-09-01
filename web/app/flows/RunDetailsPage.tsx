@@ -29,7 +29,7 @@ import { FlowOverview } from './details/FlowOverview';
 import { FlowStatePanel } from './details/FlowStatePanel';
 import { TimeTravelDialog } from './details/TimeTravelDialog';
 import { StopFlowDialog } from './details/StopFlowDialog';
-import { StepGraph } from './details/StepGraph';
+import { ExecutionGraph } from './details/ExecutionGraph';
 import { StreamPanel } from './details/StreamPanel';
 import { Timeline } from './details/Timeline';
 
@@ -309,7 +309,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
 
   const tabs: Array<[RunTab, string]> = [
     ['overview', 'Overview'],
-    ['steps', 'Step graph'],
+    ['steps', 'Execution graph'],
     ['timeline', 'Timeline'],
     ['stream', 'Streams'],
   ];
@@ -497,7 +497,7 @@ export function RunDetailsPage({ flowId, runId }: { flowId: string; runId: strin
             />
           )}
           {tab === 'steps' && (
-            <StepGraph
+            <ExecutionGraph
               flowId={flowId}
               events={displayedHistory}
               state={state}

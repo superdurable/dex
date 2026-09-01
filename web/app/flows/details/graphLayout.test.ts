@@ -39,7 +39,7 @@ function layoutNode(
   };
 }
 
-describe('step graph layout', () => {
+describe('execution graph layout', () => {
   it('keeps a 90-execution fan-out and fan-in flow vertically readable', () => {
     const nodes: Array<Node<Record<string, unknown>>> = [testNode('start')];
     const edges: Edge[] = [];

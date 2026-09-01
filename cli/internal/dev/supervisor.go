@@ -148,11 +148,20 @@ func (s *supervisor) Run(ctx context.Context) (runErr error) {
 		runErr = errors.Join(runErr, dexConnection.Close())
 	}()
 
-	webServer := dexweb.NewServer(
-		&dexweb.Config{BindAddress: s.cfg.BindAddress, Port: s.cfg.WebPort},
+	webServer, err := dexweb.NewServer(
+		&dexweb.Config{
+			BindAddress:            s.cfg.BindAddress,
+			Port:                   s.cfg.WebPort,
+			FlowRenderingDirectory: s.cfg.FlowRenderingDirectory,
+		},
 		dexpb.NewFlowServiceClient(dexConnection),
 		assets.Files,
 	)
+	if err != nil {
+		cancelRun()
+		dexRuntime.Close()
+		return err
+	}
 	go func() {
 		componentExits <- componentExit{name: "Dex Web", err: webServer.Serve(listeners.web)}
 	}()

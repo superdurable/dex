@@ -42,6 +42,7 @@ var flagOrder = []string{
 	"bind-address",
 	"blob-store-dir",
 	"dex-port",
+	"flow-rendering-dir",
 	"open",
 	"web-port",
 	"sqlite-db-filename",
@@ -78,6 +79,8 @@ type Config struct {
 	BlobStoreDirectory string
 	// AttributeStoreConfigPath defaults empty and loads Attribute Store settings from standard Dex YAML when set.
 	AttributeStoreConfigPath string
+	// FlowRenderingDirectory defaults empty and supplies Flow Definition Graph JSON files to Dex Web.
+	FlowRenderingDirectory string
 	// OpenBrowser defaults true and opens Dex Web after readiness.
 	OpenBrowser bool
 	// StartupTimeout defaults to 45 seconds.
@@ -112,6 +115,12 @@ func parseConfig(args []string, output io.Writer) (*Config, error) {
 		"Dex blob storage directory",
 	)
 	flags.IntVar(&cfg.DexPort, "dex-port", cfg.DexPort, "Dex gRPC port")
+	flags.StringVar(
+		&cfg.FlowRenderingDirectory,
+		"flow-rendering-dir",
+		"",
+		"directory containing Flow Definition Graph JSON files",
+	)
 	flags.BoolVar(&cfg.OpenBrowser, "open", true, "open Dex Web after startup")
 	flags.IntVar(&cfg.WebPort, "web-port", cfg.WebPort, "Dex Web port")
 	flags.StringVar(
@@ -209,6 +218,7 @@ func (c *Config) validate() error {
 	if strings.TrimSpace(c.BlobStoreDirectory) == "" {
 		return fmt.Errorf("blob store directory is required")
 	}
+	c.FlowRenderingDirectory = strings.TrimSpace(c.FlowRenderingDirectory)
 	for name, port := range map[string]int{
 		"dex-port":         c.DexPort,
 		"web-port":         c.WebPort,

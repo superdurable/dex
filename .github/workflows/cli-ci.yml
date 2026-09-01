@@ -46,6 +46,9 @@ jobs:
             cli/go.sum
             web/go.sum
             server/go.sum
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@v0
       - name: Build embedded Web assets
@@ -61,6 +64,11 @@ jobs:
         env:
           GOWORK: "off"
         run: go test ./...
+      - name: Test Go and Python Flow visualization
+        working-directory: cli
+        env:
+          GOWORK: "off"
+        run: go test -tags=integration ./internal/command -run TestVisualize -count=1 -v
       - name: Test local and external Temporal modes
         working-directory: cli
         env:

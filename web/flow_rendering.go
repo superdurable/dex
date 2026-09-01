@@ -1,0 +1,158 @@
+// Copyright (c) 2026 Super Durable, Inc.
+//
+// Licensed under the Super Durable Source License 1.0.
+// You may not use this file except in compliance with the License.
+// See the LICENSE file in the repository root.
+//
+// SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
+
+package web
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+const maxFlowDefinitionBytes = 8 << 20
+
+type flowDefinitionHandler struct {
+	response []byte
+}
+
+type flowDefinitionCatalog struct {
+	Configured  bool             `json:"configured"`
+	Directory   string           `json:"directory,omitempty"`
+	Definitions []flowDefinition `json:"definitions"`
+}
+
+type flowDefinition struct {
+	ID             string          `json:"id"`
+	File           string          `json:"file"`
+	FlowName       string          `json:"flowName"`
+	SourceLanguage string          `json:"sourceLanguage"`
+	SourcePath     string          `json:"sourcePath"`
+	Valid          bool            `json:"valid"`
+	Graph          json.RawMessage `json:"graph"`
+}
+
+type flowDefinitionHeader struct {
+	SchemaVersion string `json:"schemaVersion"`
+	Valid         bool   `json:"valid"`
+	Source        struct {
+		Language string `json:"language"`
+		Path     string `json:"path"`
+	} `json:"source"`
+	Flow struct {
+		Name string `json:"name"`
+	} `json:"flow"`
+	Nodes       []json.RawMessage `json:"nodes"`
+	Edges       []json.RawMessage `json:"edges"`
+	Diagnostics []json.RawMessage `json:"diagnostics"`
+}
+
+func loadFlowDefinitions(directory string) (*flowDefinitionHandler, error) {
+	catalog := flowDefinitionCatalog{Definitions: make([]flowDefinition, 0)}
+	directory = strings.TrimSpace(directory)
+	if directory == "" {
+		response, err := json.Marshal(catalog)
+		if err != nil {
+			return nil, fmt.Errorf("encode empty Flow Definition Graph catalog: %w", err)
+		}
+		return &flowDefinitionHandler{response: response}, nil
+	}
+	absoluteDirectory, err := filepath.Abs(directory)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Flow rendering directory: %w", err)
+	}
+	info, err := os.Stat(absoluteDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("open Flow rendering directory %s: %w", absoluteDirectory, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("Flow rendering path is not a directory: %s", absoluteDirectory)
+	}
+	catalog.Configured = true
+	catalog.Directory = absoluteDirectory
+	if err := filepath.WalkDir(absoluteDirectory, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+			return nil
+		}
+		definition, readErr := readFlowDefinition(absoluteDirectory, path)
+		if readErr != nil {
+			return readErr
+		}
+		catalog.Definitions = append(catalog.Definitions, definition)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("load Flow rendering directory %s: %w", absoluteDirectory, err)
+	}
+	sort.Slice(catalog.Definitions, func(left int, right int) bool {
+		return catalog.Definitions[left].ID < catalog.Definitions[right].ID
+	})
+	response, err := json.Marshal(catalog)
+	if err != nil {
+		return nil, fmt.Errorf("encode Flow Definition Graph catalog: %w", err)
+	}
+	return &flowDefinitionHandler{response: response}, nil
+}
+
+func readFlowDefinition(root string, path string) (flowDefinition, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return flowDefinition{}, err
+	}
+	if info.Size() > maxFlowDefinitionBytes {
+		return flowDefinition{}, fmt.Errorf("Flow Definition Graph exceeds %d bytes: %s", maxFlowDefinitionBytes, path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return flowDefinition{}, err
+	}
+	var header flowDefinitionHeader
+	if err := json.Unmarshal(data, &header); err != nil {
+		return flowDefinition{}, fmt.Errorf("parse Flow Definition Graph %s: %w", path, err)
+	}
+	if header.SchemaVersion != "1.0" {
+		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s has unsupported schemaVersion %q", path, header.SchemaVersion)
+	}
+	if header.Source.Language != "go" && header.Source.Language != "python" {
+		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s has unsupported source language %q", path, header.Source.Language)
+	}
+	if header.Nodes == nil || header.Edges == nil || header.Diagnostics == nil {
+		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s must contain nodes, edges, and diagnostics arrays", path)
+	}
+	relativePath, err := filepath.Rel(root, path)
+	if err != nil {
+		return flowDefinition{}, err
+	}
+	relativePath = filepath.ToSlash(relativePath)
+	flowName := strings.TrimSpace(header.Flow.Name)
+	if flowName == "" {
+		flowName = strings.TrimSuffix(relativePath, filepath.Ext(relativePath))
+	}
+	return flowDefinition{
+		ID:             relativePath,
+		File:           relativePath,
+		FlowName:       flowName,
+		SourceLanguage: header.Source.Language,
+		SourcePath:     header.Source.Path,
+		Valid:          header.Valid,
+		Graph:          data,
+	}, nil
+}
+
+func (h *flowDefinitionHandler) ServeHTTP(response http.ResponseWriter, _ *http.Request) {
+	response.Header().Set("Content-Type", "application/json; charset=utf-8")
+	response.WriteHeader(http.StatusOK)
+	if _, err := response.Write(h.response); err != nil {
+		panic(fmt.Sprintf("write Flow Definition Graph catalog: %v", err))
+	}
+}

@@ -107,6 +107,7 @@ must exist and be reachable before startup.
 --bind-address string              local bind IP (default 127.0.0.1)
 --blob-store-dir string            persistent Dex blob storage directory (default $HOME/.dex/blobs)
 --dex-port int                     Dex gRPC port (default 8801)
+--flow-rendering-dir string        directory containing Flow Definition Graph JSON files
 --open                             open Dex Web after readiness (default true)
 --web-port int                     Dex Web port (default 8802)
 --sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)
@@ -145,6 +146,61 @@ dexcli flow history order-123 --no-hydrate
 
 RPC input and output use the same Blob Store hydration as other history values.
 Pass `--no-hydrate` to retain their references.
+
+## Visualize Flow source
+
+Generate a static possible-path graph from one Go or Python Flow source file:
+
+```bash
+dexcli visualize ./order_flow.go
+```
+
+The default writes `order_flow.flow.json` next to the source. The JSON is the
+versioned Flow Definition Graph consumed by Dex Web and other tools. Choose
+another prefix or write the graph to stdout:
+
+```bash
+dexcli visualize ./order_flow.py --out -
+dexcli visualize ./order_flow.go --out ./build/order-flow
+dexcli dev --flow-rendering-dir ./build
+```
+
+Open **Flow Rendering** in Dex Web to browse the loaded definitions. The page
+renders the graph interactively. A Flow frame contains Step frames, with WaitFor
+paths above Execute decisions. Conditional returns are grouped below dispatch
+diamonds. Channels, Attributes, RPCs, Streams, folded SubFlows, and diagnostics
+can be shown or hidden independently. Streams are hidden by default. Definitions
+are loaded once during startup; restart **dexcli dev** after changing the
+directory.
+
+Python analysis requires Python 3.11 or newer. Pass `--python /path/to/python`
+to select an interpreter. The analyzer parses Python with the standard-library
+AST and never imports or executes the application module.
+
+Go analysis requires a local Go toolchain and a module/package that passes type
+checking. Version 1 accepts one Flow per file. Step registration, transitions,
+waits, RPC next Steps, execute-failure recovery targets, and persistence
+resource access must be directly visible in that file. Wait conditions and
+Execute decisions are structured node details rather than labels inferred from
+edges. Channel edges run from publishers through the Channel to consuming
+WaitFor paths. Attribute edges run from writers through the Attribute group to
+readers. Terminal decisions and cancellation remain inside their Execute card.
+The graph also records repeatable best-effort Step Stream writes. Python
+synchronous Step generators and asynchronous Step handlers are both recognized.
+Heartbeat checkpoints are runtime details and are omitted. Step Stream progress
+from an RPC or Flow timeout handler produces a blocking diagnostic. Business
+helpers may remain in other files, but they must not hide Dex control flow.
+Dynamic targets produce an Unknown node and a blocking diagnostic. A partial
+JSON artifact is still written, and the command exits with status 1.
+
+```text
+dexcli visualize SOURCE [--language auto|go|python]
+                         [--out PATH_PREFIX|-]
+                         [--python PYTHON_PATH]
+```
+
+Invalid command usage exits with status 2. The JSON contract is documented by
+[`schema/flow-definition-graph.v1.schema.json`](schema/flow-definition-graph.v1.schema.json).
 
 The friendly Flow commands are:
 

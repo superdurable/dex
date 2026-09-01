@@ -77,7 +77,7 @@ export function FlowStatePanel({
         <section className="sidebar-section">
           <p className="eyebrow">Selected event</p>
           <h3>None</h3>
-          <p className="muted">Select an event from Timeline or Step graph.</p>
+          <p className="muted">Select an event from Timeline or Execution graph.</p>
         </section>
       )}
     </div>
