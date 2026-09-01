@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from dex import StartFlowOptions
 from quart import Blueprint, Response, jsonify, render_template, request
@@ -37,20 +37,97 @@ WEB_ROOT = Path(__file__).resolve().parents[3] / "ai-agent"
 TEMPLATE_DIR = WEB_ROOT / "templates"
 STATIC_DIR = WEB_ROOT / "static"
 
+class ProviderConfig(TypedDict):
+    label: str
+    prefix: str
+    defaultModel: str
+    environmentVariable: str | None
+
+
+PROVIDERS: dict[str, ProviderConfig] = {
+    "mock": {
+        "label": "Local mock",
+        "prefix": "",
+        "defaultModel": "mock/dex",
+        "environmentVariable": None,
+    },
+    "openai": {
+        "label": "OpenAI",
+        "prefix": "openai",
+        "defaultModel": "gpt-5-mini",
+        "environmentVariable": "OPENAI_API_KEY",
+    },
+    "anthropic": {
+        "label": "Anthropic",
+        "prefix": "anthropic",
+        "defaultModel": "claude-sonnet-4-5",
+        "environmentVariable": "ANTHROPIC_API_KEY",
+    },
+    "gemini": {
+        "label": "Google Gemini",
+        "prefix": "gemini",
+        "defaultModel": "gemini-2.5-flash",
+        "environmentVariable": "GEMINI_API_KEY",
+    },
+    "groq": {
+        "label": "Groq",
+        "prefix": "groq",
+        "defaultModel": "llama-3.3-70b-versatile",
+        "environmentVariable": "GROQ_API_KEY",
+    },
+    "custom": {
+        "label": "Other LiteLLM provider",
+        "prefix": "",
+        "defaultModel": "",
+        "environmentVariable": None,
+    },
+}
+
 
 def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
     blueprint = Blueprint("ai_agent", __name__, url_prefix="/products/ai-agent")
 
     @blueprint.get("/")
     async def index() -> str:
-        return await render_template("index.html")
+        bundle_version = (STATIC_DIR / "js" / "bundle.js").stat().st_mtime_ns
+        return await render_template("index.html", bundle_version=bundle_version)
+
+    @blueprint.get("/portal")
+    async def portal() -> Response:
+        registered_tools = {
+            tool.definition.name: tool for tool in app_state.mcp_registry.registered_tools
+        }
+        tools = []
+        for definition in app_state.mcp_registry.definitions([], []):
+            registered = registered_tools.get(definition.name)
+            tools.append(
+                {
+                    "name": definition.name,
+                    "description": definition.description,
+                    "requiresApproval": definition.requires_approval,
+                    "server": registered.server_name if registered else None,
+                }
+            )
+        return jsonify(
+            providers=[
+                {"id": provider_id, **provider}
+                for provider_id, provider in PROVIDERS.items()
+            ],
+            mcpServers=app_state.mcp_registry.server_names,
+            tools=tools,
+            builtInTools=["write_todos", "durable_wait"],
+        )
 
     @blueprint.post("/start")
     async def start() -> Response:
         payload = await _json_object()
         flow_id = _required_string(payload, "workflowId")
+        provider = _optional_string(payload, "provider", "mock")
         config = AgentConfig(
-            model=_optional_string(payload, "model", app_state.config.agent_model),
+            model=_provider_model(
+                provider,
+                _optional_string(payload, "model", app_state.config.agent_model),
+            ),
             system_prompt=_optional_string(
                 payload,
                 "systemPrompt",
@@ -77,16 +154,23 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
                 "messageRetentionLimit",
                 app_state.config.agent_message_retention,
             ),
+            mcp_enabled=_optional_bool(payload, "mcpEnabled", True),
             enabled_mcp_servers=_string_list(payload, "enabledMcpServers"),
             enabled_tools=_string_list(payload, "enabledTools"),
         )
         config.validate()
-        await app_state.client.start_flow(
-            app_state.ai_agent,
-            flow_id,
-            config,
-            StartFlowOptions(),
-        )
+        api_key = _optional_nullable_string(payload, "apiKey")
+        app_state.ai_agent_credentials.set_api_key(flow_id, api_key)
+        try:
+            await app_state.client.start_flow(
+                app_state.ai_agent,
+                flow_id,
+                config,
+                StartFlowOptions(),
+            )
+        except Exception:
+            app_state.ai_agent_credentials.set_api_key(flow_id, None)
+            raise
         return jsonify(workflow_id=flow_id)
 
     @blueprint.post("/messages")
@@ -253,3 +337,27 @@ def _string_list(payload: dict[str, Any], name: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise BadRequest(f"{name} must be a list of strings")
     return value
+
+
+def _provider_model(provider: str, model: str) -> str:
+    normalized_provider = provider.strip().lower()
+    try:
+        provider_config = PROVIDERS[normalized_provider]
+    except KeyError as error:
+        raise BadRequest(f"unknown provider {provider!r}") from error
+    if normalized_provider == "mock":
+        return "mock/dex"
+    normalized_model = model.strip()
+    if not normalized_model:
+        raise BadRequest("model must be a non-empty string")
+    prefix = provider_config["prefix"]
+    if not prefix:
+        return normalized_model
+    expected_prefix = f"{prefix}/"
+    if "/" in normalized_model and not normalized_model.startswith(expected_prefix):
+        raise BadRequest(
+            f"model for {normalized_provider} must start with {expected_prefix}"
+        )
+    if normalized_model.startswith(expected_prefix):
+        return normalized_model
+    return f"{expected_prefix}{normalized_model}"

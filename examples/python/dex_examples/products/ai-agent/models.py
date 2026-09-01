@@ -38,6 +38,7 @@ class AgentConfig:
     compaction_trigger_fraction: float = 0.85
     compaction_keep_fraction: float = 0.10
     message_retention_limit: int = DEFAULT_MESSAGE_RETENTION
+    mcp_enabled: bool = True
     enabled_mcp_servers: list[str] = field(default_factory=list)
     enabled_tools: list[str] = field(default_factory=list)
 

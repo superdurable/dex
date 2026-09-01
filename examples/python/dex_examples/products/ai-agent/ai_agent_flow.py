@@ -272,6 +272,7 @@ class CallModel(Step[None]):
             tools,
             progress.write,
             forced_tool_name,
+            context.flow_id,
         )
         self.flow.append_message(
             context,
@@ -600,6 +601,10 @@ class AIAgentFlow(Flow[AgentConfig]):
         )
 
     def validate_config(self, config: AgentConfig) -> None:
+        if not config.mcp_enabled and (
+            config.enabled_mcp_servers or config.enabled_tools
+        ):
+            raise ValueError("disabled MCP cannot select servers or tools")
         unknown_servers = set(config.enabled_mcp_servers) - set(
             self.mcp_registry.server_names
         )
@@ -611,9 +616,13 @@ class AIAgentFlow(Flow[AgentConfig]):
             raise ValueError(f"unknown tools: {sorted(unknown_tools)}")
 
     def tool_definitions(self, config: AgentConfig) -> list[ToolDefinition]:
-        definitions = self.mcp_registry.definitions(
-            config.enabled_mcp_servers,
-            config.enabled_tools,
+        definitions = (
+            self.mcp_registry.definitions(
+                config.enabled_mcp_servers,
+                config.enabled_tools,
+            )
+            if config.mcp_enabled
+            else []
         )
         definitions.append(_durable_wait_definition())
         return definitions

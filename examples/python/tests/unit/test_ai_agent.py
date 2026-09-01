@@ -19,9 +19,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from werkzeug.exceptions import BadRequest
 
 from dex_examples.products.ai_agent.mcp_registry import MCPRegistry
-from dex_examples.products.ai_agent.model_client import LiteLLMModelClient
+from dex_examples.products.ai_agent.http_routes import _provider_model
+from dex_examples.products.ai_agent.model_client import (
+    AgentCredentialStore,
+    LiteLLMModelClient,
+)
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
     AgentMessage,
@@ -39,6 +44,24 @@ def test_agent_config_requires_ordered_compaction_thresholds() -> None:
             compaction_trigger_fraction=0.5,
             compaction_keep_fraction=0.6,
         ).validate()
+
+
+def test_agent_credentials_remain_outside_durable_config() -> None:
+    credentials = AgentCredentialStore()
+
+    credentials.set_api_key("flow-1", "secret-key")
+    assert credentials.get_api_key("flow-1") == "secret-key"
+    assert "secret-key" not in repr(AgentConfig())
+
+    credentials.set_api_key("flow-1", None)
+    assert credentials.get_api_key("flow-1") is None
+
+
+def test_provider_model_adds_and_validates_litellm_prefix() -> None:
+    assert _provider_model("openai", "gpt-example") == "openai/gpt-example"
+    assert _provider_model("mock", "ignored") == "mock/dex"
+    with pytest.raises(BadRequest, match="must start with openai/"):
+        _provider_model("openai", "anthropic/model")
 
 
 async def test_mock_model_returns_a_durable_wait_tool() -> None:

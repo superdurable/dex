@@ -55,6 +55,9 @@ uv run --frozen python main.py
 ```
 
 Open [http://127.0.0.1:8080/products/ai-agent/](http://127.0.0.1:8080/products/ai-agent/).
+The first page is the Agent Portal. Choose a LiteLLM provider and model, enter an
+API key or use the Worker environment, and select the registered MCP servers and
+tools available to the new session.
 
 ## Configure a real model
 
@@ -65,9 +68,12 @@ export OPENAI_API_KEY="..."
 export DEX_AGENT_MODEL="openai/gpt-5-mini"
 ```
 
-Other LiteLLM providers work the same way. The browser may override the model and
-system prompt per conversation. Credentials stay in the Worker environment and are
-never stored in the Flow.
+Other LiteLLM providers work the same way. The Portal may override the model and
+system prompt per conversation. A key entered in the Portal is held only in the
+Worker process for that Flow ID. It is cleared from the browser after startup and
+is never stored in a Dex Attribute, message, or Flow history. Environment variables
+remain the better choice for a deployed Worker or a session that must survive a
+Worker process restart.
 
 Worker defaults:
 

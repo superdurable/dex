@@ -40,6 +40,7 @@ class ModelClient(Protocol):
         tools: Sequence[ToolDefinition],
         write_progress: ProgressWriter,
         forced_tool_name: str | None = None,
+        flow_id: str | None = None,
     ) -> ModelReply: ...
 
     async def summarize(
@@ -52,7 +53,26 @@ class ModelClient(Protocol):
     def count_tokens(self, model: str, messages: Sequence[AgentMessage]) -> int: ...
 
 
+class AgentCredentialStore:
+    def __init__(self) -> None:
+        self._api_keys: dict[str, str] = {}
+
+    def set_api_key(self, flow_id: str, api_key: str | None) -> None:
+        if api_key:
+            self._api_keys[flow_id] = api_key
+        else:
+            self._api_keys.pop(flow_id, None)
+
+    def get_api_key(self, flow_id: str | None) -> str | None:
+        if flow_id is None:
+            return None
+        return self._api_keys.get(flow_id)
+
+
 class LiteLLMModelClient:
+    def __init__(self, credentials: AgentCredentialStore | None = None) -> None:
+        self._credentials = credentials or AgentCredentialStore()
+
     async def complete(
         self,
         config: AgentConfig,
@@ -60,6 +80,7 @@ class LiteLLMModelClient:
         tools: Sequence[ToolDefinition],
         write_progress: ProgressWriter,
         forced_tool_name: str | None = None,
+        flow_id: str | None = None,
     ) -> ModelReply:
         if config.model == "mock/dex":
             return await _mock_completion(
@@ -76,6 +97,9 @@ class LiteLLMModelClient:
             "messages": _to_litellm_messages(config.system_prompt, messages),
             "stream": True,
         }
+        api_key = self._credentials.get_api_key(flow_id)
+        if api_key is not None:
+            request["api_key"] = api_key
         if tools:
             request["tools"] = [_to_litellm_tool(tool) for tool in tools]
         if forced_tool_name is not None:

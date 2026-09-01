@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import socket
 from collections.abc import AsyncIterator, Callable
 from uuid import uuid4
@@ -399,6 +400,33 @@ async def _ai_agent_trigger(
         {"workflowId": flow_id},
     )
     return flow_id, ""
+
+
+async def test_ai_agent_portal_configures_credentials_and_capabilities(
+    flow_smoke_http: FlowSmokeHttpClient,
+    example_app: ExampleApp,
+) -> None:
+    _, _, portal_body = await flow_smoke_http.get("/products/ai-agent/portal")
+    portal = json.loads(portal_body)
+    assert any(provider["id"] == "openai" for provider in portal["providers"])
+    assert "write_todos" in portal["builtInTools"]
+    assert "test" in portal["mcpServers"]
+
+    flow_id = flow_smoke_http.new_flow_id("ai-agent-portal")
+    await flow_smoke_http.post(
+        "/products/ai-agent/start",
+        {
+            "workflowId": flow_id,
+            "provider": "openai",
+            "model": "gpt-example",
+            "apiKey": "portal-test-secret",
+            "mcpEnabled": False,
+            "enabledMcpServers": [],
+            "enabledTools": [],
+        },
+    )
+    assert example_app.ai_agent_credentials.get_api_key(flow_id) == "portal-test-secret"
+    example_app.ai_agent_credentials.set_api_key(flow_id, None)
 
 
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:

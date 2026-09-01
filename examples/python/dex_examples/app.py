@@ -99,7 +99,10 @@ from dex_examples.primitives.timer.timer_flow import TimerFlow
 from dex_examples.primitives.wait_types.wait_types_flow import WaitTypesFlow
 from dex_examples.products.ai_agent.ai_agent_flow import AIAgentFlow
 from dex_examples.products.ai_agent.mcp_registry import MCPRegistry
-from dex_examples.products.ai_agent.model_client import LiteLLMModelClient
+from dex_examples.products.ai_agent.model_client import (
+    AgentCredentialStore,
+    LiteLLMModelClient,
+)
 from dex_examples.products.deal_dsl.deal_dsl_flow import DealDSLFlow
 from dex_examples.products.engagement.engagement_flow import EngagementFlow
 from dex_examples.products.job_post.job_post_flow import JobPostingFlow
@@ -185,7 +188,11 @@ class ExampleApp:
         self.controller = ControllerFlow(client_provider, lambda: self.processing)
         self.processing = ProcessingFlow(client_provider, lambda: self.controller)
         self.mcp_registry = MCPRegistry.from_file(config.agent_mcp_config)
-        self.ai_agent = AIAgentFlow(LiteLLMModelClient(), self.mcp_registry)
+        self.ai_agent_credentials = AgentCredentialStore()
+        self.ai_agent = AIAgentFlow(
+            LiteLLMModelClient(self.ai_agent_credentials),
+            self.mcp_registry,
+        )
 
         flows: list[Flow[Any]] = [
             self.money_transfer,

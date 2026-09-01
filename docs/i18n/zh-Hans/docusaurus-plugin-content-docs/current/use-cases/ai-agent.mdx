@@ -48,7 +48,7 @@ UI 会展示 draft，只有用户选择 **Execute plan** 后才开始执行。�
 
 ## MCP tool 与审批
 
-Worker 从本地配置加载受信任的 stdio 或 Streamable HTTP MCP server。Flow 可以从已注册的 server 中选择，但浏览器不能注册 command、URL 或 credential。
+Worker 从本地配置加载受信任的 stdio 或 Streamable HTTP MCP server。Agent Portal 可以为新会话启用已注册的 server 和 tool，但不能注册 MCP command、URL 或 credential。
 
 Read-only tool 可以直接运行。Write、destructive 和未分类 tool 会等待 durable approval Channel。Tool timeout 与 retry policy 可以按 server 和 tool 配置。最终失败会成为 tool result，让模型和用户决定下一步。
 
@@ -68,7 +68,7 @@ Tool progress、timer state 与 compaction status 使用另一个 Stream。Strea
 
 Flow 与 HTTP route 位于 [examples/python/dex_examples/products/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/dex_examples/products/ai-agent)。React UI 与 MCP 配置示例位于 [examples/python/ai-agent](https://github.com/superdurable/dex/tree/main/examples/python/ai-agent)。
 
-Application 默认使用 local demonstration model。配置 LiteLLM model 与 provider credential 后即可使用 hosted model。
+Application 默认先进入 Agent Portal。启动 Agent 前，可以选择 LiteLLM provider 和 model、输入可选 API key，并选择已注册的 MCP server 与 tool。Portal 中输入的 key 只保存在 Worker memory，不会写入 Dex state 或 Flow history。需要在 Worker process 重启后继续使用 credential 时，应配置 Worker environment variable。
 
 ## 相关内容
 

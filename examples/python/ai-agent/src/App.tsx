@@ -74,6 +74,28 @@ interface AgentEvent {
   tool_name: string | null;
 }
 
+interface PortalProvider {
+  id: string;
+  label: string;
+  prefix: string;
+  defaultModel: string;
+  environmentVariable: string | null;
+}
+
+interface PortalTool {
+  name: string;
+  description: string;
+  requiresApproval: boolean;
+  server: string | null;
+}
+
+interface PortalConfig {
+  providers: PortalProvider[];
+  mcpServers: string[];
+  tools: PortalTool[];
+  builtInTools: string[];
+}
+
 const generateWorkflowId = (): string => crypto.randomUUID();
 
 const App: React.FC = () => {
@@ -82,14 +104,19 @@ const App: React.FC = () => {
     [],
   );
   const [workflowId, setWorkflowId] = useState(queryWorkflowId);
+  const [provider, setProvider] = useState('mock');
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [portalConfig, setPortalConfig] = useState<PortalConfig | null>(null);
   const [model, setModel] = useState('mock/dex');
   const [systemPrompt, setSystemPrompt] = useState(
     'You are a helpful durable AI agent. Use tools when they help and report tool outcomes accurately.',
   );
   const [maxContextTokens, setMaxContextTokens] = useState(32000);
   const [messageRetentionLimit, setMessageRetentionLimit] = useState(2000);
-  const [mcpServers, setMcpServers] = useState('');
-  const [enabledTools, setEnabledTools] = useState('');
+  const [mcpEnabled, setMcpEnabled] = useState(true);
+  const [selectedMcpServers, setSelectedMcpServers] = useState<string[]>([]);
+  const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [messages, setMessages] = useState<SequencedMessage[]>([]);
   const [description, setDescription] = useState<AgentDescription | null>(null);
   const [input, setInput] = useState('');
@@ -98,6 +125,21 @@ const App: React.FC = () => {
   const [activity, setActivity] = useState<AgentEvent[]>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (workflowId) return;
+    void fetch(`${API_BASE}/portal`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await response.text());
+        return response.json() as Promise<PortalConfig>;
+      })
+      .then((configuration) => {
+        setPortalConfig(configuration);
+        setSelectedMcpServers(configuration.mcpServers);
+        setSelectedTools(configuration.tools.map((tool) => tool.name));
+      })
+      .catch((reason) => setError(String(reason)));
+  }, [workflowId]);
 
   const fetchState = async () => {
     if (!workflowId) return;
@@ -180,22 +222,66 @@ const App: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           workflowId: newWorkflowId,
+          provider,
+          apiKey: apiKey.trim() || null,
           model,
           systemPrompt,
           maxContextTokens,
           messageRetentionLimit,
-          enabledMcpServers: splitList(mcpServers),
-          enabledTools: splitList(enabledTools),
+          mcpEnabled,
+          enabledMcpServers: mcpEnabled ? selectedMcpServers : [],
+          enabledTools: mcpEnabled
+            ? selectedTools.filter((toolName) => visibleTools.some((tool) => tool.name === toolName))
+            : [],
         }),
       });
       if (!response.ok) throw new Error(await response.text());
       window.history.replaceState({}, '', `${window.location.pathname}?workflowId=${newWorkflowId}`);
+      setApiKey('');
       setWorkflowId(newWorkflowId);
     } catch (reason) {
       setError(String(reason));
     } finally {
       setIsBusy(false);
     }
+  };
+
+  const selectedProvider = portalConfig?.providers.find((item) => item.id === provider);
+  const visibleTools = (portalConfig?.tools ?? []).filter(
+    (tool) => tool.server === null || selectedMcpServers.includes(tool.server),
+  );
+  const hasValidToolSelection = !mcpEnabled
+    || visibleTools.length === 0
+    || visibleTools.some((tool) => selectedTools.includes(tool.name));
+  const hasValidMcpSelection = !mcpEnabled
+    || (portalConfig?.mcpServers.length ?? 0) === 0
+    || selectedMcpServers.length > 0;
+
+  const changeProvider = (providerId: string) => {
+    const nextProvider = portalConfig?.providers.find((item) => item.id === providerId);
+    setProvider(providerId);
+    setModel(nextProvider?.defaultModel ?? '');
+    setApiKey('');
+  };
+
+  const toggleSelection = (
+    value: string,
+    selected: string[],
+    update: React.Dispatch<React.SetStateAction<string[]>>,
+  ) => {
+    update(selected.includes(value)
+      ? selected.filter((item) => item !== value)
+      : [...selected, value]);
+  };
+
+  const returnToPortal = () => {
+    window.history.replaceState({}, '', window.location.pathname);
+    setWorkflowId('');
+    setDescription(null);
+    setMessages([]);
+    setLiveText('');
+    setActivity([]);
+    setError('');
   };
 
   const sendMessage = async () => {
@@ -262,47 +348,194 @@ const App: React.FC = () => {
   if (!workflowId) {
     return (
       <main style={styles.page}>
-        <section style={styles.startCard}>
-          <p style={styles.eyebrow}>Dex durable application</p>
-          <h1 style={styles.title}>AI Agent</h1>
-          <p style={styles.subtitle}>
-            A long-running agent with durable plans, conversation state, MCP tools, approvals, and timers.
-          </p>
-          <label style={styles.label}>Model</label>
-          <input style={styles.input} value={model} onChange={(event) => setModel(event.target.value)} />
-          <label style={styles.label}>System prompt</label>
-          <textarea
-            style={{ ...styles.input, minHeight: 110 }}
-            value={systemPrompt}
-            onChange={(event) => setSystemPrompt(event.target.value)}
-          />
-          <div style={styles.grid}>
+        <section style={styles.portalShell}>
+          <header style={styles.portalHero}>
             <div>
-              <label style={styles.label}>Context tokens</label>
+              <p style={styles.eyebrow}>Dex agent portal</p>
+              <h1 style={styles.title}>Configure your AI Agent</h1>
+              <p style={styles.subtitle}>
+                Connect a model, choose trusted capabilities, then start a durable conversation.
+              </p>
+            </div>
+            <div style={styles.portalSteps}>
+              <span style={styles.activeStep}>1 · Configure</span>
+              <span>2 · Chat</span>
+            </div>
+          </header>
+
+          <div style={styles.portalGrid}>
+            <section style={styles.portalCard}>
+              <div style={styles.sectionHeading}>
+                <span style={styles.sectionNumber}>1</span>
+                <div>
+                  <h2 style={styles.sectionTitle}>Model provider</h2>
+                  <p style={styles.sectionCopy}>Used for this Agent session.</p>
+                </div>
+              </div>
+              <label style={styles.label}>LLM provider</label>
+              <select
+                style={styles.input}
+                value={provider}
+                onChange={(event) => changeProvider(event.target.value)}
+                disabled={!portalConfig}
+              >
+                {(portalConfig?.providers ?? [{ id: 'mock', label: 'Local mock' } as PortalProvider]).map((item) => (
+                  <option key={item.id} value={item.id}>{item.label}</option>
+                ))}
+              </select>
+              <label style={styles.label}>Model</label>
               <input
                 style={styles.input}
-                type="number"
-                value={maxContextTokens}
-                onChange={(event) => setMaxContextTokens(Number(event.target.value))}
+                value={model}
+                onChange={(event) => setModel(event.target.value)}
+                disabled={provider === 'mock'}
+                placeholder={provider === 'custom' ? 'provider/model-name' : 'Model name'}
               />
-            </div>
-            <div>
-              <label style={styles.label}>Retained messages</label>
-              <input
-                style={styles.input}
-                type="number"
-                value={messageRetentionLimit}
-                onChange={(event) => setMessageRetentionLimit(Number(event.target.value))}
+              <label style={styles.label}>API key</label>
+              <div style={styles.secretInput}>
+                <input
+                  style={{ ...styles.input, paddingRight: 72 }}
+                  type={showApiKey ? 'text' : 'password'}
+                  value={apiKey}
+                  onChange={(event) => setApiKey(event.target.value)}
+                  disabled={provider === 'mock'}
+                  autoComplete="off"
+                  placeholder={provider === 'mock' ? 'Not needed for mock/dex' : 'Enter a key or use the Worker environment'}
+                />
+                {provider !== 'mock' && (
+                  <button style={styles.revealButton} onClick={() => setShowApiKey((shown) => !shown)}>
+                    {showApiKey ? 'Hide' : 'Show'}
+                  </button>
+                )}
+              </div>
+              <p style={styles.securityNote}>
+                The key stays in this Worker process and is never written to Dex history.
+                {selectedProvider?.environmentVariable && ` You may instead set ${selectedProvider.environmentVariable}.`}
+              </p>
+            </section>
+
+            <section style={styles.portalCard}>
+              <div style={styles.sectionHeading}>
+                <span style={styles.sectionNumber}>2</span>
+                <div>
+                  <h2 style={styles.sectionTitle}>Agent behavior</h2>
+                  <p style={styles.sectionCopy}>Set the durable session defaults.</p>
+                </div>
+              </div>
+              <label style={styles.label}>System prompt</label>
+              <textarea
+                style={{ ...styles.input, minHeight: 132, resize: 'vertical' }}
+                value={systemPrompt}
+                onChange={(event) => setSystemPrompt(event.target.value)}
               />
-            </div>
+              <div style={styles.grid}>
+                <div>
+                  <label style={styles.label}>Context tokens</label>
+                  <input
+                    style={styles.input}
+                    type="number"
+                    value={maxContextTokens}
+                    onChange={(event) => setMaxContextTokens(Number(event.target.value))}
+                  />
+                </div>
+                <div>
+                  <label style={styles.label}>Retained messages</label>
+                  <input
+                    style={styles.input}
+                    type="number"
+                    value={messageRetentionLimit}
+                    onChange={(event) => setMessageRetentionLimit(Number(event.target.value))}
+                  />
+                </div>
+              </div>
+            </section>
           </div>
-          <label style={styles.label}>MCP servers (comma separated, empty means all)</label>
-          <input style={styles.input} value={mcpServers} onChange={(event) => setMcpServers(event.target.value)} />
-          <label style={styles.label}>Tools (comma separated, empty means all)</label>
-          <input style={styles.input} value={enabledTools} onChange={(event) => setEnabledTools(event.target.value)} />
-          <button style={styles.primaryButton} disabled={isBusy} onClick={startAgent}>
-            {isBusy ? 'Starting…' : 'Start AI Agent'}
-          </button>
+
+          <section style={{ ...styles.portalCard, marginTop: 18 }}>
+            <div style={styles.capabilityHeader}>
+              <div style={styles.sectionHeading}>
+                <span style={styles.sectionNumber}>3</span>
+                <div>
+                  <h2 style={styles.sectionTitle}>Tools and MCP</h2>
+                  <p style={styles.sectionCopy}>Only capabilities registered by the Worker can be enabled.</p>
+                </div>
+              </div>
+              <label style={styles.switchLabel}>
+                <input
+                  type="checkbox"
+                  checked={mcpEnabled}
+                  onChange={(event) => setMcpEnabled(event.target.checked)}
+                />
+                Enable MCP
+              </label>
+            </div>
+
+            <div style={mcpEnabled ? undefined : styles.disabledSection}>
+              <h3 style={styles.capabilityTitle}>MCP servers</h3>
+              {portalConfig && portalConfig.mcpServers.length === 0 ? (
+                <p style={styles.emptyCapability}>No MCP servers are registered. Set DEX_AGENT_MCP_CONFIG before starting the Worker.</p>
+              ) : (
+                <div style={styles.choiceGrid}>
+                  {(portalConfig?.mcpServers ?? []).map((server) => (
+                    <label key={server} style={styles.choiceCard}>
+                      <input
+                        type="checkbox"
+                        checked={selectedMcpServers.includes(server)}
+                        disabled={!mcpEnabled}
+                        onChange={() => toggleSelection(server, selectedMcpServers, setSelectedMcpServers)}
+                      />
+                      <span><strong>{server}</strong><small style={styles.choiceMeta}>Trusted Worker configuration</small></span>
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              <h3 style={styles.capabilityTitle}>Available tools</h3>
+              {visibleTools.length === 0 ? (
+                <p style={styles.emptyCapability}>No MCP tools are available for the selected servers.</p>
+              ) : (
+                <div style={styles.toolGrid}>
+                  {visibleTools.map((tool) => (
+                    <label key={tool.name} style={styles.toolChoice}>
+                      <input
+                        type="checkbox"
+                        checked={selectedTools.includes(tool.name)}
+                        disabled={!mcpEnabled}
+                        onChange={() => toggleSelection(tool.name, selectedTools, setSelectedTools)}
+                      />
+                      <span style={styles.toolCopy}>
+                        <span><strong>{tool.name}</strong>{tool.requiresApproval && <em style={styles.approvalBadge}>approval</em>}</span>
+                        <small>{tool.description}</small>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={styles.builtIns}>
+              <strong>Built in</strong>
+              {(portalConfig?.builtInTools ?? ['write_todos', 'durable_wait']).map((tool) => (
+                <span key={tool} style={styles.toolPill}>{tool}</span>
+              ))}
+            </div>
+          </section>
+
+          <div style={styles.portalFooter}>
+            <div>
+              <strong>Ready to start</strong>
+              <p style={styles.sectionCopy}>You can create plans and approve write tools from the Agent page.</p>
+            </div>
+            <button
+              style={styles.launchButton}
+              disabled={isBusy || !portalConfig || !model.trim() || !systemPrompt.trim() || !hasValidToolSelection || !hasValidMcpSelection}
+              onClick={startAgent}
+            >
+              {isBusy ? 'Starting Agent…' : 'Enter AI Agent →'}
+            </button>
+          </div>
+          {!hasValidToolSelection && <p style={styles.error}>Select at least one available MCP tool, or disable MCP.</p>}
+          {!hasValidMcpSelection && <p style={styles.error}>Select at least one MCP server, or disable MCP.</p>}
           {error && <p style={styles.error}>{error}</p>}
         </section>
       </main>
@@ -320,6 +553,7 @@ const App: React.FC = () => {
           <strong>{description?.status ?? 'loading'}</strong>
           <span>{description?.model ?? ''}</span>
         </div>
+        <button style={styles.headerButton} onClick={returnToPortal}>New Agent</button>
       </header>
 
       <section style={styles.chatCard}>
@@ -508,15 +742,39 @@ const planTaskIcon = (status: PlanTask['status']): string => {
   return '○';
 };
 
-const splitList = (value: string): string[] => value
-  .split(',')
-  .map((item) => item.trim())
-  .filter(Boolean);
-
 const styles: Record<string, React.CSSProperties> = {
-  page: { minHeight: '100vh', background: '#f5f7fb', color: '#172033', padding: '32px 18px', fontFamily: 'Inter, system-ui, sans-serif' },
-  startCard: { maxWidth: 720, margin: '40px auto', padding: 36, borderRadius: 20, background: '#fff', boxShadow: '0 18px 60px rgba(24, 39, 75, 0.10)' },
+  page: { minHeight: '100vh', background: 'linear-gradient(145deg, #f7f8fc 0%, #eef1fb 100%)', color: '#172033', padding: '32px 18px', fontFamily: 'Inter, system-ui, sans-serif' },
+  portalShell: { maxWidth: 1120, margin: '0 auto', paddingBottom: 40 },
+  portalHero: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 24, padding: '22px 4px 30px' },
+  portalSteps: { display: 'flex', gap: 8, padding: 6, borderRadius: 999, background: '#e6e9f3', color: '#6b7280', fontSize: 13, fontWeight: 700 },
+  activeStep: { padding: '8px 13px', borderRadius: 999, background: '#fff', color: '#3730a3', boxShadow: '0 2px 8px rgba(25, 33, 61, .08)' },
+  portalGrid: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 18 },
+  portalCard: { padding: 26, borderRadius: 20, background: 'rgba(255,255,255,.94)', border: '1px solid rgba(207,214,228,.8)', boxShadow: '0 16px 48px rgba(24, 39, 75, 0.08)' },
+  sectionHeading: { display: 'flex', alignItems: 'center', gap: 12 },
+  sectionNumber: { display: 'grid', placeItems: 'center', width: 34, height: 34, flex: '0 0 34px', borderRadius: 11, background: '#4f46e5', color: '#fff', fontWeight: 800 },
+  sectionTitle: { margin: 0, fontSize: 19 },
+  sectionCopy: { margin: '4px 0 0', color: '#667085', lineHeight: 1.45 },
+  secretInput: { position: 'relative' },
+  revealButton: { position: 'absolute', right: 8, top: 7, border: 0, borderRadius: 7, padding: '5px 8px', background: '#eef1f7', color: '#39445a', fontWeight: 700, cursor: 'pointer' },
+  securityNote: { margin: '10px 0 0', padding: '10px 12px', borderRadius: 10, background: '#eef8f4', color: '#17634a', fontSize: 13, lineHeight: 1.45 },
+  capabilityHeader: { display: 'flex', justifyContent: 'space-between', gap: 18, alignItems: 'center' },
+  switchLabel: { display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', borderRadius: 10, background: '#f0f4ff', color: '#3730a3', fontWeight: 800 },
+  disabledSection: { opacity: 0.45 },
+  capabilityTitle: { margin: '24px 0 10px', fontSize: 14, textTransform: 'uppercase', letterSpacing: '.06em', color: '#596579' },
+  choiceGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 },
+  choiceCard: { display: 'flex', gap: 10, padding: 13, borderRadius: 12, border: '1px solid #dce1eb', background: '#fafbfe', cursor: 'pointer' },
+  choiceMeta: { display: 'block', marginTop: 3, color: '#7b8495' },
+  toolGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10 },
+  toolChoice: { display: 'flex', alignItems: 'flex-start', gap: 10, padding: 13, borderRadius: 12, border: '1px solid #dce1eb', background: '#fff', cursor: 'pointer' },
+  toolCopy: { display: 'grid', gap: 4, minWidth: 0, overflowWrap: 'anywhere' },
+  approvalBadge: { marginLeft: 8, padding: '2px 7px', borderRadius: 999, background: '#fff1d6', color: '#8a5514', fontSize: 11, fontStyle: 'normal' },
+  emptyCapability: { margin: 0, padding: 14, borderRadius: 11, background: '#f7f8fb', color: '#667085' },
+  builtIns: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 22, paddingTop: 18, borderTop: '1px solid #e6e9ef' },
+  toolPill: { padding: '5px 9px', borderRadius: 999, background: '#e9ecff', color: '#3730a3', fontSize: 12, fontWeight: 700 },
+  portalFooter: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 20, marginTop: 18, padding: '20px 24px', borderRadius: 18, background: '#172033', color: '#fff' },
+  launchButton: { border: 0, borderRadius: 11, padding: '13px 20px', background: '#7c72ff', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: 15 },
   header: { maxWidth: 960, margin: '0 auto 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  headerButton: { border: '1px solid #cfd6e4', borderRadius: 10, padding: '9px 13px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer' },
   title: { margin: '4px 0 10px', fontSize: 44 },
   eyebrow: { margin: 0, color: '#5c6ac4', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 12 },
   subtitle: { color: '#596579', lineHeight: 1.6 },

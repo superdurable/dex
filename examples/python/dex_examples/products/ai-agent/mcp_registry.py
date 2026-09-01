@@ -115,6 +115,13 @@ class MCPRegistry:
     def tool_names(self) -> list[str]:
         return sorted(self._tools)
 
+    @property
+    def registered_tools(self) -> list[RegisteredTool]:
+        return sorted(
+            self._tools.values(),
+            key=lambda tool: tool.definition.name,
+        )
+
     def definitions(
         self,
         enabled_servers: list[str],
