@@ -36,7 +36,8 @@ Full integration verification:
 - Persistence integration covers singleton Attribute equality waits; local
   contracts cover Condition IDs and buffered map introspection.
 - Step streaming covers repeated and cross-Stream writes, duplicate source
-  metadata, heartbeat detail recovery and clearing, and local-activity fallback.
+  metadata, heartbeat detail recovery and clearing, local-activity fallback, and
+  buffered text timer/final-result ordering.
 
 ## Error coverage
 

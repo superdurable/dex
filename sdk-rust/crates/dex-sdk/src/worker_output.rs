@@ -80,6 +80,26 @@ impl StepOutputEmitter {
         }
     }
 
+    pub(crate) async fn send_stream_write_async(
+        &self,
+        write: StepStreamWrite,
+    ) -> HandlerResult<()> {
+        match self {
+            Self::WaitFor(sender) => sender
+                .send(Ok(InvokeWaitForMethodOutput {
+                    output: Some(invoke_wait_for_method_output::Output::StreamWrite(write)),
+                }))
+                .await
+                .map_err(output_closed),
+            Self::Execute(sender) => sender
+                .send(Ok(InvokeExecuteMethodOutput {
+                    output: Some(invoke_execute_method_output::Output::StreamWrite(write)),
+                }))
+                .await
+                .map_err(output_closed),
+        }
+    }
+
     pub(crate) fn wait_for_sender(&self) -> mpsc::Sender<HandlerResult<InvokeWaitForMethodOutput>> {
         match self {
             Self::WaitFor(sender) => sender.clone(),

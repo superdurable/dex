@@ -92,7 +92,12 @@ from dex.step import (
     heartbeat,
 )
 from dex.step_execution import StepExecutionId, TimerId
-from dex.stream import Stream, StreamMessage
+from dex.stream import (
+    AsyncBufferedTextStream,
+    BufferedTextStream,
+    Stream,
+    StreamMessage,
+)
 from dex.subflow import SubFlow
 from dex.timer import Timer
 from dex.wait import Wait
@@ -112,9 +117,11 @@ __all__ = [
     "AttributeMap",
     "AsyncContext",
     "AsyncClient",
+    "AsyncBufferedTextStream",
     "AsyncWorker",
     "BlobCache",
     "BlobCacheConfig",
+    "BufferedTextStream",
     "Channel",
     "ChannelMap",
     "Client",

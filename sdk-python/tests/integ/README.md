@@ -36,7 +36,8 @@ uv run --frozen pyright tests/integ
   local contracts cover Condition IDs and map introspection.
 - Sync generator and async coroutine suites cover ordered heartbeat and Stream
   frames, repeated Stream sources, heartbeat-value recovery, explicit clearing,
-  and persisted Python `None`.
+  persisted Python `None`, cooperative sync buffering, and async timer/final-result
+  flushing.
 
 ## Error coverage
 

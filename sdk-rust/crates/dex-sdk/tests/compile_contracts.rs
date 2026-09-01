@@ -38,6 +38,18 @@ fn stream_definitions_and_client_calls_compile() {
             context.last_heartbeat_value::<Option<String>>();
         let _stream_write: dex_sdk::HandlerResult<()> =
             stream.write(context, "checking".to_owned());
+        let buffered: dex_sdk::HandlerResult<dex_sdk::BufferedTextStream> = stream
+            .buffered_with_options(
+                context,
+                dex_sdk::BufferedTextStreamOptions::new(
+                    std::time::Duration::from_millis(500),
+                    8 * 1024,
+                ),
+            );
+        if let Ok(buffered) = buffered {
+            let _buffered_write: dex_sdk::HandlerResult<()> = buffered.write("thinking ");
+            let _buffered_flush: dex_sdk::HandlerResult<()> = buffered.flush();
+        }
         client.write_stream("flow-1", stream, "client#source", "starting".to_owned())?;
         let message = client.read_stream("flow-1", stream, "")?;
         let _source: &str = &message.source;

@@ -208,6 +208,19 @@ different Streams. Dex attempts each append in call order, but Stream Store
 failures are not returned to the handler. RPC and Flow timeout Contexts reject
 Step Stream writes.
 
+For text deltas, create one writer and pass its bound `write` method directly
+to the producer:
+
+```typescript
+const progress = thinking.buffered(context, { flushIntervalMs: 500 });
+await generateText(input, progress.write);
+```
+
+The defaults are one second and a soft 16 KiB UTF-8 threshold. `flush()` sends
+the current nonempty batch, and invocation completion sends the tail before the
+final result or error. Chunks are concatenated exactly. Retry does not restore
+unsent text or deduplicate emitted batches.
+
 External writes use `client.writeStream(flowId, stream, source, value)`. Source
 must be non-empty, may contain `#`, and may repeat; every write appends a new
 message. `Client.readStream` returns it as `StreamMessage.source`. Step writes

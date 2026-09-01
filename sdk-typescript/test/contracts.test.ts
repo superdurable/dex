@@ -571,6 +571,79 @@ test("Step Stream writes emit every message on the active invocation", async () 
   assert.throws(() => void rpc.recordHeartbeat("value"), /require an async Step Context/);
 });
 
+test("buffered text Stream flushes on timer and before the final result", async () => {
+  const thinking = new Stream("thinking", stringCodec, 1_048_576);
+  let handlerFinished = false;
+  let releaseHandler: (() => void) | undefined;
+  class BufferedStep implements Step<string> {
+    public readonly inputCodec = stringCodec;
+
+    public getStepType(): string {
+      return "BufferedStep";
+    }
+
+    public async execute(context: Context, input: string): Promise<StepDecision> {
+      const progress = thinking.buffered(context, {
+        flushIntervalMs: 5,
+        maxBufferedBytes: 1_024,
+      });
+      progress.write(input);
+      await new Promise<void>((resolve) => {
+        releaseHandler = resolve;
+      });
+      progress.write(" ");
+      progress.write("世界");
+      handlerFinished = true;
+      return gracefulComplete(input);
+    }
+  }
+  class BufferedFlow implements Flow<string> {
+    public readonly start = new BufferedStep();
+
+    public getFlowType(): string {
+      return "BufferedFlow";
+    }
+
+    public getSteps(): StepList<string> {
+      return StepList.startStep(this.start);
+    }
+
+    public getPersistenceSchema() {
+      return { streams: [thinking] };
+    }
+  }
+  const observed: Array<{ value: string; handlerFinished: boolean }> = [];
+  const output = {
+    recordHeartbeat: async () => {},
+    writeStream(write: StepStreamWrite) {
+      observed.push({
+        value: write.value?.kind?.$case === "stringValue" ? write.value.kind.value : "",
+        handlerFinished,
+      });
+      releaseHandler?.();
+    },
+  };
+  const flow = new BufferedFlow();
+  const dispatcher = new WorkerDispatcher(
+    new Registry([flow]),
+    { hydrateAll: async (values: readonly unknown[]) => values } as unknown as ValueHydrator,
+  );
+  await dispatcher.invokeExecute(
+    InvokeExecuteMethodRequest.create({
+      context: ProtoContext.create({ stepExecutionId: "step-1" }),
+      flowType: flow.getFlowType(),
+      stepType: flow.start.getStepType(),
+      stepInput: encodeValue(stringCodec, "hello"),
+    }),
+    new AbortController().signal,
+    output,
+  );
+  assert.deepEqual(observed, [
+    { value: "hello", handlerFinished: false },
+    { value: " 世界", handlerFinished: true },
+  ]);
+});
+
 test("Async Step Context preserves heartbeat Value presence and codecs", async () => {
   const observed: Array<{ hasValue: boolean; value: unknown }> = [];
   class HeartbeatStep implements Step<string> {

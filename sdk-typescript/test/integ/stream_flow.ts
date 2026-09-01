@@ -40,17 +40,25 @@ class StreamTestStep implements Step<void> {
 
   public async waitFor(context: AsyncContext, _input: void): Promise<Wait> {
     await context.recordHeartbeat("wait-for", stringCodec);
-    this.progress.write(context, "wait-progress-1");
-    this.progress.write(context, "wait-progress-2");
+    const progress = this.progress.buffered(context);
+    progress.write("wait-progress-");
+    progress.write("1");
+    progress.flush();
+    progress.write("wait-progress-");
+    progress.write("2");
     this.details.write(context, "wait-details");
     return Wait.skipImmediately();
   }
 
   public async execute(context: AsyncContext, _input: void): Promise<StepDecision> {
     await context.recordHeartbeat({ phase: "execute" });
-    this.progress.write(context, "execute-progress-1");
+    const progress = this.progress.buffered(context, { flushIntervalMs: 500 });
+    progress.write("execute-progress-");
+    progress.write("1");
+    progress.flush();
     this.details.write(context, "execute-details");
-    this.progress.write(context, "execute-progress-2");
+    progress.write("execute-progress-");
+    progress.write("2");
     return gracefulComplete();
   }
 }

@@ -46,6 +46,14 @@ class _StepOutputEmitter(Protocol):
 
     async def emit(self, output: StepOutput) -> None: ...
 
+    def add_close_callback(self, callback: Callable[[], None]) -> None: ...
+
+
+class _StepOutputFinalizer(Protocol):
+    def _finalize_step_output(self) -> None: ...
+
+    def _cancel_step_output(self) -> None: ...
+
 
 class InvocationContext:
     def __init__(
@@ -76,6 +84,8 @@ class InvocationContext:
         self.events: list[pb.KV] = []
         self.publications: list[pb.ChannelMessage] = []
         self._event_names: set[str] = set()
+        self._step_output_finalizers: list[_StepOutputFinalizer] = []
+        self._step_outputs_finalized = False
 
     @property
     def flow_id(self) -> str:
@@ -220,6 +230,44 @@ class InvocationContext:
             return output
         self._output_emitter.emit_nowait(output)
         return None
+
+    def _prepare_buffered_stream(self, definition: Stream[object]) -> bool:
+        if self._method not in (InvocationMethod.WAIT_FOR, InvocationMethod.EXECUTE):
+            raise ValueError("Buffered Streams require a Step Context")
+        self._require_registered(definition)
+        return self._output_emitter is not None
+
+    def _register_step_output_finalizer(
+        self,
+        finalizer: _StepOutputFinalizer,
+    ) -> None:
+        if self._step_outputs_finalized or self._output_emitter is None:
+            raise ValueError(
+                "Buffered Stream finalizers require an active async Step Context"
+            )
+        self._step_output_finalizers.append(finalizer)
+        self._output_emitter.add_close_callback(finalizer._cancel_step_output)
+
+    def _finalize_step_outputs(
+        self,
+        failure: BaseException | None = None,
+    ) -> BaseException | None:
+        if self._step_outputs_finalized:
+            return failure
+        self._step_outputs_finalized = True
+        failures: list[BaseException] = [] if failure is None else [failure]
+        for finalizer in self._step_output_finalizers:
+            try:
+                finalizer._finalize_step_output()
+            except BaseException as error:
+                failures.append(error)
+        if not failures:
+            return None
+        if len(failures) == 1:
+            return failures[0]
+        return BaseExceptionGroup(
+            "Step handler and buffered Stream finalization failed", failures
+        )
 
     def _get_attribute(
         self,

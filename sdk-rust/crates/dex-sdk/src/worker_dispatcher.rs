@@ -7,6 +7,7 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 use std::collections::{HashMap, HashSet};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -116,10 +117,13 @@ impl WorkerDispatcher {
         let cancellation = context.cancellation();
         let registry = self.registry.clone();
         run_handler(cancellation, move || {
-            let wait = flow.handler.wait_for(step.name, &mut context, &input)?;
-            let waiting_condition = map_wait(&registry, &flow, wait).map_err(|error| {
-                HandlerError::invalid_step_result(flow.name, Some(step.name), "wait_for", error)
-            })?;
+            let handler_result = catch_handler_panic(|| {
+                let wait = flow.handler.wait_for(step.name, &mut context, &input)?;
+                map_wait(&registry, &flow, wait).map_err(|error| {
+                    HandlerError::invalid_step_result(flow.name, Some(step.name), "wait_for", error)
+                })
+            });
+            let waiting_condition = context.finalize_step_outputs(handler_result)?;
             let (attributes, locals, events, publications) = context.take_outputs();
             Ok(InvokeWaitForMethodResponse {
                 local_activity_metadata: None,
@@ -200,10 +204,13 @@ impl WorkerDispatcher {
             .ok_or_else(|| HandlerError::new("dex_sdk::HandlerError", "Step input is required"))?;
         let cancellation = context.cancellation();
         run_handler(cancellation, move || {
-            let decision = flow.handler.execute(step.name, &mut context, &input)?;
-            let decision = map_decision(&flow, decision).map_err(|error| {
-                HandlerError::invalid_step_result(flow.name, Some(step.name), "execute", error)
-            })?;
+            let handler_result = catch_handler_panic(|| {
+                let decision = flow.handler.execute(step.name, &mut context, &input)?;
+                map_decision(&flow, decision).map_err(|error| {
+                    HandlerError::invalid_step_result(flow.name, Some(step.name), "execute", error)
+                })
+            });
+            let decision = context.finalize_step_outputs(handler_result)?;
             let (attributes, locals, events, publications) = context.take_outputs();
             Ok(InvokeExecuteMethodResponse {
                 local_activity_metadata: None,
@@ -466,6 +473,22 @@ async fn send_handler_result<Output>(
     if sender.send(result).await.is_err() {
         cancellation.cancel();
     }
+}
+
+fn catch_handler_panic<Output>(
+    handler: impl FnOnce() -> HandlerResult<Output>,
+) -> HandlerResult<Output> {
+    catch_unwind(AssertUnwindSafe(handler)).unwrap_or_else(|payload| {
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or("unknown panic");
+        Err(HandlerError::new(
+            "dex_sdk::HandlerError",
+            format!("user handler task failed: task panicked with message {message}"),
+        ))
+    })
 }
 
 async fn run_handler<Output, Handler>(

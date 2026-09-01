@@ -12,6 +12,7 @@ package dex
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -405,9 +406,7 @@ func callWaitForHandler(
 	input any,
 ) (wait *Wait, err error) {
 	defer func() {
-		if finishErr := invocation.finish(); err == nil {
-			err = finishErr
-		}
+		err = errors.Join(err, invocation.finish())
 	}()
 	return step.handler.waitFor(invocation, input)
 }
@@ -418,9 +417,7 @@ func callExecuteHandler(
 	input any,
 ) (decision *StepDecision, err error) {
 	defer func() {
-		if finishErr := invocation.finish(); err == nil {
-			err = finishErr
-		}
+		err = errors.Join(err, invocation.finish())
 	}()
 	return step.handler.execute(invocation, input)
 }
@@ -430,9 +427,7 @@ func callFlowTimeoutHandler(
 	invocation *invocationContext,
 ) (decision *StepDecision, err error) {
 	defer func() {
-		if finishErr := invocation.finish(); err == nil {
-			err = finishErr
-		}
+		err = errors.Join(err, invocation.finish())
 	}()
 	return handler.HandleTimeout(invocation)
 }
@@ -443,9 +438,7 @@ func callRPCHandler(
 	input any,
 ) (result rpcResult, err error) {
 	defer func() {
-		if finishErr := invocation.finish(); err == nil {
-			err = finishErr
-		}
+		err = errors.Join(err, invocation.finish())
 	}()
 	return rpc.invoke(invocation, input)
 }

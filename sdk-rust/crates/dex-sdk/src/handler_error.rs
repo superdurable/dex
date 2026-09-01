@@ -188,6 +188,12 @@ impl HandlerError {
         &self.error_type
     }
 
+    pub(crate) fn attach_finalizer_error(&mut self, failure: &Self) {
+        self.message
+            .push_str("; buffered Stream finalization failed: ");
+        self.message.push_str(&failure.message);
+    }
+
     pub(crate) fn stack_trace(&self) -> &Backtrace {
         &self.stack
     }

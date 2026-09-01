@@ -19,6 +19,7 @@ import io.superdurable.dex.Attribute;
 import io.superdurable.dex.AttributeMap;
 import io.superdurable.dex.BlobCache;
 import io.superdurable.dex.BlobCacheConfig;
+import io.superdurable.dex.BufferedTextStream;
 import io.superdurable.dex.Channel;
 import io.superdurable.dex.Client;
 import io.superdurable.dex.ClientOptions;
@@ -43,6 +44,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.lang.reflect.Method;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
@@ -237,6 +239,17 @@ public class UserContractsTest {
         if (output == null) {
             throw new AssertionError("compile-only contract");
         }
+    }
+
+    @SuppressWarnings("unused")
+    private static void compileBufferedTextStreamContract(final Context context) {
+        final BufferedTextStream progress = BufferedTextStream.create(
+                context,
+                PROGRESS,
+                Duration.ofMillis(500),
+                8 * 1024);
+        progress.write("thinking ");
+        progress.flush();
     }
 
     public static class OrderFlow implements Flow<OrderInput> {

@@ -109,17 +109,27 @@ export class WorkerDispatcher {
     if (step.step.waitFor === undefined) {
       throw new TypeError(`Step ${step.name} does not implement waitFor`);
     }
-    const wait = await step.step.waitFor(context, input);
     try {
-      return InvokeWaitForMethodResponse.create({
-        upsertAttributes: [...context.getAttributeWrites()],
-        waitingCondition: mapWait(this.registry, flow, wait),
-        upsertStepExeLocals: [...context.getLocalWrites()],
-        recordEvents: [...context.getEvents()],
-        publishToChannel: [...context.getPublications()],
-      });
+      const wait = await step.step.waitFor(context, input);
+      let response: InvokeWaitForMethodResponse;
+      try {
+        response = InvokeWaitForMethodResponse.create({
+          upsertAttributes: [...context.getAttributeWrites()],
+          waitingCondition: mapWait(this.registry, flow, wait),
+          upsertStepExeLocals: [...context.getLocalWrites()],
+          recordEvents: [...context.getEvents()],
+          publishToChannel: [...context.getPublications()],
+        });
+      } catch (failure) {
+        throw invalidStepResult(flow.name, step.name, "waitFor", failure);
+      }
+      const finalizationFailure = context.finalizeStepOutputs();
+      if (finalizationFailure !== undefined) {
+        throw finalizationFailure;
+      }
+      return response;
     } catch (failure) {
-      throw invalidStepResult(flow.name, step.name, "waitFor", failure);
+      throw context.finalizeStepOutputs(failure);
     }
   }
 
@@ -150,17 +160,27 @@ export class WorkerDispatcher {
       codecOrJson(step.step.inputCodec),
       requireValue(request.stepInput, "Step input"),
     );
-    const decision = await step.step.execute(context, input);
     try {
-      return InvokeExecuteMethodResponse.create({
-        stepDecision: mapDecision(flow, decision),
-        upsertAttributes: [...context.getAttributeWrites()],
-        recordEvents: [...context.getEvents()],
-        upsertStepExeLocals: [...context.getLocalWrites()],
-        publishToChannel: [...context.getPublications()],
-      });
+      const decision = await step.step.execute(context, input);
+      let response: InvokeExecuteMethodResponse;
+      try {
+        response = InvokeExecuteMethodResponse.create({
+          stepDecision: mapDecision(flow, decision),
+          upsertAttributes: [...context.getAttributeWrites()],
+          recordEvents: [...context.getEvents()],
+          upsertStepExeLocals: [...context.getLocalWrites()],
+          publishToChannel: [...context.getPublications()],
+        });
+      } catch (failure) {
+        throw invalidStepResult(flow.name, step.name, "execute", failure);
+      }
+      const finalizationFailure = context.finalizeStepOutputs();
+      if (finalizationFailure !== undefined) {
+        throw finalizationFailure;
+      }
+      return response;
     } catch (failure) {
-      throw invalidStepResult(flow.name, step.name, "execute", failure);
+      throw context.finalizeStepOutputs(failure);
     }
   }
 
