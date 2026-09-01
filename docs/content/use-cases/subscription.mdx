@@ -2,6 +2,8 @@
 title: Subscription & billing lifecycle
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/subscription.json';
+
 # Subscription & billing lifecycle
 
 Run a subscription through its trial, recurring billing periods, price changes, and cancellation without losing its state while it waits.
@@ -28,6 +30,10 @@ Potential failures need product decisions:
 - Publishing after cancellation or normal completion cannot reopen the Flow. Clients should treat that as a terminal result and start a new subscription when appropriate.
 
 ## Flow design
+
+This interactive definition graph is generated from the runnable Python Flow.
+
+<ProductFlowDefinitionGraph graph={flowDefinition} />
 
 The initializer fans out into three long-lived branches:
 

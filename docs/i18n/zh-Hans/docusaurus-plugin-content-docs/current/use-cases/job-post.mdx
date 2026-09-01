@@ -3,6 +3,8 @@ title: 职位发布
 sidebar_label: Job posting
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
+
 # 职位发布
 
 持久化并检索一条职位发布信息，同时把每个已接受的更新按顺序发送到 LinkedIn 和 Indeed。
@@ -34,6 +36,10 @@ sidebar_label: Job posting
 lock 决定成功提交的 RPC 顺序，而不是客户端请求到达顺序。并发调用方可能竞争 lock。返回的版本是权威的接受顺序，每个目标都会按照 FIFO 顺序观察这些版本。
 
 ## Flow 设计
+
+这个交互式 definition graph 由可运行的 Python Flow 生成。
+
+<ProductFlowDefinitionGraph graph={flowDefinition} />
 
 这个 Flow 使用一个带 lock 的 producer 和两个持久化、独立推进的 consumer：
 

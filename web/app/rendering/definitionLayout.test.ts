@@ -7,8 +7,11 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { describe, expect, it } from 'vitest';
-import type { FlowDefinitionGraph } from '@/lib/types';
-import { buildDefinitionScene, type DefinitionVisibility } from './definitionLayout';
+import {
+  buildDefinitionScene,
+  type DefinitionVisibility,
+  type FlowDefinitionGraph,
+} from '@superdurable/flow-definition-renderer';
 
 const visible: DefinitionVisibility = {
   control: true,

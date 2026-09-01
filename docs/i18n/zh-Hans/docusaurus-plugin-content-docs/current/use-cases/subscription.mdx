@@ -2,6 +2,8 @@
 title: 订阅与计费生命周期
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/subscription.json';
+
 # 订阅与计费生命周期
 
 让订阅经历试用期、周期扣费、价格调整和取消，同时在等待期间不丢失状态。
@@ -28,6 +30,10 @@ Flow 等待两类持久条件：试用期和每个计费周期的 Timer，以及
 - 取消或正常完成后再发布消息不能重新打开 Flow。客户端应将其视为终态，并在需要时启动新的订阅。
 
 ## Flow 设计
+
+这个交互式 definition graph 由可运行的 Python Flow 生成。
+
+<ProductFlowDefinitionGraph graph={flowDefinition} />
 
 初始化 Step 扇出为三个长期运行的分支：
 

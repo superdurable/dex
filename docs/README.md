@@ -31,6 +31,17 @@ Runnable application samples live under [`examples/`](../examples/); see
 [`examples/README.md`](../examples/README.md) and the playground
 ([`examples/playground/`](../examples/playground/)).
 
+Product Flow design sections render checked-in JSON with the shared
+[`flow-definition-renderer`](../packages/flow-definition-renderer). Regenerate
+the JSON after changing a Python product Flow:
+
+```bash
+cd docs
+npm run generate:flow-definitions
+```
+
+Set `DEX_FLOW_PYTHON` when Python 3.11+ is not the default interpreter.
+
 Feature guides include [durable SubFlows](content/primitives/subflow.mdx).
 
 ## Contributor design notes

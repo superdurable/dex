@@ -2,6 +2,8 @@
 title: Job seeker engagement
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagement.json';
+
 # Job seeker engagement
 
 Keep an employer and a job seeker aligned while the job seeker decides whether to accept an opportunity.
@@ -32,6 +34,10 @@ Potential failures and exceptional outcomes include:
 The Go, Java, Python, and TypeScript examples implement the full 60-day process. The Rust released-SDK example keeps the same end-to-end start, describe, accept, decline, opt-out, notification, and search endpoints, but uses one decision Channel with a 24-hour Timer so its integration path stays compact.
 
 ## Flow design
+
+This interactive definition graph is generated from the runnable Python Flow.
+
+<ProductFlowDefinitionGraph graph={flowDefinition} />
 
 The main topology fans out after initialization:
 

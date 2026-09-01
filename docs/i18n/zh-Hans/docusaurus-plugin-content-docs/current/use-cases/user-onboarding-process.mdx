@@ -2,6 +2,8 @@
 title: 用户入驻流程
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/user-onboarding-process.json';
+
 # 用户入驻流程
 
 引导新用户完成账号创建、邮箱验证和两个必需的设置任务。
@@ -31,6 +33,10 @@ title: 用户入驻流程
 Go、Java、Python、TypeScript 和 Rust 示例都实现并通过集成测试覆盖完整的邮箱验证、任务 1、任务 2 和完成路径。
 
 ## Flow 设计
+
+这个交互式 definition graph 由可运行的 Python Flow 生成。
+
+<ProductFlowDefinitionGraph graph={flowDefinition} />
 
 该 Flow 是一个带可中断等待的顺序状态机：
 

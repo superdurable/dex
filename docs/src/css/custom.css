@@ -595,6 +595,56 @@ summary:focus-visible {
   color: var(--muted-strong);
 }
 
+.product-flow-definition-graph {
+  width: 100%;
+  margin-block: 24px 32px;
+}
+
+.product-flow-definition-graph .flow-definition-canvas {
+  height: min(82vh, 960px);
+}
+
+.product-flow-definition-graph-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.product-flow-definition-graph-actions button {
+  padding: 7px 11px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--forest);
+  background: var(--surface);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.product-flow-definition-graph-actions button:hover {
+  background: var(--lime-soft);
+}
+
+.product-flow-definition-graph.is-expanded {
+  position: fixed;
+  z-index: 500;
+  inset: 16px;
+  width: auto;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
+  background: var(--surface-solid);
+  box-shadow: 0 24px 80px rgba(20, 45, 24, 0.28);
+}
+
+.product-flow-definition-graph.is-expanded .flow-definition-canvas {
+  height: calc(100vh - 190px);
+  min-height: 520px;
+}
+
 .theme-doc-markdown img[src*='-flow'],
 .theme-doc-markdown img[src*='parallel-subflows-'],
 .theme-doc-markdown img[src*='drain-internal-channel'],

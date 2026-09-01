@@ -103,6 +103,11 @@ condition beside the path; its endpoints and source location remain below the
 canvas. The Mini Map starts collapsed. Flow timeout handlers use a compact
 Step-like card with their timeout decision, rather than the RPC hexagon.
 
+The graph contract, compound layout, React components, and styles live in the
+shared [`flow-definition-renderer`](../packages/flow-definition-renderer)
+package. Product docs import the same renderer for checked-in Python example
+graphs.
+
 The Run page opens on Execution graph and also provides Overview (Live Flow State beside
 Selected event, then Run input beside Identity), Timeline, Streams, attributes, timers, queued
 steps, channels, completed outputs, stop, and time travel. Timeline and Execution graph keep

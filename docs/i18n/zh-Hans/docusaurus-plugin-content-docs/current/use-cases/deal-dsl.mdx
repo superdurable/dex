@@ -2,6 +2,8 @@
 title: Deal DSL
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/deal-dsl.json';
+
 # Deal DSL
 
 把持久化交易定义成数据，再用同一个解释器处理任意可销售的商品。
@@ -32,6 +34,10 @@ Flow 会等待前置条件消息、状态转换消息，以及 Step 失败后的
 - 定义可能形成无法自然结束的业务循环。Flow 会保持持久化运行，但产品层校验或超时策略需要限制非预期循环。
 
 ## Flow 设计
+
+这个交互式 definition graph 由可运行的 Python Flow 生成。
+
+<ProductFlowDefinitionGraph graph={flowDefinition} />
 
 这个 Flow 是一个小型持久化解释器。定义决定业务路径，四种 Step 提供执行机制：
 

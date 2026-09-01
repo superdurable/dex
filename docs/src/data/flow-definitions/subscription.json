@@ -1,0 +1,722 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/products/subscription/subscription_flow.py"
+  },
+  "flow": {
+    "name": "SubscriptionFlow",
+    "startStepId": "step:Initialize",
+    "span": {
+      "startLine": 161,
+      "startColumn": 1,
+      "endLine": 214,
+      "endColumn": 74
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:ChargeCurrentBill",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:ChargeCurrentBill",
+      "phase": "execute",
+      "span": {
+        "startLine": 64,
+        "startColumn": 5,
+        "endLine": 70,
+        "endColumn": 46
+      }
+    },
+    {
+      "id": "decision:rpc:describe:214:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:describe",
+      "phase": "rpc",
+      "span": {
+        "startLine": 214,
+        "startColumn": 16,
+        "endLine": 214,
+        "endColumn": 74
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:Cancel:115:16",
+      "kind": "decision",
+      "name": "forceComplete",
+      "parentId": "step:Cancel",
+      "phase": "execute",
+      "span": {
+        "startLine": 115,
+        "startColumn": 16,
+        "endLine": 115,
+        "endColumn": 55
+      },
+      "decision": {
+        "type": "forceComplete"
+      }
+    },
+    {
+      "id": "decision:step:ChargeCurrentBill:68:20",
+      "kind": "decision",
+      "name": "forceComplete",
+      "parentId": "step:ChargeCurrentBill",
+      "condition": "context.get_step_execution_local(SUBSCRIPTION_OVER_KEY, bool)",
+      "phase": "execute",
+      "span": {
+        "startLine": 68,
+        "startColumn": 20,
+        "endLine": 68,
+        "endColumn": 56
+      },
+      "decision": {
+        "type": "forceComplete"
+      }
+    },
+    {
+      "id": "decision:step:ChargeCurrentBill:70:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ChargeCurrentBill",
+      "condition": "not (context.get_step_execution_local(SUBSCRIPTION_OVER_KEY, bool))",
+      "phase": "execute",
+      "span": {
+        "startLine": 70,
+        "startColumn": 16,
+        "endLine": 70,
+        "endColumn": 46
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Initialize:154:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:Initialize",
+      "phase": "execute",
+      "span": {
+        "startLine": 154,
+        "startColumn": 16,
+        "endLine": 158,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:Trial:95:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Trial",
+      "phase": "execute",
+      "span": {
+        "startLine": 95,
+        "startColumn": 16,
+        "endLine": 95,
+        "endColumn": 46
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:UpdateChargeAmount:136:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:UpdateChargeAmount",
+      "phase": "execute",
+      "span": {
+        "startLine": 136,
+        "startColumn": 16,
+        "endLine": 136,
+        "endColumn": 47
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:SubscriptionFlow.billing_period_number",
+      "kind": "attribute",
+      "name": "billing-period-number",
+      "span": {
+        "startLine": 162,
+        "startColumn": 5,
+        "endLine": 162,
+        "endColumn": 68
+      },
+      "resource": {
+        "valueType": "int"
+      }
+    },
+    {
+      "id": "resource:attribute:SubscriptionFlow.customer_details",
+      "kind": "attribute",
+      "name": "customer",
+      "span": {
+        "startLine": 163,
+        "startColumn": 5,
+        "endLine": 163,
+        "endColumn": 55
+      },
+      "resource": {
+        "valueType": "Customer"
+      }
+    },
+    {
+      "id": "resource:channel:SubscriptionFlow.cancel_subscription",
+      "kind": "channel",
+      "name": "cancel-subscription",
+      "span": {
+        "startLine": 164,
+        "startColumn": 5,
+        "endLine": 164,
+        "endColumn": 75
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "resource:channel:SubscriptionFlow.update_charge_amount",
+      "kind": "channel",
+      "name": "update-charge-amount",
+      "span": {
+        "startLine": 165,
+        "startColumn": 5,
+        "endLine": 165,
+        "endColumn": 64
+      },
+      "resource": {
+        "valueType": "int"
+      }
+    },
+    {
+      "id": "rpc:describe",
+      "kind": "rpc",
+      "name": "describe",
+      "span": {
+        "startLine": 213,
+        "startColumn": 5,
+        "endLine": 214,
+        "endColumn": 74
+      }
+    },
+    {
+      "id": "step:Cancel",
+      "kind": "step",
+      "name": "Cancel",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 200,
+        "startColumn": 13,
+        "endLine": 200,
+        "endColumn": 24
+      }
+    },
+    {
+      "id": "step:ChargeCurrentBill",
+      "kind": "step",
+      "name": "ChargeCurrentBill",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 199,
+        "startColumn": 13,
+        "endLine": 199,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "step:Initialize",
+      "kind": "step",
+      "name": "Initialize",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 197,
+        "startColumn": 36,
+        "endLine": 197,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "step:Trial",
+      "kind": "step",
+      "name": "Trial",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 198,
+        "startColumn": 13,
+        "endLine": 198,
+        "endColumn": 23
+      }
+    },
+    {
+      "id": "step:UpdateChargeAmount",
+      "kind": "step",
+      "name": "UpdateChargeAmount",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 201,
+        "startColumn": 13,
+        "endLine": 201,
+        "endColumn": 43
+      }
+    },
+    {
+      "id": "wait-dispatch:ChargeCurrentBill",
+      "kind": "wait_dispatch",
+      "name": "WaitFor",
+      "parentId": "step:ChargeCurrentBill",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 53,
+        "startColumn": 5,
+        "endLine": 62,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "wait:Cancel:110:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:Cancel",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 110,
+        "startColumn": 16,
+        "endLine": 110,
+        "endColumn": 62
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "cancel-subscription.for 1",
+            "resourceId": "resource:channel:SubscriptionFlow.cancel_subscription",
+            "span": {
+              "startLine": 110,
+              "startColumn": 27,
+              "endLine": 110,
+              "endColumn": 61
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:ChargeCurrentBill:58:20:0",
+      "kind": "wait",
+      "name": "skipWaitImmediately",
+      "parentId": "step:ChargeCurrentBill",
+      "condition": "subscription_billing.is_subscription_over(customer, period_number)",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 58,
+        "startColumn": 20,
+        "endLine": 58,
+        "endColumn": 43
+      },
+      "wait": {
+        "type": "skipWaitImmediately",
+        "conditions": []
+      }
+    },
+    {
+      "id": "wait:ChargeCurrentBill:60:16:1",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:ChargeCurrentBill",
+      "condition": "not (subscription_billing.is_subscription_over(customer, period_number))",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 60,
+        "startColumn": 16,
+        "endLine": 62,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "subscription_billing.billing_period(customer) timer",
+            "expression": "subscription_billing.billing_period(customer)",
+            "span": {
+              "startLine": 61,
+              "startColumn": 13,
+              "endLine": 61,
+              "endColumn": 77
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:Trial:89:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:Trial",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 89,
+        "startColumn": 16,
+        "endLine": 91,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "subscription_billing.trial_period(customer) timer",
+            "expression": "subscription_billing.trial_period(customer)",
+            "span": {
+              "startLine": 90,
+              "startColumn": 13,
+              "endLine": 90,
+              "endColumn": 75
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:UpdateChargeAmount:128:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:UpdateChargeAmount",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 128,
+        "startColumn": 16,
+        "endLine": 128,
+        "endColumn": 63
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "update-charge-amount.for 1",
+            "resourceId": "resource:channel:SubscriptionFlow.update_charge_amount",
+            "span": {
+              "startLine": 128,
+              "startColumn": 27,
+              "endLine": 128,
+              "endColumn": 62
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:ChargeCurrentBill:70:16",
+      "to": "step:ChargeCurrentBill",
+      "label": "go_to",
+      "span": {
+        "startLine": 70,
+        "startColumn": 16,
+        "endLine": 70,
+        "endColumn": 46
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:Initialize:154:16",
+      "to": "step:Cancel",
+      "label": "fan-out",
+      "span": {
+        "startLine": 156,
+        "startColumn": 13,
+        "endLine": 156,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:Initialize:154:16",
+      "to": "step:Trial",
+      "label": "fan-out",
+      "span": {
+        "startLine": 155,
+        "startColumn": 13,
+        "endLine": 155,
+        "endColumn": 41
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:Initialize:154:16",
+      "to": "step:UpdateChargeAmount",
+      "label": "fan-out",
+      "span": {
+        "startLine": 157,
+        "startColumn": 13,
+        "endLine": 157,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:Trial:95:16",
+      "to": "step:ChargeCurrentBill",
+      "label": "go_to",
+      "span": {
+        "startLine": 95,
+        "startColumn": 16,
+        "endLine": 95,
+        "endColumn": 46
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:UpdateChargeAmount:136:16",
+      "to": "step:UpdateChargeAmount",
+      "label": "go_to",
+      "span": {
+        "startLine": 136,
+        "startColumn": 16,
+        "endLine": 136,
+        "endColumn": 47
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:attribute:SubscriptionFlow.billing_period_number",
+      "to": "step:ChargeCurrentBill",
+      "label": "get",
+      "span": {
+        "startLine": 55,
+        "startColumn": 25,
+        "endLine": 55,
+        "endColumn": 64
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_read",
+      "from": "resource:attribute:SubscriptionFlow.customer_details",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 214,
+        "startColumn": 26,
+        "endLine": 214,
+        "endColumn": 60
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_read",
+      "from": "resource:attribute:SubscriptionFlow.customer_details",
+      "to": "step:Cancel",
+      "label": "get",
+      "span": {
+        "startLine": 113,
+        "startColumn": 20,
+        "endLine": 113,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_read",
+      "from": "resource:attribute:SubscriptionFlow.customer_details",
+      "to": "step:ChargeCurrentBill",
+      "label": "get",
+      "span": {
+        "startLine": 65,
+        "startColumn": 20,
+        "endLine": 65,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_read",
+      "from": "resource:attribute:SubscriptionFlow.customer_details",
+      "to": "step:ChargeCurrentBill",
+      "label": "get",
+      "span": {
+        "startLine": 54,
+        "startColumn": 20,
+        "endLine": 54,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "resource_read",
+      "from": "resource:attribute:SubscriptionFlow.customer_details",
+      "to": "step:Trial",
+      "label": "get",
+      "span": {
+        "startLine": 87,
+        "startColumn": 20,
+        "endLine": 87,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "resource_read",
+      "from": "resource:attribute:SubscriptionFlow.customer_details",
+      "to": "step:UpdateChargeAmount",
+      "label": "get",
+      "span": {
+        "startLine": 133,
+        "startColumn": 20,
+        "endLine": 133,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "wait_condition",
+      "from": "resource:channel:SubscriptionFlow.cancel_subscription",
+      "to": "wait:Cancel:110:16:0",
+      "label": "cancel-subscription.for 1",
+      "span": {
+        "startLine": 110,
+        "startColumn": 27,
+        "endLine": 110,
+        "endColumn": 61
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "resource_read",
+      "from": "resource:channel:SubscriptionFlow.update_charge_amount",
+      "to": "step:UpdateChargeAmount",
+      "label": "results",
+      "span": {
+        "startLine": 131,
+        "startColumn": 19,
+        "endLine": 131,
+        "endColumn": 61
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "wait_condition",
+      "from": "resource:channel:SubscriptionFlow.update_charge_amount",
+      "to": "wait:UpdateChargeAmount:128:16:0",
+      "label": "update-charge-amount.for 1",
+      "span": {
+        "startLine": 128,
+        "startColumn": 27,
+        "endLine": 128,
+        "endColumn": 62
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "resource_write",
+      "from": "step:ChargeCurrentBill",
+      "to": "resource:attribute:SubscriptionFlow.billing_period_number",
+      "label": "set",
+      "span": {
+        "startLine": 59,
+        "startColumn": 9,
+        "endLine": 59,
+        "endColumn": 67
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "resource_write",
+      "from": "step:Initialize",
+      "to": "resource:attribute:SubscriptionFlow.customer_details",
+      "label": "set",
+      "span": {
+        "startLine": 153,
+        "startColumn": 9,
+        "endLine": 153,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0019",
+      "kind": "resource_write",
+      "from": "step:Trial",
+      "to": "resource:attribute:SubscriptionFlow.billing_period_number",
+      "label": "set",
+      "span": {
+        "startLine": 94,
+        "startColumn": 9,
+        "endLine": 94,
+        "endColumn": 51
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_write",
+      "from": "step:UpdateChargeAmount",
+      "to": "resource:attribute:SubscriptionFlow.customer_details",
+      "label": "set",
+      "span": {
+        "startLine": 135,
+        "startColumn": 9,
+        "endLine": 135,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    }
+  ],
+  "diagnostics": []
+}

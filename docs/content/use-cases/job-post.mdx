@@ -2,6 +2,8 @@
 title: Job posting
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/job-post.json';
+
 # Job posting
 
 Keep one job posting durable and searchable while delivering every accepted update to LinkedIn and Indeed in order.
@@ -33,6 +35,10 @@ Potential failures include:
 The lock orders successful RPC commits, not client arrival times. Concurrent callers may race to acquire it. The returned version is the authoritative accepted order, and each destination observes those versions in FIFO order.
 
 ## Flow design
+
+This interactive definition graph is generated from the runnable Python Flow.
+
+<ProductFlowDefinitionGraph graph={flowDefinition} />
 
 The Flow uses one locked producer and two durable, independently progressing consumers:
 

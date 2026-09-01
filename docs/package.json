@@ -12,6 +12,7 @@
     "serve": "docusaurus serve",
     "write-translations": "docusaurus write-translations",
     "write-heading-ids": "docusaurus write-heading-ids",
+    "generate:flow-definitions": "./scripts/generate-product-flow-definitions.sh",
     "typecheck": "tsc",
     "test:site": "node tests/site-smoke.mjs",
     "check": "npm run typecheck && npm run build && npm run test:site"
@@ -20,7 +21,10 @@
     "@docusaurus/core": "3.8.1",
     "@docusaurus/preset-classic": "3.8.1",
     "@mdx-js/react": "^3.0.0",
+    "@superdurable/flow-definition-renderer": "file:../packages/flow-definition-renderer",
+    "@xyflow/react": "^12.8.4",
     "clsx": "^2.0.0",
+    "dagre": "^0.8.5",
     "prism-react-renderer": "^2.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -30,6 +34,7 @@
     "@docusaurus/module-type-aliases": "3.8.1",
     "@docusaurus/tsconfig": "3.8.1",
     "@docusaurus/types": "3.8.1",
+    "@types/dagre": "^0.7.52",
     "typescript": "~5.6.2",
     "webpack": "5.97.1"
   },

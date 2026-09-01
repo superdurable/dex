@@ -1,0 +1,755 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/products/engagement/engagement_flow.py"
+  },
+  "flow": {
+    "name": "EngagementFlow",
+    "startStepId": "step:Initialize",
+    "span": {
+      "startLine": 130,
+      "startColumn": 1,
+      "endLine": 219,
+      "endColumn": 47
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:Reminder",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:Reminder",
+      "phase": "execute",
+      "span": {
+        "startLine": 75,
+        "startColumn": 5,
+        "endLine": 87,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "decision:rpc:accept:198:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:accept",
+      "phase": "rpc",
+      "span": {
+        "startLine": 198,
+        "startColumn": 16,
+        "endLine": 203,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:decline:181:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:decline",
+      "phase": "rpc",
+      "span": {
+        "startLine": 181,
+        "startColumn": 16,
+        "endLine": 186,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:describe:170:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:describe",
+      "phase": "rpc",
+      "span": {
+        "startLine": 170,
+        "startColumn": 16,
+        "endLine": 170,
+        "endColumn": 60
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:Initialize:123:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:Initialize",
+      "phase": "execute",
+      "span": {
+        "startLine": 123,
+        "startColumn": 16,
+        "endLine": 127,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:NotifyExternalSystem:62:16",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:NotifyExternalSystem",
+      "phase": "execute",
+      "span": {
+        "startLine": 62,
+        "startColumn": 16,
+        "endLine": 62,
+        "endColumn": 26
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:ProcessTimeout:110:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:ProcessTimeout",
+      "phase": "execute",
+      "span": {
+        "startLine": 110,
+        "startColumn": 16,
+        "endLine": 110,
+        "endColumn": 41
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:Reminder:78:20",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:Reminder",
+      "condition": "status is not Status.INITIATED",
+      "phase": "execute",
+      "span": {
+        "startLine": 78,
+        "startColumn": 20,
+        "endLine": 78,
+        "endColumn": 30
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:Reminder:81:20",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:Reminder",
+      "condition": "not (status is not Status.INITIATED) and self.flow.opt_out_reminder.results(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 81,
+        "startColumn": 20,
+        "endLine": 81,
+        "endColumn": 30
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:Reminder:87:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Reminder",
+      "condition": "not (status is not Status.INITIATED) and not (self.flow.opt_out_reminder.results(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 87,
+        "startColumn": 16,
+        "endLine": 87,
+        "endColumn": 37
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:EngagementFlow.employer_id",
+      "kind": "attribute",
+      "name": "EmployerId",
+      "span": {
+        "startLine": 131,
+        "startColumn": 5,
+        "endLine": 131,
+        "endColumn": 47
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:EngagementFlow.engagement_status",
+      "kind": "attribute",
+      "name": "EngagementStatus",
+      "span": {
+        "startLine": 133,
+        "startColumn": 5,
+        "endLine": 137,
+        "endColumn": 6
+      },
+      "resource": {
+        "valueType": "Status"
+      }
+    },
+    {
+      "id": "resource:attribute:EngagementFlow.job_seeker_id",
+      "kind": "attribute",
+      "name": "JobSeekerId",
+      "span": {
+        "startLine": 132,
+        "startColumn": 5,
+        "endLine": 132,
+        "endColumn": 50
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:EngagementFlow.last_update_timestamp",
+      "kind": "attribute",
+      "name": "LastUpdateTimeMillis",
+      "span": {
+        "startLine": 138,
+        "startColumn": 5,
+        "endLine": 138,
+        "endColumn": 67
+      },
+      "resource": {
+        "valueType": "int"
+      }
+    },
+    {
+      "id": "resource:attribute:EngagementFlow.notes",
+      "kind": "attribute",
+      "name": "notes",
+      "span": {
+        "startLine": 139,
+        "startColumn": 5,
+        "endLine": 139,
+        "endColumn": 36
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:channel:EngagementFlow.complete_process",
+      "kind": "channel",
+      "name": "CompleteProcess",
+      "span": {
+        "startLine": 141,
+        "startColumn": 5,
+        "endLine": 141,
+        "endColumn": 68
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "resource:channel:EngagementFlow.opt_out_reminder",
+      "kind": "channel",
+      "name": "OptOutReminder",
+      "span": {
+        "startLine": 140,
+        "startColumn": 5,
+        "endLine": 140,
+        "endColumn": 67
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "rpc:accept",
+      "kind": "rpc",
+      "name": "accept",
+      "span": {
+        "startLine": 189,
+        "startColumn": 5,
+        "endLine": 203,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "rpc:decline",
+      "kind": "rpc",
+      "name": "decline",
+      "span": {
+        "startLine": 173,
+        "startColumn": 5,
+        "endLine": 186,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "rpc:describe",
+      "kind": "rpc",
+      "name": "describe",
+      "span": {
+        "startLine": 169,
+        "startColumn": 5,
+        "endLine": 170,
+        "endColumn": 60
+      }
+    },
+    {
+      "id": "step:Initialize",
+      "kind": "step",
+      "name": "Initialize",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 151,
+        "startColumn": 36,
+        "endLine": 151,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "step:NotifyExternalSystem",
+      "kind": "step",
+      "name": "NotifyExternalSystem",
+      "phase": "execute",
+      "span": {
+        "startLine": 154,
+        "startColumn": 13,
+        "endLine": 154,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "step:ProcessTimeout",
+      "kind": "step",
+      "name": "ProcessTimeout",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 152,
+        "startColumn": 13,
+        "endLine": 152,
+        "endColumn": 33
+      }
+    },
+    {
+      "id": "step:Reminder",
+      "kind": "step",
+      "name": "Reminder",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 153,
+        "startColumn": 13,
+        "endLine": 153,
+        "endColumn": 26
+      }
+    },
+    {
+      "id": "wait:ProcessTimeout:95:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:ProcessTimeout",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 95,
+        "startColumn": 16,
+        "endLine": 98,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "60 days timer",
+            "expression": "timedelta(days=60)",
+            "span": {
+              "startLine": 96,
+              "startColumn": 13,
+              "endLine": 96,
+              "endColumn": 50
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "CompleteProcess.for 1",
+            "resourceId": "resource:channel:EngagementFlow.complete_process",
+            "span": {
+              "startLine": 97,
+              "startColumn": 13,
+              "endLine": 97,
+              "endColumn": 49
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:Reminder:70:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:Reminder",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 70,
+        "startColumn": 16,
+        "endLine": 73,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "5 seconds timer",
+            "expression": "timedelta(seconds=5)",
+            "span": {
+              "startLine": 71,
+              "startColumn": 13,
+              "endLine": 71,
+              "endColumn": 52
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "OptOutReminder.for 1",
+            "resourceId": "resource:channel:EngagementFlow.opt_out_reminder",
+            "span": {
+              "startLine": 72,
+              "startColumn": 13,
+              "endLine": 72,
+              "endColumn": 49
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:rpc:accept:198:16",
+      "to": "step:NotifyExternalSystem",
+      "label": "fan-out",
+      "span": {
+        "startLine": 201,
+        "startColumn": 17,
+        "endLine": 201,
+        "endColumn": 71
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:rpc:decline:181:16",
+      "to": "step:NotifyExternalSystem",
+      "label": "fan-out",
+      "span": {
+        "startLine": 184,
+        "startColumn": 17,
+        "endLine": 184,
+        "endColumn": 71
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:Initialize:123:16",
+      "to": "step:NotifyExternalSystem",
+      "label": "fan-out",
+      "span": {
+        "startLine": 126,
+        "startColumn": 13,
+        "endLine": 126,
+        "endColumn": 68
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:Initialize:123:16",
+      "to": "step:ProcessTimeout",
+      "label": "fan-out",
+      "span": {
+        "startLine": 124,
+        "startColumn": 13,
+        "endLine": 124,
+        "endColumn": 50
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:Initialize:123:16",
+      "to": "step:Reminder",
+      "label": "fan-out",
+      "span": {
+        "startLine": 125,
+        "startColumn": 13,
+        "endLine": 125,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:Reminder:87:16",
+      "to": "step:Reminder",
+      "label": "go_to",
+      "span": {
+        "startLine": 87,
+        "startColumn": 16,
+        "endLine": 87,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:attribute:EngagementFlow.employer_id",
+      "to": "step:NotifyExternalSystem",
+      "label": "get",
+      "span": {
+        "startLine": 59,
+        "startColumn": 48,
+        "endLine": 59,
+        "endColumn": 82
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_read",
+      "from": "resource:attribute:EngagementFlow.engagement_status",
+      "to": "rpc:accept",
+      "label": "get",
+      "span": {
+        "startLine": 190,
+        "startColumn": 18,
+        "endLine": 190,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_read",
+      "from": "resource:attribute:EngagementFlow.engagement_status",
+      "to": "rpc:decline",
+      "label": "get",
+      "span": {
+        "startLine": 174,
+        "startColumn": 18,
+        "endLine": 174,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_read",
+      "from": "resource:attribute:EngagementFlow.engagement_status",
+      "to": "step:Reminder",
+      "label": "get",
+      "span": {
+        "startLine": 76,
+        "startColumn": 18,
+        "endLine": 76,
+        "endColumn": 58
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_read",
+      "from": "resource:attribute:EngagementFlow.job_seeker_id",
+      "to": "step:NotifyExternalSystem",
+      "label": "get",
+      "span": {
+        "startLine": 60,
+        "startColumn": 30,
+        "endLine": 60,
+        "endColumn": 66
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "resource_read",
+      "from": "resource:attribute:EngagementFlow.job_seeker_id",
+      "to": "step:Reminder",
+      "label": "get",
+      "span": {
+        "startLine": 83,
+        "startColumn": 13,
+        "endLine": 83,
+        "endColumn": 49
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "wait_condition",
+      "from": "resource:channel:EngagementFlow.complete_process",
+      "to": "wait:ProcessTimeout:95:16:0",
+      "label": "CompleteProcess.for 1",
+      "span": {
+        "startLine": 97,
+        "startColumn": 13,
+        "endLine": 97,
+        "endColumn": 49
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "resource_read",
+      "from": "resource:channel:EngagementFlow.opt_out_reminder",
+      "to": "step:Reminder",
+      "label": "results",
+      "span": {
+        "startLine": 79,
+        "startColumn": 12,
+        "endLine": 79,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "wait_condition",
+      "from": "resource:channel:EngagementFlow.opt_out_reminder",
+      "to": "wait:Reminder:70:16:0",
+      "label": "OptOutReminder.for 1",
+      "span": {
+        "startLine": 72,
+        "startColumn": 13,
+        "endLine": 72,
+        "endColumn": 49
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "resource_publish",
+      "from": "rpc:accept",
+      "to": "resource:channel:EngagementFlow.complete_process",
+      "label": "publish",
+      "span": {
+        "startLine": 197,
+        "startColumn": 9,
+        "endLine": 197,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "resource_write",
+      "from": "step:Initialize",
+      "to": "resource:attribute:EngagementFlow.employer_id",
+      "label": "set",
+      "span": {
+        "startLine": 118,
+        "startColumn": 9,
+        "endLine": 118,
+        "endColumn": 62
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "resource_write",
+      "from": "step:Initialize",
+      "to": "resource:attribute:EngagementFlow.engagement_status",
+      "label": "set",
+      "span": {
+        "startLine": 120,
+        "startColumn": 9,
+        "endLine": 120,
+        "endColumn": 67
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0019",
+      "kind": "resource_write",
+      "from": "step:Initialize",
+      "to": "resource:attribute:EngagementFlow.job_seeker_id",
+      "label": "set",
+      "span": {
+        "startLine": 119,
+        "startColumn": 9,
+        "endLine": 119,
+        "endColumn": 66
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_write",
+      "from": "step:Initialize",
+      "to": "resource:attribute:EngagementFlow.last_update_timestamp",
+      "label": "set",
+      "span": {
+        "startLine": 121,
+        "startColumn": 9,
+        "endLine": 121,
+        "endColumn": 76
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "resource_write",
+      "from": "step:Initialize",
+      "to": "resource:attribute:EngagementFlow.notes",
+      "label": "set",
+      "span": {
+        "startLine": 122,
+        "startColumn": 9,
+        "endLine": 122,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    }
+  ],
+  "diagnostics": []
+}

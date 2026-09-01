@@ -1,0 +1,1214 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/products/ai-agent-email/ai_agent_flow.py"
+  },
+  "flow": {
+    "name": "EmailAgentFlow",
+    "startStepId": "step:Init",
+    "span": {
+      "startLine": 236,
+      "startColumn": 1,
+      "endLine": 309,
+      "endColumn": 10
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:rpc:send_request",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:send_request",
+      "phase": "rpc",
+      "span": {
+        "startLine": 284,
+        "startColumn": 5,
+        "endLine": 290,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "decision-dispatch:step:Agent",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:Agent",
+      "phase": "execute",
+      "span": {
+        "startLine": 177,
+        "startColumn": 5,
+        "endLine": 220,
+        "endColumn": 34
+      }
+    },
+    {
+      "id": "decision-dispatch:step:Schedule",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:Schedule",
+      "phase": "execute",
+      "span": {
+        "startLine": 153,
+        "startColumn": 5,
+        "endLine": 158,
+        "endColumn": 34
+      }
+    },
+    {
+      "id": "decision-dispatch:step:Sending",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:Sending",
+      "phase": "execute",
+      "span": {
+        "startLine": 100,
+        "startColumn": 5,
+        "endLine": 115,
+        "endColumn": 46
+      }
+    },
+    {
+      "id": "decision:rpc:describe:298:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:describe",
+      "phase": "rpc",
+      "span": {
+        "startLine": 298,
+        "startColumn": 16,
+        "endLine": 309,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:send_request:286:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:send_request",
+      "condition": "self.status.get(context) != STATUS_WAITING",
+      "phase": "rpc",
+      "span": {
+        "startLine": 286,
+        "startColumn": 20,
+        "endLine": 286,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:send_request:290:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:send_request",
+      "condition": "not (self.status.get(context) != STATUS_WAITING)",
+      "phase": "rpc",
+      "span": {
+        "startLine": 290,
+        "startColumn": 16,
+        "endLine": 290,
+        "endColumn": 31
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:Agent:200:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:Agent",
+      "condition": "response.cancel_operation",
+      "phase": "execute",
+      "span": {
+        "startLine": 200,
+        "startColumn": 20,
+        "endLine": 200,
+        "endColumn": 56
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:Agent:219:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Agent",
+      "condition": "not (response.cancel_operation) and self.flow.scheduled_time_seconds.get(context) \u003e 0 and self.flow.email_recipient.get(context) and self.flow.email_body.get(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 219,
+        "startColumn": 20,
+        "endLine": 219,
+        "endColumn": 41
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Agent:220:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Agent",
+      "condition": "not (response.cancel_operation) and not (self.flow.scheduled_time_seconds.get(context) \u003e 0 and self.flow.email_recipient.get(context) and self.flow.email_body.get(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 220,
+        "startColumn": 16,
+        "endLine": 220,
+        "endColumn": 34
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Init:233:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Init",
+      "phase": "execute",
+      "span": {
+        "startLine": 233,
+        "startColumn": 16,
+        "endLine": 233,
+        "endColumn": 34
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Schedule:156:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Schedule",
+      "condition": "not requests",
+      "phase": "execute",
+      "span": {
+        "startLine": 156,
+        "startColumn": 20,
+        "endLine": 156,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Schedule:158:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Schedule",
+      "condition": "not (not requests)",
+      "phase": "execute",
+      "span": {
+        "startLine": 158,
+        "startColumn": 16,
+        "endLine": 158,
+        "endColumn": 34
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Sending:109:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:Sending",
+      "condition": "credentials is None",
+      "phase": "execute",
+      "span": {
+        "startLine": 109,
+        "startColumn": 20,
+        "endLine": 109,
+        "endColumn": 53
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:Sending:115:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:Sending",
+      "condition": "not (credentials is None)",
+      "phase": "execute",
+      "span": {
+        "startLine": 115,
+        "startColumn": 16,
+        "endLine": 115,
+        "endColumn": 46
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "resource:attribute:EmailAgentFlow.current_request",
+      "kind": "attribute",
+      "name": "CurrentRequest",
+      "span": {
+        "startLine": 247,
+        "startColumn": 5,
+        "endLine": 247,
+        "endColumn": 57
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:EmailAgentFlow.current_request_draft",
+      "kind": "attribute",
+      "name": "RequestDraft",
+      "span": {
+        "startLine": 248,
+        "startColumn": 5,
+        "endLine": 248,
+        "endColumn": 69
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:EmailAgentFlow.email_body",
+      "kind": "attribute",
+      "name": "EmailBody",
+      "span": {
+        "startLine": 252,
+        "startColumn": 5,
+        "endLine": 252,
+        "endColumn": 47
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:EmailAgentFlow.email_recipient",
+      "kind": "attribute",
+      "name": "EmailRecipient",
+      "span": {
+        "startLine": 250,
+        "startColumn": 5,
+        "endLine": 250,
+        "endColumn": 57
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:EmailAgentFlow.email_subject",
+      "kind": "attribute",
+      "name": "EmailSubject",
+      "span": {
+        "startLine": 251,
+        "startColumn": 5,
+        "endLine": 251,
+        "endColumn": 53
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:EmailAgentFlow.previous_response_id",
+      "kind": "attribute",
+      "name": "PreviousResponseId",
+      "span": {
+        "startLine": 249,
+        "startColumn": 5,
+        "endLine": 249,
+        "endColumn": 67
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:EmailAgentFlow.scheduled_time_seconds",
+      "kind": "attribute",
+      "name": "ScheduledTime",
+      "span": {
+        "startLine": 253,
+        "startColumn": 5,
+        "endLine": 253,
+        "endColumn": 71
+      },
+      "resource": {
+        "valueType": "int"
+      }
+    },
+    {
+      "id": "resource:attribute:EmailAgentFlow.status",
+      "kind": "attribute",
+      "name": "Status",
+      "span": {
+        "startLine": 246,
+        "startColumn": 5,
+        "endLine": 246,
+        "endColumn": 39
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:channel:user_input",
+      "kind": "channel",
+      "name": "UserInput",
+      "span": {
+        "startLine": 53,
+        "startColumn": 1,
+        "endLine": 53,
+        "endColumn": 41
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:stream:EmailAgentFlow.thinking",
+      "kind": "stream",
+      "name": "Thinking",
+      "span": {
+        "startLine": 254,
+        "startColumn": 5,
+        "endLine": 254,
+        "endColumn": 57
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:describe",
+      "kind": "rpc",
+      "name": "describe",
+      "span": {
+        "startLine": 297,
+        "startColumn": 5,
+        "endLine": 309,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "rpc:save_draft",
+      "kind": "rpc",
+      "name": "save_draft",
+      "span": {
+        "startLine": 293,
+        "startColumn": 5,
+        "endLine": 294,
+        "endColumn": 55
+      }
+    },
+    {
+      "id": "rpc:send_request",
+      "kind": "rpc",
+      "name": "send_request",
+      "span": {
+        "startLine": 284,
+        "startColumn": 5,
+        "endLine": 290,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "step:Agent",
+      "kind": "step",
+      "name": "Agent",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 264,
+        "startColumn": 13,
+        "endLine": 264,
+        "endColumn": 23
+      }
+    },
+    {
+      "id": "step:Init",
+      "kind": "step",
+      "name": "Init",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 263,
+        "startColumn": 36,
+        "endLine": 263,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "step:Schedule",
+      "kind": "step",
+      "name": "Schedule",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 265,
+        "startColumn": 13,
+        "endLine": 265,
+        "endColumn": 26
+      }
+    },
+    {
+      "id": "step:Sending",
+      "kind": "step",
+      "name": "Sending",
+      "phase": "execute",
+      "span": {
+        "startLine": 266,
+        "startColumn": 13,
+        "endLine": 266,
+        "endColumn": 25
+      }
+    },
+    {
+      "id": "wait:Agent:175:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:Agent",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 175,
+        "startColumn": 16,
+        "endLine": 175,
+        "endColumn": 48
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "UserInput.for 1",
+            "resourceId": "resource:channel:user_input",
+            "span": {
+              "startLine": 175,
+              "startColumn": 27,
+              "endLine": 175,
+              "endColumn": 47
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:Schedule:147:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:Schedule",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 147,
+        "startColumn": 16,
+        "endLine": 151,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "timedelta(seconds=max(0, send_time - int(time.time()))) timer",
+            "expression": "timedelta(seconds=max(0, send_time - int(time.time())))",
+            "span": {
+              "startLine": 149,
+              "startColumn": 13,
+              "endLine": 149,
+              "endColumn": 87
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "UserInput.for 1",
+            "resourceId": "resource:channel:user_input",
+            "span": {
+              "startLine": 150,
+              "startColumn": 13,
+              "endLine": 150,
+              "endColumn": 33
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:Agent:219:20",
+      "to": "step:Schedule",
+      "label": "go_to",
+      "span": {
+        "startLine": 219,
+        "startColumn": 20,
+        "endLine": 219,
+        "endColumn": 41
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:Agent:220:16",
+      "to": "step:Agent",
+      "label": "go_to",
+      "span": {
+        "startLine": 220,
+        "startColumn": 16,
+        "endLine": 220,
+        "endColumn": 34
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:Init:233:16",
+      "to": "step:Agent",
+      "label": "go_to",
+      "span": {
+        "startLine": 233,
+        "startColumn": 16,
+        "endLine": 233,
+        "endColumn": 34
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:Schedule:156:20",
+      "to": "step:Sending",
+      "label": "go_to",
+      "span": {
+        "startLine": 156,
+        "startColumn": 20,
+        "endLine": 156,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:Schedule:158:16",
+      "to": "step:Agent",
+      "label": "go_to",
+      "span": {
+        "startLine": 158,
+        "startColumn": 16,
+        "endLine": 158,
+        "endColumn": 34
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.current_request",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 301,
+        "startColumn": 33,
+        "endLine": 301,
+        "endColumn": 66
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.current_request_draft",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 302,
+        "startColumn": 39,
+        "endLine": 302,
+        "endColumn": 78
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.email_body",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 306,
+        "startColumn": 28,
+        "endLine": 306,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.email_body",
+      "to": "step:Agent",
+      "label": "get",
+      "span": {
+        "startLine": 217,
+        "startColumn": 17,
+        "endLine": 217,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.email_body",
+      "to": "step:Sending",
+      "label": "get",
+      "span": {
+        "startLine": 103,
+        "startColumn": 16,
+        "endLine": 103,
+        "endColumn": 49
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.email_recipient",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 304,
+        "startColumn": 33,
+        "endLine": 304,
+        "endColumn": 66
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.email_recipient",
+      "to": "step:Agent",
+      "label": "get",
+      "span": {
+        "startLine": 216,
+        "startColumn": 17,
+        "endLine": 216,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.email_recipient",
+      "to": "step:Sending",
+      "label": "get",
+      "span": {
+        "startLine": 101,
+        "startColumn": 21,
+        "endLine": 101,
+        "endColumn": 59
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.email_subject",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 305,
+        "startColumn": 31,
+        "endLine": 305,
+        "endColumn": 62
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.email_subject",
+      "to": "step:Sending",
+      "label": "get",
+      "span": {
+        "startLine": 102,
+        "startColumn": 19,
+        "endLine": 102,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.previous_response_id",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 303,
+        "startColumn": 29,
+        "endLine": 303,
+        "endColumn": 67
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.previous_response_id",
+      "to": "step:Agent",
+      "label": "get",
+      "span": {
+        "startLine": 191,
+        "startColumn": 13,
+        "endLine": 191,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.scheduled_time_seconds",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 307,
+        "startColumn": 35,
+        "endLine": 307,
+        "endColumn": 75
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0019",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.scheduled_time_seconds",
+      "to": "step:Agent",
+      "label": "get",
+      "span": {
+        "startLine": 215,
+        "startColumn": 13,
+        "endLine": 215,
+        "endColumn": 58
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.scheduled_time_seconds",
+      "to": "step:Schedule",
+      "label": "get",
+      "span": {
+        "startLine": 146,
+        "startColumn": 21,
+        "endLine": 146,
+        "endColumn": 66
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.status",
+      "to": "rpc:describe",
+      "label": "get",
+      "span": {
+        "startLine": 300,
+        "startColumn": 24,
+        "endLine": 300,
+        "endColumn": 48
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0022",
+      "kind": "resource_read",
+      "from": "resource:attribute:EmailAgentFlow.status",
+      "to": "rpc:send_request",
+      "label": "get",
+      "span": {
+        "startLine": 285,
+        "startColumn": 12,
+        "endLine": 285,
+        "endColumn": 36
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0023",
+      "kind": "resource_read",
+      "from": "resource:channel:user_input",
+      "to": "step:Agent",
+      "label": "results",
+      "span": {
+        "startLine": 182,
+        "startColumn": 20,
+        "endLine": 182,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "resource_read",
+      "from": "resource:channel:user_input",
+      "to": "step:Schedule",
+      "label": "results",
+      "span": {
+        "startLine": 154,
+        "startColumn": 20,
+        "endLine": 154,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0025",
+      "kind": "wait_condition",
+      "from": "resource:channel:user_input",
+      "to": "wait:Agent:175:16:0",
+      "label": "UserInput.for 1",
+      "span": {
+        "startLine": 175,
+        "startColumn": 27,
+        "endLine": 175,
+        "endColumn": 47
+      }
+    },
+    {
+      "id": "edge:0026",
+      "kind": "wait_condition",
+      "from": "resource:channel:user_input",
+      "to": "wait:Schedule:147:16:0",
+      "label": "UserInput.for 1",
+      "span": {
+        "startLine": 150,
+        "startColumn": 13,
+        "endLine": 150,
+        "endColumn": 33
+      }
+    },
+    {
+      "id": "edge:0027",
+      "kind": "resource_write",
+      "from": "rpc:save_draft",
+      "to": "resource:attribute:EmailAgentFlow.current_request_draft",
+      "label": "set",
+      "span": {
+        "startLine": 294,
+        "startColumn": 9,
+        "endLine": 294,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0028",
+      "kind": "resource_write",
+      "from": "rpc:send_request",
+      "to": "resource:attribute:EmailAgentFlow.current_request_draft",
+      "label": "set",
+      "span": {
+        "startLine": 287,
+        "startColumn": 9,
+        "endLine": 287,
+        "endColumn": 52
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0029",
+      "kind": "resource_write",
+      "from": "rpc:send_request",
+      "to": "resource:attribute:EmailAgentFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 289,
+        "startColumn": 9,
+        "endLine": 289,
+        "endColumn": 52
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0030",
+      "kind": "resource_publish",
+      "from": "rpc:send_request",
+      "to": "resource:channel:user_input",
+      "label": "publish",
+      "span": {
+        "startLine": 288,
+        "startColumn": 9,
+        "endLine": 288,
+        "endColumn": 43
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0031",
+      "kind": "resource_write",
+      "from": "step:Agent",
+      "to": "resource:attribute:EmailAgentFlow.current_request",
+      "label": "set",
+      "span": {
+        "startLine": 186,
+        "startColumn": 9,
+        "endLine": 186,
+        "endColumn": 61
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0032",
+      "kind": "resource_write",
+      "from": "step:Agent",
+      "to": "resource:attribute:EmailAgentFlow.email_body",
+      "label": "set",
+      "span": {
+        "startLine": 208,
+        "startColumn": 13,
+        "endLine": 208,
+        "endColumn": 67
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0033",
+      "kind": "resource_write",
+      "from": "step:Agent",
+      "to": "resource:attribute:EmailAgentFlow.email_recipient",
+      "label": "set",
+      "span": {
+        "startLine": 212,
+        "startColumn": 13,
+        "endLine": 212,
+        "endColumn": 77
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0034",
+      "kind": "resource_write",
+      "from": "step:Agent",
+      "to": "resource:attribute:EmailAgentFlow.email_subject",
+      "label": "set",
+      "span": {
+        "startLine": 210,
+        "startColumn": 13,
+        "endLine": 210,
+        "endColumn": 73
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0035",
+      "kind": "resource_write",
+      "from": "step:Agent",
+      "to": "resource:attribute:EmailAgentFlow.previous_response_id",
+      "label": "set",
+      "span": {
+        "startLine": 195,
+        "startColumn": 13,
+        "endLine": 195,
+        "endColumn": 75
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0036",
+      "kind": "resource_write",
+      "from": "step:Agent",
+      "to": "resource:attribute:EmailAgentFlow.scheduled_time_seconds",
+      "label": "set",
+      "span": {
+        "startLine": 203,
+        "startColumn": 13,
+        "endLine": 206,
+        "endColumn": 14
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0037",
+      "kind": "resource_write",
+      "from": "step:Agent",
+      "to": "resource:attribute:EmailAgentFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 199,
+        "startColumn": 13,
+        "endLine": 199,
+        "endColumn": 59
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0038",
+      "kind": "resource_write",
+      "from": "step:Agent",
+      "to": "resource:attribute:EmailAgentFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 174,
+        "startColumn": 9,
+        "endLine": 174,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0039",
+      "kind": "resource_write",
+      "from": "step:Init",
+      "to": "resource:attribute:EmailAgentFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 228,
+        "startColumn": 9,
+        "endLine": 228,
+        "endColumn": 58
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0040",
+      "kind": "resource_write",
+      "from": "step:Schedule",
+      "to": "resource:attribute:EmailAgentFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 145,
+        "startColumn": 9,
+        "endLine": 145,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0041",
+      "kind": "resource_publish",
+      "from": "step:Schedule",
+      "to": "resource:channel:user_input",
+      "label": "publish",
+      "span": {
+        "startLine": 157,
+        "startColumn": 9,
+        "endLine": 157,
+        "endColumn": 49
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0042",
+      "kind": "resource_write",
+      "from": "step:Sending",
+      "to": "resource:attribute:EmailAgentFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 114,
+        "startColumn": 9,
+        "endLine": 114,
+        "endColumn": 51
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "unused_resource",
+      "message": "stream Thinking has no direct access in the source file",
+      "span": {
+        "startLine": 254,
+        "startColumn": 5,
+        "endLine": 254,
+        "endColumn": 57
+      }
+    }
+  ]
+}

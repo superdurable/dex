@@ -8,8 +8,11 @@
 
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { FlowDefinitionGraph } from '@/lib/types';
-import { FlowDefinitionGraphView, SelectedEdgeLabel } from './FlowDefinitionGraph';
+import {
+  FlowDefinitionGraphView,
+  SelectedEdgeLabel,
+  type FlowDefinitionGraph,
+} from '@superdurable/flow-definition-renderer';
 
 describe('Flow Definition Graph renderer', () => {
   it('renders semantic shapes, icons, and failure diagnostics', () => {

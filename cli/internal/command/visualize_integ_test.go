@@ -43,15 +43,20 @@ func TestVisualizeDefaultsToJSONNextToPythonSource(t *testing.T) {
 func TestVisualizeCanWriteJSONToStdout(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "flow.py")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(minimalPythonFlow), 0o644))
+	workingDirectory, err := os.Getwd()
+	require.NoError(t, err)
+	relativeSourcePath, err := filepath.Rel(workingDirectory, sourcePath)
+	require.NoError(t, err)
 
 	var stdout bytes.Buffer
 	app := NewApp(strings.NewReader(""), &stdout, &bytes.Buffer{})
-	require.NoError(t, app.Execute(context.Background(), []string{"visualize", sourcePath, "--out", "-"}))
+	require.NoError(t, app.Execute(context.Background(), []string{"visualize", relativeSourcePath, "--out", "-"}))
 
 	var graph flowviz.Graph
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &graph))
 	require.True(t, graph.Valid)
 	require.Equal(t, "PythonFlow", graph.Flow.Name)
+	require.Equal(t, filepath.ToSlash(relativeSourcePath), graph.Source.Path)
 }
 
 func TestVisualizeRejectsRemovedFormatFlag(t *testing.T) {

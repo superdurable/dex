@@ -1,0 +1,410 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/products/microservices/orchestration_flow.py"
+  },
+  "flow": {
+    "name": "OrchestrationFlow",
+    "startStepId": "step:CallAPI1",
+    "span": {
+      "startLine": 110,
+      "startColumn": 1,
+      "endLine": 135,
+      "endColumn": 35
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:CallAPI3",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:CallAPI3",
+      "phase": "execute",
+      "span": {
+        "startLine": 70,
+        "startColumn": 5,
+        "endLine": 75,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "decision:rpc:swap:135:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:swap",
+      "phase": "rpc",
+      "span": {
+        "startLine": 135,
+        "startColumn": 16,
+        "endLine": 135,
+        "endColumn": 35
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:CallAPI1:104:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:CallAPI1",
+      "phase": "execute",
+      "span": {
+        "startLine": 104,
+        "startColumn": 16,
+        "endLine": 107,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:CallAPI2:85:16",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:CallAPI2",
+      "phase": "execute",
+      "span": {
+        "startLine": 85,
+        "startColumn": 16,
+        "endLine": 85,
+        "endColumn": 26
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:CallAPI3:74:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CallAPI3",
+      "condition": "context.has_timer_fired()",
+      "phase": "execute",
+      "span": {
+        "startLine": 74,
+        "startColumn": 20,
+        "endLine": 74,
+        "endColumn": 41
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CallAPI3:75:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:CallAPI3",
+      "condition": "not (context.has_timer_fired())",
+      "phase": "execute",
+      "span": {
+        "startLine": 75,
+        "startColumn": 16,
+        "endLine": 75,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:CallAPI4:48:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:CallAPI4",
+      "phase": "execute",
+      "span": {
+        "startLine": 48,
+        "startColumn": 16,
+        "endLine": 48,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "resource:attribute:OrchestrationFlow.data",
+      "kind": "attribute",
+      "name": "data",
+      "span": {
+        "startLine": 111,
+        "startColumn": 5,
+        "endLine": 111,
+        "endColumn": 34
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:channel:OrchestrationFlow.ready",
+      "kind": "channel",
+      "name": "Ready",
+      "span": {
+        "startLine": 112,
+        "startColumn": 5,
+        "endLine": 112,
+        "endColumn": 47
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "rpc:swap",
+      "kind": "rpc",
+      "name": "swap",
+      "span": {
+        "startLine": 132,
+        "startColumn": 5,
+        "endLine": 135,
+        "endColumn": 35
+      }
+    },
+    {
+      "id": "step:CallAPI1",
+      "kind": "step",
+      "name": "CallAPI1",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 122,
+        "startColumn": 36,
+        "endLine": 122,
+        "endColumn": 50
+      }
+    },
+    {
+      "id": "step:CallAPI2",
+      "kind": "step",
+      "name": "CallAPI2",
+      "phase": "execute",
+      "span": {
+        "startLine": 123,
+        "startColumn": 13,
+        "endLine": 123,
+        "endColumn": 27
+      }
+    },
+    {
+      "id": "step:CallAPI3",
+      "kind": "step",
+      "name": "CallAPI3",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 124,
+        "startColumn": 13,
+        "endLine": 124,
+        "endColumn": 27
+      }
+    },
+    {
+      "id": "step:CallAPI4",
+      "kind": "step",
+      "name": "CallAPI4",
+      "phase": "execute",
+      "span": {
+        "startLine": 125,
+        "startColumn": 13,
+        "endLine": 125,
+        "endColumn": 27
+      }
+    },
+    {
+      "id": "wait:CallAPI3:65:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:CallAPI3",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 65,
+        "startColumn": 16,
+        "endLine": 68,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "24 hours timer",
+            "expression": "timedelta(hours=24)",
+            "span": {
+              "startLine": 66,
+              "startColumn": 13,
+              "endLine": 66,
+              "endColumn": 51
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "Ready.for 1",
+            "resourceId": "resource:channel:OrchestrationFlow.ready",
+            "span": {
+              "startLine": 67,
+              "startColumn": 13,
+              "endLine": 67,
+              "endColumn": 33
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:CallAPI1:104:16",
+      "to": "step:CallAPI2",
+      "label": "fan-out",
+      "span": {
+        "startLine": 105,
+        "startColumn": 13,
+        "endLine": 105,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:CallAPI1:104:16",
+      "to": "step:CallAPI3",
+      "label": "fan-out",
+      "span": {
+        "startLine": 106,
+        "startColumn": 13,
+        "endLine": 106,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:CallAPI3:74:20",
+      "to": "step:CallAPI4",
+      "label": "go_to",
+      "span": {
+        "startLine": 74,
+        "startColumn": 20,
+        "endLine": 74,
+        "endColumn": 41
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "resource_read",
+      "from": "resource:attribute:OrchestrationFlow.data",
+      "to": "rpc:swap",
+      "label": "get",
+      "span": {
+        "startLine": 133,
+        "startColumn": 20,
+        "endLine": 133,
+        "endColumn": 42
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "resource_read",
+      "from": "resource:attribute:OrchestrationFlow.data",
+      "to": "step:CallAPI2",
+      "label": "get",
+      "span": {
+        "startLine": 84,
+        "startColumn": 32,
+        "endLine": 84,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
+      "from": "resource:attribute:OrchestrationFlow.data",
+      "to": "step:CallAPI3",
+      "label": "get",
+      "span": {
+        "startLine": 71,
+        "startColumn": 17,
+        "endLine": 71,
+        "endColumn": 39
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:attribute:OrchestrationFlow.data",
+      "to": "step:CallAPI4",
+      "label": "get",
+      "span": {
+        "startLine": 46,
+        "startColumn": 17,
+        "endLine": 46,
+        "endColumn": 39
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "wait_condition",
+      "from": "resource:channel:OrchestrationFlow.ready",
+      "to": "wait:CallAPI3:65:16:0",
+      "label": "Ready.for 1",
+      "span": {
+        "startLine": 67,
+        "startColumn": 13,
+        "endLine": 67,
+        "endColumn": 33
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_write",
+      "from": "rpc:swap",
+      "to": "resource:attribute:OrchestrationFlow.data",
+      "label": "set",
+      "span": {
+        "startLine": 134,
+        "startColumn": 9,
+        "endLine": 134,
+        "endColumn": 41
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_write",
+      "from": "step:CallAPI1",
+      "to": "resource:attribute:OrchestrationFlow.data",
+      "label": "set",
+      "span": {
+        "startLine": 103,
+        "startColumn": 9,
+        "endLine": 103,
+        "endColumn": 38
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    }
+  ],
+  "diagnostics": []
+}

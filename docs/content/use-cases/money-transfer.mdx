@@ -2,6 +2,8 @@
 title: Money transfer
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/money-transfer.json';
+
 # Money transfer
 
 Move money between two accounts without leaving a partial debit or credit when a downstream operation fails.
@@ -28,6 +30,10 @@ Potential failures fall into three groups:
 The dependency calls must be idempotent. A Worker can retry a call after the remote system committed it but before Dex recorded the result.
 
 ## Flow design
+
+This interactive definition graph is generated from the runnable Python Flow.
+
+<ProductFlowDefinitionGraph graph={flowDefinition} />
 
 The Flow is a sequential saga:
 

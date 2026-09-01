@@ -24,7 +24,7 @@ import {
   type NodeTypes,
   type ReactFlowInstance,
 } from '@xyflow/react';
-import type { FlowDefinitionGraph, FlowDefinitionNode, SourceSpan } from '@/lib/types';
+import type { FlowDefinitionGraph, FlowDefinitionNode, SourceSpan } from './types';
 import {
   buildDefinitionScene,
   type DefinitionEdgeData,

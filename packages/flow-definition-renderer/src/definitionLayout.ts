@@ -13,7 +13,7 @@ import type {
   FlowDefinitionGraph,
   FlowDefinitionNode,
   SourceSpan,
-} from '@/lib/types';
+} from './types';
 
 export type DefinitionLayer =
   | 'control'

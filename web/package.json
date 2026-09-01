@@ -11,6 +11,7 @@
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
+    "@superdurable/flow-definition-renderer": "file:../packages/flow-definition-renderer",
     "@xyflow/react": "^12.8.4",
     "dagre": "^0.8.5",
     "react": "^19.1.1",

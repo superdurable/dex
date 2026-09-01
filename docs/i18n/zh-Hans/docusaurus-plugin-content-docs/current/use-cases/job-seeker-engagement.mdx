@@ -2,6 +2,8 @@
 title: 求职者沟通
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/job-seeker-engagement.json';
+
 # 求职者沟通
 
 在求职者决定是否接受机会期间，让雇主、求职者和招聘系统保持同步。
@@ -32,6 +34,10 @@ title: 求职者沟通
 Go、Java、Python 和 TypeScript 示例实现完整的 60 天流程。基于已发布 SDK 的 Rust 示例保留相同的端到端启动、查询、接受、拒绝、退订、通知和搜索端点，但使用一个决策 Channel 和 24 小时 Timer，使集成路径更紧凑。
 
 ## Flow 设计
+
+这个交互式 definition graph 由可运行的 Python Flow 生成。
+
+<ProductFlowDefinitionGraph graph={flowDefinition} />
 
 初始化后，主拓扑分成三个并行分支：
 
