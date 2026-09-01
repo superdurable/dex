@@ -123,8 +123,9 @@ func TestWebServerLoadsFlowDefinitionsAtStartup(t *testing.T) {
 		t.Fatal(err)
 	}
 	definitions := map[string]string{
-		"orders.flow.json":    `{"schemaVersion":"1.0","valid":true,"source":{"language":"go","path":"orders.go"},"flow":{"name":"Orders"},"nodes":[],"edges":[],"diagnostics":[]}`,
-		"nested/billing.json": `{"schemaVersion":"1.0","valid":false,"source":{"language":"python","path":"billing.py"},"flow":{"name":"Billing"},"nodes":[],"edges":[],"diagnostics":[{"severity":"error","code":"unknown","message":"dynamic"}]}`,
+		"orders.flow.json":     `{"schemaVersion":"1.0","valid":true,"source":{"language":"go","path":"orders.go"},"flow":{"name":"Orders"},"nodes":[],"edges":[],"diagnostics":[]}`,
+		"nested/billing.json":  `{"schemaVersion":"1.0","valid":false,"source":{"language":"python","path":"billing.py"},"flow":{"name":"Billing"},"nodes":[],"edges":[],"diagnostics":[{"severity":"error","code":"unknown","message":"dynamic"}]}`,
+		"nested/multiple.json": `{"schemaVersion":"1.0","valid":false,"source":{"language":"go","path":"flows.go"},"flow":{"name":""},"nodes":[],"edges":[],"diagnostics":[{"severity":"error","code":"multiple_flows","message":"source must define exactly one Flow"}]}`,
 	}
 	for name, contents := range definitions {
 		if err := os.WriteFile(filepath.Join(directory, filepath.FromSlash(name)), []byte(contents), 0o600); err != nil {
@@ -156,11 +157,14 @@ func TestWebServerLoadsFlowDefinitionsAtStartup(t *testing.T) {
 	if !catalog.Configured || catalog.Directory != directory {
 		t.Fatalf("unexpected Flow definition catalog: %+v", catalog)
 	}
-	if len(catalog.Definitions) != 2 || catalog.Definitions[0].ID != "nested/billing.json" || catalog.Definitions[1].ID != "orders.flow.json" {
+	if len(catalog.Definitions) != 3 || catalog.Definitions[0].ID != "nested/billing.json" || catalog.Definitions[1].ID != "nested/multiple.json" || catalog.Definitions[2].ID != "orders.flow.json" {
 		t.Fatalf("unexpected Flow definitions: %+v", catalog.Definitions)
 	}
 	if catalog.Definitions[0].FlowName != "Billing" || catalog.Definitions[0].Valid || len(catalog.Definitions[0].Graph) == 0 {
 		t.Fatalf("unexpected Billing definition: %+v", catalog.Definitions[0])
+	}
+	if catalog.Definitions[1].FlowName != "nested/multiple" || catalog.Definitions[1].Valid {
+		t.Fatalf("unexpected multiple-Flow definition: %+v", catalog.Definitions[1])
 	}
 }
 

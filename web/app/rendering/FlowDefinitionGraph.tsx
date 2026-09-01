@@ -68,7 +68,13 @@ const defaultVisibility: Record<DefinitionLayer, boolean> = {
 
 const nodeTypes: NodeTypes = { definition: DefinitionNode };
 
-export function FlowDefinitionGraphView({ graph }: { graph: FlowDefinitionGraph }) {
+export function FlowDefinitionGraphView({
+  displayName,
+  graph,
+}: {
+  displayName: string;
+  graph: FlowDefinitionGraph;
+}) {
   const [visibility, setVisibility] = useState(defaultVisibility);
   const [selectedNodeID, setSelectedNodeID] = useState('');
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<DefinitionNodeData>, Edge> | null>(null);
@@ -133,7 +139,7 @@ export function FlowDefinitionGraphView({ graph }: { graph: FlowDefinitionGraph 
         <div>
           <p className="eyebrow">Definition graph</p>
           <div className="flow-definition-title">
-            <h2>{graph.flow.name}</h2>
+            <h2>{graph.flow.name || displayName}</h2>
             <span className={graph.valid ? 'is-valid' : 'is-invalid'}>
               {graph.valid ? 'Valid' : 'Needs attention'}
             </span>

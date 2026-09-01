@@ -123,9 +123,6 @@ func readFlowDefinition(root string, path string) (flowDefinition, error) {
 	if header.SchemaVersion != "1.0" {
 		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s has unsupported schemaVersion %q", path, header.SchemaVersion)
 	}
-	if strings.TrimSpace(header.Flow.Name) == "" {
-		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s has no Flow name", path)
-	}
 	if header.Source.Language != "go" && header.Source.Language != "python" {
 		return flowDefinition{}, fmt.Errorf("Flow Definition Graph %s has unsupported source language %q", path, header.Source.Language)
 	}
@@ -137,10 +134,14 @@ func readFlowDefinition(root string, path string) (flowDefinition, error) {
 		return flowDefinition{}, err
 	}
 	relativePath = filepath.ToSlash(relativePath)
+	flowName := strings.TrimSpace(header.Flow.Name)
+	if flowName == "" {
+		flowName = strings.TrimSuffix(relativePath, filepath.Ext(relativePath))
+	}
 	return flowDefinition{
 		ID:             relativePath,
 		File:           relativePath,
-		FlowName:       header.Flow.Name,
+		FlowName:       flowName,
 		SourceLanguage: header.Source.Language,
 		SourcePath:     header.Source.Path,
 		Valid:          header.Valid,
