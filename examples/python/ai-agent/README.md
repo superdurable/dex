@@ -1,9 +1,9 @@
 # AI Agent
 
 This Python application is a general durable AI Agent. Dex owns its conversation
-state, tool queue, approvals, context summaries, and timers. LiteLLM provides the
-model adapter, while the official MCP Python SDK connects trusted local or remote
-tool servers.
+state, plans, tool queue, approvals, context summaries, and timers. LiteLLM
+provides the model adapter, while the official MCP Python SDK connects trusted
+local or remote tool servers.
 
 The application runs without external credentials by default with the `mock/dex`
 model. Its local model echoes normal messages and understands `/wait <seconds>
@@ -12,8 +12,9 @@ model. Its local model echoes normal messages and understands `/wait <seconds>
 ## Architecture
 
 - `AgentMessages` is an AttributeMap. Each message is an independent value.
+- `AgentPlan` atomically stores the current revision and ordered task list.
 - `ContextSummary` keeps the cumulative compaction summary.
-- Channels carry durable user messages and tool approvals.
+- Channels carry durable user messages, plan execution requests, and tool approvals.
 - `AssistantText` uses the SDK buffered text writer for best-effort model output.
 - `AgentEvents` is a best-effort Stream for tool and lifecycle progress.
 - The `durable_wait` tool uses a Dex Timer and can be interrupted by a user message.
@@ -26,6 +27,17 @@ Flow history until the configured history retention expires.
 The model adapter receives `assistant_text.buffered_text(context).write` as its
 delta callback. The SDK combines token-sized chunks for up to one second or 16
 KiB and flushes the final batch when the Step invocation finishes.
+
+## Plan before execution
+
+Enable **Plan mode** beside the message composer to create or revise a plan. The
+Agent can only call `write_todos` during that turn. MCP tools and the durable timer
+remain unavailable until the user clicks **Execute plan**.
+
+The plan card survives page refreshes and Worker restarts. It shows pending, in
+progress, and completed tasks. If the model stops with unfinished work, the card
+remains active and offers **Continue plan**. A waiting Agent is not necessarily a
+completed plan.
 
 ## Run locally
 

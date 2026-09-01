@@ -10,6 +10,21 @@ Use an AttributeMap with monotonic sequence keys for independently stored messag
 
 Compaction changes the model context, not the durable truth. Commit a summary that covers an explicit sequence range before deleting any covered message instances. If old messages only need Flow-history retention, bound the current AttributeMap and document that they are unavailable through the application after deletion.
 
+## Make plans durable
+
+Keep a short, atomically replaced plan in a regular Attribute. Use AttributeMap
+for independently updated large collections, not for a todo list that a model
+replaces as one value.
+
+Separate plan lifecycle from Flow activity. A Flow waiting for input may still
+have pending work. Derive completion from task states and expose both values to
+the UI.
+
+For planning-only interactions, hide executable tools instead of relying on a
+prompt. Carry explicit plan approval or continuation through a Channel and bind
+it to the current plan revision. Stream plan progress for responsiveness, but
+reload the durable Attribute after loss or refresh.
+
 ## Separate durable and live output
 
 Commit the completed assistant message and tool result to Attributes. Use a Stream for token deltas, tool progress, and UI status. A retry may repeat Stream messages, so the UI must recover from durable message state.

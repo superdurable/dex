@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 DEFAULT_MODEL = "mock/dex"
@@ -81,6 +82,12 @@ class AgentState:
     status: str = "initializing"
     pending_tool_calls: list[ToolCall] = field(default_factory=list)
     pending_tool_index: int = 0
+    plan_revision: int = 0
+    interaction_mode: str = "chat"
+    planning_requires_write: bool = False
+    planning_allows_write: bool = False
+    pending_plan_execution_revision: int | None = None
+    pending_user_message_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -93,6 +100,25 @@ class ContextSummary:
 @dataclass(frozen=True)
 class UserMessage:
     content: str
+    plan_mode: bool = False
+
+
+@dataclass(frozen=True)
+class PlanTask:
+    content: str
+    status: str
+
+
+@dataclass(frozen=True)
+class AgentPlan:
+    revision: int
+    status: str
+    tasks: list[PlanTask]
+
+
+@dataclass(frozen=True)
+class PlanExecutionRequest:
+    revision: int
 
 
 @dataclass(frozen=True)
@@ -160,6 +186,8 @@ class AgentDescription:
     pending_timer_call_id: str | None
     pending_timer_duration_seconds: int | None
     pending_timer_reason: str | None
+    plan: dict[str, Any] | None
+    plan_execution_requested: bool
     available_mcp_servers: list[str]
     available_tools: list[str]
 

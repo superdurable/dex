@@ -4,7 +4,7 @@ title: AI Agent
 
 # AI Agent
 
-This Python application is a general, long-running AI Agent. It can chat with a user, call trusted MCP tools, wait for approval before external writes, and suspend itself with a durable timer.
+This Python application is a general, long-running AI Agent. It can plan work for review, chat with a user, call trusted MCP tools, wait for approval before external writes, and suspend itself with a durable timer.
 
 Dex owns the conversation state. The Agent rebuilds the model input from durable state for every call, so it does not depend on an LLM provider's conversation API.
 
@@ -22,10 +22,12 @@ When the model context reaches 85 percent of its configured window, a Step summa
     state = Attribute("AgentState", AgentState)
     summary = Attribute("ContextSummary", ContextSummary)
     messages = AttributeMap("AgentMessages", AgentMessage)
+    plan = Attribute("AgentPlan", AgentPlan)
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
     user_messages = Channel("UserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
+    plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
     assistant_text = Stream("AssistantText", str, 10 * 1024 * 1024)
     events = Stream("AgentEvents", AgentEvent, 10 * 1024 * 1024)
 ```
@@ -34,6 +36,14 @@ When the model context reaches 85 percent of its configured window, a Step summa
 </SdkTabs>
 
 Each map instance can be loaded and updated independently. This avoids rewriting one ever-growing conversation value. Dex blob storage and the Worker BlobCache handle large messages and MCP results.
+
+## Durable plans
+
+Turn on **Plan mode** for a message to ask the Agent to create or revise a plan without executing it. The planning call can only use the built-in **write_todos** tool. It cannot call MCP tools or start a durable wait.
+
+The current plan is a regular Attribute. One update atomically replaces its ordered task list and advances the revision. Tasks are pending, in progress, or completed. Because the plan is independent of conversation messages, context compaction does not remove it.
+
+The UI displays the draft and starts execution only after the user selects **Execute plan**. An active plan that stops with unfinished tasks remains incomplete and can be continued. The Agent waiting for another input does not mean that every plan task is complete.
 
 ## MCP tools and approvals
 

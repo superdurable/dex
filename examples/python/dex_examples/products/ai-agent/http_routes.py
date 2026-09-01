@@ -21,12 +21,13 @@ from typing import Any
 
 from dex import StartFlowOptions
 from quart import Blueprint, Response, jsonify, render_template, request
-from werkzeug.exceptions import BadRequest
+from werkzeug.exceptions import BadRequest, Conflict
 
 from dex_examples.app import ExampleApp
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
     HistoryRequest,
+    PlanExecutionRequest,
     ToolApprovalRequest,
     UserMessage,
 )
@@ -94,9 +95,24 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
         accepted = await app_state.client.invoke_rpc(
             app_state.ai_agent.send_message,
             _required_string(payload, "workflowId"),
-            UserMessage(_required_string(payload, "content")),
+            UserMessage(
+                _required_string(payload, "content"),
+                _optional_bool(payload, "planMode", False),
+            ),
         )
         return jsonify(accepted=accepted)
+
+    @blueprint.post("/plans/execute")
+    async def execute_plan() -> Response:
+        payload = await _json_object()
+        accepted = await app_state.client.invoke_rpc(
+            app_state.ai_agent.execute_plan,
+            _required_string(payload, "workflowId"),
+            PlanExecutionRequest(_required_int(payload, "revision")),
+        )
+        if not accepted:
+            raise Conflict("the plan revision is stale or cannot be executed")
+        return jsonify(accepted=True)
 
     @blueprint.post("/tool-approvals")
     async def approve_tool() -> Response:
@@ -208,6 +224,20 @@ def _optional_int(payload: dict[str, Any], name: str, default: int) -> int:
     value = payload.get(name, default)
     if isinstance(value, bool) or not isinstance(value, int):
         raise BadRequest(f"{name} must be an integer")
+    return value
+
+
+def _required_int(payload: dict[str, Any], name: str) -> int:
+    value = payload.get(name)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BadRequest(f"{name} must be an integer")
+    return value
+
+
+def _optional_bool(payload: dict[str, Any], name: str, default: bool) -> bool:
+    value = payload.get(name, default)
+    if not isinstance(value, bool):
+        raise BadRequest(f"{name} must be a boolean")
     return value
 
 

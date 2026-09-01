@@ -29,6 +29,7 @@ from dex_examples.products.ai_agent.mcp_registry import MCPRegistry
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
     HistoryRequest,
+    PlanExecutionRequest,
     ToolApprovalRequest,
     UserMessage,
 )
@@ -127,6 +128,246 @@ async def test_ai_agent_executes_mcp_primitives_and_approval(
     await _wait_for_content(client, app, flow_id, "Greet Dex")
 
 
+async def test_ai_agent_plans_before_execution(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("ai-agent-plan")
+    await client.start_flow(
+        app.ai_agent,
+        flow_id,
+        AgentConfig(enabled_mcp_servers=["test"]),
+        StartFlowOptions(),
+    )
+    await _send(client, app, flow_id, "Research Dex and report back", plan_mode=True)
+
+    async def draft_revision() -> int | None:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        if (
+            description.status != "waiting_for_message"
+            or description.plan is None
+            or description.plan["status"] != "draft"
+        ):
+            return None
+        tasks = description.plan["tasks"]
+        assert isinstance(tasks, list)
+        assert all(task["status"] == "pending" for task in tasks)
+        revision = description.plan["revision"]
+        assert isinstance(revision, int)
+        return revision
+
+    revision = await wait_until("AI Agent draft plan", draft_revision, WAIT_TIMEOUT)
+    assert not await client.invoke_rpc(
+        app.ai_agent.execute_plan,
+        flow_id,
+        PlanExecutionRequest(revision + 1),
+    )
+    assert await client.invoke_rpc(
+        app.ai_agent.execute_plan,
+        flow_id,
+        PlanExecutionRequest(revision),
+    )
+    assert not await client.invoke_rpc(
+        app.ai_agent.execute_plan,
+        flow_id,
+        PlanExecutionRequest(revision),
+    )
+
+    async def completed_plan() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return (
+            description.status == "waiting_for_message"
+            and description.plan is not None
+            and description.plan["status"] == "completed"
+            and all(
+                task["status"] == "completed"
+                for task in description.plan["tasks"]
+            )
+        )
+
+    await wait_until("AI Agent completed plan", completed_plan, WAIT_TIMEOUT)
+    assert not await client.invoke_rpc(
+        app.ai_agent.execute_plan,
+        flow_id,
+        PlanExecutionRequest(revision),
+    )
+
+
+async def test_ai_agent_draft_blocks_business_tools_until_execution(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("ai-agent-plan-gating")
+    await client.start_flow(
+        app.ai_agent,
+        flow_id,
+        AgentConfig(enabled_mcp_servers=["test"]),
+        StartFlowOptions(),
+    )
+    await _send(client, app, flow_id, "Plan a lookup", plan_mode=True)
+
+    async def has_draft() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return description.plan is not None and description.plan["status"] == "draft"
+
+    await wait_until("AI Agent draft plan", has_draft, WAIT_TIMEOUT)
+    await _send(client, app, flow_id, '/tool test__lookup {"query":"blocked"}')
+    await _wait_for_content(client, app, flow_id, "unknown_or_disabled_tool")
+
+    page = await client.invoke_rpc(
+        app.ai_agent.history,
+        flow_id,
+        HistoryRequest(limit=100),
+    )
+    assert not any("found:blocked" in item.message.content for item in page.messages)
+
+    await _send(client, app, flow_id, "/plan-clear")
+
+    async def plan_cleared() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return description.status == "waiting_for_message" and description.plan is None
+
+    await wait_until("AI Agent cleared draft", plan_cleared, WAIT_TIMEOUT)
+
+
+async def test_ai_agent_waiting_does_not_mark_an_incomplete_plan_completed(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("ai-agent-plan-advisory")
+    await client.start_flow(
+        app.ai_agent,
+        flow_id,
+        AgentConfig(enabled_mcp_servers=["test"]),
+        StartFlowOptions(),
+    )
+    await _send(
+        client,
+        app,
+        flow_id,
+        "/plan-stop demonstrate advisory completion",
+        plan_mode=True,
+    )
+
+    async def draft_revision() -> int | None:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        if (
+            description.status != "waiting_for_message"
+            or description.plan is None
+            or description.plan["status"] != "draft"
+        ):
+            return None
+        revision = description.plan["revision"]
+        return revision if isinstance(revision, int) else None
+
+    draft = await wait_until("AI Agent advisory draft", draft_revision, WAIT_TIMEOUT)
+    assert await client.invoke_rpc(
+        app.ai_agent.execute_plan,
+        flow_id,
+        PlanExecutionRequest(draft),
+    )
+
+    async def active_revision() -> int | None:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        if (
+            description.status != "waiting_for_message"
+            or description.plan is None
+            or description.plan["status"] != "active"
+        ):
+            return None
+        revision = description.plan["revision"]
+        return revision if isinstance(revision, int) else None
+
+    active = await wait_until(
+        "AI Agent incomplete active plan",
+        active_revision,
+        WAIT_TIMEOUT,
+    )
+    await _send(client, app, flow_id, '/tool test__lookup {"query":"blocked"}')
+    await _wait_for_content(client, app, flow_id, "unknown_or_disabled_tool")
+    description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+    assert description.plan is not None
+    assert description.plan["status"] == "active"
+    page = await client.invoke_rpc(
+        app.ai_agent.history,
+        flow_id,
+        HistoryRequest(limit=100),
+    )
+    assert not any("found:blocked" in item.message.content for item in page.messages)
+
+    async def returned_to_waiting() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return description.status == "waiting_for_message"
+
+    await wait_until("AI Agent returned to waiting", returned_to_waiting, WAIT_TIMEOUT)
+
+    assert await client.invoke_rpc(
+        app.ai_agent.execute_plan,
+        flow_id,
+        PlanExecutionRequest(active),
+    )
+
+
+async def test_ai_agent_revises_and_clears_a_draft_before_execution(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("ai-agent-plan-revision")
+    await client.start_flow(
+        app.ai_agent,
+        flow_id,
+        AgentConfig(),
+        StartFlowOptions(),
+    )
+    await _send(client, app, flow_id, "Plan the first objective", plan_mode=True)
+
+    async def plan_revision() -> int | None:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        if description.plan is None:
+            return None
+        revision = description.plan["revision"]
+        return revision if isinstance(revision, int) else None
+
+    first_revision = await wait_until(
+        "AI Agent first plan revision",
+        plan_revision,
+        WAIT_TIMEOUT,
+    )
+    await _send(client, app, flow_id, "Plan the revised objective", plan_mode=True)
+    assert not await client.invoke_rpc(
+        app.ai_agent.execute_plan,
+        flow_id,
+        PlanExecutionRequest(first_revision),
+    )
+
+    async def revised_plan() -> int | None:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        if description.plan is None:
+            return None
+        revision = description.plan["revision"]
+        tasks = description.plan["tasks"]
+        if (
+            not isinstance(revision, int)
+            or revision <= first_revision
+            or not any("revised objective" in task["content"] for task in tasks)
+        ):
+            return None
+        return revision
+
+    await wait_until("AI Agent revised draft", revised_plan, WAIT_TIMEOUT)
+    await _send(client, app, flow_id, "/plan-clear", plan_mode=True)
+
+    async def plan_cleared() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return description.status == "waiting_for_message" and description.plan is None
+
+    await wait_until("AI Agent cleared plan", plan_cleared, WAIT_TIMEOUT)
+
+
 async def test_ai_agent_compacts_before_enforcing_message_retention(
     app: ExampleApp,
     client: AsyncClient,
@@ -193,11 +434,12 @@ async def _send(
     app: ExampleApp,
     flow_id: str,
     content: str,
+    plan_mode: bool = False,
 ) -> None:
     assert await client.invoke_rpc(
         app.ai_agent.send_message,
         flow_id,
-        UserMessage(content),
+        UserMessage(content, plan_mode),
     )
 
 

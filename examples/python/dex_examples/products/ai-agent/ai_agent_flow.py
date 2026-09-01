@@ -50,12 +50,15 @@ from dex_examples.products.ai_agent.models import (
     AgentDescription,
     AgentEvent,
     AgentMessage,
+    AgentPlan,
     AgentState,
     ContextSummary,
     HistoryPage,
     HistoryRequest,
     PendingApproval,
     PendingTimer,
+    PlanExecutionRequest,
+    PlanTask,
     SequencedMessage,
     ToolApproval,
     ToolApprovalRequest,
@@ -72,6 +75,19 @@ STATUS_ROUTING_TOOL = "routing_tool"
 STATUS_WAITING_APPROVAL = "waiting_for_tool_approval"
 STATUS_EXECUTING_TOOL = "executing_tool"
 STATUS_WAITING_TIMER = "waiting_for_timer"
+
+MODE_CHAT = "chat"
+MODE_PLANNING = "planning"
+MODE_EXECUTING = "executing"
+
+PLAN_DRAFT = "draft"
+PLAN_ACTIVE = "active"
+PLAN_COMPLETED = "completed"
+
+TASK_PENDING = "pending"
+TASK_IN_PROGRESS = "in_progress"
+TASK_COMPLETED = "completed"
+TASK_STATUSES = {TASK_PENDING, TASK_IN_PROGRESS, TASK_COMPLETED}
 
 MODEL_OPTIONS = StepOptions(
     execute_method_timeout=timedelta(minutes=10),
@@ -106,13 +122,55 @@ class AwaitUser(Step[None]):
 
     def wait_for(self, context: Context, input: None) -> Wait:
         self.flow.update_status(context, STATUS_WAITING)
-        return Wait.until(self.flow.user_messages.for_one())
+        plan = self.flow.get_plan(context)
+        if plan is None or plan.status == PLAN_COMPLETED:
+            return Wait.until(self.flow.user_messages.for_one())
+        return Wait.any_of(
+            self.flow.user_messages.for_one(condition_id="user-message"),
+            self.flow.plan_executions.for_one(
+                str(plan.revision),
+                condition_id="plan-execution",
+            ),
+        )
 
     def execute(self, context: Context, input: None) -> StepDecision:
         messages = self.flow.user_messages.results(context)
-        if not messages:
-            raise RuntimeError("the user-message wait completed without a message")
-        self.flow.append_message(context, AgentMessage("user", messages[0].content))
+        if messages:
+            self.flow.begin_user_turn(context, messages[0])
+            return go_to(CompactContext, None)
+
+        plan = self.flow.get_plan(context)
+        if plan is None:
+            raise RuntimeError("the Agent wait completed without an input")
+        executions = self.flow.plan_executions.results(context, str(plan.revision))
+        state = self.flow.state.get(context)
+        if (
+            not executions
+            or executions[0].revision != plan.revision
+            or state.pending_plan_execution_revision != plan.revision
+        ):
+            self.flow.state.set(
+                context,
+                replace(state, pending_plan_execution_revision=None),
+            )
+            return go_to(AwaitUser, None)
+
+        if plan.status == PLAN_DRAFT:
+            self.flow.plan.set(context, replace(plan, status=PLAN_ACTIVE))
+        self.flow.state.set(
+            context,
+            replace(
+                state,
+                interaction_mode=MODE_EXECUTING,
+                planning_requires_write=False,
+                planning_allows_write=False,
+                pending_plan_execution_revision=None,
+            ),
+        )
+        self.flow.events.write(
+            context,
+            AgentEvent("plan_started", f"Executing plan revision {plan.revision}."),
+        )
         return go_to(CompactContext, None)
 
 
@@ -198,14 +256,22 @@ class CallModel(Step[None]):
         self.flow.update_status(context, STATUS_CALLING_MODEL)
         config = self.flow.config.get(context)
         state = self.flow.state.get(context)
+        tools = self.flow.invocation_tool_definitions(config, state)
+        forced_tool_name = (
+            "write_todos"
+            if state.interaction_mode == MODE_PLANNING
+            and state.planning_requires_write
+            else None
+        )
 
         progress = self.flow.assistant_text.buffered_text(context)
 
         reply = await self.flow.model_client.complete(
             config,
             self.flow.context_messages(context, config, state),
-            self.flow.tool_definitions(config),
+            tools,
             progress.write,
+            forced_tool_name,
         )
         self.flow.append_message(
             context,
@@ -214,7 +280,14 @@ class CallModel(Step[None]):
         state = self.flow.state.get(context)
         state = self.flow.trim_summarized_messages(context, config, state)
         if not reply.tool_calls:
-            self.flow.update_status(context, STATUS_WAITING)
+            plan = self.flow.get_plan(context)
+            if plan is None or plan.status == PLAN_COMPLETED:
+                state = replace(
+                    state,
+                    interaction_mode=MODE_CHAT,
+                    planning_requires_write=False,
+                )
+                self.flow.state.set(context, state)
             return go_to(AwaitUser, None)
         self.flow.state.set(
             context,
@@ -236,8 +309,9 @@ class RouteTool(Step[None]):
         self.flow.update_status(context, STATUS_ROUTING_TOOL)
         call = self.flow.current_tool_call(context)
         config = self.flow.config.get(context)
+        state = self.flow.state.get(context)
         try:
-            definition = self.flow.tool_definition(config, call.name)
+            definition = self.flow.invocation_tool_definition(config, state, call.name)
         except ValueError:
             self.flow.append_tool_result(
                 context,
@@ -252,6 +326,55 @@ class RouteTool(Step[None]):
                         ensure_ascii=False,
                     ),
                     True,
+                ),
+            )
+            return self.flow.advance_tool(context)
+        if call.name == "write_todos":
+            if sum(
+                pending.name == "write_todos"
+                for pending in state.pending_tool_calls
+            ) > 1:
+                self.flow.append_tool_result(
+                    context,
+                    call,
+                    ToolExecutionResult(
+                        '{"status":"failed","error":"multiple_write_todos_calls"}',
+                        True,
+                    ),
+                )
+                return self.flow.advance_tool(context)
+            try:
+                tasks = _plan_tasks(call)
+            except ValueError as error:
+                self.flow.append_tool_result(
+                    context,
+                    call,
+                    ToolExecutionResult(
+                        json.dumps(
+                            {
+                                "status": "failed",
+                                "error": "invalid_todos",
+                                "message": str(error),
+                            },
+                            ensure_ascii=False,
+                        ),
+                        True,
+                    ),
+                )
+                return self.flow.advance_tool(context)
+            revision = self.flow.replace_plan(context, tasks)
+            self.flow.append_tool_result(
+                context,
+                call,
+                ToolExecutionResult(
+                    json.dumps(
+                        {
+                            "status": "cleared" if not tasks else "updated",
+                            "revision": revision,
+                            "task_count": len(tasks),
+                        }
+                    ),
+                    False,
                 ),
             )
             return self.flow.advance_tool(context)
@@ -399,15 +522,7 @@ class DurableWait(Step[None]):
                     True,
                 ),
             )
-            self.flow.append_message(
-                context,
-                AgentMessage("user", user_messages[0].content),
-            )
-            state = self.flow.state.get(context)
-            self.flow.state.set(
-                context,
-                replace(state, pending_tool_calls=[], pending_tool_index=0),
-            )
+            self.flow.begin_user_turn(context, user_messages[0])
             return go_to(CompactContext, None)
         self.flow.append_tool_result(
             context,
@@ -432,10 +547,12 @@ class AIAgentFlow(Flow[AgentConfig]):
     state = Attribute("AgentState", AgentState)
     summary = Attribute("ContextSummary", ContextSummary)
     messages = AttributeMap("AgentMessages", AgentMessage)
+    plan = Attribute("AgentPlan", AgentPlan)
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
     user_messages = Channel("UserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
+    plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
     assistant_text = Stream("AssistantText", str, 10 * 1024 * 1024)
     events = Stream("AgentEvents", AgentEvent, 10 * 1024 * 1024)
 
@@ -472,10 +589,12 @@ class AIAgentFlow(Flow[AgentConfig]):
             self.state,
             self.summary,
             self.messages,
+            self.plan,
             self.pending_approval,
             self.pending_timer,
             self.user_messages,
             self.tool_approvals,
+            self.plan_executions,
             self.assistant_text,
             self.events,
         )
@@ -499,14 +618,99 @@ class AIAgentFlow(Flow[AgentConfig]):
         definitions.append(_durable_wait_definition())
         return definitions
 
-    def tool_definition(self, config: AgentConfig, name: str) -> ToolDefinition:
+    def invocation_tool_definitions(
+        self,
+        config: AgentConfig,
+        state: AgentState,
+    ) -> list[ToolDefinition]:
+        if state.interaction_mode == MODE_PLANNING:
+            if state.planning_requires_write or state.planning_allows_write:
+                return [_write_todos_definition()]
+            return []
+        if state.interaction_mode == MODE_EXECUTING:
+            return [_write_todos_definition(), *self.tool_definitions(config)]
+        return self.tool_definitions(config)
+
+    def invocation_tool_definition(
+        self,
+        config: AgentConfig,
+        state: AgentState,
+        name: str,
+    ) -> ToolDefinition:
         definitions = {
-            definition.name: definition for definition in self.tool_definitions(config)
+            definition.name: definition
+            for definition in self.invocation_tool_definitions(config, state)
         }
         try:
             return definitions[name]
         except KeyError as error:
             raise ValueError(f"unknown or disabled tool {name!r}") from error
+
+    def begin_user_turn(self, context: Context, message: UserMessage) -> None:
+        state = self.state.get(context)
+        plan = self.get_plan(context)
+        if message.plan_mode:
+            interaction_mode = MODE_PLANNING
+            planning_requires_write = True
+            planning_allows_write = True
+        elif plan is not None and plan.status in {PLAN_DRAFT, PLAN_ACTIVE}:
+            interaction_mode = MODE_PLANNING
+            planning_requires_write = False
+            planning_allows_write = True
+        else:
+            interaction_mode = MODE_CHAT
+            planning_requires_write = False
+            planning_allows_write = False
+        self.state.set(
+            context,
+            replace(
+                state,
+                status=STATUS_COMPACTING,
+                interaction_mode=interaction_mode,
+                planning_requires_write=planning_requires_write,
+                planning_allows_write=planning_allows_write,
+                pending_tool_calls=[],
+                pending_tool_index=0,
+                pending_plan_execution_revision=None,
+                pending_user_message_count=max(
+                    0,
+                    state.pending_user_message_count - 1,
+                ),
+            ),
+        )
+        self.append_message(context, AgentMessage("user", message.content))
+
+    def get_plan(self, context: Context) -> AgentPlan | None:
+        return _optional_attribute(self.plan, context)
+
+    def replace_plan(self, context: Context, tasks: list[PlanTask]) -> int:
+        state = self.state.get(context)
+        revision = state.plan_revision + 1
+        if not tasks:
+            if self.get_plan(context) is not None:
+                self.plan.delete(context)
+            event_message = f"Cleared plan at revision {revision}."
+        else:
+            if state.interaction_mode == MODE_PLANNING:
+                status = PLAN_DRAFT
+            elif all(task.status == TASK_COMPLETED for task in tasks):
+                status = PLAN_COMPLETED
+            else:
+                status = PLAN_ACTIVE
+            self.plan.set(context, AgentPlan(revision, status, tasks))
+            event_message = f"Updated {status} plan revision {revision}."
+        self.state.set(
+            context,
+            replace(
+                state,
+                plan_revision=revision,
+                planning_requires_write=False,
+                planning_allows_write=False,
+                pending_plan_execution_revision=None,
+            ),
+        )
+        self.events.write(context, AgentEvent("plan_updated", event_message))
+        return revision
 
     def append_message(self, context: Context, message: AgentMessage) -> int:
         state = self.state.get(context)
@@ -580,12 +784,55 @@ class AIAgentFlow(Flow[AgentConfig]):
                     f"Conversation summary through message {summary.summarized_through_sequence}:\n{summary.content}",
                 )
             )
+        plan_message = self.plan_context_message(context, state)
+        if plan_message is not None:
+            result.append(plan_message)
         start = max(
             state.first_retained_sequence,
             state.summarized_through_sequence + 1,
         )
         result.extend(self.load_messages(context, start, state.last_sequence, config))
         return result
+
+    def plan_context_message(
+        self,
+        context: Context,
+        state: AgentState,
+    ) -> AgentMessage | None:
+        plan = self.get_plan(context)
+        if plan is None and state.interaction_mode != MODE_PLANNING:
+            return None
+        plan_json = (
+            "null"
+            if plan is None
+            else json.dumps(
+                {
+                    "revision": plan.revision,
+                    "status": plan.status,
+                    "tasks": [
+                        {"content": task.content, "status": task.status}
+                        for task in plan.tasks
+                    ],
+                },
+                ensure_ascii=False,
+            )
+        )
+        if state.interaction_mode == MODE_PLANNING:
+            instruction = (
+                "This is a planning-only turn. Do not execute business tools or "
+                "claim that planned work was performed."
+            )
+        elif plan is not None and plan.status == PLAN_ACTIVE:
+            instruction = (
+                "The user approved this plan. Execute it and use write_todos to "
+                "keep task statuses accurate."
+            )
+        else:
+            instruction = "This completed plan is durable reference state."
+        return AgentMessage(
+            "system",
+            f"Current durable plan: {plan_json}\n{instruction}",
+        )
 
     def load_messages(
         self,
@@ -658,6 +905,16 @@ class AIAgentFlow(Flow[AgentConfig]):
     def send_message(self, context: Context, input: UserMessage) -> RPCResult[bool]:
         if not input.content.strip():
             return RPCResult(False)
+        state = self.state.get(context)
+        if state is not None:
+            self.state.set(
+                context,
+                replace(
+                    state,
+                    pending_plan_execution_revision=None,
+                    pending_user_message_count=state.pending_user_message_count + 1,
+                ),
+            )
         self.user_messages.publish(context, input)
         return RPCResult(True)
 
@@ -677,6 +934,36 @@ class AIAgentFlow(Flow[AgentConfig]):
             context,
             input.call_id,
             ToolApproval(input.approved),
+        )
+        return RPCResult(True)
+
+    @rpc
+    def execute_plan(
+        self,
+        context: Context,
+        input: PlanExecutionRequest,
+    ) -> RPCResult[bool]:
+        state = self.state.get(context)
+        plan = self.get_plan(context)
+        if (
+            state is None
+            or plan is None
+            or state.status != STATUS_WAITING
+            or state.pending_plan_execution_revision is not None
+            or state.pending_user_message_count > 0
+            or self.user_messages.size(context) > 0
+            or plan.revision != input.revision
+            or plan.status not in {PLAN_DRAFT, PLAN_ACTIVE}
+        ):
+            return RPCResult(False)
+        self.state.set(
+            context,
+            replace(state, pending_plan_execution_revision=plan.revision),
+        )
+        self.plan_executions.publish(
+            context,
+            str(plan.revision),
+            input,
         )
         return RPCResult(True)
 
@@ -720,12 +1007,15 @@ class AIAgentFlow(Flow[AgentConfig]):
                     pending_timer_call_id=None,
                     pending_timer_duration_seconds=None,
                     pending_timer_reason=None,
+                    plan=None,
+                    plan_execution_requested=False,
                     available_mcp_servers=self.mcp_registry.server_names,
-                    available_tools=["durable_wait"],
+                    available_tools=["write_todos", "durable_wait"],
                 )
             )
         approval = _optional_attribute(self.pending_approval, context)
         timer = _optional_attribute(self.pending_timer, context)
+        plan = self.get_plan(context)
         return RPCResult(
             AgentDescription(
                 status=state.status,
@@ -744,12 +1034,60 @@ class AIAgentFlow(Flow[AgentConfig]):
                     timer.duration_seconds if timer else None
                 ),
                 pending_timer_reason=(timer.reason if timer else None),
+                plan=_plan_description(plan),
+                plan_execution_requested=(
+                    state.pending_plan_execution_revision is not None
+                ),
                 available_mcp_servers=self.mcp_registry.server_names,
                 available_tools=[
-                    definition.name for definition in self.tool_definitions(config)
+                    "write_todos",
+                    *(
+                        definition.name
+                        for definition in self.tool_definitions(config)
+                    ),
                 ],
             )
         )
+
+
+def _write_todos_definition() -> ToolDefinition:
+    return ToolDefinition(
+        name="write_todos",
+        description=(
+            "Replace the durable plan with a complete ordered todo list. Use an "
+            "empty list to clear the plan. Keep statuses accurate as work proceeds."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {"type": "string", "minLength": 1},
+                            "status": {
+                                "type": "string",
+                                "enum": [
+                                    TASK_PENDING,
+                                    TASK_IN_PROGRESS,
+                                    TASK_COMPLETED,
+                                ],
+                            },
+                        },
+                        "required": ["content", "status"],
+                        "additionalProperties": False,
+                    },
+                }
+            },
+            "required": ["todos"],
+            "additionalProperties": False,
+        },
+        requires_approval=False,
+        timeout_seconds=0,
+        maximum_attempts=1,
+        retry_total_seconds=0,
+    )
 
 
 def _durable_wait_definition() -> ToolDefinition:
@@ -771,6 +1109,37 @@ def _durable_wait_definition() -> ToolDefinition:
         maximum_attempts=1,
         retry_total_seconds=0,
     )
+
+
+def _plan_tasks(call: ToolCall) -> list[PlanTask]:
+    arguments = _tool_arguments(call)
+    todos = arguments.get("todos")
+    if not isinstance(todos, list):
+        raise ValueError("todos must be a list")
+    tasks: list[PlanTask] = []
+    for index, item in enumerate(todos):
+        if not isinstance(item, dict):
+            raise ValueError(f"todos[{index}] must be an object")
+        content = item.get("content")
+        status = item.get("status")
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError(f"todos[{index}].content must be a non-empty string")
+        if not isinstance(status, str) or status not in TASK_STATUSES:
+            raise ValueError(f"todos[{index}].status is invalid")
+        tasks.append(PlanTask(content.strip(), status))
+    return tasks
+
+
+def _plan_description(plan: AgentPlan | None) -> dict[str, object] | None:
+    if plan is None:
+        return None
+    return {
+        "revision": plan.revision,
+        "status": plan.status,
+        "tasks": [
+            {"content": task.content, "status": task.status} for task in plan.tasks
+        ],
+    }
 
 
 def _tool_arguments(call: ToolCall) -> dict[str, Any]:

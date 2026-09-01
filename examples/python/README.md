@@ -59,7 +59,7 @@ after E2E tests for manual HTTP exploration.
 - [User onboarding process](./dex_examples/products/signup)
 - [Job posting](./dex_examples/products/job-post)
 - [Deal DSL](./dex_examples/products/deal_dsl)
-- [AI Agent](./ai-agent/) (Python only; UI assets in [`ai-agent/`](./ai-agent))
+- [AI Agent](./ai-agent/) (Python only; durable plans, MCP tools, context compaction, and UI assets in [`ai-agent/`](./ai-agent))
 
 ## Patterns
 

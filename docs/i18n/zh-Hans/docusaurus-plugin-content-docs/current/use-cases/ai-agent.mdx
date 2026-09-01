@@ -5,7 +5,7 @@ sidebar_label: AI Agent
 
 # AI Agent
 
-这个 Python application 是一个长期运行的通用 AI Agent。它可以与用户聊天、调用受信任的 MCP tool、在修改外部系统前等待审批，并通过 durable Timer 暂停。
+这个 Python application 是一个长期运行的通用 AI Agent。它可以先制定计划供用户审阅，也可以与用户聊天、调用受信任的 MCP tool、在修改外部系统前等待审批，并通过 durable Timer 暂停。
 
 会话状态由 Dex 管理。Agent 每次调用模型时都会从 durable state 重新构造输入，因此不依赖 LLM provider 的 conversation API。
 
@@ -23,10 +23,12 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
     state = Attribute("AgentState", AgentState)
     summary = Attribute("ContextSummary", ContextSummary)
     messages = AttributeMap("AgentMessages", AgentMessage)
+    plan = Attribute("AgentPlan", AgentPlan)
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
     user_messages = Channel("UserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
+    plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
     assistant_text = Stream("AssistantText", str, 10 * 1024 * 1024)
     events = Stream("AgentEvents", AgentEvent, 10 * 1024 * 1024)
 ```
@@ -35,6 +37,14 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
 </SdkTabs>
 
 每个 map instance 都可以独立加载和更新，避免每次追加消息时重写不断增长的 conversation value。Dex blob storage 与 Worker BlobCache 会处理较大的 message 和 MCP result。
+
+## Durable plan
+
+为一条 message 开启 **Plan mode** 后，Agent 只会创建或修订 plan，不会执行它。Planning call 只能使用内置 **write_todos** tool，不能调用 MCP tool 或启动 durable wait。
+
+当前 plan 保存在普通 Attribute 中。每次更新都会原子替换有序 task list，并增加 revision。Task 状态包括 pending、in progress 和 completed。Plan 独立于 conversation message，因此 context compaction 不会删除它。
+
+UI 会展示 draft，只有用户选择 **Execute plan** 后才开始执行。如果 active plan 在仍有未完成 task 时停止，它会继续显示 incomplete，并允许用户继续执行。Agent 正在等待下一次输入，不代表所有 plan task 都已完成。
 
 ## MCP tool 与审批
 

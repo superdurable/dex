@@ -39,6 +39,7 @@ class ModelClient(Protocol):
         messages: Sequence[AgentMessage],
         tools: Sequence[ToolDefinition],
         write_progress: ProgressWriter,
+        forced_tool_name: str | None = None,
     ) -> ModelReply: ...
 
     async def summarize(
@@ -58,9 +59,15 @@ class LiteLLMModelClient:
         messages: Sequence[AgentMessage],
         tools: Sequence[ToolDefinition],
         write_progress: ProgressWriter,
+        forced_tool_name: str | None = None,
     ) -> ModelReply:
         if config.model == "mock/dex":
-            return await _mock_completion(messages, write_progress)
+            return await _mock_completion(
+                messages,
+                tools,
+                write_progress,
+                forced_tool_name,
+            )
 
         import litellm
 
@@ -71,6 +78,13 @@ class LiteLLMModelClient:
         }
         if tools:
             request["tools"] = [_to_litellm_tool(tool) for tool in tools]
+        if forced_tool_name is not None:
+            if forced_tool_name not in {tool.name for tool in tools}:
+                raise ValueError(f"forced tool {forced_tool_name!r} is not available")
+            request["tool_choice"] = {
+                "type": "function",
+                "function": {"name": forced_tool_name},
+            }
         stream = await litellm.acompletion(**request)
         content_parts: list[str] = []
         tool_parts: dict[int, dict[str, str]] = {}
@@ -166,10 +180,86 @@ class LiteLLMModelClient:
 
 async def _mock_completion(
     messages: Sequence[AgentMessage],
+    tools: Sequence[ToolDefinition],
     write_progress: ProgressWriter,
+    forced_tool_name: str | None,
 ) -> ModelReply:
+    if forced_tool_name is not None:
+        if forced_tool_name not in {tool.name for tool in tools}:
+            raise ValueError(f"forced tool {forced_tool_name!r} is not available")
+        if forced_tool_name != "write_todos":
+            raise ValueError(f"mock/dex cannot force tool {forced_tool_name!r}")
+        request = _last_user_content(messages) or "the requested objective"
+        todos = (
+            []
+            if request.lower() == "/plan-clear"
+            else [
+                {
+                    "content": f"Complete the objective: {request}",
+                    "status": "pending",
+                },
+                {
+                    "content": "Verify and report the result",
+                    "status": "pending",
+                },
+            ]
+        )
+        return ModelReply(
+            "I will prepare a plan for review.",
+            [
+                ToolCall(
+                    id=f"call-{uuid4().hex}",
+                    name="write_todos",
+                    arguments_json=json.dumps({"todos": todos}),
+                )
+            ],
+        )
+
+    request = _last_user_content(messages)
+    available_tool_names = {tool.name for tool in tools}
+    if request.lower() == "/plan-clear" and "write_todos" in available_tool_names:
+        return ModelReply(
+            "I will clear the current plan.",
+            [
+                ToolCall(
+                    id=f"call-{uuid4().hex}",
+                    name="write_todos",
+                    arguments_json='{"todos":[]}',
+                )
+            ],
+        )
+
+    active_plan = _active_plan(messages)
+    if active_plan is not None and any(
+        task.get("status") != "completed" for task in active_plan
+    ):
+        if _last_user_content(messages).lower().startswith("/plan-stop "):
+            content = "I stopped before completing every plan task."
+            midpoint = len(content) // 2
+            write_progress(content[:midpoint])
+            write_progress(content[midpoint:])
+            return ModelReply(content)
+        return ModelReply(
+            "I will execute the approved plan.",
+            [
+                ToolCall(
+                    id=f"call-{uuid4().hex}",
+                    name="write_todos",
+                    arguments_json=json.dumps(
+                        {"todos": _next_mock_plan_tasks(active_plan)}
+                    ),
+                )
+            ],
+        )
+
     if not messages:
         content = "How can I help?"
+    elif messages[-1].role == "tool" and messages[-1].tool_name == "write_todos":
+        content = (
+            "I completed the approved plan."
+            if _plan_status(messages) == "completed"
+            else "The plan is ready for review."
+        )
     elif messages[-1].role == "tool":
         content = f"The tool finished with this result: {messages[-1].content}"
     else:
@@ -212,6 +302,99 @@ async def _mock_completion(
     write_progress(content[:midpoint])
     write_progress(content[midpoint:])
     return ModelReply(content)
+
+
+def _last_user_content(messages: Sequence[AgentMessage]) -> str:
+    for message in reversed(messages):
+        if message.role == "user":
+            return message.content.strip()
+    return ""
+
+
+def _active_plan(messages: Sequence[AgentMessage]) -> list[dict[str, Any]] | None:
+    if not _is_plan_execution(messages):
+        return None
+    plan = _durable_plan(messages)
+    if plan is None or plan.get("status") != "active":
+        return None
+    tasks = plan.get("tasks")
+    if not isinstance(tasks, list):
+        return None
+    return [task for task in tasks if isinstance(task, dict)]
+
+
+def _is_plan_execution(messages: Sequence[AgentMessage]) -> bool:
+    return any(
+        message.role == "system"
+        and "The user approved this plan. Execute it" in message.content
+        for message in messages
+    )
+
+
+def _plan_status(messages: Sequence[AgentMessage]) -> str | None:
+    plan = _durable_plan(messages)
+    status = plan.get("status") if plan is not None else None
+    return status if isinstance(status, str) else None
+
+
+def _durable_plan(messages: Sequence[AgentMessage]) -> dict[str, Any] | None:
+    prefix = "Current durable plan: "
+    for message in messages:
+        if message.role != "system" or not message.content.startswith(prefix):
+            continue
+        try:
+            plan = json.loads(message.content.removeprefix(prefix).split("\n", 1)[0])
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(plan, dict):
+            return None
+        return plan
+    return None
+
+
+def _next_mock_plan_tasks(tasks: list[dict[str, Any]]) -> list[dict[str, str]]:
+    current_index = next(
+        (
+            index
+            for index, task in enumerate(tasks)
+            if task.get("status") == "in_progress"
+        ),
+        None,
+    )
+    if current_index is None:
+        next_index = next(
+            index
+            for index, task in enumerate(tasks)
+            if task.get("status") == "pending"
+        )
+        return [
+            {
+                "content": str(task.get("content", "")),
+                "status": "in_progress" if index == next_index else str(task["status"]),
+            }
+            for index, task in enumerate(tasks)
+        ]
+    next_pending = next(
+        (
+            index
+            for index, task in enumerate(tasks)
+            if index > current_index and task.get("status") == "pending"
+        ),
+        None,
+    )
+    return [
+        {
+            "content": str(task.get("content", "")),
+            "status": (
+                "completed"
+                if index == current_index
+                else "in_progress"
+                if index == next_pending
+                else str(task["status"])
+            ),
+        }
+        for index, task in enumerate(tasks)
+    ]
 
 
 def _to_litellm_messages(

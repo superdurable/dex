@@ -22,7 +22,15 @@ import pytest
 
 from dex_examples.products.ai_agent.mcp_registry import MCPRegistry
 from dex_examples.products.ai_agent.model_client import LiteLLMModelClient
-from dex_examples.products.ai_agent.models import AgentConfig, AgentMessage
+from dex_examples.products.ai_agent.models import (
+    AgentConfig,
+    AgentMessage,
+    ToolCall,
+)
+from dex_examples.products.ai_agent.ai_agent_flow import (
+    _plan_tasks,
+    _write_todos_definition,
+)
 
 
 def test_agent_config_requires_ordered_compaction_thresholds() -> None:
@@ -83,3 +91,27 @@ def test_mock_token_count_is_provider_independent() -> None:
     )
 
     assert count == 10
+
+
+async def test_mock_model_creates_a_structured_plan_when_forced() -> None:
+    reply = await LiteLLMModelClient().complete(
+        AgentConfig(),
+        [AgentMessage("user", "Investigate the incident")],
+        [_write_todos_definition()],
+        lambda chunk: None,
+        "write_todos",
+    )
+
+    assert [call.name for call in reply.tool_calls] == ["write_todos"]
+    assert "Investigate the incident" in reply.tool_calls[0].arguments_json
+
+
+def test_plan_tasks_reject_invalid_status() -> None:
+    call = ToolCall(
+        "call-plan",
+        "write_todos",
+        '{"todos":[{"content":"Inspect","status":"blocked"}]}',
+    )
+
+    with pytest.raises(ValueError, match="status is invalid"):
+        _plan_tasks(call)

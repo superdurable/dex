@@ -37,6 +37,17 @@ interface SequencedMessage {
   message: AgentMessage;
 }
 
+interface PlanTask {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+interface AgentPlan {
+  revision: number;
+  status: 'draft' | 'active' | 'completed';
+  tasks: PlanTask[];
+}
+
 interface AgentDescription {
   status: string;
   model: string;
@@ -50,6 +61,8 @@ interface AgentDescription {
   pending_timer_call_id: string | null;
   pending_timer_duration_seconds: number | null;
   pending_timer_reason: string | null;
+  plan: AgentPlan | null;
+  plan_execution_requested: boolean;
   available_mcp_servers: string[];
   available_tools: string[];
 }
@@ -80,6 +93,7 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<SequencedMessage[]>([]);
   const [description, setDescription] = useState<AgentDescription | null>(null);
   const [input, setInput] = useState('');
+  const [planMode, setPlanMode] = useState(false);
   const [liveText, setLiveText] = useState('');
   const [activity, setActivity] = useState<AgentEvent[]>([]);
   const [isBusy, setIsBusy] = useState(false);
@@ -191,17 +205,38 @@ const App: React.FC = () => {
     setError('');
     setInput('');
     setLiveText('');
+    const requestedPlanMode = planMode;
+    setPlanMode(false);
     try {
       const response = await fetch(`${API_BASE}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflowId, content }),
+        body: JSON.stringify({ workflowId, content, planMode: requestedPlanMode }),
       });
       if (!response.ok) throw new Error(await response.text());
       await fetchState();
     } catch (reason) {
       setError(String(reason));
       setInput(content);
+      setPlanMode(requestedPlanMode);
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const executePlan = async (revision: number) => {
+    setIsBusy(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_BASE}/plans/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflowId, revision }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await fetchState();
+    } catch (reason) {
+      setError(String(reason));
     } finally {
       setIsBusy(false);
     }
@@ -231,7 +266,7 @@ const App: React.FC = () => {
           <p style={styles.eyebrow}>Dex durable application</p>
           <h1 style={styles.title}>AI Agent</h1>
           <p style={styles.subtitle}>
-            A long-running agent with durable conversation state, MCP tools, approvals, and timers.
+            A long-running agent with durable plans, conversation state, MCP tools, approvals, and timers.
           </p>
           <label style={styles.label}>Model</label>
           <input style={styles.input} value={model} onChange={(event) => setModel(event.target.value)} />
@@ -290,9 +325,11 @@ const App: React.FC = () => {
       <section style={styles.chatCard}>
         <div style={styles.messages}>
           {messages.length === 0 && <p style={styles.empty}>Send a message to begin.</p>}
-          {messages.map(({ sequence, message }) => (
-            <MessageCard key={sequence} sequence={sequence} message={message} />
-          ))}
+          {messages
+            .filter(({ message }) => !isPlanPlumbing(message))
+            .map(({ sequence, message }) => (
+              <MessageCard key={sequence} sequence={sequence} message={message} />
+            ))}
           {liveText && (
             <div style={{ ...styles.message, ...styles.assistantMessage }}>
               <strong>Assistant · streaming</strong>
@@ -300,6 +337,19 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
+
+        {description?.plan && (
+          <PlanCard
+            plan={description.plan}
+            canExecute={
+              description.status === 'waiting_for_message'
+              && !description.plan_execution_requested
+              && description.plan.status !== 'completed'
+            }
+            isBusy={isBusy || description.plan_execution_requested}
+            onExecute={executePlan}
+          />
+        )}
 
         {description?.pending_approval_call_id && (
           <div style={styles.approvalCard}>
@@ -344,22 +394,33 @@ const App: React.FC = () => {
           </details>
         )}
 
-        <div style={styles.composer}>
-          <textarea
-            style={{ ...styles.input, minHeight: 90, margin: 0 }}
-            value={input}
-            placeholder="Message the AI Agent. Try /wait 5 demo when using mock/dex."
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                void sendMessage();
-              }
-            }}
-          />
-          <button style={styles.primaryButton} disabled={isBusy || !input.trim()} onClick={sendMessage}>
-            Send
-          </button>
+        <div style={styles.composerArea}>
+          <label style={styles.planModeToggle}>
+            <input
+              type="checkbox"
+              checked={planMode}
+              onChange={(event) => setPlanMode(event.target.checked)}
+            />
+            Plan mode
+            <small style={styles.planModeHint}>Create or revise a plan without executing tools</small>
+          </label>
+          <div style={styles.composer}>
+            <textarea
+              style={{ ...styles.input, minHeight: 90, margin: 0 }}
+              value={input}
+              placeholder={planMode ? 'Describe what you want the Agent to plan.' : 'Message the AI Agent. Try /wait 5 demo when using mock/dex.'}
+              onChange={(event) => setInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  void sendMessage();
+                }
+              }}
+            />
+            <button style={styles.primaryButton} disabled={isBusy || !input.trim()} onClick={sendMessage}>
+              {planMode ? 'Create plan' : 'Send'}
+            </button>
+          </div>
         </div>
         {error && <p style={styles.error}>{error}</p>}
       </section>
@@ -393,6 +454,60 @@ const MessageCard: React.FC<{ sequence: number; message: AgentMessage }> = ({ se
   );
 };
 
+const PlanCard: React.FC<{
+  plan: AgentPlan;
+  canExecute: boolean;
+  isBusy: boolean;
+  onExecute: (revision: number) => Promise<void>;
+}> = ({ plan, canExecute, isBusy, onExecute }) => {
+  const completed = plan.tasks.filter((task) => task.status === 'completed').length;
+  return (
+    <section style={styles.planCard}>
+      <div style={styles.planHeader}>
+        <div>
+          <strong>Plan · {plan.status}</strong>
+          <small style={styles.planRevision}>revision {plan.revision}</small>
+        </div>
+        <span>{completed}/{plan.tasks.length} completed</span>
+      </div>
+      <ol style={styles.planList}>
+        {plan.tasks.map((task, index) => (
+          <li key={`${index}-${task.content}`} style={styles.planTask}>
+            <span style={styles.planTaskIcon}>{planTaskIcon(task.status)}</span>
+            <span>
+              <strong>{task.status.replace('_', ' ')}</strong>
+              <span style={task.status === 'completed' ? styles.completedTask : styles.planTaskContent}>
+                {task.content}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      {canExecute && (
+        <button
+          style={styles.primaryButton}
+          disabled={isBusy}
+          onClick={() => void onExecute(plan.revision)}
+        >
+          {plan.status === 'draft' ? 'Execute plan' : 'Continue plan'}
+        </button>
+      )}
+      {isBusy && plan.status !== 'completed' && <small>Execution request pending…</small>}
+    </section>
+  );
+};
+
+const isPlanPlumbing = (message: AgentMessage): boolean => (
+  message.tool_name === 'write_todos'
+  || (message.tool_calls.length > 0 && message.tool_calls.every((call) => call.name === 'write_todos'))
+);
+
+const planTaskIcon = (status: PlanTask['status']): string => {
+  if (status === 'completed') return '✓';
+  if (status === 'in_progress') return '●';
+  return '○';
+};
+
 const splitList = (value: string): string[] => value
   .split(',')
   .map((item) => item.trim())
@@ -423,9 +538,20 @@ const styles: Record<string, React.CSSProperties> = {
   pre: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: '8px 0', fontSize: 12 },
   approvalCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#fff3e5', border: '1px solid #f4bb77' },
   timerCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#e9f8f2', border: '1px solid #8dd7bd' },
+  planCard: { marginTop: 18, padding: 18, borderRadius: 14, background: '#f0f4ff', border: '1px solid #aebdf2' },
+  planHeader: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center' },
+  planRevision: { marginLeft: 8, color: '#667085' },
+  planList: { listStyle: 'none', padding: 0, margin: '14px 0 0', display: 'grid', gap: 10 },
+  planTask: { display: 'grid', gridTemplateColumns: '24px 1fr', gap: 8, alignItems: 'start' },
+  planTaskIcon: { color: '#4f46e5', fontWeight: 700 },
+  planTaskContent: { display: 'block', marginTop: 2 },
+  completedTask: { display: 'block', marginTop: 2, textDecoration: 'line-through', opacity: 0.65 },
   actions: { display: 'flex', gap: 10 },
   activity: { marginTop: 18, padding: 14, borderRadius: 12, background: '#f7f8fb', color: '#4b5568' },
-  composer: { display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end', marginTop: 22, paddingTop: 18, borderTop: '1px solid #e6e9ef' },
+  composerArea: { marginTop: 22, paddingTop: 18, borderTop: '1px solid #e6e9ef' },
+  planModeToggle: { display: 'flex', gap: 8, alignItems: 'center', fontWeight: 700, marginBottom: 10 },
+  planModeHint: { color: '#667085', fontWeight: 400 },
+  composer: { display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' },
   error: { padding: 12, borderRadius: 9, background: '#ffeded', color: '#a11d2b' },
   empty: { textAlign: 'center', color: '#7b8495', margin: '100px 0' },
   footer: { maxWidth: 960, margin: '14px auto', color: '#6b7280', fontSize: 13 },
