@@ -23,7 +23,6 @@ import (
 
 type visualizeOptions struct {
 	language   string
-	format     string
 	output     string
 	pythonPath string
 }
@@ -32,8 +31,7 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	flags := newFlagSet("dexcli visualize", a.stderr)
 	options := visualizeOptions{}
 	flags.StringVar(&options.language, "language", "auto", "auto, go, or python")
-	flags.StringVar(&options.format, "format", "both", "both, json, or svg")
-	flags.StringVar(&options.output, "out", "", "output path prefix, or - for one format")
+	flags.StringVar(&options.output, "out", "", "output path prefix, or - for stdout")
 	flags.StringVar(&options.pythonPath, "python", "", "Python 3.11+ interpreter path")
 	source, parseErr := parseVisualizeArgs(flags, args)
 	if parseErr != nil {
@@ -53,31 +51,21 @@ func (a *App) executeVisualize(ctx context.Context, args []string) error {
 	if err != nil {
 		return newOperationError("visualize", err)
 	}
-	var jsonData []byte
-	if options.format == "both" || options.format == "json" {
-		jsonData, err = flowviz.MarshalJSON(graph)
-		if err != nil {
-			return newOperationError("visualize", err)
-		}
+	jsonData, err := flowviz.MarshalJSON(graph)
+	if err != nil {
+		return newOperationError("visualize", err)
 	}
-	var svgData []byte
-	if options.format == "both" || options.format == "svg" {
-		svgData, err = flowviz.RenderSVG(graph)
-		if err != nil {
-			return newOperationError("visualize", err)
-		}
-	}
-	outputs, err := writeVisualizationOutputs(a.stdout, source, options, jsonData, svgData)
+	outputPath, err := writeVisualizationOutput(a.stdout, source, options, jsonData)
 	if err != nil {
 		return newOperationError("visualize", err)
 	}
 	if options.output != "-" {
-		if err := writeOutput(a.stdout, "json", map[string]any{"valid": graph.Valid, "outputs": outputs}); err != nil {
+		if err := writeOutput(a.stdout, "json", map[string]any{"valid": graph.Valid, "output": outputPath}); err != nil {
 			return err
 		}
 	}
 	if !graph.Valid {
-		return newOperationError("visualize", fmt.Errorf("source has blocking diagnostics; partial artifacts were written"))
+		return newOperationError("visualize", fmt.Errorf("source has blocking diagnostics; partial JSON was written"))
 	}
 	return nil
 }
@@ -112,49 +100,26 @@ func validateVisualizeOptions(options visualizeOptions) error {
 	default:
 		return fmt.Errorf("language must be auto, go, or python")
 	}
-	switch options.format {
-	case "both", "json", "svg":
-	default:
-		return fmt.Errorf("format must be both, json, or svg")
-	}
-	if options.output == "-" && options.format == "both" {
-		return fmt.Errorf("--out - requires --format json or --format svg")
-	}
 	return nil
 }
 
-func writeVisualizationOutputs(stdout io.Writer, source string, options visualizeOptions, jsonData []byte, svgData []byte) ([]string, error) {
+func writeVisualizationOutput(stdout io.Writer, source string, options visualizeOptions, jsonData []byte) (string, error) {
 	if options.output == "-" {
-		data := jsonData
-		if options.format == "svg" {
-			data = svgData
+		if _, err := stdout.Write(jsonData); err != nil {
+			return "", fmt.Errorf("write stdout: %w", err)
 		}
-		if _, err := stdout.Write(data); err != nil {
-			return nil, fmt.Errorf("write stdout: %w", err)
-		}
-		return []string{"-"}, nil
+		return "-", nil
 	}
 	prefix := options.output
 	if prefix == "" {
 		extension := filepath.Ext(source)
 		prefix = strings.TrimSuffix(source, extension) + ".flow"
 	}
-	outputs := make([]string, 0, 2)
-	if options.format == "both" || options.format == "json" {
-		path := prefix + ".json"
-		if err := writeVisualizationFile(path, jsonData); err != nil {
-			return outputs, err
-		}
-		outputs = append(outputs, path)
+	path := prefix + ".json"
+	if err := writeVisualizationFile(path, jsonData); err != nil {
+		return "", err
 	}
-	if options.format == "both" || options.format == "svg" {
-		path := prefix + ".svg"
-		if err := writeVisualizationFile(path, svgData); err != nil {
-			return outputs, err
-		}
-		outputs = append(outputs, path)
-	}
-	return outputs, nil
+	return path, nil
 }
 
 func writeVisualizationFile(path string, data []byte) error {
@@ -173,7 +138,6 @@ func printVisualizeUsage(output io.Writer) {
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Flags:")
 	fmt.Fprintln(output, "  --language auto|go|python           source language (default auto)")
-	fmt.Fprintln(output, "  --format both|json|svg              artifacts to generate (default both)")
-	fmt.Fprintln(output, "  --out path-prefix|-                 output prefix; - requires one format")
+	fmt.Fprintln(output, "  --out path-prefix|-                 JSON output prefix, or - for stdout")
 	fmt.Fprintln(output, "  --python path                       Python 3.11+ interpreter")
 }

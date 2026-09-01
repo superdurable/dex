@@ -5,32 +5,39 @@ sidebar_label: Flow 可视化
 
 # Flow 源码可视化
 
-**dexcli visualize** 可以把一个 Go 或 Python Flow 源文件转换为静态 Step 图。图中包含能够从源码确定的所有可能路径，而不是某一次 Flow 运行及其历史。
-
-命令默认写出两种产物：
-
-- 供智能体、编辑器和其他工具使用的 JSON
-- 供人在浏览器或文档中查看的 SVG
+**dexcli visualize** 可以把一个 Go 或 Python Flow 源文件转换为静态 Flow Definition Graph。图中包含能够从源码确定的所有可能路径，而不是某一次 Flow 运行及其历史。
 
 ```bash
 dexcli visualize ./order_flow.go
 ```
 
-该命令会在源文件旁生成 **order_flow.flow.json** 和 **order_flow.flow.svg**。使用 **--out** 可以选择其他输出前缀：
+该命令会在源文件旁生成 **order_flow.flow.json**。使用 **--out** 可以选择其他输出前缀：
 
 ```bash
 dexcli visualize ./order_flow.py --out ./build/order-flow
 ```
 
-使用 **--format json** 或 **--format svg** 可以只生成一种产物。选择单一格式时可以写入标准输出：
+使用 **--out -** 可以把 JSON 写入标准输出：
 
 ```bash
-dexcli visualize ./order_flow.py --format json --out -
+dexcli visualize ./order_flow.py --out -
 ```
+
+## 在 Dex Web 中渲染定义图
+
+启动 Dex 时指定包含生成后 JSON 文件的目录：
+
+```bash
+dexcli dev --flow-rendering-dir ./build
+```
+
+在 Dex Web 中打开 **Flow Rendering**。该页面独立于 Flow 搜索页和运行详情页，用于交互式渲染所选定义图。通过图例可以显示或隐藏 wait、RPC 和 timeout handler、Attribute、Channel、Stream、SubFlow 及诊断。
+
+Dex 会递归扫描 JSON 文件，并在启动时创建一次快照。文件改变后需要重启 Dex。无效 JSON、不支持的 schema 版本或非目录路径都会使启动失败并返回错误。
 
 ## 图中包含的内容
 
-JSON 和 SVG 使用同一个定义图，其中包括：
+定义图包括：
 
 - Flow 和起始 Step
 - 已注册的 Step 和静态可知的跳转
@@ -43,7 +50,7 @@ JSON 和 SVG 使用同一个定义图，其中包括：
 
 错误返回或抛出的异常并不能确定另一个 Step，因此不会产生跳转。显式的 **ProceedToOnExecuteFailure** 或 **on_execute_failure_proceed_to** 策略会生成一条指向恢复 Step 的红色虚线。
 
-Stream 关系描述的是应用可观察输出，而不是控制流。SVG 会把它显示为次要的资源关系；JSON 会标记 Step Stream 写入可重复且为 best effort。Heartbeat 调用和 checkpoint 读取属于运行时可靠性细节，因此不会进入 definition graph。
+Stream 关系描述的是应用可观察输出，而不是控制流。Flow Rendering 默认隐藏 Stream，用户可以通过图例开启。JSON 会标记 Step Stream 写入可重复且为 best effort。Heartbeat 调用和 checkpoint 读取属于运行时可靠性细节，因此不会进入定义图。
 
 ## 支持的源码约束
 
@@ -67,7 +74,7 @@ Go 分析需要本地 Go toolchain，输入必须属于能够完成类型检查�
 
 ## Unknown 节点和诊断
 
-不支持的动态控制流不会被静默省略。输出会包含 Unknown 节点和错误诊断。命令仍然写出两份部分产物，并以状态码 1 退出。
+不支持的动态控制流不会被静默省略。输出会包含 Unknown 节点和错误诊断。命令仍然写出部分 JSON，并以状态码 1 退出。
 
 warning 不会使图失效。例如，从起始 Step 或 RPC 都无法到达的已注册 Step 会产生 warning。无效命令参数以状态码 2 退出。
 

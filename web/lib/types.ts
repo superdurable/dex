@@ -133,3 +133,73 @@ export interface StepGraphEdge {
   source: string;
   target: string;
 }
+
+export interface SourceSpan {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
+export interface FlowDefinitionNode {
+  id: string;
+  kind: string;
+  name: string;
+  phase?: string;
+  start?: boolean;
+  external?: boolean;
+  span?: SourceSpan;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FlowDefinitionEdge {
+  id: string;
+  kind: string;
+  from: string;
+  to: string;
+  label?: string;
+  condition?: string;
+  multiplicity?: string;
+  span?: SourceSpan;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FlowDefinitionDiagnostic {
+  severity: 'warning' | 'error';
+  code: string;
+  message: string;
+  span?: SourceSpan;
+}
+
+export interface FlowDefinitionGraph {
+  schemaVersion: '1.0';
+  valid: boolean;
+  source: {
+    language: 'go' | 'python';
+    path: string;
+  };
+  flow: {
+    name: string;
+    startStepId?: string;
+    span?: SourceSpan;
+  };
+  nodes: FlowDefinitionNode[];
+  edges: FlowDefinitionEdge[];
+  diagnostics: FlowDefinitionDiagnostic[];
+}
+
+export interface FlowDefinitionEntry {
+  id: string;
+  file: string;
+  flowName: string;
+  sourceLanguage: string;
+  sourcePath: string;
+  valid: boolean;
+  graph: FlowDefinitionGraph;
+}
+
+export interface FlowDefinitionCatalog {
+  configured: boolean;
+  directory?: string;
+  definitions: FlowDefinitionEntry[];
+}

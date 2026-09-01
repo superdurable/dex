@@ -290,7 +290,7 @@ export function FlowOverview({
               <div className="section-heading">
                 <div><p className="eyebrow">Selected event</p><h2>None</h2></div>
               </div>
-              <p className="muted">Select an event from Timeline or Step graph.</p>
+              <p className="muted">Select an event from Timeline or Execution graph.</p>
             </>
           )}
         </section>

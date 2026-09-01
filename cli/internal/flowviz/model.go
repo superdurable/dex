@@ -11,6 +11,7 @@ package flowviz
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 const SchemaVersion = "1.0"
@@ -232,4 +233,12 @@ func (graph *Graph) addUnusedResourceWarnings() {
 			graph.AddDiagnostic("warning", "unused_resource", fmt.Sprintf("%s %s has no direct access in the source file", node.Kind, node.Name), node.Span)
 		}
 	}
+}
+
+func isResourceNode(kind string) bool {
+	return kind == "attribute" || kind == "channel" || kind == "stream"
+}
+
+func isResourceEdge(kind string) bool {
+	return strings.HasPrefix(kind, "resource_") || kind == "wait_condition"
 }

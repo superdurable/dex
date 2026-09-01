@@ -31,6 +31,7 @@ export function AppHeader() {
       </div>
       <nav className="header-nav" aria-label="Primary navigation">
         <Link to="/">Flows</Link>
+        <Link to="/rendering">Flow Rendering</Link>
         <span className="connection-pill">
           <span className="connection-dot" />
           Dex server

@@ -17,6 +17,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -86,7 +88,18 @@ func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
 		t.Fatalf("unexpected search result: %+v", searchResult)
 	}
 
-	for _, path := range []string{"/", "/flows/checkout-1/run-1"} {
+	definitionResponse := get(t, harness.http.URL+"/api/flow-definitions")
+	defer definitionResponse.Body.Close()
+	var definitionCatalog struct {
+		Configured  bool              `json:"configured"`
+		Definitions []json.RawMessage `json:"definitions"`
+	}
+	decodeResponse(t, definitionResponse, &definitionCatalog)
+	if definitionCatalog.Configured || len(definitionCatalog.Definitions) != 0 {
+		t.Fatalf("unexpected unconfigured Flow definitions: %+v", definitionCatalog)
+	}
+
+	for _, path := range []string{"/", "/rendering", "/flows/checkout-1/run-1"} {
 		response := get(t, harness.http.URL+path)
 		body := readBody(t, response)
 		response.Body.Close()
@@ -100,6 +113,54 @@ func TestWebServerBridgesDexAndServesSPA(t *testing.T) {
 	missingAPI.Body.Close()
 	if missingAPI.StatusCode != http.StatusNotFound || !strings.Contains(missingBody, "API route not found") {
 		t.Fatalf("unknown API: status=%d body=%q", missingAPI.StatusCode, missingBody)
+	}
+}
+
+func TestWebServerLoadsFlowDefinitionsAtStartup(t *testing.T) {
+	directory := t.TempDir()
+	nestedDirectory := filepath.Join(directory, "nested")
+	if err := os.MkdirAll(nestedDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	definitions := map[string]string{
+		"orders.flow.json":    `{"schemaVersion":"1.0","valid":true,"source":{"language":"go","path":"orders.go"},"flow":{"name":"Orders"},"nodes":[],"edges":[],"diagnostics":[]}`,
+		"nested/billing.json": `{"schemaVersion":"1.0","valid":false,"source":{"language":"python","path":"billing.py"},"flow":{"name":"Billing"},"nodes":[],"edges":[],"diagnostics":[{"severity":"error","code":"unknown","message":"dynamic"}]}`,
+	}
+	for name, contents := range definitions {
+		if err := os.WriteFile(filepath.Join(directory, filepath.FromSlash(name)), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	harness := newHarnessWithConfig(t, &flowService{}, &dexweb.Config{
+		BindAddress:            "127.0.0.1",
+		Port:                   dexweb.DefaultPort,
+		FlowRenderingDirectory: directory,
+	})
+
+	response := get(t, harness.http.URL+"/api/flow-definitions")
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("Flow definitions status = %d body=%q", response.StatusCode, readBody(t, response))
+	}
+	var catalog struct {
+		Configured  bool   `json:"configured"`
+		Directory   string `json:"directory"`
+		Definitions []struct {
+			ID       string          `json:"id"`
+			FlowName string          `json:"flowName"`
+			Valid    bool            `json:"valid"`
+			Graph    json.RawMessage `json:"graph"`
+		} `json:"definitions"`
+	}
+	decodeResponse(t, response, &catalog)
+	if !catalog.Configured || catalog.Directory != directory {
+		t.Fatalf("unexpected Flow definition catalog: %+v", catalog)
+	}
+	if len(catalog.Definitions) != 2 || catalog.Definitions[0].ID != "nested/billing.json" || catalog.Definitions[1].ID != "orders.flow.json" {
+		t.Fatalf("unexpected Flow definitions: %+v", catalog.Definitions)
+	}
+	if catalog.Definitions[0].FlowName != "Billing" || catalog.Definitions[0].Valid || len(catalog.Definitions[0].Graph) == 0 {
+		t.Fatalf("unexpected Billing definition: %+v", catalog.Definitions[0])
 	}
 }
 
@@ -461,6 +522,14 @@ type harness struct {
 
 func newHarness(t *testing.T, service dexpb.FlowServiceServer) *harness {
 	t.Helper()
+	return newHarnessWithConfig(t, service, &dexweb.Config{
+		BindAddress: "127.0.0.1",
+		Port:        dexweb.DefaultPort,
+	})
+}
+
+func newHarnessWithConfig(t *testing.T, service dexpb.FlowServiceServer, cfg *dexweb.Config) *harness {
+	t.Helper()
 	grpcListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -479,11 +548,18 @@ func newHarness(t *testing.T, service dexpb.FlowServiceServer) *harness {
 		grpcServer.Stop()
 		t.Fatal(err)
 	}
-	webServer := dexweb.NewServer(
-		&dexweb.Config{BindAddress: "127.0.0.1", Port: dexweb.DefaultPort},
+	webServer, err := dexweb.NewServer(
+		cfg,
 		dexpb.NewFlowServiceClient(connection),
 		assets.Files,
 	)
+	if err != nil {
+		if closeErr := connection.Close(); closeErr != nil {
+			t.Errorf("close gRPC connection: %v", closeErr)
+		}
+		grpcServer.Stop()
+		t.Fatal(err)
+	}
 	httpServer := httptest.NewServer(webServer.Handler())
 	t.Cleanup(func() {
 		httpServer.Close()

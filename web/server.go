@@ -30,6 +30,8 @@ type Config struct {
 	BindAddress string
 	// Port defaults to 8802 and controls the HTTP bind port.
 	Port int
+	// FlowRenderingDirectory defaults empty and supplies Flow Definition Graph JSON files to Dex Web.
+	FlowRenderingDirectory string
 }
 
 type Server struct {
@@ -37,7 +39,7 @@ type Server struct {
 	httpServer *http.Server
 }
 
-func NewServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS) *Server {
+func NewServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS) (*Server, error) {
 	if cfg == nil {
 		panic("Web config must not be nil")
 	}
@@ -51,8 +53,13 @@ func NewServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS) *Serve
 	if err != nil {
 		panic(fmt.Sprintf("open embedded Web assets: %v", err))
 	}
+	flowDefinitions, err := loadFlowDefinitions(cfg.FlowRenderingDirectory)
+	if err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	api.RegisterHandlers(mux, client)
+	mux.Handle("GET /api/flow-definitions", flowDefinitions)
 	mux.Handle("/", spaHandler(assetRoot))
 	return &Server{
 		cfg: cfg,
@@ -61,7 +68,7 @@ func NewServer(cfg *Config, client dexpb.FlowServiceClient, assets fs.FS) *Serve
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       90 * time.Second,
 		},
-	}
+	}, nil
 }
 
 func (s *Server) Run() error {

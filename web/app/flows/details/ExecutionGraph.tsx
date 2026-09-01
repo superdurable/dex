@@ -300,7 +300,7 @@ function nodeHandles(
   return handles;
 }
 
-export function StepGraph({
+export function ExecutionGraph({
   flowId,
   events,
   state,
@@ -431,12 +431,12 @@ export function StepGraph({
     });
   }, [bounds.width, canvasWidth, flowInstance, initialZoom]);
 
-  if (!nodes.length) return <div className="card empty-state"><h3>No step topology loaded</h3></div>;
+  if (!nodes.length) return <div className="card empty-state"><h3>No execution topology loaded</h3></div>;
   return (
     <div className="graph-view">
       <div className="view-toolbar">
         <div>
-          <h2>Step graph</h2>
+          <h2>Execution graph</h2>
         </div>
         <div className="graph-legend">
           <span><i className="legend-source" />Source</span>
@@ -475,7 +475,7 @@ export function StepGraph({
           <div className={`graph-minimap-shell${isMiniMapExpanded ? ' expanded' : ''}`}>
             {isMiniMapExpanded && (
               <MiniMap
-                ariaLabel="Step graph Mini Map"
+                ariaLabel="Execution graph Mini Map"
                 className="graph-minimap"
                 pannable
                 position="top-left"

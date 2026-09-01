@@ -107,6 +107,7 @@ must exist and be reachable before startup.
 --bind-address string              local bind IP (default 127.0.0.1)
 --blob-store-dir string            persistent Dex blob storage directory (default $HOME/.dex/blobs)
 --dex-port int                     Dex gRPC port (default 8801)
+--flow-rendering-dir string        directory containing Flow Definition Graph JSON files
 --open                             open Dex Web after readiness (default true)
 --web-port int                     Dex Web port (default 8802)
 --sqlite-db-filename string        local SQLite file (default $HOME/.dex/dev/<port>/dex.sqlite.db)
@@ -154,14 +155,20 @@ Generate a static possible-path graph from one Go or Python Flow source file:
 dexcli visualize ./order_flow.go
 ```
 
-The default writes `order_flow.flow.json` and `order_flow.flow.svg` next to the
-source. JSON is the versioned machine-readable Flow Definition Graph; SVG is a
-responsive diagram for people. Select one artifact or choose another prefix:
+The default writes `order_flow.flow.json` next to the source. The JSON is the
+versioned Flow Definition Graph consumed by Dex Web and other tools. Choose
+another prefix or write the graph to stdout:
 
 ```bash
-dexcli visualize ./order_flow.py --format json --out -
+dexcli visualize ./order_flow.py --out -
 dexcli visualize ./order_flow.go --out ./build/order-flow
+dexcli dev --flow-rendering-dir ./build
 ```
+
+Open **Flow Rendering** in Dex Web to browse the loaded definitions. The page
+renders the graph interactively and lets you show or hide waits, handlers,
+Attributes, Channels, Streams, SubFlows, and diagnostics. Definitions are loaded
+once during startup; restart **dexcli dev** after changing the directory.
 
 Python analysis requires Python 3.11 or newer. Pass `--python /path/to/python`
 to select an interpreter. The analyzer parses Python with the standard-library
@@ -176,18 +183,16 @@ and asynchronous Step handlers are both recognized. Heartbeat checkpoints are
 runtime details and are omitted. Step Stream progress from an RPC or Flow timeout
 handler produces a blocking diagnostic. Business helpers may remain in other
 files, but they must not hide Dex control flow. Dynamic targets produce an
-Unknown node and a blocking diagnostic. Partial JSON and SVG artifacts are still
+Unknown node and a blocking diagnostic. A partial JSON artifact is still
 written, and the command exits with status 1.
 
 ```text
 dexcli visualize SOURCE [--language auto|go|python]
-                         [--format both|json|svg]
                          [--out PATH_PREFIX|-]
                          [--python PYTHON_PATH]
 ```
 
-`--out -` is valid only with one selected format. Invalid command usage exits
-with status 2. The JSON contract is documented by
+Invalid command usage exits with status 2. The JSON contract is documented by
 [`schema/flow-definition-graph.v1.schema.json`](schema/flow-definition-graph.v1.schema.json).
 
 The friendly Flow commands are:

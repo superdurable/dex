@@ -24,7 +24,7 @@ import (
 	"github.com/superdurable/dex/cli/internal/flowviz"
 )
 
-func TestVisualizeDefaultsToJSONAndSVGNextToPythonSource(t *testing.T) {
+func TestVisualizeDefaultsToJSONNextToPythonSource(t *testing.T) {
 	temporaryDirectory := t.TempDir()
 	sourcePath := filepath.Join(temporaryDirectory, "order_flow.py")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(minimalPythonFlow), 0o644))
@@ -34,25 +34,18 @@ func TestVisualizeDefaultsToJSONAndSVGNextToPythonSource(t *testing.T) {
 	require.NoError(t, app.Execute(context.Background(), []string{"visualize", sourcePath}))
 
 	jsonPath := filepath.Join(temporaryDirectory, "order_flow.flow.json")
-	svgPath := filepath.Join(temporaryDirectory, "order_flow.flow.svg")
 	require.FileExists(t, jsonPath)
-	require.FileExists(t, svgPath)
+	require.NoFileExists(t, filepath.Join(temporaryDirectory, "order_flow.flow.svg"))
 	require.Contains(t, stdout.String(), jsonPath)
-	require.Contains(t, stdout.String(), svgPath)
-	svg, err := os.ReadFile(svgPath)
-	require.NoError(t, err)
-	require.Contains(t, string(svg), `viewBox="0 0`)
-	require.Contains(t, string(svg), `width="100%"`)
-	require.Contains(t, string(svg), ">Execute</text>")
 }
 
-func TestVisualizeSingleFormatCanWriteStdout(t *testing.T) {
+func TestVisualizeCanWriteJSONToStdout(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "flow.py")
 	require.NoError(t, os.WriteFile(sourcePath, []byte(minimalPythonFlow), 0o644))
 
 	var stdout bytes.Buffer
 	app := NewApp(strings.NewReader(""), &stdout, &bytes.Buffer{})
-	require.NoError(t, app.Execute(context.Background(), []string{"visualize", sourcePath, "--format", "json", "--out", "-"}))
+	require.NoError(t, app.Execute(context.Background(), []string{"visualize", sourcePath, "--out", "-"}))
 
 	var graph flowviz.Graph
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &graph))
@@ -60,9 +53,9 @@ func TestVisualizeSingleFormatCanWriteStdout(t *testing.T) {
 	require.Equal(t, "PythonFlow", graph.Flow.Name)
 }
 
-func TestVisualizeRejectsBothFormatsOnStdout(t *testing.T) {
+func TestVisualizeRejectsRemovedFormatFlag(t *testing.T) {
 	app := NewApp(strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
-	err := app.Execute(context.Background(), []string{"visualize", "flow.py", "--out", "-"})
+	err := app.Execute(context.Background(), []string{"visualize", "flow.py", "--format", "svg"})
 	require.Error(t, err)
 	require.Equal(t, 2, ExitCode(err))
 }
@@ -102,9 +95,6 @@ func TestVisualizeGoAndPythonRecoveryPolicies(t *testing.T) {
 				require.Equal(t, "Execute failure", edge.Label)
 				require.NotEmpty(t, edge.Metadata["skipWaitFor"])
 			}
-			svg, readErr := os.ReadFile(outputPrefix + ".svg")
-			require.NoError(t, readErr)
-			require.Contains(t, string(svg), "failure-edge")
 		})
 	}
 }
@@ -121,7 +111,6 @@ func TestVisualizeDynamicPythonTargetWritesPartialArtifacts(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, 1, ExitCode(err))
 	require.FileExists(t, outputPrefix+".json")
-	require.FileExists(t, outputPrefix+".svg")
 	data, readErr := os.ReadFile(outputPrefix + ".json")
 	require.NoError(t, readErr)
 	require.Contains(t, string(data), `"kind": "unknown"`)
@@ -289,25 +278,6 @@ func TestVisualizeMissingPythonWritesDiagnosticArtifact(t *testing.T) {
 	data, readErr := os.ReadFile(outputPrefix + ".json")
 	require.NoError(t, readErr)
 	require.Contains(t, string(data), "python_analyzer_failed")
-}
-
-func TestVisualizeSVGIsDeterministicAndEscapesLabels(t *testing.T) {
-	graph := flowviz.NewGraph("python", "flow<&>.py")
-	graph.Flow.Name = "Flow <unsafe>"
-	graph.AddNode(flowviz.Node{ID: "step:a", Kind: "step", Name: "A & B", Start: true})
-	graph.AddNode(flowviz.Node{ID: "step:b", Kind: "step", Name: "B"})
-	graph.AddEdge(flowviz.Edge{Kind: "transition", From: "step:a", To: "step:b", Condition: `value < 3 && value > 0`})
-	graph.AddEdge(flowviz.Edge{Kind: "transition", From: "step:b", To: "step:a", Label: "cycle"})
-	graph.Normalize()
-
-	first, err := flowviz.RenderSVG(graph)
-	require.NoError(t, err)
-	second, err := flowviz.RenderSVG(graph)
-	require.NoError(t, err)
-	require.Equal(t, first, second)
-	require.Contains(t, string(first), "Flow &lt;unsafe&gt;")
-	require.Contains(t, string(first), "A &amp; B")
-	require.NotContains(t, string(first), "A & B")
 }
 
 func TestVisualizeGoRequiresVisibleDecisionsAndTypeCheckedPackage(t *testing.T) {

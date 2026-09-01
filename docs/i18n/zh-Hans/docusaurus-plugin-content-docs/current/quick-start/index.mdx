@@ -7,7 +7,7 @@ slug: /quick-start
 
 # Quick Start
 
-用 [为什么是 Dex？](/intro/what-is-dex) 里同一条 order-processing Flow，从头跑一遍：安装 Dex，注册 Worker 和 Client，用 HTTP controller 启动 Flow，批准发货，再在 Dex Web 里看 Step graph。
+用 [为什么是 Dex？](/intro/what-is-dex) 里同一条 order-processing Flow，从头跑一遍：安装 Dex，注册 Worker 和 Client，用 HTTP controller 启动 Flow，批准发货，再在 Dex Web 里看 Execution graph。
 
 ## 1. 安装 Dex
 
@@ -1303,9 +1303,9 @@ curl -s "http://127.0.0.1:8080/products/order-processing/approve?workflowId=FLOW
 
 ## 6. Dex Web
 
-start 并 approve 之后，打开这条 Flow。Step graph 里是 Charge 然后 Ship：
+start 并 approve 之后，打开这条 Flow。Execution graph 里是 Charge 然后 Ship：
 
-![approve 之后的 Dex Web Step graph](/img/quick-start/step-graph.png)
+![approve 之后的 Dex Web Execution graph](/img/quick-start/step-graph.png)
 
 Timeline tab 列出同一次 run：
 

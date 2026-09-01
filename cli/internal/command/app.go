@@ -112,7 +112,7 @@ func (a *App) printUsage() {
 	fmt.Fprintln(a.stdout)
 	fmt.Fprintln(a.stdout, "Commands:")
 	fmt.Fprintln(a.stdout, "  health    Check Dex FlowService health")
-	fmt.Fprintln(a.stdout, "  visualize Generate a static Flow graph from Go or Python source")
+	fmt.Fprintln(a.stdout, "  visualize Generate Flow Definition Graph JSON from Go or Python source")
 	fmt.Fprintln(a.stdout, "  flow      Start, operate, inspect, or watch Flows")
 	fmt.Fprintln(a.stdout, "  api       List, describe, or call FlowService RPCs")
 	fmt.Fprintln(a.stdout)

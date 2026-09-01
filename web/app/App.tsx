@@ -12,6 +12,7 @@ import { CurrentRunRedirect } from './flows/CurrentRunRedirect';
 import { FlowSearchPage } from './flows/FlowSearchPage';
 import { RunDetailsPage } from './flows/RunDetailsPage';
 import { PreferencesProvider } from './providers';
+import { FlowRenderingPage } from './rendering/FlowRenderingPage';
 
 export function App() {
   return (
@@ -20,6 +21,7 @@ export function App() {
       <main className="app-main">
         <Routes>
           <Route path="/" element={<FlowSearchPage />} />
+          <Route path="/rendering" element={<FlowRenderingPage />} />
           <Route path="/flows/:flowId" element={<CurrentFlowRoute />} />
           <Route path="/flows/:flowId/:runId" element={<FlowRunRoute />} />
           <Route path="*" element={<Navigate to="/" replace />} />

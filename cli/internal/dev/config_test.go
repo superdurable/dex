@@ -85,6 +85,17 @@ func TestServerLogFolderFlag(t *testing.T) {
 	}
 }
 
+func TestFlowRenderingDirectoryFlag(t *testing.T) {
+	directory := t.TempDir()
+	cfg, err := parseConfig([]string{"--flow-rendering-dir", directory}, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.FlowRenderingDirectory != directory {
+		t.Fatalf("unexpected Flow rendering directory: %q", cfg.FlowRenderingDirectory)
+	}
+}
+
 func TestVerboseEngineLogFlag(t *testing.T) {
 	cfg, err := parseConfig([]string{"--verbose-engine-log"}, &bytes.Buffer{})
 	if err != nil {

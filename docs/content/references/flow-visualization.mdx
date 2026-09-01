@@ -5,32 +5,39 @@ sidebar_label: Flow visualization
 
 # Flow source visualization
 
-**dexcli visualize** turns one Go or Python Flow source file into a static Step graph. The graph shows every possible path that can be determined from the source. It does not represent one Flow run or its history.
-
-The command writes two artifacts by default:
-
-- JSON for agents, editors, and other tools
-- SVG for people to review in a browser or documentation
+**dexcli visualize** turns one Go or Python Flow source file into a static Flow Definition Graph. The graph shows every possible path that can be determined from the source. It does not represent one Flow run or its history.
 
 ```bash
 dexcli visualize ./order_flow.go
 ```
 
-This creates **order_flow.flow.json** and **order_flow.flow.svg** next to the source file. Use **--out** to choose a different prefix:
+This creates **order_flow.flow.json** next to the source file. Use **--out** to choose a different prefix:
 
 ```bash
 dexcli visualize ./order_flow.py --out ./build/order-flow
 ```
 
-Use **--format json** or **--format svg** to create one artifact. A single format can be written to stdout:
+Use **--out -** to write the JSON to stdout:
 
 ```bash
-dexcli visualize ./order_flow.py --format json --out -
+dexcli visualize ./order_flow.py --out -
 ```
+
+## Render definitions in Dex Web
+
+Start Dex with a directory containing generated JSON files:
+
+```bash
+dexcli dev --flow-rendering-dir ./build
+```
+
+Open **Flow Rendering** in Dex Web. This page is independent from Flow search and run details. It renders the selected definition interactively. Its legend can show or hide waits, RPC and timeout handlers, Attributes, Channels, Streams, SubFlows, and diagnostics.
+
+Dex scans JSON files recursively and takes a snapshot when it starts. Restart Dex after changing the files. Invalid JSON, an unsupported schema version, or a path that is not a directory stops startup with an error.
 
 ## What the graph contains
 
-The JSON and SVG share the same definition graph. It includes:
+The definition graph includes:
 
 - the Flow and start Step
 - registered Steps and statically known transitions
@@ -43,7 +50,7 @@ The JSON and SVG share the same definition graph. It includes:
 
 An error return or raised exception does not identify another Step. It therefore does not create a transition. An explicit **ProceedToOnExecuteFailure** or **on_execute_failure_proceed_to** policy creates a red dashed edge to the recovery Step.
 
-Stream relations describe observable application output, not control flow. The SVG shows them as secondary resource relations. The JSON marks Step Stream writes as repeatable and best effort. Heartbeat calls and checkpoint reads are runtime reliability details, so they are not included in the definition graph.
+Stream relations describe observable application output, not control flow. They are hidden by default in Flow Rendering and can be enabled from the legend. The JSON marks Step Stream writes as repeatable and best effort. Heartbeat calls and checkpoint reads are runtime reliability details, so they are not included in the definition graph.
 
 ## Supported source profile
 
@@ -67,7 +74,7 @@ Version 1 does not support multiple Flows in one file, reflection, dynamic class
 
 ## Unknown nodes and diagnostics
 
-Unsupported dynamic control flow is never omitted silently. The output contains an Unknown node and an error diagnostic. Both partial artifacts are still written, and the command exits with status 1.
+Unsupported dynamic control flow is never omitted silently. The output contains an Unknown node and an error diagnostic. A partial JSON artifact is still written, and the command exits with status 1.
 
 Warnings do not invalidate the graph. For example, a registered Step that cannot be reached from the start Step or an RPC produces a warning. Invalid command arguments exit with status 2.
 
