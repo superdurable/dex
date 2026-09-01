@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests the OpenAI response boundary used by the email agent example."""
+"""Tests the OpenAI and SMTP boundaries used by the email agent example."""
 
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from typing import Any
 
 import pytest
 
+from dex_examples.products.ai_agent_email import ai_agent_flow
 from dex_examples.products.ai_agent_email import agent
 
 
@@ -75,5 +76,63 @@ async def test_request_email_fields_falls_back_when_output_cannot_be_parsed(
     assert reply.response.email_body == "Send an email"
 
 
+def test_send_email_supports_unicode_subject_and_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    smtp_server = _FakeSMTP()
+
+    def create_smtp_server(host: str, port: int) -> _FakeSMTP:
+        assert host == "smtp.gmail.com"
+        assert port == 465
+        return smtp_server
+
+    monkeypatch.setattr(ai_agent_flow.smtplib, "SMTP_SSL", create_smtp_server)
+
+    ai_agent_flow._send_email(
+        "sender@example.com",
+        "app-password",
+        "recipient@example.com",
+        "中文主题",
+        "这是一封中文正文。",
+    )
+
+    message = smtp_server.message
+    assert message is not None
+    assert message["Subject"] == "中文主题"
+    assert message.get_content().strip() == "这是一封中文正文。"
+    assert message.as_bytes()
+    assert smtp_server.from_addr == "sender@example.com"
+    assert smtp_server.to_addrs == ["recipient@example.com"]
+    assert smtp_server.has_quit is True
+
+
 async def _write_progress(progress: str) -> None:
     pass
+
+
+class _FakeSMTP:
+    def __init__(self) -> None:
+        self.message: Any | None = None
+        self.from_addr: str | None = None
+        self.to_addrs: list[str] | None = None
+        self.has_quit = False
+
+    def ehlo(self) -> None:
+        pass
+
+    def login(self, sender: str, app_password: str) -> None:
+        assert sender == "sender@example.com"
+        assert app_password == "app-password"
+
+    def send_message(
+        self,
+        message: Any,
+        from_addr: str,
+        to_addrs: list[str],
+    ) -> None:
+        self.message = message
+        self.from_addr = from_addr
+        self.to_addrs = to_addrs
+
+    def quit(self) -> None:
+        self.has_quit = True
