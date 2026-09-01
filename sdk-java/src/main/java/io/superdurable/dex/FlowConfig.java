@@ -131,12 +131,9 @@ public final class FlowConfig {
         /**
          * Sets the normal default durability for Step methods in this Flow.
          *
-         * <p>The server default is {@link StepDurability#ASYNC}, which lowers latency and increases
-         * server throughput by allowing result persistence to be batched. A method-level setting in
-         * {@link StepOptions} takes precedence. This Flow-wide setting does not override Dex's safer
-         * {@link StepDurability#SYNC} choice when a wait-for or execute failure policy proceeds.
-         * Applications may override that choice only in the relevant Step options after considering
-         * the replay tradeoff described by {@link StepDurability}.
+         * <p>The server default is {@link StepDurability#SYNC}. A method-level setting in
+         * {@link StepOptions} takes precedence over this Flow-wide value. Failure policies do not
+         * change that ordering or the selected default.
          *
          * @param value the durability mode, or {@code null} for the server default
          * @return this builder
