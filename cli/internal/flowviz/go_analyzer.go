@@ -468,6 +468,7 @@ func (analyzer *goAnalyzer) analyzeFailurePolicy(ownerID string, method *ast.Fun
 
 func (analyzer *goAnalyzer) analyzeResourceAccess(ownerID string, method *ast.FuncDecl, phase string) {
 	seen := make(map[string]bool)
+	localResources := analyzer.collectLocalResourceAliases(method.Body)
 	ast.Inspect(method.Body, func(current ast.Node) bool {
 		call, ok := current.(*ast.CallExpr)
 		if !ok {
@@ -478,6 +479,11 @@ func (analyzer *goAnalyzer) analyzeResourceAccess(ownerID string, method *ast.Fu
 			return true
 		}
 		resourceID := analyzer.resourceForExpression(selector.X)
+		if resourceID == "" {
+			if identifier, ok := selector.X.(*ast.Ident); ok {
+				resourceID = localResources[analyzer.typeInfo.Uses[identifier]]
+			}
+		}
 		if resourceID == "" {
 			return true
 		}
@@ -507,6 +513,30 @@ func (analyzer *goAnalyzer) analyzeResourceAccess(ownerID string, method *ast.Fu
 		analyzer.graph.AddEdge(Edge{Kind: kind, From: from, To: to, Label: selector.Sel.Name, Span: analyzer.span(call), Metadata: metadata})
 		return true
 	})
+}
+
+func (analyzer *goAnalyzer) collectLocalResourceAliases(body *ast.BlockStmt) map[types.Object]string {
+	aliases := make(map[types.Object]string)
+	ast.Inspect(body, func(current ast.Node) bool {
+		assignment, ok := current.(*ast.AssignStmt)
+		if !ok || len(assignment.Rhs) != 1 || len(assignment.Lhs) == 0 {
+			return true
+		}
+		call, ok := assignment.Rhs[0].(*ast.CallExpr)
+		if !ok || analyzer.callName(call) != "NewBufferedTextStream" || len(call.Args) < 2 {
+			return true
+		}
+		resourceID := analyzer.resourceForExpression(call.Args[1])
+		identifier, ok := assignment.Lhs[0].(*ast.Ident)
+		if !ok || resourceID == "" {
+			return true
+		}
+		if object := analyzer.typeInfo.Defs[identifier]; object != nil {
+			aliases[object] = resourceID
+		}
+		return true
+	})
+	return aliases
 }
 
 func (analyzer *goAnalyzer) decisionType(expression ast.Expr, allowRPC bool) string {

@@ -427,14 +427,22 @@ func TestVisualizeStepStreamProgress(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(directory, "go.mod"), []byte(goModule), 0o644))
 	goSource := filepath.Join(directory, "progress.go")
 	require.NoError(t, os.WriteFile(goSource, []byte(goStepProgressFlow), 0o644))
+	pythonBufferedExample, err := os.ReadFile(filepath.Join(repositoryRoot, "examples/python/dex_examples/primitives/stream/stream_flow.py"))
+	require.NoError(t, err)
+	pythonBufferedSource := strings.ReplaceAll(string(pythonBufferedExample), "progress = self.progress.buffered_text", "writer = self.progress.buffered_text")
+	pythonBufferedSource = strings.ReplaceAll(pythonBufferedSource, "progress.write(", "writer.write(")
+	pythonSource := filepath.Join(directory, "buffered.py")
+	require.NoError(t, os.WriteFile(pythonSource, []byte(pythonBufferedSource), 0o644))
 
 	tests := []struct {
 		name   string
 		source string
 	}{
 		{name: "go", source: goSource},
+		{name: "go buffered", source: filepath.Join(repositoryRoot, "examples/go/primitives/stream/workflow.go")},
 		{name: "python sync generator", source: filepath.Join(repositoryRoot, "sdk-python/tests/integ/step_streaming_flow.py")},
 		{name: "python async", source: filepath.Join(repositoryRoot, "sdk-python/tests/integ/async_stream_flow.py")},
+		{name: "python buffered alias", source: pythonSource},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

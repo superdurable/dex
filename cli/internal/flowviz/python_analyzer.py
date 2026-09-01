@@ -584,8 +584,12 @@ class Analyzer:
 
     def analyze_resources(self, owner_id, method, phase):
         seen = set()
+        local_resources = self.local_resource_aliases(owner_id, method)
         for call in [node for node in ast.walk(method) if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)]:
-            resource_id = self.resource_for(call.func.value, owner_id)
+            resource_id = None
+            if isinstance(call.func.value, ast.Name):
+                resource_id = local_resources.get(call.func.value.id)
+            resource_id = resource_id or self.resource_for(call.func.value, owner_id)
             if not resource_id:
                 continue
             edge_kind = self.resource_edge_kind(call.func.attr, phase)
@@ -611,6 +615,24 @@ class Analyzer:
             source = resource_id if edge_kind == "resource_read" else owner_id
             target = owner_id if edge_kind == "resource_read" else resource_id
             self.add_edge(edge_kind, source, target, label=call.func.attr, span=self.span(call), metadata=metadata)
+
+    def local_resource_aliases(self, owner_id, method):
+        aliases = {}
+        for statement in ast.walk(method):
+            target = None
+            value = None
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1:
+                target, value = statement.targets[0], statement.value
+            elif isinstance(statement, ast.AnnAssign):
+                target, value = statement.target, statement.value
+            if not isinstance(target, ast.Name) or not isinstance(value, ast.Call):
+                continue
+            if not isinstance(value.func, ast.Attribute) or value.func.attr != "buffered_text":
+                continue
+            resource_id = self.resource_for(value.func.value, owner_id)
+            if resource_id and resource_id.startswith("resource:stream:"):
+                aliases[target.id] = resource_id
+        return aliases
 
     def parse_decision(self, expression, condition, rpc, locals_map):
         if isinstance(expression, ast.IfExp):
