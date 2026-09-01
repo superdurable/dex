@@ -25,7 +25,7 @@ import { BasicInternalChannelFlow } from "./basic_internal_channel_flow.js";
 import { ConditionalCompleteFlow } from "./conditional_complete_flow.js";
 import { DeadEndFlow } from "./dead_end_flow.js";
 import { ExecuteOnlyFlow } from "./execute_only_flow.js";
-import { expectError, flowId, withEnvironment } from "./environment.js";
+import { expectError, flowId, skipTimerWhenPending, withEnvironment } from "./environment.js";
 import { NoStartFlow } from "./no_start_flow.js";
 import { NoStateFlow } from "./no_state_flow.js";
 import { SignalFlow } from "./signal_flow.js";
@@ -124,7 +124,8 @@ test("signals, mapped signals, and skipped timer form one combination", async ()
     await client.publish(id, flow.first, 2, 3, 5);
     await client.publish(id, flow.third, undefined);
     await client.publish(id, flow.signalMap, "one", 4);
-    await client.skipTimer(
+    await skipTimerWhenPending(
+      client,
       id,
       StepExecutionId.of("SignalCombinationStep"),
       TimerId.byConditionId("test-timer-id"),

@@ -38,6 +38,23 @@ export interface Context {
    */
   readonly cancellationSignal: AbortSignal;
   /**
+   * Reports whether a previous regular-activity attempt recorded heartbeat details.
+   * @returns Whether a last heartbeat Value is present.
+   */
+  hasLastHeartbeatValue(): boolean;
+  /**
+   * Decodes heartbeat details recorded by the previous regular-activity attempt.
+   *
+   * The codec must match the one passed to {@link AsyncContext.recordHeartbeat}. When omitted,
+   * values use JSON encoding. Call {@link Context.hasLastHeartbeatValue} to distinguish an absent
+   * Value from a present JSON null value, because both decode to `undefined`.
+   *
+   * @typeParam T - Expected heartbeat value type.
+   * @param codec - Codec used to decode the Value; omitted for JSON.
+   * @returns The decoded value, or `undefined` when no Value is present.
+   */
+  getLastHeartbeatValue<T = unknown>(codec?: Codec<T>): T | undefined;
+  /**
    * Reports whether a Timer made the current Wait ready.
    * @param index - Optional zero-based Timer index; checks any Timer when omitted.
    * @returns Whether the selected Timer fired.
@@ -135,5 +152,27 @@ export interface Context {
    * @param stream - Stream registered by the current Flow type.
    * @param value - Typed message to append.
    */
-  writeStream<T>(stream: Stream<T>, value: T): Promise<void>;
+  writeStream<T>(stream: Stream<T>, value: T): void;
+}
+
+/**
+ * Adds asynchronous progress reporting to a Step invocation Context.
+ *
+ * Annotate an async `waitFor` or `execute` handler with AsyncContext when it records heartbeats.
+ * RPC and Flow timeout handlers receive Context and cannot record Step heartbeats.
+ */
+export interface AsyncContext extends Context {
+  /**
+   * Records heartbeat progress for the current Step method attempt.
+   *
+   * Passing `undefined` explicitly clears persisted heartbeat details. Every other value produces
+   * a present Value; omitted codecs use JSON. The Promise resolves when grpc-js accepts the frame,
+   * not when Temporal persists it. Local activities ignore heartbeat frames.
+   *
+   * @typeParam T - Heartbeat value type.
+   * @param value - Value to persist, or `undefined` to clear existing details.
+   * @param codec - Codec used to encode the Value; omitted for JSON.
+   * @returns A Promise resolved after the Worker accepts the output frame locally.
+   */
+  recordHeartbeat<T>(value: T | undefined, codec?: Codec<T>): Promise<void>;
 }

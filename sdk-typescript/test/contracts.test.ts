@@ -34,6 +34,7 @@ import {
   rpc,
   stringCodec,
   type BlobCache,
+  type AsyncContext,
   type Context,
   type Flow,
   type FlowConfig,
@@ -47,11 +48,11 @@ import {
 } from "../src/attribute-store-sync.js";
 import {
   Context as ProtoContext,
-  FlowServiceClient,
   InvokeExecuteMethodRequest,
   InvokeWaitForMethodRequest,
   InvokeWorkerRPCRequest,
-  type WriteStreamRequest,
+  type StepStreamWrite,
+  type Value,
 } from "../src/gen/dex.js";
 import { codecOrJson, encodeValue, type ValueHydrator } from "../src/value-mapper.js";
 import { WorkerDispatcher } from "../src/worker-dispatcher.js";
@@ -61,8 +62,6 @@ import { InvocationContext } from "../src/invocation-context.js";
 interface OrderInput {
   readonly orderId: string;
 }
-
-const testFlowService = {} as InstanceType<typeof FlowServiceClient>;
 
 interface OrderOutput {
   readonly accepted: boolean;
@@ -250,7 +249,7 @@ test("object Step and RPC omit codecs and still encode JSON", async () => {
   const hydrator = {
     hydrateAll: async (values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
-  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, testFlowService);
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
   const executed = await dispatcher.invokeExecute(
     InvokeExecuteMethodRequest.create({
       context: ProtoContext.create(),
@@ -363,7 +362,7 @@ test("invalid Step results include Flow and Step context", async () => {
   const hydrator = {
     hydrateAll: async (values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
-  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, testFlowService);
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
   const invocation = dispatcher.invokeExecute(
     InvokeExecuteMethodRequest.create({
       context: ProtoContext.create(),
@@ -437,7 +436,7 @@ test("Worker maps only user-provided Condition IDs", async () => {
   const hydrator = {
     hydrateAll: async (values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
-  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, testFlowService);
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
   const invoke = (input: string) =>
     dispatcher.invokeWaitFor(
       InvokeWaitForMethodRequest.create({
@@ -464,8 +463,18 @@ test("Worker maps only user-provided Condition IDs", async () => {
   assert.throws(() => conditionChannel.forOne(""), /must not be empty/);
 });
 
-test("Step Stream writes use the Step execution idempotency key", async () => {
+test("Step Stream writes emit every message on the active invocation", async () => {
   const thinking = new Stream("thinking", stringCodec, 1_048_576);
+  const broken = new Stream("broken", {
+    typeName: "broken",
+    wireKind: "string",
+    encode() {
+      throw new Error("cannot encode");
+    },
+    decode() {
+      return "unused";
+    },
+  }, 1_048_576);
   class StreamStep implements Step<string> {
     public readonly inputCodec = stringCodec;
 
@@ -473,8 +482,9 @@ test("Step Stream writes use the Step execution idempotency key", async () => {
       return "StreamStep";
     }
 
-    public async execute(context: Context, input: string): Promise<StepDecision> {
-      await thinking.write(context, input);
+    public execute(context: Context, input: string): StepDecision {
+      thinking.write(context, input);
+      thinking.write(context, `${input}-again`);
       return gracefulComplete(input);
     }
   }
@@ -490,21 +500,22 @@ test("Step Stream writes use the Step execution idempotency key", async () => {
     }
 
     public getPersistenceSchema() {
-      return { streams: [thinking] };
+      return { streams: [thinking, broken] };
     }
   }
-  let written: WriteStreamRequest | undefined;
-  const flowService = {
-    writeStream(request: WriteStreamRequest, callback: (error: Error | null) => void) {
-      written = request;
-      callback(null);
+  const writes: StepStreamWrite[] = [];
+  const output = {
+    recordHeartbeat: async () => {},
+    writeStream(write: StepStreamWrite) {
+      writes.push(write);
     },
-  } as unknown as InstanceType<typeof FlowServiceClient>;
+  };
   const flow = new StreamFlow();
   const hydrator = {
     hydrateAll: async (values: readonly unknown[]) => values,
   } as unknown as ValueHydrator;
-  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator, flowService);
+  const registry = new Registry([flow]);
+  const dispatcher = new WorkerDispatcher(registry, hydrator);
   await dispatcher.invokeExecute(
     InvokeExecuteMethodRequest.create({
       context: ProtoContext.create({
@@ -518,16 +529,143 @@ test("Step Stream writes use the Step execution idempotency key", async () => {
       attributes: [],
       stepExeLocals: [],
     }),
+    new AbortController().signal,
+    output,
   );
-  assert.deepEqual(written, {
-    flowId: "flow-1",
-    flowType: "StreamFlow",
-    streamName: "thinking",
-    streamCapacityBytes: 1_048_576n,
-    value: encodeValue(stringCodec, "checking"),
-    idempotencyKey: "run-1#step-1",
-  });
+  assert.deepEqual(writes, [
+    {
+      streamName: "thinking",
+      streamCapacityBytes: 1_048_576n,
+      value: encodeValue(stringCodec, "checking"),
+    },
+    {
+      streamName: "thinking",
+      streamCapacityBytes: 1_048_576n,
+      value: encodeValue(stringCodec, "checking-again"),
+    },
+  ]);
+
+  const direct = new InvocationContext(
+    "execute",
+    registeredFlowByName(registry, flow.getFlowType()),
+    ProtoContext.create(),
+    [],
+    [],
+    undefined,
+    {},
+    new AbortController().signal,
+    output,
+  );
+  assert.throws(() => broken.write(direct, "value"), ValueMappingError);
+  assert.throws(
+    () => new Stream("unregistered", stringCodec, 1_024).write(direct, "value"),
+    /does not register/,
+  );
+  const rpc = new InvocationContext(
+    "rpc",
+    registeredFlowByName(registry, flow.getFlowType()),
+    ProtoContext.create(),
+    [],
+  );
+  assert.throws(() => thinking.write(rpc, "value"), /require a Step Context/);
+  assert.throws(() => void rpc.recordHeartbeat("value"), /require an async Step Context/);
 });
+
+test("Async Step Context preserves heartbeat Value presence and codecs", async () => {
+  const observed: Array<{ hasValue: boolean; value: unknown }> = [];
+  class HeartbeatStep implements Step<string> {
+    public readonly inputCodec = stringCodec;
+
+    public getStepType(): string {
+      return "HeartbeatStep";
+    }
+
+    public async execute(context: AsyncContext, input: string): Promise<StepDecision> {
+      observed.push({
+        hasValue: context.hasLastHeartbeatValue(),
+        value: input === "string"
+          ? context.getLastHeartbeatValue(stringCodec)
+          : context.getLastHeartbeatValue(),
+      });
+      await context.recordHeartbeat({ input });
+      await context.recordHeartbeat(input, stringCodec);
+      await context.recordHeartbeat(null);
+      await context.recordHeartbeat(undefined);
+      if (input === "unreachable") {
+        // @ts-expect-error The heartbeat value is required, including when explicitly undefined.
+        await context.recordHeartbeat();
+      }
+      return gracefulComplete(input);
+    }
+  }
+  class HeartbeatFlow implements Flow<string> {
+    public readonly start = new HeartbeatStep();
+
+    public getFlowType(): string {
+      return "HeartbeatFlow";
+    }
+
+    public getSteps(): StepList<string> {
+      return StepList.startStep(this.start);
+    }
+  }
+  const heartbeats: Array<Value | undefined> = [];
+  const output = {
+    recordHeartbeat(value: Value | undefined): Promise<void> {
+      heartbeats.push(value);
+      return Promise.resolve();
+    },
+    writeStream(_write: StepStreamWrite): void {},
+  };
+  const flow = new HeartbeatFlow();
+  const hydrator = {
+    hydrateAll: async (values: readonly unknown[]) => values,
+  } as unknown as ValueHydrator;
+  const dispatcher = new WorkerDispatcher(new Registry([flow]), hydrator);
+  const invoke = async (input: string, lastHeartbeatValue?: Value): Promise<void> => {
+    await dispatcher.invokeExecute(
+      InvokeExecuteMethodRequest.create({
+        context: ProtoContext.create({ lastHeartbeatValue }),
+        flowType: flow.getFlowType(),
+        stepType: flow.start.getStepType(),
+        stepInput: encodeValue(stringCodec, input),
+        attributes: [],
+        stepExeLocals: [],
+      }),
+      new AbortController().signal,
+      output,
+    );
+  };
+
+  await invoke("absent");
+  await invoke("string", encodeValue(stringCodec, "restored"));
+  await invoke("null", encodeValue(codecOrJson(), null));
+  assert.deepEqual(observed, [
+    { hasValue: false, value: undefined },
+    { hasValue: true, value: "restored" },
+    { hasValue: true, value: undefined },
+  ]);
+  assert.equal(heartbeats.length, 12);
+  for (let offset = 0; offset < heartbeats.length; offset += 4) {
+    assert.equal(heartbeats[offset]?.kind?.$case, "objValue");
+    assert.equal(heartbeats[offset + 1]?.kind?.$case, "stringValue");
+    assert.equal(heartbeats[offset + 2]?.kind?.$case, "objValue");
+    assert.equal(heartbeats[offset + 3], undefined);
+  }
+});
+
+class UnsupportedSynchronousHeartbeatStep implements Step<string> {
+  public getStepType(): string {
+    return "UnsupportedSynchronousHeartbeatStep";
+  }
+
+  // @ts-expect-error AsyncContext handlers must return a Promise.
+  public execute(_context: AsyncContext, input: string): StepDecision {
+    return gracefulComplete(input);
+  }
+}
+
+void UnsupportedSynchronousHeartbeatStep;
 
 test("map introspection tracks buffered changes", () => {
   const attributes = new AttributeMap("items", stringCodec);
@@ -554,7 +692,6 @@ test("map introspection tracks buffered changes", () => {
   const context = new InvocationContext(
     "rpc",
     registeredFlowByName(registry, "MapFlow"),
-    testFlowService,
     ProtoContext.create(),
     [
       { key: physical("items", special), value: encodeValue(stringCodec, "initial") },

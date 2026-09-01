@@ -502,22 +502,21 @@ export class Client {
   }
 
   /**
-   * Appends one typed best-effort Stream message with client idempotency.
+   * Appends one typed best-effort Stream message with source metadata.
    * @typeParam T - Stream message type.
    * @param flowId - Logical Flow instance ID; the Flow need not exist or be active.
    * @param stream - Stream registered in exactly one Flow schema.
-   * @param idempotencyKey - Non-empty key without `#`; retained duplicates are successful no-ops.
+   * @param source - Non-empty source metadata. Repeated values and `#` are allowed.
    * @param value - Typed message to append.
    */
   public async writeStream<T>(
     flowId: string,
     stream: Stream<T>,
-    idempotencyKey: string,
+    source: string,
     value: T,
   ): Promise<void> {
-    requireName(idempotencyKey);
-    if (idempotencyKey.includes("#")) {
-      throw new TypeError("Stream client idempotency key must not contain #");
+    if (source.length === 0) {
+      throw new TypeError("Stream source is required");
     }
     const flow = registeredStream(this.registry, stream as Stream<unknown>);
     await unary<Empty>(
@@ -528,7 +527,7 @@ export class Client {
         streamName: stream.name,
         streamCapacityBytes: BigInt(stream.streamCapacityBytes),
         value: encodeValue(stream.codec, value),
-        idempotencyKey,
+        source,
       }, callback),
     );
   }
@@ -567,7 +566,7 @@ export class Client {
       value: decodeValue(stream.codec, message.value),
       resumeToken: message.resumeToken,
       createdTime: message.createdTime,
-      idempotencyKey: message.idempotencyKey,
+      source: message.source,
     };
   }
 

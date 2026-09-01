@@ -25,7 +25,6 @@ import {
   FlowRetryPolicy,
   FlowTimeoutPolicy as ProtoFlowTimeoutPolicy,
   FlowConfig as ProtoFlowConfig,
-  FlowServiceClient,
   ActiveStepSearchMode as ProtoActiveStepSearchMode,
   StepDurability as ProtoStepDurability,
   IndexType as ProtoIndexType,
@@ -52,7 +51,7 @@ import {
   type RegisteredStep,
   type Registry,
 } from "./flow.js";
-import { InvocationContext } from "./invocation-context.js";
+import { InvocationContext, type StepOutputEmitter } from "./invocation-context.js";
 import { Attribute, AttributeMap, IndexType } from "./persistence.js";
 import { mapAttributeStoreNames, mapAttributeStoreSync } from "./attribute-store-sync.js";
 import { ActiveStepSearchMode, FlowTimeoutPolicy, type FlowConfig } from "./options.js";
@@ -81,12 +80,12 @@ export class WorkerDispatcher {
   public constructor(
     private readonly registry: Registry,
     private readonly hydrator: ValueHydrator,
-    private readonly flowService: InstanceType<typeof FlowServiceClient>,
   ) {}
 
   public async invokeWaitFor(
     original: InvokeWaitForMethodRequest,
     cancellationSignal: AbortSignal = new AbortController().signal,
+    stepOutput?: StepOutputEmitter,
   ): Promise<InvokeWaitForMethodResponse> {
     const request = await this.hydrateWaitFor(original);
     cancellationSignal.throwIfAborted();
@@ -95,13 +94,13 @@ export class WorkerDispatcher {
     const context = new InvocationContext(
       "waitFor",
       flow,
-      this.flowService,
       request.context,
       request.attributes,
       [],
       undefined,
       {},
       cancellationSignal,
+      stepOutput,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -127,6 +126,7 @@ export class WorkerDispatcher {
   public async invokeExecute(
     original: InvokeExecuteMethodRequest,
     cancellationSignal: AbortSignal = new AbortController().signal,
+    stepOutput?: StepOutputEmitter,
   ): Promise<InvokeExecuteMethodResponse> {
     const request = await this.hydrateExecute(original);
     cancellationSignal.throwIfAborted();
@@ -138,13 +138,13 @@ export class WorkerDispatcher {
     const context = new InvocationContext(
       "execute",
       flow,
-      this.flowService,
       request.context,
       request.attributes,
       request.stepExeLocals,
       request.conditionResults,
       {},
       cancellationSignal,
+      stepOutput,
     );
     const input = decodeValue(
       codecOrJson(step.step.inputCodec),
@@ -179,7 +179,6 @@ export class WorkerDispatcher {
       const context = new InvocationContext(
         "execute",
         flow,
-        this.flowService,
         request.context,
         request.attributes,
         request.stepExeLocals,
@@ -211,7 +210,6 @@ export class WorkerDispatcher {
     const context = new InvocationContext(
       "rpc",
       flow,
-      this.flowService,
       request.context,
       request.attributes,
       [],
@@ -240,20 +238,29 @@ export class WorkerDispatcher {
   private async hydrateWaitFor(
     request: InvokeWaitForMethodRequest,
   ): Promise<InvokeWaitForMethodRequest> {
+    const lastHeartbeatValue = request.context?.lastHeartbeatValue;
+    const hasLastHeartbeatValue = lastHeartbeatValue !== undefined;
     const values = await this.hydrator.hydrateAll([
+      ...(hasLastHeartbeatValue ? [lastHeartbeatValue] : []),
       request.stepInput,
       ...request.attributes.map((entry) => entry.value),
     ]);
+    const offset = hasLastHeartbeatValue ? 1 : 0;
     return {
       ...request,
-      stepInput: values[0],
-      attributes: replaceEntryValues(request.attributes, values.slice(1)),
+      context: hasLastHeartbeatValue
+        ? { ...request.context!, lastHeartbeatValue: values[0] }
+        : request.context,
+      stepInput: values[offset],
+      attributes: replaceEntryValues(request.attributes, values.slice(offset + 1)),
     };
   }
 
   private async hydrateExecute(
     request: InvokeExecuteMethodRequest,
   ): Promise<InvokeExecuteMethodRequest> {
+    const lastHeartbeatValue = request.context?.lastHeartbeatValue;
+    const hasLastHeartbeatValue = lastHeartbeatValue !== undefined;
     const channelValues = request.conditionResults?.channelResults.flatMap(
       (result) => result.values,
     ) ?? [];
@@ -262,13 +269,15 @@ export class WorkerDispatcher {
     ) ?? [];
     const hasInput = request.stepInput !== undefined;
     const values = await this.hydrator.hydrateAll([
+      ...(hasLastHeartbeatValue ? [lastHeartbeatValue] : []),
       ...(hasInput ? [request.stepInput] : []),
       ...request.attributes.map((entry) => entry.value),
       ...request.stepExeLocals.map((entry) => entry.value),
       ...channelValues,
       ...subFlowValues,
     ]);
-    let offset = hasInput ? 1 : 0;
+    let offset = hasLastHeartbeatValue ? 1 : 0;
+    const stepInput = hasInput ? values[offset++] : undefined;
     const attributes = replaceEntryValues(
       request.attributes,
       values.slice(offset, (offset += request.attributes.length)),
@@ -283,7 +292,10 @@ export class WorkerDispatcher {
     );
     return {
       ...request,
-      stepInput: hasInput ? values[0] : undefined,
+      context: hasLastHeartbeatValue
+        ? { ...request.context!, lastHeartbeatValue: values[0] }
+        : request.context,
+      stepInput,
       attributes,
       stepExeLocals,
       conditionResults,
@@ -323,7 +335,7 @@ function invokeRPC(
 function rpcResult(
   rpc: RegisteredRPC,
   returned: unknown,
-): { output: unknown; nextSteps?: readonly StepMovement<unknown>[] } | undefined {
+): { output: unknown; nextSteps?: readonly StepMovement<any>[] } | undefined {
   if (returned === undefined) {
     if (rpc.options.outputCodec !== undefined) {
       throw new TypeError(`function RPC ${rpc.name} must return RPCResult`);
@@ -337,7 +349,7 @@ function rpcResult(
         : `function RPC ${rpc.name} must return RPCResult`,
     );
   }
-  return returned as { output: unknown; nextSteps?: readonly StepMovement<unknown>[] };
+  return returned as { output: unknown; nextSteps?: readonly StepMovement<any>[] };
 }
 
 function mapWait(
@@ -478,7 +490,7 @@ function mapCancellationSteps(
 function rpcDecision(
   flow: RegisteredFlow,
   result: {
-    nextSteps?: readonly StepMovement<unknown>[];
+    nextSteps?: readonly StepMovement<any>[];
     cancelingSteps?: readonly StepClass<any>[];
   }
     | undefined,
@@ -496,12 +508,12 @@ function rpcDecision(
 
 function mapMovements(
   flow: RegisteredFlow,
-  movements: readonly StepMovement<unknown>[],
+  movements: readonly StepMovement<any>[],
 ): ProtoStepMovement[] {
   return movements.map((movement) => mapMovement(flow, movement));
 }
 
-function mapMovement(flow: RegisteredFlow, movement: StepMovement<unknown>): ProtoStepMovement {
+function mapMovement(flow: RegisteredFlow, movement: StepMovement<any>): ProtoStepMovement {
   const target = flow.stepsByClass.get(movement.step);
   if (target === undefined) {
     throw new TypeError("Step movement target does not belong to Flow");
