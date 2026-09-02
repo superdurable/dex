@@ -162,6 +162,83 @@ let result = client.invoke_rpc(&workflow_id, RPC_TRIGGER, message)?;
 </SdkSnippet>
 </SdkTabs>
 
+## Transactional read 与 write {#transactional-reads-and-writes}
+
+持有 Attribute lock 的 RPC 已经会使用 Temporal synchronous Update execution。它的 read、Channel deletion check 与 write 会使用同一个 transactional Flow-state snapshot。
+
+只有 Channel deletion 时不会自动选择这条路径。RPC 必须检查 pending message ID，并把删除与 Attribute write、Channel publication、event 或 Step decision 一起 commit 时，需要显式标记为 transactional。任何目标 message 不存在时，Dex 会拒绝 RPC，而且不会 commit 其中任何 write。
+
+Channel example 使用 transaction 在两条 queue 之间移动一条 pending message：
+
+<SdkTabs
+  examples={{
+    python: 'examples/python/dex_examples/primitives/channel/channel_flow.py',
+    go: 'examples/go/primitives/channel/controller.go',
+    java: 'examples/java/src/main/java/io/superdurable/dex/primitives/channel/ChannelFlow.java',
+    typescript: 'examples/typescript/src/primitives/channel/channel-flow.ts',
+    rust: 'examples/rust/src/primitives/channel/flow.rs',
+  }}>
+<SdkSnippet lang="python">
+
+```python
+@rpc(is_transactional=True)
+def move(self, context: Context, input: str) -> None:
+    self.queued.delete(context, input)
+    self.moved.publish(context, "moved")
+```
+
+</SdkSnippet>
+<SdkSnippet lang="go">
+
+```go
+err := controller.client.InvokeRPC(
+	request.Request.Context(),
+	flowID,
+	controller.flow.Move,
+	messageID,
+	&none,
+	sdk.InvokeOptions{IsTransactional: true},
+)
+```
+
+</SdkSnippet>
+<SdkSnippet lang="java">
+
+```java
+@RPC(isTransactional = true)
+public void move(final Context context, final String messageId) {
+    queued.delete(context, messageId);
+    moved.publish(context, "moved");
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="typescript">
+
+```typescript
+@rpc({ isTransactional: true, inputCodec: stringCodec })
+public move(context: Context, messageId: string): void {
+  queued.delete(context, messageId);
+  moved.publish(context, "moved");
+}
+```
+
+</SdkSnippet>
+<SdkSnippet lang="rust">
+
+```rust
+fn rpcs(&self) -> RpcList<Self> {
+    RpcList::new()
+        .procedure_without_input(CHANNEL_APPROVE, Self::approve)
+        .procedure(CHANNEL_MOVE.is_transactional(), Self::move_message)
+}
+```
+
+</SdkSnippet>
+</SdkTabs>
+
+Non-transactional signal RPC 遇到 missing deletion 时会把它当作 no-op，仍然 commit 其他成功的 effect。Cadence 不提供 Temporal synchronous Update；Dex 会降级为 query 加 signal，因此 deletion check 与 write 不具有相同的 atomic guarantee。Cadence caller 必须能容忍这项竞态。
+
 ## RPC timeout
 
 RPC timeout 限制一次 Worker handler invocation。

@@ -32,6 +32,8 @@ import {
 } from "@superdurable/dex";
 
 const approval = new Channel("Approval", stringCodec);
+export const queued = new Channel("Queued", stringCodec);
+export const moved = new Channel("Moved", stringCodec);
 
 class ChannelWait implements Step<number> {
   public readonly inputCodec = doubleCodec;
@@ -68,12 +70,18 @@ export class ChannelFlow implements Flow<number> {
   }
 
   public getPersistenceSchema(): PersistenceSchema {
-    return { channels: [approval] };
+    return { channels: [approval, queued, moved] };
   }
 
   @rpc()
   public approve(context: Context): void {
     approval.publish(context, "approved");
+  }
+
+  @rpc({ isTransactional: true, inputCodec: stringCodec })
+  public move(context: Context, messageId: string): void {
+    queued.delete(context, messageId);
+    moved.publish(context, "moved");
   }
 }
 

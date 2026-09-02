@@ -14,11 +14,13 @@ model. Its local model echoes normal messages and understands `/wait <seconds>
 - `AgentMessages` is an AttributeMap. Each message is an independent value.
 - `AgentPlan` atomically stores the current revision and ordered task list.
 - `ContextSummary` keeps the cumulative compaction summary.
-- Channels carry durable user messages, plan execution requests, and tool approvals.
+- `UserMessages` keeps regular user messages in a durable FIFO queue.
+- `ImmediateUserMessages` carries explicit Steer messages to safe boundaries.
+- Other Channels carry plan execution requests and tool approvals.
 - `ReasoningSummary` uses a buffered text writer for OpenAI reasoning summaries.
 - `AssistantText` uses a separate buffered writer for visible response text.
 - `AgentActivity` is a best-effort Stream for tool and lifecycle progress.
-- The `durable_wait` tool uses a Dex Timer and can be interrupted by a user message.
+- The `durable_wait` tool uses a Dex Timer and can be interrupted by Steer.
 - Write, destructive, and unclassified MCP tools wait for explicit approval.
 
 The current AttributeMap retains 2,000 messages by default. Dex compacts older
@@ -47,6 +49,20 @@ The plan card survives page refreshes and Worker restarts. It shows pending, in
 progress, and completed tasks. If the model stops with unfinished work, the card
 remains active and offers **Continue plan**. A waiting Agent is not necessarily a
 completed plan.
+
+## Queue and Steer
+
+Submitting while the Agent loop is active adds a visible **Queued** message. The
+Agent does not consume it until the loop returns to **AwaitUser**. Before then,
+the UI can edit it, delete it, or choose **Steer**. Editing first deletes the
+pending message and puts its content back in the composer; submitting it again
+creates a new message at the queue tail.
+
+Steer uses a transactional RPC to delete the selected regular message and publish
+the same value to **ImmediateUserMessages**. Dex applies it before the next model
+call, tool, approval wait, or Timer continuation. It does not cancel an LLM or MCP
+request already running. A Steer clears unexecuted tool calls and records durable
+cancellation results. Only Steer interrupts a tool approval or durable wait.
 
 ## Run locally
 
@@ -145,4 +161,5 @@ With `mock/dex`, send:
 ```
 
 Refresh the page while it waits. The Timer remains active. Send another message
-before it fires to interrupt the wait and let the Agent replan.
+before it fires, then choose **Steer** to interrupt the wait and let the Agent
+replan.

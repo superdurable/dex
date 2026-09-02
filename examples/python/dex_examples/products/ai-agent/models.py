@@ -95,7 +95,6 @@ class AgentState:
     planning_requires_write: bool = False
     planning_allows_write: bool = False
     pending_plan_execution_revision: int | None = None
-    pending_user_message_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -109,6 +108,12 @@ class ContextSummary:
 class UserMessage:
     content: str
     plan_mode: bool = False
+
+
+@dataclass(frozen=True)
+class SteerMessageRequest:
+    message_id: str
+    message: UserMessage
 
 
 @dataclass(frozen=True)
@@ -206,6 +211,8 @@ class AgentDescription:
     pending_user_input_choices: list[str]
     plan: dict[str, Any] | None
     plan_execution_requested: bool
+    pending_user_message_count: int
+    pending_immediate_message_count: int
     available_mcp_servers: list[str]
     available_tools: list[str]
 

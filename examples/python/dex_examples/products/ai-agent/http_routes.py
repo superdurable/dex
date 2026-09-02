@@ -14,20 +14,22 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import asdict
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, TypedDict
 
-from dex import StartFlowOptions
+from dex import ChannelMessageNotFoundError, StartFlowOptions
 from quart import Blueprint, Response, jsonify, render_template, request
-from werkzeug.exceptions import BadRequest, Conflict
+from werkzeug.exceptions import BadRequest, Conflict, NotFound
 
 from dex_examples.app import ExampleApp
 from dex_examples.products.ai_agent.models import (
     AgentConfig,
     HistoryRequest,
     PlanExecutionRequest,
+    SteerMessageRequest,
     ToolApprovalRequest,
     UserMessage,
 )
@@ -36,6 +38,7 @@ from dex_examples.shared.query import optional_query, required_query
 WEB_ROOT = Path(__file__).resolve().parents[3] / "ai-agent"
 TEMPLATE_DIR = WEB_ROOT / "templates"
 STATIC_DIR = WEB_ROOT / "static"
+
 
 class ProviderConfig(TypedDict):
     label: str
@@ -188,6 +191,76 @@ def create_ai_agent_blueprint(app_state: ExampleApp) -> Blueprint:
             ),
         )
         return jsonify(accepted=accepted)
+
+    @blueprint.get("/message-queue")
+    async def message_queue() -> Response:
+        flow_id = required_query("workflowId")
+        regular, immediate = await asyncio.gather(
+            app_state.client.get_channel_messages(
+                flow_id,
+                app_state.ai_agent.user_messages,
+            ),
+            app_state.client.get_channel_messages(
+                flow_id,
+                app_state.ai_agent.immediate_user_messages,
+            ),
+        )
+        return jsonify(
+            regular=[
+                {
+                    "message_id": message.message_id,
+                    "value": asdict(message.value),
+                }
+                for message in regular
+            ],
+            immediate=[
+                {
+                    "message_id": message.message_id,
+                    "value": asdict(message.value),
+                }
+                for message in immediate
+            ],
+        )
+
+    @blueprint.post("/message-queue/delete")
+    async def delete_queued_message() -> Response:
+        payload = await _json_object()
+        try:
+            await app_state.client.delete_channel_message(
+                _required_string(payload, "workflowId"),
+                app_state.ai_agent.user_messages,
+                _required_string(payload, "messageId"),
+            )
+        except ChannelMessageNotFoundError as error:
+            raise NotFound("the queued message is no longer pending") from error
+        return jsonify(deleted=True)
+
+    @blueprint.post("/message-queue/steer")
+    async def steer_queued_message() -> Response:
+        payload = await _json_object()
+        flow_id = _required_string(payload, "workflowId")
+        message_id = _required_string(payload, "messageId")
+        pending = await app_state.client.get_channel_messages(
+            flow_id,
+            app_state.ai_agent.user_messages,
+        )
+        message = next(
+            (item.value for item in pending if item.message_id == message_id),
+            None,
+        )
+        if message is None:
+            raise NotFound("the queued message is no longer pending")
+        try:
+            accepted = await app_state.client.invoke_rpc(
+                app_state.ai_agent.steer_message,
+                flow_id,
+                SteerMessageRequest(message_id, message),
+            )
+        except ChannelMessageNotFoundError as error:
+            raise NotFound("the queued message is no longer pending") from error
+        if not accepted:
+            raise Conflict("the queued message cannot be steered")
+        return jsonify(steered=True)
 
     @blueprint.post("/plans/execute")
     async def execute_plan() -> Response:

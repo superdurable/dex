@@ -37,5 +37,6 @@ def test_channel_flow_registers_its_channel_and_rpc() -> None:
     registry = Registry((flow,))
     registered = registry._flow_for_instance(flow)
 
-    assert {rpc.name for rpc in registered.rpcs.values()} == {"approve"}
+    assert {rpc.name for rpc in registered.rpcs.values()} == {"approve", "move"}
+    assert registered.rpcs["move"].options.is_transactional
     assert flow.approval.name == ChannelFlow.approval.name

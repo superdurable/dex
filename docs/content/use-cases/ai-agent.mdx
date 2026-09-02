@@ -34,6 +34,7 @@ When the model context reaches 85 percent of its configured window, a Step summa
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
     user_messages = Channel("UserMessages", UserMessage)
+    immediate_user_messages = Channel("ImmediateUserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
     reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
@@ -45,6 +46,14 @@ When the model context reaches 85 percent of its configured window, a Step summa
 </SdkTabs>
 
 Each map instance can be loaded and updated independently. This avoids rewriting one ever-growing conversation value. Dex blob storage and the Worker BlobCache handle large messages and MCP results.
+
+## Queued messages and Steer
+
+Regular user messages enter the durable **UserMessages** FIFO queue. While the Agent loop is running, they remain pending instead of interrupting the current model or tool call. The UI shows them immediately and lets the user edit, delete, or Steer a message while it is still pending. Editing removes the pending message first; resubmitting appends a new message with a new ID at the tail.
+
+Steer transactionally deletes one selected regular message and republishes its value to **ImmediateUserMessages**. The Agent checks that queue before its next model call, tool, approval wait, or Timer continuation. It does not cancel an LLM or MCP request already running. At the next safe boundary, the Agent clears unexecuted tool calls and stale approval or Timer state, records structured cancellation results, and replans from the Steer message.
+
+The message queue is not chat history. Pending Channel messages can be changed because the Agent has not consumed them. Once consumed, the user message becomes durable conversation history and its message ID is no longer valid.
 
 ## Durable plans
 
@@ -64,7 +73,7 @@ The example supports tools, resources, resource templates, prompts, progress, an
 
 ## Durable waits
 
-The built-in **durable_wait** tool moves the Flow to a Step that waits on both a [Timer](/primitives/timer) and the user-message Channel. The timer can survive Worker restarts. A new user message interrupts it and lets the Agent replan.
+The built-in **durable_wait** tool moves the Flow to a Step that waits on both a [Timer](/primitives/timer) and **ImmediateUserMessages**. The Timer can survive Worker restarts. A regular message remains queued; choosing Steer interrupts the wait and lets the Agent replan.
 
 ## Live events
 
@@ -81,6 +90,8 @@ The Flow and HTTP routes are under [examples/python/dex_examples/products/ai-age
 The application opens on an Agent Portal. Choose a LiteLLM provider and model, optionally enter its API key, and select registered MCP servers and tools before starting the Agent. A key entered in the Portal stays in Worker memory and is not written to Dex state or Flow history. Use a Worker environment variable when the credential must survive a process restart.
 
 The local playground starts credential-free search, Slack, and Google Docs demo MCP servers. The chat page separates Thinking, Response, and Agent activity while a call is running. Use **Command/Ctrl+Enter** or **Alt+Enter** to send a message. When work needs user input, the built-in **request_user_input** tool expands a durable input panel in the conversation. Known answers appear as selection buttons; open-ended questions use a text box. Execution waits for the submitted answer before continuing.
+
+Messages submitted during active work appear between the conversation and composer as **Queued**. Use **Edit** or **Delete** before consumption, or **Steer** to apply one at the next safe boundary.
 
 ## Related
 

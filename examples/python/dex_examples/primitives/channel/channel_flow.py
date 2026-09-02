@@ -52,6 +52,8 @@ class ChannelWaitStep(Step[int]):
 
 class ChannelFlow(Flow[int]):
     approval = Channel("Approval", str)
+    queued = Channel("Queued", str)
+    moved = Channel("Moved", str)
 
     def __init__(self) -> None:
         self.wait_for_approval = ChannelWaitStep(self.approval)
@@ -60,8 +62,13 @@ class ChannelFlow(Flow[int]):
         return StepList.start_step(self.wait_for_approval)
 
     def get_persistence_schema(self) -> PersistenceSchema:
-        return PersistenceSchema.of(self.approval)
+        return PersistenceSchema.of(self.approval, self.queued, self.moved)
 
     @rpc
     def approve(self, context: Context) -> None:
         self.approval.publish(context, "approved")
+
+    @rpc(is_transactional=True)
+    def move(self, context: Context, input: str) -> None:
+        self.queued.delete(context, input)
+        self.moved.publish(context, "moved")

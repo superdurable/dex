@@ -40,6 +40,14 @@ Use a Channel for ordered, durable, typed messages scoped to one Flow execution.
 
 Use a ChannelMap when the same message contract is partitioned by a dynamic key. Plan how externally published messages are drained before Flow completion.
 
+Every pending Channel message has a server-assigned message ID. List pending messages when an application needs a durable queue UI. Listing preserves FIFO order and does not consume messages. Only a pending message can be deleted; deletion after consumption returns the Channel-message-not-found error.
+
+A Channel queue is not conversation history. Keep consumed user and assistant messages in Attributes when the application must display or reconstruct them.
+
+Use a transactional RPC to move or edit a pending message atomically: stage deletion of its message ID and publication of the replacement in one handler. Attribute locking already selects transactional execution. Channel deletion without an Attribute lock must explicitly select the SDK's transactional RPC option. A missing message then rejects the entire transaction, including all Attribute writes and Channel publications.
+
+Without transactional execution, a signal RPC treats a missing deletion as a no-op and commits its other effects. Cadence implements the operation as query followed by signal and cannot provide Temporal's atomic guarantee.
+
 Docs: https://docs.superdurable.io/primitives/channel
 
 ## RPC
@@ -47,6 +55,8 @@ Docs: https://docs.superdurable.io/primitives/channel
 Use an RPC for a typed request/response interaction with an active Flow. RPC handlers may read or update Attributes and publish Channels. Protect shared mutations with Attribute locks when they can race with Steps or other RPCs.
 
 Use a Channel instead when the caller should enqueue work without synchronous application-level handling.
+
+Select transactional execution when an RPC must atomically validate a pending Channel message ID and commit its deletion with other Flow-state writes. Handle the Channel-message-not-found error as a stale queue view and refresh before retrying.
 
 Docs: https://docs.superdurable.io/primitives/rpc
 

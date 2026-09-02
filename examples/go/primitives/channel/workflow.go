@@ -26,7 +26,11 @@ import (
 	"github.com/superdurable/dex/sdk-go/dex"
 )
 
-var Approval = dex.DefineChannel[string]("Approval")
+var (
+	Approval = dex.DefineChannel[string]("Approval")
+	Queued   = dex.DefineChannel[string]("Queued")
+	Moved    = dex.DefineChannel[string]("Moved")
+)
 
 type ChannelFlow struct {
 	dex.FlowDefaults
@@ -41,7 +45,9 @@ func (*ChannelFlow) GetSteps() []dex.StepDef {
 }
 
 func (*ChannelFlow) GetPersistenceSchema() dex.PersistenceSchema {
-	return dex.PersistenceSchema{Channels: []dex.ChannelDef{Approval}}
+	return dex.PersistenceSchema{
+		Channels: []dex.ChannelDef{Approval, Queued, Moved},
+	}
 }
 
 type channelWaitStep struct {
@@ -68,6 +74,16 @@ func (channelWaitStep) Execute(ctx dex.Context, _ int) (*dex.StepDecision, error
 
 func (*ChannelFlow) Approve(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.None], error) {
 	if err := Approval.Publish(ctx, "approved"); err != nil {
+		return nil, err
+	}
+	return &dex.RPCResult[dex.None]{}, nil
+}
+
+func (*ChannelFlow) Move(ctx dex.Context, messageID string) (*dex.RPCResult[dex.None], error) {
+	if err := Queued.Delete(ctx, messageID); err != nil {
+		return nil, err
+	}
+	if err := Moved.Publish(ctx, "moved"); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil

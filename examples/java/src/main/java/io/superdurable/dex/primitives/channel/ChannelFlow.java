@@ -34,6 +34,8 @@ import java.util.List;
 @Component
 public class ChannelFlow implements Flow<Integer> {
     public final Channel<String> approval = Channel.define("Approval", String.class);
+    public final Channel<String> queued = Channel.define("Queued", String.class);
+    public final Channel<String> moved = Channel.define("Moved", String.class);
     private final ChannelWaitStep waitForApproval = new ChannelWaitStep();
 
     @Override
@@ -43,12 +45,18 @@ public class ChannelFlow implements Flow<Integer> {
 
     @Override
     public PersistenceSchema getPersistenceSchema() {
-        return PersistenceSchema.of(approval);
+        return PersistenceSchema.of(approval, queued, moved);
     }
 
     @RPC
     public void approve(final Context context) {
         approval.publish(context, "approved");
+    }
+
+    @RPC(isTransactional = true)
+    public void move(final Context context, final String messageId) {
+        queued.delete(context, messageId);
+        moved.publish(context, "moved");
     }
 
     final class ChannelWaitStep implements Step<Integer> {

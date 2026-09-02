@@ -25,6 +25,9 @@ import pytest_asyncio
 
 from dex_examples.app import ExampleApp
 from dex_examples.http_app import create_app
+from dex_examples.products.ai_agent.ai_agent_flow import STATUS_WAITING_TIMER
+from dex_examples.products.ai_agent.models import HistoryRequest
+from tests.integ.conftest import WAIT_TIMEOUT, wait_until
 from tests.integ.flow_smoke_helper import (
     FlowSmokeEntry,
     FlowSmokeFlags,
@@ -448,6 +451,72 @@ async def test_ai_agent_portal_rejects_non_ascii_api_key(
     assert response.status_code == 400
     assert "printable ASCII characters" in await response.get_data(as_text=True)
     assert example_app.ai_agent_credentials.get_api_key(flow_id) is None
+
+
+async def test_ai_agent_http_queue_can_delete_and_steer(
+    flow_smoke_http: FlowSmokeHttpClient,
+    example_app: ExampleApp,
+) -> None:
+    flow_id = flow_smoke_http.new_flow_id("ai-agent-queue")
+    await flow_smoke_http.post(
+        "/products/ai-agent/start",
+        {"workflowId": flow_id},
+    )
+    await flow_smoke_http.post(
+        "/products/ai-agent/messages",
+        {"workflowId": flow_id, "content": "/wait 30 queue test"},
+    )
+
+    async def timer_is_waiting() -> bool:
+        description = await example_app.client.invoke_rpc(
+            example_app.ai_agent.describe,
+            flow_id,
+        )
+        return description.status == STATUS_WAITING_TIMER
+
+    await wait_until("AI Agent HTTP timer", timer_is_waiting, WAIT_TIMEOUT)
+    await flow_smoke_http.post(
+        "/products/ai-agent/messages",
+        {"workflowId": flow_id, "content": "delete this"},
+    )
+    _, _, queue_body = await flow_smoke_http.get(
+        "/products/ai-agent/message-queue",
+        {"workflowId": flow_id},
+    )
+    queued = json.loads(queue_body)["regular"]
+    assert [message["value"]["content"] for message in queued] == ["delete this"]
+    await flow_smoke_http.post(
+        "/products/ai-agent/message-queue/delete",
+        {"workflowId": flow_id, "messageId": queued[0]["message_id"]},
+    )
+
+    await flow_smoke_http.post(
+        "/products/ai-agent/messages",
+        {"workflowId": flow_id, "content": "steer this"},
+    )
+    _, _, queue_body = await flow_smoke_http.get(
+        "/products/ai-agent/message-queue",
+        {"workflowId": flow_id},
+    )
+    queued = json.loads(queue_body)["regular"]
+    await flow_smoke_http.post(
+        "/products/ai-agent/message-queue/steer",
+        {"workflowId": flow_id, "messageId": queued[0]["message_id"]},
+    )
+
+    async def steer_was_applied() -> bool:
+        history = await example_app.client.invoke_rpc(
+            example_app.ai_agent.history,
+            flow_id,
+            HistoryRequest(limit=50),
+        )
+        return any(
+            message.message.role == "user"
+            and message.message.content == "steer this"
+            for message in history.messages
+        )
+
+    await wait_until("AI Agent HTTP Steer", steer_was_applied, WAIT_TIMEOUT)
 
 
 async def _reminders_trigger(client: FlowSmokeHttpClient) -> tuple[str, str]:

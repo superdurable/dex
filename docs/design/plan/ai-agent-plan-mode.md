@@ -29,7 +29,8 @@ business tools unavailable.
 The Execute plan RPC publishes a revision-scoped Channel message. The RPC rejects
 stale, duplicate, completed, or non-waiting requests. Execution exposes the
 configured tools plus `write_todos`, so the model can keep progress current.
-User messages take priority over queued execution requests.
+Immediate Steer messages take priority at safe boundaries. At the user-input
+wait, regular queued messages take priority over plan execution requests.
 
 The current plan is injected independently of conversation history. Context
 compaction may summarize old messages, but it never summarizes or deletes the

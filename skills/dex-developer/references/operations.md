@@ -31,6 +31,14 @@ dexcli flow inspect <flow-id> --all-history
 6. Reproduce with the smallest matching integration test.
 7. Fix application code or configuration, then decide whether existing executions need recovery.
 
+## Inspect pending Channel messages
+
+List a Channel's pending messages to obtain the current FIFO values and server-assigned IDs. An ID disappears once its message is consumed or deleted. If delete or transactional move returns Channel-message-not-found, treat the local view as stale, reload the queue, and let the user choose again.
+
+Only pending Channel state is mutable through these operations. Editing a message means deleting it successfully and publishing a replacement with a new ID; it does not rewrite Flow history or application conversation Attributes.
+
+Use a transactional RPC when deletion must commit atomically with a replacement publication or other Flow-state writes. Signal RPC deletion is best-effort when the ID is missing. Cadence uses query plus signal and retains a race between validation and mutation, so applications must reconcile from a fresh list.
+
 Use **dexcli flow search**, **summary**, **state**, and **history** for narrower JSON output. Use **--no-hydrate** when payload contents are unnecessary or sensitive.
 
 ## Common failure classes

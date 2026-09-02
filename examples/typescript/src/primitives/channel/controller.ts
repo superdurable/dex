@@ -19,7 +19,7 @@ import { Router } from "express";
 import type { Client } from "@superdurable/dex";
 
 import { startOptions } from "../../config/env.js";
-import { channelFlow } from "./channel-flow.js";
+import { channelFlow, queued } from "./channel-flow.js";
 
 export function createChannelRouter(client: Client): Router {
   const router = Router();
@@ -34,6 +34,32 @@ export function createChannelRouter(client: Client): Router {
   router.get("/approve", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     await client.invokeRPC(channelFlow.approve, workflowId);
+    response.send("done");
+  });
+
+  router.get("/enqueue", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    const value = String(request.query.value ?? "");
+    await client.publish(workflowId, queued, value);
+    response.send("done");
+  });
+
+  router.get("/messages", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    response.json(await client.getChannelMessages(workflowId, queued));
+  });
+
+  router.get("/delete", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    const messageId = String(request.query.messageId ?? "");
+    await client.deleteChannelMessage(workflowId, queued, messageId);
+    response.send("done");
+  });
+
+  router.get("/move", async (request, response) => {
+    const workflowId = String(request.query.workflowId ?? "");
+    const messageId = String(request.query.messageId ?? "");
+    await client.invokeRPC(channelFlow.move, workflowId, messageId);
     response.send("done");
   });
 

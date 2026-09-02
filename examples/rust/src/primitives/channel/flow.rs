@@ -22,8 +22,11 @@ use dex_sdk::{
 };
 
 pub const CHANNEL_APPROVE: Rpc<(), ()> = Rpc::new("ChannelApprove");
+pub const CHANNEL_MOVE: Rpc<String, ()> = Rpc::new("ChannelMove");
 
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
+pub static QUEUED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Queued"));
+static MOVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Moved"));
 
 #[derive(Default)]
 pub struct ChannelFlow {
@@ -33,6 +36,11 @@ pub struct ChannelFlow {
 impl ChannelFlow {
     fn approve(&self, context: &mut Context) -> HandlerResult<()> {
         APPROVAL.publish(context, "approved".to_string())
+    }
+
+    fn move_message(&self, context: &mut Context, message_id: String) -> HandlerResult<()> {
+        QUEUED.delete(context, &message_id)?;
+        MOVED.publish(context, "moved".to_string())
     }
 }
 
@@ -44,11 +52,16 @@ impl Flow for ChannelFlow {
     }
 
     fn persistence(&self) -> PersistenceSchema {
-        PersistenceSchema::new().channel(&APPROVAL)
+        PersistenceSchema::new()
+            .channel(&APPROVAL)
+            .channel(&QUEUED)
+            .channel(&MOVED)
     }
 
     fn rpcs(&self) -> RpcList<Self> {
-        RpcList::new().procedure_without_input(CHANNEL_APPROVE, Self::approve)
+        RpcList::new()
+            .procedure_without_input(CHANNEL_APPROVE, Self::approve)
+            .procedure(CHANNEL_MOVE.is_transactional(), Self::move_message)
     }
 }
 

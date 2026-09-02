@@ -35,6 +35,7 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
     pending_approval = Attribute("PendingApproval", PendingApproval)
     pending_timer = Attribute("PendingTimer", PendingTimer)
     user_messages = Channel("UserMessages", UserMessage)
+    immediate_user_messages = Channel("ImmediateUserMessages", UserMessage)
     tool_approvals = ChannelMap("ToolApprovals", ToolApproval)
     plan_executions = ChannelMap("PlanExecutions", PlanExecutionRequest)
     reasoning_summary = Stream("ReasoningSummary", str, 10 * 1024 * 1024)
@@ -46,6 +47,14 @@ Application 会把每条 user、assistant 与 tool message 分别保存在 [Attr
 </SdkTabs>
 
 每个 map instance 都可以独立加载和更新，避免每次追加消息时重写不断增长的 conversation value。Dex blob storage 与 Worker BlobCache 会处理较大的 message 和 MCP result。
+
+## 排队消息与 Steer
+
+普通 user message 会进入 durable **UserMessages** FIFO queue。Agent loop 运行期间，这些 message 会保持 pending，不会中断当前 model 或 tool call。UI 会立即显示它们。只要 message 尚未被消费，用户就能 Edit、Delete 或选择 Steer。Edit 会先删除 pending message；重新提交时，它会带着新的 ID 加到 queue 尾部。
+
+Steer 会在一个 transaction 中删除选中的 regular message，并把相同 value 发布到 **ImmediateUserMessages**。Agent 会在下一次 model call、tool、approval wait 或 Timer continuation 前检查这条 queue。它不会取消已经开始的 LLM 或 MCP request。到达下一个 safe boundary 后，Agent 会清除尚未执行的 tool call 与过期 approval 或 Timer state，记录结构化 cancellation result，再根据 Steer message 重新规划。
+
+Message queue 不是 chat history。Pending Channel message 尚未被 Agent 消费，因此可以修改。Message 被消费后会成为 durable conversation history，原 message ID 也随即失效。
 
 ## Durable plan
 
@@ -65,7 +74,7 @@ Example 支持 tool、resource、resource template、prompt、progress 与 loggi
 
 ## Durable wait
 
-内置 **durable_wait** tool 会把 Flow 移动到同时等待 [Timer](/primitives/timer) 与 user-message Channel 的 Step。Timer 可以跨 Worker restart 继续等待。新的用户消息会中断 Timer，并让 Agent 重新规划。
+内置 **durable_wait** tool 会把 Flow 移动到同时等待 [Timer](/primitives/timer) 与 **ImmediateUserMessages** 的 Step。Timer 可以跨 Worker restart 继续等待。普通 message 会继续排队；选择 Steer 才会中断等待并让 Agent 重新规划。
 
 ## 实时 event
 
@@ -82,6 +91,8 @@ Flow 与 HTTP route 位于 [examples/python/dex_examples/products/ai-agent](http
 Application 默认先进入 Agent Portal。启动 Agent 前，可以选择 LiteLLM provider 和 model、输入可选 API key，并选择已注册的 MCP server 与 tool。Portal 中输入的 key 只保存在 Worker memory，不会写入 Dex state 或 Flow history。需要在 Worker process 重启后继续使用 credential 时，应配置 Worker environment variable。
 
 Local playground 会启动无需 credential 的 search、Slack 和 Google Docs demo MCP server。Model call 运行时，chat page 会分别展示 Thinking、Response 与 Agent activity。可以使用 **Command/Ctrl+Enter** 或 **Alt+Enter** 发送 message。当 work 需要用户输入时，内置 **request_user_input** tool 会在 conversation 中展开 durable input panel。已知答案会显示为选择按钮，开放式问题会显示文本框。Execution 会等待用户提交答案后再继续。
+
+Active work 期间提交的 message 会以 **Queued** 状态显示在 conversation 与 composer 之间。消费前可以用 **Edit** 或 **Delete**，也可以用 **Steer** 在下一个 safe boundary 让 Agent 处理它。
 
 ## 相关内容
 

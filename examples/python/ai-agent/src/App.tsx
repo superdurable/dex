@@ -37,6 +37,20 @@ interface SequencedMessage {
   message: AgentMessage;
 }
 
+interface QueuedMessage {
+  message_id: string;
+  value: {
+    content: string;
+    plan_mode: boolean;
+  };
+  optimistic?: boolean;
+}
+
+interface MessageQueue {
+  regular: QueuedMessage[];
+  immediate: QueuedMessage[];
+}
+
 interface PlanTask {
   content: string;
   status: 'pending' | 'in_progress' | 'completed';
@@ -66,6 +80,8 @@ interface AgentDescription {
   pending_user_input_choices: string[];
   plan: AgentPlan | null;
   plan_execution_requested: boolean;
+  pending_user_message_count: number;
+  pending_immediate_message_count: number;
   available_mcp_servers: string[];
   available_tools: string[];
 }
@@ -121,6 +137,7 @@ const App: React.FC = () => {
   const [selectedMcpServers, setSelectedMcpServers] = useState<string[]>([]);
   const [selectedTools, setSelectedTools] = useState<string[]>([]);
   const [messages, setMessages] = useState<SequencedMessage[]>([]);
+  const [messageQueue, setMessageQueue] = useState<MessageQueue>({ regular: [], immediate: [] });
   const [description, setDescription] = useState<AgentDescription | null>(null);
   const [input, setInput] = useState('');
   const [planMode, setPlanMode] = useState(false);
@@ -132,6 +149,8 @@ const App: React.FC = () => {
   const [liveResponseText, setLiveResponseText] = useState('');
   const [activity, setActivity] = useState<AgentEvent[]>([]);
   const [isBusy, setIsBusy] = useState(false);
+  const [queueMutation, setQueueMutation] = useState('');
+  const [pressedQueueAction, setPressedQueueAction] = useState('');
   const [error, setError] = useState('');
   const messageInputRef = useRef<HTMLTextAreaElement>(null);
   const userInputCardRef = useRef<HTMLElement>(null);
@@ -168,16 +187,29 @@ const App: React.FC = () => {
   const fetchState = async () => {
     if (!workflowId) return;
     const query = new URLSearchParams({ workflowId, limit: '200' });
-    const [historyResponse, describeResponse] = await Promise.all([
+    const [historyResponse, describeResponse, queueResponse] = await Promise.all([
       fetch(`${API_BASE}/history?${query}`),
       fetch(`${API_BASE}/describe?workflowId=${encodeURIComponent(workflowId)}`),
+      fetch(`${API_BASE}/message-queue?workflowId=${encodeURIComponent(workflowId)}`),
     ]);
     if (!historyResponse.ok) throw new Error(await historyResponse.text());
     if (!describeResponse.ok) throw new Error(await describeResponse.text());
+    if (!queueResponse.ok) throw new Error(await queueResponse.text());
     const history = await historyResponse.json();
     const nextDescription = await describeResponse.json();
+    const nextQueue = await queueResponse.json();
     setMessages(history.messages);
     setDescription(nextDescription);
+    setMessageQueue((current) => ({
+      regular: [
+        ...nextQueue.regular,
+        ...current.regular.filter((message) => message.optimistic),
+      ],
+      immediate: [
+        ...nextQueue.immediate,
+        ...current.immediate.filter((message) => message.optimistic),
+      ],
+    }));
     if (
       nextDescription.status === 'waiting_for_message'
       && history.messages.at(-1)?.message.role === 'assistant'
@@ -317,6 +349,7 @@ const App: React.FC = () => {
     setWorkflowId('');
     setDescription(null);
     setMessages([]);
+    setMessageQueue({ regular: [], immediate: [] });
     setLiveReasoningSummary('');
     setLiveResponseText('');
     setActivity([]);
@@ -332,6 +365,18 @@ const App: React.FC = () => {
     setLiveReasoningSummary('');
     setLiveResponseText('');
     const requestedPlanMode = planMode;
+    const optimisticId = `optimistic-${crypto.randomUUID()}`;
+    setMessageQueue((current) => ({
+      ...current,
+      regular: [
+        ...current.regular,
+        {
+          message_id: optimisticId,
+          value: { content, plan_mode: requestedPlanMode },
+          optimistic: true,
+        },
+      ],
+    }));
     setPlanMode(false);
     try {
       const response = await fetch(`${API_BASE}/messages`, {
@@ -340,13 +385,73 @@ const App: React.FC = () => {
         body: JSON.stringify({ workflowId, content, planMode: requestedPlanMode }),
       });
       if (!response.ok) throw new Error(await response.text());
+      setMessageQueue((current) => ({
+        ...current,
+        regular: current.regular.filter((message) => message.message_id !== optimisticId),
+      }));
       await fetchState();
     } catch (reason) {
+      setMessageQueue((current) => ({
+        ...current,
+        regular: current.regular.filter((message) => message.message_id !== optimisticId),
+      }));
       setError(String(reason));
       setInput(content);
       setPlanMode(requestedPlanMode);
     } finally {
       setIsBusy(false);
+    }
+  };
+
+  const mutateQueuedMessage = async (
+    message: QueuedMessage,
+    action: 'delete' | 'steer' | 'edit',
+  ) => {
+    if (!workflowId || message.optimistic) return;
+    const mutationKey = `${action}:${message.message_id}`;
+    const steeringId = `steering-${message.message_id}`;
+    setQueueMutation(mutationKey);
+    setError('');
+    if (action === 'steer') {
+      setMessageQueue((current) => ({
+        regular: current.regular.filter(
+          (queuedMessage) => queuedMessage.message_id !== message.message_id,
+        ),
+        immediate: [
+          ...current.immediate,
+          { ...message, message_id: steeringId, optimistic: true },
+        ],
+      }));
+    }
+    try {
+      const response = await fetch(
+        `${API_BASE}/message-queue/${action === 'edit' ? 'delete' : action}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workflowId, messageId: message.message_id }),
+        },
+      );
+      if (!response.ok) throw new Error(await response.text());
+      if (action === 'edit') {
+        setInput(message.value.content);
+        setPlanMode(message.value.plan_mode);
+        window.requestAnimationFrame(() => messageInputRef.current?.focus());
+      }
+      if (action === 'steer') {
+        setMessageQueue((current) => ({
+          ...current,
+          immediate: current.immediate.filter(
+            (queuedMessage) => queuedMessage.message_id !== steeringId,
+          ),
+        }));
+      }
+      await fetchState();
+    } catch (reason) {
+      setError(String(reason));
+      await fetchState().catch(() => undefined);
+    } finally {
+      setQueueMutation('');
     }
   };
 
@@ -779,7 +884,7 @@ const App: React.FC = () => {
           <div style={styles.timerCard}>
             <strong>Durable timer · {description.pending_timer_duration_seconds}s</strong>
             <p>{description.pending_timer_reason}</p>
-            <small>Send a new message to interrupt this wait.</small>
+            <small>Queue a message, then choose Steer to interrupt this wait.</small>
           </div>
         )}
 
@@ -792,6 +897,66 @@ const App: React.FC = () => {
               </p>
             ))}
           </details>
+        )}
+
+        {(messageQueue.regular.length > 0 || messageQueue.immediate.length > 0) && (
+          <section style={styles.queueArea} aria-label="Pending user messages">
+            <div style={styles.queueHeader}>
+              <div>
+                <strong>Message queue</strong>
+                <small style={styles.queueHint}>
+                  Queued messages wait for the current Agent loop. Steer applies one at the next safe boundary.
+                </small>
+              </div>
+              <span>{messageQueue.regular.length + messageQueue.immediate.length} pending</span>
+            </div>
+            {[...messageQueue.immediate, ...messageQueue.regular].map((message) => {
+              const isImmediate = messageQueue.immediate.some(
+                (item) => item.message_id === message.message_id,
+              );
+              return (
+                <div
+                  key={message.message_id}
+                  style={{ ...styles.queueItem, ...(isImmediate ? styles.steeringItem : {}) }}
+                >
+                  <div style={styles.queueContent}>
+                    <span style={isImmediate ? styles.steeringBadge : styles.queuedBadge}>
+                      {isImmediate ? 'Steering' : message.optimistic ? 'Submitting' : 'Queued'}
+                    </span>
+                    <p style={styles.queueMessage}>{message.value.content}</p>
+                    {message.value.plan_mode && <small>Plan mode</small>}
+                  </div>
+                  {!isImmediate && (
+                    <div style={styles.queueActions}>
+                      {(['edit', 'delete', 'steer'] as const).map((action) => {
+                        const actionKey = `${action}:${message.message_id}`;
+                        const isMutating = queueMutation === actionKey;
+                        const isPressed = pressedQueueAction === actionKey;
+                        return (
+                          <button
+                            key={action}
+                            style={{
+                              ...styles.queueButton,
+                              ...(action === 'steer' ? styles.steerButton : {}),
+                              ...(isPressed ? styles.queueButtonPressed : {}),
+                            }}
+                            disabled={Boolean(queueMutation) || Boolean(message.optimistic)}
+                            onPointerDown={() => setPressedQueueAction(actionKey)}
+                            onPointerUp={() => setPressedQueueAction('')}
+                            onPointerCancel={() => setPressedQueueAction('')}
+                            onPointerLeave={() => setPressedQueueAction('')}
+                            onClick={() => void mutateQueuedMessage(message, action)}
+                          >
+                            {isMutating ? `${action}…` : action[0]!.toUpperCase() + action.slice(1)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
         )}
 
         <div style={styles.composerArea}>
@@ -1004,6 +1169,19 @@ const styles: Record<string, React.CSSProperties> = {
   completedTask: { display: 'block', marginTop: 2, textDecoration: 'line-through', opacity: 0.65 },
   actions: { display: 'flex', gap: 10 },
   activity: { marginTop: 18, padding: 14, borderRadius: 12, background: '#f7f8fb', color: '#4b5568' },
+  queueArea: { marginTop: 18, padding: 16, borderRadius: 14, border: '1px solid #d8deea', background: '#fafbfe' },
+  queueHeader: { display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'start', marginBottom: 10 },
+  queueHint: { display: 'block', marginTop: 4, color: '#667085', lineHeight: 1.4 },
+  queueItem: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14, padding: 13, marginTop: 9, borderRadius: 11, border: '1px solid #dce1eb', background: '#fff' },
+  steeringItem: { borderColor: '#aebdf2', background: '#f0f4ff' },
+  queueContent: { minWidth: 0, flex: 1 },
+  queueMessage: { margin: '7px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', lineHeight: 1.45 },
+  queuedBadge: { display: 'inline-block', padding: '3px 8px', borderRadius: 999, background: '#e8edf5', color: '#445066', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' },
+  steeringBadge: { display: 'inline-block', padding: '3px 8px', borderRadius: 999, background: '#4f46e5', color: '#fff', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' },
+  queueActions: { display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 7 },
+  queueButton: { border: '1px solid #cfd6e4', borderRadius: 8, padding: '7px 10px', background: '#fff', color: '#27334a', fontWeight: 700, cursor: 'pointer', transition: 'transform 80ms ease, box-shadow 80ms ease' },
+  steerButton: { borderColor: '#4f46e5', background: '#4f46e5', color: '#fff' },
+  queueButtonPressed: { transform: 'translateY(2px) scale(.97)', boxShadow: 'inset 0 2px 4px rgba(30, 27, 75, .25)' },
   composerArea: { marginTop: 22, paddingTop: 18, borderTop: '1px solid #e6e9ef' },
   planModeToggle: { display: 'flex', gap: 8, alignItems: 'center', fontWeight: 700, marginBottom: 10 },
   planModeHint: { color: '#667085', fontWeight: 400 },

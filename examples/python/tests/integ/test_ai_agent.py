@@ -22,7 +22,8 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from dex import AsyncClient, StartFlowOptions
+import pytest
+from dex import AsyncClient, ChannelMessageNotFoundError, StartFlowOptions
 
 from dex_examples.app import ExampleApp
 from dex_examples.products.ai_agent.mcp_registry import MCPRegistry
@@ -30,6 +31,7 @@ from dex_examples.products.ai_agent.models import (
     AgentConfig,
     HistoryRequest,
     PlanExecutionRequest,
+    SteerMessageRequest,
     ToolApprovalRequest,
     UserMessage,
 )
@@ -630,6 +632,72 @@ async def test_ai_agent_rejects_tools_disabled_for_the_session(
     await _wait_for_content(client, app, flow_id, "unknown_or_disabled_tool")
     description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
     assert description.pending_approval_call_id is None
+
+
+async def test_ai_agent_queues_regular_messages_and_steers_at_a_safe_boundary(
+    app: ExampleApp,
+    client: AsyncClient,
+    new_flow_id: Callable[[str], str],
+) -> None:
+    flow_id = new_flow_id("ai-agent-steer")
+    await client.start_flow(
+        app.ai_agent,
+        flow_id,
+        AgentConfig(),
+        StartFlowOptions(),
+    )
+    await _send(client, app, flow_id, "/wait 30 integration timer")
+
+    async def is_waiting_for_timer() -> bool:
+        description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+        return description.status == "waiting_for_timer"
+
+    await wait_until("AI Agent durable wait", is_waiting_for_timer, WAIT_TIMEOUT)
+    await _send(client, app, flow_id, "replace the current objective")
+    pending = await client.get_channel_messages(
+        flow_id,
+        app.ai_agent.user_messages,
+    )
+    assert [message.value.content for message in pending] == [
+        "replace the current objective"
+    ]
+    description = await client.invoke_rpc(app.ai_agent.describe, flow_id)
+    assert description.status == "waiting_for_timer"
+    assert description.pending_user_message_count == 1
+
+    message = pending[0]
+    assert await client.invoke_rpc(
+        app.ai_agent.steer_message,
+        flow_id,
+        SteerMessageRequest(message.message_id, message.value),
+    )
+    with pytest.raises(ChannelMessageNotFoundError):
+        await client.invoke_rpc(
+            app.ai_agent.steer_message,
+            flow_id,
+            SteerMessageRequest(message.message_id, message.value),
+        )
+
+    await _wait_for_content(
+        client,
+        app,
+        flow_id,
+        "Local demo response: replace the current objective",
+    )
+    assert not await client.get_channel_messages(
+        flow_id,
+        app.ai_agent.user_messages,
+    )
+    history = await client.invoke_rpc(
+        app.ai_agent.history,
+        flow_id,
+        HistoryRequest(limit=100),
+    )
+    assert any(
+        message.message.role == "tool"
+        and '"status": "interrupted"' in message.message.content
+        for message in history.messages
+    )
 
 
 async def _send(
