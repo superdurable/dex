@@ -648,6 +648,23 @@ const App: React.FC = () => {
             </nav>
           </header>
 
+          <div style={styles.portalFooter}>
+            <div style={styles.portalFooterCopy}>
+              <strong>Ready to start</strong>
+              <p style={styles.sectionCopy}>You can create plans and approve write tools from the Agent page.</p>
+            </div>
+            <button
+              style={styles.launchButton}
+              disabled={isBusy || !portalConfig || !selectedProvider?.isConfigured || !model.trim() || !systemPrompt.trim() || !hasValidToolSelection || !hasValidMcpSelection}
+              onClick={startAgent}
+            >
+              {isBusy ? 'Starting Agent…' : 'Start AI Agent →'}
+            </button>
+          </div>
+          {!hasValidToolSelection && <p style={styles.error}>Select at least one available MCP tool, or disable MCP.</p>}
+          {!hasValidMcpSelection && <p style={styles.error}>Select at least one MCP server, or disable MCP.</p>}
+          {error && <p style={styles.error}>{error}</p>}
+
           <div style={styles.portalGrid}>
             <section style={styles.portalCard}>
               <div style={styles.sectionHeading}>
@@ -801,22 +818,6 @@ const App: React.FC = () => {
             </div>
           </section>
 
-          <div style={styles.portalFooter}>
-            <div style={styles.portalFooterCopy}>
-              <strong>Ready to start</strong>
-              <p style={styles.sectionCopy}>You can create plans and approve write tools from the Agent page.</p>
-            </div>
-            <button
-              style={styles.launchButton}
-              disabled={isBusy || !portalConfig || !selectedProvider?.isConfigured || !model.trim() || !systemPrompt.trim() || !hasValidToolSelection || !hasValidMcpSelection}
-              onClick={startAgent}
-            >
-              {isBusy ? 'Starting Agent…' : 'Start AI Agent →'}
-            </button>
-          </div>
-          {!hasValidToolSelection && <p style={styles.error}>Select at least one available MCP tool, or disable MCP.</p>}
-          {!hasValidMcpSelection && <p style={styles.error}>Select at least one MCP server, or disable MCP.</p>}
-          {error && <p style={styles.error}>{error}</p>}
         </section>
       </main>
     );
@@ -1224,7 +1225,7 @@ const styles: Record<string, React.CSSProperties> = {
   portalStepNumber: { display: 'grid', placeItems: 'center', width: 21, height: 21, borderRadius: 999, background: '#e1e5ee', color: '#667085', fontSize: 11, fontWeight: 850 },
   activeStepNumber: { background: '#4f46e5', color: '#fff' },
   portalStepDivider: { width: 20, height: 1, background: '#cfd6e4' },
-  portalGrid: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 18 },
+  portalGrid: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 18, marginTop: 18 },
   portalCard: { padding: 26, borderRadius: 20, background: 'rgba(255,255,255,.94)', border: '1px solid rgba(207,214,228,.8)', boxShadow: '0 16px 48px rgba(24, 39, 75, 0.08)' },
   sectionHeading: { display: 'flex', alignItems: 'center', gap: 12 },
   sectionNumber: { display: 'grid', placeItems: 'center', width: 34, height: 34, flex: '0 0 34px', borderRadius: 11, background: '#4f46e5', color: '#fff', fontWeight: 800 },
