@@ -2,16 +2,15 @@
 title: Backoff Polling
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/polling-backoff.json';
+
 # Backoff Polling
 
 **BackoffPollingFlow** runs **PollingStep** against an external service. When the condition is not met, the Step returns an expected error. Its **ExecuteRetry** policy retries that same execution with exponential backoff; a successful response completes the Flow.
 
 Use **RetryAfter** to request the exact delay for the next retry while preserving the error. Because the expected not-ready result is a failed Step attempt, operation monitors and runbooks must classify it as expected and must not page on-call for it.
 
-<img
-  alt="BackoffPollingFlow"
-  src="/img/design-patterns/backoff-polling-flow.png"
-/>
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 

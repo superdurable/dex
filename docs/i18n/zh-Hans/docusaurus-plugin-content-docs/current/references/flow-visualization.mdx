@@ -63,6 +63,8 @@ Dex 会递归扫描 JSON 文件，并在启动时创建一次快照。文件改�
 
 资源和 SubFlow 关系使用虚线，视觉上弱于 Step 之间的实线跳转。Channel 集中在 Flow 左上区域，Attribute 合并为一个框，RPC 六边形横跨 Flow 左边界。SubFlow 只显示为包含 Flow type 的紫色虚线小框，不展开内部 Step。
 
+Renderer 默认会把完整 Flow 缩放到当前 viewport。Channel 和 Attribute 箭头默认隐藏；选择对应资源，或相关的 Step、WaitFor、Execute decision、RPC、timeout handler 后才会显示。默认视图因此优先呈现 control flow，同时仍能按需查看资源访问关系。
+
 Stream 关系描述的是应用可观察输出，而不是控制流。Flow Rendering 默认隐藏 Stream，用户可以通过图例开启。JSON 会标记 Step Stream 写入可重复且为 best effort。Heartbeat 调用和 checkpoint 读取属于运行时可靠性细节，因此不会进入定义图。
 
 ## 支持的源码约束

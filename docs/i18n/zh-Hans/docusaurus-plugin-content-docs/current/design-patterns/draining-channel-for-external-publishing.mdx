@@ -3,6 +3,8 @@ title: Drain External Channels
 sidebar_label: Drain External Channels
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/draining-external-channel.json';
+
 # Drain External Channels
 
 处理外部发布到 Channel 的消息；队列为空时完成这条短生命周期的 Flow。
@@ -17,10 +19,7 @@ sidebar_label: Drain External Channels
 
 ## Step Graph
 
-<img
-  alt="排空外部 Channel 的 Flow definition，包含 Queue Channel、Example RPC、WaitForScheduleStep 和 ForceCompleteIfChannelsEmpty"
-  src="/img/design-patterns/draining-external-channel-publishing.png"
-/>
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## 核心实现
 

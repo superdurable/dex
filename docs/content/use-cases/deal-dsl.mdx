@@ -2,6 +2,8 @@
 title: Deal DSL
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/deal-dsl.json';
+
 # Deal DSL
 
 Define a durable deal as data, then run the same interpreter for any sellable item.
@@ -32,6 +34,10 @@ Potential failures include:
 - A definition can contain a business loop with no eventual external decision. The Flow remains durable, but product-level validation or timeouts must bound unwanted loops.
 
 ## Flow design
+
+This interactive definition graph is generated from the runnable Python Flow.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 The Flow is a small durable interpreter. A definition chooses the business path; four Step types provide the execution machinery:
 

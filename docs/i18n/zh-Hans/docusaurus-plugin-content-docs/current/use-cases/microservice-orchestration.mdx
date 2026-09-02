@@ -2,6 +2,8 @@
 title: 微服务编排
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/microservice-orchestration.json';
+
 # 微服务编排
 
 协调并发服务调用，接收执行中的状态更新，并通过外部事件或超时兜底完成流程。
@@ -31,6 +33,10 @@ title: 微服务编排
 示例使用本地依赖 stub。生产适配器还应为每个 API 配置超时、幂等键，以及适当的重试或恢复策略。
 
 ## Flow 设计
+
+这个交互式 definition graph 由可运行的 Python Flow 生成。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 这个 Flow 包含一个 fan-out 点和两种完成路径：
 

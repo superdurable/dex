@@ -47,6 +47,7 @@ func Analyze(ctx context.Context, sourcePath string, options AnalyzeOptions) (*G
 	if err != nil {
 		return nil, err
 	}
+	graph.Source.Path = filepath.ToSlash(filepath.Clean(sourcePath))
 	graph.Normalize()
 	return graph, nil
 }

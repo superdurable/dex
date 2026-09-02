@@ -1,0 +1,484 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/parallel-subflows/advanced_long_live_parent_flow.py"
+  },
+  "flow": {
+    "name": "AdvancedLongLiveParentFlow",
+    "startStepId": "step:LongLiveInitStep",
+    "span": {
+      "startLine": 99,
+      "startColumn": 1,
+      "endLine": 125,
+      "endColumn": 40
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:rpc:send_request",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:send_request",
+      "phase": "rpc",
+      "span": {
+        "startLine": 117,
+        "startColumn": 5,
+        "endLine": 121,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "decision-dispatch:step:LongLiveHandleSubFlowStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:LongLiveHandleSubFlowStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 93,
+        "startColumn": 5,
+        "endLine": 96,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "decision:rpc:send_request:119:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:send_request",
+      "condition": "self.request_channel.size(context) \u003e= MAX_BUFFERED_REQUESTS",
+      "phase": "rpc",
+      "span": {
+        "startLine": 119,
+        "startColumn": 20,
+        "endLine": 119,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:send_request:121:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:send_request",
+      "condition": "not (self.request_channel.size(context) \u003e= MAX_BUFFERED_REQUESTS)",
+      "phase": "rpc",
+      "span": {
+        "startLine": 121,
+        "startColumn": 16,
+        "endLine": 121,
+        "endColumn": 31
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:LongLiveHandleRequestStep:75:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:LongLiveHandleRequestStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 75,
+        "startColumn": 16,
+        "endLine": 75,
+        "endColumn": 90
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:LongLiveHandleSubFlowStep:95:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:LongLiveHandleSubFlowStep",
+      "condition": "self.stopped.get(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 95,
+        "startColumn": 20,
+        "endLine": 95,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:LongLiveHandleSubFlowStep:96:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:LongLiveHandleSubFlowStep",
+      "condition": "not (self.stopped.get(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 96,
+        "startColumn": 16,
+        "endLine": 96,
+        "endColumn": 54
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:LongLiveInitStep:59:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:LongLiveInitStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 59,
+        "startColumn": 16,
+        "endLine": 61,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "resource:attribute:AdvancedLongLiveParentFlow.stopped",
+      "kind": "attribute",
+      "name": "Stopped",
+      "span": {
+        "startLine": 101,
+        "startColumn": 5,
+        "endLine": 101,
+        "endColumn": 41
+      },
+      "resource": {
+        "valueType": "bool"
+      }
+    },
+    {
+      "id": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
+      "kind": "channel",
+      "name": "RequestChannel",
+      "span": {
+        "startLine": 100,
+        "startColumn": 5,
+        "endLine": 100,
+        "endColumn": 53
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:send_request",
+      "kind": "rpc",
+      "name": "send_request",
+      "span": {
+        "startLine": 117,
+        "startColumn": 5,
+        "endLine": 121,
+        "endColumn": 31
+      }
+    },
+    {
+      "id": "rpc:stop",
+      "kind": "rpc",
+      "name": "stop",
+      "span": {
+        "startLine": 124,
+        "startColumn": 5,
+        "endLine": 125,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "step:LongLiveHandleRequestStep",
+      "kind": "step",
+      "name": "HandleRequestStep",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 110,
+        "startColumn": 13,
+        "endLine": 110,
+        "endColumn": 32
+      }
+    },
+    {
+      "id": "step:LongLiveHandleSubFlowStep",
+      "kind": "step",
+      "name": "HandleSubFlowStep",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 110,
+        "startColumn": 34,
+        "endLine": 110,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "step:LongLiveInitStep",
+      "kind": "step",
+      "name": "InitStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 109,
+        "startColumn": 36,
+        "endLine": 109,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "subflow:self.example_subflow:91",
+      "kind": "subflow",
+      "name": "self.example_subflow",
+      "external": true,
+      "span": {
+        "startLine": 91,
+        "startColumn": 27,
+        "endLine": 91,
+        "endColumn": 69
+      }
+    },
+    {
+      "id": "wait:LongLiveHandleRequestStep:72:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:LongLiveHandleRequestStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 72,
+        "startColumn": 16,
+        "endLine": 72,
+        "endColumn": 58
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "RequestChannel.for 1",
+            "resourceId": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
+            "span": {
+              "startLine": 72,
+              "startColumn": 27,
+              "endLine": 72,
+              "endColumn": 57
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:LongLiveHandleSubFlowStep:91:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:LongLiveHandleSubFlowStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 91,
+        "startColumn": 16,
+        "endLine": 91,
+        "endColumn": 70
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "subflow",
+            "label": "self.example_subflow",
+            "subFlowId": "subflow:self.example_subflow:91",
+            "span": {
+              "startLine": 91,
+              "startColumn": 27,
+              "endLine": 91,
+              "endColumn": 69
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:LongLiveHandleRequestStep:75:16",
+      "to": "step:LongLiveHandleSubFlowStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 75,
+        "startColumn": 16,
+        "endLine": 75,
+        "endColumn": 90
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:LongLiveHandleSubFlowStep:96:16",
+      "to": "step:LongLiveHandleRequestStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 96,
+        "startColumn": 16,
+        "endLine": 96,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:LongLiveInitStep:59:16",
+      "to": "step:LongLiveHandleRequestStep",
+      "label": "fan-out",
+      "multiplicity": "×N",
+      "span": {
+        "startLine": 60,
+        "startColumn": 15,
+        "endLine": 60,
+        "endColumn": 63
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "resource_read",
+      "from": "resource:attribute:AdvancedLongLiveParentFlow.stopped",
+      "to": "step:LongLiveHandleSubFlowStep",
+      "label": "get",
+      "span": {
+        "startLine": 94,
+        "startColumn": 12,
+        "endLine": 94,
+        "endColumn": 37
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "resource_read",
+      "from": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
+      "to": "rpc:send_request",
+      "label": "size",
+      "span": {
+        "startLine": 118,
+        "startColumn": 12,
+        "endLine": 118,
+        "endColumn": 46
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
+      "from": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
+      "to": "step:LongLiveHandleRequestStep",
+      "label": "results",
+      "span": {
+        "startLine": 75,
+        "startColumn": 49,
+        "endLine": 75,
+        "endColumn": 86
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "wait_condition",
+      "from": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
+      "to": "wait:LongLiveHandleRequestStep:72:16:0",
+      "label": "RequestChannel.for 1",
+      "span": {
+        "startLine": 72,
+        "startColumn": 27,
+        "endLine": 72,
+        "endColumn": 57
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_publish",
+      "from": "rpc:send_request",
+      "to": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
+      "label": "publish",
+      "span": {
+        "startLine": 120,
+        "startColumn": 9,
+        "endLine": 120,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_write",
+      "from": "rpc:stop",
+      "to": "resource:attribute:AdvancedLongLiveParentFlow.stopped",
+      "label": "set",
+      "span": {
+        "startLine": 125,
+        "startColumn": 9,
+        "endLine": 125,
+        "endColumn": 40
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_write",
+      "from": "step:LongLiveInitStep",
+      "to": "resource:attribute:AdvancedLongLiveParentFlow.stopped",
+      "label": "set",
+      "span": {
+        "startLine": 57,
+        "startColumn": 9,
+        "endLine": 57,
+        "endColumn": 41
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_publish",
+      "from": "step:LongLiveInitStep",
+      "to": "resource:channel:AdvancedLongLiveParentFlow.request_channel",
+      "label": "publish",
+      "span": {
+        "startLine": 56,
+        "startColumn": 13,
+        "endLine": 56,
+        "endColumn": 59
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "subflow",
+      "from": "wait:LongLiveHandleSubFlowStep:91:16:0",
+      "to": "subflow:self.example_subflow:91",
+      "label": "start",
+      "span": {
+        "startLine": 91,
+        "startColumn": 27,
+        "endLine": 91,
+        "endColumn": 69
+      }
+    }
+  ],
+  "diagnostics": []
+}

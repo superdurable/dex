@@ -1,0 +1,982 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/products/signup/user_signup_flow.py"
+  },
+  "flow": {
+    "name": "UserOnboardingFlow",
+    "startStepId": "step:Submit",
+    "span": {
+      "startLine": 169,
+      "startColumn": 1,
+      "endLine": 228,
+      "endColumn": 48
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:rpc:accomplish_task_1",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:accomplish_task_1",
+      "phase": "rpc",
+      "span": {
+        "startLine": 217,
+        "startColumn": 5,
+        "endLine": 221,
+        "endColumn": 48
+      }
+    },
+    {
+      "id": "decision-dispatch:rpc:accomplish_task_2",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:accomplish_task_2",
+      "phase": "rpc",
+      "span": {
+        "startLine": 224,
+        "startColumn": 5,
+        "endLine": 228,
+        "endColumn": 48
+      }
+    },
+    {
+      "id": "decision-dispatch:rpc:verify",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "rpc:verify",
+      "phase": "rpc",
+      "span": {
+        "startLine": 210,
+        "startColumn": 5,
+        "endLine": 214,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "decision-dispatch:step:AccomplishTask1",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AccomplishTask1",
+      "phase": "execute",
+      "span": {
+        "startLine": 95,
+        "startColumn": 5,
+        "endLine": 109,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "decision-dispatch:step:AccomplishTask2",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:AccomplishTask2",
+      "phase": "execute",
+      "span": {
+        "startLine": 132,
+        "startColumn": 5,
+        "endLine": 147,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "decision-dispatch:step:VerifyEmail",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:VerifyEmail",
+      "phase": "execute",
+      "span": {
+        "startLine": 58,
+        "startColumn": 5,
+        "endLine": 72,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "decision:rpc:accomplish_task_1:219:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:accomplish_task_1",
+      "condition": "self.status.get(context) != 'waiting_for_task_1'",
+      "phase": "rpc",
+      "span": {
+        "startLine": 219,
+        "startColumn": 20,
+        "endLine": 219,
+        "endColumn": 54
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:accomplish_task_1:221:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:accomplish_task_1",
+      "condition": "not (self.status.get(context) != 'waiting_for_task_1')",
+      "phase": "rpc",
+      "span": {
+        "startLine": 221,
+        "startColumn": 16,
+        "endLine": 221,
+        "endColumn": 48
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:accomplish_task_2:226:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:accomplish_task_2",
+      "condition": "self.status.get(context) != 'waiting_for_task_2'",
+      "phase": "rpc",
+      "span": {
+        "startLine": 226,
+        "startColumn": 20,
+        "endLine": 226,
+        "endColumn": 54
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:accomplish_task_2:228:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:accomplish_task_2",
+      "condition": "not (self.status.get(context) != 'waiting_for_task_2')",
+      "phase": "rpc",
+      "span": {
+        "startLine": 228,
+        "startColumn": 16,
+        "endLine": 228,
+        "endColumn": 48
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:verify:212:20",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:verify",
+      "condition": "self.status.get(context) != 'waiting_for_verification'",
+      "phase": "rpc",
+      "span": {
+        "startLine": 212,
+        "startColumn": 20,
+        "endLine": 212,
+        "endColumn": 49
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:rpc:verify:214:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:verify",
+      "condition": "not (self.status.get(context) != 'waiting_for_verification')",
+      "phase": "rpc",
+      "span": {
+        "startLine": 214,
+        "startColumn": 16,
+        "endLine": 214,
+        "endColumn": 37
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:AccomplishTask1:103:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AccomplishTask1",
+      "condition": "self.task_1_completed.results(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 103,
+        "startColumn": 20,
+        "endLine": 103,
+        "endColumn": 48
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AccomplishTask1:109:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AccomplishTask1",
+      "condition": "not (self.task_1_completed.results(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 109,
+        "startColumn": 16,
+        "endLine": 109,
+        "endColumn": 44
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:AccomplishTask2:141:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:AccomplishTask2",
+      "condition": "self.task_2_completed.results(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 141,
+        "startColumn": 20,
+        "endLine": 141,
+        "endColumn": 61
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:AccomplishTask2:147:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:AccomplishTask2",
+      "condition": "not (self.task_2_completed.results(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 147,
+        "startColumn": 16,
+        "endLine": 147,
+        "endColumn": 44
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Submit:166:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Submit",
+      "phase": "execute",
+      "span": {
+        "startLine": 166,
+        "startColumn": 16,
+        "endLine": 166,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:VerifyEmail:66:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:VerifyEmail",
+      "condition": "self.verify_email.results(context)",
+      "phase": "execute",
+      "span": {
+        "startLine": 66,
+        "startColumn": 20,
+        "endLine": 66,
+        "endColumn": 48
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:VerifyEmail:72:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:VerifyEmail",
+      "condition": "not (self.verify_email.results(context))",
+      "phase": "execute",
+      "span": {
+        "startLine": 72,
+        "startColumn": 16,
+        "endLine": 72,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:UserOnboardingFlow.form",
+      "kind": "attribute",
+      "name": "Form",
+      "span": {
+        "startLine": 170,
+        "startColumn": 5,
+        "endLine": 170,
+        "endColumn": 41
+      },
+      "resource": {
+        "valueType": "SignupForm"
+      }
+    },
+    {
+      "id": "resource:attribute:UserOnboardingFlow.status",
+      "kind": "attribute",
+      "name": "Status",
+      "span": {
+        "startLine": 171,
+        "startColumn": 5,
+        "endLine": 171,
+        "endColumn": 38
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:channel:UserOnboardingFlow.task_1_completed",
+      "kind": "channel",
+      "name": "Task1Completed",
+      "span": {
+        "startLine": 173,
+        "startColumn": 5,
+        "endLine": 173,
+        "endColumn": 67
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "resource:channel:UserOnboardingFlow.task_2_completed",
+      "kind": "channel",
+      "name": "Task2Completed",
+      "span": {
+        "startLine": 174,
+        "startColumn": 5,
+        "endLine": 174,
+        "endColumn": 67
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "resource:channel:UserOnboardingFlow.verify_email",
+      "kind": "channel",
+      "name": "VerifyEmail",
+      "span": {
+        "startLine": 172,
+        "startColumn": 5,
+        "endLine": 172,
+        "endColumn": 60
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "rpc:accomplish_task_1",
+      "kind": "rpc",
+      "name": "accomplish_task_1",
+      "span": {
+        "startLine": 217,
+        "startColumn": 5,
+        "endLine": 221,
+        "endColumn": 48
+      }
+    },
+    {
+      "id": "rpc:accomplish_task_2",
+      "kind": "rpc",
+      "name": "accomplish_task_2",
+      "span": {
+        "startLine": 224,
+        "startColumn": 5,
+        "endLine": 228,
+        "endColumn": 48
+      }
+    },
+    {
+      "id": "rpc:verify",
+      "kind": "rpc",
+      "name": "verify",
+      "span": {
+        "startLine": 210,
+        "startColumn": 5,
+        "endLine": 214,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "step:AccomplishTask1",
+      "kind": "step",
+      "name": "AccomplishTask1",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 196,
+        "startColumn": 13,
+        "endLine": 196,
+        "endColumn": 29
+      }
+    },
+    {
+      "id": "step:AccomplishTask2",
+      "kind": "step",
+      "name": "AccomplishTask2",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 197,
+        "startColumn": 13,
+        "endLine": 197,
+        "endColumn": 29
+      }
+    },
+    {
+      "id": "step:Submit",
+      "kind": "step",
+      "name": "Submit",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 194,
+        "startColumn": 36,
+        "endLine": 194,
+        "endColumn": 47
+      }
+    },
+    {
+      "id": "step:VerifyEmail",
+      "kind": "step",
+      "name": "VerifyEmail",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 195,
+        "startColumn": 13,
+        "endLine": 195,
+        "endColumn": 29
+      }
+    },
+    {
+      "id": "wait:AccomplishTask1:90:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AccomplishTask1",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 90,
+        "startColumn": 16,
+        "endLine": 93,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "24 seconds timer",
+            "expression": "timedelta(seconds=24)",
+            "span": {
+              "startLine": 91,
+              "startColumn": 13,
+              "endLine": 91,
+              "endColumn": 53
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "Task1Completed.for 1",
+            "resourceId": "resource:channel:UserOnboardingFlow.task_1_completed",
+            "span": {
+              "startLine": 92,
+              "startColumn": 13,
+              "endLine": 92,
+              "endColumn": 44
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:AccomplishTask2:127:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:AccomplishTask2",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 127,
+        "startColumn": 16,
+        "endLine": 130,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "24 seconds timer",
+            "expression": "timedelta(seconds=24)",
+            "span": {
+              "startLine": 128,
+              "startColumn": 13,
+              "endLine": 128,
+              "endColumn": 53
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "Task2Completed.for 1",
+            "resourceId": "resource:channel:UserOnboardingFlow.task_2_completed",
+            "span": {
+              "startLine": 129,
+              "startColumn": 13,
+              "endLine": 129,
+              "endColumn": 44
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:VerifyEmail:53:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:VerifyEmail",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 53,
+        "startColumn": 16,
+        "endLine": 56,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "24 seconds timer",
+            "expression": "timedelta(seconds=24)",
+            "span": {
+              "startLine": 54,
+              "startColumn": 13,
+              "endLine": 54,
+              "endColumn": 53
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "VerifyEmail.for 1",
+            "resourceId": "resource:channel:UserOnboardingFlow.verify_email",
+            "span": {
+              "startLine": 55,
+              "startColumn": 13,
+              "endLine": 55,
+              "endColumn": 40
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:AccomplishTask1:103:20",
+      "to": "step:AccomplishTask2",
+      "label": "go_to",
+      "span": {
+        "startLine": 103,
+        "startColumn": 20,
+        "endLine": 103,
+        "endColumn": 48
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:AccomplishTask1:109:16",
+      "to": "step:AccomplishTask1",
+      "label": "go_to",
+      "span": {
+        "startLine": 109,
+        "startColumn": 16,
+        "endLine": 109,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:AccomplishTask2:147:16",
+      "to": "step:AccomplishTask2",
+      "label": "go_to",
+      "span": {
+        "startLine": 147,
+        "startColumn": 16,
+        "endLine": 147,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:Submit:166:16",
+      "to": "step:VerifyEmail",
+      "label": "go_to",
+      "span": {
+        "startLine": 166,
+        "startColumn": 16,
+        "endLine": 166,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:VerifyEmail:66:20",
+      "to": "step:AccomplishTask1",
+      "label": "go_to",
+      "span": {
+        "startLine": 66,
+        "startColumn": 20,
+        "endLine": 66,
+        "endColumn": 48
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:VerifyEmail:72:16",
+      "to": "step:VerifyEmail",
+      "label": "go_to",
+      "span": {
+        "startLine": 72,
+        "startColumn": 16,
+        "endLine": 72,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:attribute:UserOnboardingFlow.form",
+      "to": "step:AccomplishTask1",
+      "label": "get",
+      "span": {
+        "startLine": 96,
+        "startColumn": 23,
+        "endLine": 96,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_read",
+      "from": "resource:attribute:UserOnboardingFlow.form",
+      "to": "step:AccomplishTask2",
+      "label": "get",
+      "span": {
+        "startLine": 133,
+        "startColumn": 23,
+        "endLine": 133,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_read",
+      "from": "resource:attribute:UserOnboardingFlow.form",
+      "to": "step:VerifyEmail",
+      "label": "get",
+      "span": {
+        "startLine": 59,
+        "startColumn": 23,
+        "endLine": 59,
+        "endColumn": 45
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_read",
+      "from": "resource:attribute:UserOnboardingFlow.status",
+      "to": "rpc:accomplish_task_1",
+      "label": "get",
+      "span": {
+        "startLine": 218,
+        "startColumn": 12,
+        "endLine": 218,
+        "endColumn": 36
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_read",
+      "from": "resource:attribute:UserOnboardingFlow.status",
+      "to": "rpc:accomplish_task_2",
+      "label": "get",
+      "span": {
+        "startLine": 225,
+        "startColumn": 12,
+        "endLine": 225,
+        "endColumn": 36
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "resource_read",
+      "from": "resource:attribute:UserOnboardingFlow.status",
+      "to": "rpc:verify",
+      "label": "get",
+      "span": {
+        "startLine": 211,
+        "startColumn": 12,
+        "endLine": 211,
+        "endColumn": 36
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "resource_read",
+      "from": "resource:channel:UserOnboardingFlow.task_1_completed",
+      "to": "step:AccomplishTask1",
+      "label": "results",
+      "span": {
+        "startLine": 97,
+        "startColumn": 12,
+        "endLine": 97,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "wait_condition",
+      "from": "resource:channel:UserOnboardingFlow.task_1_completed",
+      "to": "wait:AccomplishTask1:90:16:0",
+      "label": "Task1Completed.for 1",
+      "span": {
+        "startLine": 92,
+        "startColumn": 13,
+        "endLine": 92,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "resource_read",
+      "from": "resource:channel:UserOnboardingFlow.task_2_completed",
+      "to": "step:AccomplishTask2",
+      "label": "results",
+      "span": {
+        "startLine": 134,
+        "startColumn": 12,
+        "endLine": 134,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "wait_condition",
+      "from": "resource:channel:UserOnboardingFlow.task_2_completed",
+      "to": "wait:AccomplishTask2:127:16:0",
+      "label": "Task2Completed.for 1",
+      "span": {
+        "startLine": 129,
+        "startColumn": 13,
+        "endLine": 129,
+        "endColumn": 44
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "resource_read",
+      "from": "resource:channel:UserOnboardingFlow.verify_email",
+      "to": "step:VerifyEmail",
+      "label": "results",
+      "span": {
+        "startLine": 60,
+        "startColumn": 12,
+        "endLine": 60,
+        "endColumn": 46
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "wait_condition",
+      "from": "resource:channel:UserOnboardingFlow.verify_email",
+      "to": "wait:VerifyEmail:53:16:0",
+      "label": "VerifyEmail.for 1",
+      "span": {
+        "startLine": 55,
+        "startColumn": 13,
+        "endLine": 55,
+        "endColumn": 40
+      }
+    },
+    {
+      "id": "edge:0019",
+      "kind": "resource_publish",
+      "from": "rpc:accomplish_task_1",
+      "to": "resource:channel:UserOnboardingFlow.task_1_completed",
+      "label": "publish",
+      "span": {
+        "startLine": 220,
+        "startColumn": 9,
+        "endLine": 220,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_publish",
+      "from": "rpc:accomplish_task_2",
+      "to": "resource:channel:UserOnboardingFlow.task_2_completed",
+      "label": "publish",
+      "span": {
+        "startLine": 227,
+        "startColumn": 9,
+        "endLine": 227,
+        "endColumn": 53
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "resource_publish",
+      "from": "rpc:verify",
+      "to": "resource:channel:UserOnboardingFlow.verify_email",
+      "label": "publish",
+      "span": {
+        "startLine": 213,
+        "startColumn": 9,
+        "endLine": 213,
+        "endColumn": 49
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    },
+    {
+      "id": "edge:0022",
+      "kind": "resource_write",
+      "from": "step:AccomplishTask1",
+      "to": "resource:attribute:UserOnboardingFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 89,
+        "startColumn": 9,
+        "endLine": 89,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0023",
+      "kind": "resource_write",
+      "from": "step:AccomplishTask2",
+      "to": "resource:attribute:UserOnboardingFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 135,
+        "startColumn": 13,
+        "endLine": 135,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "resource_write",
+      "from": "step:AccomplishTask2",
+      "to": "resource:attribute:UserOnboardingFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 126,
+        "startColumn": 9,
+        "endLine": 126,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0025",
+      "kind": "resource_write",
+      "from": "step:Submit",
+      "to": "resource:attribute:UserOnboardingFlow.form",
+      "label": "set",
+      "span": {
+        "startLine": 164,
+        "startColumn": 9,
+        "endLine": 164,
+        "endColumn": 38
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0026",
+      "kind": "resource_write",
+      "from": "step:VerifyEmail",
+      "to": "resource:attribute:UserOnboardingFlow.status",
+      "label": "set",
+      "span": {
+        "startLine": 52,
+        "startColumn": 9,
+        "endLine": 52,
+        "endColumn": 61
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    }
+  ],
+  "diagnostics": []
+}

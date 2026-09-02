@@ -2,11 +2,13 @@
 title: Await Parallel Steps
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-await.json';
+
 # Await Parallel Steps
 
 Wait for every dynamically started Step before finishing the Flow.
 
-![AwaitParallelStepsFlow](/img/design-patterns/parallel-await-steps-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** starts **DoWorkStep** executions and **AwaitStep** together. Each worker sleeps for a random short duration, then publishes one message to **CompleteCh**. **AwaitStep** uses **WaitFor** for the required number of messages, then completes only after every branch has finished. Channel messages are durable, so completions published before **AwaitStep** begins waiting still count.
 

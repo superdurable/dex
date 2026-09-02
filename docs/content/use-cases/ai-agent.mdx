@@ -2,11 +2,19 @@
 title: AI Agent
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/ai-agent.json';
+
 # AI Agent
 
 This Python application is a general, long-running AI Agent. It can plan work for review, chat with a user, call trusted MCP tools, wait for approval before external writes, and suspend itself with a durable timer.
 
 Dex owns the conversation state. The Agent rebuilds the model input from durable state for every call, so it does not depend on an LLM provider's conversation API.
+
+## Flow design
+
+This interactive definition graph is generated from the runnable Python Flow.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Durable context
 

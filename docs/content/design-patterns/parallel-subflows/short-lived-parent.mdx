@@ -2,11 +2,13 @@
 title: "Advanced: Short-lived Parent"
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-short-lived.json';
+
 # Advanced: Short-lived Parent
 
 Drain the current workload, then complete the parent without racing new requests.
 
-![Short-lived parent](/img/design-patterns/parallel-subflows-short-lived-parent.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** fills **RequestChannel**, initializes **CurrSubFlowNum**, and starts N workers. **HandleRequestStep.Execute** holds the Attribute lock while incrementing the active SubFlow count. **HandleSubFlowStep.Execute** holds the same lock while decrementing it.
 
@@ -16,8 +18,8 @@ The last active worker uses **ForceCompleteIfChannelsEmpty**. Dex atomically che
 
 <SdkTabs
   examples={{
-    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
-    go: 'examples/go/patterns/parallel-subflows/flows.go',
+    python: 'examples/python/dex_examples/patterns/parallel-subflows/advanced_short_live_parent_flow.py',
+    go: 'examples/go/patterns/parallel-subflows/advanced_short_live_parent_flow.go',
     java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/AdvancedShortLiveParentFlow.java',
     typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
     rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',
@@ -196,7 +198,12 @@ func (shortLiveInitStep) Execute(ctx dex.Context, input ParentInput) (*dex.StepD
 	if err := CurrSubFlowNum.Set(ctx, 0); err != nil {
 		return nil, err
 	}
-	return dex.GoToMany(shortLiveWorkerMovements(concurrency(input.Concurrency))...), nil
+	count := concurrency(input.Concurrency)
+	movements := make([]dex.StepMovement, 0, count)
+	for index := 0; index < count; index++ {
+		movements = append(movements, dex.MovementOf(shortLiveHandleRequestStep{}, nil))
+	}
+	return dex.GoToMany(movements...), nil
 }
 
 type shortLiveHandleRequestStep struct{ dex.StepDefaults }
@@ -260,13 +267,6 @@ func (shortLiveHandleSubFlowStep) Execute(ctx dex.Context, _ string) (*dex.StepD
 	return dex.GoTo(shortLiveHandleRequestStep{}, nil), nil
 }
 
-func shortLiveWorkerMovements(count int) []dex.StepMovement {
-	movements := make([]dex.StepMovement, 0, count)
-	for index := 0; index < count; index++ {
-		movements = append(movements, dex.MovementOf(shortLiveHandleRequestStep{}, nil))
-	}
-	return movements
-}
 ```
 
 </SdkSnippet>

@@ -2,6 +2,8 @@
 title: Microservice orchestration
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/microservice-orchestration.json';
+
 # Microservice orchestration
 
 Coordinate concurrent service calls, accept an in-flight state update, and finish through an external event or a timeout fallback.
@@ -31,6 +33,10 @@ Potential failures include:
 The examples use local dependency stubs. Production adapters should add timeouts, idempotency keys, and the retry or recovery policy appropriate for each API.
 
 ## Flow design
+
+This interactive definition graph is generated from the runnable Python Flow.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 The Flow has one fan-out point and two ways to finish:
 

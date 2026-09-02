@@ -2,6 +2,8 @@
 title: 转账
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/money-transfer.json';
+
 # 转账
 
 在两个账户之间转移资金，并确保下游操作失败时不会留下不完整的借记或贷记。
@@ -28,6 +30,10 @@ Rust 示例用正数金额模拟余额检查，并把账务副作用记录为事
 依赖服务调用必须具备幂等性。远端系统可能已经提交调用，但 Dex 尚未记录结果，此时 Worker 会再次执行调用。
 
 ## Flow 设计
+
+这个交互式 definition graph 由可运行的 Python Flow 生成。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 这个 Flow 是一个顺序 saga：
 

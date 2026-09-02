@@ -3,6 +3,8 @@ title: 可中断执行
 sidebar_label: Interruptible execution
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/interruptible.json';
+
 # 可中断执行
 
 在收到 durable 中断信号后，安全地停止长时间工作。
@@ -11,7 +13,7 @@ sidebar_label: Interruptible execution
 
 **InterruptibleFlow** 会并行启动 **WorkAStep** 和 **WorkBStep**。每个 Step 会在安排下一项工作前检查 durable 的 **interruptSignal**。**interrupt** RPC 写入该信号，使任一分支都能优雅地完成 Flow。
 
-![InterruptibleFlow 图](/img/design-patterns/interruptible-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## 核心实现
 

@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/parallel-subflows/submit_request_flow.py"
+  },
+  "flow": {
+    "name": "SubmitRequestFlow",
+    "startStepId": "step:SubmitStep",
+    "span": {
+      "startLine": 89,
+      "startColumn": 1,
+      "endLine": 98,
+      "endColumn": 48
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:SubmitStep:60:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:SubmitStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 60,
+        "startColumn": 16,
+        "endLine": 60,
+        "endColumn": 44
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "step:SubmitStep",
+      "kind": "step",
+      "name": "SubmitStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 98,
+        "startColumn": 36,
+        "endLine": 98,
+        "endColumn": 47
+      }
+    }
+  ],
+  "edges": [],
+  "diagnostics": []
+}

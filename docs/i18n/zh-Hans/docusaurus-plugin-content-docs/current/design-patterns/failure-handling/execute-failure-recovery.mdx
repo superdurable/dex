@@ -2,11 +2,13 @@
 title: Execute Failure Recovery
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/execute-failure-recovery.json';
+
 # Execute Failure Recovery
 
 当 **Execute** 方法在重试策略耗尽后仍然失败时，自动恢复。
 
-![ExecuteFailureRecoveryFlow](/img/design-patterns/execute-failure-recovery-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **ExecuteFailureRecoveryFlow** 从 **FailingStep** 开始。它的 **Execute** 方法可能失败；重试耗尽后，其 **ExecuteFailure** 策略将 Flow 转到 **RecoveryStep**。**RecoveryStep** 执行补偿操作并完成 Flow。
 

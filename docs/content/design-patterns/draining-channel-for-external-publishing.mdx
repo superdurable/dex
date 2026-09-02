@@ -2,6 +2,8 @@
 title: Drain External Channels
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/draining-external-channel.json';
+
 # Drain External Channels
 
 Process externally published Channel messages, then close the short-lived Flow when its queue is empty.
@@ -16,10 +18,7 @@ Only one Step may consume a Channel checked by **ForceCompleteIfChannelsEmpty**.
 
 ## Step graph
 
-<img
-  alt="Draining external Channel publishing Flow definition with Queue Channel, Example RPC, WaitForScheduleStep, and ForceCompleteIfChannelsEmpty"
-  src="/img/design-patterns/draining-external-channel-publishing.png"
-/>
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Core implementation
 

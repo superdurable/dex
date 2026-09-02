@@ -1,0 +1,387 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/interruptible/interruptible_execution_flow.py"
+  },
+  "flow": {
+    "name": "InterruptibleFlow",
+    "startStepId": "step:Init",
+    "span": {
+      "startLine": 122,
+      "startColumn": 1,
+      "endLine": 147,
+      "endColumn": 60
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:WorkAStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:WorkAStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 50,
+        "startColumn": 5,
+        "endLine": 70,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "decision-dispatch:step:WorkBStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:WorkBStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 80,
+        "startColumn": 5,
+        "endLine": 100,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "decision:step:Init:116:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:Init",
+      "phase": "execute",
+      "span": {
+        "startLine": 116,
+        "startColumn": 16,
+        "endLine": 119,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "decision:step:WorkAStep:57:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:WorkAStep",
+      "condition": "(self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE",
+      "phase": "execute",
+      "span": {
+        "startLine": 57,
+        "startColumn": 20,
+        "endLine": 57,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:WorkAStep:61:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:WorkAStep",
+      "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and input.progress \u003e input.job_upper_bound",
+      "phase": "execute",
+      "span": {
+        "startLine": 61,
+        "startColumn": 20,
+        "endLine": 61,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:WorkAStep:67:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:WorkAStep",
+      "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and not (input.progress \u003e input.job_upper_bound)",
+      "phase": "execute",
+      "span": {
+        "startLine": 67,
+        "startColumn": 16,
+        "endLine": 70,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:WorkBStep:87:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:WorkBStep",
+      "condition": "(self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE",
+      "phase": "execute",
+      "span": {
+        "startLine": 87,
+        "startColumn": 20,
+        "endLine": 87,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:WorkBStep:91:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:WorkBStep",
+      "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and input.progress \u003e input.job_upper_bound",
+      "phase": "execute",
+      "span": {
+        "startLine": 91,
+        "startColumn": 20,
+        "endLine": 91,
+        "endColumn": 39
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:WorkBStep:97:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:WorkBStep",
+      "condition": "not ((self.interrupt_signal.get(context) or '') == INTERRUPT_VALUE) and not (input.progress \u003e input.job_upper_bound)",
+      "phase": "execute",
+      "span": {
+        "startLine": 97,
+        "startColumn": 16,
+        "endLine": 100,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:InterruptibleFlow.interrupt_signal",
+      "kind": "attribute",
+      "name": "interruptSignal",
+      "span": {
+        "startLine": 125,
+        "startColumn": 5,
+        "endLine": 125,
+        "endColumn": 59
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:interrupt",
+      "kind": "rpc",
+      "name": "interrupt",
+      "span": {
+        "startLine": 146,
+        "startColumn": 5,
+        "endLine": 147,
+        "endColumn": 60
+      }
+    },
+    {
+      "id": "step:Init",
+      "kind": "step",
+      "name": "Init",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 137,
+        "startColumn": 36,
+        "endLine": 137,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "step:WorkAStep",
+      "kind": "step",
+      "name": "WorkAStep",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 138,
+        "startColumn": 13,
+        "endLine": 138,
+        "endColumn": 29
+      }
+    },
+    {
+      "id": "step:WorkBStep",
+      "kind": "step",
+      "name": "WorkBStep",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 139,
+        "startColumn": 13,
+        "endLine": 139,
+        "endColumn": 29
+      }
+    },
+    {
+      "id": "wait:WorkAStep:48:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:WorkAStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 48,
+        "startColumn": 16,
+        "endLine": 48,
+        "endColumn": 67
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "2 seconds timer",
+            "expression": "timedelta(seconds=2)",
+            "span": {
+              "startLine": 48,
+              "startColumn": 27,
+              "endLine": 48,
+              "endColumn": 66
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:WorkBStep:78:16:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:WorkBStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 78,
+        "startColumn": 16,
+        "endLine": 78,
+        "endColumn": 67
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "3 seconds timer",
+            "expression": "timedelta(seconds=3)",
+            "span": {
+              "startLine": 78,
+              "startColumn": 27,
+              "endLine": 78,
+              "endColumn": 66
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:Init:116:16",
+      "to": "step:WorkAStep",
+      "label": "fan-out",
+      "span": {
+        "startLine": 117,
+        "startColumn": 13,
+        "endLine": 117,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:Init:116:16",
+      "to": "step:WorkBStep",
+      "label": "fan-out",
+      "span": {
+        "startLine": 118,
+        "startColumn": 13,
+        "endLine": 118,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:WorkAStep:67:16",
+      "to": "step:WorkAStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 67,
+        "startColumn": 16,
+        "endLine": 70,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:WorkBStep:97:16",
+      "to": "step:WorkBStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 97,
+        "startColumn": 16,
+        "endLine": 100,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "resource_read",
+      "from": "resource:attribute:InterruptibleFlow.interrupt_signal",
+      "to": "step:WorkAStep",
+      "label": "get",
+      "span": {
+        "startLine": 55,
+        "startColumn": 13,
+        "endLine": 55,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "resource_read",
+      "from": "resource:attribute:InterruptibleFlow.interrupt_signal",
+      "to": "step:WorkBStep",
+      "label": "get",
+      "span": {
+        "startLine": 85,
+        "startColumn": 13,
+        "endLine": 85,
+        "endColumn": 47
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_write",
+      "from": "rpc:interrupt",
+      "to": "resource:attribute:InterruptibleFlow.interrupt_signal",
+      "label": "set",
+      "span": {
+        "startLine": 147,
+        "startColumn": 9,
+        "endLine": 147,
+        "endColumn": 60
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,374 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/cron/cron_schedule_flow.py"
+  },
+  "flow": {
+    "name": "CronScheduleFlow",
+    "startStepId": "step:_Start",
+    "span": {
+      "startLine": 137,
+      "startColumn": 1,
+      "endLine": 149,
+      "endColumn": 61
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:_Run",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:_Run",
+      "phase": "execute",
+      "span": {
+        "startLine": 132,
+        "startColumn": 5,
+        "endLine": 134,
+        "endColumn": 69
+      }
+    },
+    {
+      "id": "decision-dispatch:step:_Start",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:_Start",
+      "phase": "execute",
+      "span": {
+        "startLine": 82,
+        "startColumn": 5,
+        "endLine": 87,
+        "endColumn": 88
+      }
+    },
+    {
+      "id": "decision-dispatch:step:_WaitForSchedule",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:_WaitForSchedule",
+      "phase": "execute",
+      "span": {
+        "startLine": 106,
+        "startColumn": 5,
+        "endLine": 121,
+        "endColumn": 10
+      }
+    },
+    {
+      "id": "decision:step:_Run:134:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:_Run",
+      "condition": "input.is_final",
+      "phase": "execute",
+      "span": {
+        "startLine": 134,
+        "startColumn": 16,
+        "endLine": 134,
+        "endColumn": 35
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:_Run:134:59",
+      "kind": "decision",
+      "name": "deadEnd",
+      "parentId": "step:_Run",
+      "condition": "not (input.is_final)",
+      "phase": "execute",
+      "span": {
+        "startLine": 134,
+        "startColumn": 59,
+        "endLine": 134,
+        "endColumn": 69
+      },
+      "decision": {
+        "type": "deadEnd"
+      }
+    },
+    {
+      "id": "decision:step:_Start:86:20",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:_Start",
+      "condition": "input.run_count \u003c= 0 or input.interval.value \u003c= 0",
+      "phase": "execute",
+      "span": {
+        "startLine": 86,
+        "startColumn": 20,
+        "endLine": 86,
+        "endColumn": 79
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:_Start:87:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:_Start",
+      "condition": "not (input.run_count \u003c= 0 or input.interval.value \u003c= 0)",
+      "phase": "execute",
+      "span": {
+        "startLine": 87,
+        "startColumn": 16,
+        "endLine": 87,
+        "endColumn": 88
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:_WaitForSchedule:114:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:_WaitForSchedule",
+      "condition": "run_input.is_final",
+      "phase": "execute",
+      "span": {
+        "startLine": 114,
+        "startColumn": 20,
+        "endLine": 114,
+        "endColumn": 42
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:_WaitForSchedule:115:16",
+      "kind": "decision",
+      "name": "goToMany",
+      "parentId": "step:_WaitForSchedule",
+      "condition": "not (run_input.is_final)",
+      "phase": "execute",
+      "span": {
+        "startLine": 115,
+        "startColumn": 16,
+        "endLine": 121,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "goToMany"
+      }
+    },
+    {
+      "id": "resource:channel:CronScheduleFlow.skip",
+      "kind": "channel",
+      "name": "cron-schedule-skip",
+      "span": {
+        "startLine": 140,
+        "startColumn": 9,
+        "endLine": 140,
+        "endColumn": 68
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "resource:channel:CronScheduleFlow.trigger",
+      "kind": "channel",
+      "name": "cron-schedule-trigger",
+      "span": {
+        "startLine": 139,
+        "startColumn": 9,
+        "endLine": 139,
+        "endColumn": 74
+      },
+      "resource": {
+        "valueType": "None"
+      }
+    },
+    {
+      "id": "step:_Run",
+      "kind": "step",
+      "name": "_Run",
+      "phase": "execute",
+      "span": {
+        "startLine": 146,
+        "startColumn": 75,
+        "endLine": 146,
+        "endColumn": 83
+      }
+    },
+    {
+      "id": "step:_Start",
+      "kind": "step",
+      "name": "_Start",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 146,
+        "startColumn": 36,
+        "endLine": 146,
+        "endColumn": 46
+      }
+    },
+    {
+      "id": "step:_WaitForSchedule",
+      "kind": "step",
+      "name": "_WaitForSchedule",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 146,
+        "startColumn": 60,
+        "endLine": 146,
+        "endColumn": 73
+      }
+    },
+    {
+      "id": "wait:_WaitForSchedule:100:16:0",
+      "kind": "wait",
+      "name": "anyOf",
+      "parentId": "step:_WaitForSchedule",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 100,
+        "startColumn": 16,
+        "endLine": 104,
+        "endColumn": 10
+      },
+      "wait": {
+        "type": "anyOf",
+        "conditions": [
+          {
+            "kind": "timer",
+            "label": "state.interval.duration() timer",
+            "expression": "state.interval.duration()",
+            "span": {
+              "startLine": 101,
+              "startColumn": 13,
+              "endLine": 101,
+              "endColumn": 57
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "cron-schedule-trigger.for 1",
+            "resourceId": "resource:channel:CronScheduleFlow.trigger",
+            "span": {
+              "startLine": 102,
+              "startColumn": 13,
+              "endLine": 102,
+              "endColumn": 35
+            }
+          },
+          {
+            "kind": "channel",
+            "label": "cron-schedule-skip.for 1",
+            "resourceId": "resource:channel:CronScheduleFlow.skip",
+            "span": {
+              "startLine": 103,
+              "startColumn": 13,
+              "endLine": 103,
+              "endColumn": 32
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:_Start:87:16",
+      "to": "step:_WaitForSchedule",
+      "label": "go_to",
+      "span": {
+        "startLine": 87,
+        "startColumn": 16,
+        "endLine": 87,
+        "endColumn": 88
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:_WaitForSchedule:114:20",
+      "to": "step:_Run",
+      "label": "go_to",
+      "span": {
+        "startLine": 114,
+        "startColumn": 20,
+        "endLine": 114,
+        "endColumn": 42
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:_WaitForSchedule:115:16",
+      "to": "step:_Run",
+      "label": "fan-out",
+      "span": {
+        "startLine": 116,
+        "startColumn": 13,
+        "endLine": 116,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:_WaitForSchedule:115:16",
+      "to": "step:_WaitForSchedule",
+      "label": "fan-out",
+      "span": {
+        "startLine": 117,
+        "startColumn": 13,
+        "endLine": 120,
+        "endColumn": 14
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "resource_read",
+      "from": "resource:channel:CronScheduleFlow.skip",
+      "to": "step:_WaitForSchedule",
+      "label": "results",
+      "span": {
+        "startLine": 107,
+        "startColumn": 12,
+        "endLine": 107,
+        "endColumn": 38
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "wait_condition",
+      "from": "resource:channel:CronScheduleFlow.skip",
+      "to": "wait:_WaitForSchedule:100:16:0",
+      "label": "cron-schedule-skip.for 1",
+      "span": {
+        "startLine": 103,
+        "startColumn": 13,
+        "endLine": 103,
+        "endColumn": 32
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "wait_condition",
+      "from": "resource:channel:CronScheduleFlow.trigger",
+      "to": "wait:_WaitForSchedule:100:16:0",
+      "label": "cron-schedule-trigger.for 1",
+      "span": {
+        "startLine": 102,
+        "startColumn": 13,
+        "endLine": 102,
+        "endColumn": 35
+      }
+    }
+  ],
+  "diagnostics": []
+}

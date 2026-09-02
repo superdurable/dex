@@ -3,11 +3,19 @@ title: AI Agent
 sidebar_label: AI Agent
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/ai-agent.json';
+
 # AI Agent
 
 这个 Python application 是一个长期运行的通用 AI Agent。它可以先制定计划供用户审阅，也可以与用户聊天、调用受信任的 MCP tool、在修改外部系统前等待审批，并通过 durable Timer 暂停。
 
 会话状态由 Dex 管理。Agent 每次调用模型时都会从 durable state 重新构造输入，因此不依赖 LLM provider 的 conversation API。
+
+## Flow 设计
+
+这个交互式 definition graph 由可运行的 Python Flow 生成。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## Durable context
 

@@ -25,10 +25,10 @@ from dex_examples.patterns.entity_store.user_profile import (
     UserProfileMetadata,
 )
 from dex_examples.patterns.entity_store.user_profile_flow import STORE_NAME
-from dex_examples.patterns.parallel_subflows.flows import (
+from dex_examples.patterns.parallel_subflows.advanced_long_live_parent_flow import (
     AdvancedLongLiveParentFlow,
-    ParentInput,
 )
+from dex_examples.patterns.parallel_subflows.models import ParentInput
 from dex_examples.patterns.recovery.failure_recovery_workflow_input import (
     FailureRecoveryWorkflowInput,
 )

@@ -3,9 +3,11 @@ title: 静态并行 Step
 sidebar_label: Static Parallel Steps
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-static.json';
+
 # 静态并行 Step
 
-![StaticParallelStepsFlow](/img/design-patterns/parallel-static-steps-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** 同时为 **WorkAStep** 和 **WorkBStep** 返回 movement。两个 Step 独立完成，适用于分支职责和输入类型都已知的场景。
 

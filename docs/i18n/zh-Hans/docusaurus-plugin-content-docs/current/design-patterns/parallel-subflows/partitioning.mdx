@@ -2,11 +2,13 @@
 title: "高级：多父 Flow 分区"
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-submit-request.json';
+
 # 高级：多父 Flow 分区
 
 将请求路由到多个父 Flow ID，使活跃 SubFlow 总数能够超过单个父 Flow 的并发限制。
 
-![多父 Flow 分区](/img/design-patterns/parallel-subflows-partitioning.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 使用稳定的分区键，例如请求 ID 哈希对父 Flow 数量取模。相同键的请求始终到达同一个父 Flow。每个父 Flow 独立执行 Channel 缓冲区和 SubFlow 并发限制，因此增加父 Flow 数量即可提高总容量，而不会让单个 Flow execution 无界增长。
 
@@ -18,8 +20,8 @@ title: "高级：多父 Flow 分区"
 
 <SdkTabs
   examples={{
-    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
-    go: 'examples/go/patterns/parallel-subflows/flows.go',
+    python: 'examples/python/dex_examples/patterns/parallel-subflows/submit_request_flow.py',
+    go: 'examples/go/patterns/parallel-subflows/submit_request_flow.go',
     java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/SubmitRequestFlow.java',
     typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
     rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',
@@ -65,9 +67,12 @@ func enqueueRequest(ctx context.Context, client *dex.Client, parentFlow *Advance
 }
 
 func partition(request string, partitions int) int {
-	hash := fnv.New32a()
-	_, _ = hash.Write([]byte(request))
-	return int(hash.Sum32()) % partitions
+	hash := uint32(2_166_136_261)
+	for _, value := range []byte(request) {
+		hash ^= uint32(value)
+		hash *= 16_777_619
+	}
+	return int(hash) % partitions
 }
 ```
 

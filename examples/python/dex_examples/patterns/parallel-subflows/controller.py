@@ -18,7 +18,7 @@ from quart import Blueprint
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
-from dex_examples.patterns.parallel_subflows.flows import (
+from dex_examples.patterns.parallel_subflows.models import (
     ParentInput,
     SubmitRequestInput,
 )

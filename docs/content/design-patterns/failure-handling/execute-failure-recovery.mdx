@@ -2,11 +2,13 @@
 title: Execute Failure Recovery
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/execute-failure-recovery.json';
+
 # Execute Failure Recovery
 
 Recover automatically when an **Execute** method still fails after its retry policy is exhausted.
 
-![ExecuteFailureRecoveryFlow](/img/design-patterns/execute-failure-recovery-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **ExecuteFailureRecoveryFlow** starts **FailingStep**. Its **Execute** method can fail, and its **ExecuteFailure** policy sends the Flow to **RecoveryStep** after retries are exhausted. **RecoveryStep** performs the compensating action and completes the Flow.
 

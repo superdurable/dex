@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/primitives/proceed_on_wait_failure/proceed_on_wait_failure_flow.py"
+  },
+  "flow": {
+    "name": "ProceedOnWaitFailureFlow",
+    "startStepId": "step:FailingWaitStep",
+    "span": {
+      "startLine": 58,
+      "startColumn": 1,
+      "endLine": 64,
+      "endColumn": 79
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:FailingWaitStep:55:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:FailingWaitStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 55,
+        "startColumn": 16,
+        "endLine": 55,
+        "endColumn": 55
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:FinishStep:36:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:FinishStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 36,
+        "startColumn": 16,
+        "endLine": 36,
+        "endColumn": 40
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "step:FailingWaitStep",
+      "kind": "step",
+      "name": "FailingWaitStep",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 64,
+        "startColumn": 36,
+        "endLine": 64,
+        "endColumn": 53
+      }
+    },
+    {
+      "id": "step:FinishStep",
+      "kind": "step",
+      "name": "FinishStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 64,
+        "startColumn": 67,
+        "endLine": 64,
+        "endColumn": 78
+      }
+    },
+    {
+      "id": "wait:FailingWaitStep:49:5:0",
+      "kind": "wait",
+      "name": "failure",
+      "parentId": "step:FailingWaitStep",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 49,
+        "startColumn": 5,
+        "endLine": 50,
+        "endColumn": 54
+      },
+      "wait": {
+        "type": "failure",
+        "conditions": []
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:FailingWaitStep:55:16",
+      "to": "step:FinishStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 55,
+        "startColumn": 16,
+        "endLine": 55,
+        "endColumn": 55
+      }
+    }
+  ],
+  "diagnostics": []
+}

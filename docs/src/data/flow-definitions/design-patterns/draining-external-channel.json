@@ -1,0 +1,215 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/drain-channels/external_publishing/draining_channel_flow.py"
+  },
+  "flow": {
+    "name": "DrainingExternalChannelFlow",
+    "startStepId": "step:ProcessMessage",
+    "span": {
+      "startLine": 71,
+      "startColumn": 1,
+      "endLine": 88,
+      "endColumn": 32
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:rpc:example_rpc:88:16",
+      "kind": "decision",
+      "name": "rpcResult",
+      "parentId": "rpc:example_rpc",
+      "phase": "rpc",
+      "span": {
+        "startLine": 88,
+        "startColumn": 16,
+        "endLine": 88,
+        "endColumn": 32
+      },
+      "decision": {
+        "type": "rpcResult"
+      }
+    },
+    {
+      "id": "decision:step:ProcessMessage:64:16",
+      "kind": "decision",
+      "name": "forceCompleteIfChannelsEmpty",
+      "parentId": "step:ProcessMessage",
+      "phase": "execute",
+      "span": {
+        "startLine": 64,
+        "startColumn": 16,
+        "endLine": 68,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "forceCompleteIfChannelsEmpty",
+        "checkedChannels": [
+          "resource:channel:DrainingExternalChannelFlow.queue_channel"
+        ]
+      }
+    },
+    {
+      "id": "resource:channel:DrainingExternalChannelFlow.queue_channel",
+      "kind": "channel",
+      "name": "queueChannel",
+      "span": {
+        "startLine": 74,
+        "startColumn": 5,
+        "endLine": 74,
+        "endColumn": 48
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "rpc:example_rpc",
+      "kind": "rpc",
+      "name": "example_rpc",
+      "span": {
+        "startLine": 86,
+        "startColumn": 5,
+        "endLine": 88,
+        "endColumn": 32
+      }
+    },
+    {
+      "id": "step:ProcessMessage",
+      "kind": "step",
+      "name": "ProcessMessage",
+      "phase": "wait_for+execute",
+      "start": true,
+      "span": {
+        "startLine": 80,
+        "startColumn": 36,
+        "endLine": 80,
+        "endColumn": 56
+      }
+    },
+    {
+      "id": "wait-dispatch:ProcessMessage",
+      "kind": "wait_dispatch",
+      "name": "WaitFor",
+      "parentId": "step:ProcessMessage",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 42,
+        "startColumn": 5,
+        "endLine": 45,
+        "endColumn": 39
+      }
+    },
+    {
+      "id": "wait:ProcessMessage:44:20:0",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:ProcessMessage",
+      "condition": "input is None",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 44,
+        "startColumn": 20,
+        "endLine": 44,
+        "endColumn": 60
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "queueChannel.for 1",
+            "resourceId": "resource:channel:DrainingExternalChannelFlow.queue_channel",
+            "span": {
+              "startLine": 44,
+              "startColumn": 31,
+              "endLine": 44,
+              "endColumn": 59
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:ProcessMessage:45:16:1",
+      "kind": "wait",
+      "name": "skipWaitImmediately",
+      "parentId": "step:ProcessMessage",
+      "condition": "not (input is None)",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 45,
+        "startColumn": 16,
+        "endLine": 45,
+        "endColumn": 39
+      },
+      "wait": {
+        "type": "skipWaitImmediately",
+        "conditions": []
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:ProcessMessage:64:16",
+      "to": "step:ProcessMessage",
+      "label": "fan-out",
+      "span": {
+        "startLine": 66,
+        "startColumn": 13,
+        "endLine": 66,
+        "endColumn": 50
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "resource_read",
+      "from": "resource:channel:DrainingExternalChannelFlow.queue_channel",
+      "to": "step:ProcessMessage",
+      "label": "results",
+      "span": {
+        "startLine": 53,
+        "startColumn": 22,
+        "endLine": 53,
+        "endColumn": 57
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "wait_condition",
+      "from": "resource:channel:DrainingExternalChannelFlow.queue_channel",
+      "to": "wait:ProcessMessage:44:20:0",
+      "label": "queueChannel.for 1",
+      "span": {
+        "startLine": 44,
+        "startColumn": 31,
+        "endLine": 44,
+        "endColumn": 59
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "resource_publish",
+      "from": "rpc:example_rpc",
+      "to": "resource:channel:DrainingExternalChannelFlow.queue_channel",
+      "label": "publish",
+      "span": {
+        "startLine": 87,
+        "startColumn": 9,
+        "endLine": 87,
+        "endColumn": 51
+      },
+      "metadata": {
+        "phase": "rpc"
+      }
+    }
+  ],
+  "diagnostics": []
+}

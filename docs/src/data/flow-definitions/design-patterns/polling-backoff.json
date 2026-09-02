@@ -1,0 +1,51 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/polling/backoff_polling_flow.py"
+  },
+  "flow": {
+    "name": "BackoffPollingFlow",
+    "startStepId": "step:PollingStep",
+    "span": {
+      "startLine": 63,
+      "startColumn": 1,
+      "endLine": 71,
+      "endColumn": 38
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision:step:PollingStep:60:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:PollingStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 60,
+        "startColumn": 16,
+        "endLine": 60,
+        "endColumn": 41
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "step:PollingStep",
+      "kind": "step",
+      "name": "PollingStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 68,
+        "startColumn": 36,
+        "endLine": 68,
+        "endColumn": 53
+      }
+    }
+  ],
+  "edges": [],
+  "diagnostics": []
+}

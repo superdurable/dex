@@ -2,11 +2,13 @@
 title: WaitFor Failure Recovery
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/wait-for-failure-recovery.json';
+
 # WaitFor Failure Recovery
 
 在 **WaitFor** 耗尽重试策略后进行恢复。
 
-![WaitForFailureRecoveryFlow](/img/design-patterns/wait-for-failure-recovery-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **WaitForFailureRecoveryFlow** 从 **FailingStep** 开始。它的 **WaitFor** 方法返回要等待的间隔，但示例有意让该方法失败。**WaitForRetry** 耗尽后，其 **WaitForFailure** 策略继续到 **FailingStep.Execute**。Execute 从上下文读取等待失败信息，再转到 **RecoveryStep**，后者完成 Flow。
 

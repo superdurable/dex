@@ -2,6 +2,8 @@
 title: User onboarding process
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/user-onboarding-process.json';
+
 # User onboarding process
 
 Guide a new user from account creation through email verification and two required setup tasks.
@@ -31,6 +33,10 @@ Potential failures and exceptional outcomes include:
 The Go, Java, Python, TypeScript, and Rust examples all implement and integration-test the complete verification, task 1, task 2, and completion path.
 
 ## Flow design
+
+This interactive definition graph is generated from the runnable Python Flow.
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 The Flow is a sequential state machine with interruptible waits:
 

@@ -2,11 +2,13 @@
 title: 等待一半完成
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-wait-for-half.json';
+
 # 等待一半完成
 
 启动 N 个 SubFlow，等待其中一半完成，然后停止尚未完成的子 Flow。
 
-![等待一半完成的父 Flow](/img/design-patterns/parallel-subflows-wait-for-half.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 每个子 Flow 都在独立的 **SubFlowStep** execution 中运行。子 Flow 完成后向 **SubFlowCompletedCh** 发布一条消息。**WaitSubFlowsStep** 等待其中一半消息，然后为每个可能尚未完成的子 Flow 发布一条 **AllDoneCh** 消息。
 
@@ -14,7 +16,7 @@ title: 等待一半完成
 
 ## 核心实现
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py', go: 'examples/go/patterns/parallel-subflows/flows.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/WaitForHalfParentFlow.java', typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts', rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/parallel-subflows/wait_for_half_parent_flow.py', go: 'examples/go/patterns/parallel-subflows/wait_for_half_parent_flow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/WaitForHalfParentFlow.java', typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts', rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python

@@ -1,0 +1,287 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/products/money-transfer/money_transfer_flow.py"
+  },
+  "flow": {
+    "name": "MoneyTransferFlow",
+    "startStepId": "step:CheckBalance",
+    "span": {
+      "startLine": 162,
+      "startColumn": 1,
+      "endLine": 183,
+      "endColumn": 38
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:CheckBalance",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:CheckBalance",
+      "phase": "execute",
+      "span": {
+        "startLine": 156,
+        "startColumn": 5,
+        "endLine": 159,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "decision:step:CheckBalance:158:20",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:CheckBalance",
+      "condition": "not self.service.check_balance(input.from_account, input.amount)",
+      "phase": "execute",
+      "span": {
+        "startLine": 158,
+        "startColumn": 20,
+        "endLine": 158,
+        "endColumn": 52
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:CheckBalance:159:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CheckBalance",
+      "condition": "not (not self.service.check_balance(input.from_account, input.amount))",
+      "phase": "execute",
+      "span": {
+        "startLine": 159,
+        "startColumn": 16,
+        "endLine": 159,
+        "endColumn": 45
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Compensate:57:16",
+      "kind": "decision",
+      "name": "forceFail",
+      "parentId": "step:Compensate",
+      "phase": "execute",
+      "span": {
+        "startLine": 57,
+        "startColumn": 16,
+        "endLine": 60,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "forceFail"
+      }
+    },
+    {
+      "id": "decision:step:CreateCreditMemo:106:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CreateCreditMemo",
+      "phase": "execute",
+      "span": {
+        "startLine": 106,
+        "startColumn": 16,
+        "endLine": 106,
+        "endColumn": 36
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:CreateDebitMemo:144:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:CreateDebitMemo",
+      "phase": "execute",
+      "span": {
+        "startLine": 144,
+        "startColumn": 16,
+        "endLine": 144,
+        "endColumn": 35
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:Credit:84:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:Credit",
+      "phase": "execute",
+      "span": {
+        "startLine": 84,
+        "startColumn": 16,
+        "endLine": 87,
+        "endColumn": 10
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:Debit:125:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:Debit",
+      "phase": "execute",
+      "span": {
+        "startLine": 125,
+        "startColumn": 16,
+        "endLine": 125,
+        "endColumn": 46
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "step:CheckBalance",
+      "kind": "step",
+      "name": "CheckBalance",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 174,
+        "startColumn": 36,
+        "endLine": 174,
+        "endColumn": 54
+      }
+    },
+    {
+      "id": "step:Compensate",
+      "kind": "step",
+      "name": "Compensate",
+      "phase": "execute",
+      "span": {
+        "startLine": 179,
+        "startColumn": 13,
+        "endLine": 179,
+        "endColumn": 28
+      }
+    },
+    {
+      "id": "step:CreateCreditMemo",
+      "kind": "step",
+      "name": "CreateCreditMemo",
+      "phase": "execute",
+      "span": {
+        "startLine": 177,
+        "startColumn": 13,
+        "endLine": 177,
+        "endColumn": 36
+      }
+    },
+    {
+      "id": "step:CreateDebitMemo",
+      "kind": "step",
+      "name": "CreateDebitMemo",
+      "phase": "execute",
+      "span": {
+        "startLine": 175,
+        "startColumn": 13,
+        "endLine": 175,
+        "endColumn": 35
+      }
+    },
+    {
+      "id": "step:Credit",
+      "kind": "step",
+      "name": "Credit",
+      "phase": "execute",
+      "span": {
+        "startLine": 178,
+        "startColumn": 13,
+        "endLine": 178,
+        "endColumn": 24
+      }
+    },
+    {
+      "id": "step:Debit",
+      "kind": "step",
+      "name": "Debit",
+      "phase": "execute",
+      "span": {
+        "startLine": 176,
+        "startColumn": 13,
+        "endLine": 176,
+        "endColumn": 23
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:CheckBalance:159:16",
+      "to": "step:CreateDebitMemo",
+      "label": "go_to",
+      "span": {
+        "startLine": 159,
+        "startColumn": 16,
+        "endLine": 159,
+        "endColumn": 45
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:CreateCreditMemo:106:16",
+      "to": "step:Credit",
+      "label": "go_to",
+      "span": {
+        "startLine": 106,
+        "startColumn": 16,
+        "endLine": 106,
+        "endColumn": 36
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:CreateDebitMemo:144:16",
+      "to": "step:Debit",
+      "label": "go_to",
+      "span": {
+        "startLine": 144,
+        "startColumn": 16,
+        "endLine": 144,
+        "endColumn": 35
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:Debit:125:16",
+      "to": "step:CreateCreditMemo",
+      "label": "go_to",
+      "span": {
+        "startLine": 125,
+        "startColumn": 16,
+        "endLine": 125,
+        "endColumn": 46
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "unreachable_step",
+      "message": "Step Compensate is not reachable from the start Step or an RPC",
+      "span": {
+        "startLine": 179,
+        "startColumn": 13,
+        "endLine": 179,
+        "endColumn": 28
+      }
+    }
+  ]
+}

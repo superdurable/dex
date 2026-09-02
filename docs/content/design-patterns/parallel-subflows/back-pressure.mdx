@@ -2,11 +2,13 @@
 title: "Advanced: Back Pressure for High Availability"
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-submit-request.json';
+
 # Advanced: Back Pressure for High Availability
 
 Use a short **SubmitRequestFlow** when the target parent may reject an overloaded request.
 
-![Back pressure for high availability](/img/design-patterns/parallel-subflows-back-pressure.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 The client starts **SubmitRequestFlow** instead of retrying an RPC in memory. **SubmitStep** partitions the request, calls the selected parent's **SendRequest** RPC, and completes only after the parent accepts it. A false response fails the Step, so the normal Step retry policy durably backs off and tries again. The same retry handles parent-start races: **FlowAlreadyStarted** fails **SubmitStep**, and its next execution invokes the RPC on the active parent. If the submitting process or Worker restarts, Dex preserves the retry.
 
@@ -16,8 +18,8 @@ This separates admission from processing: parent Flows remain bounded, while sub
 
 <SdkTabs
   examples={{
-    python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py',
-    go: 'examples/go/patterns/parallel-subflows/flows.go',
+    python: 'examples/python/dex_examples/patterns/parallel-subflows/submit_request_flow.py',
+    go: 'examples/go/patterns/parallel-subflows/submit_request_flow.go',
     java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/SubmitRequestFlow.java',
     typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts',
     rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs',

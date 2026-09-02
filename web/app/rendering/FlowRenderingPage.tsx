@@ -7,9 +7,9 @@
 // SPDX-License-Identifier: LicenseRef-Super-Durable-1.0
 
 import { useEffect, useMemo, useState } from 'react';
+import { FlowDefinitionGraphView } from '@superdurable/flow-definition-renderer';
 import { readResponseJSON } from '@/lib/http';
 import type { FlowDefinitionCatalog } from '@/lib/types';
-import { FlowDefinitionGraphView } from './FlowDefinitionGraph';
 
 export function FlowRenderingPage() {
   const [catalog, setCatalog] = useState<FlowDefinitionCatalog | null>(null);

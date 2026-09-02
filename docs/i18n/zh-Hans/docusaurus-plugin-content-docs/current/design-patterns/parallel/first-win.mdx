@@ -3,9 +3,11 @@ title: 首个获胜的并行 Step
 sidebar_label: First-Win Parallel Steps
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-first-win.json';
+
 # 首个获胜的并行 Step
 
-![FirstWinParallelStepsFlow](/img/design-patterns/parallel-first-win-steps-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** 启动多个 **DoWorkStep** execution。每个 worker 随机等待一小段时间，从而形成真正的竞速。最先返回 decision 的 execution 会取消同类的 sibling execution。Flow 保留第一个结果，并停止已经无法影响结果的工作。
 

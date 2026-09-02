@@ -1,0 +1,826 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/products/deal_dsl/deal_dsl_flow.py"
+  },
+  "flow": {
+    "name": "DealDSLFlow",
+    "startStepId": "step:InitializeDeal",
+    "span": {
+      "startLine": 223,
+      "startColumn": 1,
+      "endLine": 273,
+      "endColumn": 49
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:EvaluateDealTransition",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:EvaluateDealTransition",
+      "phase": "execute",
+      "span": {
+        "startLine": 207,
+        "startColumn": 5,
+        "endLine": 220,
+        "endColumn": 71
+      }
+    },
+    {
+      "id": "decision-dispatch:step:ExecuteDealAction",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:ExecuteDealAction",
+      "phase": "execute",
+      "span": {
+        "startLine": 185,
+        "startColumn": 5,
+        "endLine": 193,
+        "endColumn": 73
+      }
+    },
+    {
+      "id": "decision-dispatch:step:WaitForDealCondition",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:WaitForDealCondition",
+      "phase": "execute",
+      "span": {
+        "startLine": 170,
+        "startColumn": 5,
+        "endLine": 178,
+        "endColumn": 52
+      }
+    },
+    {
+      "id": "decision:step:EvaluateDealTransition:210:20",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:EvaluateDealTransition",
+      "condition": "transition is None",
+      "phase": "execute",
+      "span": {
+        "startLine": 210,
+        "startColumn": 20,
+        "endLine": 210,
+        "endColumn": 72
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:EvaluateDealTransition:220:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:EvaluateDealTransition",
+      "condition": "not (transition is None)",
+      "phase": "execute",
+      "span": {
+        "startLine": 220,
+        "startColumn": 16,
+        "endLine": 220,
+        "endColumn": 71
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ExecuteDealAction:192:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ExecuteDealAction",
+      "condition": "next_index \u003c len(state.actions)",
+      "phase": "execute",
+      "span": {
+        "startLine": 192,
+        "startColumn": 20,
+        "endLine": 192,
+        "endColumn": 85
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:ExecuteDealAction:193:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:ExecuteDealAction",
+      "condition": "not (next_index \u003c len(state.actions))",
+      "phase": "execute",
+      "span": {
+        "startLine": 193,
+        "startColumn": 16,
+        "endLine": 193,
+        "endColumn": 73
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:InitializeDeal:156:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:InitializeDeal",
+      "phase": "execute",
+      "span": {
+        "startLine": 156,
+        "startColumn": 16,
+        "endLine": 156,
+        "endColumn": 85
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:WaitForDealCondition:177:20",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:WaitForDealCondition",
+      "condition": "state.actions",
+      "phase": "execute",
+      "span": {
+        "startLine": 177,
+        "startColumn": 20,
+        "endLine": 177,
+        "endColumn": 76
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "decision:step:WaitForDealCondition:178:16",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:WaitForDealCondition",
+      "condition": "not (state.actions)",
+      "phase": "execute",
+      "span": {
+        "startLine": 178,
+        "startColumn": 16,
+        "endLine": 178,
+        "endColumn": 52
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "resource:attribute:DealDSLFlow.buyer_id",
+      "kind": "attribute",
+      "name": "DealBuyerID",
+      "span": {
+        "startLine": 228,
+        "startColumn": 5,
+        "endLine": 228,
+        "endColumn": 45
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:DealDSLFlow.current_state",
+      "kind": "attribute",
+      "name": "DealCurrentState",
+      "span": {
+        "startLine": 229,
+        "startColumn": 5,
+        "endLine": 229,
+        "endColumn": 55
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:DealDSLFlow.definition",
+      "kind": "attribute",
+      "name": "DealDefinition",
+      "span": {
+        "startLine": 224,
+        "startColumn": 5,
+        "endLine": 224,
+        "endColumn": 61
+      },
+      "resource": {
+        "valueType": "DealDefinition"
+      }
+    },
+    {
+      "id": "resource:attribute:DealDSLFlow.item_id",
+      "kind": "attribute",
+      "name": "DealItemID",
+      "span": {
+        "startLine": 227,
+        "startColumn": 5,
+        "endLine": 227,
+        "endColumn": 43
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:DealDSLFlow.pending_condition",
+      "kind": "attribute",
+      "name": "DealPendingCondition",
+      "span": {
+        "startLine": 230,
+        "startColumn": 5,
+        "endLine": 230,
+        "endColumn": 63
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:DealDSLFlow.process_id",
+      "kind": "attribute",
+      "name": "DealProcessID",
+      "span": {
+        "startLine": 226,
+        "startColumn": 5,
+        "endLine": 226,
+        "endColumn": 49
+      },
+      "resource": {
+        "valueType": "str"
+      }
+    },
+    {
+      "id": "resource:attribute:DealDSLFlow.state_data",
+      "kind": "attribute",
+      "name": "DealStateData",
+      "span": {
+        "startLine": 225,
+        "startColumn": 5,
+        "endLine": 225,
+        "endColumn": 60
+      },
+      "resource": {
+        "valueType": "dict[str, str]"
+      }
+    },
+    {
+      "id": "resource:channel:DealDSLFlow.condition_messages",
+      "kind": "channel",
+      "name": "DealConditionMessages",
+      "span": {
+        "startLine": 231,
+        "startColumn": 5,
+        "endLine": 231,
+        "endColumn": 77
+      },
+      "resource": {
+        "valueType": "dict[str, str]",
+        "map": true
+      }
+    },
+    {
+      "id": "step:EvaluateDealTransition",
+      "kind": "step",
+      "name": "EvaluateDealTransition",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 243,
+        "startColumn": 13,
+        "endLine": 243,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "step:ExecuteDealAction",
+      "kind": "step",
+      "name": "ExecuteDealAction",
+      "phase": "execute",
+      "span": {
+        "startLine": 242,
+        "startColumn": 13,
+        "endLine": 242,
+        "endColumn": 37
+      }
+    },
+    {
+      "id": "step:InitializeDeal",
+      "kind": "step",
+      "name": "InitializeDeal",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 240,
+        "startColumn": 36,
+        "endLine": 240,
+        "endColumn": 51
+      }
+    },
+    {
+      "id": "step:WaitForDealCondition",
+      "kind": "step",
+      "name": "WaitForDealCondition",
+      "phase": "wait_for+execute",
+      "span": {
+        "startLine": 241,
+        "startColumn": 13,
+        "endLine": 241,
+        "endColumn": 36
+      }
+    },
+    {
+      "id": "wait-dispatch:EvaluateDealTransition",
+      "kind": "wait_dispatch",
+      "name": "WaitFor",
+      "parentId": "step:EvaluateDealTransition",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 200,
+        "startColumn": 5,
+        "endLine": 205,
+        "endColumn": 90
+      }
+    },
+    {
+      "id": "wait-dispatch:WaitForDealCondition",
+      "kind": "wait_dispatch",
+      "name": "WaitFor",
+      "parentId": "step:WaitForDealCondition",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 163,
+        "startColumn": 5,
+        "endLine": 168,
+        "endColumn": 90
+      }
+    },
+    {
+      "id": "wait:EvaluateDealTransition:203:20:0",
+      "kind": "wait",
+      "name": "skipWaitImmediately",
+      "parentId": "step:EvaluateDealTransition",
+      "condition": "transition is None or transition.wait_for is None",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 203,
+        "startColumn": 20,
+        "endLine": 203,
+        "endColumn": 43
+      },
+      "wait": {
+        "type": "skipWaitImmediately",
+        "conditions": []
+      }
+    },
+    {
+      "id": "wait:EvaluateDealTransition:205:16:1",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:EvaluateDealTransition",
+      "condition": "not (transition is None or transition.wait_for is None)",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 205,
+        "startColumn": 16,
+        "endLine": 205,
+        "endColumn": 90
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "DealConditionMessages[transition.wait_for.name].for 1",
+            "resourceId": "resource:channel:DealDSLFlow.condition_messages",
+            "expression": "transition.wait_for.name",
+            "span": {
+              "startLine": 205,
+              "startColumn": 27,
+              "endLine": 205,
+              "endColumn": 89
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "wait:WaitForDealCondition:166:20:0",
+      "kind": "wait",
+      "name": "skipWaitImmediately",
+      "parentId": "step:WaitForDealCondition",
+      "condition": "state.pre_condition is None",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 166,
+        "startColumn": 20,
+        "endLine": 166,
+        "endColumn": 43
+      },
+      "wait": {
+        "type": "skipWaitImmediately",
+        "conditions": []
+      }
+    },
+    {
+      "id": "wait:WaitForDealCondition:168:16:1",
+      "kind": "wait",
+      "name": "until",
+      "parentId": "step:WaitForDealCondition",
+      "condition": "not (state.pre_condition is None)",
+      "phase": "wait_for",
+      "span": {
+        "startLine": 168,
+        "startColumn": 16,
+        "endLine": 168,
+        "endColumn": 90
+      },
+      "wait": {
+        "type": "until",
+        "conditions": [
+          {
+            "kind": "channel",
+            "label": "DealConditionMessages[state.pre_condition.name].for 1",
+            "resourceId": "resource:channel:DealDSLFlow.condition_messages",
+            "expression": "state.pre_condition.name",
+            "span": {
+              "startLine": 168,
+              "startColumn": 27,
+              "endLine": 168,
+              "endColumn": 89
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:EvaluateDealTransition:220:16",
+      "to": "step:WaitForDealCondition",
+      "label": "go_to",
+      "span": {
+        "startLine": 220,
+        "startColumn": 16,
+        "endLine": 220,
+        "endColumn": 71
+      }
+    },
+    {
+      "id": "edge:0002",
+      "kind": "transition",
+      "from": "decision:step:ExecuteDealAction:192:20",
+      "to": "step:ExecuteDealAction",
+      "label": "go_to",
+      "span": {
+        "startLine": 192,
+        "startColumn": 20,
+        "endLine": 192,
+        "endColumn": 85
+      }
+    },
+    {
+      "id": "edge:0003",
+      "kind": "transition",
+      "from": "decision:step:ExecuteDealAction:193:16",
+      "to": "step:EvaluateDealTransition",
+      "label": "go_to",
+      "span": {
+        "startLine": 193,
+        "startColumn": 16,
+        "endLine": 193,
+        "endColumn": 73
+      }
+    },
+    {
+      "id": "edge:0004",
+      "kind": "transition",
+      "from": "decision:step:InitializeDeal:156:16",
+      "to": "step:WaitForDealCondition",
+      "label": "go_to",
+      "span": {
+        "startLine": 156,
+        "startColumn": 16,
+        "endLine": 156,
+        "endColumn": 85
+      }
+    },
+    {
+      "id": "edge:0005",
+      "kind": "transition",
+      "from": "decision:step:WaitForDealCondition:177:20",
+      "to": "step:ExecuteDealAction",
+      "label": "go_to",
+      "span": {
+        "startLine": 177,
+        "startColumn": 20,
+        "endLine": 177,
+        "endColumn": 76
+      }
+    },
+    {
+      "id": "edge:0006",
+      "kind": "transition",
+      "from": "decision:step:WaitForDealCondition:178:16",
+      "to": "step:EvaluateDealTransition",
+      "label": "go_to",
+      "span": {
+        "startLine": 178,
+        "startColumn": 16,
+        "endLine": 178,
+        "endColumn": 52
+      }
+    },
+    {
+      "id": "edge:0007",
+      "kind": "resource_read",
+      "from": "resource:attribute:DealDSLFlow.definition",
+      "to": "step:EvaluateDealTransition",
+      "label": "get",
+      "span": {
+        "startLine": 208,
+        "startColumn": 22,
+        "endLine": 208,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0008",
+      "kind": "resource_read",
+      "from": "resource:attribute:DealDSLFlow.definition",
+      "to": "step:EvaluateDealTransition",
+      "label": "get",
+      "span": {
+        "startLine": 201,
+        "startColumn": 22,
+        "endLine": 201,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0009",
+      "kind": "resource_read",
+      "from": "resource:attribute:DealDSLFlow.definition",
+      "to": "step:ExecuteDealAction",
+      "label": "get",
+      "span": {
+        "startLine": 186,
+        "startColumn": 17,
+        "endLine": 186,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0010",
+      "kind": "resource_read",
+      "from": "resource:attribute:DealDSLFlow.definition",
+      "to": "step:WaitForDealCondition",
+      "label": "get",
+      "span": {
+        "startLine": 171,
+        "startColumn": 17,
+        "endLine": 171,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0011",
+      "kind": "resource_read",
+      "from": "resource:attribute:DealDSLFlow.definition",
+      "to": "step:WaitForDealCondition",
+      "label": "get",
+      "span": {
+        "startLine": 164,
+        "startColumn": 17,
+        "endLine": 164,
+        "endColumn": 50
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0012",
+      "kind": "resource_read",
+      "from": "resource:attribute:DealDSLFlow.state_data",
+      "to": "step:EvaluateDealTransition",
+      "label": "get",
+      "span": {
+        "startLine": 214,
+        "startColumn": 22,
+        "endLine": 214,
+        "endColumn": 55
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0013",
+      "kind": "wait_condition",
+      "from": "resource:channel:DealDSLFlow.condition_messages",
+      "to": "wait:EvaluateDealTransition:205:16:1",
+      "label": "DealConditionMessages[transition.wait_for.name].for 1",
+      "span": {
+        "startLine": 205,
+        "startColumn": 27,
+        "endLine": 205,
+        "endColumn": 89
+      }
+    },
+    {
+      "id": "edge:0014",
+      "kind": "wait_condition",
+      "from": "resource:channel:DealDSLFlow.condition_messages",
+      "to": "wait:WaitForDealCondition:168:16:1",
+      "label": "DealConditionMessages[state.pre_condition.name].for 1",
+      "span": {
+        "startLine": 168,
+        "startColumn": 27,
+        "endLine": 168,
+        "endColumn": 89
+      }
+    },
+    {
+      "id": "edge:0015",
+      "kind": "resource_write",
+      "from": "step:EvaluateDealTransition",
+      "to": "resource:attribute:DealDSLFlow.pending_condition",
+      "label": "delete",
+      "span": {
+        "startLine": 213,
+        "startColumn": 13,
+        "endLine": 213,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0016",
+      "kind": "resource_write",
+      "from": "step:EvaluateDealTransition",
+      "to": "resource:attribute:DealDSLFlow.pending_condition",
+      "label": "set",
+      "span": {
+        "startLine": 204,
+        "startColumn": 9,
+        "endLine": 204,
+        "endColumn": 75
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    },
+    {
+      "id": "edge:0017",
+      "kind": "resource_write",
+      "from": "step:InitializeDeal",
+      "to": "resource:attribute:DealDSLFlow.buyer_id",
+      "label": "set",
+      "span": {
+        "startLine": 154,
+        "startColumn": 9,
+        "endLine": 154,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0018",
+      "kind": "resource_write",
+      "from": "step:InitializeDeal",
+      "to": "resource:attribute:DealDSLFlow.definition",
+      "label": "set",
+      "span": {
+        "startLine": 151,
+        "startColumn": 9,
+        "endLine": 151,
+        "endColumn": 54
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0019",
+      "kind": "resource_write",
+      "from": "step:InitializeDeal",
+      "to": "resource:attribute:DealDSLFlow.item_id",
+      "label": "set",
+      "span": {
+        "startLine": 153,
+        "startColumn": 9,
+        "endLine": 153,
+        "endColumn": 59
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0020",
+      "kind": "resource_write",
+      "from": "step:InitializeDeal",
+      "to": "resource:attribute:DealDSLFlow.process_id",
+      "label": "set",
+      "span": {
+        "startLine": 152,
+        "startColumn": 9,
+        "endLine": 152,
+        "endColumn": 65
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0021",
+      "kind": "resource_write",
+      "from": "step:InitializeDeal",
+      "to": "resource:attribute:DealDSLFlow.state_data",
+      "label": "set",
+      "span": {
+        "startLine": 155,
+        "startColumn": 9,
+        "endLine": 155,
+        "endColumn": 79
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0022",
+      "kind": "resource_write",
+      "from": "step:WaitForDealCondition",
+      "to": "resource:attribute:DealDSLFlow.current_state",
+      "label": "set",
+      "span": {
+        "startLine": 175,
+        "startColumn": 9,
+        "endLine": 175,
+        "endColumn": 57
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0023",
+      "kind": "resource_write",
+      "from": "step:WaitForDealCondition",
+      "to": "resource:attribute:DealDSLFlow.pending_condition",
+      "label": "delete",
+      "span": {
+        "startLine": 174,
+        "startColumn": 13,
+        "endLine": 174,
+        "endColumn": 56
+      },
+      "metadata": {
+        "phase": "execute"
+      }
+    },
+    {
+      "id": "edge:0024",
+      "kind": "resource_write",
+      "from": "step:WaitForDealCondition",
+      "to": "resource:attribute:DealDSLFlow.pending_condition",
+      "label": "set",
+      "span": {
+        "startLine": 167,
+        "startColumn": 9,
+        "endLine": 167,
+        "endColumn": 75
+      },
+      "metadata": {
+        "phase": "wait_for"
+      }
+    }
+  ],
+  "diagnostics": []
+}

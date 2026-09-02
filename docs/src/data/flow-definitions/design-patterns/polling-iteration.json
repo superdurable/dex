@@ -1,0 +1,96 @@
+{
+  "schemaVersion": "1.0",
+  "valid": true,
+  "source": {
+    "language": "python",
+    "path": "examples/python/dex_examples/patterns/polling/iteration_flow.py"
+  },
+  "flow": {
+    "name": "IterationFlow",
+    "startStepId": "step:IterationStep",
+    "span": {
+      "startLine": 25,
+      "startColumn": 1,
+      "endLine": 33,
+      "endColumn": 38
+    }
+  },
+  "nodes": [
+    {
+      "id": "decision-dispatch:step:IterationStep",
+      "kind": "decision_dispatch",
+      "name": "Decision",
+      "parentId": "step:IterationStep",
+      "phase": "execute",
+      "span": {
+        "startLine": 19,
+        "startColumn": 5,
+        "endLine": 22,
+        "endColumn": 101
+      }
+    },
+    {
+      "id": "decision:step:IterationStep:22:16",
+      "kind": "decision",
+      "name": "gracefulComplete",
+      "parentId": "step:IterationStep",
+      "condition": "not next_page_token",
+      "phase": "execute",
+      "span": {
+        "startLine": 22,
+        "startColumn": 16,
+        "endLine": 22,
+        "endColumn": 35
+      },
+      "decision": {
+        "type": "gracefulComplete"
+      }
+    },
+    {
+      "id": "decision:step:IterationStep:22:64",
+      "kind": "decision",
+      "name": "goTo",
+      "parentId": "step:IterationStep",
+      "condition": "not (not next_page_token)",
+      "phase": "execute",
+      "span": {
+        "startLine": 22,
+        "startColumn": 64,
+        "endLine": 22,
+        "endColumn": 101
+      },
+      "decision": {
+        "type": "goTo"
+      }
+    },
+    {
+      "id": "step:IterationStep",
+      "kind": "step",
+      "name": "IterationStep",
+      "phase": "execute",
+      "start": true,
+      "span": {
+        "startLine": 30,
+        "startColumn": 36,
+        "endLine": 30,
+        "endColumn": 55
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge:0001",
+      "kind": "transition",
+      "from": "decision:step:IterationStep:22:64",
+      "to": "step:IterationStep",
+      "label": "go_to",
+      "span": {
+        "startLine": 22,
+        "startColumn": 64,
+        "endLine": 22,
+        "endColumn": 101
+      }
+    }
+  ],
+  "diagnostics": []
+}

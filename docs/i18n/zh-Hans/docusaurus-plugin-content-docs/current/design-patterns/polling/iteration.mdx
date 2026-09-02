@@ -2,8 +2,10 @@
 title: Iteration
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/polling-iteration.json';
+
 # Iteration
 
 **IterationFlow** 一页一页地迁移大量数据。**IterationStep** 读取并处理当前页，再将下一页 token 作为下一次 execution 的 input；没有 token 时完成 Flow。这与 Timer polling 的循环结构类似，但循环会携带分页状态。
 
-![IterationFlow](/img/design-patterns/iteration-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />

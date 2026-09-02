@@ -3,9 +3,11 @@ title: 等待并行 Step
 sidebar_label: Await Parallel Steps
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-await.json';
+
 # 等待并行 Step
 
-![AwaitParallelStepsFlow](/img/design-patterns/parallel-await-steps-flow.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **InitStep** 同时启动 **DoWorkStep** 和 **AwaitStep**。每个 worker 随机等待一小段时间，然后向 **CompleteCh** 发布一条消息。**AwaitStep** 等到所需数量的消息后才完成 Flow。Channel 消息是持久化的，因此即使消息先于 **AwaitStep** 开始等待，也仍然会被计入。
 

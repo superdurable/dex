@@ -2,17 +2,19 @@
 title: Basic Parent Flow
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/parallel-subflows-basic.json';
+
 # Basic Parent Flow
 
 Start one SubFlow for each input and wait for every SubFlow to complete.
 
-![Basic parent Flow](/img/design-patterns/parallel-subflows-basic.png)
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 **SubFlowsStep.WaitFor** builds one SubFlow condition per request and combines them with **allOf**. The parent resumes only after all children finish. This is the smallest useful parent–child fan-out when partial completion and cancellation are not required.
 
 ## Core implementation
 
-<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/parallel-subflows/flows.py', go: 'examples/go/patterns/parallel-subflows/flows.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/BasicParentFlow.java', typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts', rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs'}}>
+<SdkTabs examples={{python: 'examples/python/dex_examples/patterns/parallel-subflows/basic_parent_flow.py', go: 'examples/go/patterns/parallel-subflows/basic_parent_flow.go', java: 'examples/java/src/main/java/io/superdurable/dex/patterns/parallelsubflows/BasicParentFlow.java', typescript: 'examples/typescript/src/patterns/parallel-subflows/parallel-subflows.ts', rust: 'examples/rust/src/patterns/parallel_subflows/flow.rs'}}>
 <SdkSnippet lang="python">
 
 ```python

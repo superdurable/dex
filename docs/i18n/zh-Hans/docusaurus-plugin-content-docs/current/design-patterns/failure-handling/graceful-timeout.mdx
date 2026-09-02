@@ -2,11 +2,15 @@
 title: Graceful Timeout
 ---
 
+import flowDefinition from '@site/src/data/flow-definitions/design-patterns/graceful-timeout.json';
+
 # Graceful Timeout
 
 当整个 Flow 的截止时间需要应用代码处理时，使用 Dex 内置的 graceful timeout。超时属于 Flow execution，而不是与业务 Step 竞争的另一个 Step。
 
 **FlowGracefulTimeout** 启动 **LongWaitStep**。**StartFlowOptions** 中的正超时会使用 Flow 的 timeout handler。持久化截止时间到达后，Dex 调用一次 **handleTimeout**，并使用普通 Execute 语义应用其决策。
+
+<DocsFlowDefinitionGraph graph={flowDefinition} />
 
 ## 核心实现
 

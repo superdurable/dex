@@ -7,6 +7,7 @@
  * See LICENSE and LEGACY_NOTICES.md.
  */
 
+import {fileURLToPath} from 'node:url';
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
@@ -103,6 +104,26 @@ const config: Config = {
         },
       } satisfies Preset.Options,
     ],
+  ],
+
+  plugins: [
+    () => ({
+      name: 'local-flow-definition-renderer',
+      configureWebpack: (_config, isServer, {getJSLoader}) => ({
+        resolve: {symlinks: false},
+        module: {
+          rules: [
+            {
+              ...getJSLoader({isServer}),
+              test: /\.[jt]sx?$/,
+              include: [
+                fileURLToPath(new URL('./node_modules/@superdurable/flow-definition-renderer/src', import.meta.url)),
+              ],
+            },
+          ],
+        },
+      }),
+    }),
   ],
 
   themeConfig: {
