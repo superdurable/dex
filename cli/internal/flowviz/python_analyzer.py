@@ -27,12 +27,15 @@ class Analyzer:
         self.imports = {}
         self.module_aliases = set()
         self.classes = {}
+        self.functions = {}
         self.step_classes = {}
         self.flow_classes = {}
         self.flow_fields = {}
         self.registered = {}
         self.resources = {}
         self.step_resources = {}
+        self.step_options = {}
+        self.failure_transitions = set()
         self.node_ids = set()
 
     def analyze(self):
@@ -79,6 +82,9 @@ class Analyzer:
 
     def index_classes(self):
         for node in self.tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                self.functions[node.name] = node
+                continue
             if not isinstance(node, ast.ClassDef):
                 continue
             self.classes[node.name] = node
@@ -168,6 +174,12 @@ class Analyzer:
         initializer = self.method(flow_class, "__init__")
         if initializer is None:
             return
+        local_values = {}
+        for statement in initializer.body:
+            if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+                local_values[statement.targets[0].id] = statement.value
+            elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+                local_values[statement.target.id] = statement.value
         for statement in initializer.body:
             target = None
             value = None
@@ -197,6 +209,7 @@ class Analyzer:
             if target_name and class_name in self.step_classes:
                 self.flow_fields[target_name] = class_name
                 self.index_step_resource_wiring(class_name, value, flow_class.name, local_resources)
+                self.index_step_option_wiring(class_name, value, local_values)
 
     def index_step_resource_wiring(self, step_name, constructor, flow_name, local_resources):
         initializer = self.method(self.step_classes[step_name], "__init__")
@@ -225,6 +238,54 @@ class Analyzer:
             resource_id = parameter_resources.get(node.value.id)
             if field and resource_id:
                 self.step_resources.setdefault(step_name, {})[field] = resource_id
+
+    def index_step_option_wiring(self, step_name, constructor, local_values):
+        step_class = self.step_classes[step_name]
+        options_method = self.method(step_class, "get_step_options")
+        initializer = self.method(step_class, "__init__")
+        if options_method is None or initializer is None:
+            return
+        returned_fields = {
+            statement.value.attr
+            for statement in options_method.body
+            if isinstance(statement, ast.Return)
+            and isinstance(statement.value, ast.Attribute)
+            and isinstance(statement.value.value, ast.Name)
+            and statement.value.value.id == "self"
+        }
+        if not returned_fields:
+            return
+        field_parameters = {}
+        for statement in ast.walk(initializer):
+            if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
+                continue
+            targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+            if not targets or not isinstance(statement.value, ast.Name):
+                continue
+            field = self.target_attribute(targets[0])
+            if field in returned_fields:
+                field_parameters[field] = statement.value.id
+        parameters = [argument.arg for argument in initializer.args.args if argument.arg != "self"]
+        arguments = {}
+        for index, argument in enumerate(constructor.args):
+            if index < len(parameters):
+                arguments[parameters[index]] = argument
+        for keyword in constructor.keywords:
+            if keyword.arg:
+                arguments[keyword.arg] = keyword.value
+        for parameter in field_parameters.values():
+            expression = arguments.get(parameter)
+            if expression is None:
+                continue
+            expression = self.resolve_local_value(expression, local_values)
+            self.step_options.setdefault(step_name, []).append(expression)
+
+    def resolve_local_value(self, expression, local_values):
+        seen = set()
+        while isinstance(expression, ast.Name) and expression.id in local_values and expression.id not in seen:
+            seen.add(expression.id)
+            expression = local_values[expression.id]
+        return expression
 
     def flow_resource_for(self, expression, flow_name, local_resources):
         if isinstance(expression, ast.Name):
@@ -330,11 +391,33 @@ class Analyzer:
             self.analyze_wait(node_id, step_name, wait_for)
         options = self.method(step_class, "get_step_options")
         if options is not None:
-            self.analyze_failure(node_id, options)
-            self.analyze_locks(node_id, ast.walk(options), {
+            self.analyze_step_options(node_id, options)
+        for expression in self.step_options.get(step_name, []):
+            self.analyze_step_options(node_id, expression)
+
+    def analyze_step_options(self, owner_id, expression):
+        for source in self.option_sources(expression):
+            self.analyze_failure(owner_id, source)
+            self.analyze_locks(owner_id, ast.walk(source), {
                 "wait_for_lock_attributes": "wait_for",
                 "execute_lock_attributes": "execute",
             })
+
+    def option_sources(self, expression):
+        sources = []
+        pending = [expression]
+        seen_functions = set()
+        while pending:
+            source = pending.pop()
+            sources.append(source)
+            for call in [node for node in ast.walk(source) if isinstance(node, ast.Call)]:
+                function_name = self.symbol(call.func)
+                function = self.functions.get(function_name)
+                if function is None or function_name in seen_functions:
+                    continue
+                seen_functions.add(function_name)
+                pending.append(function)
+        return sources
 
     def analyze_flow_handlers(self, flow_class):
         ignored = {"__init__", "get_steps", "get_persistence_schema", "get_flow_type", "get_flow_options", "get_flow_config"}
@@ -666,6 +749,10 @@ class Analyzer:
                 continue
             target = self.step_target(call.args[0])
             target_id = self.resolve_target(target, self.span(call.args[0]))
+            transition = (owner_id, target_id)
+            if transition in self.failure_transitions:
+                continue
+            self.failure_transitions.add(transition)
             metadata = {}
             if target in self.step_classes:
                 metadata["skipWaitFor"] = self.method(self.step_classes[target], "wait_for") is None

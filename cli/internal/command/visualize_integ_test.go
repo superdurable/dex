@@ -213,6 +213,21 @@ func TestVisualizePythonFlowResourceAliasesAndRPCLocks(t *testing.T) {
 	require.Contains(t, lockPhases, "rpc")
 }
 
+func TestVisualizePythonInjectedFailureRecoveryOptions(t *testing.T) {
+	repositoryRoot := visualizerRepositoryRoot(t)
+	source := filepath.Join(repositoryRoot, "examples/python/dex_examples/products/money-transfer/money_transfer_flow.py")
+	graph, err := flowviz.Analyze(context.Background(), source, flowviz.AnalyzeOptions{})
+	require.NoError(t, err)
+	require.True(t, graph.Valid, graph.Diagnostics)
+
+	for _, diagnostic := range graph.Diagnostics {
+		require.NotContains(t, diagnostic.Message, "Step Compensate is not reachable")
+	}
+	for _, stepName := range []string{"Credit", "CreateCreditMemo", "Debit", "CreateDebitMemo"} {
+		require.True(t, hasEdge(graph.Edges, "failure_transition", "step:"+stepName, "step:Compensate"), stepName)
+	}
+}
+
 func TestVisualizeScansEveryExampleFlowSource(t *testing.T) {
 	repositoryRoot := visualizerRepositoryRoot(t)
 	sources := exampleFlowSources(t, repositoryRoot)
