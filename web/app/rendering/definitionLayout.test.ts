@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildDefinitionScene,
+  filterDefinitionEdgesForSelection,
   type DefinitionVisibility,
   type FlowDefinitionGraph,
 } from '@superdurable/flow-definition-renderer';
@@ -66,6 +67,25 @@ describe('Flow Definition Graph layout', () => {
     expect(recovery.targetHandle).toBe('step-target');
     expect(publish.style?.strokeDasharray).toBe('6 5');
     expect(subflow.style?.strokeDasharray).toBe('6 5');
+  });
+
+  it('reveals resource relations only for the selected resource or handler', () => {
+    const scene = buildDefinitionScene(graph, visible);
+    const edgeIDs = (selectedNodeID: string) => filterDefinitionEdgesForSelection(
+      scene.edges,
+      graph.nodes,
+      selectedNodeID,
+    ).map((edge) => edge.id);
+
+    expect(edgeIDs('')).not.toEqual(expect.arrayContaining(['publish', 'consume', 'write', 'read']));
+    expect(edgeIDs('')).toEqual(expect.arrayContaining(['transition', 'recovery', 'subflow']));
+    expect(edgeIDs('resource:channel:first')).toEqual(expect.arrayContaining(['publish', 'consume']));
+    expect(edgeIDs('resource:channel:first')).not.toEqual(expect.arrayContaining(['write', 'read']));
+    expect(edgeIDs('definition:attributes')).toEqual(expect.arrayContaining(['write', 'read']));
+    expect(edgeIDs('definition:attributes')).not.toEqual(expect.arrayContaining(['publish', 'consume']));
+    expect(edgeIDs('step:start')).toEqual(expect.arrayContaining(['consume', 'write']));
+    expect(edgeIDs('wait:start:10:1')).toEqual(expect.arrayContaining(['consume', 'write']));
+    expect(edgeIDs('rpc:approve')).toContain('publish');
   });
 
   it('is deterministic and keeps top-level Steps disjoint', () => {

@@ -12,6 +12,8 @@ import './styles.css';
 export { FlowDefinitionGraphView, SelectedEdgeLabel } from './FlowDefinitionGraph';
 export {
   buildDefinitionScene,
+  filterDefinitionEdgesForSelection,
+  isResourceRelation,
   type DefinitionEdgeData,
   type DefinitionLayer,
   type DefinitionNodeData,

@@ -37,6 +37,8 @@ export interface DefinitionNodeData extends Record<string, unknown> {
 }
 
 export interface DefinitionEdgeData extends Record<string, unknown> {
+  definitionSourceID?: string;
+  definitionTargetID?: string;
   displayLabel?: string;
   kind?: string;
   route?: 'forward' | 'outer-right';
@@ -169,6 +171,64 @@ export function buildDefinitionScene(
     .filter((edge) => visibleIDs.has(edge.source) && visibleIDs.has(edge.target));
   edges.push(...internalStepEdges(graph, stepLayouts, visibleIDs));
   return { nodes, edges };
+}
+
+export function filterDefinitionEdgesForSelection(
+  edges: Array<Edge<DefinitionEdgeData>>,
+  definitions: FlowDefinitionNode[],
+  selectedNodeID: string,
+): Array<Edge<DefinitionEdgeData>> {
+  const definitionsByID = new Map(definitions.map((definition) => [definition.id, definition]));
+  return edges.filter((edge) => {
+    if (!isResourceRelation(edge.data?.kind)) return true;
+    if (!selectedNodeID) return false;
+    const sourceID = edge.data?.definitionSourceID ?? edge.source;
+    const targetID = edge.data?.definitionTargetID ?? edge.target;
+    if (selectedNodeID === attributeGroupID) {
+      return definitionsByID.get(sourceID)?.kind === 'attribute'
+        || definitionsByID.get(targetID)?.kind === 'attribute';
+    }
+    const selectedDefinition = definitionsByID.get(selectedNodeID);
+    if (!selectedDefinition) return false;
+    if (selectedDefinition.kind === 'channel' || selectedDefinition.kind === 'stream') {
+      return sourceID === selectedNodeID || targetID === selectedNodeID;
+    }
+    const ownerID = resourceOwnerID(selectedDefinition, definitionsByID);
+    if (!ownerID) return false;
+    return belongsToOwner(sourceID, ownerID, definitionsByID)
+      || belongsToOwner(targetID, ownerID, definitionsByID);
+  });
+}
+
+export function isResourceRelation(kind: string | undefined): boolean {
+  return kind === 'wait_condition' || kind?.startsWith('resource_') === true;
+}
+
+function resourceOwnerID(
+  definition: FlowDefinitionNode,
+  definitionsByID: Map<string, FlowDefinitionNode>,
+): string {
+  let current: FlowDefinitionNode | undefined = definition;
+  while (current) {
+    if (current.kind === 'step' || current.kind === 'rpc' || current.kind === 'timeout_handler') {
+      return current.id;
+    }
+    current = current.parentId ? definitionsByID.get(current.parentId) : undefined;
+  }
+  return '';
+}
+
+function belongsToOwner(
+  definitionID: string,
+  ownerID: string,
+  definitionsByID: Map<string, FlowDefinitionNode>,
+): boolean {
+  let current = definitionsByID.get(definitionID);
+  while (current) {
+    if (current.id === ownerID) return true;
+    current = current.parentId ? definitionsByID.get(current.parentId) : undefined;
+  }
+  return false;
 }
 
 function layoutStep(
@@ -584,6 +644,8 @@ function definitionEdge(
       strokeWidth: definition.kind === 'failure_transition' ? 2.8 : definition.kind === 'transition' ? 2 : 1.6,
     },
     data: {
+      definitionSourceID: definition.from,
+      definitionTargetID: definition.to,
       displayLabel: definition.condition || label || definition.label,
       kind: definition.kind,
       route: isOuterRight ? 'outer-right' : 'forward',

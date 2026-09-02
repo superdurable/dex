@@ -95,13 +95,17 @@ for conditional returns. Channels occupy the upper-left resource rail,
 Attributes share one box, RPC hexagons cross the Flow's left boundary, and
 folded SubFlows occupy the right rail. Publishers point to Channels, Channels
 point to consuming WaitFor paths, Attribute writers point to the Attribute box,
-and the box points to readers. Resource and SubFlow relations are dashed.
+and the box points to readers. Channel and Attribute relations are hidden until
+their resource or a related Step or RPC is selected. Resource and SubFlow
+relations are dashed.
 Transitions are solid; Execute-failure recovery is solid magenta.
 Long labels wrap inside their shapes. Backward transitions and self-loops use
 outer routing lanes. Select an edge to emphasize it and show its complete
 condition beside the path; its endpoints and source location remain below the
 canvas. The Mini Map starts collapsed. Flow timeout handlers use a compact
 Step-like card with their timeout decision, rather than the RPC hexagon.
+Each graph fits the complete definition into the viewport when it first loads
+and after its visible layers change.
 
 The graph contract, compound layout, React components, and styles live in the
 shared [`flow-definition-renderer`](../packages/flow-definition-renderer)

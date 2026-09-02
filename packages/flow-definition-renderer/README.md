@@ -17,3 +17,7 @@ import {
 
 <FlowDefinitionGraphView displayName={graph.flow.name} graph={graph} />
 ```
+
+The renderer fits the full definition into the viewport by default. Channel,
+Attribute, and Stream relations remain hidden until their resource or a related
+Step, WaitFor, Execute decision, RPC, or timeout handler is selected.

@@ -27,6 +27,8 @@ import {
 import type { FlowDefinitionGraph, FlowDefinitionNode, SourceSpan } from './types';
 import {
   buildDefinitionScene,
+  filterDefinitionEdgesForSelection,
+  isResourceRelation,
   type DefinitionEdgeData,
   type DefinitionLayer,
   type DefinitionNodeData,
@@ -89,15 +91,19 @@ export function FlowDefinitionGraphView({
     [graph, visibility],
   );
   const selectedNode = scene.nodes.find((node) => node.id === selectedNodeID);
-  const selectedEdge = scene.edges.find((edge) => edge.id === selectedEdgeID);
+  const visibleEdges = useMemo(
+    () => filterDefinitionEdgesForSelection(scene.edges, graph.nodes, selectedNodeID),
+    [graph.nodes, scene.edges, selectedNodeID],
+  );
+  const selectedEdge = visibleEdges.find((edge) => edge.id === selectedEdgeID);
   const renderedEdges = useMemo(
-    () => scene.edges.map((edge) => ({ ...edge, selected: edge.id === selectedEdgeID })),
-    [scene.edges, selectedEdgeID],
+    () => visibleEdges.map((edge) => ({ ...edge, selected: edge.id === selectedEdgeID })),
+    [selectedEdgeID, visibleEdges],
   );
 
   useEffect(() => {
     if (!flowInstance || scene.nodes.length === 0) return;
-    void flowInstance.fitView({ duration: 220, maxZoom: 1, minZoom: 0.7, padding: 0.1 });
+    void flowInstance.fitView({ duration: 220, maxZoom: 1, minZoom: 0.12, padding: 0.1 });
   }, [flowInstance, scene]);
 
   useEffect(() => {
@@ -107,10 +113,10 @@ export function FlowDefinitionGraphView({
   }, [scene.nodes, selectedNodeID]);
 
   useEffect(() => {
-    if (selectedEdgeID && !scene.edges.some((edge) => edge.id === selectedEdgeID)) {
+    if (selectedEdgeID && !visibleEdges.some((edge) => edge.id === selectedEdgeID)) {
       setSelectedEdgeID('');
     }
-  }, [scene.edges, selectedEdgeID]);
+  }, [selectedEdgeID, visibleEdges]);
 
   return (
     <section className="flow-definition-view">
@@ -147,7 +153,7 @@ export function FlowDefinitionGraphView({
           edgeTypes={edgeTypes}
           elementsSelectable
           fitView
-          fitViewOptions={{ maxZoom: 1, minZoom: 0.7, padding: 0.1 }}
+          fitViewOptions={{ maxZoom: 1, minZoom: 0.12, padding: 0.1 }}
           maxZoom={1.8}
           minZoom={0.12}
           nodes={scene.nodes}
@@ -157,7 +163,9 @@ export function FlowDefinitionGraphView({
           onInit={setFlowInstance}
           onEdgeClick={(_, edge) => {
             setSelectedEdgeID(edge.id);
-            setSelectedNodeID('');
+            if (!isResourceRelation((edge.data as DefinitionEdgeData | undefined)?.kind)) {
+              setSelectedNodeID('');
+            }
           }}
           onNodeClick={(_, node) => {
             setSelectedNodeID(node.id);
