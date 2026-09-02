@@ -20,13 +20,20 @@ use dex_sdk::{
     Channel, Context, Flow, HandlerResult, PersistenceSchema, Rpc, RpcList, Step, StepDecision,
     StepList, Timer, Wait,
 };
+use serde::{Deserialize, Serialize};
 
 pub const CHANNEL_APPROVE: Rpc<(), ()> = Rpc::new("ChannelApprove");
-pub const CHANNEL_MOVE: Rpc<String, ()> = Rpc::new("ChannelMove");
+pub const CHANNEL_MOVE: Rpc<MoveMessage, ()> = Rpc::new("ChannelMove");
 
 static APPROVAL: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Approval"));
 pub static QUEUED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Queued"));
 static MOVED: LazyLock<Channel<String>> = LazyLock::new(|| Channel::new("Moved"));
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct MoveMessage {
+    pub message_id: String,
+    pub value: String,
+}
 
 #[derive(Default)]
 pub struct ChannelFlow {
@@ -38,9 +45,9 @@ impl ChannelFlow {
         APPROVAL.publish(context, "approved".to_string())
     }
 
-    fn move_message(&self, context: &mut Context, message_id: String) -> HandlerResult<()> {
-        QUEUED.delete(context, &message_id)?;
-        MOVED.publish(context, "moved".to_string())
+    fn move_message(&self, context: &mut Context, message: MoveMessage) -> HandlerResult<()> {
+        QUEUED.delete(context, &message.message_id)?;
+        MOVED.publish(context, message.value)
     }
 }
 

@@ -167,7 +167,7 @@ An RPC that holds an Attribute lock already uses Temporal synchronous Update exe
 
 Channel deletion alone does not select that path. Explicitly mark the RPC as transactional when it must verify a pending message ID and commit its deletion together with Attribute writes, Channel publications, events, or Step decisions. If any requested message is missing, Dex rejects the RPC and commits none of its writes.
 
-The Channel example transactionally moves one pending message between queues:
+The controller reads the pending message first, then passes its ID and Value to the transactional RPC. A concurrent consumer makes the deletion fail, so Dex does not publish a stale copy:
 
 <SdkTabs
   examples={{
@@ -181,20 +181,20 @@ The Channel example transactionally moves one pending message between queues:
 
 ```python
 @rpc(is_transactional=True)
-def move(self, context: Context, input: str) -> None:
-    self.queued.delete(context, input)
-    self.moved.publish(context, "moved")
+def move(self, context: Context, input: MoveMessage) -> None:
+    self.queued.delete(context, input.message_id)
+    self.moved.publish(context, input.value)
 ```
 
 </SdkSnippet>
 <SdkSnippet lang="go">
 
 ```go
-err := controller.client.InvokeRPC(
+err = controller.client.InvokeRPC(
 	request.Request.Context(),
 	flowID,
 	controller.flow.Move,
-	messageID,
+	MoveMessage{MessageID: messageToMove.MessageID, Value: messageToMove.Value},
 	&none,
 	sdk.InvokeOptions{IsTransactional: true},
 )
@@ -205,9 +205,9 @@ err := controller.client.InvokeRPC(
 
 ```java
 @RPC(isTransactional = true)
-public void move(final Context context, final String messageId) {
-    queued.delete(context, messageId);
-    moved.publish(context, "moved");
+public void move(final Context context, final MoveMessage message) {
+    queued.delete(context, message.messageId);
+    moved.publish(context, message.value);
 }
 ```
 
@@ -215,10 +215,10 @@ public void move(final Context context, final String messageId) {
 <SdkSnippet lang="typescript">
 
 ```typescript
-@rpc({ isTransactional: true, inputCodec: stringCodec })
-public move(context: Context, messageId: string): void {
-  queued.delete(context, messageId);
-  moved.publish(context, "moved");
+@rpc({ isTransactional: true, inputCodec: moveMessageCodec })
+public move(context: Context, message: MoveMessage): void {
+  queued.delete(context, message.messageId);
+  moved.publish(context, message.value);
 }
 ```
 

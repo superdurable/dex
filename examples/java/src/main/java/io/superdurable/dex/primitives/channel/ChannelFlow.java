@@ -33,6 +33,19 @@ import java.util.List;
 
 @Component
 public class ChannelFlow implements Flow<Integer> {
+    public static final class MoveMessage {
+        public String messageId;
+        public String value;
+
+        public MoveMessage() {
+        }
+
+        public MoveMessage(final String messageId, final String value) {
+            this.messageId = messageId;
+            this.value = value;
+        }
+    }
+
     public final Channel<String> approval = Channel.define("Approval", String.class);
     public final Channel<String> queued = Channel.define("Queued", String.class);
     public final Channel<String> moved = Channel.define("Moved", String.class);
@@ -54,9 +67,9 @@ public class ChannelFlow implements Flow<Integer> {
     }
 
     @RPC(isTransactional = true)
-    public void move(final Context context, final String messageId) {
-        queued.delete(context, messageId);
-        moved.publish(context, "moved");
+    public void move(final Context context, final MoveMessage message) {
+        queued.delete(context, message.messageId);
+        moved.publish(context, message.value);
     }
 
     final class ChannelWaitStep implements Step<Integer> {

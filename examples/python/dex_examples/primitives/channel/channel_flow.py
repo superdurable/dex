@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import timedelta
 
 from dex import (
@@ -32,6 +33,13 @@ from dex import (
     graceful_complete,
     rpc,
 )
+
+
+@dataclass(frozen=True)
+class MoveMessage:
+    message_id: str
+    value: str
+
 
 class ChannelWaitStep(Step[int]):
     def __init__(self, approval: Channel[str]) -> None:
@@ -69,6 +77,6 @@ class ChannelFlow(Flow[int]):
         self.approval.publish(context, "approved")
 
     @rpc(is_transactional=True)
-    def move(self, context: Context, input: str) -> None:
-        self.queued.delete(context, input)
-        self.moved.publish(context, "moved")
+    def move(self, context: Context, input: MoveMessage) -> None:
+        self.queued.delete(context, input.message_id)
+        self.moved.publish(context, input.value)

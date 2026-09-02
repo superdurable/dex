@@ -22,6 +22,7 @@ import {
   doubleCodec,
   goTo,
   gracefulComplete,
+  jsonCodec,
   rpc,
   stringCodec,
   type Context,
@@ -34,6 +35,13 @@ import {
 const approval = new Channel("Approval", stringCodec);
 export const queued = new Channel("Queued", stringCodec);
 export const moved = new Channel("Moved", stringCodec);
+
+export interface MoveMessage {
+  readonly messageId: string;
+  readonly value: string;
+}
+
+const moveMessageCodec = jsonCodec<MoveMessage>();
 
 class ChannelWait implements Step<number> {
   public readonly inputCodec = doubleCodec;
@@ -78,10 +86,10 @@ export class ChannelFlow implements Flow<number> {
     approval.publish(context, "approved");
   }
 
-  @rpc({ isTransactional: true, inputCodec: stringCodec })
-  public move(context: Context, messageId: string): void {
-    queued.delete(context, messageId);
-    moved.publish(context, "moved");
+  @rpc({ isTransactional: true, inputCodec: moveMessageCodec })
+  public move(context: Context, message: MoveMessage): void {
+    queued.delete(context, message.messageId);
+    moved.publish(context, message.value);
   }
 }
 

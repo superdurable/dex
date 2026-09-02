@@ -59,7 +59,13 @@ export function createChannelRouter(client: Client): Router {
   router.get("/move", async (request, response) => {
     const workflowId = String(request.query.workflowId ?? "");
     const messageId = String(request.query.messageId ?? "");
-    await client.invokeRPC(channelFlow.move, workflowId, messageId);
+    const messages = await client.getChannelMessages(workflowId, queued);
+    const message = messages.find((candidate) => candidate.messageId === messageId);
+    if (message === undefined) {
+      response.status(404).send("channel message not found");
+      return;
+    }
+    await client.invokeRPC(channelFlow.move, workflowId, message);
     response.send("done");
   });
 

@@ -36,6 +36,11 @@ type ChannelFlow struct {
 	dex.FlowDefaults
 }
 
+type MoveMessage struct {
+	MessageID string `json:"messageId"`
+	Value     string `json:"value"`
+}
+
 func NewChannelFlow() *ChannelFlow {
 	return &ChannelFlow{}
 }
@@ -79,11 +84,11 @@ func (*ChannelFlow) Approve(ctx dex.Context, _ dex.None) (*dex.RPCResult[dex.Non
 	return &dex.RPCResult[dex.None]{}, nil
 }
 
-func (*ChannelFlow) Move(ctx dex.Context, messageID string) (*dex.RPCResult[dex.None], error) {
-	if err := Queued.Delete(ctx, messageID); err != nil {
+func (*ChannelFlow) Move(ctx dex.Context, message MoveMessage) (*dex.RPCResult[dex.None], error) {
+	if err := Queued.Delete(ctx, message.MessageID); err != nil {
 		return nil, err
 	}
-	if err := Moved.Publish(ctx, "moved"); err != nil {
+	if err := Moved.Publish(ctx, message.Value); err != nil {
 		return nil, err
 	}
 	return &dex.RPCResult[dex.None]{}, nil

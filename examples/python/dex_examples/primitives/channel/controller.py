@@ -18,6 +18,7 @@ from quart import Blueprint, Response, jsonify
 
 from dex_examples.app import ExampleApp
 from dex_examples.config import start_options
+from dex_examples.primitives.channel.channel_flow import MoveMessage
 from dex_examples.shared.query import required_int_query, required_query, started_flow
 
 
@@ -75,11 +76,23 @@ def create_channel_blueprint(app_state: ExampleApp) -> Blueprint:
         return "done"
 
     @blueprint.get("/move")
-    async def move() -> str:
+    async def move() -> Response | str:
+        flow_id = required_query("workflowId")
+        message_id = required_query("messageId")
+        pending = await app_state.client.get_channel_messages(
+            flow_id,
+            app_state.channel.queued,
+        )
+        message = next(
+            (message for message in pending if message.message_id == message_id),
+            None,
+        )
+        if message is None:
+            return Response("channel message not found", status=404)
         await app_state.client.invoke_rpc(
             app_state.channel.move,
-            required_query("workflowId"),
-            required_query("messageId"),
+            flow_id,
+            MoveMessage(message.message_id, message.value),
         )
         return "done"
 
